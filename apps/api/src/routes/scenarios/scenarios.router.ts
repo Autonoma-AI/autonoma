@@ -56,11 +56,18 @@ export const scenariosRouter = router({
 
     getRecipe: internalProcedure
         .input(GetRecipeInputSchema)
-        .query(({ ctx, input }) => ctx.services.scenarios.getRecipe(input.scenarioId, ctx.organizationId)),
+        .query(({ ctx, input }) =>
+            ctx.services.scenarios.getRecipe(input.applicationId, ctx.organizationId, input.scenarioId),
+        ),
 
     updateRecipe: internalProcedure
         .input(UpdateRecipeInputSchema)
         .mutation(({ ctx, input }) =>
-            ctx.services.scenarios.updateRecipe(input.scenarioId, input.fixtureJson, ctx.organizationId),
+            ctx.services.scenarios.updateRecipe(
+                input.applicationId,
+                ctx.organizationId,
+                input.scenarioId,
+                input.fixtureJson,
+            ),
         ),
 });

@@ -542,7 +542,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             analytics.track("get_recipe", async () => {
                 try {
                     const organizationId = await resolveOrg(applicationId);
-                    const recipe = await services.scenarios.getRecipe(scenarioId, organizationId);
+                    const recipe = await services.scenarios.getRecipe(applicationId, organizationId, scenarioId);
                     return jsonResult(recipe);
                 } catch (err) {
                     logger.warn("get_recipe failed", { applicationId, scenarioId, err });
@@ -583,7 +583,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     message: description ?? `Updating recipe for scenario "${recipe.name}"`,
                     toolArguments: { scenarioId, scenario: recipe.name },
                 },
-                (org) => services.scenarios.updateRecipe(scenarioId, JSON.stringify(recipe), org),
+                (org) => services.scenarios.updateRecipe(applicationId, org, scenarioId, JSON.stringify(recipe)),
             ),
     );
 

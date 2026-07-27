@@ -235,18 +235,21 @@ export class ScenariosService extends Service {
 
         const saved = recipe != null && save;
         if (saved) {
-            await this.updateRecipe(scenarioId, JSON.stringify(recipe), organizationId);
+            await this.updateRecipe(applicationId, organizationId, scenarioId, JSON.stringify(recipe));
         }
 
         this.logger.info("Dry run succeeded", { applicationId, scenarioId, extra: { saved } });
         return { success: true as const, phase: "down" as const, error: undefined, saved };
     }
 
-    async getRecipe(scenarioId: string, organizationId: string) {
-        this.logger.info("Getting recipe", { scenarioId });
+    async getRecipe(applicationId: string, organizationId: string, scenarioId: string) {
+        this.logger.info("Getting recipe", { applicationId, scenarioId });
 
+        // Scoped to the application, not just its org: a caller acting on app A must not
+        // reach a scenario belonging to app B just because the same org owns both. A stale
+        // or mistyped scenarioId is then a clean not-found instead of another app's recipe.
         const scenario = await this.db.scenario.findFirst({
-            where: { id: scenarioId, application: { organizationId } },
+            where: { id: scenarioId, applicationId, application: { organizationId } },
             select: {
                 id: true,
                 activeRecipeVersion: {
@@ -300,11 +303,13 @@ export class ScenariosService extends Service {
         };
     }
 
-    async updateRecipe(scenarioId: string, fixtureJsonString: string, organizationId: string) {
-        this.logger.info("Updating recipe", { scenarioId });
+    async updateRecipe(applicationId: string, organizationId: string, scenarioId: string, fixtureJsonString: string) {
+        this.logger.info("Updating recipe", { applicationId, scenarioId });
 
+        // Application-scoped for the same reason as getRecipe - here it matters more: an
+        // unscoped write lets a stale scenarioId silently overwrite a DIFFERENT app's recipe.
         const scenario = await this.db.scenario.findFirst({
-            where: { id: scenarioId, application: { organizationId } },
+            where: { id: scenarioId, applicationId, application: { organizationId } },
             select: {
                 id: true,
                 name: true,

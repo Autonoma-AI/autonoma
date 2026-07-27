@@ -444,13 +444,15 @@ function ScenarioRecipeEditor({ scenarioId, applicationId }: { scenarioId: strin
   const [jsonError, setJsonError] = useState<string | undefined>(undefined);
   const [lastUpdate, setLastUpdate] = useState<RecipeUpdateResult | undefined>(undefined);
 
-  const { data, isLoading } = useQuery(trpc.scenarios.getRecipe.queryOptions({ scenarioId }, { enabled: isAdmin }));
+  const { data, isLoading } = useQuery(
+    trpc.scenarios.getRecipe.queryOptions({ applicationId, scenarioId }, { enabled: isAdmin }),
+  );
 
   const updateRecipe = useAPIMutation({
     ...trpc.scenarios.updateRecipe.mutationOptions({
       onSettled: () => {
         void queryClient.invalidateQueries({
-          queryKey: trpc.scenarios.getRecipe.queryKey({ scenarioId }),
+          queryKey: trpc.scenarios.getRecipe.queryKey({ applicationId, scenarioId }),
         });
         void queryClient.invalidateQueries({
           queryKey: trpc.scenarios.list.queryKey({ applicationId }),
@@ -478,7 +480,7 @@ function ScenarioRecipeEditor({ scenarioId, applicationId }: { scenarioId: strin
     }
     setJsonError(undefined);
     updateRecipe.mutate(
-      { scenarioId, fixtureJson: editValue },
+      { applicationId, scenarioId, fixtureJson: editValue },
       {
         onSuccess: (result) => {
           setLastUpdate(result);

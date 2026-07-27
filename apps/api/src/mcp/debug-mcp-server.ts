@@ -597,8 +597,8 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             analytics.track("get_recipe", async () => {
                 logger.info("get_recipe", { extra: { repoFullName, scenarioId } });
                 try {
-                    const { organizationId } = await resolveRepoContext(repoFullName);
-                    return jsonResult(await services.scenarios.getRecipe(scenarioId, organizationId));
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    return jsonResult(await services.scenarios.getRecipe(applicationId, organizationId, scenarioId));
                 } catch (err) {
                     return toToolResult(err);
                 }
@@ -634,7 +634,10 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                         "Make `recipe` the active recipe, but only if this run passes. Ignored without `recipe`.",
                     ),
             },
-            annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+            // Destructive because `save: true` promotes the candidate to the active recipe -
+            // the same production mutation update_recipe performs. This server has no mutex
+            // or activity feed, so the annotation is the only chance a client gets to prompt.
+            annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         },
         async ({ repoFullName, scenarioId, recipe, save = false }) =>
             analytics.track("dry_run_scenario", async () => {
@@ -678,11 +681,12 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             analytics.track("update_recipe", async () => {
                 logger.info("update_recipe", { extra: { repoFullName, scenarioId, scenario: recipe.name } });
                 try {
-                    const { organizationId } = await resolveRepoContext(repoFullName);
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
                     const result = await services.scenarios.updateRecipe(
+                        applicationId,
+                        organizationId,
                         scenarioId,
                         JSON.stringify(recipe),
-                        organizationId,
                     );
                     return jsonResult(result);
                 } catch (err) {

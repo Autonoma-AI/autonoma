@@ -60,7 +60,12 @@ apiTestSuite({
                 create: { User: [{ _alias: "user1", name: "Bob" }] },
             });
 
-            const result = await service.updateRecipe(scenario.id, JSON.stringify(nextRecipe), harness.organizationId);
+            const result = await service.updateRecipe(
+                app.id,
+                harness.organizationId,
+                scenario.id,
+                JSON.stringify(nextRecipe),
+            );
 
             expect(result.updatedRecipeVersions).toEqual([
                 { id: scenario.activeRecipeVersionId, snapshotId: expect.any(String), target: "active" },
@@ -93,7 +98,12 @@ apiTestSuite({
                 create: { User: [{ _alias: "user1", name: "Pending Bob" }] },
             });
 
-            const result = await service.updateRecipe(scenario.id, JSON.stringify(nextRecipe), harness.organizationId);
+            const result = await service.updateRecipe(
+                app.id,
+                harness.organizationId,
+                scenario.id,
+                JSON.stringify(nextRecipe),
+            );
 
             expect(result.updatedRecipeVersions).toEqual([
                 { id: scenario.activeRecipeVersionId, snapshotId: expect.any(String), target: "active" },
@@ -121,7 +131,12 @@ apiTestSuite({
                 create: { User: [{ _alias: "user1", name: "Created Pending" }] },
             });
 
-            const result = await service.updateRecipe(scenario.id, JSON.stringify(nextRecipe), harness.organizationId);
+            const result = await service.updateRecipe(
+                app.id,
+                harness.organizationId,
+                scenario.id,
+                JSON.stringify(nextRecipe),
+            );
 
             const pendingResult = result.updatedRecipeVersions.find((rv) => rv.target === "pending");
             expect(pendingResult?.snapshotId).toBe(pendingSnapshotId);
@@ -137,13 +152,13 @@ apiTestSuite({
         test("updateRecipe rejects invalid JSON and invalid recipe schema", async ({ harness }) => {
             const { service, scenario } = await createFixture(harness, "Scenario Recipe Invalid Input");
 
-            await expect(service.updateRecipe(scenario.id, "{", harness.organizationId)).rejects.toMatchObject({
+            await expect(service.updateRecipe(app.id, harness.organizationId, scenario.id, "{")).rejects.toMatchObject({
                 code: "BAD_REQUEST",
                 message: "Invalid JSON syntax",
             });
 
             await expect(
-                service.updateRecipe(scenario.id, JSON.stringify({ name: "standard" }), harness.organizationId),
+                service.updateRecipe(app.id, harness.organizationId, scenario.id, JSON.stringify({ name: "standard" })),
             ).rejects.toMatchObject({
                 code: "BAD_REQUEST",
             });
@@ -154,7 +169,7 @@ apiTestSuite({
             const renamedRecipe = makeRecipe({ name: "renamed" });
 
             await expect(
-                service.updateRecipe(scenario.id, JSON.stringify(renamedRecipe), harness.organizationId),
+                service.updateRecipe(app.id, harness.organizationId, scenario.id, JSON.stringify(renamedRecipe)),
             ).rejects.toMatchObject({
                 code: "BAD_REQUEST",
                 message: 'Recipe name must remain "standard"',
@@ -162,7 +177,7 @@ apiTestSuite({
         });
 
         test("updateRecipe remains admin-only through the router", async ({ harness }) => {
-            const { scenario } = await createFixture(harness, "Scenario Recipe Router Forbidden");
+            const { scenario, app } = await createFixture(harness, "Scenario Recipe Router Forbidden");
             const before = await harness.db.scenario.findUniqueOrThrow({
                 where: { id: scenario.id },
                 select: { activeRecipeVersion: { select: { fixtureJson: true } } },
@@ -170,6 +185,7 @@ apiTestSuite({
 
             await expect(
                 harness.request().scenarios.updateRecipe({
+                    applicationId: app.id,
                     scenarioId: scenario.id,
                     fixtureJson: JSON.stringify(makeRecipe({ description: "should not save" })),
                 }),
@@ -180,6 +196,41 @@ apiTestSuite({
                 select: { activeRecipeVersion: { select: { fixtureJson: true } } },
             });
             expect(after.activeRecipeVersion?.fixtureJson).toEqual(before.activeRecipeVersion?.fixtureJson);
+        });
+
+        test("updateRecipe refuses a scenario that belongs to a sibling application", async ({ harness }) => {
+            const { app, service } = await createFixture(harness, "Scenario Recipe Owner App");
+            const { scenario: siblingScenario } = await createFixture(harness, "Scenario Recipe Sibling App");
+            const before = await harness.db.scenario.findUniqueOrThrow({
+                where: { id: siblingScenario.id },
+                select: { activeRecipeVersion: { select: { fixtureJson: true } } },
+            });
+
+            // Same org owns both apps, so an org-only check would let a stale scenarioId
+            // aimed at one app silently overwrite another app's recipe.
+            await expect(
+                service.updateRecipe(
+                    app.id,
+                    harness.organizationId,
+                    siblingScenario.id,
+                    JSON.stringify(makeRecipe({ description: "should not reach the sibling" })),
+                ),
+            ).rejects.toThrow("Scenario not found");
+
+            const after = await harness.db.scenario.findUniqueOrThrow({
+                where: { id: siblingScenario.id },
+                select: { activeRecipeVersion: { select: { fixtureJson: true } } },
+            });
+            expect(after.activeRecipeVersion?.fixtureJson).toEqual(before.activeRecipeVersion?.fixtureJson);
+        });
+
+        test("getRecipe refuses a scenario that belongs to a sibling application", async ({ harness }) => {
+            const { app, service } = await createFixture(harness, "Scenario Get Owner App");
+            const { scenario: siblingScenario } = await createFixture(harness, "Scenario Get Sibling App");
+
+            await expect(service.getRecipe(app.id, harness.organizationId, siblingScenario.id)).rejects.toThrow(
+                "Scenario not found",
+            );
         });
 
         test("dryRun rejects a candidate recipe that cannot provision, without touching the stored one", async ({

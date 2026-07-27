@@ -376,10 +376,12 @@ export const DryRunInputSchema = z.object({
 });
 
 export const GetRecipeInputSchema = z.object({
+    applicationId: z.string(),
     scenarioId: z.string(),
 });
 
 export const UpdateRecipeInputSchema = z.object({
+    applicationId: z.string(),
     scenarioId: z.string(),
     fixtureJson: z.string(),
 });
