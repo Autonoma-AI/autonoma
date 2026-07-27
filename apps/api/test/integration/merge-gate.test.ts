@@ -1,7 +1,6 @@
 import { PostHogAnalytics } from "@autonoma/analytics";
 import { ApplicationArchitecture } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
-import { MERGE_GATE_SKIP_ACTION_IDENTIFIER } from "@autonoma/github/check";
 import { expect } from "vitest";
 import { MergeGateService } from "../../src/github/merge-gate.service";
 import { apiTestSuite } from "../api-test";
@@ -74,7 +73,9 @@ apiTestSuite({
             expect(row?.prNumber).toBe(42);
         });
 
-        test("applySkip records the open bugs and flips the check to neutral", async ({ harness }) => {
+        test("a /autonoma-skip comment records the open bugs + reason and flips the check to neutral", async ({
+            harness,
+        }) => {
             const analytics = new RecordingAnalytics();
             await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
             const service = new MergeGateService(harness.db, harness.githubApp, true, analytics);
@@ -88,22 +89,12 @@ apiTestSuite({
 
             // Post the pending check, then simulate the worker having set it to failure.
             await service.postPending({ ...fixture.postParams });
-            await harness.db.gitHubCheckRun.update({
-                where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
-                data: { conclusion: "failure" },
-            });
-            const checkRunId = fixture.fakeClient.checkRuns[0]?.id;
-            if (checkRunId == null) throw new Error("expected a check run to have been posted");
+            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
 
-            await service.applySkip({
-                organizationId: harness.organizationId,
-                repoFullName: fixture.repoFullName,
-                githubRepositoryId: fixture.repoId,
-                headSha: "head-1",
-                checkRunId,
-                actorLogin: "dev-who-skipped",
-                actionIdentifier: MERGE_GATE_SKIP_ACTION_IDENTIFIER,
-            });
+            await service.applySkipFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/autonoma-skip hotfix for prod outage", "dev-who-skipped"),
+            );
 
             const skip = await harness.db.skipRecord.findFirst({
                 where: { repoFullName: fixture.repoFullName, headSha: "head-1" },
@@ -112,6 +103,7 @@ apiTestSuite({
             expect(skip?.openBugCount).toBe(2);
             expect(skip?.snapshotId).toBe(snapshotId);
             expect(skip?.openFindingIds).toEqual(["checkout-submit", "cart-empties"]);
+            expect(skip?.reason).toBe("hotfix for prod outage");
 
             // The check is unblocked (neutral) on both GitHub and our store.
             expect(fixture.fakeClient.checkRuns[0]?.conclusion).toBe("neutral");
@@ -120,11 +112,21 @@ apiTestSuite({
             });
             expect(row?.conclusion).toBe("neutral");
             expect(analytics.captures.map((c) => c.event)).toContain("merge_gate.skipped");
+
+            // A standalone PR comment makes the skip visible, attributing who + the open-bug count + the reason.
+            const skipNotes = fixture.fakeClient.comments.filter((c) => c.body.includes("skipped the Autonoma check"));
+            expect(skipNotes).toHaveLength(1);
+            expect(skipNotes[0]?.prNumber).toBe(42);
+            expect(skipNotes[0]?.body).toContain("@dev-who-skipped");
+            expect(skipNotes[0]?.body).toContain("2 bugs were open");
+            expect(skipNotes[0]?.body).toContain("skipped the Autonoma check because hotfix for prod outage");
+            expect(skipNotes[0]?.body).toContain("SKIPPED");
+            expect(skipNotes[0]?.body).toContain("autonoma:merge-gate-skip:v1");
+            expect(skipNotes[0]?.body).not.toContain("autonoma:pr-comment:v2");
+            expect(skip?.skipCommentId).toBe(skipNotes[0]?.id);
         });
 
-        test("applySkip is idempotent: a second click writes no duplicate record and re-flips the check", async ({
-            harness,
-        }) => {
+        test("a repeated /autonoma-skip writes no duplicate record, event, or note", async ({ harness }) => {
             const analytics = new RecordingAnalytics();
             await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
             const service = new MergeGateService(harness.db, harness.githubApp, true, analytics);
@@ -132,53 +134,57 @@ apiTestSuite({
             await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["only-bug"]);
 
             await service.postPending({ ...fixture.postParams });
-            await harness.db.gitHubCheckRun.update({
-                where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
-                data: { conclusion: "failure" },
-            });
-            const checkRunId = fixture.fakeClient.checkRuns[0]?.id;
-            if (checkRunId == null) throw new Error("expected a check run to have been posted");
+            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
 
-            const skipParams = {
-                organizationId: harness.organizationId,
-                repoFullName: fixture.repoFullName,
-                githubRepositoryId: fixture.repoId,
-                headSha: "head-1",
-                checkRunId,
-                actorLogin: "dev",
-                actionIdentifier: MERGE_GATE_SKIP_ACTION_IDENTIFIER,
-            };
-            await service.applySkip(skipParams);
-            await service.applySkip(skipParams);
+            const payload = skipCommentPayload(fixture, "/autonoma-skip", "dev");
+            await service.applySkipFromCommentWebhook(harness.organizationId, payload);
+            await service.applySkipFromCommentWebhook(harness.organizationId, payload);
 
             const records = await harness.db.skipRecord.findMany({
                 where: { repoFullName: fixture.repoFullName, headSha: "head-1" },
             });
             expect(records).toHaveLength(1);
+            expect(records[0]?.reason).toBeNull();
             expect(fixture.fakeClient.checkRuns[0]?.conclusion).toBe("neutral");
             expect(analytics.captures.filter((c) => c.event === "merge_gate.skipped")).toHaveLength(1);
+            expect(
+                fixture.fakeClient.comments.filter((c) => c.body.includes("skipped the Autonoma check")),
+            ).toHaveLength(1);
         });
 
-        test("applySkip ignores a non-skip requested_action", async ({ harness }) => {
+        test("applySkipFromCommentWebhook ignores non-command comments and comments on a passing check", async ({
+            harness,
+        }) => {
             const analytics = new RecordingAnalytics();
             await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
             const service = new MergeGateService(harness.db, harness.githubApp, true, analytics);
             const fixture = await createRepoApp(harness, "gate-skip-ignored");
+            await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["bug-a"]);
+            await service.postPending({ ...fixture.postParams });
+            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
 
-            await service.applySkip({
-                organizationId: harness.organizationId,
-                repoFullName: fixture.repoFullName,
-                githubRepositoryId: fixture.repoId,
-                headSha: "head-1",
-                checkRunId: "999",
-                actorLogin: "dev",
-                actionIdentifier: "some-other-button",
+            // A comment that is not the command: no skip.
+            await service.applySkipFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "lgtm, merging", "dev"),
+            );
+            // The command, but on a comment that GitHub marks as a plain issue (no pull_request): no skip.
+            await service.applySkipFromCommentWebhook(harness.organizationId, {
+                issue: { number: 42 },
+                comment: { body: "/autonoma-skip", user: { login: "dev" } },
+                repository: { id: fixture.repoId, full_name: fixture.repoFullName },
             });
 
-            const skip = await harness.db.skipRecord.findFirst({
-                where: { repoFullName: fixture.repoFullName, headSha: "head-1" },
-            });
-            expect(skip).toBeNull();
+            expect(await harness.db.skipRecord.findFirst({ where: { repoFullName: fixture.repoFullName } })).toBeNull();
+            expect(fixture.fakeClient.checkRuns[0]?.conclusion).toBe("failure");
+
+            // The command on a check that already passed (success): nothing to skip.
+            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "success");
+            await service.applySkipFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/autonoma-skip not needed", "dev"),
+            );
+            expect(await harness.db.skipRecord.findFirst({ where: { repoFullName: fixture.repoFullName } })).toBeNull();
         });
 
         test("close persists merge facts and detects a bypass only when a failure head merged without a skip", async ({
@@ -332,6 +338,28 @@ async function createRepoApp(harness: APITestHarness, seed: string): Promise<Rep
             prNumber: 42,
             headSha: "head-1",
         },
+    };
+}
+
+/** The worker sets the real conclusion at finalize; the tests stand in for it by writing the stored conclusion directly. */
+async function setCheckConclusion(
+    harness: APITestHarness,
+    repoFullName: string,
+    headSha: string,
+    conclusion: string,
+): Promise<void> {
+    await harness.db.gitHubCheckRun.update({
+        where: { repoFullName_headSha: { repoFullName, headSha } },
+        data: { conclusion },
+    });
+}
+
+/** A minimal `issue_comment.created` payload for a PR comment (the `pull_request` field marks it as a PR, not an issue). */
+function skipCommentPayload(fixture: RepoAppFixture, body: string, login: string): Record<string, unknown> {
+    return {
+        issue: { number: fixture.postParams.prNumber, pull_request: { url: "https://api.github.com/pr/42" } },
+        comment: { body, user: { login } },
+        repository: { id: fixture.repoId, full_name: fixture.repoFullName },
     };
 }
 

@@ -8,13 +8,28 @@ import {
     MERGE_GATE_CHECK_NAME,
     MERGE_GATE_EVENT,
     MERGE_GATE_RULESET_NAME,
-    MERGE_GATE_SKIP_ACTION_IDENTIFIER,
+    MERGE_GATE_SKIP_COMMENT_MARKER,
+    parseSkipCommand,
 } from "@autonoma/github/check";
+import { payloadBuilder, renderMarkdown } from "@autonoma/github/comment";
 import { type Logger, logger } from "@autonoma/logger";
 import { ANALYSIS_VERDICT } from "@autonoma/types";
 import { z } from "zod";
+import type { MergeGateSlackNotifier } from "./merge-gate-slack-notifier";
 
 const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
+
+/** Collapse a developer's free-text reason to a single clean line for display. */
+function formatReason(reason: string): string {
+    return reason.replace(/\s+/g, " ").trim();
+}
+
+/** The `Autonoma` check summary shown after a skip, on the check's own detail page. */
+function buildSkipCheckSummary(actorLogin: string, openBugCount: number, reason: string | undefined): string {
+    const base = `@${actorLogin} skipped this check with ${openBugCount} bug(s) open.`;
+    if (reason == null) return base;
+    return `${base} Reason: ${formatReason(reason)}.`;
+}
 
 /** PR payload fields the gate reads on open/synchronize/reopen/ready. */
 const prOpenWebhookSchema = z.object({
@@ -35,16 +50,16 @@ const prClosedWebhookSchema = z.object({
     repository: z.object({ id: z.number(), full_name: z.string() }),
 });
 
-/** `check_run` `requested_action` payload. */
-const checkRunRequestedActionWebhookSchema = z.object({
-    check_run: z.object({
-        id: z.number(),
-        head_sha: z.string(),
-        pull_requests: z.array(z.object({ number: z.number() })).optional(),
+/**
+ * `issue_comment` payload fields the skip command reads.
+ */
+const issueCommentWebhookSchema = z.object({
+    issue: z.object({
+        number: z.number(),
+        pull_request: z.object({}).passthrough().nullish(),
     }),
-    requested_action: z.object({ identifier: z.string() }),
+    comment: z.object({ body: z.string(), user: z.object({ login: z.string() }) }),
     repository: z.object({ id: z.number(), full_name: z.string() }),
-    sender: z.object({ login: z.string() }),
 });
 
 export interface PostPendingParams {
@@ -59,11 +74,10 @@ export interface ApplySkipParams {
     organizationId: string;
     repoFullName: string;
     githubRepositoryId: number;
-    headSha: string;
-    checkRunId: string;
+    prNumber: number;
     actorLogin: string;
-    prNumber?: number;
-    actionIdentifier: string;
+    /** The free-text reason from the `/autonoma-skip <reason>` comment; absent when the developer gave none. */
+    reason?: string;
 }
 
 export interface RecordMergeParams {
@@ -103,6 +117,7 @@ export class MergeGateService {
         private readonly githubApp: GitHubApp,
         private readonly mergeGateEnabled: boolean,
         private readonly analytics: PostHogAnalytics,
+        private readonly slackNotifier?: MergeGateSlackNotifier,
     ) {
         this.logger = logger.child({ name: this.constructor.name });
         this.checkRuns = createGitHubCheckRunStore(db);
@@ -174,31 +189,37 @@ export class MergeGateService {
         });
     }
 
-    /** Webhook entry for `check_run.requested_action`: parse the Skip click then apply it. */
-    async applySkipFromWebhook(organizationId: string, payload: Record<string, unknown>): Promise<void> {
-        const parsed = checkRunRequestedActionWebhookSchema.safeParse(payload);
+    /**
+     * Webhook entry for `issue_comment.created`: a developer skips a blocking check by commenting
+     * `/autonoma-skip <reason>` on the PR.
+     */
+    async applySkipFromCommentWebhook(organizationId: string, payload: Record<string, unknown>): Promise<void> {
+        const parsed = issueCommentWebhookSchema.safeParse(payload);
         if (!parsed.success) {
-            this.logger.warn("Merge gate: could not parse check_run requested_action payload", {
+            this.logger.warn("Merge gate: could not parse issue_comment payload", {
                 organizationId,
                 extra: { issues: parsed.error.issues },
             });
             return;
         }
+        if (parsed.data.issue.pull_request == null) return; // a plain issue comment, not a PR comment
+        const command = parseSkipCommand(parsed.data.comment.body);
+        if (command == null) return; // any other PR comment
+
         await this.applySkip({
             organizationId,
             repoFullName: parsed.data.repository.full_name,
             githubRepositoryId: parsed.data.repository.id,
-            headSha: parsed.data.check_run.head_sha,
-            checkRunId: String(parsed.data.check_run.id),
-            prNumber: parsed.data.check_run.pull_requests?.[0]?.number,
-            actorLogin: parsed.data.sender.login,
-            actionIdentifier: parsed.data.requested_action.identifier,
+            prNumber: parsed.data.issue.number,
+            actorLogin: parsed.data.comment.user.login,
+            reason: command.reason,
         });
     }
 
     /**
-     * Honor a Skip click (the `check_run` `requested_action` webhook): snapshot the open bugs at skip time into a
-     * SkipRecord, flip the check to `neutral` (unblocks), and emit the skip signal.
+     * Honor a `/autonoma-skip` comment: resolve the PR's current check, snapshot the open bugs at skip time into a
+     * SkipRecord (with the reason), flip the check to `neutral` (unblocks), post the attribution comment, and emit
+     * the skip signal.
      */
     async applySkip(params: ApplySkipParams): Promise<void> {
         this.logger.info("Merge gate: applySkip", {
@@ -206,12 +227,6 @@ export class MergeGateService {
             extra: { repoFullName: params.repoFullName, prNumber: params.prNumber, actorLogin: params.actorLogin },
         });
 
-        if (params.actionIdentifier !== MERGE_GATE_SKIP_ACTION_IDENTIFIER) {
-            this.logger.info("Merge gate: ignoring non-skip requested_action", {
-                extra: { actionIdentifier: params.actionIdentifier },
-            });
-            return;
-        }
         if (!(await this.isEnabledForOrg(params.organizationId))) {
             this.logger.info("Merge gate: applySkip skipped (gate not enabled for org)", {
                 organizationId: params.organizationId,
@@ -219,60 +234,89 @@ export class MergeGateService {
             return;
         }
 
-        const client = await this.getInstallationClient(params.organizationId);
-        await this.checkRuns.runExclusive(params.repoFullName, params.headSha, async () => {
-            const stored = await this.checkRuns.getByHead(params.repoFullName, params.headSha);
-            const prNumber = params.prNumber ?? stored?.prNumber;
-            if (prNumber == null) {
-                this.logger.warn("Merge gate: cannot resolve PR number for skip; ignoring", {
-                    organizationId: params.organizationId,
-                    extra: { repoFullName: params.repoFullName, headSha: params.headSha },
-                });
-                return;
-            }
+        const check = await this.checkRuns.getLatestByPr(params.repoFullName, params.prNumber);
+        if (check == null || check.conclusion !== "failure") {
+            this.logger.info("Merge gate: nothing to skip (no blocking check on the PR's current head)", {
+                organizationId: params.organizationId,
+                extra: {
+                    repoFullName: params.repoFullName,
+                    prNumber: params.prNumber,
+                    conclusion: check?.conclusion,
+                },
+            });
+            return;
+        }
 
-            const openBugs = await this.snapshotOpenBugs(params);
+        const client = await this.getInstallationClient(params.organizationId);
+        await this.checkRuns.runExclusive(params.repoFullName, check.headSha, async () => {
+            const openBugs = await this.snapshotOpenBugs({
+                organizationId: params.organizationId,
+                githubRepositoryId: params.githubRepositoryId,
+                repoFullName: params.repoFullName,
+                headSha: check.headSha,
+            });
 
             await client.updateCheckRun({
                 repoFullName: params.repoFullName,
-                checkRunId: params.checkRunId,
+                checkRunId: check.checkRunId,
                 status: "completed",
                 conclusion: "neutral",
                 title: `Skipped by @${params.actorLogin}`,
-                summary: `@${params.actorLogin} skipped this check with ${openBugs.findingKeys.length} bug(s) open.`,
+                summary: buildSkipCheckSummary(params.actorLogin, openBugs.findingKeys.length, params.reason),
             });
-            await this.checkRuns.setConclusion(params.repoFullName, params.headSha, "neutral").catch((err) => {
+            await this.checkRuns.setConclusion(params.repoFullName, check.headSha, "neutral").catch((err) => {
                 this.logger.warn("Merge gate: could not persist skip conclusion (no check row for head)", {
                     organizationId: params.organizationId,
-                    extra: { repoFullName: params.repoFullName, headSha: params.headSha },
+                    extra: { repoFullName: params.repoFullName, headSha: check.headSha },
                     err,
                 });
             });
 
             const alreadyRecorded = await this.db.skipRecord.findFirst({
-                where: { repoFullName: params.repoFullName, headSha: params.headSha },
+                where: { repoFullName: params.repoFullName, headSha: check.headSha },
                 select: { id: true },
             });
             if (alreadyRecorded != null) {
                 this.logger.info("Merge gate: skip already recorded for head; re-flipped check only", {
                     organizationId: params.organizationId,
-                    extra: { repoFullName: params.repoFullName, headSha: params.headSha },
+                    extra: { repoFullName: params.repoFullName, headSha: check.headSha },
                 });
                 return;
             }
 
-            await this.db.skipRecord.create({
+            const skipRecord = await this.db.skipRecord.create({
                 data: {
                     organizationId: params.organizationId,
                     repoFullName: params.repoFullName,
-                    prNumber,
-                    headSha: params.headSha,
+                    prNumber: params.prNumber,
+                    headSha: check.headSha,
                     snapshotId: openBugs.snapshotId,
                     actorLogin: params.actorLogin,
                     openBugCount: openBugs.findingKeys.length,
                     openFindingIds: openBugs.findingKeys,
+                    reason: params.reason,
                 },
             });
+
+            const skipCommentId = await this.postSkipNote({
+                client,
+                repoFullName: params.repoFullName,
+                prNumber: params.prNumber,
+                actorLogin: params.actorLogin,
+                openBugCount: openBugs.findingKeys.length,
+                reason: params.reason,
+            });
+            if (skipCommentId != null) {
+                await this.db.skipRecord
+                    .update({ where: { id: skipRecord.id }, data: { skipCommentId } })
+                    .catch((err) => {
+                        this.logger.error("Merge gate: could not persist skip comment id", {
+                            organizationId: params.organizationId,
+                            extra: { repoFullName: params.repoFullName, skipRecordId: skipRecord.id },
+                            err,
+                        });
+                    });
+            }
 
             this.analytics.capture(
                 params.organizationId,
@@ -280,19 +324,29 @@ export class MergeGateService {
                 {
                     actorLogin: params.actorLogin,
                     openBugCount: openBugs.findingKeys.length,
-                    prNumber,
+                    hasReason: params.reason != null,
+                    prNumber: params.prNumber,
                     repoFullName: params.repoFullName,
                 },
                 { [MERGE_GATE_ANALYTICS_GROUP]: params.organizationId },
             );
 
+            await this.slackNotifier?.notifySkip({
+                repoFullName: params.repoFullName,
+                prNumber: params.prNumber,
+                actorLogin: params.actorLogin,
+                openBugCount: openBugs.findingKeys.length,
+                reason: params.reason,
+            });
+
             this.logger.warn("Merge gate: check skipped", {
                 organizationId: params.organizationId,
                 extra: {
                     repoFullName: params.repoFullName,
-                    prNumber,
+                    prNumber: params.prNumber,
                     actorLogin: params.actorLogin,
                     openBugCount: openBugs.findingKeys.length,
+                    hasReason: params.reason != null,
                 },
             });
         });
@@ -457,6 +511,42 @@ export class MergeGateService {
                 return { repoFullName: repo.fullName, result };
             }),
         );
+    }
+
+    /**
+     * Post a standalone PR comment attributing the skip, so the bypass is visible in the PR conversation.
+     */
+    private async postSkipNote(params: {
+        client: GitHubInstallationClient;
+        repoFullName: string;
+        prNumber: number;
+        actorLogin: string;
+        openBugCount: number;
+        reason?: string;
+    }): Promise<string | undefined> {
+        const bugCount = params.openBugCount;
+        const becauseClause = params.reason != null ? ` because ${formatReason(params.reason)}` : "";
+        const bugsClause = `${bugCount} ${bugCount === 1 ? "bug was" : "bugs were"} open`;
+        const headline = `@${params.actorLogin} skipped the Autonoma check${becauseClause} (${bugsClause}).`;
+        const body = renderMarkdown(
+            payloadBuilder({ state: "skipped", prNumber: params.prNumber, message: headline }),
+            {
+                marker: MERGE_GATE_SKIP_COMMENT_MARKER,
+            },
+        );
+        try {
+            const commentId = await params.client.postComment(params.repoFullName, params.prNumber, body);
+            this.logger.info("Merge gate: posted skip note comment", {
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber, actorLogin: params.actorLogin },
+            });
+            return commentId;
+        } catch (err) {
+            this.logger.warn("Merge gate: failed to post skip note comment", {
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
+                err,
+            });
+            return undefined;
+        }
     }
 
     /** Read the latest snapshot at this head's open `client_bug` findings - the skip's captured signal. */

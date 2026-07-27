@@ -41,6 +41,8 @@ function defaultHeadline(state: AutonomaCommentState, bugCount: number, failedCo
             const count = bugCount > 0 ? bugCount : (failedCount ?? 1);
             return `Autonoma found ${count} ${count === 1 ? "bug" : "bugs"} in this PR.`;
         }
+        case "skipped":
+            return "The Autonoma check was skipped for this PR.";
         case "unknown":
             return "Autonoma could not determine this PR sweep status.";
     }

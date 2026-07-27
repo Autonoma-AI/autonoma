@@ -2066,11 +2066,11 @@ model SkipRecord {
   prNumber       Int      @map("pr_number")
   headSha        String   @map("head_sha")
   snapshotId     String?  @map("snapshot_id") // the snapshot whose verdict was skipped
-  actorLogin     String   @map("actor_login") // sender.login from the requested_action webhook
+  actorLogin     String   @map("actor_login") // login of the developer who ran /autonoma-skip
   openBugCount   Int      @map("open_bug_count")
   openFindingIds Json     @map("open_finding_ids") // findingKeys open at skip time
-  reason         String? // optional free-text reason
-  reasonCategory String?  @map("reason_category") // optional structured reason
+  reason         String? // optional free-text reason from the /autonoma-skip comment
+  skipCommentId  String?  @map("skip_comment_id") // id of the standalone attribution comment
   createdAt      DateTime @default(now()) @map("created_at")
 
   @@index([organizationId, createdAt])

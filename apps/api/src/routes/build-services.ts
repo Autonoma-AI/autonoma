@@ -19,6 +19,7 @@ import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
 import { GitHubInstallationService } from "../github/github-installation.service";
+import { MergeGateSlackNotifier } from "../github/merge-gate-slack-notifier";
 import { MergeGateService } from "../github/merge-gate.service";
 import { PullRequestCacheService } from "../github/pull-request-cache.service";
 import { RepoIntrospectionService } from "../github/repo-introspection.service";
@@ -209,7 +210,13 @@ export function buildServices({
         previewkitLogs: new PreviewkitLogsService(previewkitEnvironmentsService, buildLogStore, appLogStore),
         orgSecrets: new OrgSecretsService(conn, env.AWS_REGION ?? "us-east-1"),
         github: githubService,
-        mergeGate: new MergeGateService(conn, githubApp, env.MERGE_GATE_ENABLED, analytics),
+        mergeGate: new MergeGateService(
+            conn,
+            githubApp,
+            env.MERGE_GATE_ENABLED,
+            analytics,
+            new MergeGateSlackNotifier(env.SLACK_BOT_TOKEN, env.MERGE_GATE_SLACK_CHANNEL),
+        ),
         repoIntrospection: repoIntrospectionService,
         previewkitDiagnosis: new PreviewkitDiagnosisService(conn, env.PREVIEWKIT_LOKI_URL, previewkitAiModel),
         issues: new IssuesService(conn, storageProvider),

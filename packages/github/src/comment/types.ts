@@ -6,6 +6,7 @@ export const AutonomaCommentStateSchema = z.enum([
     "incomplete",
     "warning",
     "critical",
+    "skipped",
     "unknown",
 ]);
 export type AutonomaCommentState = z.infer<typeof AutonomaCommentStateSchema>;

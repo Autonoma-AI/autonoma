@@ -12,6 +12,7 @@ import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.servi
 import { buildGitHubApp } from "./github-app";
 import { GitHubInstallationService } from "./github-installation.service";
 import { verifyInstallState } from "./github-state";
+import { MergeGateSlackNotifier } from "./merge-gate-slack-notifier";
 import { MergeGateService } from "./merge-gate.service";
 import { PullRequestCacheService } from "./pull-request-cache.service";
 
@@ -25,7 +26,13 @@ type GitHubEnv = {
 const githubApp = buildGitHubApp(env);
 const githubService = new GitHubInstallationService(db, githubApp);
 const prCacheService = new PullRequestCacheService(db, githubService);
-const mergeGateService = new MergeGateService(db, githubApp, env.MERGE_GATE_ENABLED, analytics);
+const mergeGateService = new MergeGateService(
+    db,
+    githubApp,
+    env.MERGE_GATE_ENABLED,
+    analytics,
+    new MergeGateSlackNotifier(env.SLACK_BOT_TOKEN, env.MERGE_GATE_SLACK_CHANNEL),
+);
 
 export const githubHttpRouter = new Hono<GitHubEnv>();
 
@@ -121,7 +128,7 @@ const WEBHOOK_EVENT_TYPES = {
     "pull_request.closed": "pull_request_closed",
     "pull_request.reopened": "pull_request_reopened",
     "pull_request.ready_for_review": "pull_request_ready_for_review",
-    "check_run.requested_action": "check_run_requested_action",
+    "issue_comment.created": "issue_comment_created",
     // push payloads carry no `action`; the event name alone is the key.
     push: "push",
 } as const;
@@ -243,8 +250,8 @@ async function dispatchWebhookEvent(
             await startInvestigationMerge(organizationId, payload);
             await mergeGateService.recordMergeFromWebhook(organizationId, payload);
             return;
-        case "check_run_requested_action":
-            await mergeGateService.applySkipFromWebhook(organizationId, payload);
+        case "issue_comment_created":
+            await mergeGateService.applySkipFromCommentWebhook(organizationId, payload);
             return;
         case "push":
             await startMainBranchPushDeploy(organizationId, payload);

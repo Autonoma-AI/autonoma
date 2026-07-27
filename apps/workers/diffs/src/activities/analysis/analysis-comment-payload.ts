@@ -1,4 +1,5 @@
 import type { AppHealthVerdict } from "@autonoma/diffs/analysis";
+import { MERGE_GATE_SKIP_COMMAND } from "@autonoma/github/check";
 import { buildAgentHandoffLinks, capHandoffPrompt } from "@autonoma/github/comment";
 import type {
     AutonomaCommentBug,
@@ -12,6 +13,13 @@ import { ANALYSIS_VERDICT, type AnalysisVerdict, type CoverageSummary, type Susp
 
 /** The verdict that makes the comment critical - a client bug is the only class that counts against the PR. */
 const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
+
+/**
+ * The skip-instruction callout appended under the headline when the merge gate is blocking this PR.
+ */
+const MERGE_GATE_SKIP_CALLOUT =
+    `> 🔒 This check blocks merging. Fix the reported bug(s), or comment \`${MERGE_GATE_SKIP_COMMAND} <reason>\` ` +
+    "on this PR to merge anyway.";
 
 /**
  * A human noun for each verdict, keyed over the SSOT enum so a new verdict is a compile error until it is given
@@ -85,6 +93,8 @@ export interface AnalysisCommentInput {
     bugIssues: AnalysisCommentIssue[];
     /** The coverage-confidence plane summary, rendered as one caveat line. Absent when unavailable/malformed. */
     coverage?: CoverageSummary;
+    /** True when the merge gate is live for this org and the verdict blocks the PR; drives the skip-instruction callout. */
+    mergeGateBlocking?: boolean;
     /** The Reporter's one-paragraph run summary, rendered under the headline. Absent on a pre-Reporter run. */
     summary?: string;
 }
@@ -116,7 +126,7 @@ export async function buildAnalysisCommentPayload(
         state,
         prNumber: context.prNumber,
         headline: buildHeadline(input.verdict, input.bugIssues.length),
-        summary: input.summary,
+        summary: buildSummary(input.summary, input.mergeGateBlocking),
         handoff: input.bugIssues.length > 0 ? buildHandoff(input.bugIssues, context) : undefined,
         commitRef: context.commitSha.slice(0, 7),
         assetBaseUrl: context.assetBaseUrl,
@@ -127,6 +137,17 @@ export async function buildAnalysisCommentPayload(
         details: [],
         bugs,
     };
+}
+
+/**
+ * The prose block rendered under the headline: the Reporter's one-paragraph summary, plus the skip-instruction
+ * callout when the merge gate is blocking this PR. Either may be absent; returns undefined when both are.
+ */
+function buildSummary(summary: string | undefined, mergeGateBlocking: boolean | undefined): string | undefined {
+    const parts: string[] = [];
+    if (summary != null && summary !== "") parts.push(summary);
+    if (mergeGateBlocking === true) parts.push(MERGE_GATE_SKIP_CALLOUT);
+    return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
 
 /** App-health headline: the open-bug count when the app misbehaved, else a clean pass. */

@@ -185,6 +185,7 @@ export const env = createEnv({
         CAL_ONBOARDING_LINK: z.string().url().optional(),
         SLACK_BOT_TOKEN: z.string().min(1).optional(),
         DISCORD_INVITE_URL: z.string().url().optional(),
+        MERGE_GATE_SLACK_CHANNEL: z.string().min(1).optional(),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

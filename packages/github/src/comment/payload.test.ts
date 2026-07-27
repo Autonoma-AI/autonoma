@@ -173,6 +173,30 @@ describe("payloadBuilder", () => {
         expect(markdown).toContain("**UNKNOWN** - Build failed in \\*api\\*");
     });
 
+    it("renders the skipped state with its own icon, label, and title", () => {
+        const markdown = renderMarkdown(
+            payloadBuilder({
+                state: "skipped",
+                prNumber: 7,
+                message: "@jane skipped the Autonoma check on this PR. 3 client bugs were open at skip time.",
+            }),
+        );
+
+        expect(markdown).toContain("## ⏭️ Autonoma check skipped");
+        expect(markdown).toContain("**SKIPPED** - @jane skipped the Autonoma check on this PR.");
+        // Absent an override, it carries the default marker.
+        expect(markdown).toContain("<!-- autonoma:pr-comment:v2 -->");
+    });
+
+    it("stamps a caller-supplied marker instead of the default when one is given", () => {
+        const markdown = renderMarkdown(payloadBuilder({ state: "skipped", prNumber: 7, message: "skipped" }), {
+            marker: "autonoma:merge-gate-skip:v1",
+        });
+
+        expect(markdown).toContain("<!-- autonoma:merge-gate-skip:v1 -->");
+        expect(markdown).not.toContain("<!-- autonoma:pr-comment:v2 -->");
+    });
+
     it("omits pass rate and duration entirely when there is no data (not-run checkpoint)", () => {
         const markdown = renderMarkdown(
             payloadBuilder({

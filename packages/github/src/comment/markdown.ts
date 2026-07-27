@@ -10,12 +10,18 @@ import type {
 
 const HANDOFF_SUMMARY = "🤖 Hand off to a coding agent";
 
+/**
+ * The default hidden marker stamped as the comment's first line.
+ */
+export const DEFAULT_COMMENT_MARKER = "autonoma:pr-comment:v2";
+
 const STATE_LABELS: Record<AutonomaCommentState, string> = {
     running: "RUNNING",
     healthy: "HEALTHY",
     incomplete: "NOT FULLY TESTED",
     warning: "WARNING",
     critical: "UNHEALTHY",
+    skipped: "SKIPPED",
     unknown: "UNKNOWN",
 };
 
@@ -25,6 +31,7 @@ const STATE_ICONS: Record<AutonomaCommentState, string> = {
     incomplete: "⚪",
     warning: "🟡",
     critical: "🔴",
+    skipped: "⏭️",
     unknown: "⚪",
 };
 
@@ -50,8 +57,8 @@ const CTA_TEXT_PREFIXES: Record<string, string> = {
     "Open preview": "👁 ",
 };
 
-export function renderMarkdown(payload: AutonomaCommentPayload): string {
-    const sections: string[] = ["<!-- autonoma:pr-comment:v2 -->"];
+export function renderMarkdown(payload: AutonomaCommentPayload, options?: { marker?: string }): string {
+    const sections: string[] = [`<!-- ${options?.marker ?? DEFAULT_COMMENT_MARKER} -->`];
     const rich = payload.bugs.some(isRichBug);
 
     // Text-first: a status emoji + generated title, then the state label + headline as plain markdown - no
@@ -159,6 +166,8 @@ function renderTitle(payload: AutonomaCommentPayload): string {
     }
     // Only engine artifacts surfaced: the flows never ran, so we can't claim "no issues" - we didn't finish testing.
     if (payload.state === "incomplete") return "Autonoma couldn't fully test this PR";
+    // A developer chose to bypass the merge gate; the title names the outcome, the headline names who + why.
+    if (payload.state === "skipped") return "Autonoma check skipped";
     if (rich && payload.state === "healthy") return "Autonoma found no issues in this PR";
     return `Autonoma PR #${payload.prNumber}`;
 }

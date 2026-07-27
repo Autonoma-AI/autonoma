@@ -12,7 +12,7 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { ANALYSIS_VERDICT, type AnalysisRunOutcome, coverageSummarySchema } from "@autonoma/types";
 import { resolvePrMeta } from "../../codebase/pr-meta";
 import type { GitHubAccess, SnapshotMeta } from "../../codebase/snapshot-context";
-import { env } from "../../env";
+import { isMergeGateEnabledForOrg } from "./merge-gate-enabled";
 
 /** The verdict string the app-health plane files a real client bug under. Anything else is the `passed` plane. */
 const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
@@ -36,18 +36,8 @@ export async function concludeMergeGate({
     const logger = rootLogger.child({ name: "concludeMergeGate", snapshotId: meta.snapshotId });
     logger.info("Applying merge-gate verdict");
 
-    if (!env.MERGE_GATE_ENABLED) {
-        logger.info("Skipping merge gate - MERGE_GATE_ENABLED is off");
-        return { status: "skipped" };
-    }
-
-    const settings = await db.organizationSettings.findUnique({
-        where: { organizationId: meta.organizationId },
-        select: { mergeGateEnabled: true, analysisEnabled: true },
-    });
-    const gateEnabledForOrg = settings?.mergeGateEnabled === true && settings.analysisEnabled === true;
-    if (!gateEnabledForOrg) {
-        logger.info("Skipping merge gate - not enabled for this org", {
+    if (!(await isMergeGateEnabledForOrg(meta.organizationId))) {
+        logger.info("Skipping merge gate - not enabled (global flag or org opt-in off)", {
             extra: { organizationId: meta.organizationId },
         });
         return { status: "skipped" };
@@ -90,7 +80,6 @@ export async function concludeMergeGate({
                 conclusion: result.conclusion,
                 title: result.title,
                 summary: result.summary,
-                actions: result.actions,
             });
             await store.setConclusion(github.repoFullName, meta.headSha, result.conclusion);
             return;
@@ -104,7 +93,6 @@ export async function concludeMergeGate({
             conclusion: result.conclusion,
             title: result.title,
             summary: result.summary,
-            actions: result.actions,
         });
         await store.upsert({
             repoFullName: github.repoFullName,

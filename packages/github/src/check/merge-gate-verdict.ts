@@ -1,12 +1,14 @@
-import type { CheckRunAction, CheckRunConclusion } from "../github-installation-client";
+import type { CheckRunConclusion } from "../github-installation-client";
 
 /**
  * The stable check name branch protection matches by.
  */
 export const MERGE_GATE_CHECK_NAME = "Autonoma";
 
-/** The `identifier` on the Skip button; the `requested_action` webhook echoes it so we know a skip was clicked. */
-export const MERGE_GATE_SKIP_ACTION_IDENTIFIER = "autonoma-skip";
+/**
+ * The slash command a developer comments on the PR to skip a blocking check.
+ */
+export const MERGE_GATE_SKIP_COMMAND = "/autonoma-skip";
 
 /**
  * Name of the repository ruleset we create to require the `Autonoma` check on ALL branches, so every PR the client
@@ -14,15 +16,13 @@ export const MERGE_GATE_SKIP_ACTION_IDENTIFIER = "autonoma-skip";
  */
 export const MERGE_GATE_RULESET_NAME = "Autonoma merge gate";
 
+/**
+ * Hidden marker on the standalone skip-attribution comment.
+ */
+export const MERGE_GATE_SKIP_COMMENT_MARKER = "autonoma:merge-gate-skip:v1";
+
 /** How many client-bug headlines to list in the check summary before collapsing the rest into a "+N more" line. */
 const MAX_LISTED_BUGS = 10;
-
-/** The Skip button. */
-const SKIP_ACTION: CheckRunAction = {
-    label: "Skip check",
-    description: "Merge past Autonoma's blocking findings",
-    identifier: MERGE_GATE_SKIP_ACTION_IDENTIFIER,
-};
 
 export interface MergeGateVerdictInput {
     /** The authoritative app-health verdict from `AnalysisReport.verdict`. */
@@ -36,12 +36,10 @@ export interface MergeGateVerdictInput {
 }
 
 export interface MergeGateCheckResult {
-    /** `success` (clean) | `failure` (blocks, with Skip) | `neutral` (mergeable warning / fail-open). */
+    /** `success` (clean) | `failure` (blocks; skip via the `/autonoma-skip` comment) | `neutral` (mergeable warning / fail-open). */
     conclusion: Extract<CheckRunConclusion, "success" | "failure" | "neutral">;
     title: string;
     summary: string;
-    /** The Skip action, present only on a blocking `failure`. */
-    actions?: CheckRunAction[];
 }
 
 /**
@@ -63,7 +61,6 @@ export function buildMergeGateCheckResult(input: MergeGateVerdictInput): MergeGa
             conclusion: "failure",
             title: bugTitle(input.clientBugHeadlines.length),
             summary: buildBugSummary(input.clientBugHeadlines),
-            actions: [SKIP_ACTION],
         };
     }
 
@@ -92,10 +89,25 @@ function buildBugSummary(headlines: string[]): string {
     const listed = headlines.slice(0, MAX_LISTED_BUGS).map((headline) => `- ${headline}`);
     const overflow = headlines.length - MAX_LISTED_BUGS;
     const lines = [
-        "Autonoma found client bugs that block this merge. Fix them, or click **Skip check** to merge anyway.",
+        `Autonoma found client bugs that block this merge. Fix them, or comment \`${MERGE_GATE_SKIP_COMMAND} <reason>\` ` +
+            "on the PR to merge anyway.",
         "",
         ...listed,
     ];
     if (overflow > 0) lines.push(`- ...and ${overflow} more`);
     return lines.join("\n");
+}
+
+/**
+ * Parse a PR comment body as the skip command. Returns the (optional) free-text reason when the comment is a skip
+ * command, or `undefined` when it is any other comment.
+ */
+export function parseSkipCommand(commentBody: string): { reason?: string } | undefined {
+    const trimmed = commentBody.trim();
+    if (!trimmed.startsWith(MERGE_GATE_SKIP_COMMAND)) return undefined;
+
+    const rest = trimmed.slice(MERGE_GATE_SKIP_COMMAND.length);
+    if (rest.length > 0 && !/^\s/.test(rest)) return undefined;
+    const reason = rest.trim();
+    return reason.length > 0 ? { reason } : {};
 }

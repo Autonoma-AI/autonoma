@@ -7,6 +7,13 @@ export interface GitHubCheckRunState {
     conclusion?: string;
 }
 
+/** The check run for a PR's current head, resolved from a surface (like a PR comment) that carries no head SHA. */
+export interface GitHubCheckRunForPr {
+    checkRunId: string;
+    headSha: string;
+    conclusion?: string;
+}
+
 export interface UpsertGitHubCheckRunParams {
     repoFullName: string;
     prNumber: number;
@@ -22,6 +29,11 @@ export interface UpsertGitHubCheckRunParams {
  */
 export interface GitHubCheckRunStore {
     getByHead(repoFullName: string, headSha: string): Promise<GitHubCheckRunState | undefined>;
+    /**
+     * The most recently created check run for a PR - i.e. the one on its current head. Used by the comment-driven
+     * skip, whose `issue_comment` webhook identifies the PR but not the head SHA.
+     */
+    getLatestByPr(repoFullName: string, prNumber: number): Promise<GitHubCheckRunForPr | undefined>;
     upsert(params: UpsertGitHubCheckRunParams): Promise<void>;
     setConclusion(repoFullName: string, headSha: string, conclusion: string): Promise<void>;
     /**
@@ -41,6 +53,15 @@ export function createGitHubCheckRunStore(db: PrismaClient): GitHubCheckRunStore
             });
             if (row == null) return undefined;
             return { checkRunId: row.checkRunId, prNumber: row.prNumber, conclusion: row.conclusion ?? undefined };
+        },
+        async getLatestByPr(repoFullName, prNumber) {
+            const row = await db.gitHubCheckRun.findFirst({
+                where: { repoFullName, prNumber },
+                orderBy: { createdAt: "desc" },
+                select: { checkRunId: true, headSha: true, conclusion: true },
+            });
+            if (row == null) return undefined;
+            return { checkRunId: row.checkRunId, headSha: row.headSha, conclusion: row.conclusion ?? undefined };
         },
         async upsert(params) {
             await db.gitHubCheckRun.upsert({

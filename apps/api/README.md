@@ -56,6 +56,7 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `LLM_PROXY_MAX_REQUEST_BYTES`               | No       | `16000000`                 | Per-request body-size ceiling (bytes). Sized to comfortably fit a full ~1M-token context-window request (which the planner legitimately builds) plus JSON/UTF-8 overhead; only blocks payloads several times the model's own limit. Oversized payloads are rejected with `413`.                        |
 | `GITHUB_PR_CACHE_REVALIDATE_WINDOW_MINUTES` | No       | `5`                        | Throttle window for the read-triggered PR-metadata cache revalidate (per app); one open-list call, plus one closed-list call when PRs need merged-vs-closed classification                                                                                                                             |
 | `MERGE_GATE_ENABLED`                        | No       | `false`                    | Global master kill switch for the Autonoma merge gate (the blocking `Autonoma` check). Effective gate = this AND the org's `OrganizationSettings.mergeGateEnabled`. Must match the diffs worker's value. Never enable fleet-wide without per-org opt-in.                                                  |
+| `MERGE_GATE_SLACK_CHANNEL`                  | No       | -                          | Channel (`C0123…` id or `#name`) the merge-gate skip alert posts to via the `SLACK_BOT_TOKEN` bot (`chat.postMessage`; who + PR + reason). Unset (or no bot token) = alerts are silently skipped.        |
 | `TESTING`                                   | No       | `false`                    | Test environment flag - prevents loading production modules                                                                                                                                                                                                                                            |
 
 Additionally, the inherited env schemas require database (`DATABASE_URL`), logger (`SENTRY_DSN`, `NODE_ENV`), and storage (`S3_BUCKET`, AWS credentials) variables.
@@ -111,26 +112,30 @@ grows.
 
 ### Merge gate (the blocking `Autonoma` check)
 
-Per-org opt-in blocking GitHub check on client bugs, with a Skip button. Off by default and bounded by the global
-`MERGE_GATE_ENABLED` kill switch; enabled per trusted org via the internal `admin.setMergeGateEnabled` procedure
-(which requires the org's `analysisEnabled`, since the gate reads the authoritative analysis verdict).
+Per-org opt-in blocking GitHub check on client bugs, skippable with a `/autonoma-skip <reason>` PR comment. Off by
+default and bounded by the global `MERGE_GATE_ENABLED` kill switch; enabled per trusted org via the internal
+`admin.setMergeGateEnabled` procedure (which requires the org's `analysisEnabled`, since the gate reads the
+authoritative analysis verdict).
 
 - `MergeGateService` (`src/github/merge-gate.service.ts`) owns the API-side lifecycle: post the pending `Autonoma`
-  check on `pull_request.opened/synchronize/reopened/ready_for_review`; honor the Skip button on a `check_run`
-  `requested_action` webhook (write a `SkipRecord` snapshotting the open bugs, flip the check to `neutral`);
-  persist merge facts and detect a "merged around us" bypass on `pull_request.closed`; and, on enable/disable,
-  create/remove a repo ruleset that requires the `Autonoma` check on ALL branches - so every PR is gated
-  regardless of its base branch, not only the default branch. The check, verdict, and Skip already apply to every
-  PR on any branch; the ruleset is only what makes a `failure` actually block the merge.
+  check on `pull_request.opened/synchronize/reopened/ready_for_review`; honor a `/autonoma-skip <reason>` comment on
+  an `issue_comment.created` webhook (resolve the PR's current check, write a `SkipRecord` snapshotting the open
+  bugs + the reason, flip the check to `neutral`, post a `skipped`-state attribution comment, and fire a best-effort
+  Slack alert via `MergeGateSlackNotifier` - the `SLACK_BOT_TOKEN` bot posting to `MERGE_GATE_SLACK_CHANNEL`);
+  persist merge
+  facts and detect a "merged around us" bypass on `pull_request.closed`; and, on enable/disable, create/remove a
+  repo ruleset that requires the `Autonoma` check on ALL branches - so every PR is gated regardless of its base
+  branch, not only the default branch. The check, verdict, and skip already apply to every PR on any branch; the
+  ruleset is only what makes a `failure` actually block the merge.
 - The verdict -> conclusion mapping runs in the **diffs worker** after authoritative analysis settlement, through
   `settleAnalysisRun` / `settleAnalysisGitHub`; the PR comment is also an effect of that terminal path. The shared
   check-run store and the pure verdict mapping live in
   `@autonoma/github/check`.
 - Fail-open on a job error (conclusion `neutral`); fail-closed if Autonoma is fully unreachable (the required check
   never reaches success, so only a repo admin can override). See `merge-gate-implementation-spec.md`.
-- **Requires GitHub App settings** (non-code): the `checks: write` permission, the `check_run` webhook
-  subscription, and `administration: write` for programmatic branch protection. Nothing functions until these are
-  applied.
+- **Requires GitHub App settings** (non-code): the `checks: write` permission, the `issue_comment` webhook
+  subscription (for `/autonoma-skip`), and `administration: write` for programmatic branch protection. Nothing
+  functions until these are applied.
 
 ### Previewkit deploy credits gate
 

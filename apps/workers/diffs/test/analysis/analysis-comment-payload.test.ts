@@ -234,6 +234,45 @@ describe("buildAnalysisCommentPayload", () => {
         expect(payload.bugs[0]?.screenshotUrl).toBeUndefined();
     });
 
+    it("appends the /autonoma-skip callout under the summary when the gate is blocking", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            {
+                verdict: "client_bug",
+                bugIssues: [bugIssue()],
+                summary: "The app misbehaved.",
+                mergeGateBlocking: true,
+            },
+            context,
+            sign,
+        );
+        const body = renderMarkdown(payload);
+
+        expect(payload.summary).toContain("The app misbehaved.");
+        expect(payload.summary).toContain("/autonoma-skip <reason>");
+        expect(body).toContain("This check blocks merging");
+        expect(body).toContain("`/autonoma-skip <reason>`");
+    });
+
+    it("shows the skip callout as the whole summary when the gate blocks but there is no summary", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            { verdict: "client_bug", bugIssues: [bugIssue()], mergeGateBlocking: true },
+            context,
+            sign,
+        );
+
+        expect(payload.summary).toContain("/autonoma-skip <reason>");
+    });
+
+    it("omits the skip callout when the gate is not blocking (default)", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            { verdict: "client_bug", bugIssues: [bugIssue()], summary: "The app misbehaved." },
+            context,
+            sign,
+        );
+
+        expect(payload.summary).toBe("The app misbehaved.");
+    });
+
     it("renders the summary and coverage line into the shared markdown", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
