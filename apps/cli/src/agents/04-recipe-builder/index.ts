@@ -6,8 +6,10 @@ import * as p from "../../ui/prompts";
 import { parseEntityAudit, resolveEntityOrder } from "./entity-order";
 import { buildAllLaunchers, type AgentLauncher, type PermissionMode } from "./launcher";
 import { runCompletionPhase, runHandoffPhase, type HandoffDeps, type PhaseOutcome } from "./phases/handoff";
-import { runSubmit } from "./phases/submit";
+import { runSubmit, type SubmitFailure } from "./phases/submit";
 import { initialRecipeState, loadRecipeState, saveRecipeState } from "./state";
+
+const RETRY_HINT = "run again with --resume, or re-upload with `npx @autonoma-ai/planner@latest upload`";
 
 export interface RecipeBuilderInput {
     projectRoot: string;
@@ -31,6 +33,19 @@ export interface RecipeBuilderInput {
 
 function generateSharedSecret(): string {
     return randomBytes(32).toString("hex");
+}
+
+/**
+ * The user-facing reason a recipe upload failed the step. Kept accurate per branch:
+ * `no-recipe` never generated or printed anything, so it must not claim the recipe was
+ * "not accepted" or "printed above" - the reject/network path is the only one that does.
+ * `no-credentials` never reaches here (it's survivable), so it needs no message.
+ */
+function submitFailureSummary(failure: Exclude<SubmitFailure, "no-credentials">): string {
+    if (failure === "no-recipe") {
+        return `No recipe.json was found on disk, so nothing was uploaded. The recipe step didn't produce one - ${RETRY_HINT}.`;
+    }
+    return `Recipe was generated but not accepted by Autonoma. The recipe JSON was printed above - ${RETRY_HINT}.`;
 }
 
 /** Turn a phase outcome into the AgentResult the pipeline expects, or undefined to continue. */
@@ -106,7 +121,7 @@ export async function runRecipeBuilder(input: RecipeBuilderInput): Promise<Agent
             return {
                 success: false,
                 artifacts: [recipePath],
-                summary: `Recipe was generated but not accepted by Autonoma. The recipe JSON was printed above - re-upload with \`npx @autonoma-ai/planner@latest upload\` (or run again with --resume).`,
+                summary: submitFailureSummary(outcome.failure),
             };
         }
 

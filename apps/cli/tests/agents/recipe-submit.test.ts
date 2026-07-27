@@ -122,6 +122,23 @@ describe("recipe submission", () => {
 
         expect(result.success).toBe(false);
         expect((await loadState()).phase).toBe("submit");
+        // The rejection path did generate + print the recipe, so this wording is accurate here.
+        expect(result.summary).toContain("not accepted by Autonoma");
+        expect(result.summary).toContain("printed above");
+    });
+
+    test("fails with an accurate message when no recipe.json exists (never claims it was uploaded)", async () => {
+        await rm(join(dir, RECIPE_FILE), { force: true });
+
+        const result = await runSubmitPhase();
+
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(result.success).toBe(false);
+        expect((await loadState()).phase).toBe("submit");
+        // No recipe was ever generated or printed, so the summary must not claim either.
+        expect(result.summary).toContain("No recipe.json");
+        expect(result.summary).not.toContain("not accepted by Autonoma");
+        expect(result.summary).not.toContain("printed above");
     });
 
     test("stays green with no credentials so the planner still runs standalone", async () => {
