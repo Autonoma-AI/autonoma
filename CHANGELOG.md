@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.260727.2](https://github.com/Autonoma-AI/agent/compare/v1.260727.1...v1.260727.2) (2026-07-27)
+
+
+### Features
+
+* **mcp:** give the debug MCP the scenario recipe tools ([#1804](https://github.com/Autonoma-AI/agent/issues/1804)) ([550b777](https://github.com/Autonoma-AI/agent/commit/550b77706c74b0c91bc7ce84aa7f3a585546b843))
+* **merge-gate:** emit enriched PostHog events for check_posted and skipped ([#1780](https://github.com/Autonoma-AI/agent/issues/1780)) ([ee0a659](https://github.com/Autonoma-AI/agent/commit/ee0a65900d7a7ca75fe67b6957e7a16b3bec2095))
+* **merge-gate:** require a reason for /autonoma-skip ([#1786](https://github.com/Autonoma-AI/agent/issues/1786)) ([8210c89](https://github.com/Autonoma-AI/agent/commit/8210c89c77add8d390ce1e01ce9298cc2b97da2d))
+* **platform:** replace two sticky OOM alerts with a cadvisor-based rule ([#1781](https://github.com/Autonoma-AI/agent/issues/1781)) ([dd80a76](https://github.com/Autonoma-AI/agent/commit/dd80a76edf9e921735a47addf925fd03d313805e))
+* **scenario:** built-in run-identity tokens + reject recipes that cannot provision ([#1799](https://github.com/Autonoma-AI/agent/issues/1799)) ([377c87e](https://github.com/Autonoma-AI/agent/commit/377c87e99f5ca0f83f2c4b9b1bee8242b630f2d9))
+* **scenario:** dry-run a candidate recipe without storing it ([#1802](https://github.com/Autonoma-AI/agent/issues/1802)) ([7fc116e](https://github.com/Autonoma-AI/agent/commit/7fc116efe5503dcdedb7da5c6bcc9e4105a404d3))
+* set shared secret env on resource installation ([#1779](https://github.com/Autonoma-AI/agent/issues/1779)) ([c8847d8](https://github.com/Autonoma-AI/agent/commit/c8847d8f37331f1d6e062540b5c2c0d8f58646d1))
+
+
+### Bug Fixes
+
+* **api:** fix the integration test suite ([#1789](https://github.com/Autonoma-AI/agent/issues/1789)) ([7739482](https://github.com/Autonoma-AI/agent/commit/773948262cea452267961a86d97ad569a5be5e81))
+* **ci:** only delete ECR-archived images, add lifecycle policy script ([#1796](https://github.com/Autonoma-AI/agent/issues/1796)) ([25e2716](https://github.com/Autonoma-AI/agent/commit/25e2716ec223ac3d5847ef4ceeedb61677d27e4c))
+* **cli:** accurate failure message when no recipe.json exists to submit ([#1784](https://github.com/Autonoma-AI/agent/issues/1784)) ([00ebb01](https://github.com/Autonoma-AI/agent/commit/00ebb019ddc06aba64d54a4496d68ac2e49545ac))
+* **deployment:** make verdaccio's memory limit enforceable and spread it per zone ([#1787](https://github.com/Autonoma-AI/agent/issues/1787)) ([16e44fe](https://github.com/Autonoma-AI/agent/commit/16e44fed81bba2399dc0b81f439b842db99459bf))
+* **scenario:** let the save-time recipe gate see declared variables ([#1803](https://github.com/Autonoma-AI/agent/issues/1803)) ([a045f20](https://github.com/Autonoma-AI/agent/commit/a045f20e9a644b4ca5bbd2681d794954425e8850))
+* **scenarios:** scope recipe reads and writes to the application ([#1805](https://github.com/Autonoma-AI/agent/issues/1805)) ([cdfa38f](https://github.com/Autonoma-AI/agent/commit/cdfa38fb8715d36ad81b6505114683b1e3fe5c3b))
+* **ui:** match the CLI's folder key on manual test-case upload ([#1785](https://github.com/Autonoma-AI/agent/issues/1785)) ([c194303](https://github.com/Autonoma-AI/agent/commit/c194303ead5136e13c8ab809ac7f5c6f13d9bfb4))
+
+
+### Performance Improvements
+
+* **api:** batch snapshot change summaries into one narrow query ([#1795](https://github.com/Autonoma-AI/agent/issues/1795)) ([6b1fbc3](https://github.com/Autonoma-AI/agent/commit/6b1fbc3b5ed3e06de200f2db654d764ebb591573))
+
 ## [1.260727.1](https://github.com/Autonoma-AI/agent/compare/v1.260724.1...v1.260727.1) (2026-07-27)
 
 
