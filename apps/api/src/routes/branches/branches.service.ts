@@ -22,7 +22,7 @@ import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors"
 import type { StorageProvider } from "@autonoma/storage";
 import {
     getChangesForSnapshot,
-    summarizeChangesForSnapshot,
+    summarizeChangesForSnapshots,
     fetchTestSuiteInfo,
     type SnapshotChangeSummary,
 } from "@autonoma/test-updates";
@@ -73,6 +73,9 @@ export type { TestSuiteChangeRow } from "./test-suite-changes";
 
 /** Signed-URL lifetime for a finding's screenshot/video - short, re-signed on every page load. */
 const INVESTIGATION_MEDIA_TTL_SECONDS = 60 * 60;
+
+/** Fallback suite-change counts for a snapshot the batched summary has no entry for. */
+const NO_SUITE_CHANGES: SnapshotChangeSummary = { added: 0, removed: 0, updated: 0 };
 
 /**
  * A report should surface an entry point only when it leads somewhere useful: it either has renderable island
@@ -1418,21 +1421,24 @@ export class BranchesService extends Service {
         });
 
         const snapshotIds = snapshots.map((s) => s.id);
-        const [changeSummaries, healthBySnapshot, bugCountBySnapshot, authoritativeBySnapshot] = await Promise.all([
-            Promise.all(
-                snapshots.map((s) => summarizeChangesForSnapshot(this.db, s.id, s.prevSnapshotId, this.logger)),
-            ),
-            aggregateSnapshotHealth(
-                this.db,
-                snapshots.map((s) => ({ id: s.id, status: s.status })),
-                this.logger,
-            ),
-            countOpenBugsBySnapshot(this.db, snapshotIds),
-            loadAuthoritativeCheckpointInputs(this.db, organizationId, snapshotIds, this.logger),
-        ]);
+        const [changeSummaryBySnapshot, healthBySnapshot, bugCountBySnapshot, authoritativeBySnapshot] =
+            await Promise.all([
+                summarizeChangesForSnapshots(
+                    this.db,
+                    snapshots.map((s) => ({ snapshotId: s.id, prevSnapshotId: s.prevSnapshotId })),
+                    this.logger,
+                ),
+                aggregateSnapshotHealth(
+                    this.db,
+                    snapshots.map((s) => ({ id: s.id, status: s.status })),
+                    this.logger,
+                ),
+                countOpenBugsBySnapshot(this.db, snapshotIds),
+                loadAuthoritativeCheckpointInputs(this.db, organizationId, snapshotIds, this.logger),
+            ]);
 
-        return snapshots.map((snapshot, index) => {
-            const changeSummary = changeSummaries[index] as SnapshotChangeSummary;
+        return snapshots.map((snapshot) => {
+            const changeSummary = changeSummaryBySnapshot.get(snapshot.id) ?? NO_SUITE_CHANGES;
             const openBugCount = bugCountBySnapshot.get(snapshot.id) ?? 0;
             const authoritative = authoritativeBySnapshot.get(snapshot.id);
             // An authoritative snapshot's bug count is its open bug issues (finalize persists it as clientBugCount),

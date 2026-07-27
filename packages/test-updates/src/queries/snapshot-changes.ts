@@ -33,6 +33,11 @@ const assignmentSelect = {
     plan: { select: { prompt: true } },
 } as const;
 
+/** Plan id per test case for one snapshot; a key with a `null` value is an assignment with no plan. */
+type PlanIdsByTestCaseId = ReadonlyMap<string, string | null>;
+
+const NO_ASSIGNMENTS: PlanIdsByTestCaseId = new Map();
+
 /**
  * Computes the list of test-case changes for a snapshot relative to a comparison snapshot.
  *
@@ -162,6 +167,87 @@ export async function summarizeChangesForSnapshot(
 ): Promise<SnapshotChangeSummary> {
     const changes = await getChangesForSnapshot(db, snapshotId, prevSnapshotId, parentLogger);
     return toSummary(changes);
+}
+
+/** A snapshot and the snapshot its changes are measured against. */
+export interface SnapshotComparison {
+    snapshotId: string;
+    prevSnapshotId: string | null;
+}
+
+/**
+ * Batched variant of `summarizeChangesForSnapshot`, keyed by snapshot id.
+ *
+ * Counting added/removed/updated only needs each assignment's `(testCaseId, planId)`, so this
+ * reads those columns for every snapshot in one query instead of fanning the full change list -
+ * which loads each test case and its natural-language plan text - out per snapshot.
+ */
+export async function summarizeChangesForSnapshots(
+    db: PrismaClient,
+    comparisons: readonly SnapshotComparison[],
+    parentLogger?: Logger,
+): Promise<Map<string, SnapshotChangeSummary>> {
+    const logger = (parentLogger ?? rootLogger).child({ name: "summarizeChangesForSnapshots" });
+    logger.info("Summarizing snapshot changes", { extra: { comparisonCount: comparisons.length } });
+
+    if (comparisons.length === 0) return new Map();
+
+    // Both sides of every comparison in one read. A `prevSnapshotId` is not necessarily itself
+    // among the compared snapshots - callers hide cancelled snapshots and investigation twins from
+    // history, but either can still be some visible snapshot's predecessor.
+    const snapshotIds = new Set<string>();
+    for (const comparison of comparisons) {
+        snapshotIds.add(comparison.snapshotId);
+        if (comparison.prevSnapshotId != null) snapshotIds.add(comparison.prevSnapshotId);
+    }
+
+    const assignments = await db.testCaseAssignment.findMany({
+        where: { snapshotId: { in: [...snapshotIds] } },
+        select: { snapshotId: true, testCaseId: true, planId: true },
+    });
+
+    const assignmentsBySnapshotId = new Map<string, Map<string, string | null>>();
+    for (const assignment of assignments) {
+        const bySnapshot = assignmentsBySnapshotId.get(assignment.snapshotId) ?? new Map<string, string | null>();
+        bySnapshot.set(assignment.testCaseId, assignment.planId);
+        assignmentsBySnapshotId.set(assignment.snapshotId, bySnapshot);
+    }
+
+    const summaries = new Map<string, SnapshotChangeSummary>();
+    for (const comparison of comparisons) {
+        summaries.set(comparison.snapshotId, summarizeComparison(comparison, assignmentsBySnapshotId));
+    }
+
+    logger.info("Snapshot changes summarized", { extra: { snapshotCount: summaries.size } });
+
+    return summaries;
+}
+
+function summarizeComparison(
+    { snapshotId, prevSnapshotId }: SnapshotComparison,
+    assignmentsBySnapshotId: ReadonlyMap<string, PlanIdsByTestCaseId>,
+): SnapshotChangeSummary {
+    const pending = assignmentsBySnapshotId.get(snapshotId) ?? NO_ASSIGNMENTS;
+
+    // No previous snapshot means every assignment is new, matching `getChangesForSnapshot`.
+    if (prevSnapshotId == null) return { added: pending.size, removed: 0, updated: 0 };
+
+    const previous = assignmentsBySnapshotId.get(prevSnapshotId) ?? NO_ASSIGNMENTS;
+
+    let added = 0;
+    let removed = 0;
+    let updated = 0;
+
+    for (const [testCaseId, planId] of pending) {
+        if (!previous.has(testCaseId)) added += 1;
+        else if (previous.get(testCaseId) !== planId) updated += 1;
+    }
+
+    for (const testCaseId of previous.keys()) {
+        if (!pending.has(testCaseId)) removed += 1;
+    }
+
+    return { added, removed, updated };
 }
 
 function toSummary(changes: SnapshotChange[]): SnapshotChangeSummary {

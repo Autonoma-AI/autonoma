@@ -14,6 +14,8 @@ export {
     summarizeSnapshotChanges,
     getChangesForSnapshot,
     summarizeChangesForSnapshot,
+    summarizeChangesForSnapshots,
+    type SnapshotComparison,
     type SnapshotChangeSummary,
 } from "./queries/snapshot-changes";
 export * from "./changes";

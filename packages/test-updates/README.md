@@ -11,6 +11,7 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 | `TestSuiteUpdater` | Class | Top-level orchestrator for a test suite update session |
 | `SnapshotDraft` | Class | Lower-level handle on a pending (processing) snapshot: `loadById`/`loadPending`/`start`, plus persist-only `updatePlan`/`addTestCase` (no generations queued). Used by the investigation agent to write proposed edits onto a detached twin without touching branch pointers. |
 | `createDetachedSnapshot` | Function | Clones a branch's baseline suite (pinned assignments + scenario recipe versions) into a snapshot wired to NO branch pointer - a detached fork. Used by the shadow investigation agent so its generations never touch the branch's pending/active snapshot. Returns `undefined` when there is no baseline to fork from. |
+| `summarizeChangesForSnapshots` | Function | Suite-change counts (added/removed/updated) for many snapshots in one query, keyed by snapshot id. Prefer this over calling `summarizeChangesForSnapshot` per snapshot: the single-snapshot path builds the full change list, loading every assignment's test case and plan prose to produce three integers. |
 | `settleAnalysisRunState` | Function | Idempotently settles an authoritative analysis snapshot, its unfinished generations, and its optional `AnalysisJob`. The snapshot transition is the mutex, so a caller that loses a race receives `settled: false` and must skip external side effects. |
 | `MissingJobProviderError` | Error | Thrown when `queuePendingGenerations` is called without a job provider |
 | `IncompleteGenerationsError` | Error | Thrown when finalizing a snapshot that still has pending/queued/running generations |
@@ -20,7 +21,7 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 | `ApplicationNotFoundError` | Error | Branch not found or does not belong to the specified organization |
 | `PLAN_AUTHORING_GUIDE` | String | The shared E2E test-plan authoring ruleset (mutation + functional source-of-truth assertion, allowed/banned verbs, i18n resolution). Owned here and consumed by both the diffs agent (`@autonoma/diffs` re-exports it) and the investigation selector, so both author plans to one bar. Lives in `src/plan-authoring/`. |
 
-**Types:** `GenerationProvider`, `PendingGeneration`, `GenerationJobOptions`, `TestSuiteInfo`, `SnapshotChange`
+**Types:** `GenerationProvider`, `PendingGeneration`, `GenerationJobOptions`, `TestSuiteInfo`, `SnapshotChange`, `SnapshotChangeSummary`, `SnapshotComparison`
 
 **Changes (command pattern):**
 

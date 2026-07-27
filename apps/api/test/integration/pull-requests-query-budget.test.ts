@@ -32,10 +32,10 @@ const SNAPSHOT_DETAIL_LEAN_BUDGET = 35;
 
 // Marginal DB cost snapshotHistory is allowed to spend per additional snapshot in the branch. This
 // is the N+1 guard: the assertion measures the slope (queries for many snapshots minus queries for
-// few), so constant per-call overhead cancels out and only per-snapshot growth is bounded. Measured
-// baseline is 6/snapshot today - snapshotHistory already fans `summarizeChangesForSnapshot` out per
-// snapshot. This caps that at its current cost so it cannot get worse without someone noticing.
-const SNAPSHOT_HISTORY_PER_SNAPSHOT_BUDGET = 7;
+// few), so constant per-call overhead cancels out and only per-snapshot growth is bounded. Every
+// read snapshotHistory issues is batched across the whole branch, so the measured slope is 0; the
+// 1 is slack for query-planner variance, not room for a per-snapshot round trip.
+const SNAPSHOT_HISTORY_PER_SNAPSHOT_BUDGET = 1;
 
 apiTestSuite({
     name: "pull-requests query budgets",
