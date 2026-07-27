@@ -11,6 +11,7 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 | `TestSuiteUpdater` | Class | Top-level orchestrator for a test suite update session |
 | `SnapshotDraft` | Class | Lower-level handle on a pending (processing) snapshot: `loadById`/`loadPending`/`start`, plus persist-only `updatePlan`/`addTestCase` (no generations queued). Used by the investigation agent to write proposed edits onto a detached twin without touching branch pointers. |
 | `createDetachedSnapshot` | Function | Clones a branch's baseline suite (pinned assignments + scenario recipe versions) into a snapshot wired to NO branch pointer - a detached fork. Used by the shadow investigation agent so its generations never touch the branch's pending/active snapshot. Returns `undefined` when there is no baseline to fork from. |
+| `settleAnalysisRunState` | Function | Idempotently settles an authoritative analysis snapshot, its unfinished generations, and its optional `AnalysisJob`. The snapshot transition is the mutex, so a caller that loses a race receives `settled: false` and must skip external side effects. |
 | `MissingJobProviderError` | Error | Thrown when `queuePendingGenerations` is called without a job provider |
 | `IncompleteGenerationsError` | Error | Thrown when finalizing a snapshot that still has pending/queued/running generations |
 | `FakeGenerationProvider` | Class | In-memory stub for tests - records fired batches |
@@ -96,6 +97,10 @@ await updater.finalize({ discardPendingGenerations: true });
 // Or cancel the draft - marks the snapshot "cancelled" and clears the branch
 // pointer, preserving its generations, assignments, and runs for observability
 await updater.cancel();
+
+// Or fail the draft - preserves it in history as "failed" while clearing the
+// branch pointer so incomplete changes can never be promoted later.
+await updater.fail();
 ```
 
 ### Inspecting current state

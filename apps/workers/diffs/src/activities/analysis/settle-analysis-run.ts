@@ -1,0 +1,53 @@
+import { db } from "@autonoma/db";
+import { logger as rootLogger } from "@autonoma/logger";
+import { settleAnalysisRunState } from "@autonoma/test-updates";
+import type { SettleAnalysisRunInput, SettleAnalysisRunOutput } from "@autonoma/workflow/activities";
+import { LiveAnalysisGitHub } from "./live-analysis-github";
+import { settleAnalysisGitHub } from "./settle-analysis-github";
+
+/** Settle the durable analysis run before optionally notifying GitHub. */
+export async function settleAnalysisRun(input: SettleAnalysisRunInput): Promise<SettleAnalysisRunOutput> {
+    const { snapshotId, outcome } = input;
+    const logger = rootLogger.child({ name: "settleAnalysisRun", snapshotId });
+    logger.info("Settling analysis run", { extra: { outcome: outcome.kind } });
+
+    const result = await settleAnalysisRunState({ db, snapshotId, outcome });
+    if (!result.settled) {
+        logger.warn("Analysis run was already settled; skipping GitHub effects", {
+            extra: { outcome: outcome.kind, settled: false },
+        });
+        logger.info("Finished settling analysis run", { extra: { settled: false } });
+        return result;
+    }
+
+    const settledOutcome = result.outcome ?? outcome;
+    const durationMs = await resolveDurationMs(snapshotId);
+    if (settledOutcome.kind === "failed") {
+        logger.fatal("Analysis run failed and was settled", {
+            extra: { outcome: settledOutcome.kind, durationMs, generationsFailed: result.generationsFailed },
+        });
+    } else {
+        logger.info("Analysis run database state settled", {
+            extra: { outcome: settledOutcome.kind, durationMs, generationsFailed: result.generationsFailed },
+        });
+    }
+
+    if (settledOutcome.kind === "superseded") {
+        logger.info("Finished settling superseded analysis run", { extra: { settled: true } });
+        return result;
+    }
+
+    await settleAnalysisGitHub({
+        snapshotId,
+        outcome: settledOutcome,
+        github: new LiveAnalysisGitHub(snapshotId),
+    });
+    logger.info("Finished settling analysis run", { extra: { settled: true } });
+    return result;
+}
+
+async function resolveDurationMs(snapshotId: string): Promise<number | undefined> {
+    const job = await db.analysisJob.findUnique({ where: { snapshotId }, select: { startedAt: true } });
+    if (job?.startedAt == null) return undefined;
+    return Date.now() - job.startedAt.getTime();
+}

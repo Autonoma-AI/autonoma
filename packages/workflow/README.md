@@ -83,6 +83,10 @@ Workflows define the orchestration logic using Temporal's deterministic workflow
 - **mobile** queue - Appium-based device automation activities
 - **general** queue - Reviews, assignments, notifications, scenarios, diffs
 
+The authoritative analysis workflow has one uncancellable terminal activity, `settleAnalysisRun`. It settles the
+snapshot and run state before applying GitHub effects, so a failed or cancelled workflow cannot strand a pending
+snapshot or an in-progress merge gate.
+
 ### Workers
 
 Three worker types poll their respective task queues:

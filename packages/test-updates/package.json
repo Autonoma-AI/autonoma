@@ -18,6 +18,7 @@
         "@autonoma/db": "workspace:*",
         "@autonoma/github": "workspace:*",
         "@autonoma/logger": "workspace:*",
+        "@autonoma/types": "workspace:*",
         "@autonoma/utils": "workspace:*",
         "@autonoma/workflow": "workspace:*"
     },

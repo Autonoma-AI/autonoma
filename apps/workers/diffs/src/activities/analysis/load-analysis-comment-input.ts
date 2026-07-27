@@ -1,6 +1,6 @@
 import { type Prisma, db } from "@autonoma/db";
 import type { AppHealthVerdict } from "@autonoma/diffs/analysis";
-import type { Logger } from "@autonoma/logger";
+import { logger as rootLogger } from "@autonoma/logger";
 import {
     ANALYSIS_VERDICT,
     type AnalysisIssueSeverity,
@@ -64,10 +64,9 @@ type IssueFindingRow = BugIssueRow["findings"][number];
  * degrade to absent on a shape mismatch rather than throwing. Returns undefined when the snapshot has no report -
  * there is nothing to comment on.
  */
-export async function loadAnalysisCommentInput(
-    snapshotId: string,
-    logger: Logger,
-): Promise<LoadedAnalysisComment | undefined> {
+export async function loadAnalysisCommentInput(snapshotId: string): Promise<LoadedAnalysisComment | undefined> {
+    const logger = rootLogger.child({ name: "loadAnalysisCommentInput", snapshotId });
+    logger.info("Loading analysis PR comment input");
     const report = await db.analysisReport.findUnique({
         where: { snapshotId },
         select: {
@@ -77,7 +76,10 @@ export async function loadAnalysisCommentInput(
             snapshot: { select: { branchId: true } },
         },
     });
-    if (report == null) return undefined;
+    if (report == null) {
+        logger.info("No analysis report available for PR comment");
+        return undefined;
+    }
 
     const bugRows = await db.analysisIssue.findMany({
         where: { branchId: report.snapshot.branchId, status: "open", kind: BUG_KIND },
@@ -87,17 +89,20 @@ export async function loadAnalysisCommentInput(
     // The two-plane verdict stored as a string; anything other than `client_bug` is the app-health `passed` plane.
     const verdict: AppHealthVerdict = report.verdict === CLIENT_BUG ? CLIENT_BUG : ANALYSIS_VERDICT.passed;
     const coverage = coverageSummarySchema.safeParse(report.coverage);
-    return {
+    const input = {
         verdict,
         // Rows written before the Reporter authored a summary were backfilled to "" - treat empty as absent.
         summary: report.summary !== "" ? report.summary : undefined,
         coverage: coverage.success ? coverage.data : undefined,
-        bugIssues: toBugIssues(bugRows, logger),
+        bugIssues: toBugIssues(bugRows, snapshotId),
     };
+    logger.info("Loaded analysis PR comment input", { extra: { bugIssueCount: input.bugIssues.length } });
+    return input;
 }
 
 /** Validate + order the open bug issues (descending severity), mapping each to a comment card. */
-function toBugIssues(rows: BugIssueRow[], logger: Logger): AnalysisCommentIssue[] {
+function toBugIssues(rows: BugIssueRow[], snapshotId: string): AnalysisCommentIssue[] {
+    const logger = rootLogger.child({ name: "toBugIssues", snapshotId });
     const sortable: { card: AnalysisCommentIssue; severity: AnalysisIssueSeverity }[] = [];
     for (const row of rows) {
         const severity = analysisIssueSeveritySchema.safeParse(row.severity);

@@ -5,6 +5,7 @@ import type { PipelineWorkflows } from "@autonoma/workflow";
 import { BranchAlreadyHasPendingSnapshotError } from "../snapshot-draft";
 import { TestSuiteUpdater } from "../test-update-manager";
 import { createDetachedSnapshot } from "./create-detached-snapshot";
+import { settleAnalysisRunState } from "./settle-analysis-run-state";
 
 const DIFFS_SUPERSEDE_REASON = "Superseded by a newer diffs request";
 const ANALYSIS_SUPERSEDE_REASON = "Superseded by a newer analysis request";
@@ -227,9 +228,8 @@ export class DiffsRunPreparer {
 
             const staleUpdater = await TestSuiteUpdater.continueUpdate({ db: this.db, branchId });
             await this.supersedeStalePipeline(staleUpdater.snapshotId);
-            await staleUpdater.cancel();
 
-            this.logger.info("Stale snapshot cancelled, starting fresh update", {
+            this.logger.info("Stale snapshot settled, starting fresh update", {
                 branchId,
                 staleSnapshotId: staleUpdater.snapshotId,
             });
@@ -277,7 +277,11 @@ export class DiffsRunPreparer {
         ]);
         await Promise.all([
             this.markDiffsJobSuperseded(staleSnapshotId),
-            this.markAnalysisJobSuperseded(staleSnapshotId),
+            settleAnalysisRunState({
+                db: this.db,
+                snapshotId: staleSnapshotId,
+                outcome: { kind: "superseded", reason: ANALYSIS_SUPERSEDE_REASON },
+            }),
         ]);
     }
 
@@ -328,18 +332,6 @@ export class DiffsRunPreparer {
             if (result.count > 0) this.logger.info("Stale DiffsJob marked as superseded", { snapshotId });
         } catch (error) {
             this.logger.warn("Failed to mark stale DiffsJob as superseded", { snapshotId, err: error });
-        }
-    }
-
-    private async markAnalysisJobSuperseded(snapshotId: string): Promise<void> {
-        try {
-            const result = await this.db.analysisJob.updateMany({
-                where: { snapshotId, status: "running" },
-                data: { status: "failed", failureReason: ANALYSIS_SUPERSEDE_REASON, completedAt: new Date() },
-            });
-            if (result.count > 0) this.logger.info("Stale AnalysisJob marked as superseded", { snapshotId });
-        } catch (error) {
-            this.logger.warn("Failed to mark stale AnalysisJob as superseded", { snapshotId, err: error });
         }
     }
 

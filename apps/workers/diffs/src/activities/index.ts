@@ -14,14 +14,12 @@ export { finalizeDiffs } from "./finalize-diffs";
 export { reviewGeneration } from "./review/generation";
 export { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 
-import { applyMergeGateVerdict as applyMergeGateVerdictImpl } from "./analysis/apply-merge-gate-verdict";
 import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-test";
-import { finalizeAnalysis as finalizeAnalysisImpl } from "./analysis/finalize-analysis";
 import { persistAnalysisFinding as persistAnalysisFindingImpl } from "./analysis/persist-finding";
-import { postAnalysisPrComment as postAnalysisPrCommentImpl } from "./analysis/post-analysis-comment";
 import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impact-analysis";
 import { runReporter as runReporterImpl } from "./analysis/run-reporter";
 import { selfHealAnalysisTest as selfHealAnalysisTestImpl } from "./analysis/self-heal-test";
+import { settleAnalysisRun as settleAnalysisRunImpl } from "./analysis/settle-analysis-run";
 import { analyzeDiffs } from "./analyze-diffs";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
 import { finalizeDiffs } from "./finalize-diffs";
@@ -62,11 +60,7 @@ function withHeartbeat<A extends unknown[], R>(fn: (...args: A) => Promise<R>): 
 // heartbeat; finalize (verdict derivation + promotion plumbing) is fast but heartbeats for consistency.
 export const runImpactAnalysis = withHeartbeat(runImpactAnalysisImpl);
 export const runReporter = withHeartbeat(runReporterImpl);
-export const finalizeAnalysis = withHeartbeat(finalizeAnalysisImpl);
-// A DB read + a single GitHub API call - fast, but heartbeat for consistency with the other analysis activities.
-export const postAnalysisPrComment = withHeartbeat(postAnalysisPrCommentImpl);
-// DB reads + one or two GitHub API calls (map the verdict to the `Autonoma` check conclusion).
-export const applyMergeGateVerdict = withHeartbeat(applyMergeGateVerdictImpl);
+export const settleAnalysisRun = withHeartbeat(settleAnalysisRunImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
 // The Investigator's own writes: its row-local self-heal plan rewrite (UpdateTest) + eager `delete` self-delete
 // (RemoveTest), and the idempotent finding upsert with which it files its own finding. All fast, but heartbeat for
@@ -91,9 +85,7 @@ export const persistAnalysisFinding = withHeartbeat(persistAnalysisFindingImpl);
 ({
     runImpactAnalysis,
     runReporter,
-    finalizeAnalysis,
-    postAnalysisPrComment,
-    applyMergeGateVerdict,
+    settleAnalysisRun,
 }) satisfies AnalysisActivities;
 ({ classifyInvestigationRun }) satisfies Pick<InvestigationActivities, "classifyInvestigationRun">;
 // The Investigator's own writes (self-heal, eager self-delete, own-finding persistence), on their own contract -

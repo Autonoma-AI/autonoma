@@ -249,6 +249,13 @@ export class TestSuiteUpdater {
         this.logger.info("Snapshot cancelled");
     }
 
+    /** Fails the pending snapshot and clears its branch pending pointer. */
+    public async fail() {
+        this.logger.info("Failing snapshot");
+        await this.snapshotDraft.fail();
+        this.logger.info("Snapshot failed");
+    }
+
     /**
      * Finalizes the snapshot by activating it.
      *

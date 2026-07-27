@@ -1,4 +1,5 @@
-import { executeChild, log, proxyActivities } from "@temporalio/workflow";
+import type { AnalysisRunOutcome } from "@autonoma/types";
+import { CancellationScope, executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type {
     AnalysisActivities,
     AnalysisCandidateFinding,
@@ -38,20 +39,19 @@ export interface AnalysisWorkflowInput {
 
 /**
  * The merged analysis pipeline (parent workflow): Impact Analysis -> Investigators (parallel fan-out) ->
- * Reporter -> finalize. When an org has it enabled it IS that org's PR-analysis pipeline, replacing the diffs
+ * Reporter -> terminal settlement. When an org has it enabled it IS that org's PR-analysis pipeline, replacing the diffs
  * job: Impact Analysis selects + materializes the diff-affected/proposed tests on the branch's real pending
  * snapshot, one Investigator per test runs + classifies + self-heals it and persists its OWN finding, the Reporter
- * reconciles those findings into branch-scoped issues + authors the report (verdict, counts, prose), and finalize
- * promotes the snapshot.
+ * reconciles those findings into branch-scoped issues + authors the report (verdict, counts, prose), and the one
+ * uncancellable settlement activity promotes or closes the snapshot and runs the terminal GitHub effects.
  */
 export async function analysisWorkflow(input: AnalysisWorkflowInput): Promise<void> {
     const { snapshotId } = input;
     const ids = { snapshot: { snapshotId } };
     log.info("Analysis pipeline started", ids);
 
-    // The four stages share one catch so any failure finalizes the run's status rather than leaving it stuck:
-    // finalize marks the AnalysisJob `failed` (mirroring how the diffs workflow finalizes its job on refinement
-    // failure), then the error rethrows.
+    let outcome: AnalysisRunOutcome = { kind: "succeeded" };
+    let rethrowFailure: (() => never) | undefined;
     try {
         // Stage 1 - Impact Analysis: select the diff-affected tests to investigate.
         const impact = await analysis.runImpactAnalysis({ snapshotId });
@@ -76,43 +76,19 @@ export async function analysisWorkflow(input: AnalysisWorkflowInput): Promise<vo
                 issuesResolved: reporter.issuesResolved,
             },
         });
-
-        // Stage 4 - finalize: promote the snapshot + mark the job completed.
-        const finalized = await analysis.finalizeAnalysis({ snapshotId });
-        log.info("Analysis pipeline completed", { ...ids, extra: { promoted: finalized.promoted } });
-
-        // Stage 5 - PR comment: post/update the run's comment (flag-gated, idempotent). The report is already
-        // persisted and the snapshot promoted, so a comment failure must NEVER fail the completed run - it is
-        // caught here so it can never reach the outer catch, which would otherwise re-finalize the job as failed.
-        try {
-            const comment = await analysis.postAnalysisPrComment({ snapshotId });
-            log.info("Analysis PR comment step finished", { ...ids, extra: { status: comment.status } });
-        } catch (commentError) {
-            log.error("Analysis PR comment failed; run already completed, continuing", {
-                ...ids,
-                extra: { message: rootFailureMessage(commentError) },
-            });
-        }
-
-        // Stage 6 - merge gate: map the verdict to the `Autonoma` check conclusion (flag-gated, per-org opt-in).
-        try {
-            const gate = await analysis.applyMergeGateVerdict({ snapshotId });
-            log.info("Merge gate step finished", {
-                ...ids,
-                extra: { status: gate.status, conclusion: gate.conclusion },
-            });
-        } catch (gateError) {
-            log.error("Merge gate step failed; run already completed, continuing", {
-                ...ids,
-                extra: { message: rootFailureMessage(gateError) },
-            });
-        }
     } catch (error) {
-        const failureReason = rootFailureMessage(error);
-        log.error("Analysis pipeline failed; finalizing the run as failed", { ...ids, extra: { failureReason } });
-        await analysis.finalizeAnalysis({ snapshotId, failureReason });
-        throw error;
+        rethrowFailure = () => {
+            throw error;
+        };
+        const reason = rootFailureMessage(error);
+        outcome = { kind: "failed", reason };
+        log.error("Analysis pipeline failed", { ...ids, extra: { failureReason: reason } });
     }
+
+    const settled = await CancellationScope.nonCancellable(() => analysis.settleAnalysisRun({ snapshotId, outcome }));
+    log.info("Analysis pipeline settled", { ...ids, extra: settled });
+
+    if (rethrowFailure != null) rethrowFailure();
 }
 
 /**

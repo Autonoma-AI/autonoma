@@ -18,11 +18,11 @@ function getGithubApp(): GitHubApp {
 
 /** The snapshot metadata the analysis activities need (resolved without cloning). */
 export interface SnapshotMeta {
+    snapshotId: string;
     baseSha: string;
     headSha: string;
     /** When this PR snapshot was created - the cutoff for independent (pre-PR) test selection. */
     createdAt: Date;
-    repoFullName: string;
     organizationId: string;
     applicationId: string;
     appSlug: string;
@@ -31,16 +31,21 @@ export interface SnapshotMeta {
     githubRepositoryId: number;
     /** The application's onboarding step - gates whether we may post PR comments (only once `completed`). */
     onboardingStep: OnboardingStep | undefined;
+}
+
+/** The authenticated repository access resolved for a snapshot's application. */
+export interface GitHubAccess {
+    repoFullName: string;
     githubClient: GitHubInstallationClient;
 }
 
 /** The cloned codebase plus the snapshot metadata. */
-export interface SnapshotContext extends SnapshotMeta {
+export interface SnapshotContext extends SnapshotMeta, GitHubAccess {
     codebase: Codebase;
 }
 
-/** Resolve a snapshot's repo + GitHub client + identifiers WITHOUT cloning. */
-export async function resolveSnapshotMeta(snapshotId: string): Promise<SnapshotMeta> {
+/** Load only the persisted metadata a snapshot's analysis activities need. */
+export async function loadSnapshotMeta(snapshotId: string): Promise<SnapshotMeta> {
     const snapshot = await db.branchSnapshot.findUniqueOrThrow({
         where: { id: snapshotId },
         select: {
@@ -70,17 +75,11 @@ export async function resolveSnapshotMeta(snapshotId: string): Promise<SnapshotM
         throw new Error(`Application ${application.id} has no githubRepositoryId`);
     if (snapshot.baseSha == null) throw new Error(`Snapshot ${snapshotId} has no baseSha`);
 
-    const installation = await db.gitHubInstallation.findUniqueOrThrow({
-        where: { organizationId: application.organizationId },
-    });
-    const githubClient = await getGithubApp().getInstallationClient(installation.installationId);
-    const repo = await githubClient.getRepository(application.githubRepositoryId);
-
     return {
+        snapshotId,
         baseSha: snapshot.baseSha,
         headSha: snapshot.headSha,
         createdAt: snapshot.createdAt,
-        repoFullName: repo.fullName,
         organizationId: application.organizationId,
         applicationId: application.id,
         appSlug: application.slug,
@@ -88,6 +87,19 @@ export async function resolveSnapshotMeta(snapshotId: string): Promise<SnapshotM
         branchId: snapshot.branch.id,
         githubRepositoryId: application.githubRepositoryId,
         onboardingStep: application.onboardingState?.step,
+    };
+}
+
+/** Build authenticated GitHub access for metadata already loaded from the database. */
+export async function resolveGitHubAccess(meta: SnapshotMeta): Promise<GitHubAccess> {
+    const installation = await db.gitHubInstallation.findUniqueOrThrow({
+        where: { organizationId: meta.organizationId },
+    });
+    const githubClient = await getGithubApp().getInstallationClient(installation.installationId);
+    const repo = await githubClient.getRepository(meta.githubRepositoryId);
+
+    return {
+        repoFullName: repo.fullName,
         githubClient,
     };
 }
@@ -105,17 +117,18 @@ export async function withSnapshotContext<T>(
     targetDirSeed: string,
     body: (context: SnapshotContext) => Promise<T>,
 ): Promise<T> {
-    const meta = await resolveSnapshotMeta(snapshotId);
+    const meta = await loadSnapshotMeta(snapshotId);
+    const github = await resolveGitHubAccess(meta);
     const cloneDir = await mkdtemp(join(tmpdir(), `codebase-${targetDirSeed}-`));
 
     try {
-        const codebase = await Codebase.clone(meta.githubClient, cloneDir, {
-            repoName: meta.repoFullName,
+        const codebase = await Codebase.clone(github.githubClient, cloneDir, {
+            repoName: github.repoFullName,
             commitSha: meta.headSha,
             baseSha: meta.baseSha,
         });
         try {
-            return await body({ ...meta, codebase });
+            return await body(buildSnapshotContext(meta, github, codebase));
         } finally {
             await codebase.dispose();
         }
@@ -129,4 +142,23 @@ export async function withSnapshotContext<T>(
         });
         throw error;
     }
+}
+
+function buildSnapshotContext(meta: SnapshotMeta, github: GitHubAccess, codebase: Codebase): SnapshotContext {
+    return {
+        snapshotId: meta.snapshotId,
+        baseSha: meta.baseSha,
+        headSha: meta.headSha,
+        createdAt: meta.createdAt,
+        organizationId: meta.organizationId,
+        applicationId: meta.applicationId,
+        appSlug: meta.appSlug,
+        clientName: meta.clientName,
+        branchId: meta.branchId,
+        githubRepositoryId: meta.githubRepositoryId,
+        onboardingStep: meta.onboardingStep,
+        repoFullName: github.repoFullName,
+        githubClient: github.githubClient,
+        codebase,
+    };
 }

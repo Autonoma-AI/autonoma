@@ -1,6 +1,6 @@
 import { db } from "@autonoma/db";
+import type { GitHubInstallationClient } from "@autonoma/github";
 import { logger as rootLogger } from "@autonoma/logger";
-import type { SnapshotContext } from "./snapshot-context";
 
 export interface PrMeta {
     prNumber: number;
@@ -8,10 +8,14 @@ export interface PrMeta {
     prBody?: string;
 }
 
+interface ResolvePrMetaContext {
+    branchId: string;
+    githubRepositoryId: number;
+    githubClient: GitHubInstallationClient;
+}
+
 /** PR number/title from the feature-branch record, body fetched from GitHub. Falls back gracefully for main. */
-export async function resolvePrMeta(
-    context: Pick<SnapshotContext, "branchId" | "githubRepositoryId" | "githubClient">,
-): Promise<PrMeta> {
+export async function resolvePrMeta(context: ResolvePrMetaContext): Promise<PrMeta> {
     const featureBranch = await db.featureBranchInfo.findUnique({
         where: { branchId: context.branchId },
         select: { prNumber: true, prTitle: true },

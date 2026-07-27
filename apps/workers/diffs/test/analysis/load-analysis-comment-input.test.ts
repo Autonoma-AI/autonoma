@@ -1,6 +1,5 @@
 import { ApplicationArchitecture, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
-import { logger as rootLogger } from "@autonoma/logger";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { expect } from "vitest";
 import { loadAnalysisCommentInput } from "../../src/activities/analysis/load-analysis-comment-input";
@@ -13,8 +12,6 @@ declare global {
 const POSTGRES_IMAGE = "postgres:17-alpine";
 let seq = 0;
 const next = () => seq++;
-
-const logger = rootLogger.child({ name: "loadAnalysisCommentInput.test" });
 
 const OLDER_RUN_AT = new Date("2026-07-01T10:00:00Z");
 const NEWER_RUN_AT = new Date("2026-07-02T10:00:00Z");
@@ -168,7 +165,7 @@ integrationTestSuite({
             const branch = await harness.seedBranch();
             const issueId = await harness.seedIssue(branch);
 
-            const loaded = await loadAnalysisCommentInput(branch.snapshotId, logger);
+            const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
             expect(loaded?.bugIssues).toHaveLength(1);
             const card = loaded?.bugIssues[0];
@@ -187,7 +184,7 @@ integrationTestSuite({
             // `cart` findings exist on the branch but were never attributed to this issue.
             await harness.seedIssue(branch, { primaryFindingSlug: "cart" });
 
-            const loaded = await loadAnalysisCommentInput(branch.snapshotId, logger);
+            const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
             const card = loaded?.bugIssues[0];
             expect(card?.clipKey).toBeUndefined();
@@ -198,7 +195,7 @@ integrationTestSuite({
         test("reports a pre-Reporter empty summary as absent rather than blank prose", async ({ harness }) => {
             const branch = await harness.seedBranch("");
 
-            const loaded = await loadAnalysisCommentInput(branch.snapshotId, logger);
+            const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
             expect(loaded?.summary).toBeUndefined();
         });
@@ -209,7 +206,7 @@ integrationTestSuite({
             const branch = await harness.seedBranch();
             await harness.seedIssue(branch, { severity: "catastrophic" });
 
-            const loaded = await loadAnalysisCommentInput(branch.snapshotId, logger);
+            const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
             expect(loaded?.bugIssues).toEqual([]);
         });
@@ -218,7 +215,7 @@ integrationTestSuite({
             const branch = await harness.seedBranch();
             await harness.seedIssue(branch, { status: "resolved" });
 
-            const loaded = await loadAnalysisCommentInput(branch.snapshotId, logger);
+            const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
             expect(loaded?.bugIssues).toEqual([]);
         });
@@ -226,7 +223,7 @@ integrationTestSuite({
         test("returns undefined for a snapshot with no report", async ({ harness }) => {
             const branch = await harness.seedBranch();
 
-            const loaded = await loadAnalysisCommentInput(branch.olderSnapshotId, logger);
+            const loaded = await loadAnalysisCommentInput(branch.olderSnapshotId);
 
             expect(loaded).toBeUndefined();
         });

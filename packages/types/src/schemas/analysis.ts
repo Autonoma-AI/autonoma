@@ -8,6 +8,12 @@ import {
 } from "./investigation-report";
 import { suspectedCauseSchema } from "./suspected-cause";
 
+/** The terminal state of an authoritative analysis run. */
+export type AnalysisRunOutcome =
+    | { kind: "succeeded" }
+    | { kind: "failed"; reason: string }
+    | { kind: "superseded"; reason: string };
+
 /**
  * The terminal verdict an Investigator emits for one test - the complete taxonomy the merged pipeline resolves
  * every run to. Two planes:

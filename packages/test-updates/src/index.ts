@@ -21,6 +21,11 @@ export { fetchTestSuiteInfo } from "./queries/fetch-info";
 export { createDetachedSnapshot, type CreateDetachedSnapshotParams } from "./queries/create-detached-snapshot";
 export { buildSdkUrl } from "./queries/sdk-url";
 export {
+    settleAnalysisRunState,
+    type SettleAnalysisRunStateInput,
+    type SettleAnalysisRunStateResult,
+} from "./queries/settle-analysis-run-state";
+export {
     DiffsRunPreparer,
     type DiffsRunFlags,
     type DiffsRunPreparerDeps,

@@ -122,9 +122,9 @@ Per-org opt-in blocking GitHub check on client bugs, with a Skip button. Off by 
   create/remove a repo ruleset that requires the `Autonoma` check on ALL branches - so every PR is gated
   regardless of its base branch, not only the default branch. The check, verdict, and Skip already apply to every
   PR on any branch; the ruleset is only what makes a `failure` actually block the merge.
-- The verdict -> conclusion mapping runs in the **diffs worker** at the analysis finalize seam (the
-  `applyMergeGateVerdict` activity, alongside `postAnalysisPrComment`), because that is where the report and the
-  snapshot's GitHub client live. The shared check-run store and the pure verdict mapping live in
+- The verdict -> conclusion mapping runs in the **diffs worker** after authoritative analysis settlement, through
+  `settleAnalysisRun` / `settleAnalysisGitHub`; the PR comment is also an effect of that terminal path. The shared
+  check-run store and the pure verdict mapping live in
   `@autonoma/github/check`.
 - Fail-open on a job error (conclusion `neutral`); fail-closed if Autonoma is fully unreachable (the required check
   never reaches success, so only a repo admin can override). See `merge-gate-implementation-spec.md`.

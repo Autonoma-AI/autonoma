@@ -1,4 +1,4 @@
-import type { AnalysisFindingReport, AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
+import type { AnalysisFindingReport, AnalysisRunOutcome, AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
 
 /**
  * The merged analysis pipeline's activities (run on the DIFFS task queue). The pipeline IS the PR-analysis
@@ -103,43 +103,15 @@ export interface RunReporterOutput {
     clientBugCount: number;
 }
 
-export interface FinalizeAnalysisInput {
+export interface SettleAnalysisRunInput {
     snapshotId: string;
-    /**
-     * When present, the run FAILED with this reason: finalize marks the AnalysisJob `failed` and does NOT
-     * promote. Absent on the happy path, where finalize promotes the snapshot and marks the job `completed`.
-     * Mirrors `finalizeDiffs`'s both-terminal shape.
-     */
-    failureReason?: string;
+    outcome: AnalysisRunOutcome;
 }
 
-export interface FinalizeAnalysisOutput {
-    /** Whether the snapshot was promoted - false on the failure path. */
-    promoted: boolean;
-}
-
-export interface PostAnalysisPrCommentInput {
-    /** The branch's real pending snapshot the run reconciled - the comment reads its persisted AnalysisReport. */
-    snapshotId: string;
-}
-
-export interface PostAnalysisPrCommentOutput {
-    /** "posted" (new comment) | "updated" (edited in place) | "skipped" (flag off, no PR, or no report). */
-    status: "posted" | "updated" | "skipped";
-    /** The PR comment id when one was posted or updated; absent when skipped. */
-    commentId?: string;
-}
-
-export interface ApplyMergeGateVerdictInput {
-    /** The branch's real pending snapshot the run reconciled - the check reads its persisted AnalysisReport verdict. */
-    snapshotId: string;
-}
-
-export interface ApplyMergeGateVerdictOutput {
-    /** "posted" (the `Autonoma` check conclusion was set) | "skipped" (gate off for the org, or no PR). */
-    status: "posted" | "skipped";
-    /** The conclusion set on the check when posted; absent when skipped. */
-    conclusion?: "success" | "failure" | "neutral";
+export interface SettleAnalysisRunOutput {
+    settled: boolean;
+    generationsFailed: number;
+    discardedChangeCount: number;
 }
 
 export interface SelfHealAnalysisTestInput {
@@ -181,21 +153,14 @@ export interface DeleteAnalysisTestOutput {
 }
 
 /**
- * The parent stages of the merged analysis pipeline (Impact Analysis, Reporter, finalize) plus the terminal
- * PR-comment step. `postAnalysisPrComment` runs after finalize on the happy path and is fully contained: it
- * reads the persisted AnalysisReport and posts/updates a single `analysis`-kind PR comment, gated OFF by default.
+ * The parent stages of the merged analysis pipeline plus its one terminal settlement activity. The settlement
+ * owns the snapshot, generation, job, merge-gate, and PR-comment protocol so no workflow exit can leave an
+ * incomplete run behind.
  */
 export interface AnalysisActivities {
     runImpactAnalysis(input: RunImpactAnalysisInput): Promise<RunImpactAnalysisOutput>;
     runReporter(input: RunReporterInput): Promise<RunReporterOutput>;
-    finalizeAnalysis(input: FinalizeAnalysisInput): Promise<FinalizeAnalysisOutput>;
-    postAnalysisPrComment(input: PostAnalysisPrCommentInput): Promise<PostAnalysisPrCommentOutput>;
-    /**
-     * Merge-gate finalize step: map the persisted `AnalysisReport.verdict` to the `Autonoma` check conclusion and
-     * post/update the check. Runs after finalize on the happy path, fully contained like postAnalysisPrComment, and
-     * gated OFF by default (per-org `mergeGateEnabled` + the global MERGE_GATE_ENABLED switch).
-     */
-    applyMergeGateVerdict(input: ApplyMergeGateVerdictInput): Promise<ApplyMergeGateVerdictOutput>;
+    settleAnalysisRun(input: SettleAnalysisRunInput): Promise<SettleAnalysisRunOutput>;
 }
 
 /**

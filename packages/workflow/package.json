@@ -28,6 +28,7 @@
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@temporalio/activity": "catalog:",
         "@temporalio/testing": "catalog:",
         "@types/node": "catalog:",
         "dotenv": "catalog:",

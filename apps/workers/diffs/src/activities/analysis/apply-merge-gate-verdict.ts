@@ -1,5 +1,5 @@
 import { analytics } from "@autonoma/analytics";
-import { db } from "@autonoma/db";
+import type { PrismaClient } from "@autonoma/db";
 import {
     buildMergeGateCheckResult,
     createGitHubCheckRunStore,
@@ -9,10 +9,9 @@ import {
 } from "@autonoma/github/check";
 import { isOnboardingComplete } from "@autonoma/github/comment";
 import { logger as rootLogger } from "@autonoma/logger";
-import { ANALYSIS_VERDICT, coverageSummarySchema } from "@autonoma/types";
-import type { ApplyMergeGateVerdictInput, ApplyMergeGateVerdictOutput } from "@autonoma/workflow/activities";
+import { ANALYSIS_VERDICT, type AnalysisRunOutcome, coverageSummarySchema } from "@autonoma/types";
 import { resolvePrMeta } from "../../codebase/pr-meta";
-import { resolveSnapshotMeta } from "../../codebase/snapshot-context";
+import type { GitHubAccess, SnapshotMeta } from "../../codebase/snapshot-context";
 import { env } from "../../env";
 
 /** The verdict string the app-health plane files a real client bug under. Anything else is the `passed` plane. */
@@ -23,17 +22,24 @@ const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
  * `Autonoma` check-run conclusion, and post/update the check.
  * Gated OFF by default: the global `MERGE_GATE_ENABLED` switch AND the org's `mergeGateEnabled` (which itself requires `analysisEnabled`).
  */
-export async function applyMergeGateVerdict(input: ApplyMergeGateVerdictInput): Promise<ApplyMergeGateVerdictOutput> {
-    const { snapshotId } = input;
-    const logger = rootLogger.child({ name: "applyMergeGateVerdict" });
+export async function concludeMergeGate({
+    db,
+    github,
+    meta,
+    outcome,
+}: {
+    db: PrismaClient;
+    github: GitHubAccess;
+    meta: SnapshotMeta;
+    outcome: AnalysisRunOutcome;
+}): Promise<{ status: "posted" | "skipped"; conclusion?: "success" | "failure" | "neutral" }> {
+    const logger = rootLogger.child({ name: "concludeMergeGate", snapshotId: meta.snapshotId });
     logger.info("Applying merge-gate verdict");
 
     if (!env.MERGE_GATE_ENABLED) {
         logger.info("Skipping merge gate - MERGE_GATE_ENABLED is off");
         return { status: "skipped" };
     }
-
-    const meta = await resolveSnapshotMeta(snapshotId);
 
     const settings = await db.organizationSettings.findUnique({
         where: { organizationId: meta.organizationId },
@@ -52,17 +58,21 @@ export async function applyMergeGateVerdict(input: ApplyMergeGateVerdictInput): 
         return { status: "skipped" };
     }
 
-    const prMeta = await resolvePrMeta(meta);
+    const prMeta = await resolvePrMeta({
+        branchId: meta.branchId,
+        githubRepositoryId: meta.githubRepositoryId,
+        githubClient: github.githubClient,
+    });
     if (prMeta.prNumber <= 0) {
         logger.info("Skipping merge gate - snapshot is not attached to a PR");
         return { status: "skipped" };
     }
 
-    const report = await loadReport(snapshotId);
+    const report = await loadReport(db, meta);
     const result = buildMergeGateCheckResult({
         verdict: report?.verdict ?? "passed",
         // No persisted report means the pipeline never reached a verdict - fail open to neutral.
-        errored: report == null,
+        errored: outcome.kind === "failed" || report == null,
         coverageGapCount: report?.coverageGapCount ?? 0,
         clientBugHeadlines: report?.clientBugHeadlines ?? [],
     });
@@ -70,11 +80,11 @@ export async function applyMergeGateVerdict(input: ApplyMergeGateVerdictInput): 
     const store = createGitHubCheckRunStore(db);
     // Serialize against a concurrent PR-open `postPending` for the same head, so the update/create
     // choice is made under the lock and we never post a second `Autonoma` check run for the commit.
-    await store.runExclusive(meta.repoFullName, meta.headSha, async () => {
-        const existing = await store.getByHead(meta.repoFullName, meta.headSha);
+    await store.runExclusive(github.repoFullName, meta.headSha, async () => {
+        const existing = await store.getByHead(github.repoFullName, meta.headSha);
         if (existing != null) {
-            await meta.githubClient.updateCheckRun({
-                repoFullName: meta.repoFullName,
+            await github.githubClient.updateCheckRun({
+                repoFullName: github.repoFullName,
                 checkRunId: existing.checkRunId,
                 status: "completed",
                 conclusion: result.conclusion,
@@ -82,12 +92,12 @@ export async function applyMergeGateVerdict(input: ApplyMergeGateVerdictInput): 
                 summary: result.summary,
                 actions: result.actions,
             });
-            await store.setConclusion(meta.repoFullName, meta.headSha, result.conclusion);
+            await store.setConclusion(github.repoFullName, meta.headSha, result.conclusion);
             return;
         }
         // No pending check was posted at PR open (e.g. the org was enabled after the PR opened) - create one now.
-        const checkRunId = await meta.githubClient.createCheckRun({
-            repoFullName: meta.repoFullName,
+        const checkRunId = await github.githubClient.createCheckRun({
+            repoFullName: github.repoFullName,
             headSha: meta.headSha,
             name: MERGE_GATE_CHECK_NAME,
             status: "completed",
@@ -97,7 +107,7 @@ export async function applyMergeGateVerdict(input: ApplyMergeGateVerdictInput): 
             actions: result.actions,
         });
         await store.upsert({
-            repoFullName: meta.repoFullName,
+            repoFullName: github.repoFullName,
             prNumber: prMeta.prNumber,
             headSha: meta.headSha,
             checkRunId,
@@ -108,7 +118,7 @@ export async function applyMergeGateVerdict(input: ApplyMergeGateVerdictInput): 
     analytics.capture(
         meta.organizationId,
         MERGE_GATE_EVENT.checkPosted,
-        { conclusion: result.conclusion, prNumber: prMeta.prNumber, repoFullName: meta.repoFullName },
+        { conclusion: result.conclusion, prNumber: prMeta.prNumber, repoFullName: github.repoFullName },
         { [MERGE_GATE_ANALYTICS_GROUP]: meta.organizationId },
     );
 
@@ -127,16 +137,16 @@ interface LoadedReport {
 /**
  * Read the persisted run's verdict, its coverage-gap count, and the `client_bug` headlines (for the failure summary).
  */
-async function loadReport(snapshotId: string): Promise<LoadedReport | undefined> {
+async function loadReport(db: PrismaClient, meta: SnapshotMeta): Promise<LoadedReport | undefined> {
     const report = await db.analysisReport.findUnique({
-        where: { snapshotId },
+        where: { snapshotId: meta.snapshotId },
         select: { verdict: true, coverage: true },
     });
     if (report == null) return undefined;
 
     // Findings are keyed to the job; read the `client_bug` headlines directly by the snapshot PK.
     const clientBugs = await db.analysisFinding.findMany({
-        where: { reportSnapshotId: snapshotId, category: CLIENT_BUG },
+        where: { reportSnapshotId: meta.snapshotId, category: CLIENT_BUG },
         orderBy: { displayOrder: "asc" },
         select: { headline: true },
     });

@@ -555,7 +555,23 @@ export class SnapshotDraft {
      */
     public async cancel() {
         this.logger.info("Cancelling pending snapshot");
+        await this.close("cancelled");
+        this.logger.info("Pending snapshot cancelled");
+    }
 
+    /**
+     * Fails this pending snapshot without destroying its data.
+     *
+     * Failed snapshots remain visible in history while the pending pointer is cleared, so a later run can begin
+     * and callers cannot accidentally promote this run's incomplete changes.
+     */
+    public async fail() {
+        this.logger.info("Failing pending snapshot");
+        await this.close("failed");
+        this.logger.info("Pending snapshot failed");
+    }
+
+    private async close(status: "cancelled" | "failed"): Promise<void> {
         await this.db.$transaction(async (tx) => {
             const snapshot = await tx.branchSnapshot.findUniqueOrThrow({
                 where: { id: this.snapshotId },
@@ -572,15 +588,12 @@ export class SnapshotDraft {
 
             await tx.branchSnapshot.update({
                 where: { id: this.snapshotId },
-                data: { status: "cancelled" },
+                data: { status },
             });
-
             await tx.branch.update({
                 where: { id: this.branchId },
                 data: { pendingSnapshotId: null },
             });
         });
-
-        this.logger.info("Pending snapshot cancelled");
     }
 }

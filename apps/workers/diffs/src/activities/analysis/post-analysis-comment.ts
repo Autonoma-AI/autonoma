@@ -1,17 +1,16 @@
-import { db } from "@autonoma/db";
+import type { PrismaClient } from "@autonoma/db";
 import {
     createGitHubPrCommentStore,
     isOnboardingComplete,
     postOrUpdateCommentOnGithub,
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
-import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { logger as rootLogger } from "@autonoma/logger";
 import type { S3Storage } from "@autonoma/storage";
-import type { PostAnalysisPrCommentInput, PostAnalysisPrCommentOutput } from "@autonoma/workflow/activities";
+import type { AnalysisRunOutcome } from "@autonoma/types";
 import { resolvePrMeta } from "../../codebase/pr-meta";
-import { resolveSnapshotMeta } from "../../codebase/snapshot-context";
+import type { GitHubAccess, SnapshotMeta } from "../../codebase/snapshot-context";
 import { env } from "../../env";
-import { getStorage } from "../../services";
 import { buildAnalysisCommentPayload } from "./analysis-comment-payload";
 import { loadAnalysisCommentInput } from "./load-analysis-comment-input";
 
@@ -30,11 +29,20 @@ const SCREENSHOT_TTL_SECONDS = 7 * 24 * 60 * 60;
  * NOTE: the handoff prompt tells the agent to call the MCP tool `get_analysis`, which is not registered on the debug
  * MCP server yet. It must land before this flag is enabled for real PRs.
  */
-export async function postAnalysisPrComment(input: PostAnalysisPrCommentInput): Promise<PostAnalysisPrCommentOutput> {
-    const { snapshotId } = input;
-    // snapshotId is bound to the observability context by the activity interceptor; only non-canonical fields go
-    // in `extra`.
-    const logger = rootLogger.child({ name: "postAnalysisPrComment" });
+export async function postAnalysisComment({
+    db,
+    github,
+    storage,
+    meta,
+    outcome,
+}: {
+    db: PrismaClient;
+    github: GitHubAccess;
+    storage: S3Storage;
+    meta: SnapshotMeta;
+    outcome: AnalysisRunOutcome;
+}): Promise<{ status: "posted" | "updated" | "skipped"; commentId?: string }> {
+    const logger = rootLogger.child({ name: "postAnalysisComment", snapshotId: meta.snapshotId });
     logger.info("Posting analysis PR comment");
 
     if (!env.ANALYSIS_PR_COMMENT_ENABLED) {
@@ -42,8 +50,16 @@ export async function postAnalysisPrComment(input: PostAnalysisPrCommentInput): 
         return { status: "skipped" };
     }
 
-    const meta = await resolveSnapshotMeta(snapshotId);
-    const prMeta = await resolvePrMeta(meta);
+    if (outcome.kind !== "succeeded") {
+        logger.info("Skipping analysis PR comment - the run did not succeed");
+        return { status: "skipped" };
+    }
+
+    const prMeta = await resolvePrMeta({
+        branchId: meta.branchId,
+        githubRepositoryId: meta.githubRepositoryId,
+        githubClient: github.githubClient,
+    });
     if (prMeta.prNumber <= 0) {
         logger.info("Skipping analysis PR comment - snapshot is not attached to a PR");
         return { status: "skipped" };
@@ -57,8 +73,8 @@ export async function postAnalysisPrComment(input: PostAnalysisPrCommentInput): 
     // Both only need snapshotId and neither consumes the other; the run always persists a report before finalize,
     // so the null-report branch is a defensive guard, not a hot path worth gating the preview read on.
     const [report, previewUrl] = await Promise.all([
-        loadAnalysisCommentInput(snapshotId, logger),
-        resolvePreviewUrl(snapshotId),
+        loadAnalysisCommentInput(meta.snapshotId),
+        resolvePreviewUrl(db, meta.snapshotId),
     ]);
     if (report == null) {
         logger.info("Skipping analysis PR comment - no AnalysisReport persisted for this snapshot");
@@ -74,7 +90,7 @@ export async function postAnalysisPrComment(input: PostAnalysisPrCommentInput): 
         },
         {
             prNumber: prMeta.prNumber,
-            repoFullName: meta.repoFullName,
+            repoFullName: github.repoFullName,
             commitSha: meta.headSha,
             prUrl: buildPrUrl(meta.appSlug, prMeta.prNumber),
             issueBaseUrl: buildIssueBaseUrl(meta.appSlug, prMeta.prNumber),
@@ -82,13 +98,13 @@ export async function postAnalysisPrComment(input: PostAnalysisPrCommentInput): 
             previewUrl,
             assetBaseUrl: resolveCommentAssetBaseUrl({ appUrl: resolveAppUrl() }),
         },
-        makeScreenshotSigner(getStorage(), logger),
+        makeScreenshotSigner(storage, meta.snapshotId),
     );
 
     const result = await postOrUpdateCommentOnGithub({
-        client: meta.githubClient,
+        client: github.githubClient,
         store: createGitHubPrCommentStore(db, "analysis"),
-        repoFullName: meta.repoFullName,
+        repoFullName: github.repoFullName,
         prNumber: prMeta.prNumber,
         lastCommitSha: meta.headSha,
         payload,
@@ -115,7 +131,8 @@ export async function postAnalysisPrComment(input: PostAnalysisPrCommentInput): 
  * stay image/png. A signing failure is contained (logged + undefined) so a broken screenshot never sinks the
  * comment. Kept injectable so the builder stays hermetically testable (no S3 dependency).
  */
-function makeScreenshotSigner(storage: S3Storage, logger: Logger): (s3Key: string) => Promise<string | undefined> {
+function makeScreenshotSigner(storage: S3Storage, snapshotId: string): (s3Key: string) => Promise<string | undefined> {
+    const logger = rootLogger.child({ name: "makeScreenshotSigner", snapshotId });
     return async (s3Key) => {
         const contentType = s3Key.endsWith(".gif") ? "image/gif" : "image/png";
         try {
@@ -128,7 +145,7 @@ function makeScreenshotSigner(storage: S3Storage, logger: Logger): (s3Key: strin
 }
 
 /** The branch's preview environment URL, if it has a web deployment. */
-async function resolvePreviewUrl(snapshotId: string): Promise<string | undefined> {
+async function resolvePreviewUrl(db: PrismaClient, snapshotId: string): Promise<string | undefined> {
     const snapshot = await db.branchSnapshot.findUnique({
         where: { id: snapshotId },
         select: {
