@@ -401,7 +401,7 @@ integrationTestSuite({
             seedResult: { orgId, createApp },
         }) => {
             const appId = await createApp();
-            await linkRepository(harness, appId, 93_040);
+            await linkRepository(harness, appId, 93_042);
             const { github, applications } = buildTopologyServices(harness, orgId, []);
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 github,
@@ -412,7 +412,7 @@ integrationTestSuite({
             const result = await manager.setDeployBranch(appId, orgId, "refs/heads/release");
 
             expect(result.branch).toBe("release");
-            expect(github.getBranchHead).toHaveBeenCalledWith(orgId, 93_040, "release");
+            expect(github.getBranchHead).toHaveBeenCalledWith(orgId, 93_042, "release");
 
             const config = await manager.getPreviewkitConfig(appId, orgId);
             expect(config.deployBranch).toBe("release");
@@ -437,6 +437,10 @@ integrationTestSuite({
     },
 });
 
+/**
+ * Every case shares the suite's one organization, and `github_repository_id` is unique per
+ * organization - so each case must pass a `githubRepositoryId` no other case in this file uses.
+ */
 async function linkRepository(harness: OnboardingTestHarness, applicationId: string, githubRepositoryId: number) {
     await harness.db.application.update({
         where: { id: applicationId },

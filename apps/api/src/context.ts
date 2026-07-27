@@ -8,6 +8,7 @@ import { temporalPipelineWorkflows } from "@autonoma/workflow";
 import type { Context as HonoContext } from "hono";
 import type { AuthSession, AuthUser } from "./auth";
 import { buildAuth } from "./auth";
+import { encryptionHelper } from "./encryption";
 import { env } from "./env";
 import { buildGitHubApp } from "./github/github-app";
 import { resolvePreviewkitTriggers } from "./previewkit/previewkit-triggers";
@@ -20,7 +21,7 @@ export const storageProvider = S3Storage.createFromEnv();
 export const redisClient = await connectRedis({ url: env.REDIS_URL });
 export const auth = buildAuth({ redisClient, conn: db });
 
-export const encryptionHelper = new EncryptionHelper(env.SCENARIO_ENCRYPTION_KEY);
+export { encryptionHelper };
 export const scenarioManager = new ScenarioManager(db, encryptionHelper);
 
 // VERCEL_ENCRYPTION_KEY is optional (Vercel Marketplace is an opt-in

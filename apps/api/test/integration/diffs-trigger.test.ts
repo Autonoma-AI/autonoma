@@ -612,6 +612,9 @@ apiTestSuite({
             await harness.db.investigationReport.create({
                 data: {
                     snapshotId: twinId!,
+                    // Only a report carrying the denormalized island header (appSlug) surfaces from
+                    // the presence read; a markdown-only row is hidden as unrenderable.
+                    appSlug: "test-app",
                     s3Key: "investigation/app/twin.md",
                     testCount: 3,
                     clientBugCount: 1,

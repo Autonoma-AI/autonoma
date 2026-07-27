@@ -1,4 +1,5 @@
 import { analytics } from "@autonoma/analytics";
+import type { PrismaClient } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -17,6 +18,12 @@ const logger = rootLogger.child({ name: "mcpHttpRouter" });
 /** The verified MCP bearer session (userId-only, multi-org), stashed by the auth middleware. */
 type McpSession = NonNullable<Awaited<ReturnType<typeof auth.api.getMcpSession>>>;
 type McpEnv = { Variables: { mcpSession: McpSession } };
+
+/** The per-request wiring a named MCP server is built from. */
+interface McpServerDeps {
+    services: Services;
+    db: PrismaClient;
+}
 
 /**
  * Resource server for the MCP surface, mounted at `/v1/mcp`. Better Auth is the
@@ -61,9 +68,13 @@ mcpHttpRouter.all("/debug", (c) => {
     // the org's GitHub App installation repos, so it needs the per-request
     // `services.github` (a diffs-only repo has no preview env to shortcut it).
     const mcpAnalytics = new McpAnalytics(analytics, "debug", userId);
-    return serveMcp(c, (services) => {
+    return serveMcp(c, ({ services, db }) => {
         const resolveRepoCtx = mcpAnalytics.observeRepoContextResolution((repoFullName) =>
-            resolveRepoContext(services.github, userId, repoFullName),
+            resolveRepoContext(
+                { db, listRepositories: (organizationId) => services.github.listRepositories(organizationId) },
+                userId,
+                repoFullName,
+            ),
         );
         return buildDebugMcpServer({
             services,
@@ -82,7 +93,7 @@ mcpHttpRouter.all("/debug", (c) => {
 mcpHttpRouter.all("/onboarding", (c) => {
     const { userId } = c.get("mcpSession");
     const mcpAnalytics = new McpAnalytics(analytics, "onboarding", userId);
-    return serveMcp(c, (services) => buildOnboardingMcpServer({ services, userId, analytics: mcpAnalytics }));
+    return serveMcp(c, ({ services }) => buildOnboardingMcpServer({ services, userId, analytics: mcpAnalytics }));
 });
 
 /**
@@ -90,12 +101,12 @@ mcpHttpRouter.all("/onboarding", (c) => {
  * fully-wired service graph the tRPC layer builds (auth already came from the
  * verified MCP token), build the named server, and pump it over Streamable HTTP.
  */
-async function serveMcp(c: Context<McpEnv>, build: (services: Services) => McpServer) {
+async function serveMcp(c: Context<McpEnv>, build: (deps: McpServerDeps) => McpServer) {
     const { userId } = c.get("mcpSession");
     logger.info("Handling MCP request", { userId, extra: { path: c.req.path } });
 
-    const { services } = await createContext(c);
-    const server = build(services);
+    const { services, db } = await createContext(c);
+    const server = build({ services, db });
     const transport = new StreamableHTTPTransport();
     await server.connect(transport);
 

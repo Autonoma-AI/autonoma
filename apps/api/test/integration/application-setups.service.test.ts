@@ -6,6 +6,10 @@ import { ApplicationSetupService } from "../../src/application-setup/application
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
 
+// Ingestion parses every uploaded test case's frontmatter with TestCaseFrontmatterSchema, which
+// requires a `description` of at least 20 characters - a fixture without one fails the upload.
+const TEST_CASE_DESCRIPTION = "Signing in with valid credentials lands the user on the dashboard.";
+
 async function createSetupFixture(harness: APITestHarness, name: string) {
     const app = await harness.services.applications.createApplication({
         name,
@@ -122,7 +126,13 @@ apiTestSuite({
 
             // Everything but the recipe: tests + kb + scenarios, and the setup completed.
             await service.uploadArtifacts(setupId, harness.organizationId, {
-                testCases: [{ name: "login.md", folder: "auth", content: "---\n---\n\nSign in" }],
+                testCases: [
+                    {
+                        name: "login.md",
+                        folder: "auth",
+                        content: `---\ndescription: ${TEST_CASE_DESCRIPTION}\n---\n\nSign in`,
+                    },
+                ],
                 artifacts: [
                     { name: "AUTONOMA.md", content: "# Knowledge base" },
                     { name: "scenarios.md", content: "# Scenarios" },
@@ -153,7 +163,13 @@ apiTestSuite({
                 ],
             };
             const artifactsBody = {
-                testCases: [{ name: "login.md", folder: "auth", content: "---\nscenario: standard\n---\n\nSign in" }],
+                testCases: [
+                    {
+                        name: "login.md",
+                        folder: "auth",
+                        content: `---\nscenario: standard\ndescription: ${TEST_CASE_DESCRIPTION}\n---\n\nSign in`,
+                    },
+                ],
                 artifacts: [
                     { name: "AUTONOMA.md", content: "# Knowledge base" },
                     { name: "scenarios.md", content: "# Scenarios" },
@@ -195,7 +211,13 @@ apiTestSuite({
                 ],
             });
             await service.uploadArtifacts(setupId, harness.organizationId, {
-                testCases: [{ name: "login.md", folder: "auth", content: "---\nscenario: standard\n---\n\nSign in" }],
+                testCases: [
+                    {
+                        name: "login.md",
+                        folder: "auth",
+                        content: `---\nscenario: standard\ndescription: ${TEST_CASE_DESCRIPTION}\n---\n\nSign in`,
+                    },
+                ],
                 artifacts: [
                     { name: "AUTONOMA.md", content: "# Knowledge base" },
                     { name: "scenarios.md", content: "# Scenarios" },

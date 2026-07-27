@@ -66,6 +66,9 @@ const DISCOVER_RESPONSE = {
     },
 };
 
+// Every case shares one organization and the "acme/app" repo, and `previewkit_environment` is unique
+// on (repo_full_name, pr_number) - so a PreviewKit-environment fixture must use a PR number no other
+// case in this file uses.
 integrationTestSuite({
     name: "OnboardingManager",
     createHarness: () => OnboardingTestHarness.create(),
@@ -1908,16 +1911,16 @@ integrationTestSuite({
             await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
             await harness.db.previewkitEnvironment.create({
                 data: {
-                    namespace: `preview-managed-${appId}-pr-11`,
+                    namespace: `preview-managed-${appId}-pr-31`,
                     repoFullName: "acme/app",
-                    prNumber: 11,
-                    headSha: "sha-11",
+                    prNumber: 31,
+                    headSha: "sha-31",
                     headRef: "feat-autonoma-sdk",
                     githubRepositoryId: repoId,
                     organizationId: orgId,
                     status: "ready",
                     deployedAt: new Date(),
-                    urls: { web: "https://web-pr-11.preview.example.com" },
+                    urls: { web: "https://web-pr-31.preview.example.com" },
                     resolvedConfig: {
                         version: 1,
                         apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
@@ -1949,7 +1952,7 @@ integrationTestSuite({
             vi.stubGlobal("fetch", fetchMock);
 
             try {
-                const result = await manager.prepareSdkTarget(appId, orgId, "pr-11");
+                const result = await manager.prepareSdkTarget(appId, orgId, "pr-31");
 
                 expect(result.status).toBe("redeploy_started");
                 const signingCall = secretsService.upsert.mock.calls.find((call) =>
@@ -1958,7 +1961,7 @@ integrationTestSuite({
                 const generated = signingCall?.[2].find((item) => item.key === "AUTONOMA_SIGNING_SECRET")?.value;
                 expect(generated).toMatch(/^[0-9a-f]{64}$/);
                 expect(generated).not.toBe("shared-secret");
-                expect(previewkitClient.redeploy).toHaveBeenCalledWith("acme/app", 11, orgId);
+                expect(previewkitClient.redeploy).toHaveBeenCalledWith("acme/app", 31, orgId);
                 // Prepare provisions secrets only - it never discovers.
                 expect(fetchMock).not.toHaveBeenCalled();
             } finally {
@@ -1976,16 +1979,16 @@ integrationTestSuite({
             await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
             await harness.db.previewkitEnvironment.create({
                 data: {
-                    namespace: `preview-managed-${appId}-pr-12`,
+                    namespace: `preview-managed-${appId}-pr-32`,
                     repoFullName: "acme/app",
-                    prNumber: 12,
-                    headSha: "sha-12",
+                    prNumber: 32,
+                    headSha: "sha-32",
                     headRef: "feat-autonoma-sdk",
                     githubRepositoryId: repoId,
                     organizationId: orgId,
                     status: "ready",
                     deployedAt: new Date(),
-                    urls: { web: "https://web-pr-12.preview.example.com" },
+                    urls: { web: "https://web-pr-32.preview.example.com" },
                     resolvedConfig: {
                         version: 1,
                         apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
@@ -2012,7 +2015,7 @@ integrationTestSuite({
                 previewkitClient,
             });
 
-            const result = await manager.prepareSdkTarget(appId, orgId, "pr-12");
+            const result = await manager.prepareSdkTarget(appId, orgId, "pr-32");
 
             expect(result.status).toBe("ready");
             // Only the shared secret is re-asserted; the existing signing secret is left untouched.
@@ -2191,24 +2194,29 @@ integrationTestSuite({
             expect(initial.artifactsUploaded).toBe(false);
             expect(initial.setupComplete).toBe(false);
 
-            // SDK validated + dry-run passed, but the CLI artifacts are not uploaded
-            // yet -> still not complete (all three are compulsory).
+            // SDK validated, and every provisionable scenario has torn down cleanly so the
+            // dry run reads as passed - but the CLI run is still going, so the artifacts are
+            // not uploaded yet and all three are compulsory.
             await harness.db.onboardingState.update({
                 where: { applicationId: appId },
-                data: { lastDiscoveredAt: new Date(), dryRunPassedAt: new Date() },
+                data: { lastDiscoveredAt: new Date() },
             });
+            await seedReceivedArtifacts(harness, appId, orgId, { status: "running" });
+            const scenario = await harness.db.scenario.findFirstOrThrow({ where: { applicationId: appId } });
+            await harness.db.scenarioInstance.create({
+                data: { applicationId: appId, organizationId: orgId, scenarioId: scenario.id, status: "DOWN_SUCCESS" },
+            });
+
             const partial = await manager.getState(appId);
             expect(partial.sdkConfigured).toBe(true);
             expect(partial.dryRunPassed).toBe(true);
             expect(partial.artifactsUploaded).toBe(false);
             expect(partial.setupComplete).toBe(false);
 
-            // Latest artifact setup marked completed -> all three done -> complete.
-            const user = await harness.db.user.create({
-                data: { name: "Setup User", email: `setup-${Date.now()}@example.com` },
-            });
-            await harness.db.applicationSetup.create({
-                data: { applicationId: appId, organizationId: orgId, userId: user.id, status: "completed" },
+            // The run completes with every artifact received -> all three done -> complete.
+            await harness.db.applicationSetup.updateMany({
+                where: { applicationId: appId },
+                data: { status: "completed" },
             });
             const complete = await manager.getState(appId);
             expect(complete.artifactsUploaded).toBe(true);

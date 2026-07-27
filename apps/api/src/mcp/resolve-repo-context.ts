@@ -1,13 +1,20 @@
-import { db } from "@autonoma/db";
+import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
-import type { GitHubInstallationService, ListedRepository } from "../github/github-installation.service";
+import type { ListedRepository } from "../github/github-installation.service";
 
 /** The org + linked application an MCP tool call acts in, resolved from the `repoFullName` it names. */
 export interface RepoContext {
     organizationId: string;
     applicationId: string;
     githubRepositoryId: number;
+}
+
+/** What {@link resolveRepoContext} needs: the DB, plus one org's GitHub App installation repo list. */
+export interface RepoContextDeps {
+    db: PrismaClient;
+    /** `GitHubInstallationService.listRepositories` - the repos one org's installation can see. */
+    listRepositories: (organizationId: string) => Promise<ListedRepository[]>;
 }
 
 /**
@@ -25,7 +32,7 @@ export interface RepoContext {
  * user can't see.
  */
 export async function resolveRepoContext(
-    github: GitHubInstallationService,
+    { db, listRepositories }: RepoContextDeps,
     userId: string,
     repoFullName: string,
 ): Promise<RepoContext> {
@@ -36,7 +43,7 @@ export async function resolveRepoContext(
     if (userOrgIds.length === 0) throw notFound(repoFullName);
 
     // Fast path (no GitHub call): a preview environment already maps repoFullName -> org + numeric repo id.
-    const fromPreview = await resolveViaPreviewkit(userOrgIds, repoFullName);
+    const fromPreview = await resolveViaPreviewkit(db, userOrgIds, repoFullName);
     if (fromPreview != null) {
         logger.info("Resolved repo context via preview environment", {
             organizationId: fromPreview.organizationId,
@@ -51,7 +58,7 @@ export async function resolveRepoContext(
     const perOrg = await Promise.all(
         userOrgIds.map(async (organizationId) => {
             try {
-                return { organizationId, repos: await github.listRepositories(organizationId) };
+                return { organizationId, repos: await listRepositories(organizationId) };
             } catch (err) {
                 logger.warn("Failed to list installation repos while resolving repo context", {
                     organizationId,
@@ -73,7 +80,11 @@ export async function resolveRepoContext(
     return pickSingleCandidate(candidates, repoFullName, logger);
 }
 
-async function resolveViaPreviewkit(userOrgIds: string[], repoFullName: string): Promise<RepoContext | undefined> {
+async function resolveViaPreviewkit(
+    db: PrismaClient,
+    userOrgIds: string[],
+    repoFullName: string,
+): Promise<RepoContext | undefined> {
     const envs = await db.previewkitEnvironment.findMany({
         where: { repoFullName, organizationId: { in: userOrgIds }, githubRepositoryId: { not: null } },
         select: { organizationId: true, githubRepositoryId: true },

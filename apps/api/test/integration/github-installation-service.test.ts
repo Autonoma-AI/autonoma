@@ -2,6 +2,21 @@ import { ApplicationArchitecture } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
+import type { APITestHarness } from "../harness";
+
+/**
+ * A never-linked application. `linkRepository` only resolves the deploy ref on an app's FIRST link,
+ * so a case asserting that resolution cannot reuse the suite's shared app - earlier cases link it.
+ */
+function createUnlinkedApp(harness: APITestHarness, name: string) {
+    return harness.services.applications.createApplication({
+        name,
+        organizationId: harness.organizationId,
+        architecture: ApplicationArchitecture.WEB,
+        url: "https://example.com",
+        file: "s3://bucket/file.png",
+    });
+}
 
 apiTestSuite({
     name: "GitHubInstallationService",
@@ -174,8 +189,9 @@ apiTestSuite({
 
         test("linkRepository sets the main-branch deploy ref to the repo's default branch", async ({
             harness,
-            seedResult: { app, fakeClient },
+            seedResult: { fakeClient },
         }) => {
+            const app = await createUnlinkedApp(harness, "Master Default App");
             fakeClient.addRepository({
                 id: 3009,
                 name: "master-repo",
@@ -203,8 +219,9 @@ apiTestSuite({
 
         test("linkRepository does not overwrite a user-chosen deploy branch on re-link", async ({
             harness,
-            seedResult: { app, fakeClient },
+            seedResult: { fakeClient },
         }) => {
+            const app = await createUnlinkedApp(harness, "Relink App");
             fakeClient.addRepository({
                 id: 3011,
                 name: "relink-repo",
@@ -222,6 +239,11 @@ apiTestSuite({
 
             // First link resolves the deploy ref to the repo default.
             await harness.services.github.linkRepository(harness.organizationId, app.id, 3011);
+            const afterFirstLink = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { mainBranch: { select: { name: true } } },
+            });
+            expect(afterFirstLink.mainBranch?.name).toBe("master");
 
             // The user then picks a specific branch.
             const appRow = await harness.db.application.findUniqueOrThrow({

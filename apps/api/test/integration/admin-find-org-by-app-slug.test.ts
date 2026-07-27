@@ -46,7 +46,8 @@ apiTestSuite({
             },
         });
 
-        // Same slug in BOTH orgs - ambiguous, cannot be resolved from the URL alone.
+        // Same slug in BOTH orgs - ambiguous from the URL alone, so both owners are
+        // returned and the caller shows a chooser.
         await harness.db.application.create({
             data: {
                 name: "Shared A",
@@ -132,52 +133,62 @@ apiTestSuite({
             harness,
             seedResult: { otherOrgId },
         }) => {
-            const result = await harness.services.admin.findOrgByAppSlug("beta-app");
-            expect(result?.orgId).toBe(otherOrgId);
+            const candidates = await harness.services.admin.findOrgByAppSlug("beta-app");
+            expect(candidates.map((c) => c.orgId)).toEqual([otherOrgId]);
         });
 
         test("resolves the owning org for a unique slug in the active org", async ({
             harness,
             seedResult: { orgA },
         }) => {
-            const result = await harness.services.admin.findOrgByAppSlug("alpha-app");
-            expect(result?.orgId).toBe(orgA);
+            const candidates = await harness.services.admin.findOrgByAppSlug("alpha-app");
+            expect(candidates.map((c) => c.orgId)).toEqual([orgA]);
         });
 
-        test("returns undefined for an unknown slug", async ({ harness }) => {
-            expect(await harness.services.admin.findOrgByAppSlug("does-not-exist")).toBeUndefined();
+        test("returns no candidates for an unknown slug", async ({ harness }) => {
+            expect(await harness.services.admin.findOrgByAppSlug("does-not-exist")).toEqual([]);
         });
 
-        test("returns undefined when the slug exists in multiple orgs", async ({ harness }) => {
-            expect(await harness.services.admin.findOrgByAppSlug("shared-app")).toBeUndefined();
+        test("returns every owner when the slug exists in multiple orgs", async ({
+            harness,
+            seedResult: { orgA, otherOrgId },
+        }) => {
+            const candidates = await harness.services.admin.findOrgByAppSlug("shared-app");
+            expect(candidates.map((c) => c.orgId).sort()).toEqual([orgA, otherOrgId].sort());
         });
 
         test("ignores disabled apps so a single live match still resolves", async ({
             harness,
             seedResult: { orgA },
         }) => {
-            const result = await harness.services.admin.findOrgByAppSlug("half-disabled");
-            expect(result?.orgId).toBe(orgA);
+            const candidates = await harness.services.admin.findOrgByAppSlug("half-disabled");
+            expect(candidates.map((c) => c.orgId)).toEqual([orgA]);
         });
 
-        test("returns undefined when the only matching app is disabled", async ({ harness }) => {
-            expect(await harness.services.admin.findOrgByAppSlug("gone-app")).toBeUndefined();
+        test("returns no candidates when the only matching app is disabled", async ({ harness }) => {
+            expect(await harness.services.admin.findOrgByAppSlug("gone-app")).toEqual([]);
         });
 
         test("prefers the customer org over the internal dogfood copy", async ({
             harness,
             seedResult: { otherOrgId },
         }) => {
-            const result = await harness.services.admin.findOrgByAppSlug("dogfood-app");
-            expect(result?.orgId).toBe(otherOrgId);
+            const candidates = await harness.services.admin.findOrgByAppSlug("dogfood-app");
+            expect(candidates.map((c) => c.orgId)).toEqual([otherOrgId]);
         });
 
         test("still resolves a slug that only exists in the internal org", async ({
             harness,
             seedResult: { internalOrgId },
         }) => {
-            const result = await harness.services.admin.findOrgByAppSlug("internal-only-app");
-            expect(result?.orgId).toBe(internalOrgId);
+            const candidates = await harness.services.admin.findOrgByAppSlug("internal-only-app");
+            expect(candidates.map((c) => c.orgId)).toEqual([internalOrgId]);
+        });
+
+        test("carries the org name and slug for the chooser", async ({ harness, seedResult: { otherOrgId } }) => {
+            const [candidate] = await harness.services.admin.findOrgByAppSlug("beta-app");
+            const otherOrg = await harness.db.organization.findUniqueOrThrow({ where: { id: otherOrgId } });
+            expect(candidate).toEqual({ orgId: otherOrgId, orgName: otherOrg.name, orgSlug: otherOrg.slug });
         });
     },
 });

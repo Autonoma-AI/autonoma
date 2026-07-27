@@ -1,6 +1,6 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { encryptionHelper } from "../context";
+import { encryptionHelper } from "../encryption";
 import { upsertVercelEnvVar } from "./vercel-project-api";
 
 const VERCEL_MARKETPLACE_SSO_URL = "https://vercel.com/api/marketplace/sso";
