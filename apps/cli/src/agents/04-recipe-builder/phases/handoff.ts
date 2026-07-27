@@ -107,8 +107,7 @@ export async function runCompletionPhase(
     const recipePath = state.recipePath ?? join(outputDir, RECIPE_FILE);
 
     while (true) {
-        const complete = await readCompletion(outputDir);
-        const recipe = await loadRecipe(outputDir);
+        const [complete, recipe] = await Promise.all([readCompletion(outputDir), loadRecipe(outputDir)]);
         // A recipe that parses can still be unsubmittable - a dangling `_ref`, a token
         // that resolves to nothing - so treat that as not-ready and hand the exact
         // problems back for the agent to fix, rather than uploading into a rejection.

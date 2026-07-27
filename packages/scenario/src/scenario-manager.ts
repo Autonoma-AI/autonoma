@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { PrismaClient, ScenarioInstance } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
-import { RefsSchema, type DiscoverResponse, type ScenarioVariableScalar, type UpResponse } from "@autonoma/types";
+import {
+    RefsSchema,
+    type DiscoverResponse,
+    type ScenarioRecipe,
+    type ScenarioVariableScalar,
+    type UpResponse,
+} from "@autonoma/types";
 import { withColdStartRetry } from "./cold-start-retry";
 import { DbSdkCallRecorder } from "./db-sdk-call-recorder";
 import type { EncryptionHelper } from "./encryption";
+import { resolveRecipePayload } from "./scenario-recipe-resolver";
 import { ScenarioRecipeStore } from "./scenario-recipe-store";
 import type { ScenarioSubject } from "./scenario-subject";
 import { SdkClient, type SdkCallOptions } from "./sdk-client";
@@ -50,13 +57,25 @@ export class ScenarioManager {
      *
      * When `snapshotId` is provided, the recipe version pinned to that snapshot is used.
      * When `snapshotId` is omitted (dry run), the scenario's active recipe version is used.
+     *
+     * `candidateRecipe` overrides both: the given recipe is resolved and provisioned as-is
+     * and NOTHING about it is persisted, so an agent can try an edit against the real
+     * environment without making it the recipe every future run uses. The instance row and
+     * its SDK call log are still written - they are how the caller tears the instance back
+     * down and reads what the factory actually replied.
      */
     async up(
         subject: ScenarioSubject,
         scenarioId: string,
-        opts?: { snapshotId?: string; sdkOptions?: SdkCallOptions; sdkUrlOverride?: string; coldStartRetry?: boolean },
+        opts?: {
+            snapshotId?: string;
+            candidateRecipe?: ScenarioRecipe;
+            sdkOptions?: SdkCallOptions;
+            sdkUrlOverride?: string;
+            coldStartRetry?: boolean;
+        },
     ): Promise<ScenarioInstance> {
-        const { snapshotId, sdkOptions, sdkUrlOverride, coldStartRetry } = opts ?? {};
+        const { snapshotId, candidateRecipe, sdkOptions, sdkUrlOverride, coldStartRetry } = opts ?? {};
         const { applicationId, deploymentId } = await subject.resolveDeployment();
         const applicationData = await this.getApplicationDataForDeployment(applicationId, deploymentId, sdkUrlOverride);
         const { organizationId } = applicationData;
@@ -74,11 +93,14 @@ export class ScenarioManager {
         }
         const instanceId = randomUUID();
 
-        const recipeResult = await this.recipeStore.loadRecipePayload({
-            scenarioId: scenario.id,
-            snapshotId,
-            testRunId: instanceId,
-        });
+        const recipeResult =
+            candidateRecipe != null
+                ? resolveRecipePayload(candidateRecipe, instanceId)
+                : await this.recipeStore.loadRecipePayload({
+                      scenarioId: scenario.id,
+                      snapshotId,
+                      testRunId: instanceId,
+                  });
         if (recipeResult == null) {
             throw new Error(
                 `Scenario "${scenario.name}" does not have a stored recipe version${snapshotId != null ? ` for snapshot ${snapshotId}` : ""}. Complete the Scenario Validation step so the plugin uploads scenario recipes to Autonoma.`,

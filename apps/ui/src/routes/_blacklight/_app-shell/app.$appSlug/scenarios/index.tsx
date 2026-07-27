@@ -583,8 +583,12 @@ function ScenarioRecipeEditor({ scenarioId, applicationId }: { scenarioId: strin
             className="min-h-64 resize-y font-mono text-xs"
           />
           {jsonError != null && <p className="font-mono text-2xs text-status-critical">{jsonError}</p>}
+          {/* A rejected save lists every problem on its own line - keep the breaks, or the
+              list collapses into one unreadable run and the reason for the rejection is lost. */}
           {updateRecipe.error != null && (
-            <p className="font-mono text-2xs text-status-critical">{updateRecipe.error.message}</p>
+            <p className="whitespace-pre-wrap break-words font-mono text-2xs text-status-critical">
+              {updateRecipe.error.message}
+            </p>
           )}
           <div className="flex items-center gap-2">
             <Button size="sm" onClick={handleSave} disabled={updateRecipe.isPending}>

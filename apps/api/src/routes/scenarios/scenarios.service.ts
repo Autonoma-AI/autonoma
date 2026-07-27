@@ -7,7 +7,7 @@ import {
     findRecipeProblems,
     isColdStartMessage,
 } from "@autonoma/scenario";
-import { ScenarioRecipeSchema } from "@autonoma/types";
+import { type ScenarioRecipe, ScenarioRecipeSchema } from "@autonoma/types";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { DryRunSubject } from "../onboarding/dry-run-subject";
@@ -24,6 +24,14 @@ const COLD_START_DRY_RUN_MESSAGE =
     "The app's preview appears to still be starting up (it returned 503 Service Unavailable). Previews scale to zero " +
     "when idle, so this is a cold start, not a recipe problem - we already waited for it to wake. Give it a few more " +
     "seconds and run the dry-run again, or confirm the preview is deployed and healthy.";
+
+/** How a dry run deviates from "just run what is stored". Both absent = the UI button's behavior. */
+export interface DryRunOptions {
+    /** A candidate recipe to provision INSTEAD of the stored one. Never persisted on its own. */
+    recipe?: ScenarioRecipe;
+    /** Promote `recipe` to the active version, but only if the whole up/down cycle passes. */
+    save?: boolean;
+}
 
 export class ScenariosService extends Service {
     constructor(
@@ -139,8 +147,22 @@ export class ScenariosService extends Service {
         });
     }
 
-    async dryRun(applicationId: string, organizationId: string, scenarioId: string) {
-        this.logger.info("Running scenario dry run", { applicationId, scenarioId });
+    /**
+     * Run a scenario end-to-end against the deployed app: `up`, then `down`.
+     *
+     * With no `recipe`, the scenario's stored active recipe runs - what the UI button does.
+     * With one, that CANDIDATE runs instead and is not persisted, so an agent can iterate
+     * against the real environment without making a half-finished edit the recipe every
+     * future run uses. `save` then promotes the candidate, and only if the whole cycle
+     * passed - a recipe that failed can never become the active one through this path.
+     */
+    async dryRun(applicationId: string, organizationId: string, scenarioId: string, opts?: DryRunOptions) {
+        const { recipe, save = false } = opts ?? {};
+        this.logger.info("Running scenario dry run", {
+            applicationId,
+            scenarioId,
+            extra: { candidate: recipe != null, save },
+        });
 
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
@@ -153,15 +175,39 @@ export class ScenariosService extends Service {
         // as a clean "unavailable" over MCP) instead of after the deployment lookup.
         const scenario = await this.db.scenario.findFirst({
             where: { id: scenarioId, applicationId },
-            select: { id: true },
+            select: { id: true, name: true },
         });
         if (scenario == null) throw new NotFoundError("Scenario not found");
+
+        if (recipe != null) {
+            // Fail a candidate that cannot resolve here, with the reason, rather than
+            // spending a provisioning round trip to be told the same thing less clearly.
+            const problems = findRecipeProblems(recipe);
+            if (problems.length > 0) {
+                this.logger.info("Dry run rejected the candidate recipe", { applicationId, scenarioId });
+                return {
+                    success: false as const,
+                    phase: "recipe" as const,
+                    error: { message: `Recipe will not provision:\n${problems.map((p) => `- ${p}`).join("\n")}` },
+                    saved: false as const,
+                };
+            }
+            if (recipe.name !== scenario.name) {
+                throw new TRPCError({
+                    code: "BAD_REQUEST",
+                    message: `Recipe name must remain "${scenario.name}"`,
+                });
+            }
+        }
 
         const subject = new DryRunSubject(this.db, applicationId);
         // Onboarding previews scale to zero, so the first hit often 503s while the pod
         // wakes. Ride through that here so a cold environment is not reported as a
         // broken recipe (the production test-time path can opt in the same way later).
-        const instance = await this.scenarioManager.up(subject, scenarioId, { coldStartRetry: true });
+        const instance = await this.scenarioManager.up(subject, scenarioId, {
+            coldStartRetry: true,
+            candidateRecipe: recipe,
+        });
 
         if (instance.status === "UP_FAILED") {
             const coldStart = instance.lastError != null && isColdStartMessage(instance.lastError.message);
@@ -171,6 +217,7 @@ export class ScenariosService extends Service {
                 phase: "up" as const,
                 error: coldStart ? { message: COLD_START_DRY_RUN_MESSAGE } : instance.lastError,
                 coldStart,
+                saved: false as const,
             };
         }
 
@@ -178,11 +225,21 @@ export class ScenariosService extends Service {
 
         if (downResult?.status === "DOWN_FAILED") {
             this.logger.info("Dry run failed during down phase", { applicationId, scenarioId });
-            return { success: false as const, phase: "down" as const, error: downResult.lastError };
+            return {
+                success: false as const,
+                phase: "down" as const,
+                error: downResult.lastError,
+                saved: false as const,
+            };
         }
 
-        this.logger.info("Dry run succeeded", { applicationId, scenarioId });
-        return { success: true as const, phase: "down" as const, error: undefined };
+        const saved = recipe != null && save;
+        if (saved) {
+            await this.updateRecipe(scenarioId, JSON.stringify(recipe), organizationId);
+        }
+
+        this.logger.info("Dry run succeeded", { applicationId, scenarioId, extra: { saved } });
+        return { success: true as const, phase: "down" as const, error: undefined, saved };
     }
 
     async getRecipe(scenarioId: string, organizationId: string) {

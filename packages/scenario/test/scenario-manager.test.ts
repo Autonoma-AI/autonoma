@@ -434,6 +434,60 @@ integrationTestSuite({
             await expect(manager.up(subject, scenarioId)).rejects.toThrow("does not have a stored recipe version");
         });
 
+        test("up: provisions a candidate recipe without storing it", async ({
+            harness,
+            seedResult: { orgId, appId, deploymentId, manager },
+        }) => {
+            const scenarioId = await harness.createScenario(orgId, appId, "candidate", {
+                Organization: [{ name: "Stored Org" }],
+            });
+            const generationId = await harness.createGeneration(orgId, appId, deploymentId);
+            const subject = new GenerationSubject(harness.db, generationId);
+
+            const instance = await manager.up(subject, scenarioId, {
+                candidateRecipe: {
+                    name: "candidate",
+                    description: "An edit being tried out",
+                    create: { Organization: [{ name: "Candidate Org" }] },
+                    validation: { status: "validated", method: "checkScenario", phase: "ok" },
+                },
+            });
+
+            expect(instance.status).toBe("UP_SUCCESS");
+            // The candidate reached the SDK...
+            expect(harness.webhookServer.requests[0]?.body.create.Organization[0].name).toBe("Candidate Org");
+            // ...but the recipe every future run uses is untouched.
+            const stored = await harness.db.scenario.findUniqueOrThrow({
+                where: { id: scenarioId },
+                select: { activeRecipeVersion: { select: { fixtureJson: true } } },
+            });
+            expect(stored.activeRecipeVersion?.fixtureJson).toMatchObject({
+                create: { Organization: [{ name: "Stored Org" }] },
+            });
+        });
+
+        test("up: resolves a candidate recipe's tokens against the instance it provisions", async ({
+            harness,
+            seedResult: { orgId, appId, deploymentId, manager },
+        }) => {
+            const scenarioId = await harness.createScenario(orgId, appId, "candidate-tokens", {
+                Organization: [{ name: "Stored Org" }],
+            });
+            const generationId = await harness.createGeneration(orgId, appId, deploymentId);
+            const subject = new GenerationSubject(harness.db, generationId);
+
+            const instance = await manager.up(subject, scenarioId, {
+                candidateRecipe: {
+                    name: "candidate-tokens",
+                    description: "An edit using the run identity",
+                    create: { User: [{ externalId: "{{testRunId}}" }] },
+                    validation: { status: "validated", method: "checkScenario", phase: "ok" },
+                },
+            });
+
+            expect(harness.webhookServer.requests[0]?.body.create.User[0].externalId).toBe(instance.id);
+        });
+
         test("up: substitutes the built-in run-identity tokens with the id sent to the SDK", async ({
             harness,
             seedResult: { orgId, appId, deploymentId, manager, recipeStore },

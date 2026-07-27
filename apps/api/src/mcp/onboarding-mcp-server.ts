@@ -59,9 +59,9 @@ Then loop until the preview is up:
 7. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, KEEP POLLING: wait ~30s (sleep, if your client can) and call it again, for as long as it takes - a user can be several minutes away from a key they have to go dig up, and until you poll again you have no idea whether they answered. Nothing else tells you: they set the values in the Autonoma UI, so a quiet chat means nothing either way. (If they do say in the chat that they are done, great - poll once to pick it up and carry on.) When the request clears, check lastEnvResolution: the user may have SKIPPED keys they don't have (skippedKeys) - adapt the config to live without them (default, drop, or rework) instead of re-requesting.
 8. A ready status only means the pod health check passes - it does NOT mean the app works. Before declaring the preview done, verify it yourself: exercise the main flow against the preview URL (curl it, or a small Playwright script if the user has Playwright - log in, load data, hit a few real routes), then call get_session_status again and READ the app's runtime logs in recentLogs. If the logs show the app erroring behind the healthy page (crashed queries, missing env, stack traces), fix the cause and redeploy. If you cannot exercise the flow yourself, ask the user to click through the app once and then read the logs.
 
-Scenario recipes (test data): a scenario is a named app state a test depends on (e.g. "logged-in admin with one open invoice"); its recipe is the JSON your deployed Autonoma SDK follows to create those entities in the app's OWN database at test time. Before onboarding finishes the recipe often does not work yet, so fix it here: list_scenarios(applicationId) shows the app's scenarios and which already have a recipe; get_recipe(scenarioId) reads one; update_recipe(scenarioId, recipe) saves a corrected version (the recipe's \`name\` must stay the scenario's name - this EDITS an existing scenario, it does not create one; the recipe shape is validated on save and an invalid one is rejected with the exact bad field paths, so read them and resend); dry_run_scenario(scenarioId) runs the recipe end-to-end against the deployed app (calls the SDK \`up\` to create the entities, then \`down\` to tear them back down) and, on failure, returns which phase failed (up/down) and the SDK's error. This needs the app deployed with its SDK URL + signing secret configured, so get the preview up first. A scaled-to-zero preview 503s on the first call while it wakes; dry_run_scenario rides through that warm-up automatically, so give the first run ~a minute before concluding anything is wrong (and if it still comes back with a cold-start/503, just call it again - it is waking).
+Scenario recipes (test data): a scenario is a named app state a test depends on (e.g. "logged-in admin with one open invoice"); its recipe is the JSON your deployed Autonoma SDK follows to create those entities in the app's OWN database at test time. Before onboarding finishes the recipe often does not work yet, so fix it here: list_scenarios(applicationId) shows the app's scenarios and which already have a recipe; get_recipe(scenarioId) reads one; update_recipe(scenarioId, recipe) saves a corrected version (the recipe's \`name\` must stay the scenario's name - this EDITS an existing scenario, it does not create one; the recipe shape is validated on save and an invalid one is rejected with the exact bad field paths, so read them and resend); dry_run_scenario(scenarioId, recipe?) runs a recipe end-to-end against the deployed app (calls the SDK \`up\` to create the entities, then \`down\` to tear them back down) and, on failure, returns which phase failed (recipe/up/down) and the SDK's error - pass your edited \`recipe\` to try it WITHOUT storing it, which is how you iterate. This needs the app deployed with its SDK URL + signing secret configured, so get the preview up first. A scaled-to-zero preview 503s on the first call while it wakes; dry_run_scenario rides through that warm-up automatically, so give the first run ~a minute before concluding anything is wrong (and if it still comes back with a cold-start/503, just call it again - it is waking).
 
-How to iterate on a failing recipe - first tell apart the TWO things that can be wrong, because they iterate very differently. (1) The recipe JSON (a bad \`create\` graph, a wrong field, an unresolved \`{{variable}}\`): fix it with update_recipe and dry_run_scenario again immediately - the recipe lives on Autonoma, so a change takes effect with NO redeploy. (2) The app's SDK handler code that interprets the recipe and writes to the database (a missing factory for a model, a broken insert): that lives in the app's repo and only changes when the app is REBUILT. So commit the fix and push it to the deploy branch - get_config / pair return \`deployBranch\`, push to THAT branch (it defaults to the repo's default branch). Then, if the preview is Autonoma-managed (PreviewKit), call trigger_deploy to rebuild the base preview at the new commit and poll get_session_status until it is \`ready\` again BEFORE you dry_run; if the app runs on its own hosting (e.g. Vercel / an existing deploy), wait for that deployment to finish first. Do NOT dry_run against a preview that is still building - you would just be testing the old code. Fastest of all: iterate the SDK handler and recipe LOCALLY first - run the app's Autonoma SDK against a local server + database, exercise the recipe, and confirm the rows actually landed in the DB - then push/update only once it works. A local loop is seconds; a cloud rebuild is minutes.
+How to iterate on a failing recipe - first tell apart the TWO things that can be wrong, because they iterate very differently. (1) The recipe JSON (a bad \`create\` graph, a wrong field, a \`_ref\` matching no \`_alias\`): iterate with dry_run_scenario(scenarioId, recipe) - it provisions your candidate without storing it, so the app keeps working off its current recipe while you experiment, and a wrong guess costs nothing. The recipe lives on Autonoma, so each attempt takes effect with NO redeploy. When one passes, re-run it with \`save: true\` (or call update_recipe) to make it the active recipe; do NOT save a recipe you have not seen pass. (2) The app's SDK handler code that interprets the recipe and writes to the database (a missing factory for a model, a broken insert): that lives in the app's repo and only changes when the app is REBUILT. So commit the fix and push it to the deploy branch - get_config / pair return \`deployBranch\`, push to THAT branch (it defaults to the repo's default branch). Then, if the preview is Autonoma-managed (PreviewKit), call trigger_deploy to rebuild the base preview at the new commit and poll get_session_status until it is \`ready\` again BEFORE you dry_run; if the app runs on its own hosting (e.g. Vercel / an existing deploy), wait for that deployment to finish first. Do NOT dry_run against a preview that is still building - you would just be testing the old code. Fastest of all: iterate the SDK handler and recipe LOCALLY first - run the app's Autonoma SDK against a local server + database, exercise the recipe, and confirm the rows actually landed in the DB - then push/update only once it works. A local loop is seconds; a cloud rebuild is minutes.
 
 Connections wire env vars to the preview's own topology, resolved at deploy time - services do NOT auto-inject anything into apps. If an app needs to reach a database/service declared in this config, you MUST add a connection on that app. The value is a template: {{name.property}} tokens reference apps/services/addons by name. For a service, {{db.url}} is the full canonical connection string (postgres -> postgresql://preview:preview@<host>:<port>/preview) - prefer it; {{db.host}} / {{db.port}} exist for hand-built URLs. For an app, {{api.url}} is its public HTTPS URL. {{pr}}, {{namespace}} and {{owner}} are also available. Example: apps[].connections = [{ "key": "DATABASE_URL", "value": "{{db.url}}" }].
 
@@ -102,6 +102,16 @@ function describePendingRequest(pending: OnboardingAgentPendingRequest | undefin
         "long as it takes - they answer in the Autonoma UI, so this call is the only thing that will tell you the " +
         "values are set."
     );
+}
+
+/**
+ * The activity-feed line for a dry run when the agent gave no description. The user is
+ * watching to know whether their recipe is being changed, so trying an unsaved candidate
+ * and promoting one must not read the same.
+ */
+function describeDryRun(hasCandidate: boolean, save: boolean): string {
+    if (!hasCandidate) return "Testing the saved scenario recipe";
+    return save ? "Testing an edited recipe, saving it if it passes" : "Testing an edited recipe (not saved)";
 }
 
 /** The result a write tool returns when the human has taken over - the agent must stand down. */
@@ -584,8 +594,14 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             description:
                 "Run a scenario's recipe end-to-end against the deployed app: calls your SDK endpoint `up` to create " +
                 "the entities in the app's database, then `down` to tear them back down. This is how you confirm a " +
-                "recipe works before onboarding completes. On failure it returns which phase failed (up/down) and the " +
-                "SDK's error, so you can fix the recipe with update_recipe and retry. Requires the app deployed with " +
+                "recipe works before onboarding completes. On failure it returns which phase failed (recipe/up/down) " +
+                "and the SDK's error. " +
+                "ITERATE HERE, do not save between attempts: pass your edited recipe as `recipe` and it is provisioned " +
+                "WITHOUT being stored, so a wrong guess never becomes the recipe that future test runs use. Loop " +
+                "dry_run_scenario(recipe) -> read the error -> edit -> dry_run_scenario(recipe) as many times as you " +
+                "need, then pass `save: true` on the run that passes to make it the active recipe (it is saved only if " +
+                "the whole up/down cycle succeeded, so a failing recipe can never be promoted). Omit `recipe` entirely " +
+                "to run whatever is currently stored. Requires the app deployed with " +
                 "its SDK URL + signing secret configured - get the preview up first. Cold starts are handled for you: a " +
                 "scaled-to-zero ('serverless') preview 503s on the first hit while it wakes, so this tool waits through " +
                 "that warm-up (a bounded retry, ~30s) before running - allow the first run extra time rather than " +
@@ -593,17 +609,30 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "cold after that wait does it return `success:false` with `coldStart:true` and a plain-English note " +
                 "(not a raw 503); then just call dry_run_scenario again, the environment is waking. Pass a short " +
                 "`description` - the user watches it on the activity feed.",
-            inputSchema: { applicationId: z.string(), scenarioId: z.string(), description: activityDescription },
+            inputSchema: {
+                applicationId: z.string(),
+                scenarioId: z.string(),
+                recipe: ScenarioRecipeSchema.optional().describe(
+                    "A candidate recipe to run INSTEAD of the stored one. Not persisted unless `save` is true.",
+                ),
+                save: z
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Make `recipe` the active recipe, but only if this run passes. Ignored without `recipe`.",
+                    ),
+                description: activityDescription,
+            },
         },
-        async ({ applicationId, scenarioId, description }) =>
+        async ({ applicationId, scenarioId, recipe, save = false, description }) =>
             guardedWrite(
                 {
                     applicationId,
                     tool: "dry_run_scenario",
-                    message: description ?? "Testing scenario recipe",
-                    toolArguments: { scenarioId },
+                    message: description ?? describeDryRun(recipe != null, save),
+                    toolArguments: { scenarioId, candidate: recipe != null, save },
                 },
-                (org) => services.scenarios.dryRun(applicationId, org, scenarioId),
+                (org) => services.scenarios.dryRun(applicationId, org, scenarioId, { recipe, save }),
             ),
     );
 

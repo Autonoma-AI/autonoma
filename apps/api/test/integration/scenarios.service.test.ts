@@ -182,6 +182,42 @@ apiTestSuite({
             expect(after.activeRecipeVersion?.fixtureJson).toEqual(before.activeRecipeVersion?.fixtureJson);
         });
 
+        test("dryRun rejects a candidate recipe that cannot provision, without touching the stored one", async ({
+            harness,
+        }) => {
+            const { service, app, scenario } = await createFixture(harness, "Scenario Dry Run Bad Candidate");
+            const before = await harness.db.scenario.findUniqueOrThrow({
+                where: { id: scenario.id },
+                select: { activeRecipeVersion: { select: { fixtureJson: true } } },
+            });
+
+            // Even with `save`, a candidate that cannot resolve is rejected before any
+            // provisioning attempt - so a broken recipe can never become the active one.
+            const result = await service.dryRun(app.id, harness.organizationId, scenario.id, {
+                recipe: makeRecipe({ create: { User: [{ email: "{{ownerEmail}}" }] } }),
+                save: true,
+            });
+
+            expect(result.success).toBe(false);
+            expect(result.phase).toBe("recipe");
+            expect(result.saved).toBe(false);
+            const after = await harness.db.scenario.findUniqueOrThrow({
+                where: { id: scenario.id },
+                select: { activeRecipeVersion: { select: { fixtureJson: true } } },
+            });
+            expect(after.activeRecipeVersion?.fixtureJson).toEqual(before.activeRecipeVersion?.fixtureJson);
+        });
+
+        test("dryRun rejects a candidate recipe that renames the scenario", async ({ harness }) => {
+            const { service, app, scenario } = await createFixture(harness, "Scenario Dry Run Candidate Rename");
+
+            await expect(
+                service.dryRun(app.id, harness.organizationId, scenario.id, {
+                    recipe: makeRecipe({ name: "renamed" }),
+                }),
+            ).rejects.toThrow(TRPCError);
+        });
+
         test("dryRun rejects a scenario that belongs to another application", async ({ harness }) => {
             const { service, app } = await createFixture(harness, "Scenario Dry Run Owner App");
             const { scenario: foreignScenario } = await createFixture(harness, "Scenario Dry Run Other App");
