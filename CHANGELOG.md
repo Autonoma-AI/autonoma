@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.260727.1](https://github.com/Autonoma-AI/agent/compare/v1.260724.1...v1.260727.1) (2026-07-27)
+
+
+### Features
+
+* **deployment:** add in-cluster scrape agents for AMP -&gt; self-hosted Prometheus ([#1764](https://github.com/Autonoma-AI/agent/issues/1764)) ([4ff910f](https://github.com/Autonoma-AI/agent/commit/4ff910fa537a58b76dc42754bca5ac46a522ab3a))
+* **merge-gate:** skip via /autonoma-skip comment with reason and skipped state ([#1756](https://github.com/Autonoma-AI/agent/issues/1756)) ([d766b83](https://github.com/Autonoma-AI/agent/commit/d766b8373e97593d06f54a54b8802880fb347df8))
+* **platform:** sync authorized_keys to self-managed EC2 instances via SSM ([#1769](https://github.com/Autonoma-AI/agent/issues/1769)) ([549b07e](https://github.com/Autonoma-AI/agent/commit/549b07eb46b1101ce77be30c01698508b08d0e56))
+
+
+### Bug Fixes
+
+* **api:** surface failed analysis runs in the PR pipeline status ([#1777](https://github.com/Autonoma-AI/agent/issues/1777)) ([2235650](https://github.com/Autonoma-AI/agent/commit/2235650321e1fba48aabd2961367c18f1ee8b74f))
+* **billing:** query the self-hosted Prometheus instead of the deleted AMP workspace ([#1766](https://github.com/Autonoma-AI/agent/issues/1766)) ([df6356f](https://github.com/Autonoma-AI/agent/commit/df6356fd1d44b9165147fb3b53a91453bb5d235f))
+* centralize analysis-run settlement ([#1775](https://github.com/Autonoma-AI/agent/issues/1775)) ([427f966](https://github.com/Autonoma-AI/agent/commit/427f966f9601e472e656076b5fbfe460b6c671e3))
+* **deployment:** filter histogram buckets and stop double-scrapes in the prod agent ([#1772](https://github.com/Autonoma-AI/agent/issues/1772)) ([479980f](https://github.com/Autonoma-AI/agent/commit/479980fcb3a4aca9be4edf040c1011d7d617cc26))
+* **platform:** scrape the central Prometheus over HTTPS and track its config ([#1771](https://github.com/Autonoma-AI/agent/issues/1771)) ([476f166](https://github.com/Autonoma-AI/agent/commit/476f1660ed78b199b5865370a2006a17cb02ab81))
+* **previewkit:** end the deploy in a terminal status when a hook fails ([#1762](https://github.com/Autonoma-AI/agent/issues/1762)) ([094eb66](https://github.com/Autonoma-AI/agent/commit/094eb66a88f8776cfec612d29c3efa946c44dd53))
+* **ui:** drive the authoritative suite-changes view off analysis findings ([#1761](https://github.com/Autonoma-AI/agent/issues/1761)) ([b345599](https://github.com/Autonoma-AI/agent/commit/b345599db2dca042a4154546041e91f04f88c867))
+* **ui:** gate the snapshot page on the analysis job, not the report ([#1778](https://github.com/Autonoma-AI/agent/issues/1778)) ([354346f](https://github.com/Autonoma-AI/agent/commit/354346f05a73d6d7d70fe42044a947538c509114))
+
 ## [1.260724.1](https://github.com/Autonoma-AI/agent/compare/v1.260723.2...v1.260724.1) (2026-07-24)
 
 
