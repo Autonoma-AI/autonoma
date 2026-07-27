@@ -1,6 +1,6 @@
 import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
-import { authoringPreviewConfigSchema } from "@autonoma/types";
+import { authoringPreviewConfigSchema, ScenarioRecipeSchema } from "@autonoma/types";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
@@ -49,6 +49,8 @@ Recommended flow when Autonoma flags a problem on a pull request:
 
 Live vs. forensic surface: get_deploy_status, get_endpoints, and wait_for_deploy read the LIVE environment, which Autonoma tears down after testing - once it is gone they return status: "unavailable". The LOGS (get_build_logs, get_app_logs) are different: they persist ~30 days independent of the live environment. So an "unavailable" deploy status does NOT mean the logs are gone. For a post-mortem of a past deploy ("why did this PR's last preview fail?"), call the log tools directly even when status is unavailable.
 
+Scenario recipes (test data): before a test runs, Autonoma asks your deployed SDK to create the entities that test depends on - a named scenario like "logged-in admin with one open invoice". The recipe is the JSON describing those entities, and it lives on Autonoma, not in your repo, so fixing one takes effect with NO redeploy. When a test fails because the data it needed was missing, wrong, or shaped differently than the test expects, that is a RECIPE problem and this is where you fix it: list_scenarios(repoFullName) -> get_recipe(scenarioId) -> dry_run_scenario(scenarioId, recipe) to try an edit against the live SDK without storing it -> repeat -> pass \`save: true\` on the run that passes. Iterate with the unstored candidate rather than saving each attempt: this app is LIVE, and a saved recipe is what every future run of that scenario uses, so a half-finished edit is a change to production test data. Distinguish this from your SDK handler CODE (a missing factory for a model, a broken insert), which lives in this repo and only changes when the app is rebuilt and redeployed.
+
 Cold starts: previews scale to zero after inactivity, so the FIRST request to a preview URL (from get_endpoints) can return a 503 or time out while the pod wakes - the request itself wakes it. That is warm-up, not a failure: wait a few seconds and retry before concluding the app is down. A genuine crash shows up in get_app_logs; a cold start does not.
 
 Keys: every tool takes repoFullName ("owner/repo"); the per-PR tools also take prNumber. The organization is inferred from the repo (which you must be a member of), so everything is automatically scoped to it.`;
@@ -56,7 +58,7 @@ Keys: every tool takes repoFullName ("owner/repo"); the per-PR tools also take p
 /** The snippet the `setup_autonoma` prompt asks the agent to add to AGENTS.md / CLAUDE.md. */
 const AGENTS_MD_SNIPPET = `## Autonoma
 
-After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause - get_investigation for the findings + evidence (what broke and why), and get_deploy_status / diagnose_deploy / get_build_logs / get_app_logs / get_secret_status when a preview fails to build or deploy - fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes), and confirm with wait_for_deploy - before merging. The tools take this repo as "owner/repo" - infer it from the git remote; if unsure, call list_apps.`;
+After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause - get_investigation for the findings + evidence (what broke and why), and get_deploy_status / diagnose_deploy / get_build_logs / get_app_logs / get_secret_status when a preview fails to build or deploy - fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes, or list_scenarios/get_recipe/dry_run_scenario when a test failed on its seed data rather than on the app), and confirm with wait_for_deploy - before merging. The tools take this repo as "owner/repo" - infer it from the git remote; if unsure, call list_apps.`;
 
 /** Everything a debug MCP tool needs: the service graph and a per-repo org resolver. */
 export interface DebugMcpDeps {
@@ -540,6 +542,148 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                         apply: apply ?? true,
                         organizationId,
                     });
+                    return jsonResult(result);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "list_scenarios",
+        {
+            title: "List the app's scenarios",
+            description:
+                "List this app's scenarios - the named test-data states its tests depend on (e.g. 'logged-in admin " +
+                "with one open invoice') - and whether each has a recipe. A recipe is the JSON your deployed Autonoma " +
+                "SDK follows to create that scenario's entities in your own database before a test runs, so a test " +
+                "that fails on missing or wrong seed data is a recipe problem, not an app problem. Use a returned " +
+                "scenarioId with get_recipe / dry_run_scenario / update_recipe.",
+            inputSchema: { repoFullName: repoPrInput.repoFullName },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        },
+        async ({ repoFullName }) =>
+            analytics.track("list_scenarios", async () => {
+                logger.info("list_scenarios", { extra: { repoFullName } });
+                try {
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const scenarios = await services.scenarios.listScenarios(applicationId, organizationId);
+                    return jsonResult({
+                        scenarios: scenarios.map((scenario) => ({
+                            id: scenario.id,
+                            name: scenario.name,
+                            isDisabled: scenario.isDisabled,
+                            hasRecipe: scenario.activeRecipeVersionId != null,
+                        })),
+                    });
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "get_recipe",
+        {
+            title: "Read a scenario's recipe",
+            description:
+                "Read a scenario's active recipe - the `create` graph your SDK endpoint uses to build that " +
+                "scenario's entities. Returns `fixtureJson: null` when the scenario has no recipe yet. Edit it and " +
+                "try it with dry_run_scenario before saving anything.",
+            inputSchema: { repoFullName: repoPrInput.repoFullName, scenarioId: z.string().min(1) },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        },
+        async ({ repoFullName, scenarioId }) =>
+            analytics.track("get_recipe", async () => {
+                logger.info("get_recipe", { extra: { repoFullName, scenarioId } });
+                try {
+                    const { organizationId } = await resolveRepoContext(repoFullName);
+                    return jsonResult(await services.scenarios.getRecipe(scenarioId, organizationId));
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "dry_run_scenario",
+        {
+            title: "Test a scenario recipe against the deployed app",
+            description:
+                "Run a recipe end-to-end against the app's configured SDK endpoint: `up` to create the entities, " +
+                "then `down` to tear them back down. On failure it returns which phase failed (recipe/up/down) and " +
+                "the SDK's own error. " +
+                "ITERATE HERE rather than saving between attempts: pass your edited `recipe` and it is provisioned " +
+                "WITHOUT being stored, so the recipe your test runs use keeps working while you experiment and a " +
+                "wrong guess costs nothing. Loop edit -> dry_run_scenario(recipe) as many times as you need, then " +
+                "pass `save: true` on the run that passes (it saves only after a clean up/down, so a recipe you have " +
+                "not seen work cannot be promoted). Omit `recipe` to run whatever is stored. " +
+                "NOTE: this hits the SDK endpoint currently configured for the app, which is not necessarily this " +
+                "PR's preview - so it tests the recipe, not this PR's SDK handler code. A scaled-to-zero preview " +
+                "503s while it wakes; the tool rides through that warm-up, so give the first run extra time.",
+            inputSchema: {
+                repoFullName: repoPrInput.repoFullName,
+                scenarioId: z.string().min(1),
+                recipe: ScenarioRecipeSchema.optional().describe(
+                    "A candidate recipe to run INSTEAD of the stored one. Not persisted unless `save` is true.",
+                ),
+                save: z
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Make `recipe` the active recipe, but only if this run passes. Ignored without `recipe`.",
+                    ),
+            },
+            annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+        },
+        async ({ repoFullName, scenarioId, recipe, save = false }) =>
+            analytics.track("dry_run_scenario", async () => {
+                logger.info("dry_run_scenario", {
+                    extra: { repoFullName, scenarioId, candidate: recipe != null, save },
+                });
+                try {
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const result = await services.scenarios.dryRun(applicationId, organizationId, scenarioId, {
+                        recipe,
+                        save,
+                    });
+                    return jsonResult(result);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "update_recipe",
+        {
+            title: "Save a scenario's recipe",
+            description:
+                "Replace a scenario's recipe with a corrected version and make it active. " +
+                "THIS AFFECTS EVERY FUTURE TEST RUN of this scenario, not just yours - the app is live, so treat it " +
+                "like a database migration rather than a local edit. Prefer proving the recipe first with " +
+                "dry_run_scenario(recipe), then promoting it with `save: true` on the run that passed; reach for this " +
+                "tool directly only when you already know the recipe is right. The recipe's `name` must stay the " +
+                "scenario's existing name - this EDITS a scenario, it does not create one. It is validated on save " +
+                "(shape, `_ref` targets, and tokens that would not resolve) and rejected with the exact problems, so " +
+                "read them, fix them, and resend.",
+            inputSchema: {
+                repoFullName: repoPrInput.repoFullName,
+                scenarioId: z.string().min(1),
+                recipe: ScenarioRecipeSchema,
+            },
+            annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
+        },
+        async ({ repoFullName, scenarioId, recipe }) =>
+            analytics.track("update_recipe", async () => {
+                logger.info("update_recipe", { extra: { repoFullName, scenarioId, scenario: recipe.name } });
+                try {
+                    const { organizationId } = await resolveRepoContext(repoFullName);
+                    const result = await services.scenarios.updateRecipe(
+                        scenarioId,
+                        JSON.stringify(recipe),
+                        organizationId,
+                    );
                     return jsonResult(result);
                 } catch (err) {
                     return toToolResult(err);

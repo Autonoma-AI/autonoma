@@ -144,8 +144,9 @@ The server gives your agent the tools; a short line in your agent's instructions
 After you push a PR, Autonoma reviews its preview deploy. If it flagged a
 problem, use the Autonoma MCP tools to find the cause (get_deploy_status,
 diagnose_deploy, get_build_logs, get_app_logs, get_secret_status), fix it
-(set_secret for a missing value, edit_previewkit_config for build/wiring),
-and confirm with wait_for_deploy - before merging.
+(set_secret for a missing value, edit_previewkit_config for build/wiring,
+or dry_run_scenario when a test failed on its seed data), and confirm with
+wait_for_deploy - before merging.
 ```
 
 Because that file is read every session, your agent pauses to check the preview without you having to ask.
@@ -169,6 +170,8 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | `get_endpoints` | repo, PR | The preview URL, a suggested SDK URL, and one entry per service (internal services like a database report `url: null` with a reason) |
 | `get_secret_status` | repo | The full env-var surface per app: topology connections (with template values) and secret-backed vars (declared build secrets + runtime secrets), with masked length and a fingerprint only, plus which declared build secrets are missing |
 | `get_config` | repo | The full active preview config document (apps, services, addons - no secret values), for read-edit-write of the whole shape via `apply_config` |
+| `list_scenarios` | repo | The app's scenarios - the named test-data states its tests depend on - and whether each has a recipe |
+| `get_recipe` | repo, scenarioId | A scenario's active recipe: the `create` graph your SDK builds those entities from |
 
 ### Fix and confirm
 
@@ -178,12 +181,35 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | `edit_previewkit_config` | repo, PR, app, fields | Changes structural config for one service (path, Dockerfile, port, health check, build-secret keys, connections) and rebuilds it. Only the fields you pass change; never sets a secret value |
 | `apply_config` | repo, PR, document, apply? | Saves a FULL config document (call `get_config` first, edit it, send the whole thing back) and, unless `apply:false`, redeploys the whole environment. The path for reshaping the preview: adding or removing an app, a service (a database, cache, side-container), or an addon - things a single-service edit can't express |
 | `wait_for_deploy` | repo, PR, app? | Blocks (up to ~45s, then re-callable) until the deploy settles (ready or failed) and returns the outcome plus the last few log lines, so you can see progress and keep debugging after a `set_secret`, `edit_previewkit_config`, or `apply_config` rebuild |
+| `dry_run_scenario` | repo, scenarioId, recipe?, save? | Runs a recipe against your deployed SDK (`up` then `down`). Pass a `recipe` to try an edit **without storing it**; pass `save: true` to promote it, which happens only if the run passes |
+| `update_recipe` | repo, scenarioId, recipe | Saves a recipe as the active one. Validated on save and rejected with the exact problems. Affects every future run of that scenario |
 
 The write tools split cleanly by what they change, so your agent never has to guess which to use:
 
 - A **secret value** (an API key, token, or password) - `set_secret`. It stores the value and applies the minimal action itself: a rebuild if the key is a declared build secret (baked into the image at build), a restart otherwise. You do not tell it which; it reads your config.
 - **How one service is built or wired** (build path, Dockerfile, port, health check, which keys are injected at build, topology connections) - `edit_previewkit_config`. It saves a new config revision and rebuilds that one service.
 - **The shape of the preview** (add or remove an app, a service like a database or cache, or an addon) - `get_config` then `apply_config`. It saves the full document and redeploys the whole environment, since a topology change touches more than one service.
+
+### Fixing test data
+
+A test can fail because the app is broken - or because the data it needed was never there. Autonoma seeds that data before each run by asking your deployed SDK to build a named **scenario** ("logged-in admin with one open invoice"); the JSON describing those entities is the scenario's **recipe**, and it lives on Autonoma rather than in your repo, so changing one takes effect with no redeploy.
+
+That makes recipes the fastest thing to fix, and the tools are built for iterating rather than committing:
+
+```
+get_recipe(scenarioId)                      read what is stored
+dry_run_scenario(scenarioId, recipe)        try an edit - provisioned, then torn down, never stored
+  ...read the SDK's error, edit, repeat...
+dry_run_scenario(scenarioId, recipe, save)  promote the one that passed
+```
+
+Passing a `recipe` runs *that* candidate instead of the stored one and persists nothing, so the recipe your test runs use keeps working while your agent experiments, and a wrong guess costs nothing. `save: true` promotes a candidate only after a clean `up`/`down`, so a recipe nobody has seen work cannot become the active one.
+
+:::caution[A saved recipe is shared state]
+`update_recipe` - and `dry_run_scenario` with `save: true` - changes the recipe **every future run of that scenario** uses, not just yours. On a live app, treat it like a database migration: prove the candidate with an unstored dry run first, then promote it.
+:::
+
+Two different things can be wrong, and they iterate at very different speeds. The **recipe** (wrong fields, a missing entity, a `_ref` pointing at nothing) is fixed here, in seconds. Your **SDK handler code** (a missing factory for a model, a broken insert) lives in your repo and only changes when the app is rebuilt and redeployed.
 
 They all apply asynchronously, so the loop is: **fix** with `set_secret` / `edit_previewkit_config` / `apply_config`, **confirm** with `wait_for_deploy` (which streams a short log tail and tells you `settled: false` if the rebuild is still running so you can call it again), then re-read if it failed.
 

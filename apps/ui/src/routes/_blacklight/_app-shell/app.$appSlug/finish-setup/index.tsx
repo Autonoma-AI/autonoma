@@ -1358,6 +1358,9 @@ function DryRunList({
   const [results, setResults] = useState<Record<string, DryRunResult>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [logsExpanded, setLogsExpanded] = useState(true);
+  // Owned here rather than lifted from the SDK step: that step's dialog lives in a
+  // sibling component, and this one carries its own copy so the step stays movable.
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false);
 
   // The target is owned by FinishSetupSteps and shared with the SDK step, so the
   // dry run hits exactly the preview validated there.
@@ -1419,17 +1422,47 @@ function DryRunList({
         <span className="text-sm font-medium text-text-primary">
           Dry run {list.length} scenario{list.length === 1 ? "" : "s"}
         </span>
-        <Button
-          variant="outline"
-          size="sm"
-          className="gap-2"
-          onClick={() => void runAll()}
-          disabled={isRunning || selectedTarget?.availability !== "ready"}
-        >
-          <PlayIcon size={14} weight="bold" />
-          {isRunning ? "Running..." : "Run dry run"}
-        </Button>
+        <div className="flex items-center gap-1.5">
+          {/* A failed dry run is usually a recipe or SDK-handler fix, and the agent can do both:
+              it reads the recipe, tries edits against the live SDK, and fixes the handler in the repo. */}
+          <Button
+            variant={anyFailed ? "accent" : "ghost"}
+            size="sm"
+            className="gap-1.5"
+            onClick={() => setAgentDialogOpen(true)}
+          >
+            <RobotIcon size={14} weight="bold" />
+            {anyFailed ? "Fix with coding agent" : "Debug with coding agent"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2"
+            onClick={() => void runAll()}
+            disabled={isRunning || selectedTarget?.availability !== "ready"}
+          >
+            <PlayIcon size={14} weight="bold" />
+            {isRunning ? "Running..." : "Run dry run"}
+          </Button>
+        </div>
       </div>
+
+      <ConnectAgentDialog
+        open={agentDialogOpen}
+        onOpenChange={setAgentDialogOpen}
+        title="Debug with a coding agent"
+        description="Install the Autonoma MCP in your coding agent. It picks up the repo and pull request from your local git and connects automatically - no pairing code to paste."
+        serverName="autonoma"
+        endpoint="debug"
+        docsUrl={DEBUG_MCP_DOCS_URL}
+        tellAgent={
+          <>
+            Then, from your repo, ask your agent to fix the scenario - e.g.{" "}
+            <span className="font-mono text-text-primary">why is my scenario dry run failing?</span> It can read the
+            recipe, try edits against your deployed SDK without saving them, and fix the SDK handler in your repo.
+          </>
+        }
+      />
       <div className="flex flex-col gap-2">
         {list.map((scenario) => {
           const result = results[scenario.id];
