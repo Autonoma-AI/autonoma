@@ -1,9 +1,10 @@
-import type {
-    AnalysisFindingBucketCounts,
-    CheckpointExecutionState,
-    CheckpointFailingByKind,
-    CheckpointPresentationSummary,
-    CheckpointTone,
+import {
+    type AnalysisFindingBucketCounts,
+    type CheckpointExecutionState,
+    type CheckpointFailingByKind,
+    type CheckpointPresentationSummary,
+    type CheckpointTone,
+    PIPELINE_LABEL,
 } from "@autonoma/types";
 import type { SnapshotHealthCounts } from "./health";
 
@@ -20,7 +21,6 @@ export interface BuildCheckpointSummaryInputs {
 }
 
 const RUNNING_STATUS = "processing";
-const ANALYZING_LABEL = "Analyzing";
 
 /**
  * Derives the presentation summary consumed by the PR list, PR detail header, checkpoint rows,
@@ -140,7 +140,7 @@ function deriveAuthoritativePresentation(
     if (inputs.jobStatus === "failed") {
         return {
             tone: "critical",
-            label: "Checkpoint failed",
+            label: PIPELINE_LABEL.checkpointFailed,
             reason: "pipeline error",
             executionState: "pipeline_failed",
         };
@@ -150,7 +150,7 @@ function deriveAuthoritativePresentation(
     // never "stale" here - staleness was a legacy-health artifact of passed tests sitting in the unresolved bucket.
     const hasReport = inputs.findingBuckets != null;
     if (inputs.jobStatus === "running" || !hasReport) {
-        return { tone: "neutral", label: ANALYZING_LABEL, executionState: "running" };
+        return { tone: "neutral", label: PIPELINE_LABEL.analyzing, executionState: "running" };
     }
 
     // Completed with a report. Only open bugs count against the PR (the app-health plane); coverage findings are
@@ -196,7 +196,7 @@ function derivePresentation({
 
     // Pipeline failure.
     if (executionState === "pipeline_failed") {
-        return { tone: "critical", label: "Checkpoint failed", reason: "pipeline error" };
+        return { tone: "critical", label: PIPELINE_LABEL.checkpointFailed, reason: "pipeline error" };
     }
 
     // A test failed (or couldn't run) but no open bug filed yet.

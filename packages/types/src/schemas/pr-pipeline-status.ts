@@ -11,18 +11,19 @@ import { checkpointPresentationSummarySchema } from "./checkpoint-summary";
  * - `pending_checks`  - the preview is ready on a commit whose analysis has not started yet.
  * - `analyzing`       - an analysis (diff/checks) is running (the only new-commit signal clients
  *                       with an external, off-platform deploy emit).
+ * - `analysis_failed` - the newest analysis run died on the current commit, so this PR has no verdict.
  * - `build_failed`    - the preview build failed on a commit not yet analyzed.
  * - `none`            - nothing to show yet.
  *
- * The backend derives this from SHA-equality between the preview environment's commit and the last
- * completed analysis, plus the in-flight snapshot pointer - never timestamps. See
- * `computePrPipelineStatus`.
+ * The backend derives this from SHA-equality between the preview environment's commit and the branch's
+ * newest analysis run - never timestamps. See `computePrPipelineStatus`.
  */
 export const prPipelineStatusSchema = z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("checkpoint"), summary: checkpointPresentationSummarySchema }),
     z.object({ kind: z.literal("building") }),
     z.object({ kind: z.literal("pending_checks") }),
     z.object({ kind: z.literal("analyzing") }),
+    z.object({ kind: z.literal("analysis_failed") }),
     z.object({ kind: z.literal("build_failed") }),
     z.object({ kind: z.literal("none") }),
 ]);

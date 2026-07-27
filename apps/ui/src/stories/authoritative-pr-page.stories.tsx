@@ -232,6 +232,22 @@ const snapshotHistory: NonNullable<TrpcFixtures["branches"]>["snapshotHistory"] 
   }),
 ];
 
+// The newest run, settled as failed: the snapshot carries the `failed` status settlement writes, and its summary
+// reports the pipeline failure rather than a test breakdown (there are no findings to break down).
+const failedSnapshotHistoryItem: (typeof snapshotHistory)[number] = {
+  ...snapshotHistory[0]!,
+  status: "failed",
+  summary: {
+    ...snapshotHistory[0]!.summary!,
+    tone: "critical",
+    label: "Checkpoint failed",
+    reason: "pipeline error",
+    executionState: "pipeline_failed",
+    openBugCount: 0,
+    analysis: { jobStatus: "failed", bugCount: 0, passedCount: 0, coverageCount: 0 },
+  },
+};
+
 // Chrome the app shell + PR header/tab bar need on every PR page, independent of the checkpoint content.
 const chromeFixtures: TrpcFixtures = {
   branches: {
@@ -394,6 +410,34 @@ export const Running: Story = {
         pageFixtures({
           analysisReport: null,
           analysisJob: { status: "running", startedAt: STARTED_AT },
+        }),
+      ),
+    },
+  },
+};
+
+/**
+ * A run that died before producing a report. The header pill, the history rail and the body must all say the run
+ * failed - before `analysis_failed` existed the header fell through to the previous commit's green summary.
+ */
+export const AnalysisFailed: Story = {
+  args: { path: OVERVIEW_PATH },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers(
+        pageFixtures({
+          analysisReport: null,
+          // The run died before the Reporter, so it opened no issues - but the PR loader prefetches them anyway.
+          analysisIssues: [],
+          analysisJob: {
+            status: "failed",
+            startedAt: STARTED_AT,
+            completedAt: COMPLETED_AT,
+            failureReason:
+              "The Reporter timed out after 20m (3 suite changes discarded; they will be recomputed on the next push)",
+          },
+          snapshotHistory: [failedSnapshotHistoryItem, ...snapshotHistory.slice(1)],
+          pipelineStatusByBranchId: { kind: "analysis_failed" },
         }),
       ),
     },

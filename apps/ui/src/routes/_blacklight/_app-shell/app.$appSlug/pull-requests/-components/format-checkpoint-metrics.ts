@@ -1,4 +1,4 @@
-import type { CheckpointAnalysisSummary, CheckpointPresentationSummary } from "@autonoma/types";
+import { type CheckpointAnalysisSummary, type CheckpointPresentationSummary, PIPELINE_LABEL } from "@autonoma/types";
 import { unresolvedLabel } from "./outcome-vocab";
 
 // Builds the one-line test-result summary shown under each checkpoint row in the
@@ -39,8 +39,8 @@ export function formatCheckpointMetrics(
 // The authoritative-analysis metrics line: client bugs, passed checks, and non-blocking coverage findings, keyed
 // off the AnalysisReport buckets. While the run is analyzing (or the job failed) there is no breakdown to show.
 function formatAuthoritativeMetrics(analysis: CheckpointAnalysisSummary): string {
-    if (analysis.jobStatus === "failed") return "Analysis failed";
-    if (analysis.jobStatus === "running") return "Analyzing";
+    if (analysis.jobStatus === "failed") return PIPELINE_LABEL.analysisFailed;
+    if (analysis.jobStatus === "running") return PIPELINE_LABEL.analyzing;
 
     const parts: string[] = [];
     if (analysis.bugCount > 0) parts.push(`${analysis.bugCount} ${analysis.bugCount === 1 ? "bug" : "bugs"}`);

@@ -11,37 +11,61 @@ interface PreviewEnvState {
     headSha: string;
 }
 
+interface LatestRunState {
+    /**
+     * Raw `branch_snapshot.status` of the branch's newest non-cancelled snapshot. `processing` means a run is in
+     * flight; `failed` means the run died (only analysis settlement writes that status, so it is unambiguous - if
+     * another writer is ever added, this reads it as an analysis failure).
+     */
+    status: string;
+    /** The commit the run operated on. */
+    headSha?: string;
+}
+
 interface PrPipelineStatusInput {
-    /** The last *completed* analysis for the branch, if any. `headSha` anchors staleness. */
+    /** The last *promoted* analysis for the branch, if any. `headSha` anchors staleness. */
     activeSnapshot?: { headSha?: string; summary?: CheckpointPresentationSummary };
-    /** True when an analysis is in flight (a processing pending snapshot exists). */
-    hasPendingAnalysis: boolean;
+    /**
+     * The branch's newest non-cancelled snapshot, which may be neither active nor pending: a failed run sits on no
+     * branch pointer at all. Reached by branchId, the same way the checkpoint rail reads it, so the pill and the
+     * rail can never disagree about which run is newest.
+     */
+    latestRun?: LatestRunState;
     /** The branch's most-recent live preview environment (resolved by repo + PR), if any. */
     previewEnv?: PreviewEnvState;
 }
 
 /**
  * Rolls a branch's deploy/analyze pipeline into a single {@link PrPipelineStatus} for the PR list and
- * headers. Uses SHA-equality and the in-flight snapshot pointer only - never timestamps - so it works
+ * headers. Uses SHA-equality and the newest run's status only - never timestamps - so it works
  * identically for previewkit clients and clients whose deploy is external (no preview env, only the
- * pending-snapshot signal). Precedence (first match wins):
+ * snapshot signal). Precedence (first match wins):
  *
- * 1. An analysis is running -> `analyzing`.
- * 2. The preview sits on a commit the completed analysis has not caught up to -> the live build state
- *    (`build_failed` / `building` / `pending_checks`).
- * 3. The completed analysis is current -> `checkpoint`.
- * 4. Otherwise `none` (or the preview's build state for a preview-only PR with no analysis yet).
+ * 1. The newest run is in flight -> `analyzing`.
+ * 2. The newest run failed on the current commit -> `analysis_failed`.
+ * 3. The preview sits on a commit no completed analysis has caught up to -> the live build state
+ *    (`build_failed` / `building` / `pending_checks`). A failure on a commit a newer deploy has already
+ *    replaced is stale and falls through to here rather than staying sticky.
+ * 4. The completed analysis is current -> `checkpoint`.
+ * 5. Otherwise `none`.
  */
 export function computePrPipelineStatus({
     activeSnapshot,
-    hasPendingAnalysis,
+    latestRun,
     previewEnv,
 }: PrPipelineStatusInput): PrPipelineStatus {
-    if (hasPendingAnalysis) return { kind: "analyzing" };
+    if (latestRun?.status === "processing") return { kind: "analyzing" };
+
+    // A missing preview env (external, off-platform deploys) carries no deployed-commit signal, so the newest run
+    // is the most current thing we know about - the same assumption `previewOnCurrentCommit` makes below.
+    const previewSha = previewEnv?.headSha;
+    const deployedShaUnknown = previewSha == null || previewSha === "";
+    const failedRunIsCurrent =
+        latestRun?.status === "failed" && (deployedShaUnknown || previewSha === latestRun.headSha);
+    if (failedRunIsCurrent) return { kind: "analysis_failed" };
 
     const analyzedSha = activeSnapshot?.headSha;
-    const previewOnCurrentCommit =
-        previewEnv == null || previewEnv.headSha === "" || previewEnv.headSha === analyzedSha;
+    const previewOnCurrentCommit = deployedShaUnknown || previewSha === analyzedSha;
     const analysisIsCurrent = activeSnapshot != null && previewOnCurrentCommit;
 
     if (analysisIsCurrent) {

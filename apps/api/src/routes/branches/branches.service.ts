@@ -1008,9 +1008,6 @@ export class BranchesService extends Service {
                         _count: { select: { testCaseAssignments: true } },
                     },
                 },
-                // In-flight analysis pointer: a processing pending snapshot means the current commit is
-                // being (re)analyzed, which supersedes a stale completed result in the rolled-up status.
-                pendingSnapshot: { select: { status: true } },
             },
             orderBy: { createdAt: "desc" },
         });
@@ -1020,36 +1017,43 @@ export class BranchesService extends Service {
             .filter((s): s is NonNullable<typeof s> => s != null)
             .map((s) => ({ id: s.id, status: s.status }));
 
-        const [healthBySnapshot, bugCountBySnapshot, authoritativeBySnapshot, previewUrlByPr, previewStateByPr] =
-            await Promise.all([
-                aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
-                countOpenBugsBySnapshot(
-                    this.db,
-                    activeSnapshots.map((s) => s.id),
-                ),
-                loadAuthoritativeCheckpointInputs(
-                    this.db,
-                    organizationId,
-                    activeSnapshots.map((s) => s.id),
-                    this.logger,
-                ),
-                this.loadPreviewUrlsByPr(
-                    applicationId,
-                    organizationId,
-                    branches.map((b) => ({ branchId: b.id, prNumber: b.prInfo!.prNumber })),
-                ),
-                this.loadPreviewStateByPr(
-                    applicationId,
-                    organizationId,
-                    branches.map((b) => b.prInfo!.prNumber),
-                ),
-            ]);
+        const [
+            healthBySnapshot,
+            bugCountBySnapshot,
+            authoritativeBySnapshot,
+            previewUrlByPr,
+            previewStateByPr,
+            latestRunByBranch,
+        ] = await Promise.all([
+            aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
+            countOpenBugsBySnapshot(
+                this.db,
+                activeSnapshots.map((s) => s.id),
+            ),
+            loadAuthoritativeCheckpointInputs(
+                this.db,
+                organizationId,
+                activeSnapshots.map((s) => s.id),
+                this.logger,
+            ),
+            this.loadPreviewUrlsByPr(
+                applicationId,
+                organizationId,
+                branches.map((b) => ({ branchId: b.id, prNumber: b.prInfo!.prNumber })),
+            ),
+            this.loadPreviewStateByPr(
+                applicationId,
+                organizationId,
+                branches.map((b) => b.prInfo!.prNumber),
+            ),
+            this.loadLatestRunByBranch(branches.map((b) => b.id)),
+        ]);
 
         // Best-effort, fire-and-forget refresh of the cached PR metadata. Throttled in
         // Postgres, so this no-ops when the cache is fresh and never blocks the response.
         this.prCache.kickOff(applicationId, organizationId);
 
-        return branches.map(({ prInfo, activeSnapshot, pendingSnapshot, ...branch }) => {
+        return branches.map(({ prInfo, activeSnapshot, ...branch }) => {
             const authoritative = activeSnapshot != null ? authoritativeBySnapshot.get(activeSnapshot.id) : undefined;
             const legacyBugCount = activeSnapshot != null ? (bugCountBySnapshot.get(activeSnapshot.id) ?? 0) : 0;
             // An authoritative snapshot's bug count is its open bug issues (finalize persists it as clientBugCount),
@@ -1072,7 +1076,7 @@ export class BranchesService extends Service {
             const prStatus = computePrPipelineStatus({
                 activeSnapshot:
                     activeSnapshot != null ? { headSha: activeSnapshot.headSha ?? undefined, summary } : undefined,
-                hasPendingAnalysis: pendingSnapshot?.status === "processing",
+                latestRun: latestRunByBranch.get(branch.id),
                 previewEnv: previewStateByPr.get(prInfo!.prNumber),
             });
 
@@ -1233,7 +1237,6 @@ export class BranchesService extends Service {
             select: {
                 prInfo: { select: { prNumber: true } },
                 activeSnapshot: { select: { id: true, status: true, headSha: true } },
-                pendingSnapshot: { select: { status: true } },
             },
         });
         if (branch == null) throw new NotFoundError("Branch not found");
@@ -1244,20 +1247,22 @@ export class BranchesService extends Service {
                 ? [{ id: branch.activeSnapshot.id, status: branch.activeSnapshot.status }]
                 : [];
 
-        const [healthBySnapshot, bugCountBySnapshot, authoritativeBySnapshot, previewStateByPr] = await Promise.all([
-            aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
-            countOpenBugsBySnapshot(
-                this.db,
-                activeSnapshots.map((s) => s.id),
-            ),
-            loadAuthoritativeCheckpointInputs(
-                this.db,
-                organizationId,
-                activeSnapshots.map((s) => s.id),
-                this.logger,
-            ),
-            this.loadPreviewStateByPr(applicationId, organizationId, [prNumber]),
-        ]);
+        const [healthBySnapshot, bugCountBySnapshot, authoritativeBySnapshot, previewStateByPr, latestRunByBranch] =
+            await Promise.all([
+                aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
+                countOpenBugsBySnapshot(
+                    this.db,
+                    activeSnapshots.map((s) => s.id),
+                ),
+                loadAuthoritativeCheckpointInputs(
+                    this.db,
+                    organizationId,
+                    activeSnapshots.map((s) => s.id),
+                    this.logger,
+                ),
+                this.loadPreviewStateByPr(applicationId, organizationId, [prNumber]),
+                this.loadLatestRunByBranch([branchId]),
+            ]);
 
         const active = branch.activeSnapshot;
         const summary =
@@ -1274,9 +1279,36 @@ export class BranchesService extends Service {
 
         return computePrPipelineStatus({
             activeSnapshot: active != null ? { headSha: active.headSha ?? undefined, summary } : undefined,
-            hasPendingAnalysis: branch.pendingSnapshot?.status === "processing",
+            latestRun: latestRunByBranch.get(branchId),
             previewEnv: previewStateByPr.get(prNumber),
         });
+    }
+
+    /**
+     * The newest non-cancelled snapshot per branch, keyed by branch id. Reached by `branchId` rather than through
+     * `branch.activeSnapshotId`/`pendingSnapshotId`, because a failed run sits on neither pointer - the pointer is
+     * cleared when the run settles so the branch is not left blocked. Same `where` shape as `listSnapshots`, so the
+     * pipeline pill and the checkpoint rail always agree about which run is newest. One query for the whole list.
+     */
+    private async loadLatestRunByBranch(
+        branchIds: string[],
+    ): Promise<Map<string, { status: string; headSha?: string }>> {
+        if (branchIds.length === 0) return new Map();
+
+        const snapshots = await this.db.branchSnapshot.findMany({
+            where: {
+                branchId: { in: branchIds },
+                status: { not: "cancelled" },
+                investigationParent: { is: null },
+            },
+            orderBy: { createdAt: "desc" },
+            distinct: ["branchId"],
+            select: { branchId: true, status: true, headSha: true },
+        });
+
+        return new Map(
+            snapshots.map((s) => [s.branchId, { status: s.status, headSha: s.headSha ?? undefined }] as const),
+        );
     }
 
     async getBranch(branchId: string, organizationId: string) {
