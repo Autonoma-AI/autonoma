@@ -124,9 +124,9 @@ Production deployments use [release-please](https://github.com/googleapis/releas
 ### 12. **ECR Cleanup** (`ecr-cleanup.yml`)
 
 - Runs daily at 06:20 UTC and can also be started manually
-- Deletes ECR images whose `lastRecordedPullTime` is older than 3 days, using `imagePushedAt` for images that have never been pulled
-- Skips images with protected tags matching `^(latest|v[0-9].*)$` by default so current `latest` images and production release tags remain available
-- Manual runs default to dry-run mode and support overriding the age threshold, repository prefix, and protected tag regex
+- Deletes every image ECR has already transitioned to its [archival storage class](https://docs.aws.amazon.com/AmazonECR/latest/userguide/archive_restore_image.html) (`imageStatus == ARCHIVED`) in each repository; active images are never deleted. The age at which an image becomes archived is controlled entirely by each repository's ECR lifecycle policy, not by this workflow
+- Skips images with protected tags matching `^(latest|v[0-9].*)$` by default so current `latest` images and production release tags remain available even if archived
+- Manual runs default to dry-run mode and support overriding the repository prefix and protected tag regex
 - Requires the existing AWS service account secrets to allow `ecr:DescribeRepositories`, `ecr:DescribeImages`, and `ecr:BatchDeleteImage`
 
 ## How to Deploy
