@@ -33,7 +33,10 @@ import {
     analysisIssueSeveritySchema,
     analysisIssueStatusSchema,
     type AnalysisIssueSummary,
+    type AnalysisFindingView,
     type AnalysisReportData,
+    type AnalysisTestOrigin,
+    analysisTestOriginSchema,
     type AnalysisVerdict,
     analysisVerdictSchema,
     type AnalysisSnapshotIssueChanges,
@@ -152,12 +155,26 @@ type InvestigationFindingRow = Prisma.InvestigationFindingGetPayload<{ select: t
 
 /**
  * Columns read from an AnalysisFinding row to reconstruct the UI's finding shape. The authoritative store mirrors
- * InvestigationFinding but has no planFidelity/suggestedFixDiff (those axes were dropped) and carries analysis-only
- * signals (planEdited, origin, clip) that the snapshot page does not surface - so they are omitted here.
+ * InvestigationFinding but has no planFidelity/suggestedFixDiff (those axes were dropped) and adds the per-test
+ * signals the suite-changes surfaces derive their whole view from (generation, origin, planEdited, selectionReason).
  */
 const analysisFindingSelect = {
     findingKey: true,
     slug: true,
+    generationId: true,
+    // The test the finding is about, reached through the generation FK: a slug alone cannot name the test, and the
+    // suite-changes surfaces list findings by test name.
+    generation: {
+        select: {
+            testPlan: {
+                select: { testCase: { select: { id: true, name: true, slug: true } } },
+            },
+        },
+    },
+    origin: true,
+    planEdited: true,
+    selectionReason: true,
+    selfHealNote: true,
     category: true,
     confidence: true,
     falsePositiveRisk: true,
@@ -218,10 +235,16 @@ function rowToFinding(row: InvestigationFindingRow): InvestigationFinding {
 }
 
 /** Reconstruct the UI finding shape from an AnalysisFinding row (media keys are signed separately, on read). */
-function rowToAnalysisFinding(row: AnalysisFindingRow): InvestigationFinding {
+function rowToAnalysisFinding(row: AnalysisFindingRow): AnalysisFindingView {
     return {
         id: row.findingKey,
         slug: row.slug,
+        generationId: row.generationId,
+        testCase: row.generation.testPlan.testCase,
+        origin: parseAnalysisTestOrigin(row.origin),
+        planEdited: row.planEdited ?? undefined,
+        selectionReason: row.selectionReason ?? undefined,
+        selfHealNote: row.selfHealNote ?? undefined,
         category: row.category,
         confidence: row.confidence ?? undefined,
         falsePositiveRisk: row.falsePositiveRisk ?? undefined,
@@ -248,6 +271,17 @@ function rowToAnalysisFinding(row: AnalysisFindingRow): InvestigationFinding {
         issueId: row.issueId ?? undefined,
         issueTitle: row.issue?.title ?? undefined,
     };
+}
+
+/**
+ * `origin` is stored as a plain string (matching the analysis island's column style), so it is parsed at this
+ * boundary. An unrecognized value reads as absent - the surfaces that branch on origin fall back rather than
+ * mis-bucketing the test.
+ */
+function parseAnalysisTestOrigin(origin: string | null): AnalysisTestOrigin | undefined {
+    if (origin == null) return undefined;
+    const parsed = analysisTestOriginSchema.safeParse(origin);
+    return parsed.success ? parsed.data : undefined;
 }
 
 /** Columns read from an AnalysisIssue row to build a list/change summary (header + primary screenshot + runs). */
@@ -804,7 +838,7 @@ export class BranchesService extends Service {
     }
 
     /** Re-sign a finding's stored s3:// screenshot/video keys (finding media + every run-trace step) into URLs. */
-    private async signFindingMedia(finding: InvestigationFinding): Promise<InvestigationFinding> {
+    private async signFindingMedia<T extends InvestigationFinding>(finding: T): Promise<T> {
         const sign = (key: string | undefined) =>
             key != null ? this.storageProvider.getSignedUrl(key, INVESTIGATION_MEDIA_TTL_SECONDS) : undefined;
         const [finalScreenshotUrl, videoUrl, optimizedVideoUrl, runTrace] = await Promise.all([

@@ -160,13 +160,14 @@ async function runWithSelfHeal(
             priorPass,
         );
         if (outcome.kind === "fault") {
-            return { slug, category: outcome.category, headline: outcome.headline, planEdited, origin };
+            return { slug, generationId, category: outcome.category, headline: outcome.headline, planEdited, origin };
         }
 
         const routed = routeVerdict(outcome.verdict.category);
         if (routed !== TEST_IS_WRONG) {
             return {
                 slug,
+                generationId,
                 category: routed,
                 headline: outcome.verdict.headline,
                 planEdited,
@@ -180,7 +181,15 @@ async function runWithSelfHeal(
         const isFinalIteration = iteration === MAX_INVESTIGATOR_ITERATIONS;
         const rerun = isFinalIteration ? undefined : await prepareSelfHealRerun(snapshotId, slug, outcome.verdict);
         if (rerun == null) {
-            return resolveToDelete(snapshotId, slug, outcome.verdict, outcome.result, planEdited, origin);
+            return resolveToDelete({
+                snapshotId,
+                slug,
+                generationId,
+                verdict: outcome.verdict,
+                result: outcome.result,
+                planEdited,
+                origin,
+            });
         }
 
         log.info("Self-healing: rewrote the plan on the test's own rows; re-running", {
@@ -200,7 +209,14 @@ async function runWithSelfHeal(
 
     // The final iteration always returns (a terminal verdict, or `delete` when it withholds the re-run), so the
     // loop never falls through. This fail-safe keeps the return total for the type checker.
-    return { slug, category: "engine_artifact", headline: "Investigator produced no verdict", planEdited, origin };
+    return {
+        slug,
+        generationId,
+        category: "engine_artifact",
+        headline: "Investigator produced no verdict",
+        planEdited,
+        origin,
+    };
 }
 
 /**
@@ -307,14 +323,23 @@ async function prepareSelfHealRerun(
  * removed whole. Contained: a delete failure never sinks the finding. The finding keeps the classifier's account
  * as its headline and carries `origin` so the report can tell an obsolete test from an un-establishable proposal.
  */
-async function resolveToDelete(
-    snapshotId: string,
-    slug: string,
-    verdict: InvestigationVerdict,
-    result: InvestigationTestResult,
-    planEdited: boolean,
-    origin: AnalysisTestOrigin,
-): Promise<AnalysisCandidateFinding> {
+async function resolveToDelete({
+    snapshotId,
+    slug,
+    generationId,
+    verdict,
+    result,
+    planEdited,
+    origin,
+}: {
+    snapshotId: string;
+    slug: string;
+    generationId: string;
+    verdict: InvestigationVerdict;
+    result: InvestigationTestResult;
+    planEdited: boolean;
+    origin: AnalysisTestOrigin;
+}): Promise<AnalysisCandidateFinding> {
     log.info("Test could not be stabilized on a healthy app; deleting its own row", {
         snapshot: { snapshotId },
         extra: { slug, category: verdict.category, planEdited, origin },
@@ -333,6 +358,7 @@ async function resolveToDelete(
     }
     return {
         slug,
+        generationId,
         category: "delete",
         headline: verdict.headline,
         planEdited,

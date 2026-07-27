@@ -72,6 +72,7 @@ export async function persistAnalysisFinding(
 function buildFindingFields(finding: AnalysisCandidateFinding) {
     const report = finding.report;
     return {
+        generationId: finding.generationId,
         category: finding.category,
         headline: finding.headline,
         planEdited: finding.planEdited,

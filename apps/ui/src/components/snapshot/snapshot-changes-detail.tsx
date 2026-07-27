@@ -1,6 +1,7 @@
 import { Badge, cn } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { Link } from "@tanstack/react-router";
+import { analysisVerdictMeta } from "components/analysis/verdict-meta";
 import { useIsAuthoritativeSnapshot } from "lib/query/branches.queries";
 import { useEffect, useRef, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
@@ -61,6 +62,13 @@ function TestEntryDetail({ entry, isAuthoritative }: { entry: TestEntry; isAutho
       reasoning={entry.generation.reviewReasoning}
     />
   );
+  const verdictSection = entry.verdict != null && (
+    <DetailSection
+      label="Verdict"
+      headerExtras={<VerdictActions verdict={entry.verdict} />}
+      reasoning={verdictProse(entry.verdict)}
+    />
+  );
 
   return (
     <article className="flex flex-col">
@@ -84,11 +92,11 @@ function TestEntryDetail({ entry, isAuthoritative }: { entry: TestEntry; isAutho
         </div>
       </header>
 
-      {/* Authoritative snapshots lead with the generation (link + status), then the plan, and drop the diffs-era
-          "why existing tests do not cover this" reasoning - the analysis narration carries that story instead. */}
+      {/* Authoritative snapshots lead with what the run concluded, then why the test was selected, then the plan. */}
       {isAuthoritative ? (
         <>
-          {generationSection}
+          {verdictSection}
+          {reasoningSection}
           {planSection}
           {previousPlanSection}
         </>
@@ -101,6 +109,40 @@ function TestEntryDetail({ entry, isAuthoritative }: { entry: TestEntry; isAutho
         </>
       )}
     </article>
+  );
+}
+
+/** The verdict's own account of the run, plus the self-heal note when the run rewrote the plan to get there. */
+function verdictProse(verdict: NonNullable<TestEntry["verdict"]>): string {
+  if (verdict.selfHealNote == null || verdict.selfHealNote.trim().length === 0) return verdict.headline;
+  return `${verdict.headline}\n\n${verdict.selfHealNote}`;
+}
+
+/** The verdict badge plus links to the full finding (evidence, trace, video) and the run that produced it. */
+function VerdictActions({ verdict }: { verdict: NonNullable<TestEntry["verdict"]> }) {
+  const { prNumber, snapshotId } = useChangesDetailParams();
+  const meta = analysisVerdictMeta(verdict.category);
+
+  return (
+    <>
+      <Badge variant={meta.variant}>{meta.label}</Badge>
+      <AppLink
+        to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/$findingId"
+        params={{ prNumber, snapshotId, findingId: verdict.findingId }}
+        className="inline-flex items-center gap-1 font-mono text-2xs uppercase tracking-widest text-text-secondary hover:text-text-primary hover:underline"
+      >
+        <ArrowSquareOutIcon size={11} />
+        Finding
+      </AppLink>
+      <AppLink
+        to="/app/$appSlug/generations/$generationId"
+        params={{ generationId: verdict.generationId }}
+        className="inline-flex items-center gap-1 font-mono text-2xs uppercase tracking-widest text-text-secondary hover:text-text-primary hover:underline"
+      >
+        <ArrowSquareOutIcon size={11} />
+        Generation
+      </AppLink>
+    </>
   );
 }
 

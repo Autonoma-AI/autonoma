@@ -6,6 +6,7 @@ import { expect } from "vitest";
 import { MergeGateService } from "../../src/github/merge-gate.service";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
+import { seedFindingGenerations } from "../seed-finding-generations";
 
 interface CapturedEvent {
     event: string;
@@ -366,14 +367,23 @@ async function createSnapshotWithBugs(
         data: { snapshotId: snapshot.id, status: "completed", organizationId: harness.organizationId },
     });
     await harness.db.analysisReport.create({
-        data: { snapshotId: snapshot.id, verdict: "client_bug", organizationId: harness.organizationId },
+        data: {
+            snapshotId: snapshot.id,
+            verdict: "client_bug",
+            summary: "The run found client bugs.",
+            reportMarkdown: "## Run\n\nClient bugs found.",
+            organizationId: harness.organizationId,
+        },
     });
-    // Findings key to the AnalysisJob; create them directly against the shared snapshot id.
+    // Findings key to the AnalysisJob; create them directly against the shared snapshot id. Each FKs the
+    // generation whose run produced its verdict.
+    const generationFor = await seedFindingGenerations(harness.db, snapshot.id, findingKeys);
     await harness.db.analysisFinding.createMany({
         data: findingKeys.map((key, index) => ({
             reportSnapshotId: snapshot.id,
             findingKey: key,
             slug: key,
+            generationId: generationFor(key),
             category: "client_bug",
             headline: `Bug ${key}`,
             displayOrder: index,

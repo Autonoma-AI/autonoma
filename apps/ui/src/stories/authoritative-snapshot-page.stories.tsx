@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
+import { withRunSignals } from "./analysis-run-signals";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
 const RUN_AT = new Date("2026-01-01T11:24:00.000Z");
@@ -103,7 +104,7 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
     testCount: 5,
     branchId: BRANCH_ID,
     findings: [
-      {
+      withRunSignals({
         id: "checkout-place-order",
         slug: "checkout-place-order",
         category: "client_bug",
@@ -133,8 +134,8 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
         finalScreenshotUrl: MOCK_SCREENSHOT,
         stepCount: 14,
         runSuccess: false,
-      },
-      {
+      }),
+      withRunSignals({
         id: "guest-add-to-cart",
         slug: "guest-add-to-cart",
         category: "passed",
@@ -143,8 +144,8 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
         evidence: [],
         stepCount: 8,
         runSuccess: true,
-      },
-      {
+      }),
+      withRunSignals({
         id: "cart-badge-count",
         slug: "cart-badge-count",
         category: "passed",
@@ -152,21 +153,21 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
         evidence: [],
         stepCount: 6,
         runSuccess: true,
-      },
-      {
+      }),
+      withRunSignals({
         id: "coupon-apply",
         slug: "coupon-apply",
         category: "scenario_issue",
         headline: "Coupon test data was not seeded for this run",
         evidence: [],
-      },
-      {
+      }),
+      withRunSignals({
         id: "payment-iframe",
         slug: "payment-iframe",
         category: "engine_artifact",
         headline: "The payment iframe did not load in the harness",
         evidence: [],
-      },
+      }),
     ],
   },
 };
@@ -249,12 +250,14 @@ const snapshotReport: NonNullable<TrpcFixtures["branches"]> = {
       filesChangedTruncated: false,
     },
     selection: { totalSuiteTests: 24, selected: [] },
+    // `results` is what the pipeline leaves behind: it counts GenerationReviews, and the merged pipeline writes
+    // none, so every investigated test lands in `pending`. The header reads `summary.analysis` instead.
     results: {
       durationMs: 214_000,
-      passed: 2,
-      failed: 3,
+      passed: 0,
+      failed: 0,
       setupFailed: 0,
-      pending: 0,
+      pending: 5,
       running: 0,
       total: 5,
       tests: [],
@@ -262,6 +265,20 @@ const snapshotReport: NonNullable<TrpcFixtures["branches"]> = {
     bugs: [],
     health: "critical",
     healthCounts: { failing: 3, passing: 2, running: 0, setupFailed: 0, notAffected: 0, totalTests: 5 },
+    // What `buildAuthoritativeCheckpointSummary` produces for this run: the `analysis` block is the authoritative
+    // tally, and the legacy `testCounts` deliberately leave failed/running at zero.
+    summary: {
+      tone: "critical",
+      label: "Needs attention",
+      reason: "1 couldn't confirm",
+      executionState: "failed",
+      openBugCount: 1,
+      issueOccurrenceCount: 1,
+      testCounts: { assigned: 24, run: 5, passed: 2, failed: 0, setupFailed: 0, running: 0, notRun: 19 },
+      failingByKind: { engine: 0, app: 0 },
+      suiteChangeCount: 2,
+      analysis: { jobStatus: "completed", bugCount: 1, passedCount: 2, coverageCount: 2 },
+    },
   },
 };
 
@@ -277,7 +294,27 @@ const snapshotDetail: NonNullable<TrpcFixtures["branches"]> = {
       prevSnapshotId: null,
       branch: { id: BRANCH_ID, name: "feat/checkout-rework", applicationId: baseApplication.id, prNumber: PR_NUMBER },
     },
-    changes: [],
+    // Only two of the five investigated tests produced a plan diff: the authored one and the self-healed one. The
+    // other three ran untouched, which is exactly the case a changes-driven view drops and the findings restore.
+    changes: [
+      {
+        type: "added",
+        testCaseId: "tc_guest-add-to-cart",
+        testCaseName: "guest-add-to-cart.md",
+        testCaseSlug: "guest-add-to-cart",
+        testCaseFolderId: "folder_checkout",
+        plan: "1. Open the storefront as a guest.\n2. Add the featured item to the cart.\n3. Assert the cart badge reads 1.",
+      },
+      {
+        type: "updated",
+        testCaseId: "tc_cart-badge-count",
+        testCaseName: "cart-badge-count.md",
+        testCaseSlug: "cart-badge-count",
+        testCaseFolderId: "folder_checkout",
+        plan: '1. Add two items.\n2. Assert the cart badge reads "2 items".',
+        previousPlan: "1. Add two items.\n2. Assert the cart badge reads 2.",
+      },
+    ],
     diffsJob: {
       status: "completed",
       analysisReasoning: null,
@@ -390,6 +427,17 @@ type Story = StoryObj<typeof meta>;
 /** The per-job view: the report prose, the run's verdict + findings list, and the issue-set changes this job made. */
 export const Report: Story = {
   args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}` },
+};
+
+/**
+ * The suite-changes tab, driven by the run's findings: all five investigated tests are listed, including the three
+ * the run left unedited (Checked) that no plan diff would surface. The selected row shows its verdict, why it was
+ * selected, and the links to its finding and the generation that produced it.
+ */
+export const Changes: Story = {
+  args: {
+    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/changes/cart-badge-count`,
+  },
 };
 
 /** A single finding's evidence detail, reached by clicking a finding row - with the up-link to its issue. */

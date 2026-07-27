@@ -42,6 +42,11 @@ export interface RunImpactAnalysisOutput {
  */
 export interface AnalysisCandidateFinding {
     slug: string;
+    /**
+     * The generation whose run this verdict judged. A self-heal re-run moves the Investigator onto a fresh
+     * generation, so this is the LAST one it ran - the only unambiguous pointer from a finding to its evidence.
+     */
+    generationId: string;
     /** The Investigator's terminal verdict (the full two-plane taxonomy). Never `test_is_wrong` - that is a
      * transient loop-routing signal that resolves to a re-run or, when exhausted, to `delete`. */
     category: AnalysisVerdict;

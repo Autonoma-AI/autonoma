@@ -148,6 +148,9 @@ async function runInvestigator(
         });
         const containment: AnalysisCandidateFinding = {
             slug: target.slug,
+            // The child crashed, so it may have self-healed onto a later generation the parent never learns about.
+            // The one Impact Analysis queued is the run this containment can honestly point at.
+            generationId: target.testGenerationId,
             category: "engine_artifact",
             headline: `The Investigator crashed or timed out: ${message}`,
             planEdited: false,

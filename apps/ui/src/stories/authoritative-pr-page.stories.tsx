@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
+import { withRunSignals } from "./analysis-run-signals";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
 const RUN_AT = new Date("2026-01-01T11:24:00.000Z");
@@ -95,7 +96,7 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
     testCount: 5,
     branchId: BRANCH_ID,
     findings: [
-      {
+      withRunSignals({
         id: "checkout-place-order",
         slug: "checkout-place-order",
         category: "client_bug",
@@ -113,8 +114,8 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
         evidence: [{ source: "run", detail: "The Place order button kept aria-disabled after all fields were valid." }],
         stepCount: 14,
         runSuccess: false,
-      },
-      {
+      }),
+      withRunSignals({
         id: "guest-add-to-cart",
         slug: "guest-add-to-cart",
         category: "passed",
@@ -123,8 +124,8 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
         evidence: [],
         stepCount: 8,
         runSuccess: true,
-      },
-      {
+      }),
+      withRunSignals({
         id: "cart-badge-count",
         slug: "cart-badge-count",
         category: "passed",
@@ -132,21 +133,21 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
         evidence: [],
         stepCount: 6,
         runSuccess: true,
-      },
-      {
+      }),
+      withRunSignals({
         id: "coupon-apply",
         slug: "coupon-apply",
         category: "scenario_issue",
         headline: "Coupon test data was not seeded for this run",
         evidence: [],
-      },
-      {
+      }),
+      withRunSignals({
         id: "payment-iframe",
         slug: "payment-iframe",
         category: "engine_artifact",
         headline: "The payment iframe did not load in the harness",
         evidence: [],
-      },
+      }),
     ],
   },
 };

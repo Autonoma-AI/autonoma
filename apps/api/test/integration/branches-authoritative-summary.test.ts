@@ -2,6 +2,7 @@ import { ApplicationArchitecture } from "@autonoma/db";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
+import { seedFindingGenerations } from "../seed-finding-generations";
 
 /**
  * The checkpoint-history rail (branches.snapshotHistory) must read an authoritative snapshot's badge from the
@@ -38,14 +39,28 @@ async function attachAnalysisReport(
         data: { snapshotId, status: "completed", organizationId: harness.organizationId },
     });
     await harness.db.analysisReport.create({
-        data: { snapshotId, verdict, organizationId: harness.organizationId },
+        data: {
+            snapshotId,
+            verdict,
+            // The badge's bug count is issue-derived, not the client_bug finding tally, so that a bug carried
+            // across snapshots keeps the PR red even when no test re-ran it. Mirror what the Reporter writes.
+            clientBugCount: categories.filter((category) => category === "client_bug").length,
+            testCount: categories.length,
+            summary: `Run verdict: ${verdict}.`,
+            reportMarkdown: `## Run\n\nVerdict: ${verdict}.`,
+            organizationId: harness.organizationId,
+        },
     });
-    // Findings key to the AnalysisJob; create them directly against the shared snapshot id.
+    // Findings key to the AnalysisJob; create them directly against the shared snapshot id. Each FKs the
+    // generation whose run produced its verdict.
+    const slugs = categories.map((_, index) => `slug-${index}`);
+    const generationFor = await seedFindingGenerations(harness.db, snapshotId, slugs);
     await harness.db.analysisFinding.createMany({
         data: categories.map((category, index) => ({
             reportSnapshotId: snapshotId,
             findingKey: `finding-${index}`,
             slug: `slug-${index}`,
+            generationId: generationFor(`slug-${index}`),
             category,
             headline: `Finding ${index}`,
             displayOrder: index,

@@ -8,6 +8,7 @@ import type { RouterOutputs } from "lib/trpc";
 import type { ReactNode } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { CheckpointSummaryBadge } from "routes/_blacklight/_app-shell/app.$appSlug/pull-requests/-components/checkpoint-summary-badge";
+import { formatCheckpointMetrics } from "routes/_blacklight/_app-shell/app.$appSlug/pull-requests/-components/format-checkpoint-metrics";
 import { unresolvedLabel } from "routes/_blacklight/_app-shell/app.$appSlug/pull-requests/-components/outcome-vocab";
 import { ShaRange } from "./sha-range";
 
@@ -86,25 +87,40 @@ export function SnapshotReportHeader({
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-text-tertiary">
         <span>{formatRelativeTime(report.snapshot.createdAt)}</span>
-        <span>{formatDuration(report.results.durationMs)}</span>
-        <span>{report.results.total} tests run</span>
-        <span>{report.results.passed} passed</span>
-        <span className={report.results.failed > 0 ? "text-status-critical" : undefined}>
-          {report.results.failed} failed
-        </span>
-        {report.results.setupFailed > 0 && (
-          <span className="text-status-warn">{report.results.setupFailed} setup failed</span>
+        {/* An authoritative run's stats come from its own finding buckets via the shared metrics formatter (the
+            same copy the checkpoint rail and PR list use), because the pipeline writes no GenerationReview for
+            `results` to count - every test would read as "pending". */}
+        {report.summary?.analysis != null ? (
+          <span>{formatCheckpointMetrics(report.summary, report.summary.openBugCount, report.results.total)}</span>
+        ) : (
+          <DiffsResultStats report={report} />
         )}
-        {report.results.running > 0 && (
-          <span>
-            {report.results.running} {unresolvedLabel(report.summary?.executionState)}
-          </span>
-        )}
-        {report.results.pending > 0 && <span>{report.results.pending} pending</span>}
         <span>commit range:</span>
         <ShaRange baseSha={report.snapshot.baseSha ?? null} headSha={report.snapshot.headSha ?? null} />
       </div>
     </header>
+  );
+}
+
+function DiffsResultStats({ report }: { report: SnapshotReport }) {
+  return (
+    <>
+      <span>{formatDuration(report.results.durationMs)}</span>
+      <span>{report.results.total} tests run</span>
+      <span>{report.results.passed} passed</span>
+      <span className={report.results.failed > 0 ? "text-status-critical" : undefined}>
+        {report.results.failed} failed
+      </span>
+      {report.results.setupFailed > 0 && (
+        <span className="text-status-warn">{report.results.setupFailed} setup failed</span>
+      )}
+      {report.results.running > 0 && (
+        <span>
+          {report.results.running} {unresolvedLabel(report.summary?.executionState)}
+        </span>
+      )}
+      {report.results.pending > 0 && <span>{report.results.pending} pending</span>}
+    </>
   );
 }
 

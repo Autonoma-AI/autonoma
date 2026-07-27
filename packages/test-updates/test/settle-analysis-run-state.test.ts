@@ -38,10 +38,13 @@ testUpdateSuite({
             await harness.db.analysisJob.create({
                 data: { snapshotId: draft.snapshotId, organizationId, status: "running", startedAt: new Date() },
             });
+            // Anchored to a generation the sweep touches: the finding cascades away if settlement ever deletes
+            // generations instead of failing them.
             await harness.db.analysisFinding.create({
                 data: {
                     reportSnapshotId: draft.snapshotId,
                     organizationId,
+                    generationId: checkoutGenerationId,
                     findingKey: "checkout",
                     slug: "checkout",
                     category: "engine_artifact",

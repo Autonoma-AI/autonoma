@@ -19,9 +19,11 @@ const next = () => seq++;
 const candidate = (
     slug: string,
     category: AnalysisCandidateFinding["category"],
+    generationId: string,
     overrides: Partial<AnalysisCandidateFinding> = {},
 ): AnalysisCandidateFinding => ({
     slug,
+    generationId,
     category,
     headline: `${slug} headline`,
     planEdited: false,
@@ -50,8 +52,12 @@ class PersistHarness implements IntegrationHarness {
     async beforeEach() {}
     async afterEach() {}
 
-    /** Seed a snapshot with the up-front AnalysisJob an Investigator persists its findings against (no report). */
-    async seedRun(): Promise<{ snapshotId: string; organizationId: string }> {
+    /**
+     * Seed a snapshot with the up-front AnalysisJob an Investigator persists its findings against (no report), plus
+     * the test case / plan / generation a finding points at - the generation FK is what makes a finding resolvable
+     * back to the run it judged.
+     */
+    async seedRun(): Promise<{ snapshotId: string; organizationId: string; generationId: string }> {
         const n = next();
         const org = await this.db.organization.create({ data: { name: `Org ${n}`, slug: `org-${n}` } });
         const app = await this.db.application.create({
@@ -68,12 +74,37 @@ class PersistHarness implements IntegrationHarness {
         const snapshot = await this.db.branchSnapshot.create({
             data: { branchId: branch.id, source: "GITHUB_PUSH" },
         });
-        // A finding FKs only the AnalysisJob, so the seed creates just the job (the Reporter authors the report
-        // later); this exercises findings persisting during fan-out before any report exists.
+        // The seed creates the job but no report (the Reporter authors that later); this exercises findings
+        // persisting during fan-out before any report exists.
         await this.db.analysisJob.create({
             data: { snapshotId: snapshot.id, organizationId: org.id, status: "running", startedAt: new Date() },
         });
-        return { snapshotId: snapshot.id, organizationId: org.id };
+
+        const folder = await this.db.folder.create({
+            data: { name: `Flow ${n}`, applicationId: app.id, organizationId: org.id },
+        });
+        const testCase = await this.db.testCase.create({
+            data: {
+                name: `Test ${n}`,
+                slug: `test-${n}`,
+                applicationId: app.id,
+                folderId: folder.id,
+                organizationId: org.id,
+            },
+        });
+        const plan = await this.db.testPlan.create({
+            data: { testCaseId: testCase.id, prompt: "seed plan", organizationId: org.id },
+        });
+        const generation = await this.db.testGeneration.create({
+            data: {
+                testPlanId: plan.id,
+                snapshotId: snapshot.id,
+                organizationId: org.id,
+                status: "success",
+            },
+        });
+
+        return { snapshotId: snapshot.id, organizationId: org.id, generationId: generation.id };
     }
 }
 
@@ -82,11 +113,11 @@ integrationTestSuite({
     createHarness: () => PersistHarness.create(),
     cases: (test) => {
         test("persists a client bug's columns, rich evidence, and per-test provenance", async ({ harness }) => {
-            const { snapshotId } = await harness.seedRun();
+            const { snapshotId, generationId } = await harness.seedRun();
 
             await persistAnalysisFinding({
                 snapshotId,
-                finding: candidate("checkout", "client_bug", {
+                finding: candidate("checkout", "client_bug", generationId, {
                     planEdited: true,
                     selectionReason: "The diff touches checkout total.",
                     selfHealNote: "Rewrote the plan.",
@@ -103,6 +134,7 @@ integrationTestSuite({
             });
             expect(finding?.category).toBe("client_bug");
             expect(finding?.slug).toBe("checkout");
+            expect(finding?.generationId).toBe(generationId);
             expect(finding?.planEdited).toBe(true);
             expect(finding?.selectionReason).toBe("The diff touches checkout total.");
             expect(finding?.selfHealNote).toBe("Rewrote the plan.");
@@ -115,12 +147,12 @@ integrationTestSuite({
         test("is idempotent - a re-file upserts on (report, slug) and overwrites the prior verdict", async ({
             harness,
         }) => {
-            const { snapshotId } = await harness.seedRun();
+            const { snapshotId, generationId } = await harness.seedRun();
 
-            await persistAnalysisFinding({ snapshotId, finding: candidate("login", "client_bug") });
+            await persistAnalysisFinding({ snapshotId, finding: candidate("login", "client_bug", generationId) });
             await persistAnalysisFinding({
                 snapshotId,
-                finding: candidate("login", "passed", { headline: "login works now" }),
+                finding: candidate("login", "passed", generationId, { headline: "login works now" }),
             });
 
             const rows = await harness.db.analysisFinding.findMany({ where: { reportSnapshotId: snapshotId } });
@@ -132,9 +164,9 @@ integrationTestSuite({
         });
 
         test("sorts a coverage-plane finding last", async ({ harness }) => {
-            const { snapshotId } = await harness.seedRun();
+            const { snapshotId, generationId } = await harness.seedRun();
 
-            await persistAnalysisFinding({ snapshotId, finding: candidate("flake", "engine_artifact") });
+            await persistAnalysisFinding({ snapshotId, finding: candidate("flake", "engine_artifact", generationId) });
 
             const finding = await harness.db.analysisFinding.findUnique({
                 where: { reportSnapshotId_findingKey: { reportSnapshotId: snapshotId, findingKey: "flake" } },

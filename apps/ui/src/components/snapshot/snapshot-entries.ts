@@ -11,6 +11,18 @@ export interface TestEntry {
     plan?: string;
     previousPlan?: string;
     generation?: { id: string; status: string; reviewReasoning?: string };
+    /**
+     * What the analysis run concluded about this test (authoritative snapshots): the terminal verdict, its one-line
+     * account, and the ids to open the finding and the run that produced it. Absent on a diffs snapshot, where the
+     * `generation`'s review carries the outcome instead.
+     */
+    verdict?: {
+        category: string;
+        headline: string;
+        findingId: string;
+        generationId: string;
+        selfHealNote?: string;
+    };
 }
 
 export interface Section {

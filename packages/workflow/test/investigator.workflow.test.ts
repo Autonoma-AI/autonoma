@@ -215,9 +215,11 @@ describe("investigatorWorkflow verdict state machine", () => {
         const finding = await runInvestigator();
 
         // The healed second run's verdict is what the Investigator reports - proof the loop re-ran, not the first.
-        // planEdited is true because a self-heal rewrite was applied along the way.
+        // planEdited is true because a self-heal rewrite was applied along the way, and the finding points at the
+        // HEALED generation: the FK must name the run the verdict actually judged, not the superseded first pass.
         expect(finding).toEqual({
             slug: SLUG,
+            generationId: HEALED_GENERATION,
             category: "passed",
             headline: "healed and green",
             planEdited: true,
@@ -250,6 +252,7 @@ describe("investigatorWorkflow verdict state machine", () => {
         // still-`test_is_wrong` test on a healthy app resolves to `delete` - there is no "unknown"/passed bucket.
         expect(finding).toEqual({
             slug: SLUG,
+            generationId: HEALED_GENERATION,
             category: "delete",
             headline: "still stale",
             planEdited: true,
@@ -276,6 +279,7 @@ describe("investigatorWorkflow verdict state machine", () => {
         // un-fixable and resolves straight to `delete` on the first pass, self-deleting its row.
         expect(finding).toEqual({
             slug: SLUG,
+            generationId: ORIGINAL_GENERATION,
             category: "delete",
             headline: "asserts a removed feature",
             planEdited: false,
@@ -301,6 +305,7 @@ describe("investigatorWorkflow verdict state machine", () => {
 
         expect(finding).toEqual({
             slug: SLUG,
+            generationId: ORIGINAL_GENERATION,
             category: "delete",
             headline: "cannot prepare",
             planEdited: false,
@@ -321,6 +326,7 @@ describe("investigatorWorkflow verdict state machine", () => {
 
         expect(finding).toEqual({
             slug: SLUG,
+            generationId: ORIGINAL_GENERATION,
             category: "client_bug",
             headline: "checkout total is wrong",
             planEdited: false,
@@ -347,6 +353,7 @@ describe("investigatorWorkflow verdict state machine", () => {
 
         expect(finding).toEqual({
             slug: SLUG,
+            generationId: ORIGINAL_GENERATION,
             category: "scenario_issue",
             headline: "user was never seeded",
             planEdited: false,

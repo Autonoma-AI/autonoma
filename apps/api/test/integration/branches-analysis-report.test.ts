@@ -2,6 +2,7 @@ import { ApplicationArchitecture } from "@autonoma/db";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
+import { seedFindingGenerations } from "../seed-finding-generations";
 
 apiTestSuite({
     name: "branches.analysisReport",
@@ -16,18 +17,24 @@ apiTestSuite({
                     testCount: 2,
                     clientBugCount: 1,
                     impactReasoning: "Selected the checkout tests because the PR touches the cart.",
-                    narration: "The checkout flow has a client bug: the submit button never enables.",
+                    summary: "The checkout flow has a client bug: the submit button never enables.",
                     reportMarkdown: "## Checkout is broken\nThe submit button never enables.",
                     organizationId: harness.organizationId,
                 },
             });
-            // Findings key to the AnalysisJob (created by createAuthoritativeSnapshot).
+            // Findings key to the AnalysisJob (created by createAuthoritativeSnapshot) and FK the generation whose
+            // run produced each verdict.
+            const generationFor = await seedFindingGenerations(harness.db, snapshotId, [
+                "checkout-submit",
+                "cart-empties",
+            ]);
             await harness.db.analysisFinding.createMany({
                 data: [
                     {
                         reportSnapshotId: snapshotId,
                         findingKey: "checkout-submit",
                         slug: "checkout-submit",
+                        generationId: generationFor("checkout-submit"),
                         category: "client_bug",
                         headline: "Submit never enables",
                         whatHappened: "The submit button stays disabled after filling the form.",
@@ -39,6 +46,7 @@ apiTestSuite({
                         reportSnapshotId: snapshotId,
                         findingKey: "cart-empties",
                         slug: "cart-empties",
+                        generationId: generationFor("cart-empties"),
                         category: "passed",
                         headline: "Cart empties correctly",
                         displayOrder: 1,
@@ -51,7 +59,7 @@ apiTestSuite({
 
             expect(report).not.toBeNull();
             expect(report?.impactReasoning).toContain("checkout");
-            expect(report?.narration).toContain("client bug");
+            expect(report?.summary).toContain("client bug");
             expect(report?.findings.map((f) => f.id)).toEqual(["checkout-submit", "cart-empties"]);
 
             const bug = report?.findings.find((f) => f.category === "client_bug");

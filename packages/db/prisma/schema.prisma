@@ -922,6 +922,10 @@ model TestGeneration {
 
   affectedTest AffectedTest?
 
+  /// The analysis findings whose verdict this run produced. A list rather than one row because a re-filed
+  /// containment finding can overwrite in place while an earlier self-heal pass still points here.
+  analysisFindings AnalysisFinding[]
+
   scenarioInstanceId String?           @map("scenario_instance_id")
   scenarioInstance   ScenarioInstance? @relation(fields: [scenarioInstanceId], references: [id], onDelete: SetNull)
 
@@ -2622,6 +2626,12 @@ model AnalysisFinding {
   /// Stable per-report routing id (the slug, suffixed when a slug appears more than once).
   findingKey String @map("finding_key")
   slug       String
+
+  /// The generation whose run produced this verdict. After a self-heal the Investigator re-runs the test on a fresh
+  /// generation, so this pins WHICH run the finding judged - a `(slug, snapshot)` lookup cannot: it matches every
+  /// generation the run went through.
+  generationId String         @map("generation_id")
+  generation   TestGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
   /// The Investigator's terminal AnalysisVerdict (passed/client_bug/engine_artifact/environment_failure/
   /// scenario_issue/delete).
   category          String

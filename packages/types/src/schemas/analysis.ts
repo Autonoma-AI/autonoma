@@ -192,12 +192,33 @@ export const analysisFindingReportSchema = z.object({
 export type AnalysisFindingReport = z.infer<typeof analysisFindingReportSchema>;
 
 /**
+ * One `AnalysisFinding` as the snapshot page consumes it: the `investigationFindingSchema` display shape (so the
+ * findings list and evidence detail render it with the same components) plus the per-test signals only the merged
+ * pipeline records. Those extra fields are what make a finding self-describing: how the test entered the run, what
+ * the run did to it, and which generation produced the verdict - the suite-changes surfaces derive their whole view
+ * from them rather than diffing plan ids or reading a `GenerationReview`.
+ */
+export const analysisFindingViewSchema = investigationFindingSchema.extend({
+    /** The generation whose run produced this verdict - after a self-heal, the last one the Investigator ran. */
+    generationId: z.string(),
+    /** The test this finding is about, resolved through the generation. `slug` alone cannot name it. */
+    testCase: z.object({ id: z.string(), name: z.string(), slug: z.string() }),
+    /** How the test entered the run: an affected suite member (`pre_existing`) or authored this run (`proposed`). */
+    origin: analysisTestOriginSchema.optional(),
+    /** Whether the Investigator rewrote this test's plan before reaching the verdict. */
+    planEdited: z.boolean().optional(),
+    /** Why Impact Analysis selected this test to investigate. */
+    selectionReason: z.string().optional(),
+    /** What the Investigator self-healed before reaching the verdict; present only when `planEdited`. */
+    selfHealNote: z.string().optional(),
+});
+export type AnalysisFindingView = z.infer<typeof analysisFindingViewSchema>;
+
+/**
  * The authoritative analysis report as the snapshot page consumes it: the merged pipeline's per-run
- * `AnalysisReport` header plus its `AnalysisFinding` children, re-signed for display. The findings reuse the
- * `investigationFindingSchema` display shape so the snapshot page renders them with the same findings-list and
- * evidence-detail components (repointed at the analysis store); the analysis-only signals (`planEdited`, origin,
- * clip) are not surfaced here. `category` is the terminal `AnalysisVerdict` as a plain string - the UI maps the
- * known verdicts to styles and falls back gracefully, matching the investigation display contract.
+ * `AnalysisReport` header plus its `AnalysisFinding` children, re-signed for display. `category` is the terminal
+ * `AnalysisVerdict` as a plain string - the UI maps the known verdicts to styles and falls back gracefully,
+ * matching the investigation display contract.
  *
  * The presence of this report (non-null) is the page-level gate: a snapshot with one renders the authoritative
  * layout, otherwise the diffs UI is left untouched.
@@ -230,7 +251,7 @@ export const analysisReportDataSchema = z.object({
     /** The run's open-bug count (issue-derived) and total investigated tests, for the per-job header. */
     clientBugCount: z.number().int().nonnegative(),
     testCount: z.number().int().nonnegative(),
-    findings: z.array(investigationFindingSchema),
+    findings: z.array(analysisFindingViewSchema),
 });
 export type AnalysisReportData = z.infer<typeof analysisReportDataSchema>;
 

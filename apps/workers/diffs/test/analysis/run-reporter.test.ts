@@ -4,6 +4,7 @@ import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integra
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { expect } from "vitest";
 import { runReporter } from "../../src/activities/analysis/run-reporter";
+import { seedGenerationForSlug } from "./seed-generation";
 
 declare global {
     // eslint-disable-next-line no-var
@@ -85,12 +86,19 @@ class ReporterHarness implements IntegrationHarness {
             data: { snapshotId: snapshot.id, organizationId: org.id, status: "running", startedAt: new Date() },
         });
         for (const [index, finding] of findings.entries()) {
+            const generationId = await seedGenerationForSlug(this.db, {
+                applicationId: app.id,
+                organizationId: org.id,
+                snapshotId: snapshot.id,
+                slug: finding.slug,
+            });
             await this.db.analysisFinding.create({
                 data: {
                     reportSnapshotId: snapshot.id,
                     organizationId: org.id,
                     findingKey: finding.slug,
                     slug: finding.slug,
+                    generationId,
                     category: finding.category,
                     headline: `${finding.slug} headline`,
                     displayOrder: index,

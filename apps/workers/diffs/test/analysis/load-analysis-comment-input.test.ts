@@ -3,6 +3,7 @@ import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integra
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { expect } from "vitest";
 import { loadAnalysisCommentInput } from "../../src/activities/analysis/load-analysis-comment-input";
+import { seedGenerationForSlug } from "./seed-generation";
 
 declare global {
     // eslint-disable-next-line no-var
@@ -72,8 +73,8 @@ class CommentInputHarness implements IntegrationHarness {
             data: { name: `feature/${n}`, applicationId: app.id, organizationId: org.id },
         });
 
-        const older = await this.seedRun(branch.id, org.id, OLDER_RUN_AT, "old");
-        const newer = await this.seedRun(branch.id, org.id, NEWER_RUN_AT, "new");
+        const older = await this.seedRun(branch.id, org.id, app.id, OLDER_RUN_AT, "old");
+        const newer = await this.seedRun(branch.id, org.id, app.id, NEWER_RUN_AT, "new");
 
         await this.db.analysisReport.create({
             data: {
@@ -91,7 +92,13 @@ class CommentInputHarness implements IntegrationHarness {
     }
 
     /** One run: a snapshot at `runAt`, its job, and a `checkout` + `cart` finding whose clips name the run. */
-    private async seedRun(branchId: string, organizationId: string, runAt: Date, tag: string): Promise<string> {
+    private async seedRun(
+        branchId: string,
+        organizationId: string,
+        applicationId: string,
+        runAt: Date,
+        tag: string,
+    ): Promise<string> {
         const snapshot = await this.db.branchSnapshot.create({
             data: { branchId, source: "GITHUB_PUSH", createdAt: runAt },
         });
@@ -105,12 +112,19 @@ class CommentInputHarness implements IntegrationHarness {
             },
         });
         for (const [index, slug] of ["checkout", "cart"].entries()) {
+            const generationId = await seedGenerationForSlug(this.db, {
+                applicationId,
+                organizationId,
+                snapshotId: snapshot.id,
+                slug,
+            });
             await this.db.analysisFinding.create({
                 data: {
                     reportSnapshotId: snapshot.id,
                     organizationId,
                     findingKey: slug,
                     slug,
+                    generationId,
                     category: "client_bug",
                     headline: `${slug} headline`,
                     clipKey: `s3://bucket/${tag}-${slug}.gif`,
