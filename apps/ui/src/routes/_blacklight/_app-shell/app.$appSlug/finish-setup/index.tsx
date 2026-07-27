@@ -64,6 +64,7 @@ import { toastManager } from "lib/toast-manager";
 import { type RouterOutputs, trpc } from "lib/trpc";
 import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { useCurrentApplication } from "../../-use-current-application";
+import { testCaseFolder } from "./-test-case-folder";
 
 type FinishStepId = "cli" | "sdk" | "dry-run";
 
@@ -1729,7 +1730,14 @@ function AdminManualUpload({ applicationId, setupId }: { applicationId: string; 
 
       const artifactsBody: UploadArtifactsBody = {};
       if (testCases.length > 0) {
-        artifactsBody.testCases = testCases.map((f) => ({ name: f.name, content: f.content, folder: f.folder }));
+        // Derive the folder the same way the CLI does - relative to `qa-tests/`, not the
+        // raw directory path - so the API's (folder, name) dedupe key matches a CLI run's
+        // and a manual re-upload doesn't duplicate every test case.
+        artifactsBody.testCases = testCases.map((f) => ({
+          name: f.name,
+          content: f.content,
+          folder: testCaseFolder(f.path),
+        }));
       }
       if (skills.length > 0) {
         artifactsBody.skills = skills.map((f) => ({ name: f.name, content: f.content }));
@@ -1833,29 +1841,25 @@ function AdminManualUpload({ applicationId, setupId }: { applicationId: string; 
 interface ParsedFile {
   name: string;
   path: string;
-  folder?: string;
   content: string;
 }
 
 async function readAllFiles(fileList: FileList): Promise<ParsedFile[]> {
-  const results: ParsedFile[] = [];
-  for (const file of Array.from(fileList)) {
-    const parts = file.webkitRelativePath.split("/");
-    // Skip the top-level folder name (the selected directory itself).
-    const pathWithinDir = parts.slice(1).join("/");
-    if (pathWithinDir === "") continue;
+  // Each file's read is independent, so run them concurrently rather than paying the
+  // full latency of every read in sequence - a generated app folder is dozens of files.
+  const entries = await Promise.all(
+    Array.from(fileList).map(async (file): Promise<ParsedFile | undefined> => {
+      const parts = file.webkitRelativePath.split("/");
+      // Skip the top-level folder name (the selected directory itself).
+      const pathWithinDir = parts.slice(1).join("/");
+      if (pathWithinDir === "") return undefined;
 
-    const content = await file.text();
-    const fileName = parts[parts.length - 1] ?? file.name;
-    const folderParts = parts.slice(1, -1);
-    results.push({
-      name: fileName,
-      path: pathWithinDir,
-      folder: folderParts.length > 0 ? folderParts.join("/") : undefined,
-      content,
-    });
-  }
-  return results;
+      const content = await file.text();
+      const fileName = parts[parts.length - 1] ?? file.name;
+      return { name: fileName, path: pathWithinDir, content };
+    }),
+  );
+  return entries.filter((entry) => entry != null);
 }
 
 interface CliSetupState {
