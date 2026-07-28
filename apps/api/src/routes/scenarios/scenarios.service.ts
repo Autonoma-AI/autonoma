@@ -21,6 +21,9 @@ import { RecipeConflictError } from "./recipe-conflict-error";
  * app is still starting. dryRun already waited out a bounded warm-up, so if it is
  * STILL cold the environment is unusually slow (or not deployed).
  */
+/** How many of a scenario's most recent provisionings the instances drawer lists. */
+const RECENT_INSTANCE_LIMIT = 50;
+
 const COLD_START_DRY_RUN_MESSAGE =
     "The app's preview appears to still be starting up (it returned 503 Service Unavailable). Previews scale to zero " +
     "when idle, so this is a cold start, not a recipe problem - we already waited for it to wake. Give it a few more " +
@@ -155,13 +158,29 @@ export class ScenariosService extends Service {
 
         const scenario = await this.db.scenario.findFirst({
             where: { id: scenarioId, application: { organizationId } },
+            select: { id: true, activeRecipeVersion: { select: { fingerprint: true } } },
         });
         if (scenario == null) throw new NotFoundError("Scenario not found");
 
-        return this.db.scenarioInstance.findMany({
+        // Capped like listWebhookCalls: a long-lived scenario accumulates an instance per run
+        // forever, and the drawer that reads this only ever shows recent ones.
+        const instances = await this.db.scenarioInstance.findMany({
             where: { scenarioId },
             orderBy: { requestedAt: "desc" },
+            take: RECENT_INSTANCE_LIMIT,
         });
+
+        // Whether the recipe has changed since each run. Computed here rather than in the client
+        // because this is where the current fingerprint is known - and without it a run reads as
+        // describing the recipe you are looking at, when it may have exercised a different one.
+        const currentFingerprint = scenario.activeRecipeVersion?.fingerprint;
+        return instances.map((instance) => ({
+            ...instance,
+            recipeSuperseded:
+                instance.recipeFingerprint != null &&
+                currentFingerprint != null &&
+                instance.recipeFingerprint !== currentFingerprint,
+        }));
     }
 
     async listWebhookCalls(applicationId: string, organizationId: string) {

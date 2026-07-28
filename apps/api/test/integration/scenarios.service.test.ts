@@ -378,6 +378,37 @@ apiTestSuite({
             ).rejects.toThrow(TRPCError);
         });
 
+        test("listInstances flags runs whose recipe has changed since", async ({ harness }) => {
+            const { service, scenario, app } = await createFixture(harness, "Scenario Instance Provenance");
+            const before = await service.getRecipe(app.id, harness.organizationId, scenario.id);
+            const originalFingerprint = before.activeRecipeVersion?.fingerprint ?? "";
+
+            // One run against the recipe as it stands, one against a fingerprint that never was.
+            await harness.db.scenarioInstance.create({
+                data: {
+                    applicationId: app.id,
+                    organizationId: harness.organizationId,
+                    scenarioId: scenario.id,
+                    status: "UP_SUCCESS",
+                    recipeFingerprint: originalFingerprint,
+                },
+            });
+            await harness.db.scenarioInstance.create({
+                data: {
+                    applicationId: app.id,
+                    organizationId: harness.organizationId,
+                    scenarioId: scenario.id,
+                    status: "UP_SUCCESS",
+                    recipeFingerprint: "a-recipe-that-has-since-been-replaced",
+                },
+            });
+
+            const instances = await service.listInstances(scenario.id, harness.organizationId);
+
+            const bySuperseded = instances.map((instance) => instance.recipeSuperseded).sort();
+            expect(bySuperseded).toEqual([false, true]);
+        });
+
         test("dryRun rejects a scenario that belongs to another application", async ({ harness }) => {
             const { service, app } = await createFixture(harness, "Scenario Dry Run Owner App");
             const { scenario: foreignScenario } = await createFixture(harness, "Scenario Dry Run Other App");

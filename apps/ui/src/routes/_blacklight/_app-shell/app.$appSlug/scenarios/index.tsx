@@ -47,6 +47,7 @@ import { WebhooksLogoIcon } from "@phosphor-icons/react/WebhooksLogo";
 import { XIcon } from "@phosphor-icons/react/X";
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { ScenarioInstancesList } from "components/scenarios/scenario-instances-list";
 import { useAuth } from "lib/auth";
 import { useAPIMutation } from "lib/query/api-queries";
 import { ensureScenariosData } from "lib/query/scenarios.queries";
@@ -84,25 +85,6 @@ function formatRelativeTime(date: Date): string {
     day: "numeric",
     year: "numeric",
   });
-}
-
-type InstanceStatus = "REQUESTED" | "UP_SUCCESS" | "UP_FAILED" | "RUNNING_TESTS" | "DOWN_SUCCESS" | "DOWN_FAILED";
-
-function instanceStatusBadgeVariant(status: InstanceStatus): "outline" | "success" | "critical" | "status-running" {
-  switch (status) {
-    case "REQUESTED":
-      return "outline";
-    case "UP_SUCCESS":
-      return "success";
-    case "UP_FAILED":
-      return "critical";
-    case "RUNNING_TESTS":
-      return "status-running";
-    case "DOWN_SUCCESS":
-      return "success";
-    case "DOWN_FAILED":
-      return "critical";
-  }
 }
 
 type WebhookActionType = "DISCOVER" | "UP" | "DOWN";
@@ -728,53 +710,6 @@ function ScenarioDrawer({
         </ScrollArea>
       </DrawerContent>
     </Drawer>
-  );
-}
-
-function ScenarioInstancesList({ scenarioId }: { scenarioId: string }) {
-  const { data: instances } = useSuspenseQuery(trpc.scenarios.listInstances.queryOptions({ scenarioId }));
-
-  if (instances.length === 0) {
-    return <p className="font-mono text-2xs text-text-tertiary">No instances yet.</p>;
-  }
-
-  return (
-    <div className="flex flex-col divide-y divide-border-dim border border-border-dim">
-      {instances.map((instance) => (
-        <div key={instance.id} className="flex flex-col gap-2 px-3 py-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-2xs text-text-tertiary">{instance.id.slice(0, 12)}</span>
-            <Badge variant={instanceStatusBadgeVariant(instance.status as InstanceStatus)}>
-              {instance.status.replace(/_/g, " ")}
-            </Badge>
-          </div>
-          <div className="flex gap-4">
-            <div className="flex flex-col gap-0.5">
-              <span className="font-mono text-3xs text-text-tertiary">Requested</span>
-              <span className="font-mono text-2xs text-text-secondary">
-                {formatRelativeTime(new Date(instance.requestedAt))}
-              </span>
-            </div>
-            {instance.upAt != null && (
-              <div className="flex flex-col gap-0.5">
-                <span className="font-mono text-3xs text-text-tertiary">Up</span>
-                <span className="font-mono text-2xs text-text-secondary">
-                  {formatRelativeTime(new Date(instance.upAt))}
-                </span>
-              </div>
-            )}
-            {instance.completedAt != null && (
-              <div className="flex flex-col gap-0.5">
-                <span className="font-mono text-3xs text-text-tertiary">Completed</span>
-                <span className="font-mono text-2xs text-text-secondary">
-                  {formatRelativeTime(new Date(instance.completedAt))}
-                </span>
-              </div>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
   );
 }
 
