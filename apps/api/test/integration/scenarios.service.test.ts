@@ -4,6 +4,7 @@ import type { ScenarioRecipe } from "@autonoma/types";
 import { TRPCError } from "@trpc/server";
 import { expect } from "vitest";
 import { ApplicationSetupService } from "../../src/application-setup/application-setup.service";
+import { RecipeConflictError } from "../../src/routes/scenarios/recipe-conflict-error";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
 
@@ -248,6 +249,61 @@ apiTestSuite({
             expect(edits.map((edit) => edit.source)).toEqual(["PLANNER", "MCP"]);
             expect(edits[1]).toMatchObject({ actorUserId: harness.userId, note: "tried a different name" });
             expect(edits[1]?.fixtureJson).toMatchObject({ create: { User: [{ name: "Historic" }] } });
+        });
+
+        test("updateRecipe rejects a write whose base has moved on, and hands back both sides", async ({ harness }) => {
+            const { service, scenario, app } = await createFixture(harness, "Scenario Recipe Conflict");
+            const base = await service.getRecipe(app.id, harness.organizationId, scenario.id);
+            const baseFingerprint = base.activeRecipeVersion?.fingerprint;
+
+            // Someone else lands first, from the same base.
+            await service.updateRecipe({
+                applicationId: app.id,
+                organizationId: harness.organizationId,
+                scenarioId: scenario.id,
+                fixtureJson: JSON.stringify(makeRecipe({ description: "landed first" })),
+                source: "MCP",
+                baseFingerprint,
+            });
+
+            // The second write started from the same base, so it is stale.
+            const stale = service.updateRecipe({
+                applicationId: app.id,
+                organizationId: harness.organizationId,
+                scenarioId: scenario.id,
+                fixtureJson: JSON.stringify(makeRecipe({ description: "would have clobbered" })),
+                source: "UI",
+                baseFingerprint,
+            });
+
+            await expect(stale).rejects.toBeInstanceOf(RecipeConflictError);
+            const error = await stale.catch((err: unknown) => err);
+            if (!(error instanceof RecipeConflictError)) throw new Error("expected a RecipeConflictError");
+            // Both sides of the merge come back: what is stored now, and what the caller started from.
+            expect(error.conflict.current).toMatchObject({ description: "landed first" });
+            expect(error.conflict.base).toMatchObject({ description: "standard" });
+            expect(error.conflict.currentSource).toBe("MCP");
+
+            // The first write is still what is stored - a rejected write changes nothing.
+            const after = await service.getRecipe(app.id, harness.organizationId, scenario.id);
+            expect(after.fixtureJson).toMatchObject({ description: "landed first" });
+        });
+
+        test("updateRecipe accepts a write based on the current revision", async ({ harness }) => {
+            const { service, scenario, app } = await createFixture(harness, "Scenario Recipe No Conflict");
+            const base = await service.getRecipe(app.id, harness.organizationId, scenario.id);
+
+            await service.updateRecipe({
+                applicationId: app.id,
+                organizationId: harness.organizationId,
+                scenarioId: scenario.id,
+                fixtureJson: JSON.stringify(makeRecipe({ description: "based on current" })),
+                source: "UI",
+                baseFingerprint: base.activeRecipeVersion?.fingerprint,
+            });
+
+            const after = await service.getRecipe(app.id, harness.organizationId, scenario.id);
+            expect(after.fixtureJson).toMatchObject({ description: "based on current" });
         });
 
         test("updateRecipe refuses a scenario that belongs to a sibling application", async ({ harness }) => {

@@ -384,6 +384,8 @@ export const UpdateRecipeInputSchema = z.object({
     applicationId: z.string(),
     scenarioId: z.string(),
     fixtureJson: z.string(),
+    /** Fingerprint the edit started from; a write whose base has moved on is rejected. */
+    baseFingerprint: z.string().optional(),
 });
 
 // ─── Previewkit Environment Factory (admin manual up/down) ────────

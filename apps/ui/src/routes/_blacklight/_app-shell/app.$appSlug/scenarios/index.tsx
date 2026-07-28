@@ -480,7 +480,14 @@ function ScenarioRecipeEditor({ scenarioId, applicationId }: { scenarioId: strin
     }
     setJsonError(undefined);
     updateRecipe.mutate(
-      { applicationId, scenarioId, fixtureJson: editValue },
+      {
+        applicationId,
+        scenarioId,
+        fixtureJson: editValue,
+        // The revision this edit started from. If an agent changed the recipe while the
+        // editor was open, the save is rejected rather than silently discarding its work.
+        baseFingerprint: data?.activeRecipeVersion?.fingerprint,
+      },
       {
         onSuccess: (result) => {
           setLastUpdate(result);

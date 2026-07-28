@@ -9,6 +9,7 @@ import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
 import { deprecatedBuildNotice } from "./deprecated-build-notice";
 import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
+import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
 import type { RepoContext } from "./resolve-repo-context";
 import { jsonResult, toToolResult, unavailableResult } from "./tool-result";
 
@@ -672,15 +673,17 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "tool directly only when you already know the recipe is right. The recipe's `name` must stay the " +
                 "scenario's existing name - this EDITS a scenario, it does not create one. It is validated on save " +
                 "(shape, `_ref` targets, and tokens that would not resolve) and rejected with the exact problems, so " +
-                "read them, fix them, and resend.",
+                "read them, fix them, and resend. Pass `baseFingerprint` from get_recipe so a write that " +
+                "races another editor is rejected with their version rather than overwriting it.",
             inputSchema: {
                 repoFullName: repoPrInput.repoFullName,
                 scenarioId: z.string().min(1),
                 recipe: ScenarioRecipeSchema,
+                baseFingerprint: baseFingerprintInput,
             },
             annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
         },
-        async ({ repoFullName, scenarioId, recipe }) =>
+        async ({ repoFullName, scenarioId, recipe, baseFingerprint }) =>
             analytics.track("update_recipe", async () => {
                 logger.info("update_recipe", { extra: { repoFullName, scenarioId, scenario: recipe.name } });
                 try {
@@ -691,10 +694,11 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                         scenarioId,
                         fixtureJson: JSON.stringify(recipe),
                         source: "MCP",
+                        baseFingerprint,
                     });
                     return jsonResult(result);
                 } catch (err) {
-                    return toToolResult(err);
+                    return recipeConflictResult(err) ?? toToolResult(err);
                 }
             }),
     );

@@ -12,6 +12,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { DryRunSubject } from "../onboarding/dry-run-subject";
 import { Service } from "../service";
+import { RecipeConflictError } from "./recipe-conflict-error";
 
 /**
  * Replaces the raw SDK error on a dry-run `up` failure whose cause is a cold
@@ -56,6 +57,12 @@ export interface UpdateRecipeParams {
     source: ScenarioRecipeEditSource;
     actorUserId?: string;
     note?: string;
+    /**
+     * The fingerprint this edit was based on, from `getRecipe`. When it no longer matches what is
+     * stored, someone else wrote in between and this write is rejected rather than silently
+     * winning. Omit only for a write that is deliberately unconditional.
+     */
+    baseFingerprint?: string;
 }
 
 export class ScenariosService extends Service {
@@ -277,6 +284,51 @@ export class ScenariosService extends Service {
         return { success: true as const, phase: "down" as const, error: undefined, saved };
     }
 
+    /**
+     * Assemble the three-way context for a rejected stale write.
+     *
+     * The base revision comes out of the append-only edit log by fingerprint - that log exists so a
+     * caller can be handed back what it started from, not just told "no". When the base has aged out
+     * (or predates the log), the conflict still reports the current recipe; the caller re-reads and
+     * re-applies rather than merging, which is worse but still correct.
+     */
+    private async buildRecipeConflict(
+        scenarioId: string,
+        baseFingerprint: string,
+        activeRecipeVersion: { fingerprint: string; fixtureJson: unknown },
+    ): Promise<RecipeConflictError> {
+        const [baseEdit, currentEdit] = await Promise.all([
+            this.db.scenarioRecipeEdit.findFirst({
+                where: { scenarioId, fingerprint: baseFingerprint },
+                orderBy: { createdAt: "desc" },
+                select: { fixtureJson: true },
+            }),
+            this.db.scenarioRecipeEdit.findFirst({
+                where: { scenarioId, fingerprint: activeRecipeVersion.fingerprint },
+                orderBy: { createdAt: "desc" },
+                select: { source: true, createdAt: true },
+            }),
+        ]);
+
+        this.logger.info("Rejected a stale recipe write", {
+            scenarioId,
+            extra: {
+                baseFingerprint,
+                currentFingerprint: activeRecipeVersion.fingerprint,
+                baseRecovered: baseEdit != null,
+            },
+        });
+
+        return new RecipeConflictError(scenarioId, {
+            current: ScenarioRecipeSchema.safeParse(activeRecipeVersion.fixtureJson).data,
+            currentFingerprint: activeRecipeVersion.fingerprint,
+            base: baseEdit != null ? ScenarioRecipeSchema.safeParse(baseEdit.fixtureJson).data : undefined,
+            baseFingerprint,
+            currentSource: currentEdit?.source,
+            currentEditedAt: currentEdit?.createdAt,
+        });
+    }
+
     async getRecipe(applicationId: string, organizationId: string, scenarioId: string) {
         this.logger.info("Getting recipe", { applicationId, scenarioId });
 
@@ -367,6 +419,8 @@ export class ScenariosService extends Service {
                     select: {
                         id: true,
                         snapshotId: true,
+                        fingerprint: true,
+                        fixtureJson: true,
                         schemaSnapshot: {
                             select: {
                                 structureJson: true,
@@ -382,6 +436,10 @@ export class ScenariosService extends Service {
             throw new NotFoundError("No active recipe version");
         }
         const activeRecipeVersion = scenario.activeRecipeVersion;
+
+        if (params.baseFingerprint != null && params.baseFingerprint !== activeRecipeVersion.fingerprint) {
+            throw await this.buildRecipeConflict(scenario.id, params.baseFingerprint, activeRecipeVersion);
+        }
 
         let parsed: unknown;
         try {

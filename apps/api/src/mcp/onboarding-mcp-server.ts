@@ -14,6 +14,7 @@ import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import { deprecatedBuildNotice } from "./deprecated-build-notice";
 import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
+import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
 import { describeError, errorResult, jsonResult, toToolResult } from "./tool-result";
 
 /**
@@ -239,7 +240,9 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 }
             } catch (err) {
                 logger.warn(`${tool} failed`, { applicationId, err });
-                return toToolResult(err);
+                // A losing race is not a failure the agent should give up on - hand back the
+                // merge inputs instead of an error string. Undefined for anything else.
+                return recipeConflictResult(err) ?? toToolResult(err);
             }
         });
     }
@@ -573,10 +576,11 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 applicationId: z.string(),
                 scenarioId: z.string(),
                 recipe: ScenarioRecipeSchema,
+                baseFingerprint: baseFingerprintInput,
                 description: activityDescription,
             },
         },
-        async ({ applicationId, scenarioId, recipe, description }) =>
+        async ({ applicationId, scenarioId, recipe, baseFingerprint, description }) =>
             guardedWrite(
                 {
                     applicationId,
@@ -592,6 +596,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         fixtureJson: JSON.stringify(recipe),
                         source: "MCP",
                         actorUserId: userId,
+                        baseFingerprint,
                     }),
             ),
     );

@@ -68,6 +68,7 @@ export const scenariosRouter = router({
             fixtureJson: input.fixtureJson,
             source: "UI",
             actorUserId: ctx.user.id,
+            baseFingerprint: input.baseFingerprint,
         }),
     ),
 });
