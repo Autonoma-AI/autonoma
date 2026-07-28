@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.260728.1](https://github.com/Autonoma-AI/agent/compare/v1.260727.2...v1.260728.1) (2026-07-28)
+
+
+### Features
+
+* **mcp:** let a dry run target a specific preview ([#1813](https://github.com/Autonoma-AI/agent/issues/1813)) ([c562264](https://github.com/Autonoma-AI/agent/commit/c5622645d9c3cc80bb1c581dd34a4efa0dece38e))
+* **preview:** add the preview waiting page and a shared login redirect ([#1753](https://github.com/Autonoma-AI/agent/issues/1753)) ([5b72904](https://github.com/Autonoma-AI/agent/commit/5b7290479734ac757cb149ac5666d65f198decc7))
+* **scenario:** keep an append-only history of every recipe write ([#1806](https://github.com/Autonoma-AI/agent/issues/1806)) ([430baaa](https://github.com/Autonoma-AI/agent/commit/430baaa385d03e1b6d603afaefe9e3b036e1e064))
+* **scenario:** reject a recipe write whose base has moved on ([#1810](https://github.com/Autonoma-AI/agent/issues/1810)) ([0af1852](https://github.com/Autonoma-AI/agent/commit/0af1852cca8b0724d68e605a802131b577cb6aae))
+* **scenario:** show which recipe a run actually used ([#1811](https://github.com/Autonoma-AI/agent/issues/1811)) ([17cbcfb](https://github.com/Autonoma-AI/agent/commit/17cbcfb907e0339e4840a35908c5aaa6f4128732))
+
+
+### Bug Fixes
+
+* **cli:** stop the planner from stripping fields the recipe upload requires ([#1814](https://github.com/Autonoma-AI/agent/issues/1814)) ([b386291](https://github.com/Autonoma-AI/agent/commit/b386291e59272fe5303fa761d2235f008c555faa))
+* **onboarding:** make the MCP connect steps match what people actually do ([#1815](https://github.com/Autonoma-AI/agent/issues/1815)) ([0a50b10](https://github.com/Autonoma-AI/agent/commit/0a50b10c488144595b28149a20a85cd535630d62))
+
 ## [1.260727.2](https://github.com/Autonoma-AI/agent/compare/v1.260727.1...v1.260727.2) (2026-07-27)
 
 
