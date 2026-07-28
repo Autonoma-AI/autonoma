@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.260728.2](https://github.com/Autonoma-AI/agent/compare/v1.260728.1...v1.260728.2) (2026-07-28)
+
+
+### Features
+
+* **api:** capture false-positive candidates from the debug MCP tool and skip reasons ([#1801](https://github.com/Autonoma-AI/agent/issues/1801)) ([f60df47](https://github.com/Autonoma-AI/agent/commit/f60df47cb28d4e7ba26e28be85e160fbd108263c))
+* **diffs:** switch the investigation analyze_video tool to MiniMax M3 ([#1821](https://github.com/Autonoma-AI/agent/issues/1821)) ([598b20a](https://github.com/Autonoma-AI/agent/commit/598b20a473d7650c52e766de88db846c05fde5c8))
+* **platform:** add a previewkit cost dashboard, next to the instance runbook ([#1824](https://github.com/Autonoma-AI/agent/issues/1824)) ([2d94769](https://github.com/Autonoma-AI/agent/commit/2d94769361854ab2f1380ae697b0a2d568f9f824))
+* **previewkit:** add KMS-backed key management for database-stored secrets ([#1812](https://github.com/Autonoma-AI/agent/issues/1812)) ([a12e12f](https://github.com/Autonoma-AI/agent/commit/a12e12f8700b5ed4b9dfe48c23f27268070fde6b))
+
+
+### Bug Fixes
+
+* **analysis:** persist a classification per self-heal iteration ([#1807](https://github.com/Autonoma-AI/agent/issues/1807)) ([04a6063](https://github.com/Autonoma-AI/agent/commit/04a6063242a9c76b1efa9b5e5087e587ae411c21))
+* **ci:** delete ECR images by last-pull age instead of archive status ([#1825](https://github.com/Autonoma-AI/agent/issues/1825)) ([10032d7](https://github.com/Autonoma-AI/agent/commit/10032d7c4bf1836518d9f216ab1deb684f514ad7))
+* **ci:** unbreak the typecheck and make it invalidate on upstream changes ([#1840](https://github.com/Autonoma-AI/agent/issues/1840)) ([081b16c](https://github.com/Autonoma-AI/agent/commit/081b16c0c21914c72e0c8ea5dd2760f137f22260))
+* **deployment:** scope the prod agent's per-node jobs and size it for the cluster ([#1830](https://github.com/Autonoma-AI/agent/issues/1830)) ([3e3f6bf](https://github.com/Autonoma-AI/agent/commit/3e3f6bf9d24d49bee3173f37e62afcaaa0ff6ab0))
+* **deployment:** stop the kubelet killing busy verdaccio replicas ([#1829](https://github.com/Autonoma-AI/agent/issues/1829)) ([be6e351](https://github.com/Autonoma-AI/agent/commit/be6e3516d2bab49346732fc6c2af13732a6e9dc7))
+* **previewkit:** raise deploy hook timeout from 5 to 15 minutes ([#1832](https://github.com/Autonoma-AI/agent/issues/1832)) ([29aa785](https://github.com/Autonoma-AI/agent/commit/29aa7859ee77df1dda9e155da42bbf5c166c1dab))
+* **ui:** keep a failed dry run's reason on screen ([#1837](https://github.com/Autonoma-AI/agent/issues/1837)) ([48c5ec0](https://github.com/Autonoma-AI/agent/commit/48c5ec0e53beb0f947a3c8ebf8625c1c61b3463e))
+
 ## [1.260728.1](https://github.com/Autonoma-AI/agent/compare/v1.260727.2...v1.260728.1) (2026-07-28)
 
 
