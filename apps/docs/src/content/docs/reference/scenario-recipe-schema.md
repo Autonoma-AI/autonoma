@@ -11,6 +11,8 @@ The file is posted as the JSON body of:
 POST /v1/setup/setups/:setupId/scenario-recipe-versions
 ```
 
+The planner **analyzes** your project in place but **writes** everything it generates - the discovery output, the scenarios document, and the recipe file itself - to its own output directory at `~/.autonoma/<project-slug>/`. Nothing is written into the repository, so the `source` paths below point into that directory, not at committed files.
+
 ## Top-level shape
 
 ```json
@@ -28,9 +30,9 @@ POST /v1/setup/setups/:setupId/scenario-recipe-versions
 | Field            | Type                                          | Required | Notes |
 |------------------|-----------------------------------------------|----------|-------|
 | `version`        | integer, must equal `1`                       | yes      | Contract version. Currently only `1` is accepted. Not a string. |
-| `source`         | object                                        | yes      | Provenance pointers. Additional keys are preserved. |
-| `source.discoverPath`  | string                                  | yes      | Path (relative to the application repo) to the discovery output, e.g. `autonoma/discover.json`. **Required** - omitting it causes Zod to fail with `expected string, received undefined`. |
-| `source.scenariosPath` | string                                  | yes      | Path to the human-readable scenarios document, e.g. `autonoma/scenarios.md`. |
+| `source`         | object                                        | yes      | Provenance pointers into the planner's output directory. Additional keys are preserved. |
+| `source.discoverPath`  | string                                  | yes      | Path to the discovery output the recipes were derived from, inside the planner's output directory (`~/.autonoma/<project-slug>/`), e.g. `autonoma/discover.json`. **Required** - omitting it causes Zod to fail with `expected string, received undefined`. |
+| `source.scenariosPath` | string                                  | yes      | Path to the human-readable scenarios document, in the same output directory, e.g. `autonoma/scenarios.md`. |
 | `validationMode` | `"sdk-check"` \| `"endpoint-lifecycle"`       | yes      | How Autonoma validated the recipes before upload. `sdk-check` = `checkScenario`/`checkAllScenarios`. `endpoint-lifecycle` = real HTTP `up`/`down`. |
 | `recipes`        | array, minimum length `1`                      | yes      | One entry per scenario. See below. |
 
