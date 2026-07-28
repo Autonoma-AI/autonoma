@@ -24,7 +24,7 @@
         "remark-directive": "^4.0.0",
         "remark-gfm": "^4.0.1",
         "remark-stringify": "^11.0.0",
-        "sharp": "^0.33.5",
+        "sharp": "catalog:",
         "tailwindcss": "catalog:",
         "unified": "^11.0.5",
         "unist-util-remove": "^4.0.0",

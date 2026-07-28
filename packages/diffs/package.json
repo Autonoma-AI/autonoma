@@ -44,7 +44,7 @@
         "@types/node": "catalog:",
         "@types/shell-quote": "^1.7.5",
         "dotenv": "catalog:",
-        "sharp": "^0.33.5",
+        "sharp": "catalog:",
         "tsx": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"

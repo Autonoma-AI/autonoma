@@ -17,7 +17,7 @@
     "dependencies": {
         "@autonoma/errors": "workspace:*",
         "@autonoma/logger": "workspace:*",
-        "sharp": "^0.33.5"
+        "sharp": "catalog:"
     },
     "devDependencies": {
         "@types/node": "catalog:",
