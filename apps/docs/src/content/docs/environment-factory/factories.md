@@ -93,7 +93,7 @@ Rules worth remembering:
 
 ### What to include and omit
 
-**Include:** required fields without defaults, every foreign key (via `_ref`), the scope field, and unique fields made unique per run (use `testRunId` in emails and slugs).
+**Include:** required fields without defaults, every foreign key (via `_ref`), the scope field, and unique fields made unique per run (put the [`{{testRunId}}` or `{{testRunShortId}}` token](/reference/scenario-recipe-schema/#built-in-tokens) in emails and slugs).
 
 **Omit:** `id`, fields with database defaults, auto-updated timestamps, and any row your factory mints transitively (see below).
 

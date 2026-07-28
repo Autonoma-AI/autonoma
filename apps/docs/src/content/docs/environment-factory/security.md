@@ -78,4 +78,4 @@ These aren't error codes - they surface as database or validation failures:
 | `Invalid input for "<Model>"` | Missing required field, or records under the wrong model key | Match each record to its own top-level model key and supply every required field |
 | `references unknown alias(es)` | A `_ref` points at an alias no record declares | Declare the alias with `_alias` in the same payload, or fix the typo |
 | FK violation on `down` | Circular FK between tables | The SDK handles cycles with deferred updates; if it still fails, check for untracked FKs |
-| Parallel tests collide | Same email/slug across runs | Put `testRunId` in every unique field |
+| Parallel tests collide | Same email/slug across runs | Put a [`{{testRunId}}` / `{{testRunShortId}}` token](/reference/scenario-recipe-schema/#built-in-tokens) in every unique field |

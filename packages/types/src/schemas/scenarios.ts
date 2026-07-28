@@ -198,9 +198,9 @@ export function isBuiltInRecipeToken(tokenName: string): boolean {
 /**
  * Every `{{token}}` anywhere in `value` that nothing will substitute, deduplicated and in first-seen order.
  *
- * `declaredTokens` names the tokens the surrounding recipe resolves itself through its `variables` block. Callers
- * holding only a `create` graph - the planner CLI, which strips `variables` before upload, and the repair agent,
- * which authors a graph from scratch - pass nothing and get the built-ins only.
+ * `declaredTokens` names the tokens the surrounding recipe resolves itself through its `variables` block. A caller
+ * holding only a `create` graph - the repair agent, which authors one from scratch - passes nothing and gets the
+ * built-ins only.
  */
 export function findUnknownRecipeTokens(value: unknown, declaredTokens: ReadonlySet<string> = new Set()): string[] {
     const unknown = new Set<string>();

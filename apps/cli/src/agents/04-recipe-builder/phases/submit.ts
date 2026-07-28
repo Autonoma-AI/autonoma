@@ -1,6 +1,13 @@
+import { join } from "node:path";
 import type { AppConfig } from "../../../config";
 import * as p from "../../../ui/prompts";
-import { type FullRecipeJson, RECIPE_FILE, findRecipeUploadProblems, loadRecipe } from "../recipe";
+import {
+    type FullRecipeJson,
+    type RecipeReadResult,
+    RECIPE_FILE,
+    findRecipeUploadProblems,
+    loadRecipe,
+} from "../recipe";
 
 const UPLOAD_COMMAND = "npx @autonoma-ai/planner@latest upload";
 
@@ -48,13 +55,13 @@ function credentialsFrom(config: AppConfig): SubmitCredentials {
  * as success.
  */
 export async function runSubmit(outputDir: string, config: AppConfig): Promise<SubmitResult> {
-    const recipe = await loadRecipe(outputDir);
-    if (recipe == null) {
-        p.log.error(`No ${RECIPE_FILE} found in ${outputDir} to submit.`);
+    const read = await loadRecipe(outputDir);
+    if (read.status !== "ok") {
+        p.log.error(describeUnreadableRecipe(read, outputDir));
         return { recipePath: RECIPE_FILE, outcome: { uploaded: false, failure: "no-recipe" } };
     }
 
-    const outcome = await submitRecipe(recipe, credentialsFrom(config));
+    const outcome = await submitRecipe(read.recipe, credentialsFrom(config));
     return { recipePath: RECIPE_FILE, outcome };
 }
 
@@ -64,15 +71,28 @@ export async function runSubmit(outputDir: string, config: AppConfig): Promise<S
  * failed/lost upload can be retried on its own.
  */
 export async function uploadRecipeFromDisk(outputDir: string, config: AppConfig): Promise<boolean> {
-    const recipe = await loadRecipe(outputDir);
-    if (recipe == null) {
-        p.log.error(
-            `No ${RECIPE_FILE} found in ${outputDir}. Run the planner's recipe step first to generate it, then retry.`,
-        );
+    const read = await loadRecipe(outputDir);
+    if (read.status !== "ok") {
+        p.log.error(describeUnreadableRecipe(read, outputDir));
         return false;
     }
-    const outcome = await submitRecipe(recipe, credentialsFrom(config));
+    const outcome = await submitRecipe(read.recipe, credentialsFrom(config));
     return outcome.uploaded;
+}
+
+/**
+ * Why the file on disk cannot be submitted. A recipe that exists but fails the upload schema
+ * must never be reported as missing - the author needs to know which field to fix, not to go
+ * looking for a file that is already there.
+ */
+function describeUnreadableRecipe(read: Exclude<RecipeReadResult, { status: "ok" }>, outputDir: string): string {
+    if (read.status === "absent") {
+        return `No ${RECIPE_FILE} found in ${outputDir}. Run the planner's recipe step first to generate it, then retry.`;
+    }
+    return (
+        `${join(outputDir, RECIPE_FILE)} does not match the recipe format Autonoma accepts:\n` +
+        read.problems.map((problem) => `  - ${problem}`).join("\n")
+    );
 }
 
 /**

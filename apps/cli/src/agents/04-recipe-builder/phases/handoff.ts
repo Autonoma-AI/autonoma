@@ -8,7 +8,7 @@ import { COMPLETION_MARKER_FILE, readCompletion } from "../completion";
 import { INTEGRATION_PROMPT_FILE, writeIntegrationPrompt } from "../integration-prompt";
 import type { AgentLauncher, PermissionMode } from "../launcher";
 import { DEFAULT_PERMISSION_MODE, selectLauncher, selectPermissionMode } from "../launcher";
-import { findRecipeUploadProblems, loadRecipe, RECIPE_FILE } from "../recipe";
+import { findRecipeUploadProblems, loadRecipe, type RecipeReadResult, RECIPE_FILE } from "../recipe";
 import type { RecipeBuilderState } from "../state";
 import { saveRecipeState } from "../state";
 
@@ -107,19 +107,19 @@ export async function runCompletionPhase(
     const recipePath = state.recipePath ?? join(outputDir, RECIPE_FILE);
 
     while (true) {
-        const [complete, recipe] = await Promise.all([readCompletion(outputDir), loadRecipe(outputDir)]);
+        const [complete, read] = await Promise.all([readCompletion(outputDir), loadRecipe(outputDir)]);
         // A recipe that parses can still be unsubmittable - a dangling `_ref`, a token
         // that resolves to nothing - so treat that as not-ready and hand the exact
         // problems back for the agent to fix, rather than uploading into a rejection.
-        const uploadProblems = recipe != null ? findRecipeUploadProblems(recipe) : [];
-        const recipeReady = recipe != null && uploadProblems.length === 0;
+        const uploadProblems = read.status === "ok" ? findRecipeUploadProblems(read.recipe) : [];
+        const recipeReady = read.status === "ok" && uploadProblems.length === 0;
 
         if (complete && recipeReady) {
             p.log.success("The agent reported the integration complete and validated.");
             return { kind: "advance" };
         }
 
-        const failure = describeIncompleteRecipe(recipe != null, uploadProblems);
+        const failure = describeIncompleteRecipe(read, uploadProblems);
 
         const launcher = await selectLauncher(deps.launchers, state.agentId ?? deps.presetAgentId, deps.interactive);
         if (launcher != null && (state.launchAttempts ?? 0) < MAX_LAUNCH_ATTEMPTS) {
@@ -210,9 +210,15 @@ async function launchAgent(
 }
 
 /** Why the recipe isn't submittable yet, phrased for the agent that has to fix it. */
-function describeIncompleteRecipe(recipeExists: boolean, uploadProblems: string[]): string {
-    if (!recipeExists) {
+function describeIncompleteRecipe(read: RecipeReadResult, uploadProblems: string[]): string {
+    if (read.status === "absent") {
         return "No completed recipe.json was produced, so there is nothing validated to submit.";
+    }
+    if (read.status === "invalid") {
+        return (
+            `${RECIPE_FILE} does not match the recipe format Autonoma accepts:\n` +
+            read.problems.map((problem) => `  - ${problem}`).join("\n")
+        );
     }
     if (uploadProblems.length > 0) {
         return (

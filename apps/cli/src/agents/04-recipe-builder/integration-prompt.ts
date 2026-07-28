@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { TEST_RUN_ID_TOKEN, TEST_RUN_SHORT_ID_TOKEN } from "@autonoma/types";
 import { COMPLETION_MARKER_FILE } from "./completion";
 
 /**
@@ -15,7 +16,7 @@ import { COMPLETION_MARKER_FILE } from "./completion";
  */
 
 /** Bump when the prompt's contract changes; surfaced in the file header. */
-export const INTEGRATION_PROMPT_VERSION = 5;
+export const INTEGRATION_PROMPT_VERSION = 6;
 
 /** The rendered prompt lives here in the app's planner output dir. */
 export const INTEGRATION_PROMPT_FILE = "integration-prompt.md";
@@ -168,6 +169,15 @@ The "create" object maps each entity name to an array of records. Records use _a
 (to name a created row) and _ref (to point at a parent's alias). Populate it from
 scenarios.md so the data realizes those scenarios. Build it up entity by entity as
 you go (see the loop below) and keep the envelope intact.
+
+Every value in "create" must be CONCRETE - a real email, name, or id - with exactly two
+exceptions. Autonoma substitutes these built-in tokens per run, because concurrent runs
+of the same scenario would otherwise collide on unique columns:
+  • {{${TEST_RUN_ID_TOKEN}}}      - this run's id, the same value your endpoint receives as "testRunId"
+  • {{${TEST_RUN_SHORT_ID_TOKEN}}} - an 8-character hash of it, for columns too short to hold a UUID
+Put one inside any field that must be unique per run - an email, a slug, a subdomain -
+including as part of a longer string. Any OTHER {{token}} is rejected on upload: there is
+no general variable mechanism, so never invent one.
 
 ═══ TRACK YOUR WORK - DO NOT STOP UNTIL IT IS COMPLETE ═══
 Before implementing, write a checklist file inside the app (e.g. IMPLEMENTATION.md)
