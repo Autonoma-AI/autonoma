@@ -1,6 +1,6 @@
 ---
 title: Set up a preview with a coding agent (MCP)
-description: Connect your coding agent to Autonoma's onboarding MCP server so it can configure and deploy your preview environment for you - reading the config, setting it up, asking you for secrets, deploying off main, and iterating until it comes up - while you watch read-only in Autonoma.
+description: Connect your coding agent to Autonoma's onboarding MCP server so it can do your whole setup - configuring and deploying your preview environment, validating your SDK endpoint, and getting your scenario recipes provisioning - while you watch read-only in Autonoma.
 ---
 
 import Tabs from "../../../components/Tabs.astro"
@@ -13,7 +13,7 @@ import TabItem from "../../../components/TabItem.astro"
 This is the agent-driven alternative to filling in the preview environment config form by hand. Your agent already knows your repo - its build, its services, its env - so it can do the setup faster than you can describe it. You stay in control: the UI shows every step live and hands control back the moment you take over.
 
 :::note
-This is a different server from the [debugging MCP](/mcp). That one helps your agent fix a broken preview on an existing pull request; this one helps your agent do the initial preview environment setup during onboarding.
+This is a different server from the [debugging MCP](/mcp). This one covers the whole of onboarding - the preview environment, your SDK endpoint, and your scenario recipes - so it is the only Autonoma MCP you need while setting up. The debugging MCP comes later, once Autonoma is reviewing your pull requests, and is keyed by your repo rather than a pairing code.
 :::
 
 ## Start from the Autonoma UI
@@ -23,7 +23,7 @@ You connect this server from inside onboarding, because it pins itself to the ap
 1. In Autonoma, start onboarding your app and open the preview environment config step. It shows the install snippet for your client and a short **pairing code**.
 2. **Install the server first**, from your terminal - before you open your coding agent (below). A client that is already running does not see a server added underneath it; quit and reopen it.
 3. **Authorize Autonoma.** The first time your agent calls a tool it opens a browser to sign in. Approve it - until you do, every Autonoma tool fails. You can trigger it up front instead: in Claude Code run `/mcp` and authenticate `autonoma-onboarding`.
-4. Tell your agent: `configure my preview with the Autonoma MCP, code <your code>`. Name the MCP explicitly - an agent with several MCPs connected cannot tell which one "configure my preview" means, and will guess.
+4. Tell your agent: `configure my preview with the autonoma-onboarding MCP, code <your code>`. Say the server's name verbatim - an agent with several MCPs connected cannot tell which one "configure my preview" means, and will guess. "The Autonoma MCP" is not specific enough either, since Autonoma has two.
 
 The pairing code is how the agent knows *which* app to configure - you never hand it a repo name, and it can only ever touch an app in an organization you belong to.
 
@@ -112,7 +112,7 @@ Any MCP client that speaks Streamable HTTP can connect with the [connection deta
 Client config formats change over time. If a snippet above no longer matches, keep the [connection details](#connection-details) and follow your client's current "add an MCP server" instructions.
 :::
 
-## How the agent configures your preview
+## How the agent sets Autonoma up
 
 ![Pair, then loop: edit config, deploy, poll status, and retry until the preview is live - while you watch read-only](/img/mcp/configure-preview-flow.jpg)
 
@@ -123,7 +123,9 @@ Once paired, the agent works a loop, and the Autonoma UI streams every step:
 3. **Deploy** - `trigger_deploy` deploys the configured deploy branch as the preview.
 4. **Watch and iterate** - `get_session_status` returns the deploy status, the preview URL, diagnostics, and a `recentLogs` tail (build logs on failure, app logs when ready). The agent polls it, reads the diagnostics and logs if the preview fails, fixes the config, and deploys again - until it comes up.
 5. **Verify beyond the health check** - a ready preview can still be broken (the health-check page renders while API routes crash). The agent is instructed to exercise the main flow against the preview URL and then read the app's runtime logs in `recentLogs` - not just declare done because the status says ready.
-6. **Fix the test-data recipes** - a scenario is a named app state a test depends on (e.g. "logged-in admin with one open invoice"), and its recipe is the JSON your deployed Autonoma SDK follows to create those entities in the app's own database. Before onboarding finishes a recipe often does not work yet. The agent lists scenarios with `list_scenarios`, reads one with `get_recipe`, and tests an edit end-to-end with `dry_run_scenario` (which calls your SDK `up` to create the entities, then `down` to remove them). Passing the edited `recipe` to `dry_run_scenario` runs it **without storing it**, so the agent can loop on the real SDK error without ever leaving a half-finished recipe in place; it promotes the one that passes with `save: true`, or saves directly with `update_recipe`.
+6. **Validate your SDK endpoint** - once the preview is up, Autonoma needs the environment factory you implement at `/api/autonoma`. You will usually write it on its own pull request (conventionally titled `feat: autonoma-sdk`), and each pull request gets its own preview. `list_dry_run_targets` lists them - your main preview plus every open PR - and flags the one Autonoma detected as the SDK pull request. `validate_sdk` then points at that target, calls your handler's `discover`, and stores the schema it returns. If it fails, the error is your handler's own, and `get_target_logs` reads that specific preview's build or runtime logs for the stack trace behind it. (`get_session_status` only ever reports your main preview, so it will not show you a pull request's preview.)
+
+7. **Fix the test-data recipes** - a scenario is a named app state a test depends on (e.g. "logged-in admin with one open invoice"), and its recipe is the JSON your deployed Autonoma SDK follows to create those entities in the app's own database. Before onboarding finishes a recipe often does not work yet. The agent lists scenarios with `list_scenarios`, reads one with `get_recipe`, and tests an edit end-to-end with `dry_run_scenario` (which calls your SDK `up` to create the entities, then `down` to remove them). Passing the edited `recipe` to `dry_run_scenario` runs it **without storing it**, so the agent can loop on the real SDK error without ever leaving a half-finished recipe in place; it promotes the one that passes with `save: true`, or saves directly with `update_recipe`.
 
    There are two different things that can be wrong, and they iterate differently. A **recipe JSON** problem (a wrong field, an unresolved `{{variable}}`) is stored on Autonoma, so `update_recipe` -> `dry_run_scenario` takes effect immediately with no redeploy. A problem in your **SDK handler code** (the factory that turns the recipe into database rows) lives in your repo and only changes when the app is rebuilt: push the fix to the deploy branch (`get_config` / `pair` return which branch that is), redeploy - `trigger_deploy` for a PreviewKit preview, or wait for your own deployment to finish - and only then dry-run again, so you are not testing stale code. If that fix is already deployed to its own PR preview, `list_dry_run_targets` plus `dry_run_scenario`'s `target` points the run straight at it instead, with no redeploy of the app's own preview. Fastest of all is to iterate the SDK handler against a local server and database first and confirm the rows land, then push a recipe you already know works.
 
@@ -157,7 +159,9 @@ Take as long as you need. While a request is pending the agent keeps polling `ge
 | `get_recipe` | applicationId, scenarioId | Reads a scenario's current recipe - the JSON `create` graph and `variables` your SDK uses to build its entities |
 | `update_recipe` | applicationId, scenarioId, recipe, baseFingerprint? | Saves a corrected recipe as the scenario's active version (the recipe name must stay the scenario's name). Pass the `fingerprint` from `get_recipe` so a write that races another editor is rejected instead of overwriting it |
 | `dry_run_scenario` | applicationId, scenarioId, recipe?, save?, target? | Runs a recipe against the deployed app (SDK `up` then `down`); on failure returns which phase failed and the SDK error. Pass a `recipe` to try an edit **without storing it** and `save: true` to promote one that passes; pass a `target` to run against a specific preview |
-| `list_dry_run_targets` | applicationId | The previews a dry run can be pointed at - open PR previews and main, with which one Autonoma detected as the SDK implementation PR |
+| `list_dry_run_targets` | applicationId | The previews a dry run can be pointed at - open PR previews and main, with which one Autonoma detected as the SDK implementation PR, and whether each is deployed yet |
+| `validate_sdk` | applicationId, target, allowSelfHeal? | Provisions the target preview's Autonoma secrets and calls your SDK handler's `discover`, storing the schema on success. A `redeploy_started` result means the preview is rebuilding to pick up those secrets - poll `list_dry_run_targets` until it is ready, then call again (with `allowSelfHeal: false` after a signature rejection, so one that survives the redeploy is reported rather than redeployed through again) |
+| `get_target_logs` | applicationId, target, source, app?, limit?, filter?, from? | Build or runtime logs for one preview named by a `list_dry_run_targets` id - the way to see a pull request's preview, which `get_session_status` never reports |
 
 ## Troubleshooting
 

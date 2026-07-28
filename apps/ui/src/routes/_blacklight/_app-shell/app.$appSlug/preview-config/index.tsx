@@ -2,7 +2,7 @@ import { Button, Skeleton } from "@autonoma/blacklight";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { createFileRoute } from "@tanstack/react-router";
-import { ConnectAgentDialog, DEBUG_MCP_DOCS_URL } from "components/connect-agent-dialog";
+import { ConnectAgentDialog, DEBUG_MCP_DOCS_URL, DEBUG_MCP_SERVER_NAME } from "components/connect-agent-dialog";
 import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { Suspense, useState } from "react";
 import { AddAppDialog } from "../../../onboarding/-components/previewkit/add-app-dialog";
@@ -89,15 +89,20 @@ function ConfigureWithAgentPanel() {
         onOpenChange={setOpen}
         title="Configure with a coding agent"
         description="Install the Autonoma MCP in your coding agent. It picks up the repo and pull request from your local git and connects automatically - no pairing code to paste."
-        serverName="autonoma"
+        serverName={DEBUG_MCP_SERVER_NAME}
         endpoint="debug"
         docsUrl={DEBUG_MCP_DOCS_URL}
         tellAgent={
           <>
             Then, from your repo, ask your agent about the preview - e.g.{" "}
-            <span className="font-mono text-text-primary">use the Autonoma MCP to tell me why my preview failed</span>{" "}
-            or <span className="font-mono text-text-primary">fix my preview deploy with the Autonoma MCP</span>.{" "}
-            <NameTheMcpNote /> It reads the repo and PR from your local git.
+            <span className="font-mono text-text-primary">
+              use the {DEBUG_MCP_SERVER_NAME} MCP to tell me why my preview failed
+            </span>{" "}
+            or{" "}
+            <span className="font-mono text-text-primary">
+              fix my preview deploy with the {DEBUG_MCP_SERVER_NAME} MCP
+            </span>
+            . <NameTheMcpNote serverName={DEBUG_MCP_SERVER_NAME} /> It reads the repo and PR from your local git.
           </>
         }
       />

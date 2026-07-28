@@ -24,6 +24,13 @@ export type McpEndpoint = "onboarding" | "debug";
 /** Public docs page for the debug MCP (connect an agent to read/fix a PR's preview). */
 export const DEBUG_MCP_DOCS_URL = "https://docs.autonoma.app/mcp/";
 
+/**
+ * MCP server name the debug install snippets register (keyed by the repo the agent sits
+ * in - no pairing code). Every example prompt must say it verbatim: a user who onboarded
+ * also has `autonoma-onboarding` connected, and "the Autonoma MCP" names both.
+ */
+export const DEBUG_MCP_SERVER_NAME = "autonoma";
+
 /** MCP server name the onboarding install snippets register (pins an app via a pairing code). */
 export const ONBOARDING_MCP_SERVER_NAME = "autonoma-onboarding";
 

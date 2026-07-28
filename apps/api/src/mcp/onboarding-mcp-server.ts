@@ -15,14 +15,17 @@ import { deprecatedBuildNotice } from "./deprecated-build-notice";
 import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
 import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
-import { resolveDryRunTargetUrl } from "./resolve-dry-run-target";
-import { describeError, errorResult, jsonResult, toToolResult } from "./tool-result";
+import { resolveDryRunTarget, resolveDryRunTargetUrl } from "./resolve-dry-run-target";
+import { describeError, errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
 
 /**
  * How many recent log lines get_session_status returns per source. Enough to carry
  * the failing step (e.g. a `pnpm install` error) without flooding a polled tool.
  */
 const RECENT_LOG_TAIL_LINES = 30;
+/** Line window get_target_logs reads when the agent does not ask for one, and its ceiling. */
+const DEFAULT_TARGET_LOG_LINES = 200;
+const MAX_TARGET_LOG_LINES = 1000;
 const ACTIVITY_DESCRIPTION_MAX_LENGTH = 120;
 
 /**
@@ -48,7 +51,7 @@ interface RecentLogTail {
  * same way. The app is pinned by a pairing code the user copies from the UI - the
  * agent never needs a repo name.
  */
-const ONBOARDING_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a preview deployment of your app. These tools let a coding agent configure that preview during onboarding: set up the build, databases, services and env, deploy off the default branch (or a branch you choose), and iterate until it comes up - while the user watches read-only in the Autonoma UI.
+const ONBOARDING_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a preview deployment of your app. These tools let a coding agent do the whole of onboarding: set up the build, databases, services and env, deploy off the default branch (or a branch you choose), and iterate until the preview comes up - then validate the app's Autonoma SDK endpoint and get its scenario recipes provisioning - while the user watches read-only in the Autonoma UI. This is the only Autonoma MCP you need for onboarding; there is a separate one for reviewing pull requests later.
 
 Start every session by pairing - and pair FIRST, before you analyze the repo, read files, or plan. Pairing is low-risk: it only claims the app's config so the UI can show you are connected, it changes NO code and deploys NOTHING, and the user can take over at any time. This matters because the user is watching the Autonoma UI live and sees no activity at all until you pair - pairing is what flips the UI into "your agent is connected and configuring" and starts streaming what you do as feedback. If you spend minutes inspecting the project before pairing, the user just stares at an idle screen with no idea anything is happening (and may give up). So do NOT front-load repo analysis; pair immediately, then investigate.
 1. The user starts onboarding in the Autonoma UI and clicks "Configure with coding agent". The UI shows a short pairing CODE.
@@ -62,9 +65,11 @@ Then loop until the preview is up:
 7. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, KEEP POLLING: wait ~30s (sleep, if your client can) and call it again, for as long as it takes - a user can be several minutes away from a key they have to go dig up, and until you poll again you have no idea whether they answered. Nothing else tells you: they set the values in the Autonoma UI, so a quiet chat means nothing either way. (If they do say in the chat that they are done, great - poll once to pick it up and carry on.) When the request clears, check lastEnvResolution: the user may have SKIPPED keys they don't have (skippedKeys) - adapt the config to live without them (default, drop, or rework) instead of re-requesting.
 8. A ready status only means the pod health check passes - it does NOT mean the app works. Before declaring the preview done, verify it yourself: exercise the main flow against the preview URL (curl it, or a small Playwright script if the user has Playwright - log in, load data, hit a few real routes), then call get_session_status again and READ the app's runtime logs in recentLogs. If the logs show the app erroring behind the healthy page (crashed queries, missing env, stack traces), fix the cause and redeploy. If you cannot exercise the flow yourself, ask the user to click through the app once and then read the logs.
 
+The SDK (environment factory): once the preview is up, the app needs ONE POST endpoint at \`/api/autonoma\` that creates and tears down a scenario's test data. The user implements it in their repo - conventionally on a PR titled "feat: autonoma-sdk", so they iterate on a branch instead of pushing to main - and every preview of that PR is its own environment. list_dry_run_targets(applicationId) lists them (the base \`main\` preview plus each open PR) and flags the one auto-detected as the SDK PR; work against that target, not against main. Then validate_sdk(applicationId, target) calls the handler's \`discover\` and stores the schema it returns - do this before any dry run. When it fails, the returned error is the handler's own; get_target_logs(applicationId, target, source:"app") is where the stack trace behind it lives. Note that get_session_status ONLY ever reports the base preview, so on this phase it tells you nothing about the PR you are validating - use list_dry_run_targets for that target's deploy state and get_target_logs for its output.
+
 Scenario recipes (test data): a scenario is a named app state a test depends on (e.g. "logged-in admin with one open invoice"); its recipe is the JSON your deployed Autonoma SDK follows to create those entities in the app's OWN database at test time. Before onboarding finishes the recipe often does not work yet, so fix it here: list_scenarios(applicationId) shows the app's scenarios and which already have a recipe; get_recipe(scenarioId) reads one; update_recipe(scenarioId, recipe) saves a corrected version (the recipe's \`name\` must stay the scenario's name - this EDITS an existing scenario, it does not create one; the recipe shape is validated on save and an invalid one is rejected with the exact bad field paths, so read them and resend); dry_run_scenario(scenarioId, recipe?) runs a recipe end-to-end against the deployed app (calls the SDK \`up\` to create the entities, then \`down\` to tear them back down) and, on failure, returns which phase failed (recipe/up/down) and the SDK's error - pass your edited \`recipe\` to try it WITHOUT storing it, which is how you iterate. This needs the app deployed with its SDK URL + signing secret configured, so get the preview up first. A scaled-to-zero preview 503s on the first call while it wakes; dry_run_scenario rides through that warm-up automatically, so give the first run ~a minute before concluding anything is wrong (and if it still comes back with a cold-start/503, just call it again - it is waking).
 
-How to iterate on a failing recipe - first tell apart the TWO things that can be wrong, because they iterate very differently. (1) The recipe JSON (a bad \`create\` graph, a wrong field, a \`_ref\` matching no \`_alias\`): iterate with dry_run_scenario(scenarioId, recipe) - it provisions your candidate without storing it, so the app keeps working off its current recipe while you experiment, and a wrong guess costs nothing. The recipe lives on Autonoma, so each attempt takes effect with NO redeploy. When one passes, re-run it with \`save: true\` (or call update_recipe) to make it the active recipe; do NOT save a recipe you have not seen pass. (2) The app's SDK handler code that interprets the recipe and writes to the database (a missing factory for a model, a broken insert): that lives in the app's repo and only changes when the app is REBUILT. So commit the fix and push it to the deploy branch - get_config / pair return \`deployBranch\`, push to THAT branch (it defaults to the repo's default branch). Then, if the preview is Autonoma-managed (PreviewKit), call trigger_deploy to rebuild the base preview at the new commit and poll get_session_status until it is \`ready\` again BEFORE you dry_run; if the app runs on its own hosting (e.g. Vercel / an existing deploy), wait for that deployment to finish first. Do NOT dry_run against a preview that is still building - you would just be testing the old code. Fastest of all: iterate the SDK handler and recipe LOCALLY first - run the app's Autonoma SDK against a local server + database, exercise the recipe, and confirm the rows actually landed in the DB - then push/update only once it works. A local loop is seconds; a cloud rebuild is minutes.
+How to iterate on a failing recipe - first tell apart the TWO things that can be wrong, because they iterate very differently. (1) The recipe JSON (a bad \`create\` graph, a wrong field, a \`_ref\` matching no \`_alias\`): iterate with dry_run_scenario(scenarioId, recipe) - it provisions your candidate without storing it, so the app keeps working off its current recipe while you experiment, and a wrong guess costs nothing. The recipe lives on Autonoma, so each attempt takes effect with NO redeploy. When one passes, re-run it with \`save: true\` (or call update_recipe) to make it the active recipe; do NOT save a recipe you have not seen pass. (2) The app's SDK handler code that interprets the recipe and writes to the database (a missing factory for a model, a broken insert): that lives in the app's repo and only changes when the app is REBUILT, and its thrown errors land in get_target_logs(target, source:"app") - read them before guessing. Commit the fix and push it to the branch whose preview you are testing: if you are working a target from list_dry_run_targets, that is the SDK PR's branch, and pushing to it redeploys that preview on its own. If instead you are on the base preview, push to \`deployBranch\` (returned by get_config / pair) and call trigger_deploy to rebuild it, polling get_session_status until it is \`ready\` again. Either way wait for the redeploy BEFORE you dry_run - against a preview that is still building you would just be testing the old code (list_dry_run_targets reports each target's availability). Fastest of all: iterate the SDK handler and recipe LOCALLY first - run the app's Autonoma SDK against a local server + database, exercise the recipe, and confirm the rows actually landed in the DB - then push/update only once it works. A local loop is seconds; a cloud rebuild is minutes.
 
 Connections wire env vars to the preview's own topology, resolved at deploy time - services do NOT auto-inject anything into apps. If an app needs to reach a database/service declared in this config, you MUST add a connection on that app. The value is a template: {{name.property}} tokens reference apps/services/addons by name. For a service, {{db.url}} is the full canonical connection string (postgres -> postgresql://preview:preview@<host>:<port>/preview) - prefer it; {{db.host}} / {{db.port}} exist for hand-built URLs. For an app, {{api.url}} is its public HTTPS URL. {{pr}}, {{namespace}} and {{owner}} are also available. Example: apps[].connections = [{ "key": "DATABASE_URL", "value": "{{db.url}}" }].
 
@@ -504,6 +509,75 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     );
 
     server.registerTool(
+        "get_target_logs",
+        {
+            title: "Read a preview target's logs",
+            description:
+                "Build or runtime log lines for ONE preview environment, named by a target `id` from " +
+                "list_dry_run_targets. get_session_status only ever reports the BASE preview (environment 0), so " +
+                "this is how you see a PR preview - the one carrying the app's SDK handler - when its validate or " +
+                "dry run fails. Pick `source`: 'build' for a preview that never came up, 'app' for one that " +
+                "deployed but errors when Autonoma calls it (an SDK handler that throws lands here). Previews are " +
+                "multi-service; omit `app` for all services (the result's `services` lists which produced output) " +
+                "or pass one name to narrow. `from` picks the window - 'tail' (newest, default) for a failure, " +
+                "'head' for startup - and `filter` is a case-insensitive substring pre-filter. Empty `lines` with " +
+                "`available: true` means the window genuinely had no output. Logs persist ~30 days and outlive the " +
+                "environment, so they still answer 'why did that preview fail' after it is torn down.",
+            inputSchema: {
+                applicationId: z.string(),
+                target: z
+                    .string()
+                    .describe("A target `id` from list_dry_run_targets - the preview whose logs you want."),
+                source: z
+                    .enum(["build", "app"])
+                    .describe("'build' for the image build, 'app' for the running container's stdout/stderr."),
+                app: z.string().optional().describe("One service name to narrow to. Omit for every service."),
+                limit: z.number().int().min(1).max(MAX_TARGET_LOG_LINES).optional(),
+                filter: z.string().optional().describe("Case-insensitive substring pre-filter."),
+                from: z.enum(["head", "tail"]).optional(),
+            },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        },
+        async ({ applicationId, target, source, app, limit, filter, from }) =>
+            analytics.track("get_target_logs", async () => {
+                logger.info("get_target_logs", { applicationId, extra: { target, source } });
+                try {
+                    const organizationId = await resolveOrg(applicationId);
+                    const resolved = await resolveDryRunTarget(services, applicationId, organizationId, target);
+                    // External targets (a Vercel deployment, a BYO URL) run on hosting we
+                    // do not operate, so there is no stream to read - say so rather than
+                    // returning an empty tail the agent would read as "no errors".
+                    if (resolved.repoFullName == null || resolved.prNumber == null) {
+                        return unavailableResult(
+                            `Target "${target}" is not an Autonoma-managed preview (${resolved.source}), so Autonoma ` +
+                                "does not hold its logs. Read them wherever that deployment runs.",
+                        );
+                    }
+                    const result = await services.previewkitLogs.tail({
+                        repoFullName: resolved.repoFullName,
+                        prNumber: resolved.prNumber,
+                        source,
+                        callerOrgId: organizationId,
+                        app,
+                        limit: limit ?? DEFAULT_TARGET_LOG_LINES,
+                        filter,
+                        from,
+                    });
+                    if (result == null) {
+                        return unavailableResult(
+                            `No ${source} logs found for target "${target}" - its preview may never have deployed, ` +
+                                "or the logs have aged out (retained ~30 days).",
+                        );
+                    }
+                    return jsonResult(result);
+                } catch (err) {
+                    logger.warn("get_target_logs failed", { applicationId, extra: { target, source }, err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
         "list_scenarios",
         {
             title: "List scenarios",
@@ -624,6 +698,89 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     return toToolResult(err);
                 }
             }),
+    );
+
+    server.registerTool(
+        "validate_sdk",
+        {
+            title: "Validate the app's Autonoma SDK endpoint",
+            description:
+                "Check that the app's Autonoma SDK endpoint (the environment factory at `/api/autonoma`) is live on " +
+                "a preview and answers correctly: it provisions the preview's Autonoma secrets, calls the handler's " +
+                "`discover`, and on success stores the endpoint plus the model schema it returned. Run this BEFORE " +
+                "dry_run_scenario - a dry run against an unvalidated endpoint just fails on the same thing twice. " +
+                "Name the preview with a target `id` from list_dry_run_targets, normally the PR carrying the SDK " +
+                "handler. A `redeploy_started` result is not a failure: the preview is being rebuilt to mount " +
+                "freshly-provisioned secrets, so poll list_dry_run_targets until that target reads `ready` again " +
+                "and call validate_sdk once more. A failure returns the handler's own error - read it, then " +
+                "get_target_logs(target, source:'app') for the stack trace behind it, fix the handler in the repo, " +
+                "push to the PR, and wait for its preview to redeploy before validating again. Only " +
+                "Autonoma-managed (PreviewKit) previews can be validated here; an app on its own hosting is " +
+                "validated from the Autonoma UI, where the user supplies its signing secret. Pass a short " +
+                "`description` - the user watches it on the activity feed.",
+            inputSchema: {
+                applicationId: z.string(),
+                target: z
+                    .string()
+                    .describe("A target `id` from list_dry_run_targets - the preview whose SDK endpoint to validate."),
+                allowSelfHeal: z
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Leave unset on a first attempt. Set it to false on the retry AFTER a signature-rejection " +
+                            "redeploy, so a rejection that survived that redeploy is reported instead of " +
+                            "redeploying the preview a second time. Each response tells you which to send next.",
+                    ),
+                description: activityDescription,
+            },
+        },
+        async ({ applicationId, target, allowSelfHeal = true, description }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "validate_sdk",
+                    message: description ?? "Validating the SDK endpoint",
+                    toolArguments: { target },
+                },
+                async (org) => {
+                    // Preparing writes the preview's AUTONOMA_* secrets; when that mounts
+                    // something new it redeploys, and the pod has to roll before discover
+                    // can succeed. Returning here (rather than discovering into a
+                    // guaranteed 401) keeps the agent's next move a poll, not a retry.
+                    const prepared = await services.onboarding.prepareSdkTarget(applicationId, org, target);
+                    if (prepared.status === "redeploy_started") {
+                        return {
+                            status: "redeploy_started",
+                            message:
+                                "The preview is redeploying to mount its Autonoma secrets. Poll " +
+                                "list_dry_run_targets until this target is `ready`, then call validate_sdk again.",
+                        };
+                    }
+                    const result = await services.onboarding.configureAndDiscoverSdkTarget(
+                        applicationId,
+                        org,
+                        target,
+                        allowSelfHeal,
+                    );
+                    if (result.status === "redeploy_started") {
+                        return {
+                            status: "redeploy_started",
+                            message:
+                                "The endpoint rejected our signature, so the preview is redeploying onto the " +
+                                "current shared secret. Poll list_dry_run_targets until this target is `ready`, " +
+                                "then call validate_sdk again with allowSelfHeal: false. A rejection that " +
+                                "survives this redeploy is a real failure to report, not something to redeploy " +
+                                "through again.",
+                        };
+                    }
+                    return {
+                        status: "discovered",
+                        message:
+                            "The SDK endpoint answered and its schema is stored. Now run dry_run_scenario against " +
+                            "this same target to confirm the scenarios provision.",
+                    };
+                },
+            ),
     );
 
     server.registerTool(

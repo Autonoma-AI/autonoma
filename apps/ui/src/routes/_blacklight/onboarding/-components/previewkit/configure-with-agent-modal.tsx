@@ -1,88 +1,32 @@
-import { Button, Skeleton } from "@autonoma/blacklight";
+import { Button } from "@autonoma/blacklight";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
-import {
-  ConnectAgentDialog,
-  ONBOARDING_MCP_DOCS_URL,
-  ONBOARDING_MCP_SERVER_NAME,
-} from "components/connect-agent-dialog";
-import { useCreateAgentPairing } from "lib/onboarding/onboarding-api";
+import { ConnectOnboardingAgentDialog } from "components/connect-onboarding-agent-dialog";
 import { useState } from "react";
-import { CopyPromptButton } from "./copy-prompt-button";
-import { TellAgentLine } from "./tell-agent-line";
+import { AGENT_CONFIGURE_INSTRUCTION } from "./agent-configure-prompt";
 
 /**
- * Entry point for agentic onboarding: a button that mints a short-lived pairing
- * code and opens the shared connect-agent dialog showing, per coding agent, how to
- * install the onboarding MCP - plus the code the user hands to their agent
- * ("configure my preview with the Autonoma MCP, code ..."). The agent authenticates
+ * Entry point for agentic onboarding: a button that opens the shared connect-agent
+ * dialog showing, per coding agent, how to install the onboarding MCP - plus the
+ * pairing code and the prompt the user hands to their agent. The agent authenticates
  * via OAuth on first use; the code pins this app.
  */
 export function ConfigureWithAgentModal({ applicationId }: { applicationId: string }) {
   const [open, setOpen] = useState(false);
-  const createPairing = useCreateAgentPairing();
-
-  function openAndPair() {
-    setOpen(true);
-    createPairing.mutate({ applicationId });
-  }
-
-  const code = createPairing.data?.code;
 
   return (
     <>
-      <Button variant="outline" size="lg" className="shrink-0" onClick={openAndPair} disabled={createPairing.isPending}>
+      <Button variant="outline" size="lg" className="shrink-0" onClick={() => setOpen(true)}>
         <RobotIcon weight="bold" />
         Configure with coding agent
       </Button>
-      <ConnectAgentDialog
+      <ConnectOnboardingAgentDialog
         open={open}
         onOpenChange={setOpen}
+        applicationId={applicationId}
         title="Configure with a coding agent"
         description="Install the Autonoma MCP from your terminal, authorize it when your agent asks, then hand your agent the pairing code. It configures and deploys your preview while you watch here."
-        serverName={ONBOARDING_MCP_SERVER_NAME}
-        endpoint="onboarding"
-        docsUrl={ONBOARDING_MCP_DOCS_URL}
-        pairing={
-          <PairingCode
-            code={code}
-            pending={createPairing.isPending}
-            error={createPairing.isError}
-            onRetry={() => createPairing.mutate({ applicationId })}
-          />
-        }
-        tellAgent={<TellAgentLine code={code} />}
+        instruction={AGENT_CONFIGURE_INSTRUCTION}
       />
     </>
-  );
-}
-
-function PairingCode({
-  code,
-  pending,
-  error,
-  onRetry,
-}: {
-  code?: string;
-  pending: boolean;
-  error: boolean;
-  onRetry: () => void;
-}) {
-  if (pending) return <Skeleton className="h-16 w-full" />;
-  if (error || code == null) {
-    return (
-      <div className="flex flex-col items-center gap-2 border border-status-critical/40 bg-surface-raised p-4">
-        <span className="text-2xs text-status-critical">Couldn't generate a pairing code.</span>
-        <Button variant="outline" size="sm" onClick={onRetry}>
-          Try again
-        </Button>
-      </div>
-    );
-  }
-  return (
-    <div className="relative flex flex-col items-center gap-1 border border-border-dim bg-surface-raised p-4">
-      <span className="text-2xs uppercase tracking-wide text-text-secondary">Pairing code</span>
-      <span className="font-mono text-3xl tracking-[0.3em] text-primary">{code}</span>
-      <CopyPromptButton code={code} />
-    </div>
   );
 }

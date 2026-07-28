@@ -34,10 +34,15 @@ import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { type PreviewLogSource, PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
-import { ConnectAgentDialog, DEBUG_MCP_DOCS_URL } from "components/connect-agent-dialog";
+import { ONBOARDING_MCP_SERVER_NAME } from "components/connect-agent-dialog";
+import {
+  ConnectOnboardingAgentDialog,
+  ONBOARDING_AGENT_DIALOG_DESCRIPTION,
+} from "components/connect-onboarding-agent-dialog";
 import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { useAuth } from "lib/auth";
 import { type DryRunOutcome, formatDryRunError } from "lib/format-dry-run-error";
+import { FINISH_SETUP_AGENT_INSTRUCTIONS } from "lib/onboarding/finish-setup-agent-instructions";
 import {
   useAvailableVercelProjects,
   useConfigureAndDiscoverSdkTarget,
@@ -1220,20 +1225,17 @@ function ExternalSdkStepBody({ applicationId, selectedTargetId, onSelectTarget }
         )}
       </div>
 
-      <ConnectAgentDialog
+      <ConnectOnboardingAgentDialog
         open={agentDialogOpen}
         onOpenChange={setAgentDialogOpen}
+        applicationId={applicationId}
         title="Debug with a coding agent"
-        description="Install the Autonoma MCP in your coding agent. It picks up the repo and pull request from your local git and connects automatically - no pairing code to paste."
-        serverName="autonoma"
-        endpoint="debug"
-        docsUrl={DEBUG_MCP_DOCS_URL}
-        tellAgent={
+        description={ONBOARDING_AGENT_DIALOG_DESCRIPTION}
+        instruction={FINISH_SETUP_AGENT_INSTRUCTIONS.sdk}
+        capabilities={
           <>
-            Then, from your repo, ask your agent about the preview - e.g.{" "}
-            <span className="font-mono text-text-primary">use the Autonoma MCP to tell me why my preview failed</span>{" "}
-            or <span className="font-mono text-text-primary">fix my preview deploy with the Autonoma MCP</span>.{" "}
-            <NameTheMcpNote /> It reads the repo and PR from your local git.
+            <NameTheMcpNote serverName={ONBOARDING_MCP_SERVER_NAME} /> From your repo it validates the endpoint against
+            a preview, reads that preview's runtime logs, and fixes the handler.
           </>
         }
       />
@@ -1438,22 +1440,17 @@ function DryRunList({
         </div>
       </div>
 
-      <ConnectAgentDialog
+      <ConnectOnboardingAgentDialog
         open={agentDialogOpen}
         onOpenChange={setAgentDialogOpen}
+        applicationId={applicationId}
         title="Debug with a coding agent"
-        description="Install the Autonoma MCP in your coding agent. It picks up the repo and pull request from your local git and connects automatically - no pairing code to paste."
-        serverName="autonoma"
-        endpoint="debug"
-        docsUrl={DEBUG_MCP_DOCS_URL}
-        tellAgent={
+        description={ONBOARDING_AGENT_DIALOG_DESCRIPTION}
+        instruction={FINISH_SETUP_AGENT_INSTRUCTIONS.dryRun}
+        capabilities={
           <>
-            Then, from your repo, ask your agent to fix the scenario - e.g.{" "}
-            <span className="font-mono text-text-primary">
-              use the Autonoma MCP to find out why my scenario dry run is failing
-            </span>
-            . <NameTheMcpNote /> It can read the recipe, try edits against your deployed SDK without saving them, and
-            fix the SDK handler in your repo.
+            <NameTheMcpNote serverName={ONBOARDING_MCP_SERVER_NAME} /> It can read the recipe, try edits against your
+            deployed SDK without saving them, and fix the SDK handler in your repo.
           </>
         }
       />

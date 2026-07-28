@@ -8,11 +8,12 @@ import {
   ONBOARDING_MCP_DOCS_URL,
   ONBOARDING_MCP_SERVER_NAME,
 } from "components/connect-agent-dialog";
+import { CopyPromptButton } from "components/copy-prompt-button";
 import { useCreateAgentPairing } from "lib/onboarding/onboarding-api";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useEffect, useRef, useState } from "react";
+import { agentConfigurePrompt } from "./agent-configure-prompt";
 import { AgentConfiguringScreen } from "./agent-configuring-screen";
-import { CopyPromptButton } from "./copy-prompt-button";
 import { TellAgentLine } from "./tell-agent-line";
 
 /**
@@ -179,7 +180,7 @@ function PairingCodeBlock({
       ) : (
         <div className="relative flex items-center justify-center border border-border-mid bg-surface-void px-12 py-6">
           <span className="font-mono text-4xl tracking-[0.3em] text-primary">{code}</span>
-          <CopyPromptButton code={code} />
+          <CopyPromptButton prompt={agentConfigurePrompt(code)} />
         </div>
       )}
     </div>

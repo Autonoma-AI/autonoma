@@ -1,12 +1,13 @@
+import { agentMcpPrompt } from "components/agent-mcp-prompt";
+import { ONBOARDING_MCP_SERVER_NAME } from "components/connect-agent-dialog";
+
 /**
- * The exact sentence the user pastes into their coding agent to start agentic
- * onboarding. It names the Autonoma MCP: an agent with several MCPs connected cannot
- * tell which one "configure my preview" refers to, and picks wrong.
- *
- * Single source for the line the UI shows and the text the copy button puts on the
- * clipboard - people copy and paste it verbatim, so those two must never drift.
+ * What the user asks their coding agent to do at the config-previews step. It names the
+ * server literally so an agent holding several Autonoma MCPs cannot pick the wrong one.
  */
+export const AGENT_CONFIGURE_INSTRUCTION = `configure my preview with the ${ONBOARDING_MCP_SERVER_NAME} MCP`;
+
+/** That instruction plus the pairing code - the exact sentence the user pastes into their agent. */
 export function agentConfigurePrompt(code?: string): string {
-    const instruction = "configure my preview with the Autonoma MCP";
-    return code != null ? `${instruction}, code ${code}` : instruction;
+    return agentMcpPrompt(AGENT_CONFIGURE_INSTRUCTION, code);
 }

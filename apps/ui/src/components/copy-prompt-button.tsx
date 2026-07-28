@@ -2,17 +2,17 @@ import { Button } from "@autonoma/blacklight";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { useState } from "react";
-import { agentConfigurePrompt } from "./agent-configure-prompt";
 
 /**
- * Copies the whole agent prompt, not just the bare code - the code alone is useless
- * to paste, and someone who copies it still has to type the instruction around it.
- * The icon flips to a check once copied.
+ * Copies the whole agent prompt, not just the bare pairing code - the code alone is
+ * useless to paste, and someone who copies it still has to type the instruction around
+ * it (including the MCP server's name, which is what stops the agent picking the wrong
+ * Autonoma server). The icon flips to a check once copied.
  *
  * Positions itself at the right edge of its container, so the pairing-code block it
  * sits in must be `relative`.
  */
-export function CopyPromptButton({ code }: { code: string }) {
+export function CopyPromptButton({ prompt }: { prompt: string }) {
   const [copied, setCopied] = useState(false);
 
   function copy() {
@@ -24,7 +24,7 @@ export function CopyPromptButton({ code }: { code: string }) {
       return;
     }
     navigator.clipboard
-      .writeText(agentConfigurePrompt(code))
+      .writeText(prompt)
       .then(() => setCopied(true))
       .catch((err) => console.warn("Failed to copy agent prompt", err));
   }
