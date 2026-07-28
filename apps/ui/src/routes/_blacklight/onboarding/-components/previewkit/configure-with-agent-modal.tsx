@@ -7,13 +7,15 @@ import {
 } from "components/connect-agent-dialog";
 import { useCreateAgentPairing } from "lib/onboarding/onboarding-api";
 import { useState } from "react";
+import { CopyPromptButton } from "./copy-prompt-button";
+import { TellAgentLine } from "./tell-agent-line";
 
 /**
  * Entry point for agentic onboarding: a button that mints a short-lived pairing
  * code and opens the shared connect-agent dialog showing, per coding agent, how to
  * install the onboarding MCP - plus the code the user hands to their agent
- * ("configure with code ..."). The agent authenticates via OAuth on first use; the
- * code pins this app.
+ * ("configure my preview with the Autonoma MCP, code ..."). The agent authenticates
+ * via OAuth on first use; the code pins this app.
  */
 export function ConfigureWithAgentModal({ applicationId }: { applicationId: string }) {
   const [open, setOpen] = useState(false);
@@ -36,7 +38,7 @@ export function ConfigureWithAgentModal({ applicationId }: { applicationId: stri
         open={open}
         onOpenChange={setOpen}
         title="Configure with a coding agent"
-        description="Install the Autonoma MCP in your coding agent, then give it the pairing code below. It will configure and deploy your preview while you watch here."
+        description="Install the Autonoma MCP from your terminal, authorize it when your agent asks, then hand your agent the pairing code. It configures and deploys your preview while you watch here."
         serverName={ONBOARDING_MCP_SERVER_NAME}
         endpoint="onboarding"
         docsUrl={ONBOARDING_MCP_DOCS_URL}
@@ -48,19 +50,7 @@ export function ConfigureWithAgentModal({ applicationId }: { applicationId: stri
             onRetry={() => createPairing.mutate({ applicationId })}
           />
         }
-        tellAgent={
-          <>
-            Then tell your agent: <span className="font-mono text-text-primary">configure my preview</span>
-            {code != null ? (
-              <>
-                {" "}
-                with code <span className="font-mono text-primary">{code}</span>.
-              </>
-            ) : (
-              "."
-            )}
-          </>
-        }
+        tellAgent={<TellAgentLine code={code} />}
       />
     </>
   );
@@ -89,9 +79,10 @@ function PairingCode({
     );
   }
   return (
-    <div className="flex flex-col items-center gap-1 border border-border-dim bg-surface-raised p-4">
+    <div className="relative flex flex-col items-center gap-1 border border-border-dim bg-surface-raised p-4">
       <span className="text-2xs uppercase tracking-wide text-text-secondary">Pairing code</span>
       <span className="font-mono text-3xl tracking-[0.3em] text-primary">{code}</span>
+      <CopyPromptButton code={code} />
     </div>
   );
 }

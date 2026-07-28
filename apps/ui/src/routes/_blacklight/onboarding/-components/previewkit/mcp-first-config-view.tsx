@@ -1,7 +1,5 @@
 import { Button, Skeleton } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
-import { CheckIcon } from "@phosphor-icons/react/Check";
-import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { SlidersIcon } from "@phosphor-icons/react/Sliders";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -14,6 +12,8 @@ import { useCreateAgentPairing } from "lib/onboarding/onboarding-api";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useEffect, useRef, useState } from "react";
 import { AgentConfiguringScreen } from "./agent-configuring-screen";
+import { CopyPromptButton } from "./copy-prompt-button";
+import { TellAgentLine } from "./tell-agent-line";
 
 /**
  * How long the cube's connect spin-up plays before handing off to the live
@@ -106,8 +106,9 @@ function McpFirstPairing({ appId, connected }: { appId: string; connected: boole
               Configure with a coding agent
             </h2>
             <p className="max-w-xl text-2xs leading-relaxed text-text-secondary">
-              Install the Autonoma MCP in your coding agent, then give it the pairing code below. It configures and
-              deploys your preview while you watch here - no scripts, no YAML.
+              Three steps: install the Autonoma MCP from your terminal, authorize it when your agent asks, then give
+              your agent the pairing code. It configures and deploys your preview while you watch here - no scripts, no
+              YAML.
             </p>
           </div>
 
@@ -123,19 +124,7 @@ function McpFirstPairing({ appId, connected }: { appId: string; connected: boole
                 onRetry={() => createPairing.mutate({ applicationId: appId })}
               />
             }
-            tellAgent={
-              <>
-                Then tell your agent: <span className="font-mono text-text-primary">configure my preview</span>
-                {code != null ? (
-                  <>
-                    {" "}
-                    with code <span className="font-mono text-primary">{code}</span>.
-                  </>
-                ) : (
-                  "."
-                )}
-              </>
-            }
+            tellAgent={<TellAgentLine code={code} />}
           />
         </div>
 
@@ -190,41 +179,10 @@ function PairingCodeBlock({
       ) : (
         <div className="relative flex items-center justify-center border border-border-mid bg-surface-void px-12 py-6">
           <span className="font-mono text-4xl tracking-[0.3em] text-primary">{code}</span>
-          <CopyPairingCodeButton code={code} />
+          <CopyPromptButton code={code} />
         </div>
       )}
     </div>
-  );
-}
-
-/** Copies the pairing code; the icon flips to a check once copied. */
-function CopyPairingCodeButton({ code }: { code: string }) {
-  const [copied, setCopied] = useState(false);
-
-  function copy() {
-    // `navigator.clipboard` is undefined in insecure contexts, and the write can
-    // reject (permissions, unfocused document) - handle both so the failure logs
-    // instead of surfacing as an unhandled rejection, and the check stays false.
-    if (navigator.clipboard == null) {
-      console.warn("Clipboard API unavailable; cannot copy pairing code");
-      return;
-    }
-    navigator.clipboard
-      .writeText(code)
-      .then(() => setCopied(true))
-      .catch((err) => console.warn("Failed to copy pairing code", err));
-  }
-
-  return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      className="absolute right-2 top-1/2 -translate-y-1/2 bg-surface-void text-text-secondary"
-      onClick={copy}
-      aria-label="Copy pairing code"
-    >
-      {copied ? <CheckIcon className="text-status-success" /> : <CopyIcon />}
-    </Button>
   );
 }
 

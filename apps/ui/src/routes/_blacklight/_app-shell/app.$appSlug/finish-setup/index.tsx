@@ -35,6 +35,7 @@ import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { type PreviewLogSource, PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
 import { ConnectAgentDialog, DEBUG_MCP_DOCS_URL } from "components/connect-agent-dialog";
+import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { useAuth } from "lib/auth";
 import {
   useAvailableVercelProjects,
@@ -1229,9 +1230,9 @@ function ExternalSdkStepBody({ applicationId, selectedTargetId, onSelectTarget }
         tellAgent={
           <>
             Then, from your repo, ask your agent about the preview - e.g.{" "}
-            <span className="font-mono text-text-primary">why did my preview fail?</span> or{" "}
-            <span className="font-mono text-text-primary">fix my preview deploy</span>. It reads the repo and PR from
-            your local git.
+            <span className="font-mono text-text-primary">use the Autonoma MCP to tell me why my preview failed</span>{" "}
+            or <span className="font-mono text-text-primary">fix my preview deploy with the Autonoma MCP</span>.{" "}
+            <NameTheMcpNote /> It reads the repo and PR from your local git.
           </>
         }
       />
@@ -1458,8 +1459,11 @@ function DryRunList({
         tellAgent={
           <>
             Then, from your repo, ask your agent to fix the scenario - e.g.{" "}
-            <span className="font-mono text-text-primary">why is my scenario dry run failing?</span> It can read the
-            recipe, try edits against your deployed SDK without saving them, and fix the SDK handler in your repo.
+            <span className="font-mono text-text-primary">
+              use the Autonoma MCP to find out why my scenario dry run is failing
+            </span>
+            . <NameTheMcpNote /> It can read the recipe, try edits against your deployed SDK without saving them, and
+            fix the SDK handler in your repo.
           </>
         }
       />

@@ -20,9 +20,10 @@ This is a different server from the [debugging MCP](/mcp). That one helps your a
 
 You connect this server from inside onboarding, because it pins itself to the app you are setting up:
 
-1. In Autonoma, start onboarding your app and open the preview environment config step.
-2. Click **Configure with coding agent**. A modal shows the install snippet for your client and a short **pairing code**.
-3. Install the server in your agent (below), then tell your agent to configure your preview and give it the pairing code.
+1. In Autonoma, start onboarding your app and open the preview environment config step. It shows the install snippet for your client and a short **pairing code**.
+2. **Install the server first**, from your terminal - before you open your coding agent (below). A client that is already running does not see a server added underneath it; quit and reopen it.
+3. **Authorize Autonoma.** The first time your agent calls a tool it opens a browser to sign in. Approve it - until you do, every Autonoma tool fails. You can trigger it up front instead: in Claude Code run `/mcp` and authenticate `autonoma-onboarding`.
+4. Tell your agent: `configure my preview with the Autonoma MCP, code <your code>`. Name the MCP explicitly - an agent with several MCPs connected cannot tell which one "configure my preview" means, and will guess.
 
 The pairing code is how the agent knows *which* app to configure - you never hand it a repo name, and it can only ever touch an app in an organization you belong to.
 
@@ -40,11 +41,13 @@ The pairing code is how the agent knows *which* app to configure - you never han
 
 <TabItem label="Claude Code">
 
+Run this in your terminal **before** you open Claude Code (if it is already running, quit and reopen it):
+
 ```bash
 claude mcp add --transport http autonoma-onboarding https://api.autonoma.app/v1/mcp/onboarding
 ```
 
-The first time your agent uses a tool, Claude Code opens a browser to sign in and authorize.
+Then authorize: the first time your agent uses a tool, Claude Code opens a browser to sign in - or run `/mcp` and authenticate `autonoma-onboarding` up front.
 
 </TabItem>
 

@@ -3,6 +3,7 @@ import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { createFileRoute } from "@tanstack/react-router";
 import { ConnectAgentDialog, DEBUG_MCP_DOCS_URL } from "components/connect-agent-dialog";
+import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { Suspense, useState } from "react";
 import { AddAppDialog } from "../../../onboarding/-components/previewkit/add-app-dialog";
 import { PRIMARY_REPO_KEY, type TopologyDraft } from "../../../onboarding/-components/previewkit/topology-draft";
@@ -94,9 +95,9 @@ function ConfigureWithAgentPanel() {
         tellAgent={
           <>
             Then, from your repo, ask your agent about the preview - e.g.{" "}
-            <span className="font-mono text-text-primary">why did my preview fail?</span> or{" "}
-            <span className="font-mono text-text-primary">fix my preview deploy</span>. It reads the repo and PR from
-            your local git.
+            <span className="font-mono text-text-primary">use the Autonoma MCP to tell me why my preview failed</span>{" "}
+            or <span className="font-mono text-text-primary">fix my preview deploy with the Autonoma MCP</span>.{" "}
+            <NameTheMcpNote /> It reads the repo and PR from your local git.
           </>
         }
       />
