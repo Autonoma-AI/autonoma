@@ -18,7 +18,7 @@ let seq = 0;
 const next = () => seq++;
 
 const classification = (
-    category: string,
+    category: AnalysisCandidateClassification["category"],
     generationId: string,
     overrides: Partial<AnalysisCandidateClassification> = {},
 ): AnalysisCandidateClassification => ({
