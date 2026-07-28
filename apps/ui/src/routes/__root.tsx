@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { Outlet, createRootRouteWithContext } from "@tanstack/react-router";
+import { Outlet, createRootRouteWithContext, useLocation } from "@tanstack/react-router";
 import { useIsMobile } from "hooks/use-is-mobile";
 import { Monitor } from "lucide-react";
 import posthog from "posthog-js";
@@ -48,13 +48,23 @@ function MobileBlocker() {
   );
 }
 
+// Routes that must work on a phone. The blocker exists because the app proper is
+// desktop-only, but these are hand-off pages reached from a link someone may well
+// have opened on their phone - a preview URL out of a GitHub comment, or the login
+// that gates it. Blocking them would strand the visitor on "come back on a
+// computer" instead of the app they were trying to reach.
+const MOBILE_ALLOWED_PATHS = ["/preview-waiting", "/login"];
+
 function RootLayout() {
   const { session } = useAuth();
   const isMobile = useIsMobile();
+  const { pathname } = useLocation();
 
   usePosthogIdentify();
 
-  if (isMobile) {
+  const isMobileAllowed = MOBILE_ALLOWED_PATHS.some((path) => pathname.startsWith(path));
+
+  if (isMobile && !isMobileAllowed) {
     return <MobileBlocker />;
   }
 

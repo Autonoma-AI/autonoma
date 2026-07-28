@@ -4,15 +4,18 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Google } from "components/icons/google";
 import { env } from "env";
 import { useAuthClient } from "lib/auth";
+import { absoluteRedirectUrl } from "lib/auth-redirect";
 import { toastManager } from "lib/toast-manager";
 import * as React from "react";
 import { EmailPasswordForm } from "./-components/email-password-form";
 
 export const Route = createFileRoute("/_blacklight/(auth)/login/")({
   component: LoginPage,
-  validateSearch: (search: Record<string, unknown>): { error?: string } => {
-    if (typeof search.error === "string") return { error: search.error };
-    return {};
+  validateSearch: (search: Record<string, unknown>): { error?: string; redirectTo?: string } => {
+    const parsed: { error?: string; redirectTo?: string } = {};
+    if (typeof search.error === "string") parsed.error = search.error;
+    if (typeof search.redirectTo === "string") parsed.redirectTo = search.redirectTo;
+    return parsed;
   },
 });
 
@@ -22,6 +25,7 @@ function useIsPreviewEnvironment() {
 
 function useGoogleSignIn() {
   const authClient = useAuthClient();
+  const { redirectTo } = Route.useSearch();
   const [isPending, setIsPending] = React.useState(false);
 
   const signIn = async () => {
@@ -29,7 +33,9 @@ function useGoogleSignIn() {
     try {
       await authClient.signIn.social({
         provider: "google",
-        callbackURL: window.location.origin,
+        // Validated: this survives the round trip through Google and is then handed
+        // to the browser, so an unchecked value here is an open redirect.
+        callbackURL: absoluteRedirectUrl(window.location.origin, redirectTo),
         errorCallbackURL: `${window.location.origin}/login`,
       });
     } catch {
@@ -95,7 +101,7 @@ function useErrorFromSearch() {
       description: "Something went wrong. Please try again.",
     });
 
-    void navigate({ search: { error: undefined }, replace: true });
+    void navigate({ search: (prev) => ({ ...prev, error: undefined }), replace: true });
   }, [error, navigate]);
 }
 

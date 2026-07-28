@@ -1,5 +1,6 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { authClient } from "lib/auth";
+import { currentPathForRedirect } from "lib/auth-redirect";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { ensureOrgStatusData, ensureOrganizationsData, ensureSessionData } from "lib/query/auth.queries";
 import type { RouteContext } from "../../__root";
@@ -14,7 +15,9 @@ export const Route = createFileRoute("/_blacklight/_app-shell")({
 
 async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname: string) {
   const session = await ensureSessionData(queryClient);
-  if (session == null) throw redirect({ to: "/login", search: { error: undefined } });
+  if (session == null) {
+    throw redirect({ to: "/login", search: { error: undefined, redirectTo: currentPathForRedirect(window.location) } });
+  }
 
   const user = session.user;
   const isAdmin = user.role === "admin";

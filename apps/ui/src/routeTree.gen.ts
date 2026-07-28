@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as PreviewWaitingRouteImport } from './routes/preview-waiting'
 import { Route as PreviewAuthRouteImport } from './routes/preview-auth'
 import { Route as GithubInstalledRouteImport } from './routes/github-installed'
 import { Route as EulaRouteImport } from './routes/eula'
@@ -85,6 +86,11 @@ const TermsRoute = TermsRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PreviewWaitingRoute = PreviewWaitingRouteImport.update({
+  id: '/preview-waiting',
+  path: '/preview-waiting',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PreviewAuthRoute = PreviewAuthRouteImport.update({
@@ -511,6 +517,7 @@ export interface FileRoutesByFullPath {
   '/eula': typeof EulaRoute
   '/github-installed': typeof GithubInstalledRoute
   '/preview-auth': typeof PreviewAuthRoute
+  '/preview-waiting': typeof PreviewWaitingRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
@@ -577,6 +584,7 @@ export interface FileRoutesByTo {
   '/eula': typeof EulaRoute
   '/github-installed': typeof GithubInstalledRoute
   '/preview-auth': typeof PreviewAuthRoute
+  '/preview-waiting': typeof PreviewWaitingRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
@@ -635,6 +643,7 @@ export interface FileRoutesById {
   '/eula': typeof EulaRoute
   '/github-installed': typeof GithubInstalledRoute
   '/preview-auth': typeof PreviewAuthRoute
+  '/preview-waiting': typeof PreviewWaitingRoute
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/_blacklight/_app-shell': typeof BlacklightAppShellRouteRouteWithChildren
@@ -706,6 +715,7 @@ export interface FileRouteTypes {
     | '/eula'
     | '/github-installed'
     | '/preview-auth'
+    | '/preview-waiting'
     | '/privacy'
     | '/terms'
     | '/onboarding'
@@ -772,6 +782,7 @@ export interface FileRouteTypes {
     | '/eula'
     | '/github-installed'
     | '/preview-auth'
+    | '/preview-waiting'
     | '/privacy'
     | '/terms'
     | '/onboarding'
@@ -829,6 +840,7 @@ export interface FileRouteTypes {
     | '/eula'
     | '/github-installed'
     | '/preview-auth'
+    | '/preview-waiting'
     | '/privacy'
     | '/terms'
     | '/_blacklight/_app-shell'
@@ -899,6 +911,7 @@ export interface RootRouteChildren {
   EulaRoute: typeof EulaRoute
   GithubInstalledRoute: typeof GithubInstalledRoute
   PreviewAuthRoute: typeof PreviewAuthRoute
+  PreviewWaitingRoute: typeof PreviewWaitingRoute
   PrivacyRoute: typeof PrivacyRoute
   TermsRoute: typeof TermsRoute
 }
@@ -917,6 +930,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/preview-waiting': {
+      id: '/preview-waiting'
+      path: '/preview-waiting'
+      fullPath: '/preview-waiting'
+      preLoaderRoute: typeof PreviewWaitingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/preview-auth': {
@@ -1719,6 +1739,7 @@ const rootRouteChildren: RootRouteChildren = {
   EulaRoute: EulaRoute,
   GithubInstalledRoute: GithubInstalledRoute,
   PreviewAuthRoute: PreviewAuthRoute,
+  PreviewWaitingRoute: PreviewWaitingRoute,
   PrivacyRoute: PrivacyRoute,
   TermsRoute: TermsRoute,
 }
