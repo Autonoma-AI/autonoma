@@ -18,6 +18,7 @@ import { ApplicationSetupService } from "../application-setup/application-setup.
 import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
+import { FalsePositiveCandidateService } from "../github/false-positive-candidate.service";
 import { GitHubInstallationService } from "../github/github-installation.service";
 import { MergeGateSlackNotifier } from "../github/merge-gate-slack-notifier";
 import { MergeGateService } from "../github/merge-gate.service";
@@ -71,6 +72,7 @@ export interface Services {
     previewkitLogs: PreviewkitLogsService;
     orgSecrets: OrgSecretsService;
     github: GitHubInstallationService;
+    falsePositiveCandidates: FalsePositiveCandidateService;
     mergeGate: MergeGateService;
     repoIntrospection: RepoIntrospectionService;
     previewkitDiagnosis: PreviewkitDiagnosisService;
@@ -191,12 +193,14 @@ export function buildServices({
         onboardingManager,
         new ScenarioRecipeStore(conn),
     );
+    const branchesService = new BranchesService(conn, githubService, storageProvider, prCacheService);
+    const falsePositiveCandidatesService = new FalsePositiveCandidateService(conn, branchesService);
 
     return {
         admin: new AdminService(conn, auth, githubApp),
         auth: new AuthService(conn),
         apiKeys: apiKeysService,
-        branches: new BranchesService(conn, githubService, storageProvider, prCacheService),
+        branches: branchesService,
         bugs: new BugsService(conn, storageProvider, analytics, env.APP_URL),
         deployments: new DeploymentsService(conn, previewkitTrigger),
         previewkitEnvFactory: new PreviewkitEnvFactoryService(conn, encryptionHelper),
@@ -210,11 +214,13 @@ export function buildServices({
         previewkitLogs: new PreviewkitLogsService(previewkitEnvironmentsService, buildLogStore, appLogStore),
         orgSecrets: new OrgSecretsService(conn, env.AWS_REGION ?? "us-east-1"),
         github: githubService,
+        falsePositiveCandidates: falsePositiveCandidatesService,
         mergeGate: new MergeGateService(
             conn,
             githubApp,
             env.MERGE_GATE_ENABLED,
             analytics,
+            falsePositiveCandidatesService,
             new MergeGateSlackNotifier(env.SLACK_BOT_TOKEN, env.MERGE_GATE_SLACK_CHANNEL),
         ),
         repoIntrospection: repoIntrospectionService,

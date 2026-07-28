@@ -15,9 +15,29 @@ import { payloadBuilder, renderMarkdown } from "@autonoma/github/comment";
 import { type Logger, logger } from "@autonoma/logger";
 import { ANALYSIS_VERDICT } from "@autonoma/types";
 import { z } from "zod";
+import type { FalsePositiveCandidateService } from "./false-positive-candidate.service";
 import type { MergeGateSlackNotifier } from "./merge-gate-slack-notifier";
 
 const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
+
+/**
+ * PROVISIONAL, case-insensitive phrase heuristic for "this skip reason claims the finding was a false positive".
+ * It is a placeholder a classifier can replace later.
+ */
+const FALSE_POSITIVE_REASON_PHRASES = [
+    "false positive",
+    "false-positive",
+    "not a bug",
+    "isn't a bug",
+    "no es un bug",
+    "falso positivo",
+    "es un fp",
+];
+
+function reasonIndicatesFalsePositive(reason: string): boolean {
+    const normalized = reason.toLowerCase();
+    return FALSE_POSITIVE_REASON_PHRASES.some((phrase) => normalized.includes(phrase));
+}
 
 /** Collapse a developer's free-text reason to a single clean line for display. */
 function formatReason(reason: string): string {
@@ -118,6 +138,7 @@ export class MergeGateService {
         private readonly githubApp: GitHubApp,
         private readonly mergeGateEnabled: boolean,
         private readonly analytics: PostHogAnalytics,
+        private readonly falsePositiveCandidates: FalsePositiveCandidateService,
         private readonly slackNotifier?: MergeGateSlackNotifier,
     ) {
         this.logger = logger.child({ name: this.constructor.name });
@@ -365,6 +386,15 @@ export class MergeGateService {
                 reason: params.reason,
             });
 
+            await this.captureSkipReasonFalsePositives({
+                organizationId: params.organizationId,
+                repoFullName: params.repoFullName,
+                prNumber: params.prNumber,
+                actorLogin: params.actorLogin,
+                reason: params.reason,
+                openBugs,
+            });
+
             this.logger.warn("Merge gate: check skipped", {
                 organizationId: params.organizationId,
                 extra: {
@@ -375,6 +405,46 @@ export class MergeGateService {
                 },
             });
         });
+    }
+
+    /**
+     * Secondary false-positive channel: when a developer's `/autonoma-skip` reason claims the finding was a false
+     * positive, mirror the skip's open findings into the FP-candidate store. Tracking only - it does NOT change the
+     * skip's unblock/record/alert behavior, and nothing reads these rows. Not every skip is an FP, so a non-FP
+     * reason (e.g. "urgent hotfix") records nothing.
+     */
+    private async captureSkipReasonFalsePositives(params: {
+        organizationId: string;
+        repoFullName: string;
+        prNumber: number;
+        actorLogin: string;
+        reason: string;
+        openBugs: { snapshotId?: string; findingKeys: string[] };
+    }): Promise<void> {
+        if (!reasonIndicatesFalsePositive(params.reason)) return;
+        if (params.openBugs.snapshotId == null || params.openBugs.findingKeys.length === 0) return;
+
+        try {
+            const count = await this.falsePositiveCandidates.recordFromSkipReason({
+                organizationId: params.organizationId,
+                repoFullName: params.repoFullName,
+                prNumber: params.prNumber,
+                snapshotId: params.openBugs.snapshotId,
+                findingKeys: params.openBugs.findingKeys,
+                reportedBy: params.actorLogin,
+                reason: params.reason,
+            });
+            this.logger.info("Merge gate: skip reason flagged as a false positive; recorded FP candidates", {
+                organizationId: params.organizationId,
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber, count },
+            });
+        } catch (err) {
+            this.logger.warn("Merge gate: failed to record skip-reason FP candidates", {
+                organizationId: params.organizationId,
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
+                err,
+            });
+        }
     }
 
     /** Webhook entry for `pull_request.closed`: parse then persist merge facts + detect a bypass. */

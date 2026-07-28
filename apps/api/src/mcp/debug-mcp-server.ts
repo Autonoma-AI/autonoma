@@ -37,6 +37,8 @@ You do NOT need GitHub access - repoFullName is just how Autonoma identifies you
 
 Start with the findings: call get_investigation(repoFullName, prNumber) to read what Autonoma flagged on the PR - each finding's what-happened, likely root cause, file:line code evidence, and a suggested fix, plus a screenshot/clip of the failing run. That is usually enough to fix a client bug in this repo. Use the deploy-debug flow below instead when a preview fails to BUILD or DEPLOY (not a test/app bug).
 
+If while working through the findings you determine one is NOT a real bug (a false positive - e.g. a test-data gap, an environment misconfiguration, or the finding misread correct behavior), call report_false_positive(repoFullName, prNumber, findingId, reason?) with the finding's id from get_investigation. This is a tracking signal for Autonoma to review; it does not change the check, re-run the analysis, unblock the merge, or hide the finding.
+
 Recommended flow when Autonoma flags a problem on a pull request:
 1. Call get_deploy_status(repoFullName, prNumber) to see which service is unhealthy and whether it failed at build or at runtime.
 2. If a service failed to BUILD: call get_build_logs (start with from="tail" to see the failure; use from="head" for the start of the build). Missing build inputs often show up as a missing env var.
@@ -76,6 +78,8 @@ export interface DebugMcpDeps {
     listRepos: () => Promise<{ repos: { repoFullName: string; organization: string }[]; truncated: boolean }>;
     /** Records a `mcp.tool_called` PostHog event per tool invocation, per customer org. */
     analytics: McpAnalytics;
+    /** The authenticated MCP caller's user id, stored as `reportedBy` on a `report_false_positive` candidate. */
+    userId: string;
 }
 
 /** Shared `(repoFullName, prNumber)` tool input - the previewkit execution key. */
@@ -117,7 +121,7 @@ function noLiveEnvResult(repoFullName: string, prNumber: number) {
  */
 export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
     const logger = rootLogger.child({ name: "debugMcpServer" });
-    const { services, resolveRepoContext, listRepos, analytics } = deps;
+    const { services, resolveRepoContext, listRepos, analytics, userId } = deps;
 
     const server = new McpServer({ name: "autonoma-debug", version: "0.1.0" }, { instructions: DEBUG_INSTRUCTIONS });
 
@@ -325,6 +329,71 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                         return unavailableResult(`No investigation report for ${repoFullName} PR ${prNumber} yet.`);
                     }
                     return jsonResult(report);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "report_false_positive",
+        {
+            title: "Report an Autonoma finding as a false positive",
+            description:
+                "Flag one of Autonoma's investigation findings for this PR as a likely FALSE POSITIVE - a finding " +
+                "you determined is not a real bug in the app (e.g. a test-data gap, an environment misconfiguration, " +
+                "or the finding misread correct behavior). Pass the finding's `id` exactly as get_investigation " +
+                "returned it, and optionally a short `reason` explaining why it's not a real bug. This is a TRACKING " +
+                "signal only: it records the finding as a false-positive candidate for Autonoma to review and does " +
+                "NOT change the Autonoma check, re-run the analysis, unblock a merge, or hide the finding - to " +
+                "unblock a blocked PR a human still comments /autonoma-skip. If the id doesn't match a finding in " +
+                "the PR's latest report (e.g. it came from an earlier push), nothing is recorded and the current " +
+                "finding ids are returned so you can retry.",
+            inputSchema: {
+                ...repoPrInput,
+                findingId: z.string().min(1).max(255),
+                reason: z.string().min(1).max(4096).optional(),
+            },
+            annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        },
+        async ({ repoFullName, prNumber, findingId, reason }) =>
+            analytics.track("report_false_positive", async () => {
+                logger.info("report_false_positive", { extra: { repoFullName, prNumber, findingId } });
+                try {
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const result = await services.falsePositiveCandidates.reportFromMcp({
+                        organizationId,
+                        applicationId,
+                        repoFullName,
+                        prNumber,
+                        findingId,
+                        reportedBy: userId,
+                        reason,
+                    });
+                    if (result.status === "no_report") {
+                        return unavailableResult(
+                            `No investigation report for ${repoFullName} PR ${prNumber} yet, so there is no ` +
+                                `finding to report as a false positive.`,
+                        );
+                    }
+                    if (result.status === "finding_not_found") {
+                        return jsonResult({
+                            status: "finding_not_found",
+                            message:
+                                `No finding with id "${findingId}" in the latest investigation report for ` +
+                                `${repoFullName} PR ${prNumber} - it may name a finding from an earlier push. ` +
+                                `Call get_investigation for the current finding ids and retry. Nothing was recorded.`,
+                            knownFindingIds: result.knownFindingIds,
+                        });
+                    }
+                    return jsonResult({
+                        status: "recorded",
+                        snapshotId: result.snapshotId,
+                        findingKey: result.findingKey,
+                        message:
+                            "Recorded as a false-positive candidate for Autonoma to review. Tracking only - the " +
+                            "check, the analysis, and the finding are unchanged.",
+                    });
                 } catch (err) {
                     return toToolResult(err);
                 }

@@ -820,11 +820,72 @@ export class BranchesService extends Service {
         organizationId: string,
     ): Promise<InvestigationReportData | null> {
         this.logger.info("Getting investigation report for PR", { applicationId, prNumber });
+        const snapshotId = await this.resolveLatestInvestigationCheckpoint(applicationId, prNumber, organizationId);
+        if (snapshotId == null) return null;
+
+        const report = await this.getInvestigationReportData(snapshotId, organizationId);
+        if (report == null) {
+            this.logger.info("Investigation checkpoint has no renderable report for PR", { applicationId, prNumber });
+        }
+        return report;
+    }
+
+    /**
+     * Lightweight resolution for the false-positive MCP tool: the id of the PR's latest investigation checkpoint plus
+     * only the `findingKey`s in its report. Mirrors {@link getInvestigationReportForPr}'s snapshot + twin/legacy
+     * report resolution (so a `findingId` the client saw via `get_investigation` resolves identically), but selects
+     * only what an id match needs). Returns undefined when the PR has no branch, no checkpoint, or no renderable
+     * report. The candidate is keyed to `(snapshotId, findingKey)` since findings are recreated per push, so a
+     * findingKey is stable only within one snapshot's report.
+     */
+    async resolveInvestigationFindingKeysForPr(
+        applicationId: string,
+        prNumber: number,
+        organizationId: string,
+    ): Promise<{ snapshotId: string; findingKeys: string[] } | undefined> {
+        this.logger.info("Resolving investigation finding keys for PR", { applicationId, prNumber });
+        const snapshotId = await this.resolveLatestInvestigationCheckpoint(applicationId, prNumber, organizationId);
+        if (snapshotId == null) return undefined;
+
+        const report = await this.db.investigationReport.findFirst({
+            where: {
+                organizationId,
+                OR: [{ snapshot: { investigationParent: { id: snapshotId } } }, { snapshotId }],
+            },
+            orderBy: { createdAt: "desc" },
+            select: {
+                appSlug: true,
+                findings: { orderBy: { displayOrder: "asc" }, select: { findingKey: true } },
+            },
+        });
+        if (report?.appSlug == null) {
+            this.logger.info("No renderable investigation report for PR; nothing to match a finding against", {
+                applicationId,
+                prNumber,
+            });
+            return undefined;
+        }
+
+        return { snapshotId, findingKeys: report.findings.map((finding) => finding.findingKey) };
+    }
+
+    /** The PR's newest primary investigation checkpoint (twins and cancelled drafts excluded), or undefined. Org-scoped. */
+    private async resolveLatestInvestigationCheckpoint(
+        applicationId: string,
+        prNumber: number,
+        organizationId: string,
+    ): Promise<string | undefined> {
         const branch = await this.db.branch.findFirst({
             where: { applicationId, prInfo: { prNumber }, application: { organizationId } },
             select: { id: true },
         });
-        if (branch == null) return null;
+        if (branch == null) {
+            this.logger.info("No tracked branch for PR; cannot resolve investigation checkpoint", {
+                applicationId,
+                prNumber,
+            });
+            return undefined;
+        }
 
         const snapshot = await this.db.branchSnapshot.findFirst({
             where: {
@@ -835,9 +896,14 @@ export class BranchesService extends Service {
             orderBy: { createdAt: "desc" },
             select: { id: true },
         });
-        if (snapshot == null) return null;
-
-        return this.getInvestigationReportData(snapshot.id, organizationId);
+        if (snapshot == null) {
+            this.logger.info("No non-cancelled primary snapshot for PR; no investigation checkpoint", {
+                applicationId,
+                prNumber,
+            });
+            return undefined;
+        }
+        return snapshot.id;
     }
 
     /** Re-sign a finding's stored s3:// screenshot/video keys (finding media + every run-trace step) into URLs. */

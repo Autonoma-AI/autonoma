@@ -50,9 +50,15 @@ apiTestSuite({
 
             // Disabled org (per-org flag off): no check, no row.
             await setGate(harness, { analysisEnabled: true, mergeGateEnabled: false });
-            const disabled = new MergeGateService(harness.db, harness.githubApp, true, analytics);
+            const disabled = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
             await disabled.postPending({ ...fixture.postParams });
-            expect(fixture.fakeClient.checkRuns).toHaveLength(0);
+            expect(checkRunsFor(fixture)).toHaveLength(0);
             expect(
                 await harness.db.gitHubCheckRun.findUnique({
                     where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
@@ -61,12 +67,18 @@ apiTestSuite({
 
             // Enabled org: an in-progress check is posted and persisted, idempotently per head.
             await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
-            const enabled = new MergeGateService(harness.db, harness.githubApp, true, analytics);
+            const enabled = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
             await enabled.postPending({ ...fixture.postParams });
             await enabled.postPending({ ...fixture.postParams });
 
-            expect(fixture.fakeClient.checkRuns).toHaveLength(1);
-            expect(fixture.fakeClient.checkRuns[0]?.status).toBe("in_progress");
+            expect(checkRunsFor(fixture)).toHaveLength(1);
+            expect(checkRunsFor(fixture)[0]?.status).toBe("in_progress");
             const row = await harness.db.gitHubCheckRun.findUnique({
                 where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
             });
@@ -78,7 +90,13 @@ apiTestSuite({
         }) => {
             const analytics = new RecordingAnalytics();
             await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
-            const service = new MergeGateService(harness.db, harness.githubApp, true, analytics);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
             const fixture = await createRepoApp(harness, "gate-skip");
 
             // A snapshot at the PR head with a client_bug report (two open bugs).
@@ -106,11 +124,8 @@ apiTestSuite({
             expect(skip?.reason).toBe("hotfix for prod outage");
 
             // The check is unblocked (neutral) on both GitHub and our store.
-            expect(fixture.fakeClient.checkRuns[0]?.conclusion).toBe("neutral");
-            const row = await harness.db.gitHubCheckRun.findUnique({
-                where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
-            });
-            expect(row?.conclusion).toBe("neutral");
+            expect(checkRunsFor(fixture)[0]?.conclusion).toBe("neutral");
+            expect(await storedConclusion(harness, fixture)).toBe("neutral");
 
             const skipEvents = analytics.captures.filter((c) => c.event === "merge_gate.skipped");
             expect(skipEvents).toHaveLength(1);
@@ -125,7 +140,7 @@ apiTestSuite({
             });
 
             // A standalone PR comment makes the skip visible, attributing who + the open-bug count + the reason.
-            const skipNotes = fixture.fakeClient.comments.filter((c) => c.body.includes("skipped the Autonoma check"));
+            const skipNotes = skipNotesFor(fixture);
             expect(skipNotes).toHaveLength(1);
             expect(skipNotes[0]?.prNumber).toBe(42);
             expect(skipNotes[0]?.body).toContain("@dev-who-skipped");
@@ -140,7 +155,13 @@ apiTestSuite({
         test("a repeated /autonoma-skip writes no duplicate record, event, or note", async ({ harness }) => {
             const analytics = new RecordingAnalytics();
             await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
-            const service = new MergeGateService(harness.db, harness.githubApp, true, analytics);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
             const fixture = await createRepoApp(harness, "gate-skip-twice");
             await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["only-bug"]);
 
@@ -156,11 +177,122 @@ apiTestSuite({
             });
             expect(records).toHaveLength(1);
             expect(records[0]?.reason).toBe("fixing later");
-            expect(fixture.fakeClient.checkRuns[0]?.conclusion).toBe("neutral");
+            expect(await storedConclusion(harness, fixture)).toBe("neutral");
             expect(analytics.captures.filter((c) => c.event === "merge_gate.skipped")).toHaveLength(1);
+            expect(skipNotesFor(fixture)).toHaveLength(1);
+        });
+
+        test("a /autonoma-skip whose reason claims a false positive records skip_reason FP candidates AND skips normally", async ({
+            harness,
+        }) => {
+            const analytics = new RecordingAnalytics();
+            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
+            const fixture = await createRepoApp(harness, "gate-skip-fp");
+            const snapshotId = await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["checkout", "cart"]);
+
+            await service.postPending({ ...fixture.postParams });
+            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
+
+            await service.applySkipFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/autonoma-skip this is a false positive, checkout works fine", "dev-fp"),
+            );
+
+            // The skip itself is unaffected: recorded, unblocked, alerted.
+            const skip = await harness.db.skipRecord.findFirst({
+                where: { repoFullName: fixture.repoFullName, headSha: "head-1" },
+            });
+            expect(skip?.openBugCount).toBe(2);
+            expect(await storedConclusion(harness, fixture)).toBe("neutral");
+            expect(analytics.captures.filter((c) => c.event === "merge_gate.skipped")).toHaveLength(1);
+
+            // One FP candidate per open finding, keyed to the skip's snapshot, sourced from the skip reason.
+            const candidates = await harness.db.findingFalsePositiveCandidate.findMany({
+                where: { repoFullName: fixture.repoFullName, prNumber: 42 },
+                orderBy: { findingKey: "asc" },
+            });
+            expect(candidates).toHaveLength(2);
+            expect(candidates.map((c) => c.findingKey)).toEqual(["cart", "checkout"]);
+            for (const candidate of candidates) {
+                expect(candidate.source).toBe("skip_reason");
+                expect(candidate.snapshotId).toBe(snapshotId);
+                expect(candidate.reportedBy).toBe("dev-fp");
+                expect(candidate.reason).toBe("this is a false positive, checkout works fine");
+                expect(candidate.organizationId).toBe(harness.organizationId);
+            }
+        });
+
+        test("a repeated FP-claiming /autonoma-skip does not duplicate FP candidates", async ({ harness }) => {
+            const analytics = new RecordingAnalytics();
+            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
+            const fixture = await createRepoApp(harness, "gate-skip-fp-twice");
+            await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["checkout", "cart"]);
+
+            await service.postPending({ ...fixture.postParams });
+            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
+
+            const payload = skipCommentPayload(fixture, "/autonoma-skip false positive, checkout works", "dev-fp");
+            await service.applySkipFromCommentWebhook(harness.organizationId, payload);
+            await service.applySkipFromCommentWebhook(harness.organizationId, payload);
+
+            // The FP capture runs only on the first skip (after the already-recorded early return), so the second
+            // skip re-flips the check but adds no rows.
             expect(
-                fixture.fakeClient.comments.filter((c) => c.body.includes("skipped the Autonoma check")),
-            ).toHaveLength(1);
+                await harness.db.findingFalsePositiveCandidate.findMany({
+                    where: { repoFullName: fixture.repoFullName },
+                }),
+            ).toHaveLength(2);
+            expect(analytics.captures.filter((c) => c.event === "merge_gate.skipped")).toHaveLength(1);
+        });
+
+        test("a /autonoma-skip whose reason is not an FP claim records no FP candidate but still skips", async ({
+            harness,
+        }) => {
+            const analytics = new RecordingAnalytics();
+            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
+            const fixture = await createRepoApp(harness, "gate-skip-nonfp");
+            await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["only-bug"]);
+
+            await service.postPending({ ...fixture.postParams });
+            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
+
+            await service.applySkipFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/autonoma-skip urgent hotfix, will fix in a follow-up", "dev"),
+            );
+
+            // Normal skip.
+            expect(
+                await harness.db.skipRecord.findFirst({ where: { repoFullName: fixture.repoFullName } }),
+            ).not.toBeNull();
+            expect(await storedConclusion(harness, fixture)).toBe("neutral");
+            // No FP candidate: not every skip is a false positive.
+            expect(
+                await harness.db.findingFalsePositiveCandidate.findMany({
+                    where: { repoFullName: fixture.repoFullName },
+                }),
+            ).toHaveLength(0);
         });
 
         test("a /autonoma-skip with no reason is rejected: no skip, and a reply asks for a reason", async ({
@@ -168,7 +300,13 @@ apiTestSuite({
         }) => {
             const analytics = new RecordingAnalytics();
             await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
-            const service = new MergeGateService(harness.db, harness.githubApp, true, analytics);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
             const fixture = await createRepoApp(harness, "gate-skip-noreason");
             await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["only-bug"]);
 
@@ -187,14 +325,14 @@ apiTestSuite({
 
             // Nothing was skipped: the check stays failing, no SkipRecord, no skip event, no attribution note.
             expect(await harness.db.skipRecord.findFirst({ where: { repoFullName: fixture.repoFullName } })).toBeNull();
-            expect(fixture.fakeClient.checkRuns[0]?.conclusion).toBe("failure");
+            expect(await storedConclusion(harness, fixture)).toBe("failure");
             expect(analytics.captures.filter((c) => c.event === "merge_gate.skipped")).toHaveLength(0);
-            expect(
-                fixture.fakeClient.comments.filter((c) => c.body.includes("skipped the Autonoma check")),
-            ).toHaveLength(0);
+            expect(skipNotesFor(fixture)).toHaveLength(0);
 
             // Each invocation replies asking for a reason.
-            const replies = fixture.fakeClient.comments.filter((c) => c.body.includes("please include a reason"));
+            const replies = fixture.fakeClient.comments.filter(
+                (c) => c.repoFullName === fixture.repoFullName && c.body.includes("please include a reason"),
+            );
             expect(replies).toHaveLength(2);
             expect(replies[0]?.prNumber).toBe(42);
             expect(replies[0]?.body).toContain("/autonoma-skip <why>");
@@ -205,7 +343,13 @@ apiTestSuite({
         }) => {
             const analytics = new RecordingAnalytics();
             await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
-            const service = new MergeGateService(harness.db, harness.githubApp, true, analytics);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
             const fixture = await createRepoApp(harness, "gate-skip-ignored");
             await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["bug-a"]);
             await service.postPending({ ...fixture.postParams });
@@ -224,7 +368,7 @@ apiTestSuite({
             });
 
             expect(await harness.db.skipRecord.findFirst({ where: { repoFullName: fixture.repoFullName } })).toBeNull();
-            expect(fixture.fakeClient.checkRuns[0]?.conclusion).toBe("failure");
+            expect(await storedConclusion(harness, fixture)).toBe("failure");
 
             // The command on a check that already passed (success): nothing to skip.
             await setCheckConclusion(harness, fixture.repoFullName, "head-1", "success");
@@ -240,7 +384,13 @@ apiTestSuite({
         }) => {
             const analytics = new RecordingAnalytics();
             await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
-            const service = new MergeGateService(harness.db, harness.githubApp, true, analytics);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
             const fixture = await createRepoApp(harness, "gate-close");
 
             // A feature branch + a failing check on the merged head, no SkipRecord: a bypass.
@@ -306,7 +456,13 @@ apiTestSuite({
             harness,
         }) => {
             const analytics = new RecordingAnalytics();
-            const service = new MergeGateService(harness.db, harness.githubApp, true, analytics);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
             const fixture = await createRepoApp(harness, "gate-enable");
 
             // Without analysisEnabled, enabling is refused.
@@ -400,6 +556,37 @@ async function setCheckConclusion(
         where: { repoFullName_headSha: { repoFullName, headSha } },
         data: { conclusion },
     });
+}
+
+// The suite builds its harness (and its one fake GitHub client) once in beforeAll, so that client's `checkRuns`
+// and `comments` accumulate across every test. These helpers scope an inspection to the fixture's own repo (each
+// test uses a fresh random repoFullName) so a test never sees another's records.
+function checkRunsFor(fixture: RepoAppFixture) {
+    return fixture.fakeClient.checkRuns.filter((run) => run.repoFullName === fixture.repoFullName);
+}
+
+function skipNotesFor(fixture: RepoAppFixture) {
+    return fixture.fakeClient.comments.filter(
+        (comment) =>
+            comment.repoFullName === fixture.repoFullName && comment.body.includes("skipped the Autonoma check"),
+    );
+}
+
+/**
+ * The stored `Autonoma` check conclusion for a head - the source of truth for whether it is blocking, unblocked, or
+ * skipped. The check's conclusion lives on the DB row (written by the worker's finalize, the skip's setConclusion,
+ * and setCheckConclusion in these tests), NOT on the fake GitHub client, whose created check stays `in_progress`
+ * until an updateCheckRun call flips it.
+ */
+async function storedConclusion(
+    harness: APITestHarness,
+    fixture: RepoAppFixture,
+    headSha = "head-1",
+): Promise<string | null | undefined> {
+    const row = await harness.db.gitHubCheckRun.findUnique({
+        where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha } },
+    });
+    return row?.conclusion;
 }
 
 /** A minimal `issue_comment.created` payload for a PR comment (the `pull_request` field marks it as a PR, not an issue). */

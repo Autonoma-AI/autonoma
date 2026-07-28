@@ -5,10 +5,13 @@ import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { storageProvider } from "../context";
 import { env } from "../env";
 import { investigationMergeTriggerService } from "../investigation/investigation-merge-service";
 import { previewkitTriggerService } from "../previewkit/previewkit-service";
 import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.service";
+import { BranchesService } from "../routes/branches/branches.service";
+import { FalsePositiveCandidateService } from "./false-positive-candidate.service";
 import { buildGitHubApp } from "./github-app";
 import { GitHubInstallationService } from "./github-installation.service";
 import { verifyInstallState } from "./github-state";
@@ -26,11 +29,14 @@ type GitHubEnv = {
 const githubApp = buildGitHubApp(env);
 const githubService = new GitHubInstallationService(db, githubApp);
 const prCacheService = new PullRequestCacheService(db, githubService);
+const branchesService = new BranchesService(db, githubService, storageProvider, prCacheService);
+const falsePositiveCandidatesService = new FalsePositiveCandidateService(db, branchesService);
 const mergeGateService = new MergeGateService(
     db,
     githubApp,
     env.MERGE_GATE_ENABLED,
     analytics,
+    falsePositiveCandidatesService,
     new MergeGateSlackNotifier(env.SLACK_BOT_TOKEN, env.MERGE_GATE_SLACK_CHANNEL),
 );
 

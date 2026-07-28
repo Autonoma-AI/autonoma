@@ -163,6 +163,7 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | --- | --- | --- |
 | `list_apps` | none | The repos you can debug across your organizations - use when the repo isn't obvious |
 | `get_investigation` | repo, PR | Autonoma's findings for the PR's latest checkpoint - each finding's what-happened, root cause, evidence, suggested fix, and signed screenshot/clip URLs, plus suggested tests. Start here when Autonoma flagged bugs |
+| `report_false_positive` | repo, PR, findingId, reason? | Flags a `get_investigation` finding as a likely false positive (not a real bug). A tracking signal for Autonoma to review - it does **not** change the check, re-run the analysis, unblock the merge, or hide the finding |
 | `get_deploy_status` | repo, PR | Per-service deploy status, endpoints, and the latest build outcome |
 | `diagnose_deploy` | repo, PR | The raw evidence in one call - status, service/addon states, latest build outcome, a rule-based failure classification, the config's env-key surface, and error-shaped logs - plus deterministic findings categorized as a missing env var, setup problem, or platform error. It is not an AI summary; you reason over the signals |
 | `get_build_logs` | repo, PR | Build-log lines, from the `tail` (newest) or `head` (start of the build), optionally for one service |

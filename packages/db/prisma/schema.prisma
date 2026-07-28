@@ -2134,6 +2134,40 @@ model SkipRecord {
   @@map("skip_record")
 }
 
+// Which channel surfaced a false-positive candidate.
+enum FalsePositiveCandidateSource {
+  mcp_client_agent // the client's own coding agent reported it via the debug MCP `report_false_positive` tool
+  skip_reason // inferred from an FP-indicating `/autonoma-skip` reason
+
+  @@map("false_positive_candidate_source")
+}
+
+// A "false-positive candidate": a signal that one finding (scoped to the snapshot
+// whose report surfaced it) may be a false positive. Tracking data only - existence
+// of a row means "candidate", there is no confirmed state, and NOTHING in the merge
+// gate reads this table (it never unblocks a check or hides a finding). It is the
+// seed of the FP eval set, fed by two channels (see FalsePositiveCandidateSource):
+// the debug MCP tool and an FP-indicating skip reason. A finding is identified by
+// (snapshotId, findingKey) because findings are recreated per push, so a findingKey
+// is stable only within one snapshot's report.
+model FindingFalsePositiveCandidate {
+  id             String                       @id @default(cuid())
+  organizationId String                       @map("organization_id")
+  repoFullName   String                       @map("repo_full_name")
+  prNumber       Int                          @map("pr_number")
+  snapshotId     String                       @map("snapshot_id")
+  findingKey     String                       @map("finding_key")
+  source         FalsePositiveCandidateSource
+  // Who flagged it: the /autonoma-skip GitHub actor login, or the MCP caller's user id. Identity space varies by source.
+  reportedBy     String                       @map("reported_by")
+  reason         String? // free text: the MCP `reason?`, or the raw skip reason
+  createdAt      DateTime                     @default(now()) @map("created_at")
+
+  @@index([organizationId, createdAt])
+  @@index([repoFullName, prNumber])
+  @@map("finding_false_positive_candidate")
+}
+
 model PreviewkitBuild {
   id String @id @default(cuid())
 
