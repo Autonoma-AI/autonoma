@@ -349,11 +349,3 @@ export function useActiveSnapshot(branchId: string) {
 export async function ensureActiveSnapshotData(queryClient: QueryClient, branchId: string) {
     await ensureAPIQueryData(queryClient, trpc.branches.activeSnapshot.queryOptions({ branchId }));
 }
-
-export function useTestSuiteChangesByPr(branchId: string) {
-    return useSuspenseQuery(trpc.branches.testSuiteChangesByPr.queryOptions({ branchId }));
-}
-
-export async function ensureTestSuiteChangesByPrData(queryClient: QueryClient, branchId: string) {
-    await ensureAPIQueryData(queryClient, trpc.branches.testSuiteChangesByPr.queryOptions({ branchId }));
-}

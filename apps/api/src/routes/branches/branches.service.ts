@@ -18,7 +18,7 @@ import {
 } from "@autonoma/checkpoint";
 import type { AnalysisJobStatus, Prisma } from "@autonoma/db";
 import type { PrismaClient } from "@autonoma/db";
-import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
+import { InternalError, NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
 import {
     getChangesForSnapshot,
@@ -1314,29 +1314,6 @@ export class BranchesService extends Service {
         );
     }
 
-    async getBranch(branchId: string, organizationId: string) {
-        this.logger.info("Getting branch", { branchId });
-
-        const branch = await this.db.branch.findFirst({
-            where: { id: branchId, application: { organizationId } },
-            include: {
-                activeSnapshot: {
-                    include: {
-                        testCaseAssignments: {
-                            include: {
-                                testCase: { select: { id: true, name: true, slug: true, folderId: true } },
-                                plan: { select: { id: true, prompt: true } },
-                            },
-                        },
-                    },
-                },
-            },
-        });
-
-        if (branch == null) throw new NotFoundError("Branch not found");
-        return branch;
-    }
-
     async getBranchByName(applicationId: string, branchName: string, organizationId: string) {
         this.logger.info("Getting branch by name", { applicationId, branchName });
 
@@ -1832,29 +1809,6 @@ export class BranchesService extends Service {
         });
 
         return changes;
-    }
-
-    async deleteBranch(branchId: string, organizationId: string) {
-        this.logger.info("Deleting branch", { branchId });
-
-        const branch = await this.db.branch.findFirst({
-            where: { id: branchId, application: { organizationId } },
-            select: {
-                id: true,
-                application: { select: { mainBranchId: true } },
-            },
-        });
-
-        if (branch == null) throw new NotFoundError("Branch not found");
-
-        const isMainBranch = branch.application.mainBranchId === branchId;
-        if (isMainBranch) {
-            throw new BadRequestError("Cannot delete the main branch");
-        }
-
-        await this.db.branch.delete({ where: { id: branchId } });
-
-        this.logger.info("Branch deleted", { branchId });
     }
 }
 

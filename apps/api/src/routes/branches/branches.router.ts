@@ -13,12 +13,6 @@ export const branchesRouter = router({
             services.branches.listBranches(input.applicationId, organizationId, input.state),
         ),
 
-    detail: protectedProcedure
-        .input(z.object({ branchId: z.string() }))
-        .query(({ ctx: { services, organizationId }, input }) =>
-            services.branches.getBranch(input.branchId, organizationId),
-        ),
-
     detailByName: protectedProcedure
         .input(z.object({ applicationId: z.string(), branchName: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>
@@ -143,11 +137,5 @@ export const branchesRouter = router({
         .input(z.object({ branchId: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>
             services.branches.getTestSuiteChangesByPr(input.branchId, organizationId),
-        ),
-
-    delete: protectedProcedure
-        .input(z.object({ branchId: z.string() }))
-        .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.branches.deleteBranch(input.branchId, organizationId),
         ),
 });
