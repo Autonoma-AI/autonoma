@@ -7,7 +7,8 @@ Manages scenario lifecycle (sync from recipes, up, down) for test environments p
 | Export                    | Description                                                                                                              |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `ScenarioManager`         | DB-backed orchestrator for the up/down lifecycle and discover                                                            |
-| `ScenarioRecipeStore`     | Persistence layer for recipe ingestion (`replaceScenarioRecipes`) and lookup (`loadRecipePayload`)                       |
+| `ScenarioRecipeStore`     | Persistence layer for recipe ingestion (`replaceScenarioRecipes`) and lookup (`loadRecipePayload`, which also returns the version's id + fingerprint so a run can record what it provisioned) |
+| `findRecipeProblems`      | Everything about a recipe that will fail at provisioning time but is knowable without a deploy: an unreadable `create` graph, a `_ref` matching no `_alias`, tokens that cannot resolve |
 | `SdkClient`               | HMAC-signed HTTP client for the customer's SDK endpoint. Pure: no Prisma, single attempt per call                       |
 | `SdkHttpError`            | Thrown on a non-2xx SDK response. Carries `status` (and `detail`) as structured fields so callers can branch (e.g. on 401) without parsing the message |
 | `SdkCallRecorder`         | Per-call observability seam. Default `NOOP_RECORDER` for tests; production uses `DbSdkCallRecorder`                      |
@@ -55,11 +56,21 @@ const result = await client.discover();
 
 ### Scenario lifecycle
 
-1. **Ingest recipes** - `ApplicationSetupService` calls `ScenarioRecipeStore.replaceScenarioRecipes` when recipes are uploaded through `POST .../scenario-recipe-versions`. The payload is split into a snapshot-scoped `scenario_schema_snapshot` (keyed by `applicationId + snapshotId`) plus per-scenario `scenario_recipe_version.fixture_json` (keyed by `scenarioId + snapshotId`). The active recipe pointer on `scenario` is updated, and names no longer present are disabled. Re-uploading for the same snapshot replaces recipe versions transactionally.
+1. **Ingest recipes** - `ApplicationSetupService` calls `ScenarioRecipeStore.replaceScenarioRecipes` when recipes are uploaded through `POST .../scenario-recipe-versions`. Recipes that cannot provision are rejected before anything is stored. The payload is split into a snapshot-scoped `scenario_schema_snapshot` (keyed by `applicationId + snapshotId`) plus per-scenario `scenario_recipe_version.fixture_json` (keyed by `scenarioId + snapshotId`). The active recipe pointer on `scenario` is updated, and names no longer present are disabled. Re-uploading for the same snapshot replaces recipe versions transactionally.
 
-2. **Up** - Resolves the active recipe's `create` payload into concrete data using the generated run id, creates a `scenarioInstance` record in `REQUESTED` status, links it to the subject (generation), then calls the SDK endpoint with `action: "up"` and the populated payload. On success, the instance is updated to `UP_SUCCESS` with auth credentials, refs, and metadata returned by the endpoint. On failure, it transitions to `UP_FAILED`.
+2. **Up** - Resolves the active recipe's `create` payload into concrete data using the generated run id, creates a `scenarioInstance` record in `REQUESTED` status (stamped with `recipeVersionId` + `recipeFingerprint`, so the run stays identifiable after the recipe is edited), links it to the subject (generation), then calls the SDK endpoint with `action: "up"` and the populated payload. Passing `candidateRecipe` provisions that recipe instead of the stored one and persists no version - the loop an agent iterates in. On success, the instance is updated to `UP_SUCCESS` with auth credentials, refs, and metadata returned by the endpoint. On failure, it transitions to `UP_FAILED`.
 
 3. **Down** - Calls the SDK endpoint with `action: "down"`, passing back the `refs` and `refsToken` from the up response so the customer can clean up. Transitions to `DOWN_SUCCESS` or `DOWN_FAILED`. Already-torn-down instances are skipped.
+
+### Recipe history
+
+`scenario_recipe_version` holds one row per `(scenario, snapshot)` and every write overwrites it in place, so it is a pointer to the current recipe, not a history. `scenario_recipe_edit` is the history: one append-only row per mutation, written by every path (the UI, both MCP servers, the planner ingest) **in the same transaction as the write it records**, so the previous recipe is never lost between the two. Each row carries the full recipe, its fingerprint, and the `source` that wrote it. Never pruned.
+
+`applyScenarioRecipeUpdate` is the single write path for recipe edits and requires a `source`, so every stored recipe is attributable.
+
+### Built-in recipe tokens
+
+Every value in a `create` graph must be concrete except `{{testRunId}}` (the id sent to the SDK as the request's `testRunId`) and `{{testRunShortId}}` (an 8-character hash of it, for columns too short for a UUID). They exist because concurrent runs of the same scenario would otherwise collide on unique columns. Any other token is rejected on save and on ingest. The older `variables` block still resolves for recipes that carry one, but is no longer generated.
 
 ### SDK endpoint signing
 

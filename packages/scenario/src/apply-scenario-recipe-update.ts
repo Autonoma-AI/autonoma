@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@autonoma/db";
+import type { Prisma, PrismaClient, ScenarioRecipeEditSource } from "@autonoma/db";
 import { type ScenarioRecipe, type ScenarioStructureJson, ScenarioStructureJsonSchema } from "@autonoma/types";
 
 /** Which recipe version a write targeted: the scenario's active version, or the main branch's pending snapshot. */
@@ -26,6 +26,12 @@ export interface ApplyScenarioRecipeUpdateParams {
     pendingSnapshotId?: string;
     /** Whether the fingerprint changed (stamps `fingerprintChangedAt` for discovery). */
     fingerprintChanged: boolean;
+    /** Who is writing. Recorded on the history row so the change stays attributable afterwards. */
+    source: ScenarioRecipeEditSource;
+    /** The user who drove the write, when there was one. */
+    actorUserId?: string;
+    /** Optional human-readable reason, e.g. an agent's description of what it changed. */
+    note?: string;
 }
 
 export interface ApplyScenarioRecipeUpdateResult {
@@ -45,7 +51,7 @@ export async function applyScenarioRecipeUpdate(
     db: PrismaClient,
     params: ApplyScenarioRecipeUpdateParams,
 ): Promise<ApplyScenarioRecipeUpdateResult> {
-    const { scenario, recipe, fingerprint, pendingSnapshotId, fingerprintChanged } = params;
+    const { scenario, recipe, fingerprint, pendingSnapshotId, fingerprintChanged, source, actorUserId, note } = params;
     const activeRecipeVersion = scenario.activeRecipeVersion;
     const shouldUpdatePending = pendingSnapshotId != null && pendingSnapshotId !== activeRecipeVersion.snapshotId;
 
@@ -76,6 +82,24 @@ export async function applyScenarioRecipeUpdate(
                 description: recipe.description,
                 lastSeenFingerprint: fingerprint,
                 ...(fingerprintChanged ? { fingerprintChangedAt: new Date() } : {}),
+            },
+        });
+
+        // In the same transaction as the write it records: the version row is overwritten in
+        // place, so if this row is not written atomically with it the previous recipe is gone
+        // and there is nothing to attribute or restore.
+        await tx.scenarioRecipeEdit.create({
+            data: {
+                scenarioId: scenario.id,
+                applicationId: scenario.applicationId,
+                organizationId: scenario.organizationId,
+                recipeVersionId: activeRecipeVersion.id,
+                snapshotId: activeRecipeVersion.snapshotId,
+                fingerprint,
+                fixtureJson: recipe,
+                source,
+                actorUserId,
+                note,
             },
         });
 

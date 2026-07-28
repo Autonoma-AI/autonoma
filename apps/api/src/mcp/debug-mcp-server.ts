@@ -7,6 +7,7 @@ import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
 import type { Services } from "../routes/build-services";
 import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
 import { deprecatedBuildNotice } from "./deprecated-build-notice";
+import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
 import type { RepoContext } from "./resolve-repo-context";
 import { jsonResult, toToolResult, unavailableResult } from "./tool-result";
@@ -646,10 +647,12 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 });
                 try {
                     const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
-                    const result = await services.scenarios.dryRun(applicationId, organizationId, scenarioId, {
-                        recipe,
-                        save,
-                    });
+                    const result = await services.scenarios.dryRun(
+                        applicationId,
+                        organizationId,
+                        scenarioId,
+                        dryRunOptions(recipe, save),
+                    );
                     return jsonResult(result);
                 } catch (err) {
                     return toToolResult(err);
@@ -682,12 +685,13 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 logger.info("update_recipe", { extra: { repoFullName, scenarioId, scenario: recipe.name } });
                 try {
                     const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
-                    const result = await services.scenarios.updateRecipe(
+                    const result = await services.scenarios.updateRecipe({
                         applicationId,
                         organizationId,
                         scenarioId,
-                        JSON.stringify(recipe),
-                    );
+                        fixtureJson: JSON.stringify(recipe),
+                        source: "MCP",
+                    });
                     return jsonResult(result);
                 } catch (err) {
                     return toToolResult(err);

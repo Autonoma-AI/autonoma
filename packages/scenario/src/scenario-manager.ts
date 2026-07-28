@@ -11,7 +11,7 @@ import {
 import { withColdStartRetry } from "./cold-start-retry";
 import { DbSdkCallRecorder } from "./db-sdk-call-recorder";
 import type { EncryptionHelper } from "./encryption";
-import { resolveRecipePayload } from "./scenario-recipe-resolver";
+import { hashRecipe, resolveRecipePayload } from "./scenario-recipe-resolver";
 import { ScenarioRecipeStore } from "./scenario-recipe-store";
 import type { ScenarioSubject } from "./scenario-subject";
 import { SdkClient, type SdkCallOptions } from "./sdk-client";
@@ -93,6 +93,7 @@ export class ScenarioManager {
         }
         const instanceId = randomUUID();
 
+        const candidateFingerprint = candidateRecipe != null ? hashRecipe(candidateRecipe) : undefined;
         const recipeResult =
             candidateRecipe != null
                 ? resolveRecipePayload(candidateRecipe, instanceId)
@@ -108,6 +109,16 @@ export class ScenarioManager {
         }
         const { createPayload, resolvedVariables } = recipeResult;
 
+        // Record WHICH recipe this run provisioned. Without it a result only carries the
+        // resolved payload, so a run that has since been edited out of existence still reads
+        // as current. The stored path gets its identity from the load above rather than a
+        // second read of the same row; a candidate has no version row, so its fingerprint
+        // alone identifies it.
+        const recipeProvenance =
+            "recipeVersionId" in recipeResult
+                ? { recipeVersionId: recipeResult.recipeVersionId, recipeFingerprint: recipeResult.recipeFingerprint }
+                : { recipeFingerprint: candidateFingerprint };
+
         const instance = await this.db.scenarioInstance.create({
             data: {
                 id: instanceId,
@@ -117,6 +128,8 @@ export class ScenarioManager {
                 scenarioId: scenario.id,
                 status: "REQUESTED",
                 expiresAt: new Date(Date.now() + DEFAULT_EXPIRES_IN_SECONDS * 1000),
+                recipeVersionId: recipeProvenance.recipeVersionId,
+                recipeFingerprint: recipeProvenance.recipeFingerprint,
             },
         });
 

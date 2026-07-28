@@ -128,6 +128,7 @@ model Organization {
   runs                   Run[]
   scenarios              Scenario[]
   scenarioRecipeVersions ScenarioRecipeVersion[]
+  scenarioRecipeEdits ScenarioRecipeEdit[]
   scenarioInstances      ScenarioInstance[]
   generationReviews      GenerationReview[]
   runReviews             RunReview[]
@@ -383,6 +384,7 @@ model Application {
   scenarios                 Scenario[]
   scenarioSchemaSnapshots   ScenarioSchemaSnapshot[]
   scenarioRecipeVersions    ScenarioRecipeVersion[]
+  scenarioRecipeEdits ScenarioRecipeEdit[]
   scenarioInstances         ScenarioInstance[]
   webhookCalls              WebhookCall[]
   branches                  Branch[]
@@ -1508,6 +1510,17 @@ model Run {
 
 // ─── Scenario Setup/Teardown ──────────────────────────────────────
 
+/// Who wrote a recipe edit. `PLANNER` is the one-time upload that seeds an app's recipes during
+/// onboarding; `UI` and `MCP` are the edits made afterwards, by a person or by an agent. Knowing
+/// which is which is what lets a later reader answer "who last changed this, and can I undo it".
+enum ScenarioRecipeEditSource {
+  PLANNER
+  UI
+  MCP
+
+  @@map("scenario_recipe_edit_source")
+}
+
 enum ScenarioInstanceStatus {
   REQUESTED
   UP_SUCCESS
@@ -1542,6 +1555,7 @@ model Scenario {
   application         Application             @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   activeRecipeVersion ScenarioRecipeVersion?  @relation("ActiveScenarioRecipeVersion", fields: [activeRecipeVersionId], references: [id], onDelete: SetNull)
   recipeVersions      ScenarioRecipeVersion[] @relation("ScenarioRecipeVersionHistory")
+  recipeEdits         ScenarioRecipeEdit[]
   instances           ScenarioInstance[]
   testPlans           TestPlan[]
 
@@ -1610,6 +1624,44 @@ model ScenarioRecipeVersion {
   @@map("scenario_recipe_version")
 }
 
+/// Append-only log of every recipe write. `ScenarioRecipeVersion` holds one row per
+/// (scenario, snapshot) and is overwritten in place, so it is a pointer to the current recipe
+/// rather than a history: on its own it cannot say what a recipe used to be, who changed it, or
+/// that two editors raced. One row is written here per mutation, by every write path.
+///
+/// Never pruned. Recipes are small and edits are rare, so the log is cheap to keep whole.
+model ScenarioRecipeEdit {
+  id             String  @id @default(cuid())
+  scenarioId     String  @map("scenario_id")
+  applicationId  String  @map("application_id")
+  organizationId String  @map("organization_id")
+  /// The version row this write landed on. Nullable so history outlives the version
+  /// itself - a planner re-upload deletes and recreates every version for its snapshot.
+  recipeVersionId String? @map("recipe_version_id")
+  snapshotId     String  @map("snapshot_id")
+
+  /// The recipe exactly as written, and its fingerprint - enough to restore or diff it.
+  fingerprint String
+  /// [ScenarioRecipeJson]
+  fixtureJson Json                     @map("fixture_json") @db.Json
+  source      ScenarioRecipeEditSource
+  /// The user who drove the write, when there was one. Absent for the planner upload.
+  actorUserId String?                  @map("actor_user_id")
+  /// Optional human-readable reason, e.g. the agent's description of what it changed.
+  note        String?
+
+  scenario     Scenario     @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  application  Application  @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([scenarioId, createdAt])
+  @@index([applicationId])
+  @@index([organizationId])
+  @@map("scenario_recipe_edit")
+}
+
 model ScenarioInstance {
   id            String                 @id @default(cuid())
   applicationId String                 @map("application_id")
@@ -1638,6 +1690,14 @@ model ScenarioInstance {
 
   deploymentId String?           @map("deployment_id")
   deployment   BranchDeployment? @relation(fields: [deploymentId], references: [id], onDelete: SetNull)
+
+  /// Which recipe this run actually provisioned. `generatedData` records the resolved
+  /// payload, but nothing identified the recipe behind it - so a result could silently
+  /// describe a recipe that has since been edited. Null when an unstored candidate ran.
+  recipeVersionId   String? @map("recipe_version_id")
+  /// Fingerprint of the recipe that ran, set for a stored version AND for a candidate,
+  /// so a dry run of an unsaved edit is still identifiable.
+  recipeFingerprint String? @map("recipe_fingerprint")
 
   application     Application      @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   scenario        Scenario         @relation(fields: [scenarioId], references: [id], onDelete: Cascade)

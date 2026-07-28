@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { PrismaClient } from "@autonoma/db";
+import type { PrismaClient, ScenarioRecipeEditSource } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import {
     type ScenarioManager,
@@ -25,12 +25,37 @@ const COLD_START_DRY_RUN_MESSAGE =
     "when idle, so this is a cold start, not a recipe problem - we already waited for it to wake. Give it a few more " +
     "seconds and run the dry-run again, or confirm the preview is deployed and healthy.";
 
-/** How a dry run deviates from "just run what is stored". Both absent = the UI button's behavior. */
-export interface DryRunOptions {
-    /** A candidate recipe to provision INSTEAD of the stored one. Never persisted on its own. */
-    recipe?: ScenarioRecipe;
-    /** Promote `recipe` to the active version, but only if the whole up/down cycle passes. */
-    save?: boolean;
+/**
+ * How a dry run deviates from "just run what is stored". Omit entirely for the UI button's behavior.
+ *
+ * `save` and `source` travel together on purpose: promoting a candidate is a write, and a write has
+ * to be attributable. Splitting them would let a caller ask for a promotion without saying who is
+ * making it, and the only way to accept that is to invent an attribution.
+ */
+export type DryRunOptions =
+    | {
+          /** A candidate recipe to provision INSTEAD of the stored one. Never persisted. */
+          recipe?: ScenarioRecipe;
+          save?: false;
+      }
+    | {
+          recipe: ScenarioRecipe;
+          save: true;
+          /** Who to attribute the promotion to in the recipe history. */
+          source: ScenarioRecipeEditSource;
+          actorUserId?: string;
+      };
+
+/** Everything a recipe write needs, including who is making it - grouped so four ids can't be swapped. */
+export interface UpdateRecipeParams {
+    applicationId: string;
+    organizationId: string;
+    scenarioId: string;
+    fixtureJson: string;
+    /** Recorded on the history row, so this change stays attributable and can be rolled back. */
+    source: ScenarioRecipeEditSource;
+    actorUserId?: string;
+    note?: string;
 }
 
 export class ScenariosService extends Service {
@@ -233,9 +258,19 @@ export class ScenariosService extends Service {
             };
         }
 
-        const saved = recipe != null && save;
+        // `save: true` narrows opts to the variant carrying `source`, so a promotion is always
+        // attributable - there is no shape in which this write happens anonymously.
+        const saved = opts?.save === true;
         if (saved) {
-            await this.updateRecipe(applicationId, organizationId, scenarioId, JSON.stringify(recipe));
+            await this.updateRecipe({
+                applicationId,
+                organizationId,
+                scenarioId,
+                fixtureJson: JSON.stringify(opts.recipe),
+                source: opts.source,
+                actorUserId: opts.actorUserId,
+                note: "Promoted after a passing dry run",
+            });
         }
 
         this.logger.info("Dry run succeeded", { applicationId, scenarioId, extra: { saved } });
@@ -303,8 +338,9 @@ export class ScenariosService extends Service {
         };
     }
 
-    async updateRecipe(applicationId: string, organizationId: string, scenarioId: string, fixtureJsonString: string) {
-        this.logger.info("Updating recipe", { applicationId, scenarioId });
+    async updateRecipe(params: UpdateRecipeParams) {
+        const { applicationId, organizationId, scenarioId, fixtureJson: fixtureJsonString, source } = params;
+        this.logger.info("Updating recipe", { applicationId, scenarioId, extra: { source } });
 
         // Application-scoped for the same reason as getRecipe - here it matters more: an
         // unscoped write lets a stale scenarioId silently overwrite a DIFFERENT app's recipe.
@@ -398,6 +434,9 @@ export class ScenariosService extends Service {
             fingerprint,
             pendingSnapshotId: pendingSnapshotId ?? undefined,
             fingerprintChanged,
+            source,
+            actorUserId: params.actorUserId,
+            note: params.note,
         });
 
         this.logger.info("Recipe updated", { scenarioId, updatedRecipeVersions });

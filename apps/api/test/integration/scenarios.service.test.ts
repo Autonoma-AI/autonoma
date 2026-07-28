@@ -54,18 +54,19 @@ apiTestSuite({
     name: "scenarios-service",
     cases: (test) => {
         test("updateRecipe updates the active recipe and scenario metadata", async ({ harness }) => {
-            const { service, scenario } = await createFixture(harness, "Scenario Recipe Active Update");
+            const { service, scenario, app } = await createFixture(harness, "Scenario Recipe Active Update");
             const nextRecipe = makeRecipe({
                 description: "updated active",
                 create: { User: [{ _alias: "user1", name: "Bob" }] },
             });
 
-            const result = await service.updateRecipe(
-                app.id,
-                harness.organizationId,
-                scenario.id,
-                JSON.stringify(nextRecipe),
-            );
+            const result = await service.updateRecipe({
+                applicationId: app.id,
+                organizationId: harness.organizationId,
+                scenarioId: scenario.id,
+                fixtureJson: JSON.stringify(nextRecipe),
+                source: "UI",
+            });
 
             expect(result.updatedRecipeVersions).toEqual([
                 { id: scenario.activeRecipeVersionId, snapshotId: expect.any(String), target: "active" },
@@ -87,7 +88,7 @@ apiTestSuite({
         });
 
         test("updateRecipe updates active and pending main snapshot recipe rows", async ({ harness }) => {
-            const { service, scenario, branchId } = await createFixture(harness, "Scenario Recipe Pending Update");
+            const { service, scenario, branchId, app } = await createFixture(harness, "Scenario Recipe Pending Update");
             const { snapshotId: pendingSnapshotId } = await harness.request().snapshotEdit.start({ branchId });
             const pendingBefore = await harness.db.scenarioRecipeVersion.findUniqueOrThrow({
                 where: { scenarioId_snapshotId: { scenarioId: scenario.id, snapshotId: pendingSnapshotId } },
@@ -98,12 +99,13 @@ apiTestSuite({
                 create: { User: [{ _alias: "user1", name: "Pending Bob" }] },
             });
 
-            const result = await service.updateRecipe(
-                app.id,
-                harness.organizationId,
-                scenario.id,
-                JSON.stringify(nextRecipe),
-            );
+            const result = await service.updateRecipe({
+                applicationId: app.id,
+                organizationId: harness.organizationId,
+                scenarioId: scenario.id,
+                fixtureJson: JSON.stringify(nextRecipe),
+                source: "UI",
+            });
 
             expect(result.updatedRecipeVersions).toEqual([
                 { id: scenario.activeRecipeVersionId, snapshotId: expect.any(String), target: "active" },
@@ -121,7 +123,10 @@ apiTestSuite({
         });
 
         test("updateRecipe creates the pending recipe row when it is missing", async ({ harness }) => {
-            const { service, scenario, branchId } = await createFixture(harness, "Scenario Recipe Missing Pending");
+            const { service, scenario, branchId, app } = await createFixture(
+                harness,
+                "Scenario Recipe Missing Pending",
+            );
             const { snapshotId: pendingSnapshotId } = await harness.request().snapshotEdit.start({ branchId });
             await harness.db.scenarioRecipeVersion.delete({
                 where: { scenarioId_snapshotId: { scenarioId: scenario.id, snapshotId: pendingSnapshotId } },
@@ -131,12 +136,13 @@ apiTestSuite({
                 create: { User: [{ _alias: "user1", name: "Created Pending" }] },
             });
 
-            const result = await service.updateRecipe(
-                app.id,
-                harness.organizationId,
-                scenario.id,
-                JSON.stringify(nextRecipe),
-            );
+            const result = await service.updateRecipe({
+                applicationId: app.id,
+                organizationId: harness.organizationId,
+                scenarioId: scenario.id,
+                fixtureJson: JSON.stringify(nextRecipe),
+                source: "UI",
+            });
 
             const pendingResult = result.updatedRecipeVersions.find((rv) => rv.target === "pending");
             expect(pendingResult?.snapshotId).toBe(pendingSnapshotId);
@@ -150,26 +156,46 @@ apiTestSuite({
         });
 
         test("updateRecipe rejects invalid JSON and invalid recipe schema", async ({ harness }) => {
-            const { service, scenario } = await createFixture(harness, "Scenario Recipe Invalid Input");
+            const { service, scenario, app } = await createFixture(harness, "Scenario Recipe Invalid Input");
 
-            await expect(service.updateRecipe(app.id, harness.organizationId, scenario.id, "{")).rejects.toMatchObject({
+            await expect(
+                service.updateRecipe({
+                    applicationId: app.id,
+                    organizationId: harness.organizationId,
+                    scenarioId: scenario.id,
+                    fixtureJson: "{",
+                    source: "UI",
+                }),
+            ).rejects.toMatchObject({
                 code: "BAD_REQUEST",
                 message: "Invalid JSON syntax",
             });
 
             await expect(
-                service.updateRecipe(app.id, harness.organizationId, scenario.id, JSON.stringify({ name: "standard" })),
+                service.updateRecipe({
+                    applicationId: app.id,
+                    organizationId: harness.organizationId,
+                    scenarioId: scenario.id,
+                    fixtureJson: JSON.stringify({ name: "standard" }),
+                    source: "UI",
+                }),
             ).rejects.toMatchObject({
                 code: "BAD_REQUEST",
             });
         });
 
         test("updateRecipe rejects recipe renames", async ({ harness }) => {
-            const { service, scenario } = await createFixture(harness, "Scenario Recipe Rename Rejected");
+            const { service, scenario, app } = await createFixture(harness, "Scenario Recipe Rename Rejected");
             const renamedRecipe = makeRecipe({ name: "renamed" });
 
             await expect(
-                service.updateRecipe(app.id, harness.organizationId, scenario.id, JSON.stringify(renamedRecipe)),
+                service.updateRecipe({
+                    applicationId: app.id,
+                    organizationId: harness.organizationId,
+                    scenarioId: scenario.id,
+                    fixtureJson: JSON.stringify(renamedRecipe),
+                    source: "UI",
+                }),
             ).rejects.toMatchObject({
                 code: "BAD_REQUEST",
                 message: 'Recipe name must remain "standard"',
@@ -198,6 +224,32 @@ apiTestSuite({
             expect(after.activeRecipeVersion?.fixtureJson).toEqual(before.activeRecipeVersion?.fixtureJson);
         });
 
+        test("updateRecipe records an attributable history row alongside the write", async ({ harness }) => {
+            const { service, scenario, app } = await createFixture(harness, "Scenario Recipe History");
+            const nextRecipe = makeRecipe({ create: { User: [{ _alias: "user1", name: "Historic" }] } });
+
+            await service.updateRecipe({
+                applicationId: app.id,
+                organizationId: harness.organizationId,
+                scenarioId: scenario.id,
+                fixtureJson: JSON.stringify(nextRecipe),
+                source: "MCP",
+                actorUserId: harness.userId,
+                note: "tried a different name",
+            });
+
+            // The planner's own ingest wrote the first row; this write appends rather than
+            // replacing, so the recipe that was live before the edit is still recoverable.
+            const edits = await harness.db.scenarioRecipeEdit.findMany({
+                where: { scenarioId: scenario.id },
+                orderBy: { createdAt: "asc" },
+                select: { source: true, actorUserId: true, note: true, fixtureJson: true },
+            });
+            expect(edits.map((edit) => edit.source)).toEqual(["PLANNER", "MCP"]);
+            expect(edits[1]).toMatchObject({ actorUserId: harness.userId, note: "tried a different name" });
+            expect(edits[1]?.fixtureJson).toMatchObject({ create: { User: [{ name: "Historic" }] } });
+        });
+
         test("updateRecipe refuses a scenario that belongs to a sibling application", async ({ harness }) => {
             const { app, service } = await createFixture(harness, "Scenario Recipe Owner App");
             const { scenario: siblingScenario } = await createFixture(harness, "Scenario Recipe Sibling App");
@@ -209,12 +261,13 @@ apiTestSuite({
             // Same org owns both apps, so an org-only check would let a stale scenarioId
             // aimed at one app silently overwrite another app's recipe.
             await expect(
-                service.updateRecipe(
-                    app.id,
-                    harness.organizationId,
-                    siblingScenario.id,
-                    JSON.stringify(makeRecipe({ description: "should not reach the sibling" })),
-                ),
+                service.updateRecipe({
+                    applicationId: app.id,
+                    organizationId: harness.organizationId,
+                    scenarioId: siblingScenario.id,
+                    fixtureJson: JSON.stringify(makeRecipe({ description: "should not reach the sibling" })),
+                    source: "UI",
+                }),
             ).rejects.toThrow("Scenario not found");
 
             const after = await harness.db.scenario.findUniqueOrThrow({

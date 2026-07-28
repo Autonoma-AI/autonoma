@@ -30,6 +30,16 @@ interface LoadParams {
 interface LoadResult {
     createPayload: unknown;
     resolvedVariables: Record<string, ScenarioVariableScalar>;
+    /** Identity of the version this payload came from, for stamping provenance on the run. */
+    recipeVersionId: string;
+    recipeFingerprint: string;
+}
+
+/** A stored recipe version: its identity plus the unresolved recipe it holds. */
+interface StoredVersion {
+    id: string;
+    fingerprint: string;
+    fixtureJson: unknown;
 }
 
 interface RawFixtureParams {
@@ -53,7 +63,8 @@ export class ScenarioRecipeStore {
     }
 
     /**
-     * Replace all recipe versions for `snapshotId` with the contents of `recipesFile`.
+     * Replace all recipe versions for `snapshotId` with the contents of `recipesFile`. This is the
+     * planner's one-time seed for a newly onboarded app, so replacing wholesale is the intent.
      * Upserts the schema snapshot, creates new recipe versions, retargets the
      * scenarios' active recipe pointer, and disables scenarios that no longer
      * appear in the file. Throws when the application does not exist.
@@ -168,6 +179,19 @@ export class ScenarioRecipeStore {
                     },
                 });
 
+                await tx.scenarioRecipeEdit.create({
+                    data: {
+                        scenarioId,
+                        applicationId,
+                        organizationId,
+                        recipeVersionId: createdVersion.id,
+                        snapshotId,
+                        fingerprint,
+                        fixtureJson: recipe,
+                        source: "PLANNER",
+                    },
+                });
+
                 ingestedScenarios.push({ id: scenarioId, name: recipe.name, recipeVersionId: createdVersion.id });
             }
 
@@ -200,17 +224,21 @@ export class ScenarioRecipeStore {
         const { scenarioId, snapshotId, testRunId } = params;
         this.logger.info("Loading recipe", { scenarioId, snapshotId, testRunId });
 
-        const fixtureJson =
+        const version =
             snapshotId != null
-                ? await this.findFixtureForSnapshot(scenarioId, snapshotId)
-                : await this.findActiveFixture(scenarioId);
+                ? await this.findVersionForSnapshot(scenarioId, snapshotId)
+                : await this.findActiveVersion(scenarioId);
 
-        if (fixtureJson == null) {
+        if (version == null) {
             this.logger.warn("No recipe version found", { scenarioId, snapshotId });
             return null;
         }
 
-        return resolveRecipePayload(fixtureJson, testRunId);
+        return {
+            ...resolveRecipePayload(version.fixtureJson, testRunId),
+            recipeVersionId: version.id,
+            recipeFingerprint: version.fingerprint,
+        };
     }
 
     /**
@@ -228,10 +256,11 @@ export class ScenarioRecipeStore {
         const { scenarioId, snapshotId } = params;
         this.logger.info("Loading raw fixture", { scenarioId, snapshotId });
 
-        const raw =
+        const raw = (
             snapshotId != null
-                ? await this.findFixtureForSnapshot(scenarioId, snapshotId)
-                : await this.findActiveFixture(scenarioId);
+                ? await this.findVersionForSnapshot(scenarioId, snapshotId)
+                : await this.findActiveVersion(scenarioId)
+        )?.fixtureJson;
 
         if (raw == null) {
             this.logger.warn("No recipe version found for raw fixture", { scenarioId, snapshotId });
@@ -241,20 +270,19 @@ export class ScenarioRecipeStore {
         return ScenarioRecipeSchema.parse(raw);
     }
 
-    private async findFixtureForSnapshot(scenarioId: string, snapshotId: string): Promise<unknown | null> {
-        const recipeVersion = await this.db.scenarioRecipeVersion.findUnique({
+    private async findVersionForSnapshot(scenarioId: string, snapshotId: string): Promise<StoredVersion | null> {
+        return this.db.scenarioRecipeVersion.findUnique({
             where: { scenarioId_snapshotId: { scenarioId, snapshotId } },
-            select: { fixtureJson: true },
+            select: { id: true, fingerprint: true, fixtureJson: true },
         });
-        return recipeVersion?.fixtureJson ?? null;
     }
 
-    private async findActiveFixture(scenarioId: string): Promise<unknown | null> {
+    private async findActiveVersion(scenarioId: string): Promise<StoredVersion | null> {
         const scenario = await this.db.scenario.findUnique({
             where: { id: scenarioId },
-            select: { activeRecipeVersion: { select: { fixtureJson: true } } },
+            select: { activeRecipeVersion: { select: { id: true, fingerprint: true, fixtureJson: true } } },
         });
-        return scenario?.activeRecipeVersion?.fixtureJson ?? null;
+        return scenario?.activeRecipeVersion ?? null;
     }
 }
 

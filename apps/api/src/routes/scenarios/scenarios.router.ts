@@ -60,14 +60,14 @@ export const scenariosRouter = router({
             ctx.services.scenarios.getRecipe(input.applicationId, ctx.organizationId, input.scenarioId),
         ),
 
-    updateRecipe: internalProcedure
-        .input(UpdateRecipeInputSchema)
-        .mutation(({ ctx, input }) =>
-            ctx.services.scenarios.updateRecipe(
-                input.applicationId,
-                ctx.organizationId,
-                input.scenarioId,
-                input.fixtureJson,
-            ),
-        ),
+    updateRecipe: internalProcedure.input(UpdateRecipeInputSchema).mutation(({ ctx, input }) =>
+        ctx.services.scenarios.updateRecipe({
+            applicationId: input.applicationId,
+            organizationId: ctx.organizationId,
+            scenarioId: input.scenarioId,
+            fixtureJson: input.fixtureJson,
+            source: "UI",
+            actorUserId: ctx.user.id,
+        }),
+    ),
 });

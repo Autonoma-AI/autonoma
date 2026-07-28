@@ -12,6 +12,7 @@ import { z } from "zod";
 import type { Services } from "../routes/build-services";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import { deprecatedBuildNotice } from "./deprecated-build-notice";
+import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
 import { describeError, errorResult, jsonResult, toToolResult } from "./tool-result";
 
@@ -583,7 +584,15 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     message: description ?? `Updating recipe for scenario "${recipe.name}"`,
                     toolArguments: { scenarioId, scenario: recipe.name },
                 },
-                (org) => services.scenarios.updateRecipe(applicationId, org, scenarioId, JSON.stringify(recipe)),
+                (org) =>
+                    services.scenarios.updateRecipe({
+                        applicationId,
+                        organizationId: org,
+                        scenarioId,
+                        fixtureJson: JSON.stringify(recipe),
+                        source: "MCP",
+                        actorUserId: userId,
+                    }),
             ),
     );
 
@@ -632,7 +641,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     message: description ?? describeDryRun(recipe != null, save),
                     toolArguments: { scenarioId, candidate: recipe != null, save },
                 },
-                (org) => services.scenarios.dryRun(applicationId, org, scenarioId, { recipe, save }),
+                (org) => services.scenarios.dryRun(applicationId, org, scenarioId, dryRunOptions(recipe, save, userId)),
             ),
     );
 
