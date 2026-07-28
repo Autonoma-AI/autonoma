@@ -177,7 +177,7 @@ async function materializeTargets({
     return targets;
 }
 
-/** Resolve each materialized generation to its slug + scenario + architecture (one read), keeping web targets. */
+/** Resolve each materialized generation to its test + scenario + architecture (one read), keeping web targets. */
 async function resolveTargets(
     materialized: { generationId: string; reason: string; origin: AnalysisTestOrigin }[],
     logger: Logger,
@@ -189,7 +189,7 @@ async function resolveTargets(
             testPlan: {
                 select: {
                     scenario: { select: { id: true } },
-                    testCase: { select: { slug: true, application: { select: { architecture: true } } } },
+                    testCase: { select: { id: true, slug: true, application: { select: { architecture: true } } } },
                 },
             },
         },
@@ -208,6 +208,7 @@ async function resolveTargets(
         }
         targets.push({
             slug: row.testPlan.testCase.slug,
+            testCaseId: row.testPlan.testCase.id,
             testGenerationId: entry.generationId,
             scenarioId: row.testPlan.scenario?.id,
             reason: entry.reason,

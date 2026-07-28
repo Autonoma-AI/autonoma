@@ -65,10 +65,9 @@ export interface ReporterFinding {
     headline: string;
     expectedBehavior?: string;
     actualBehavior?: string;
-    /** Whether the Investigator rewrote this test's plan before reaching the verdict (a retry-context signal). */
-    planEdited: boolean;
-    /** The Investigator's note about what it self-healed, when it did (retry context - brief prose color only). */
-    selfHealNote?: string;
+    /** Whether the Investigator rewrote this test's plan and re-ran it before reaching this verdict - true when
+     * the test was classified more than once (a retry-context signal, never an issue of its own). */
+    selfHealed: boolean;
     plan?: string;
     observedAppIssues?: string;
     falsePositiveRisk?: string;
@@ -80,8 +79,8 @@ export interface ReporterFinding {
 
 /**
  * An existing branch-scoped issue the Reporter must reconcile against this job. Mostly open; resolved issues are
- * included so a regression can reopen one. `findingSlugs` is the set of test slugs the issue currently covers -
- * the anchor for the finish-time coverage checks.
+ * included so a regression can reopen one. `findingSlugs` is the set of test slugs the issue currently covers,
+ * derived from the findings attributed to it - the anchor for the finish-time coverage checks.
  */
 export interface ReporterExistingIssue {
     id: string;

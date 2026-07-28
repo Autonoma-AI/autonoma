@@ -32,6 +32,7 @@ export function FindingDetail({
   meta,
   backLink,
   issueLink,
+  footer,
   repoFullName,
   commitSha,
 }: {
@@ -40,6 +41,8 @@ export function FindingDetail({
   backLink: ReactNode;
   /** An up-link to the branch-scoped issue this finding was clustered into (analysis findings only). */
   issueLink?: ReactNode;
+  /** Rendered last, in the page's own spacing - the analysis view puts its self-heal history here. */
+  footer?: ReactNode;
   repoFullName?: string;
   commitSha?: string;
 }) {
@@ -72,6 +75,8 @@ export function FindingDetail({
       ) : (
         <FindingBody finding={finding} repoFullName={repoFullName} commitSha={commitSha} />
       )}
+
+      {footer}
     </div>
   );
 }

@@ -38,19 +38,24 @@ testUpdateSuite({
             await harness.db.analysisJob.create({
                 data: { snapshotId: draft.snapshotId, organizationId, status: "running", startedAt: new Date() },
             });
-            // Anchored to a generation the sweep touches: the finding cascades away if settlement ever deletes
-            // generations instead of failing them.
-            await harness.db.analysisFinding.create({
+            // Anchored to a generation the sweep touches: the finding's classification cascades away if
+            // settlement ever deletes generations instead of failing them.
+            const finding = await harness.db.analysisFinding.create({
+                data: { reportSnapshotId: draft.snapshotId, organizationId, testCaseId: checkout.testCaseId },
+            });
+            const classification = await harness.db.analysisClassification.create({
                 data: {
-                    reportSnapshotId: draft.snapshotId,
+                    findingId: finding.id,
+                    number: 1,
                     organizationId,
                     generationId: checkoutGenerationId,
-                    findingKey: "checkout",
-                    slug: "checkout",
                     category: "engine_artifact",
                     headline: "The generation stopped while settling.",
-                    displayOrder: 0,
                 },
+            });
+            await harness.db.analysisFinding.update({
+                where: { id: finding.id },
+                data: { currentClassificationId: classification.id },
             });
 
             const result = await settleAnalysisRunState({

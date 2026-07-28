@@ -3,8 +3,8 @@ import type { PrismaClient } from "@autonoma/db";
 let seq = 0;
 
 /**
- * Seeds the test case / plan / generation chain one `AnalysisFinding` needs: a finding FKs the generation whose run
- * produced its verdict, so every seeded finding needs a real one. Returns the generation id.
+ * Seeds the test case / plan / generation chain one `AnalysisFinding` needs: the finding FKs the test case, and its
+ * classification FKs the generation whose run it judged, so both ids are returned.
  *
  * The test case's slug matches the finding's, mirroring how the pipeline lines the two up, and is reused across
  * calls for the same application - a slug is unique per application, and a branch's successive runs re-investigate
@@ -13,7 +13,7 @@ let seq = 0;
 export async function seedGenerationForSlug(
     db: PrismaClient,
     params: { applicationId: string; organizationId: string; snapshotId: string; slug: string },
-): Promise<string> {
+): Promise<{ testCaseId: string; generationId: string }> {
     const { organizationId, snapshotId, slug } = params;
 
     const testCaseId = await findOrCreateTestCase(db, params);
@@ -25,7 +25,7 @@ export async function seedGenerationForSlug(
         select: { id: true },
     });
 
-    return generation.id;
+    return { testCaseId, generationId: generation.id };
 }
 
 async function findOrCreateTestCase(

@@ -140,17 +140,19 @@ async function loadReport(db: PrismaClient, meta: SnapshotMeta): Promise<LoadedR
     });
     if (report == null) return undefined;
 
-    // Findings are keyed to the job; read the `client_bug` headlines directly by the snapshot PK.
+    // Findings are keyed to the job; read the `client_bug` headlines directly by the snapshot PK. The verdict read
+    // is the CURRENT classification's: a self-heal iteration this run superseded is history, never a bug it reports.
     const clientBugs = await db.analysisFinding.findMany({
-        where: { reportSnapshotId: meta.snapshotId, category: CLIENT_BUG },
-        orderBy: { displayOrder: "asc" },
-        select: { headline: true },
+        where: { reportSnapshotId: meta.snapshotId, currentClassification: { category: CLIENT_BUG } },
+        select: { currentClassification: { select: { headline: true } } },
     });
 
     const coverage = coverageSummarySchema.safeParse(report.coverage);
     return {
         verdict: report.verdict === CLIENT_BUG ? CLIENT_BUG : ANALYSIS_VERDICT.passed,
         coverageGapCount: coverage.success ? coverage.data.total : 0,
-        clientBugHeadlines: clientBugs.map((finding) => finding.headline),
+        clientBugHeadlines: clientBugs.flatMap((finding) =>
+            finding.currentClassification != null ? [finding.currentClassification.headline] : [],
+        ),
     };
 }

@@ -1,6 +1,5 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { getVercelEncryptionHelper } from "../context";
 import { encryptionHelper } from "../encryption";
 
 const VERCEL_MARKETPLACE_SSO_URL = "https://vercel.com/api/marketplace/sso";
@@ -202,6 +201,9 @@ export async function adoptVercelInstallationSharedSecret(
             return;
         }
 
+        // Imported lazily: `context` builds the app's real S3/env singletons and refuses to load under TESTING, so
+        // a module-level import would drag every consumer of this file (auth -> the test harness) into it.
+        const { getVercelEncryptionHelper } = await import("../context");
         const sharedSecret = getVercelEncryptionHelper().decrypt(installation.sharedSecretEnc);
         const signingSecretEnc = encryptionHelper.encrypt(sharedSecret);
         await db.application.update({ where: { id: applicationId }, data: { signingSecretEnc } });

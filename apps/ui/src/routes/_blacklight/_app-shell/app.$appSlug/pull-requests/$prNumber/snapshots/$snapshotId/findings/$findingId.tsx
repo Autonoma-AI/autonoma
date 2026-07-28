@@ -1,7 +1,8 @@
-import type { InvestigationFinding } from "@autonoma/types";
+import type { AnalysisFindingView } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { createFileRoute } from "@tanstack/react-router";
+import { SelfHealHistory } from "components/analysis/self-heal-history";
 import { analysisVerdictMeta } from "components/analysis/verdict-meta";
 import { FindingDetail } from "components/investigation/finding-detail";
 import { useAnalysisReport } from "lib/query/branches.queries";
@@ -18,9 +19,7 @@ function AnalysisFindingDetailPage() {
   const { data } = useAnalysisReport(snapshotId);
   const backLink = <BackLink prNumber={prNumber} snapshotId={snapshotId} />;
 
-  // A merged finding keeps only the canonical id as a route id, but a deep link (the PR comment) may reference
-  // an absorbed test's slug - resolve those via coveredSlugs so they land on the finding that represents them.
-  const finding = data?.findings.find((f) => f.id === findingId || (f.coveredSlugs ?? []).includes(findingId));
+  const finding = data?.findings.find((f) => f.id === findingId);
 
   if (finding == null) {
     return (
@@ -39,13 +38,14 @@ function AnalysisFindingDetailPage() {
       meta={analysisVerdictMeta(finding.category)}
       backLink={backLink}
       issueLink={<IssueUpLink finding={finding} prNumber={prNumber} />}
+      footer={<SelfHealHistory classifications={finding.classifications} />}
     />
   );
 }
 
 // Link UP from a finding to the branch-scoped issue it was clustered into. Findings that carry no issue (a passing
 // or coverage-plane check, or a run before the Reporter attributed it) render nothing.
-function IssueUpLink({ finding, prNumber }: { finding: InvestigationFinding; prNumber: number }) {
+function IssueUpLink({ finding, prNumber }: { finding: AnalysisFindingView; prNumber: number }) {
   if (finding.issueId == null) return null;
   return (
     <AppLink

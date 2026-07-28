@@ -47,6 +47,26 @@ export type AnalysisVerdict = z.infer<typeof analysisVerdictSchema>;
 export const ANALYSIS_VERDICT = analysisVerdictSchema.enum;
 
 /**
+ * The copied classifier's raw Category values that collapse to the transient `test_is_wrong` bucket. Both REQUIRE
+ * the app to have rendered, which is why an exhausted self-heal loop on either resolves to `delete` (a correct app
+ * whose test could not be stabilized), never to a bug.
+ *
+ * They live here rather than beside the classifier because the Temporal workflow sandbox cannot import
+ * `@autonoma/diffs/analysis` to reference that enum by symbol, and both the Investigator's routing and the stored
+ * category type need them.
+ */
+export const analysisTestIsWrongCategorySchema = z.enum(["outdated_test", "bad_test"]);
+export type AnalysisTestIsWrongCategory = z.infer<typeof analysisTestIsWrongCategorySchema>;
+
+/**
+ * Every value `AnalysisClassification.category` can hold: a terminal verdict, or - on an iteration that a self-heal
+ * superseded - the classifier's raw `test_is_wrong` category. Superseded rows are why this is wider than
+ * `AnalysisVerdict`, and why one must never feed a taxonomy read.
+ */
+export const analysisClassificationCategorySchema = z.union([analysisVerdictSchema, analysisTestIsWrongCategorySchema]);
+export type AnalysisClassificationCategory = z.infer<typeof analysisClassificationCategorySchema>;
+
+/**
  * The two planes the verdict taxonomy splits into. `app_health` is the only plane that counts against the PR;
  * `coverage` is the coverage-confidence plane (never a bug, never blocking).
  */
@@ -93,6 +113,24 @@ export function analysisFindingBucket(category: string): AnalysisFindingBucket {
     return category === analysisVerdictSchema.enum.client_bug ? "bug" : "passed";
 }
 
+/**
+ * Where each bucket sorts in a findings list: the actionable bugs first, then the coverage plane, then the passing
+ * checks - so an expanded list surfaces what still needs attention before the green rows.
+ */
+const BUCKET_ORDER: Record<AnalysisFindingBucket, number> = { bug: 0, coverage: 1, passed: 2 };
+
+/**
+ * Sort key for a finding, by the presentation bucket of its terminal verdict `category`. THE ordering for every
+ * findings list - the report page, the snapshot's suite-changes sections, and the Reporter's own prompt - so a
+ * reader never meets the same findings in two different orders. It is a pure function of the verdict, which is why
+ * no row stores it.
+ *
+ * Equal for every finding in the same bucket, so a caller that needs a stable list must order its query too.
+ */
+export function analysisFindingSortKey(category: string): number {
+    return BUCKET_ORDER[analysisFindingBucket(category)];
+}
+
 /** How many findings fall in each presentation bucket. */
 export interface AnalysisFindingBucketCounts {
     bug: number;
@@ -111,12 +149,12 @@ export function countAnalysisFindingBuckets(categories: Iterable<string>): Analy
  * How a test entered the analysis run - the data tag that tells a `delete` finding apart:
  *
  * - `pre_existing`: an affected test the PR's diff touched (Impact Analysis marked it via `RegenerateSteps`). Its
- *   global TestCase is a real suite member, so a `delete` removes only this run's assignment.
+ *   global TestCase is a real suite member.
  * - `proposed`: a brand-new test Impact Analysis authored this run for functionality the PR adds (via `AddTest`).
- *   Its TestCase exists only for this run, so a `delete` removes the whole TestCase, not just the assignment.
  *
- * Carried onto every candidate finding so the report can narrate the two apart ("couldn't establish N proposed
- * tests" vs "removed N obsolete tests") and so the Investigator's self-delete cleans up the right rows.
+ * Narration only: a `delete` removes this run's assignment either way. What origin buys is being able to read the
+ * two apart afterwards ("couldn't establish N proposed tests" vs "removed N obsolete tests") without a separate
+ * verdict for each.
  */
 export const analysisTestOriginSchema = z.enum(["pre_existing", "proposed"]);
 export type AnalysisTestOrigin = z.infer<typeof analysisTestOriginSchema>;
@@ -147,13 +185,12 @@ export const coverageSummarySchema = z.object({
 export type CoverageSummary = z.infer<typeof coverageSummarySchema>;
 
 /**
- * The rich per-test evidence an Investigator captures when it classifies a run - the classifier's full output
- * (`classifyInvestigationRun`) that the merged pipeline used to collapse to a 5-field candidate and discard. It
- * rides on every candidate finding (optional: a contained scenario/classify fault or a crashed Investigator has
- * no classifier output) so the Reconciler can persist it onto an `AnalysisFinding` row, mirroring the frozen
- * `InvestigationFinding`. Media are stored as `s3://` keys (signed on read), never raw URLs.
+ * The rich evidence one classification carries - the classifier's full output (`classifyInvestigationRun`) for the
+ * generation it judged. It rides on every candidate classification (optional: a contained scenario/classify fault
+ * has no classifier output at all) so the Investigator can persist it onto an `AnalysisClassification` row. Media
+ * are stored as `s3://` keys (signed on read), never raw URLs.
  */
-export const analysisFindingReportSchema = z.object({
+export const analysisClassificationReportSchema = z.object({
     confidence: z.string().optional(),
     /** What the app SHOULD have done / what it actually did - the classifier's per-category behavior fields. */
     expectedBehavior: z.string().optional(),
@@ -185,32 +222,58 @@ export const analysisFindingReportSchema = z.object({
     clipKey: z.string().optional(),
     /** `s3://` URL of the classifier's persisted LLM conversation (the reasoning behind this verdict), signed on
      * read. Best-effort: absent when the conversation upload failed. */
-    classificationConversationUrl: z.string().optional(),
+    conversationUrl: z.string().optional(),
     /** Present instead of the verdict fields when the model failed to classify this test. */
     error: z.string().optional(),
 });
-export type AnalysisFindingReport = z.infer<typeof analysisFindingReportSchema>;
+export type AnalysisClassificationReport = z.infer<typeof analysisClassificationReportSchema>;
 
 /**
- * One `AnalysisFinding` as the snapshot page consumes it: the `investigationFindingSchema` display shape (so the
- * findings list and evidence detail render it with the same components) plus the per-test signals only the merged
- * pipeline records. Those extra fields are what make a finding self-describing: how the test entered the run, what
- * the run did to it, and which generation produced the verdict - the suite-changes surfaces derive their whole view
- * from them rather than diffing plan ids or reading a `GenerationReview`.
+ * One entry of a finding's self-heal history as the finding page consumes it: enough to say what this iteration
+ * concluded and to reach both artifacts behind it - the classifier's reasoning and the run it judged. The full
+ * evidence stays on the finding's CURRENT classification; a superseded iteration is an audit record, not a second
+ * finding page.
  */
-export const analysisFindingViewSchema = investigationFindingSchema.extend({
-    /** The generation whose run produced this verdict - after a self-heal, the last one the Investigator ran. */
+export const analysisClassificationSummarySchema = z.object({
+    id: z.string(),
+    /** 1-based iteration of the Investigator's self-heal loop. */
+    number: z.number(),
+    /** The generation this iteration ran and judged - links to that run's own page (video, steps, trace). */
     generationId: z.string(),
-    /** The test this finding is about, resolved through the generation. `slug` alone cannot name it. */
+    /** The verdict this iteration reached. A superseded one carries the classifier's raw `outdated_test`/
+     * `bad_test`, which is outside `AnalysisVerdict` - render it as a plain label, never through the taxonomy. */
+    category: z.string(),
+    headline: z.string(),
+    createdAt: z.date(),
+    /** Browser-openable URL of this iteration's classifier conversation (the API signs the stored key on read). */
+    conversationUrl: z.string().optional(),
+});
+export type AnalysisClassificationSummary = z.infer<typeof analysisClassificationSummarySchema>;
+
+/**
+ * One `AnalysisFinding` as the snapshot page consumes it: the finding's own per-test facts, its CURRENT
+ * classification flattened into the `investigationFindingSchema` display shape (so the findings list and evidence
+ * detail render it with the same components), and the self-heal history behind it.
+ *
+ * Two fields read differently here than the base shape's doc describes: `id` is the finding's own id (the frozen
+ * investigation twin routes on a slug; this pipeline does not), and `coveredSlugs` is omitted entirely - findings
+ * are never merged here, so the column is gone and any reader still branching on it is reading a fiction.
+ */
+export const analysisFindingViewSchema = investigationFindingSchema.omit({ coveredSlugs: true }).extend({
+    /** The generation the CURRENT classification judged - after a self-heal, the last one the Investigator ran. */
+    generationId: z.string(),
+    /** The test this finding is about. */
     testCase: z.object({ id: z.string(), name: z.string(), slug: z.string() }),
     /** How the test entered the run: an affected suite member (`pre_existing`) or authored this run (`proposed`). */
     origin: analysisTestOriginSchema.optional(),
-    /** Whether the Investigator rewrote this test's plan before reaching the verdict. */
-    planEdited: z.boolean().optional(),
     /** Why Impact Analysis selected this test to investigate. */
     selectionReason: z.string().optional(),
-    /** What the Investigator self-healed before reaching the verdict; present only when `planEdited`. */
-    selfHealNote: z.string().optional(),
+    /**
+     * Every classification of this test in this run, oldest first, INCLUDING the current one (always the last).
+     * More than one means the Investigator self-healed: each earlier entry is the verdict that authored the
+     * rewrite which followed it, with its own reasoning still reachable.
+     */
+    classifications: z.array(analysisClassificationSummarySchema),
 });
 export type AnalysisFindingView = z.infer<typeof analysisFindingViewSchema>;
 

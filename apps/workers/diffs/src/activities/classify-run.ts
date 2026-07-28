@@ -161,12 +161,12 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
 
         // Persist the classifier's reasoning (best-effort) so a wrong verdict can be debugged, alongside the cost
         // ledger - both are independent auxiliary writes and a failure of either must not sink the classification.
-        const [classificationConversationUrl] = await Promise.all([
+        const [conversationUrl] = await Promise.all([
             uploadConversation({
                 storage: getStorage(),
                 snapshotId,
                 phase: "classify",
-                slug,
+                generationId: testGenerationId,
                 conversation,
                 logger: logger.child({ name: "uploadConversation" }),
             }),
@@ -193,7 +193,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             optimizedVideoUrl: generation.optimizedVideoUrl ?? undefined,
             finalScreenshotUrl: keyScreenshot ?? undefined,
             clipUrl,
-            classificationConversationUrl,
+            conversationUrl,
         };
     });
 }

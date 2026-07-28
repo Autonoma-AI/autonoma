@@ -87,33 +87,24 @@ integrationTestSuite({
     name: "deleteAnalysisTest (row-local self-delete)",
     createHarness: () => DeleteHarness.create(),
     cases: (test) => {
-        test("a proposed test's whole TestCase is removed (cascading its plan + generation)", async ({ harness }) => {
+        // The delete is assignment-only whatever the test's origin. Destroying the TestCase would cascade its
+        // plans, generations and classifications - the record of why the test was removed - and the tests tree
+        // reads the active snapshot's assignments, so an unassigned test case is already invisible.
+        test("removes only the snapshot's assignment; the TestCase and its runs survive", async ({ harness }) => {
             const { snapshotId, slug, testCaseId } = await harness.seedTest();
 
-            const result = await deleteAnalysisTest({ snapshotId, slug, origin: "proposed" });
-
-            expect(result.deleted).toBe(true);
-            // The this-run-only TestCase is gone entirely - no orphaned catalog row is left behind.
-            expect(await harness.db.testCase.findUnique({ where: { id: testCaseId } })).toBeNull();
-            expect(await harness.db.testCaseAssignment.count({ where: { snapshotId, testCaseId } })).toBe(0);
-            expect(await harness.db.testPlan.count({ where: { testCaseId } })).toBe(0);
-        });
-
-        test("a pre-existing test loses only its assignment; the TestCase survives", async ({ harness }) => {
-            const { snapshotId, slug, testCaseId } = await harness.seedTest();
-
-            const result = await deleteAnalysisTest({ snapshotId, slug, origin: "pre_existing" });
+            const result = await deleteAnalysisTest({ snapshotId, slug });
 
             expect(result.deleted).toBe(true);
             expect(await harness.db.testCaseAssignment.count({ where: { snapshotId, testCaseId } })).toBe(0);
-            // The global TestCase is a real suite member and must survive an assignment-only delete.
             expect(await harness.db.testCase.findUnique({ where: { id: testCaseId } })).not.toBeNull();
+            expect(await harness.db.testPlan.count({ where: { testCaseId } })).toBeGreaterThan(0);
         });
 
         test("a slug with no assignment on the snapshot is a no-op reporting deleted:false", async ({ harness }) => {
             const { snapshotId } = await harness.seedTest();
 
-            const result = await deleteAnalysisTest({ snapshotId, slug: "not-a-real-slug", origin: "pre_existing" });
+            const result = await deleteAnalysisTest({ snapshotId, slug: "not-a-real-slug" });
 
             expect(result.deleted).toBe(false);
             expect(result.reason).toBeDefined();

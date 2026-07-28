@@ -148,6 +148,7 @@ model Organization {
   investigationReports   InvestigationReport[]
   analysisReports        AnalysisReport[]
   analysisFindings       AnalysisFinding[]
+  analysisClassifications AnalysisClassification[]
   analysisIssues         AnalysisIssue[]
   affectedTests          AffectedTest[]
   refinementLoops        RefinementLoop[]
@@ -827,6 +828,10 @@ model TestCase {
   tags        TestTag[]
   assignments TestCaseAssignment[]
 
+  analysisFindings AnalysisFinding[]
+  /// The issues that designated this test as their clearest reproduction.
+  primaryOfIssues  AnalysisIssue[]   @relation("IssuePrimaryTestCase")
+
   bugEvidence BugTestCaseEvidence[]
 
   affectedIn AffectedTest[]
@@ -926,7 +931,7 @@ model TestGeneration {
 
   /// The analysis findings whose verdict this run produced. A list rather than one row because a re-filed
   /// containment finding can overwrite in place while an earlier self-heal pass still points here.
-  analysisFindings AnalysisFinding[]
+  analysisClassifications AnalysisClassification[]
 
   scenarioInstanceId String?           @map("scenario_instance_id")
   scenarioInstance   ScenarioInstance? @relation(fields: [scenarioInstanceId], references: [id], onDelete: SetNull)
@@ -2726,13 +2731,14 @@ model AnalysisReport {
   @@map("analysis_report")
 }
 
-/// One deduped per-test finding of an analysis run (the merged pipeline's OWN classification, modeled on the
-/// frozen InvestigationFinding - NOT reused from it). Media stays as `s3://` keys (signed on read); display-only
-/// blobs (evidence, run trace) are JSON; the fields the UI filters/sorts on are real columns. Cascades from both
-/// its parent report and its organization (matching AnalysisReport/AnalysisJob); the denormalized `organizationId`
-/// also backs the `[organizationId, category]` cross-report index. Every investigated test yields exactly one row
-/// across the full taxonomy (incl. `passed`); this store is the single source of truth for every finding,
-/// `client_bug` included (it carries its full evidence on the row) - the pipeline files no Bug/Issue.
+/// One test's investigation within one analysis run - the unit the report, the merge gate and the finding page all
+/// mean by "a finding". Exactly one row per `(run, test)`, enforced by the unique key rather than by convention.
+///
+/// It holds ONLY the facts that describe the test in the run; every fact about a VERDICT lives on
+/// AnalysisClassification, because the Investigator classifies a test more than once (a self-heal rewrites the plan
+/// and re-runs it on a fresh generation). `currentClassification` is the verdict this run stands behind - readers
+/// that ask "what happened to this test" resolve through it, which is what makes a superseded verdict structurally
+/// uncountable rather than a filter everyone has to remember.
 model AnalysisFinding {
   id               String @id @default(cuid())
   /// The run this finding belongs to, keyed to the AnalysisJob's snapshot PK. An Investigator persists its finding
@@ -2741,36 +2747,20 @@ model AnalysisFinding {
   reportSnapshotId String      @map("report_snapshot_id")
   job              AnalysisJob @relation(fields: [reportSnapshotId], references: [snapshotId], onDelete: Cascade, map: "analysis_finding_job_fkey")
 
-  /// Stable per-report routing id (the slug, suffixed when a slug appears more than once).
-  findingKey String @map("finding_key")
-  slug       String
+  /// The test this finding is about. A finding outlives neither its test nor its run, so this is a hard FK - the
+  /// test's slug and name are read through it and never copied onto the row.
+  testCaseId String   @map("test_case_id")
+  testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
 
-  /// The generation whose run produced this verdict. After a self-heal the Investigator re-runs the test on a fresh
-  /// generation, so this pins WHICH run the finding judged - a `(slug, snapshot)` lookup cannot: it matches every
-  /// generation the run went through.
-  generationId String         @map("generation_id")
-  generation   TestGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
-  /// The Investigator's terminal AnalysisVerdict (passed/client_bug/engine_artifact/environment_failure/
-  /// scenario_issue/delete).
-  category          String
-  confidence        String?
-  headline          String  @db.Text
-  /// What the app SHOULD have done / what it actually did - the classifier's per-category behavior fields that
-  /// replace the free-form `whatHappened` (kept for findings written before the expected/actual split).
-  expectedBehavior  String? @map("expected_behavior") @db.Text
-  actualBehavior    String? @map("actual_behavior") @db.Text
-  whatHappened      String? @map("what_happened") @db.Text
-  observedAppIssues String? @map("observed_app_issues") @db.Text
-  remediation       String? @db.Text
-  rootCause         String? @map("root_cause") @db.Text
-  falsePositiveRisk String? @map("false_positive_risk") @db.Text
-  plan              String? @db.Text
-  runSuccess        Boolean? @map("run_success")
-  stepCount         Int?     @map("step_count")
+  /// The verdict this run stands behind: the newest classification. Null only between the finding's creation and
+  /// its first classification, inside the one transaction that writes both.
+  currentClassificationId String?                 @unique @map("current_classification_id")
+  currentClassification   AnalysisClassification? @relation("CurrentClassification", fields: [currentClassificationId], references: [id], onDelete: SetNull)
 
-  /// Whether the Investigator rewrote this test's plan before reaching the verdict (the self-heal fidelity
-  /// signal that replaces the classifier's PlanFidelity axis).
-  planEdited Boolean? @map("plan_edited")
+  /// Every classification of this test in this run, oldest first - one per run+classify iteration of the
+  /// Investigator's self-heal loop.
+  classifications AnalysisClassification[] @relation("FindingClassifications")
+
   /// Whether the test pre-existed (`pre_existing`) or was authored this run (`proposed`) - the data tag that
   /// tells an obsolete-test `delete` apart from an un-establishable proposal.
   origin String?
@@ -2778,9 +2768,69 @@ model AnalysisFinding {
   /// Why Impact Analysis selected this test to investigate (the affected reason, or the new-test rationale). Ridden
   /// onto the finding at persist so the Reporter has the selection provenance per test, not just the run summary.
   selectionReason String? @map("selection_reason") @db.Text
-  /// A brief note on what the Investigator self-healed before reaching this verdict, present only when
-  /// `planEdited` - retry-context color for the Reporter, never a finding of its own.
-  selfHealNote String? @map("self_heal_note") @db.Text
+
+  /// The branch-scoped AnalysisIssue this finding is attributed to, backfilled by the Reporter after it authors
+  /// the issues. Nullable - a passing or coverage-plane finding has no issue, and findings written before the
+  /// Reporter have none; SetNull so deleting an issue orphans its findings rather than cascading them away.
+  issueId String?        @map("issue_id")
+  issue   AnalysisIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([reportSnapshotId, testCaseId])
+  @@index([reportSnapshotId])
+  @@index([issueId])
+  @@index([organizationId])
+  /// Indexes the FK's referencing side: without it, every TestCase delete seq-scans this table for the cascade.
+  @@index([testCaseId])
+  @@map("analysis_finding")
+}
+
+/// One run+classify iteration of the Investigator's self-heal loop: the classifier's judgement of ONE generation of
+/// one test, with the evidence it judged and the reasoning that produced it. A test that self-heals N times leaves
+/// N of these, each pinned to the generation it judged and each with its own conversation - so the intermediate
+/// verdict that authored a wrong self-heal stays auditable instead of being overwritten by the pass that followed.
+///
+/// Superseded iterations are never destroyed and never counted: the report reads `AnalysisFinding
+/// .currentClassification`. Note a contained fault (engine_artifact / environment_failure / scenario_issue) is
+/// recorded here too, with its category and no verdict fields - no classifier ran, so there is no conversation, no
+/// evidence and no trace.
+model AnalysisClassification {
+  id        String          @id @default(cuid())
+  findingId String          @map("finding_id")
+  finding   AnalysisFinding @relation("FindingClassifications", fields: [findingId], references: [id], onDelete: Cascade)
+
+  /// Which slot of the self-heal loop this is, 1-based, assigned from the Investigator's own iteration counter
+  /// rather than by counting rows - which is what makes filing one idempotent. A crashed child's containment fault
+  /// takes the slot past every real iteration, so a gap means either that or a record predating this table.
+  number Int
+
+  /// The generation whose run this classification judged. Each iteration runs a fresh generation, so this is what
+  /// pins the verdict to the evidence: a `(test, snapshot)` lookup matches every generation the loop went through.
+  generationId String         @map("generation_id")
+  generation   TestGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+
+  /// The AnalysisVerdict this iteration reached (passed/client_bug/engine_artifact/environment_failure/
+  /// scenario_issue/delete), or - on a superseded iteration - the classifier's raw `outdated_test`/`bad_test`,
+  /// which is why superseded rows never feed a taxonomy read.
+  category          String
+  confidence        String?
+  headline          String  @db.Text
+  /// What the app SHOULD have done / what it actually did - the classifier's per-category behavior fields that
+  /// replace the free-form `whatHappened` (kept for rows written before the expected/actual split).
+  expectedBehavior  String? @map("expected_behavior") @db.Text
+  actualBehavior    String? @map("actual_behavior") @db.Text
+  whatHappened      String? @map("what_happened") @db.Text
+  observedAppIssues String? @map("observed_app_issues") @db.Text
+  remediation       String? @db.Text
+  rootCause         String? @map("root_cause") @db.Text
+  falsePositiveRisk String? @map("false_positive_risk") @db.Text
+  /// The test's plan AS THIS ITERATION RAN IT - a self-heal rewrites it, so the plan differs between iterations.
+  plan              String? @db.Text
+  runSuccess        Boolean? @map("run_success")
+  stepCount         Int?     @map("step_count")
 
   /// string[] run-step trace and InvestigationRunStep[] structured trace - display blobs, never queried.
   /// [InvestigationRunSteps]
@@ -2799,36 +2849,29 @@ model AnalysisFinding {
   /// Short GIF clip of the failure (client bugs only).
   clipKey String? @map("clip_key")
 
-  /// `s3://` URL of the Investigator classifier's persisted LLM conversation (the reasoning that produced this
-  /// verdict), signed on read. Best-effort at write and display-only: absent when the upload failed and on
-  /// findings written before this column existed. Backs the "View classifier reasoning" debug link.
-  classificationConversationUrl String? @map("classification_conversation_url")
+  /// `s3://` URL of the classifier's persisted LLM conversation (the reasoning that produced THIS iteration's
+  /// verdict), signed on read. Best-effort at write and display-only: absent when the upload failed and on a
+  /// contained fault, where no classifier ran. Backs the admin "View classifier reasoning" link.
+  conversationUrl String? @map("conversation_url")
 
-  /// Present instead of the verdict fields when the model failed to classify this test.
+  /// Present instead of the verdict fields when the model failed to classify this run.
   error String? @db.Text
-
-  /// Unused: each finding is one test's verdict and is never merged, so this is always absent. Kept only until a
-  /// migration drops the column.
-  /// [InvestigationCoveredSlugs]
-  coveredSlugs Json? @map("covered_slugs")
-
-  displayOrder Int @map("display_order")
-
-  /// The branch-scoped AnalysisIssue this finding is attributed to, backfilled by the Reporter after it authors
-  /// the issues. Nullable - a passing or coverage-plane finding has no issue, and findings written before the
-  /// Reporter have none; SetNull so deleting an issue orphans its findings rather than cascading them away.
-  issueId String?        @map("issue_id")
-  issue   AnalysisIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
 
   createdAt      DateTime     @default(now()) @map("created_at")
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([reportSnapshotId, findingKey])
-  @@index([reportSnapshotId])
+  /// The finding this classification is the current verdict of, if it is. Back-relation of
+  /// `AnalysisFinding.currentClassification`; never queried from this side.
+  currentOf AnalysisFinding? @relation("CurrentClassification")
+
+  @@unique([findingId, number])
+  @@index([findingId])
   @@index([organizationId, category])
-  @@index([issueId])
-  @@map("analysis_finding")
+  /// Indexes the FK's referencing side: discarding a snapshot's pending generations happens on every successful
+  /// run, and each delete would otherwise seq-scan this table - the fastest-growing of the analysis tables.
+  @@index([generationId])
+  @@map("analysis_classification")
 }
 
 /// A branch/PR-scoped "problem" the Reporter agent authors and evolves ACROSS snapshots - the de-duped, holistic
@@ -2856,11 +2899,6 @@ model AnalysisIssue {
   actualBehavior    String  @map("actual_behavior") @db.Text
   narrativeMarkdown String  @map("narrative_markdown") @db.Text
 
-  /// The slugs of every finding (across snapshots) this issue currently covers. Grounds the coverage guarantee
-  /// and lets a covering test's later pass resolve the issue.
-  /// [IssueFindingSlugs]
-  findingSlugs Json @map("finding_slugs")
-
   /// The assets the narrative may embed inline by `evidence:<assetId>` token, derived from what the Reporter
   /// actually fetched (never authored). Signed to URLs on read.
   /// [EvidenceManifest]
@@ -2871,11 +2909,12 @@ model AnalysisIssue {
   /// [PrimaryScreenshot]
   primaryScreenshot Json? @map("primary_screenshot")
 
-  /// The slug of the covered test the Reporter designated as the clearest REPRODUCTION of the problem (one of
-  /// `findingSlugs`). Which test is the judgement call, so the agent makes it; which RUN of that test to show is
-  /// mechanical, so readers resolve the newest covering finding for this slug - so a carried-forward issue's media
-  /// tracks the PR's current head with no re-designation. Null when the model named a slug it was never shown.
-  primaryFindingSlug String? @map("primary_finding_slug")
+  /// The covered test the Reporter designated as the clearest REPRODUCTION of the problem. Which test is the
+  /// judgement call, so the agent makes it (naming a slug, resolved to this FK at persist); which RUN of it to show
+  /// is mechanical, so readers resolve the newest covering finding for this test - a carried-forward issue's media
+  /// tracks the PR's current head with no re-designation. Null when the model named a test it was never shown.
+  primaryTestCaseId String?   @map("primary_test_case_id")
+  primaryTestCase   TestCase? @relation("IssuePrimaryTestCase", fields: [primaryTestCaseId], references: [id], onDelete: SetNull)
 
   /// The hedged, code-level suspected cause (explanation + grounded file:line references), validated against the
   /// checked-out repo at author time so a fabricated reference never lands. Absent when nothing was grounded.
@@ -2893,6 +2932,8 @@ model AnalysisIssue {
 
   @@index([branchId, status])
   @@index([organizationId])
+  /// Indexes the FK's referencing side: without it, every TestCase delete seq-scans this table to SetNull.
+  @@index([primaryTestCaseId])
   @@map("analysis_issue")
 }
 

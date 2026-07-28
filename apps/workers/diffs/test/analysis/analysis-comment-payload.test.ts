@@ -26,7 +26,7 @@ function bugIssue(overrides: Partial<AnalysisCommentInput["bugIssues"][number]> 
         actualBehavior: "The export button threw a 500.",
         screenshotKey: "s3://bucket/final.png",
         clipKey: "s3://bucket/clip.gif",
-        replay: { snapshotId: "snap_1", findingKey: "csv-export" },
+        replay: { snapshotId: "snap_1", findingId: "finding_csv" },
         suspectedCause: {
             explanation: "The export handler indexes past the end of the row array.",
             codeReferences: [{ file: "app/export.ts", lines: "12-18", snippet: "rows[i + 1].id" }],
@@ -70,7 +70,7 @@ describe("buildAnalysisCommentPayload", () => {
             // The title links to the branch-scoped ISSUE...
             href: "https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_csv_export",
             // ...while the media links to the ONE RUN the Reporter designated as the clearest reproduction.
-            replayHref: "https://beta.autonoma.app/app/acme/pull-requests/42/snapshots/snap_1/findings/csv-export",
+            replayHref: "https://beta.autonoma.app/app/acme/pull-requests/42/snapshots/snap_1/findings/finding_csv",
             markerState: "critical",
             description: "The export button threw a 500.",
             suspectedCause: "The export handler indexes past the end of the row array.",
@@ -129,7 +129,7 @@ describe("buildAnalysisCommentPayload", () => {
             "Issue details: https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_csv_export",
         );
         expect(prompt).toContain(
-            "Run that reproduces it: https://beta.autonoma.app/app/acme/pull-requests/42/snapshots/snap_1/findings/csv-export",
+            "Run that reproduces it: https://beta.autonoma.app/app/acme/pull-requests/42/snapshots/snap_1/findings/finding_csv",
         );
         // The suspected cause is a lead, not a verdict - the brief must say so, or an agent will trust it blindly.
         expect(prompt).toContain("confirm it against the code before changing anything");

@@ -67,7 +67,7 @@ function loopWithSteps(steps: RenderableReviewStep[], screenshotLoader?: Screens
     return makeHealingLoop({
         failureKeysByTestCaseId: new Map([[TEST_CASE_ID, FAILURE_KEY]]),
         failureKeys: new Set([FAILURE_KEY]),
-        reviewLinksByTestCaseId: new Map([[TEST_CASE_ID, { runReviewId: "rr-1" }]]),
+        reviewLinksByTestCaseId: new Map([[TEST_CASE_ID, { generationReviewId: "rr-1" }]]),
         stepEvidenceByFailureKey: new Map([[FAILURE_KEY, steps]]),
         screenshotLoader,
     });

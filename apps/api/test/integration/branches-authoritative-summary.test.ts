@@ -2,7 +2,7 @@ import { ApplicationArchitecture } from "@autonoma/db";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
-import { seedFindingGenerations } from "../seed-finding-generations";
+import { seedAnalysisFindings } from "../seed-analysis-findings";
 
 /**
  * The checkpoint-history rail (branches.snapshotHistory) must read an authoritative snapshot's badge from the
@@ -51,22 +51,17 @@ async function attachAnalysisReport(
             organizationId: harness.organizationId,
         },
     });
-    // Findings key to the AnalysisJob; create them directly against the shared snapshot id. Each FKs the
-    // generation whose run produced its verdict.
-    const slugs = categories.map((_, index) => `slug-${index}`);
-    const generationFor = await seedFindingGenerations(harness.db, snapshotId, slugs);
-    await harness.db.analysisFinding.createMany({
-        data: categories.map((category, index) => ({
-            reportSnapshotId: snapshotId,
-            findingKey: `finding-${index}`,
+    // Findings key to the AnalysisJob; create them directly against the shared snapshot id. Each verdict FKs the
+    // generation whose run produced it.
+    await seedAnalysisFindings(
+        harness.db,
+        snapshotId,
+        categories.map((category, index) => ({
             slug: `slug-${index}`,
-            generationId: generationFor(`slug-${index}`),
             category,
             headline: `Finding ${index}`,
-            displayOrder: index,
-            organizationId: harness.organizationId,
         })),
-    });
+    );
 }
 
 apiTestSuite({

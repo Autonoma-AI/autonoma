@@ -46,13 +46,3 @@ export function analysisVerdictMeta(category: string): AnalysisVerdictMeta {
         actionable: analysisFindingBucket(category) === "bug",
     };
 }
-
-/**
- * Sort key for a verdict: actionable first (client bugs), then the coverage plane, then passed. Keeps real
- * signals ahead of the collapsed remainder so an expanded list surfaces coverage issues before green rows.
- */
-export function verdictSortKey(category: string): number {
-    const meta = analysisVerdictMeta(category);
-    if (meta.actionable) return 0;
-    return meta.plane === "coverage" ? 1 : 2;
-}

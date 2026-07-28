@@ -37,15 +37,15 @@ const bugIssueSelect = {
     severity: true,
     primaryScreenshot: true,
     suspectedCause: true,
-    primaryFindingSlug: true,
+    primaryTestCaseId: true,
     // Every finding attributed to this issue. The designated instance is picked from these in code, because the
-    // slug to match on lives on the parent row and a nested Prisma filter cannot reference it.
+    // test to match on lives on the parent row and a nested Prisma filter cannot reference it.
     findings: {
         select: {
-            slug: true,
-            findingKey: true,
-            clipKey: true,
+            id: true,
+            testCaseId: true,
             reportSnapshotId: true,
+            currentClassification: { select: { clipKey: true } },
             // Findings key to the AnalysisJob, so the run's timestamp comes via the job's snapshot.
             job: { select: { snapshot: { select: { createdAt: true } } } },
         },
@@ -120,11 +120,9 @@ function toBugIssues(rows: BugIssueRow[], snapshotId: string): AnalysisCommentIs
                 expectedBehavior: row.expectedBehavior ?? undefined,
                 actualBehavior: row.actualBehavior,
                 screenshotKey: parsePrimaryScreenshotKey(row.primaryScreenshot),
-                clipKey: instance?.clipKey ?? undefined,
+                clipKey: instance?.currentClassification?.clipKey ?? undefined,
                 replay:
-                    instance != null
-                        ? { snapshotId: instance.reportSnapshotId, findingKey: instance.findingKey }
-                        : undefined,
+                    instance != null ? { snapshotId: instance.reportSnapshotId, findingId: instance.id } : undefined,
                 suspectedCause: parseSuspectedCause(row.suspectedCause),
             },
             severity: severity.data,
@@ -137,16 +135,16 @@ function toBugIssues(rows: BugIssueRow[], snapshotId: string): AnalysisCommentIs
 }
 
 /**
- * The run to feature for an issue: the NEWEST finding for the slug the Reporter designated as the clearest
+ * The run to feature for an issue: the NEWEST finding for the test the Reporter designated as the clearest
  * reproduction. The agent chose the test; picking its latest run is mechanical, and doing it on read is what makes
  * a carried-forward issue's clip and deep-link track the PR's current head with no re-designation.
  *
- * Absent when the issue predates the designation, or when the designated slug has no attributed finding - the card
+ * Absent when the issue predates the designation, or when the designated test has no attributed finding - the card
  * then falls back to the issue's own hero frame and shows no replay, rather than featuring a run nobody picked.
  */
 function designatedInstance(row: BugIssueRow): IssueFindingRow | undefined {
-    if (row.primaryFindingSlug == null) return undefined;
-    const matching = row.findings.filter((finding) => finding.slug === row.primaryFindingSlug);
+    if (row.primaryTestCaseId == null) return undefined;
+    const matching = row.findings.filter((finding) => finding.testCaseId === row.primaryTestCaseId);
     return matching.reduce<IssueFindingRow | undefined>((newest, finding) => {
         if (newest == null) return finding;
         return finding.job.snapshot.createdAt > newest.job.snapshot.createdAt ? finding : newest;

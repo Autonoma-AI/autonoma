@@ -1,4 +1,10 @@
-import type { AnalysisFindingReport, AnalysisRunOutcome, AnalysisTestOrigin, AnalysisVerdict } from "@autonoma/types";
+import type {
+    AnalysisClassificationCategory,
+    AnalysisClassificationReport,
+    AnalysisRunOutcome,
+    AnalysisTestOrigin,
+    AnalysisVerdict,
+} from "@autonoma/types";
 
 /**
  * The merged analysis pipeline's activities (run on the DIFFS task queue). The pipeline IS the PR-analysis
@@ -12,6 +18,9 @@ import type { AnalysisFindingReport, AnalysisRunOutcome, AnalysisTestOrigin, Ana
 /** One test the Impact Analysis stage selects for an Investigator to run + classify. */
 export interface AnalysisInvestigationTarget {
     slug: string;
+    /** The test itself. The finding is keyed on this; the slug is only the handle the classifier and the
+     * snapshot's own row-local edits speak. */
+    testCaseId: string;
     /** The generation the Investigator runs (created up front by the selection). */
     testGenerationId: string;
     /** The scenario to provision before the run, when the test pins one. */
@@ -36,56 +45,73 @@ export interface RunImpactAnalysisOutput {
 }
 
 /**
- * A finding an Investigator produces for its one test. The Investigator persists it itself (via
- * `persistAnalysisFinding`) when its self-heal loop terminates and returns it for the parent's logging; the parent
- * files a contained one only for a crashed/timed-out child.
+ * One iteration's outcome, as the Investigator hands it to `persistAnalysisClassification`. Every run+classify
+ * iteration produces one - including the ones a self-heal supersedes, which is what keeps the verdict that authored
+ * a rewrite auditable after the rewrite replaces it. The parent produces one too, to contain a crashed child.
+ */
+export interface AnalysisCandidateClassification {
+    /** The generation this iteration ran and judged. */
+    generationId: string;
+    /**
+     * The verdict this iteration reached: a terminal `AnalysisVerdict`, or the classifier's raw `outdated_test` /
+     * `bad_test` on an iteration that self-healed (which is why a superseded row must never feed a taxonomy read).
+     */
+    category: AnalysisClassificationCategory;
+    headline: string;
+    /**
+     * The classifier's full rich output for this run (narrative, evidence, run-trace frames, media keys). Absent
+     * for a contained scenario/classify fault, which never reached a classifier verdict at all.
+     */
+    report?: AnalysisClassificationReport;
+}
+
+/**
+ * The terminal outcome an Investigator reports upward for its one test, for the parent's logging and the run
+ * summary. The rows are already on disk by the time this is returned - each iteration persisted its own
+ * classification as it happened - so this carries no evidence, only the conclusion.
  */
 export interface AnalysisCandidateFinding {
     slug: string;
-    /**
-     * The generation whose run this verdict judged. A self-heal re-run moves the Investigator onto a fresh
-     * generation, so this is the LAST one it ran - the only unambiguous pointer from a finding to its evidence.
-     */
+    testCaseId: string;
+    /** The generation whose run produced the terminal verdict - the LAST iteration's. */
     generationId: string;
     /** The Investigator's terminal verdict (the full two-plane taxonomy). Never `test_is_wrong` - that is a
      * transient loop-routing signal that resolves to a re-run or, when exhausted, to `delete`. */
     category: AnalysisVerdict;
     headline: string;
     /**
-     * Whether the Investigator rewrote this test's plan during its run (a self-heal re-run was applied). This is
-     * the fidelity signal - it replaces the classifier's PlanFidelity axis: a finding whose plan was edited was
-     * reached against a corrected test, one whose plan was not is the test as authored.
-     */
-    planEdited: boolean;
-    /**
      * Whether the test pre-existed (affected) or was authored this run (proposed). The data tag that lets a
      * `delete` finding be read apart - an obsolete pre-existing test vs a proposed test that could not be
      * established - without a separate verdict.
      */
     origin: AnalysisTestOrigin;
-    /** Why Impact Analysis selected this test - the per-test selection provenance the Reporter reads as context. */
-    selectionReason?: string;
-    /** A brief note on what the Investigator self-healed, present only when `planEdited` (retry-context color). */
-    selfHealNote?: string;
-    /**
-     * The classifier's full rich output for this run (narrative, evidence, run-trace frames, media keys) - what
-     * the pipeline used to discard. Persisted onto the finding's `AnalysisFinding` row (the store that renders it -
-     * a `client_bug` carries its evidence here, not in any Bug/Issue). Absent for a contained scenario/classify
-     * fault or a crashed Investigator, which never reached a classifier verdict.
-     */
-    report?: AnalysisFindingReport;
 }
 
-export interface PersistAnalysisFindingInput {
+export interface PersistAnalysisClassificationInput {
     /** The snapshot the run operates on (the finding's report/job share this PK). */
     snapshotId: string;
-    /** The finding to persist - the Investigator's own, or a parent-authored containment finding. */
-    finding: AnalysisCandidateFinding;
+    /** The test this classification is about - the finding it lands on is keyed on it. */
+    testCaseId: string;
+    /** Whether the test pre-existed or was authored this run. Set on the finding at its birth. */
+    origin: AnalysisTestOrigin;
+    /** Why Impact Analysis selected this test - the per-test provenance the Reporter reads as context. */
+    selectionReason?: string;
+    /**
+     * Which slot of the self-heal loop this outcome occupies, 1-based - the caller's own iteration counter, never
+     * derived from what is already stored. It is the write's idempotency key: filing the same slot twice restates
+     * that row instead of appending a second one, so a re-execution can never invent a self-heal that never ran.
+     * A crashed child's containment lands on `CONTAINMENT_CLASSIFICATION_NUMBER`, past every real iteration.
+     */
+    number: number;
+    /** The iteration's outcome. */
+    classification: AnalysisCandidateClassification;
 }
 
-export interface PersistAnalysisFindingOutput {
-    /** The stable per-report routing id the finding was stored under (its slug). */
-    findingKey: string;
+export interface PersistAnalysisClassificationOutput {
+    /** The finding this classification landed on (created on the first iteration, reused by the rest). */
+    findingId: string;
+    /** The slot it was recorded under - the `number` that was passed in. */
+    number: number;
 }
 
 export interface RunReporterInput {
@@ -142,12 +168,6 @@ export interface DeleteAnalysisTestInput {
     snapshotId: string;
     /** The test whose assignment to remove from the snapshot. */
     slug: string;
-    /**
-     * Whether the test pre-existed or was proposed this run. `pre_existing` removes only this snapshot's
-     * assignment (the global TestCase is a real suite member); `proposed` removes the whole TestCase (it was
-     * authored this run and would otherwise leak as an orphaned catalog row).
-     */
-    origin: AnalysisTestOrigin;
 }
 
 export interface DeleteAnalysisTestOutput {
@@ -171,12 +191,14 @@ export interface AnalysisActivities {
 /**
  * The Investigator's own write activities: its row-local test edits on the snapshot - a self-heal plan rewrite
  * (`UpdateTest`) and the eager `delete` self-delete (`RemoveTest`), both via the canonical `TestSuiteUpdater`
- * update actions - plus `persistAnalysisFinding`, the idempotent upsert with which each Investigator files its own
- * finding when its loop terminates. A separate contract from `AnalysisActivities` (the parent stages); the parent
- * also proxies it to file a containment finding for a child that crashed before it could persist its own.
+ * update actions - plus `persistAnalysisClassification`, with which it files each iteration's outcome as it
+ * happens. A separate contract from `AnalysisActivities` (the parent stages); the parent also proxies it to
+ * contain a child that crashed, appending a fault classification rather than overwriting what the child wrote.
  */
 export interface InvestigatorActivities {
     selfHealAnalysisTest(input: SelfHealAnalysisTestInput): Promise<SelfHealAnalysisTestOutput>;
     deleteAnalysisTest(input: DeleteAnalysisTestInput): Promise<DeleteAnalysisTestOutput>;
-    persistAnalysisFinding(input: PersistAnalysisFindingInput): Promise<PersistAnalysisFindingOutput>;
+    persistAnalysisClassification(
+        input: PersistAnalysisClassificationInput,
+    ): Promise<PersistAnalysisClassificationOutput>;
 }

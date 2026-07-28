@@ -1,5 +1,5 @@
 import { Panel, PanelBody, PanelHeader, PanelTitle } from "@autonoma/blacklight";
-import type { InvestigationFinding, ResolvedEvidenceAsset } from "@autonoma/types";
+import type { AnalysisFindingView, ResolvedEvidenceAsset } from "@autonoma/types";
 import { ReasoningMarkdown } from "components/snapshot/reasoning-block";
 import type { ReactNode } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
@@ -22,17 +22,13 @@ export function AnalysisReportProse({
   evidence: ResolvedEvidenceAsset[];
   prNumber: number;
   snapshotId: string;
-  findings: InvestigationFinding[];
+  findings: AnalysisFindingView[];
   /** The ids of issues this PR knows about, so a token to a real issue links and a fabricated one stays text. */
   issueIds: ReadonlySet<string>;
 }) {
-  // A `finding:<slug>` token resolves to the finding-detail routing id (its `findingKey`); a merged finding is
-  // reachable by any of its covered slugs.
-  const findingIdBySlug = new Map<string, string>();
-  for (const finding of findings) {
-    findingIdBySlug.set(finding.slug, finding.id);
-    for (const covered of finding.coveredSlugs ?? []) findingIdBySlug.set(covered, finding.id);
-  }
+  // The Reporter writes `finding:<slug>` tokens because slugs are what it reasons in; the route is keyed on the
+  // finding's own id, so resolve one to the other here.
+  const findingIdBySlug = new Map(findings.map((finding) => [finding.slug, finding.id]));
 
   const renderIssueLink = (issueId: string, children: ReactNode): ReactNode => {
     if (!issueIds.has(issueId)) return children;

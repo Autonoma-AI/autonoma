@@ -2,7 +2,7 @@ import { ApplicationArchitecture } from "@autonoma/db";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
-import { seedFindingGenerations } from "../seed-finding-generations";
+import { seedAnalysisFindings } from "../seed-analysis-findings";
 
 apiTestSuite({
     name: "branches.analysisReport",
@@ -22,45 +22,31 @@ apiTestSuite({
                     organizationId: harness.organizationId,
                 },
             });
-            // Findings key to the AnalysisJob (created by createAuthoritativeSnapshot) and FK the generation whose
-            // run produced each verdict.
-            const generationFor = await seedFindingGenerations(harness.db, snapshotId, [
-                "checkout-submit",
-                "cart-empties",
-            ]);
-            await harness.db.analysisFinding.createMany({
-                data: [
-                    {
-                        reportSnapshotId: snapshotId,
-                        findingKey: "checkout-submit",
-                        slug: "checkout-submit",
-                        generationId: generationFor("checkout-submit"),
-                        category: "client_bug",
-                        headline: "Submit never enables",
+            // Findings key to the AnalysisJob (created by createAuthoritativeSnapshot); each verdict FKs the
+            // generation whose run produced it.
+            const findingFor = await seedAnalysisFindings(harness.db, snapshotId, [
+                {
+                    slug: "checkout-submit",
+                    category: "client_bug",
+                    headline: "Submit never enables",
+                    classification: {
                         whatHappened: "The submit button stays disabled after filling the form.",
                         confidence: "high",
-                        displayOrder: 0,
-                        organizationId: harness.organizationId,
                     },
-                    {
-                        reportSnapshotId: snapshotId,
-                        findingKey: "cart-empties",
-                        slug: "cart-empties",
-                        generationId: generationFor("cart-empties"),
-                        category: "passed",
-                        headline: "Cart empties correctly",
-                        displayOrder: 1,
-                        organizationId: harness.organizationId,
-                    },
-                ],
-            });
+                },
+                { slug: "cart-empties", category: "passed", headline: "Cart empties correctly" },
+            ]);
 
             const report = await harness.request().branches.analysisReport({ snapshotId });
 
             expect(report).not.toBeNull();
             expect(report?.impactReasoning).toContain("checkout");
             expect(report?.summary).toContain("client bug");
-            expect(report?.findings.map((f) => f.id)).toEqual(["checkout-submit", "cart-empties"]);
+            // Bugs sort ahead of passing checks, and each finding is routed by its own id.
+            expect(report?.findings.map((f) => f.id)).toEqual([
+                findingFor("checkout-submit"),
+                findingFor("cart-empties"),
+            ]);
 
             const bug = report?.findings.find((f) => f.category === "client_bug");
             expect(bug).toMatchObject({
@@ -69,6 +55,44 @@ apiTestSuite({
                 whatHappened: "The submit button stays disabled after filling the form.",
                 confidence: "high",
             });
+        });
+
+        // The self-heal regression: a test classified twice surfaces ONCE, as the verdict the run stands behind,
+        // with the superseded one reachable as history rather than counted as a second finding.
+        test("surfaces a self-healed test once, with its superseded verdict kept as history", async ({ harness }) => {
+            const { snapshotId } = await createAuthoritativeSnapshot(harness);
+            await harness.db.analysisReport.create({
+                data: {
+                    snapshotId,
+                    verdict: "passed",
+                    testCount: 1,
+                    summary: "The rewritten test passes.",
+                    reportMarkdown: "## Run\n\nThe rewritten test passes.",
+                    organizationId: harness.organizationId,
+                },
+            });
+            await seedAnalysisFindings(harness.db, snapshotId, [
+                {
+                    slug: "cart-badge",
+                    category: "passed",
+                    headline: "Correct after the rewrite",
+                    superseded: [{ category: "outdated_test", headline: "Asserts the old copy" }],
+                },
+            ]);
+
+            const report = await harness.request().branches.analysisReport({ snapshotId });
+
+            expect(report?.findings).toHaveLength(1);
+            const finding = report?.findings[0];
+            expect(finding?.category).toBe("passed");
+            expect(finding?.headline).toBe("Correct after the rewrite");
+            // Both iterations are readable, oldest first, each pointing at the run it judged.
+            expect(finding?.classifications.map((c) => [c.number, c.category])).toEqual([
+                [1, "outdated_test"],
+                [2, "passed"],
+            ]);
+            const [superseded, current] = finding?.classifications ?? [];
+            expect(superseded?.generationId).not.toBe(current?.generationId);
         });
 
         test("returns null for a snapshot without an analysis report", async ({ harness }) => {

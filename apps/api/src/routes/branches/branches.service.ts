@@ -33,6 +33,7 @@ import {
     analysisIssueSeveritySchema,
     analysisIssueStatusSchema,
     type AnalysisIssueSummary,
+    analysisFindingSortKey,
     type AnalysisFindingView,
     type AnalysisReportData,
     type AnalysisTestOrigin,
@@ -157,27 +158,14 @@ const investigationSuggestedTestSelect = {
 type InvestigationFindingRow = Prisma.InvestigationFindingGetPayload<{ select: typeof investigationFindingSelect }>;
 
 /**
- * Columns read from an AnalysisFinding row to reconstruct the UI's finding shape. The authoritative store mirrors
- * InvestigationFinding but has no planFidelity/suggestedFixDiff (those axes were dropped) and adds the per-test
- * signals the suite-changes surfaces derive their whole view from (generation, origin, planEdited, selectionReason).
+ * Columns read to reconstruct the UI's finding shape. The authoritative store mirrors InvestigationFinding but has
+ * no planFidelity/suggestedFixDiff (those axes were dropped) and adds the per-test signals the suite-changes
+ * surfaces derive their whole view from (the test, origin, selectionReason, and the classification history).
  */
-const analysisFindingSelect = {
-    findingKey: true,
-    slug: true,
+
+/** The verdict columns one classification contributes to the finding's display shape. */
+const analysisClassificationSelect = {
     generationId: true,
-    // The test the finding is about, reached through the generation FK: a slug alone cannot name the test, and the
-    // suite-changes surfaces list findings by test name.
-    generation: {
-        select: {
-            testPlan: {
-                select: { testCase: { select: { id: true, name: true, slug: true } } },
-            },
-        },
-    },
-    origin: true,
-    planEdited: true,
-    selectionReason: true,
-    selfHealNote: true,
     category: true,
     confidence: true,
     falsePositiveRisk: true,
@@ -198,7 +186,32 @@ const analysisFindingSelect = {
     optimizedVideoKey: true,
     screenshotKey: true,
     error: true,
-    coveredSlugs: true,
+} satisfies Prisma.AnalysisClassificationSelect;
+
+/** What the self-heal history shows per iteration: the conclusion, and the two artifacts behind it. */
+const analysisClassificationSummarySelect = {
+    id: true,
+    number: true,
+    generationId: true,
+    category: true,
+    headline: true,
+    createdAt: true,
+    conversationUrl: true,
+} satisfies Prisma.AnalysisClassificationSelect;
+
+const analysisFindingSelect = {
+    id: true,
+    // The test the finding is about. The suite-changes surfaces list findings by test name, and the slug is what
+    // the report's `finding:<slug>` prose tokens resolve through.
+    testCase: { select: { id: true, name: true, slug: true } },
+    origin: true,
+    selectionReason: true,
+    // The verdict the run stands behind. Every display field lives here, one row away, so a superseded self-heal
+    // iteration cannot be mistaken for the finding's own verdict.
+    currentClassification: { select: analysisClassificationSelect },
+    // The self-heal history: every iteration oldest-first, the current one included. More than one entry means the
+    // Investigator rewrote the plan and re-ran, and each entry keeps the reasoning that produced it.
+    classifications: { orderBy: { number: "asc" }, select: analysisClassificationSummarySelect },
     // The branch-scoped issue this finding was clustered into (backfilled by the Reporter), so the finding-detail
     // page can link UP to its stable, cross-snapshot issue. Null for a passing/coverage finding with no issue.
     issueId: true,
@@ -237,40 +250,54 @@ function rowToFinding(row: InvestigationFindingRow): InvestigationFinding {
     };
 }
 
-/** Reconstruct the UI finding shape from an AnalysisFinding row (media keys are signed separately, on read). */
-function rowToAnalysisFinding(row: AnalysisFindingRow): AnalysisFindingView {
+/**
+ * Reconstruct the UI finding shape from an AnalysisFinding row and its current classification (media keys are
+ * signed separately, on read). Returns undefined for a finding with no classification yet - one exists only
+ * between its creation and its first verdict, inside a single transaction, so a reader seeing one is looking at a
+ * row that has nothing to say.
+ */
+function rowToAnalysisFinding(row: AnalysisFindingRow): AnalysisFindingView | undefined {
+    const current = row.currentClassification;
+    if (current == null) return undefined;
     return {
-        id: row.findingKey,
-        slug: row.slug,
-        generationId: row.generationId,
-        testCase: row.generation.testPlan.testCase,
+        id: row.id,
+        slug: row.testCase.slug,
+        generationId: current.generationId,
+        testCase: row.testCase,
         origin: parseAnalysisTestOrigin(row.origin),
-        planEdited: row.planEdited ?? undefined,
         selectionReason: row.selectionReason ?? undefined,
-        selfHealNote: row.selfHealNote ?? undefined,
-        category: row.category,
-        confidence: row.confidence ?? undefined,
-        falsePositiveRisk: row.falsePositiveRisk ?? undefined,
-        headline: row.headline,
-        expectedBehavior: row.expectedBehavior ?? undefined,
-        actualBehavior: row.actualBehavior ?? undefined,
-        whatHappened: row.whatHappened ?? undefined,
-        observedAppIssues: row.observedAppIssues ?? undefined,
-        remediation: row.remediation ?? undefined,
-        rootCause: row.rootCause ?? undefined,
-        evidence: row.evidence ?? [],
-        plan: row.plan ?? undefined,
-        runSuccess: row.runSuccess ?? undefined,
-        stepCount: row.stepCount ?? undefined,
-        runSteps: row.runSteps ?? undefined,
+        category: current.category,
+        confidence: current.confidence ?? undefined,
+        falsePositiveRisk: current.falsePositiveRisk ?? undefined,
+        headline: current.headline,
+        expectedBehavior: current.expectedBehavior ?? undefined,
+        actualBehavior: current.actualBehavior ?? undefined,
+        whatHappened: current.whatHappened ?? undefined,
+        observedAppIssues: current.observedAppIssues ?? undefined,
+        remediation: current.remediation ?? undefined,
+        rootCause: current.rootCause ?? undefined,
+        evidence: current.evidence ?? [],
+        plan: current.plan ?? undefined,
+        runSuccess: current.runSuccess ?? undefined,
+        stepCount: current.stepCount ?? undefined,
+        runSteps: current.runSteps ?? undefined,
         // Each step's screenshotUrl is still a raw s3:// key here; signFindingMedia signs them on read.
-        runTrace: row.runTrace ?? undefined,
+        runTrace: current.runTrace ?? undefined,
         // Stored s3:// keys; signFindingMedia turns these into browser-openable URLs.
-        videoUrl: row.videoKey ?? undefined,
-        optimizedVideoUrl: row.optimizedVideoKey ?? undefined,
-        finalScreenshotUrl: row.screenshotKey ?? undefined,
-        error: row.error ?? undefined,
-        coveredSlugs: row.coveredSlugs ?? undefined,
+        videoUrl: current.videoKey ?? undefined,
+        optimizedVideoUrl: current.optimizedVideoKey ?? undefined,
+        finalScreenshotUrl: current.screenshotKey ?? undefined,
+        error: current.error ?? undefined,
+        classifications: row.classifications.map((classification) => ({
+            id: classification.id,
+            number: classification.number,
+            generationId: classification.generationId,
+            category: classification.category,
+            headline: classification.headline,
+            createdAt: classification.createdAt,
+            // Still the raw s3:// key here; signFindingMedia signs it alongside the finding's media.
+            conversationUrl: classification.conversationUrl ?? undefined,
+        })),
         issueId: row.issueId ?? undefined,
         issueTitle: row.issue?.title ?? undefined,
     };
@@ -556,14 +583,24 @@ export class BranchesService extends Service {
             });
             if (report == null) return null;
 
-            // Findings are keyed to the job (no finding -> report FK); load them separately by the snapshot PK.
+            // Findings are keyed to the job (no finding -> report FK); load them separately by the snapshot PK. The
+            // slug orders the query so the list is stable: the bucket sort below ranks a whole bucket equally, so
+            // without it Postgres row order would decide who comes first and the list could reshuffle per request.
             const findingRows = await this.db.analysisFinding.findMany({
                 where: { reportSnapshotId: snapshotId, organizationId },
-                orderBy: { displayOrder: "asc" },
+                orderBy: { testCase: { slug: "asc" } },
                 select: analysisFindingSelect,
             });
+            const views = findingRows.flatMap((row) => {
+                const view = rowToAnalysisFinding(row);
+                return view != null ? [view] : [];
+            });
+            // Stable sort, so findings stay slug-ordered within their bucket.
+            const sorted = views.sort(
+                (left, right) => analysisFindingSortKey(left.category) - analysisFindingSortKey(right.category),
+            );
             const [findings, reportEvidence] = await Promise.all([
-                Promise.all(findingRows.map((finding) => this.signFindingMedia(rowToAnalysisFinding(finding)))),
+                Promise.all(sorted.map((finding) => this.signAnalysisFinding(finding))),
                 this.signEvidenceManifest(report.reportMarkdown, parseEvidenceManifest(report.evidenceManifest)),
             ]);
             this.logger.info("Analysis report data assembled", {
@@ -682,10 +719,9 @@ export class BranchesService extends Service {
                     resolvedAt: true,
                     findings: {
                         select: {
-                            findingKey: true,
-                            slug: true,
-                            category: true,
-                            headline: true,
+                            id: true,
+                            testCase: { select: { slug: true } },
+                            currentClassification: { select: { category: true, headline: true } },
                             reportSnapshotId: true,
                             // Findings key to the AnalysisJob (no report FK); reach the snapshot via the job.
                             job: { select: { snapshot: { select: { createdAt: true, headSha: true } } } },
@@ -906,6 +942,29 @@ export class BranchesService extends Service {
         return snapshot.id;
     }
 
+    /**
+     * Re-sign an analysis finding: its current classification's media, plus every iteration's classifier
+     * conversation, so the self-heal history's debug links are browser-openable rather than `s3://` keys.
+     */
+    private async signAnalysisFinding(finding: AnalysisFindingView): Promise<AnalysisFindingView> {
+        const [signed, classifications] = await Promise.all([
+            this.signFindingMedia(finding),
+            Promise.all(
+                finding.classifications.map(async (classification) => ({
+                    ...classification,
+                    conversationUrl:
+                        classification.conversationUrl != null
+                            ? await this.storageProvider.getSignedUrl(
+                                  classification.conversationUrl,
+                                  INVESTIGATION_MEDIA_TTL_SECONDS,
+                              )
+                            : undefined,
+                })),
+            ),
+        ]);
+        return { ...signed, classifications };
+    }
+
     /** Re-sign a finding's stored s3:// screenshot/video keys (finding media + every run-trace step) into URLs. */
     private async signFindingMedia<T extends InvestigationFinding>(finding: T): Promise<T> {
         const sign = (key: string | undefined) =>
@@ -975,27 +1034,35 @@ export class BranchesService extends Service {
         };
     }
 
-    /** Flatten an issue's covered findings into cross-snapshot instances, newest snapshot first. */
+    /**
+     * Flatten an issue's covered findings into cross-snapshot instances, newest snapshot first. Each instance
+     * shows the verdict its run stands behind, so a finding still mid-run (no classification yet) is skipped
+     * rather than listed with nothing to say.
+     */
     private toIssueFindingInstances(
         findings: {
-            findingKey: string;
-            slug: string;
-            category: string;
-            headline: string;
+            id: string;
+            testCase: { slug: string };
+            currentClassification: { category: string; headline: string } | null;
             reportSnapshotId: string;
             job: { snapshot: { createdAt: Date; headSha: string | null } };
         }[],
     ): AnalysisIssueFindingInstance[] {
         return findings
-            .map((finding) => ({
-                snapshotId: finding.reportSnapshotId,
-                snapshotCreatedAt: finding.job.snapshot.createdAt,
-                headSha: finding.job.snapshot.headSha ?? undefined,
-                findingId: finding.findingKey,
-                slug: finding.slug,
-                category: finding.category,
-                headline: finding.headline,
-            }))
+            .flatMap((finding) => {
+                if (finding.currentClassification == null) return [];
+                return [
+                    {
+                        snapshotId: finding.reportSnapshotId,
+                        snapshotCreatedAt: finding.job.snapshot.createdAt,
+                        headSha: finding.job.snapshot.headSha ?? undefined,
+                        findingId: finding.id,
+                        slug: finding.testCase.slug,
+                        category: finding.currentClassification.category,
+                        headline: finding.currentClassification.headline,
+                    },
+                ];
+            })
             .sort((a, b) => b.snapshotCreatedAt.getTime() - a.snapshotCreatedAt.getTime());
     }
 

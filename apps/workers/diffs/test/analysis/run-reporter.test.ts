@@ -39,6 +39,7 @@ interface SeededRun {
     snapshotId: string;
     organizationId: string;
     branchId: string;
+    applicationId: string;
 }
 
 class ReporterHarness implements IntegrationHarness {
@@ -85,30 +86,45 @@ class ReporterHarness implements IntegrationHarness {
         await this.db.analysisJob.create({
             data: { snapshotId: snapshot.id, organizationId: org.id, status: "running", startedAt: new Date() },
         });
-        for (const [index, finding] of findings.entries()) {
-            const generationId = await seedGenerationForSlug(this.db, {
+        for (const finding of findings) {
+            const { testCaseId, generationId } = await seedGenerationForSlug(this.db, {
                 applicationId: app.id,
                 organizationId: org.id,
                 snapshotId: snapshot.id,
                 slug: finding.slug,
             });
-            await this.db.analysisFinding.create({
+            const created = await this.db.analysisFinding.create({
+                data: { reportSnapshotId: snapshot.id, organizationId: org.id, testCaseId },
+            });
+            const classification = await this.db.analysisClassification.create({
                 data: {
-                    reportSnapshotId: snapshot.id,
+                    findingId: created.id,
+                    number: 1,
                     organizationId: org.id,
-                    findingKey: finding.slug,
-                    slug: finding.slug,
                     generationId,
                     category: finding.category,
                     headline: `${finding.slug} headline`,
-                    displayOrder: index,
                 },
             });
+            await this.db.analysisFinding.update({
+                where: { id: created.id },
+                data: { currentClassificationId: classification.id },
+            });
         }
-        return { snapshotId: snapshot.id, organizationId: org.id, branchId: branch.id };
+        return {
+            snapshotId: snapshot.id,
+            organizationId: org.id,
+            branchId: branch.id,
+            applicationId: app.id,
+        };
     }
 
-    async seedOpenIssue(run: SeededRun, findingSlugs: string[]): Promise<string> {
+    /**
+     * An issue the branch already carries, covering the given tests. Its covered set is derived from the findings
+     * attributed to it, so this seeds those findings on an EARLIER snapshot of the same branch - which is what an
+     * issue carried across snapshots actually looks like.
+     */
+    async seedOpenIssue(run: SeededRun, coveredSlugs: string[]): Promise<string> {
         const issue = await this.db.analysisIssue.create({
             data: {
                 branchId: run.branchId,
@@ -119,10 +135,67 @@ class ReporterHarness implements IntegrationHarness {
                 status: "open",
                 actualBehavior: "misbehaves",
                 narrativeMarkdown: "existing narrative",
-                findingSlugs,
             },
         });
+
+        const prior = await this.db.branchSnapshot.create({
+            data: { branchId: run.branchId, source: "GITHUB_PUSH" },
+        });
+        await this.db.analysisJob.create({
+            data: {
+                snapshotId: prior.id,
+                organizationId: run.organizationId,
+                status: "completed",
+                startedAt: new Date(),
+            },
+        });
+        for (const slug of coveredSlugs) {
+            const { testCaseId, generationId } = await seedGenerationForSlug(this.db, {
+                applicationId: run.applicationId,
+                organizationId: run.organizationId,
+                snapshotId: prior.id,
+                slug,
+            });
+            const finding = await this.db.analysisFinding.create({
+                data: {
+                    reportSnapshotId: prior.id,
+                    organizationId: run.organizationId,
+                    testCaseId,
+                    issueId: issue.id,
+                },
+            });
+            const classification = await this.db.analysisClassification.create({
+                data: {
+                    findingId: finding.id,
+                    number: 1,
+                    organizationId: run.organizationId,
+                    generationId,
+                    category: "client_bug",
+                    headline: `${slug} headline`,
+                },
+            });
+            await this.db.analysisFinding.update({
+                where: { id: finding.id },
+                data: { currentClassificationId: classification.id },
+            });
+        }
         return issue.id;
+    }
+
+    /** The tests an issue currently covers, as the Reporter derives them: the findings attributed to it. */
+    async coveredSlugs(issueId: string): Promise<Set<string>> {
+        const findings = await this.db.analysisFinding.findMany({
+            where: { issueId },
+            select: { testCase: { select: { slug: true } } },
+        });
+        return new Set(findings.map((finding) => finding.testCase.slug));
+    }
+
+    /** This run's finding for a test, by slug. */
+    async findingFor(run: SeededRun, slug: string) {
+        return await this.db.analysisFinding.findFirstOrThrow({
+            where: { reportSnapshotId: run.snapshotId, testCase: { slug } },
+        });
     }
 }
 
@@ -163,12 +236,11 @@ integrationTestSuite({
             expect(issues).toHaveLength(1);
             expect(issues[0]?.kind).toBe("bug");
             expect(issues[0]?.status).toBe("open");
-            expect(issues[0]?.findingSlugs).toEqual(["checkout"]);
+            const issueId = issues[0]?.id ?? "";
+            expect(await harness.coveredSlugs(issueId)).toEqual(new Set(["checkout"]));
 
-            const finding = await harness.db.analysisFinding.findUnique({
-                where: { reportSnapshotId_findingKey: { reportSnapshotId: run.snapshotId, findingKey: "checkout" } },
-            });
-            expect(finding?.issueId).toBe(issues[0]?.id);
+            const finding = await harness.findingFor(run, "checkout");
+            expect(finding.issueId).toBe(issueId);
 
             const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
             expect(report?.reportMarkdown).toBe("## Report\nCheckout is broken.");
@@ -241,12 +313,12 @@ integrationTestSuite({
             const issue = await harness.db.analysisIssue.findUnique({ where: { id: existingId } });
             expect(issue?.status).toBe("open");
             expect(issue?.resolvedAt).toBeNull();
-            expect(new Set(issue?.findingSlugs)).toEqual(new Set(["profile", "checkout"]));
+            // The covered set unions itself: this run's `checkout` finding joins the `profile` one an earlier
+            // snapshot attributed, with no stored list to keep in sync.
+            expect(await harness.coveredSlugs(existingId)).toEqual(new Set(["profile", "checkout"]));
 
-            const finding = await harness.db.analysisFinding.findUnique({
-                where: { reportSnapshotId_findingKey: { reportSnapshotId: run.snapshotId, findingKey: "checkout" } },
-            });
-            expect(finding?.issueId).toBe(existingId);
+            const finding = await harness.findingFor(run, "checkout");
+            expect(finding.issueId).toBe(existingId);
 
             // The reopened bug keeps the report red.
             const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });

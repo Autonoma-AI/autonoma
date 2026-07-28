@@ -20,6 +20,7 @@ const NEWER_RUN_AT = new Date("2026-07-02T10:00:00Z");
 interface SeededBranch {
     branchId: string;
     organizationId: string;
+    applicationId: string;
     /** The snapshot the comment is being built for (the newest run). */
     snapshotId: string;
     olderSnapshotId: string;
@@ -88,7 +89,13 @@ class CommentInputHarness implements IntegrationHarness {
             },
         });
 
-        return { branchId: branch.id, organizationId: org.id, snapshotId: newer, olderSnapshotId: older };
+        return {
+            branchId: branch.id,
+            organizationId: org.id,
+            applicationId: app.id,
+            snapshotId: newer,
+            olderSnapshotId: older,
+        };
     }
 
     /** One run: a snapshot at `runAt`, its job, and a `checkout` + `cart` finding whose clips name the run. */
@@ -111,25 +118,30 @@ class CommentInputHarness implements IntegrationHarness {
                 completedAt: runAt,
             },
         });
-        for (const [index, slug] of ["checkout", "cart"].entries()) {
-            const generationId = await seedGenerationForSlug(this.db, {
+        for (const slug of ["checkout", "cart"]) {
+            const { testCaseId, generationId } = await seedGenerationForSlug(this.db, {
                 applicationId,
                 organizationId,
                 snapshotId: snapshot.id,
                 slug,
             });
-            await this.db.analysisFinding.create({
+            const finding = await this.db.analysisFinding.create({
+                data: { reportSnapshotId: snapshot.id, organizationId, testCaseId },
+            });
+            const classification = await this.db.analysisClassification.create({
                 data: {
-                    reportSnapshotId: snapshot.id,
+                    findingId: finding.id,
+                    number: 1,
                     organizationId,
-                    findingKey: slug,
-                    slug,
                     generationId,
                     category: "client_bug",
                     headline: `${slug} headline`,
                     clipKey: `s3://bucket/${tag}-${slug}.gif`,
-                    displayOrder: index,
                 },
+            });
+            await this.db.analysisFinding.update({
+                where: { id: finding.id },
+                data: { currentClassificationId: classification.id },
             });
         }
         return snapshot.id;
@@ -139,16 +151,22 @@ class CommentInputHarness implements IntegrationHarness {
     async seedIssue(branch: SeededBranch, options: SeedIssueOptions = {}): Promise<string> {
         const issue = await this.db.analysisIssue.create({
             data: {
-                branchId: branch.branchId,
-                organizationId: branch.organizationId,
+                branch: { connect: { id: branch.branchId } },
+                organization: { connect: { id: branch.organizationId } },
                 title: "Place order never enables",
                 kind: "bug",
                 severity: options.severity ?? "critical",
                 status: options.status ?? "open",
                 actualBehavior: "The button stayed disabled.",
                 narrativeMarkdown: "narrative",
-                findingSlugs: ["checkout"],
-                primaryFindingSlug: options.primaryFindingSlug ?? "checkout",
+                primaryTestCase: {
+                    connect: {
+                        applicationId_slug: {
+                            applicationId: branch.applicationId,
+                            slug: options.primaryFindingSlug ?? "checkout",
+                        },
+                    },
+                },
                 primaryScreenshot:
                     options.withPrimaryScreenshot === false ? undefined : { s3Key: "s3://bucket/hero.png" },
                 suspectedCause:
@@ -162,7 +180,10 @@ class CommentInputHarness implements IntegrationHarness {
         });
         // Attribute BOTH runs' checkout findings to the issue - the cross-snapshot recurrence the card picks from.
         await this.db.analysisFinding.updateMany({
-            where: { slug: "checkout", reportSnapshotId: { in: [branch.snapshotId, branch.olderSnapshotId] } },
+            where: {
+                testCase: { slug: "checkout" },
+                reportSnapshotId: { in: [branch.snapshotId, branch.olderSnapshotId] },
+            },
             data: { issueId: issue.id },
         });
         return issue.id;
@@ -186,7 +207,10 @@ integrationTestSuite({
             expect(card?.id).toBe(issueId);
             // The newer snapshot's clip, even though the older finding was created first.
             expect(card?.clipKey).toBe("s3://bucket/new-checkout.gif");
-            expect(card?.replay).toEqual({ snapshotId: branch.snapshotId, findingKey: "checkout" });
+            const newest = await harness.db.analysisFinding.findFirstOrThrow({
+                where: { reportSnapshotId: branch.snapshotId, testCase: { slug: "checkout" } },
+            });
+            expect(card?.replay).toEqual({ snapshotId: branch.snapshotId, findingId: newest.id });
             expect(card?.screenshotKey).toBe("s3://bucket/hero.png");
             expect(card?.suspectedCause?.explanation).toBe("formValid is computed once on mount.");
         });

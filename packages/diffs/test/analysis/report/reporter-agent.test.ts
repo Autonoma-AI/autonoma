@@ -49,7 +49,7 @@ function scriptedModel(calls: ScriptedCall[]): MockLanguageModelV3 {
 }
 
 function finding(slug: string, category: AnalysisVerdict, screenshots: ReporterEvidenceAsset[] = []): ReporterFinding {
-    return { slug, category, headline: `${slug} headline`, planEdited: false, screenshots };
+    return { slug, category, headline: `${slug} headline`, selfHealed: false, screenshots };
 }
 
 function openIssue(id: string, findingSlugs: string[]): ReporterExistingIssue {

@@ -21,7 +21,7 @@ import {
 } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { fetchTestSuiteInfo } from "@autonoma/test-updates";
-import { ANALYSIS_VERDICT, analysisVerdictSchema } from "@autonoma/types";
+import { ANALYSIS_VERDICT, analysisFindingSortKey, analysisVerdictSchema } from "@autonoma/types";
 import type { RunReporterInput, RunReporterOutput } from "@autonoma/workflow/activities";
 import { resolvePrMeta } from "../../codebase/pr-meta";
 import { type SnapshotContext, withSnapshotContext } from "../../codebase/snapshot-context";
@@ -125,42 +125,62 @@ async function buildReporterInput(
     };
 }
 
-/** Load this run's persisted findings and shape each into what the Reporter reasons over (incl. fetchable frames). */
+/**
+ * Load this run's findings and shape each into what the Reporter reasons over (incl. fetchable frames). Only the
+ * CURRENT classification is offered: a superseded self-heal iteration is an audit record, and reporting on a
+ * verdict this run has already replaced would have the agent narrate a conclusion we no longer hold. That the test
+ * was self-healed at all is `selfHealed` - true when more than one iteration ran.
+ *
+ * Ordered by slug so the bucket sort below - which ranks a whole bucket equally - lands on a stable list: the
+ * agent's prompt must not depend on the order Postgres happened to return the rows in.
+ */
 async function loadReporterFindings(snapshotId: string): Promise<ReporterFinding[]> {
     const rows = await db.analysisFinding.findMany({
-        where: { reportSnapshotId: snapshotId },
-        orderBy: { displayOrder: "asc" },
+        where: { reportSnapshotId: snapshotId, currentClassificationId: { not: null } },
+        orderBy: { testCase: { slug: "asc" } },
         select: {
-            slug: true,
-            category: true,
-            headline: true,
-            expectedBehavior: true,
-            actualBehavior: true,
-            planEdited: true,
-            selfHealNote: true,
-            plan: true,
-            observedAppIssues: true,
-            falsePositiveRisk: true,
-            evidence: true,
-            screenshotKey: true,
-            runTrace: true,
+            testCase: { select: { slug: true } },
+            _count: { select: { classifications: true } },
+            currentClassification: {
+                select: {
+                    category: true,
+                    headline: true,
+                    expectedBehavior: true,
+                    actualBehavior: true,
+                    plan: true,
+                    observedAppIssues: true,
+                    falsePositiveRisk: true,
+                    evidence: true,
+                    screenshotKey: true,
+                    runTrace: true,
+                },
+            },
         },
     });
 
-    return rows.map((row) => ({
-        slug: row.slug,
-        category: analysisVerdict(row.category),
-        headline: row.headline,
-        expectedBehavior: row.expectedBehavior ?? undefined,
-        actualBehavior: row.actualBehavior ?? undefined,
-        planEdited: row.planEdited ?? false,
-        selfHealNote: row.selfHealNote ?? undefined,
-        plan: row.plan ?? undefined,
-        observedAppIssues: row.observedAppIssues ?? undefined,
-        falsePositiveRisk: row.falsePositiveRisk ?? undefined,
-        codeEvidence: row.evidence ?? undefined,
-        screenshots: buildScreenshots(row.slug, row.screenshotKey, row.runTrace),
-    }));
+    const findings: ReporterFinding[] = [];
+    for (const row of rows) {
+        const current = row.currentClassification;
+        if (current == null) continue;
+        const slug = row.testCase.slug;
+        findings.push({
+            slug,
+            category: analysisVerdict(current.category),
+            headline: current.headline,
+            expectedBehavior: current.expectedBehavior ?? undefined,
+            actualBehavior: current.actualBehavior ?? undefined,
+            selfHealed: row._count.classifications > 1,
+            plan: current.plan ?? undefined,
+            observedAppIssues: current.observedAppIssues ?? undefined,
+            falsePositiveRisk: current.falsePositiveRisk ?? undefined,
+            codeEvidence: current.evidence ?? undefined,
+            screenshots: buildScreenshots(slug, current.screenshotKey, current.runTrace),
+        });
+    }
+    // Stable sort, so findings stay slug-ordered within their bucket.
+    return findings.sort(
+        (left, right) => analysisFindingSortKey(left.category) - analysisFindingSortKey(right.category),
+    );
 }
 
 /** The fetchable screenshots for one finding: its classifier key frame plus a bounded slice of trace frames. */
@@ -202,7 +222,9 @@ async function loadExistingIssues(branchId: string, logger: Logger): Promise<Rep
             expectedBehavior: true,
             actualBehavior: true,
             narrativeMarkdown: true,
-            findingSlugs: true,
+            // The covered set, derived rather than stored: the tests of the findings actually attributed to this
+            // issue, across every snapshot of the branch.
+            findings: { select: { testCase: { select: { slug: true } } } },
         },
     });
 
@@ -224,7 +246,7 @@ async function loadExistingIssues(branchId: string, logger: Logger): Promise<Rep
             expectedBehavior: row.expectedBehavior ?? undefined,
             actualBehavior: row.actualBehavior,
             narrativeSummary: truncate(row.narrativeMarkdown, NARRATIVE_SUMMARY_CHARS),
-            findingSlugs: row.findingSlugs,
+            findingSlugs: [...new Set(row.findings.map((finding) => finding.testCase.slug))],
         });
     }
     return issues;
@@ -391,13 +413,21 @@ async function writeReport(tx: PrismaWriteClient, input: WriteReportInput): Prom
     });
 }
 
-/** This run's findings as the verdict-plane summary reads them (category + the delete-origin tag). */
+/**
+ * This run's findings as the verdict-plane summary reads them (category + the delete-origin tag). One entry per
+ * TEST, not per classification - the counts here become the report's `testCount` and coverage tallies.
+ */
 async function loadFindingPlanes(snapshotId: string): Promise<VerdictPlaneFinding[]> {
     const rows = await db.analysisFinding.findMany({
-        where: { reportSnapshotId: snapshotId },
-        select: { category: true, origin: true },
+        where: { reportSnapshotId: snapshotId, currentClassificationId: { not: null } },
+        select: { origin: true, currentClassification: { select: { category: true } } },
     });
-    return rows.map((row) => ({ category: row.category, origin: row.origin ?? undefined }));
+    const planes: VerdictPlaneFinding[] = [];
+    for (const row of rows) {
+        if (row.currentClassification == null) continue;
+        planes.push({ category: row.currentClassification.category, origin: row.origin ?? undefined });
+    }
+    return planes;
 }
 
 /** The branch's open bug-kind issues - the count that drives the verdict. */
@@ -427,7 +457,11 @@ async function applyIssue(tx: PrismaWriteClient, issue: ReporterIssueResult, ids
         return;
     }
 
+    // The agent names TESTS by slug; the store references them by id. Resolving here is what keeps the issue's
+    // coverage a real relation - the set it covers is the findings attributed to it, not a list of strings that
+    // can name a test no finding exists for.
     const content = issue.content;
+    const coveredTestCaseIds = await resolveTestCaseIds(tx, ids.snapshotId, content.findingSlugs);
     const data = {
         branchId: ids.branchId,
         organizationId: ids.organizationId,
@@ -441,47 +475,48 @@ async function applyIssue(tx: PrismaWriteClient, issue: ReporterIssueResult, ids
         narrativeMarkdown: content.narrativeMarkdown,
         evidenceManifest: content.evidenceManifest,
         primaryScreenshot: content.primaryScreenshot,
-        primaryFindingSlug: content.primaryFindingSlug,
+        primaryTestCaseId: coveredTestCaseIds.get(content.primaryFindingSlug),
         suspectedCause: content.suspectedCause,
     };
 
     if (issue.kind === "open") {
-        const created = await tx.analysisIssue.create({
-            data: { ...data, findingSlugs: content.findingSlugs },
-        });
-        await backfillIssueId(tx, ids.snapshotId, content.findingSlugs, created.id);
+        const created = await tx.analysisIssue.create({ data });
+        await backfillIssueId(tx, ids.snapshotId, [...coveredTestCaseIds.values()], created.id);
         return;
     }
 
-    // carry_forward: re-state the issue's content, reopen it if it had been resolved, and union this job's slugs.
-    const existing = await tx.analysisIssue.findUnique({
-        where: { id: issue.existingIssueId },
-        select: { findingSlugs: true },
+    // carry_forward: re-state the issue's content and reopen it if it had been resolved. The covered set unions
+    // itself: attributing this run's findings adds to the ones earlier snapshots already attributed.
+    await tx.analysisIssue.update({ where: { id: issue.existingIssueId }, data });
+    await backfillIssueId(tx, ids.snapshotId, [...coveredTestCaseIds.values()], issue.existingIssueId);
+}
+
+/** Resolve the slugs the agent named to the tests this run actually investigated; an unknown slug drops out. */
+async function resolveTestCaseIds(
+    tx: PrismaWriteClient,
+    snapshotId: string,
+    slugs: string[],
+): Promise<Map<string, string>> {
+    if (slugs.length === 0) return new Map();
+    const rows = await tx.analysisFinding.findMany({
+        where: { reportSnapshotId: snapshotId, testCase: { slug: { in: slugs } } },
+        select: { testCaseId: true, testCase: { select: { slug: true } } },
     });
-    const mergedSlugs = unionSlugs(existing?.findingSlugs ?? [], content.findingSlugs);
-    await tx.analysisIssue.update({
-        where: { id: issue.existingIssueId },
-        data: { ...data, findingSlugs: mergedSlugs },
-    });
-    await backfillIssueId(tx, ids.snapshotId, content.findingSlugs, issue.existingIssueId);
+    return new Map(rows.map((row) => [row.testCase.slug, row.testCaseId]));
 }
 
 /** Attribute this run's covered findings to their issue (only rows on this snapshot; other snapshots keep theirs). */
 async function backfillIssueId(
     tx: PrismaWriteClient,
     snapshotId: string,
-    findingSlugs: string[],
+    testCaseIds: string[],
     issueId: string,
 ): Promise<void> {
-    if (findingSlugs.length === 0) return;
+    if (testCaseIds.length === 0) return;
     await tx.analysisFinding.updateMany({
-        where: { reportSnapshotId: snapshotId, slug: { in: findingSlugs } },
+        where: { reportSnapshotId: snapshotId, testCaseId: { in: testCaseIds } },
         data: { issueId },
     });
-}
-
-function unionSlugs(existing: string[], added: string[]): string[] {
-    return [...new Set([...existing, ...added])];
 }
 
 /** The stored `category` is a plain string; keep the finding's terminal verdict as-is for the Reporter to reason. */

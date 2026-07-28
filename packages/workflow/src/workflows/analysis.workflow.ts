@@ -8,6 +8,7 @@ import type {
 } from "../activities";
 import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
+import { CONTAINMENT_CLASSIFICATION_NUMBER } from "./investigator.workflow";
 import { WORKFLOW_TYPE } from "./workflow-types";
 
 /**
@@ -23,8 +24,8 @@ const analysis = proxyActivities<AnalysisActivities>({
     taskQueue: TaskQueue.DIFFS,
 });
 
-// The parent proxies one Investigator activity: `persistAnalysisFinding`, to file the containment finding for a
-// child that crashed before it could persist its own.
+// The parent proxies one Investigator activity: `persistAnalysisClassification`, to contain a child that crashed
+// before it could file its own.
 const investigator = proxyActivities<InvestigatorActivities>({
     startToCloseTimeout: "20m",
     heartbeatTimeout: "2m",
@@ -133,6 +134,7 @@ async function runInvestigator(
                 {
                     snapshotId,
                     slug: target.slug,
+                    testCaseId: target.testCaseId,
                     testGenerationId: target.testGenerationId,
                     scenarioId: target.scenarioId,
                     reason: target.reason,
@@ -146,25 +148,38 @@ async function runInvestigator(
             ...ids,
             extra: { slug: target.slug, message },
         });
-        const containment: AnalysisCandidateFinding = {
-            slug: target.slug,
-            // The child crashed, so it may have self-healed onto a later generation the parent never learns about.
-            // The one Impact Analysis queued is the run this containment can honestly point at.
-            generationId: target.testGenerationId,
-            category: "engine_artifact",
-            headline: `The Investigator crashed or timed out: ${message}`,
-            planEdited: false,
-            origin: target.origin,
-            selectionReason: target.reason,
-        };
+        const headline = `The Investigator crashed or timed out: ${message}`;
         try {
-            await investigator.persistAnalysisFinding({ snapshotId, finding: containment });
+            // Appended, never overwritten: whatever the child managed to classify stays on the finding as its own
+            // history, and this fault becomes the verdict the run stands behind for the test. It takes a slot past
+            // every iteration the child could have reached, so it can neither restate nor be restated by one.
+            await investigator.persistAnalysisClassification({
+                snapshotId,
+                testCaseId: target.testCaseId,
+                origin: target.origin,
+                selectionReason: target.reason,
+                number: CONTAINMENT_CLASSIFICATION_NUMBER,
+                classification: {
+                    // The child crashed, so it may have self-healed onto a later generation the parent never learns
+                    // about. The one Impact Analysis queued is the run this containment can honestly point at.
+                    generationId: target.testGenerationId,
+                    category: "engine_artifact",
+                    headline,
+                },
+            });
         } catch (persistError) {
             log.warn("Failed to persist the containment finding for a crashed Investigator", {
                 ...ids,
                 extra: { slug: target.slug, message: rootFailureMessage(persistError) },
             });
         }
-        return containment;
+        return {
+            slug: target.slug,
+            testCaseId: target.testCaseId,
+            generationId: target.testGenerationId,
+            category: "engine_artifact",
+            headline,
+            origin: target.origin,
+        };
     }
 }

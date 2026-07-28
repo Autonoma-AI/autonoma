@@ -7,6 +7,7 @@ function baseContext(overrides: Partial<GenerationContext> = {}): GenerationCont
     return {
         generationId: "gen-1",
         organizationId: "org-1",
+        testCaseName: "Sign up",
         selfReportedStatus: "failed",
         testPlanPrompt: "Sign up and reach the welcome screen",
         conversation: [{ role: "assistant", content: "I typed the email" }],
@@ -75,7 +76,7 @@ describe("buildGenerationReviewMessages", () => {
                     {
                         iterationNumber: 1,
                         prompt: "Click the old Submit button",
-                        verdicts: [{ verdict: "engine_error", reasoning: "Selector looked stale." }],
+                        verdicts: [{ verdict: "agent_limitation", reasoning: "Selector looked stale." }],
                     },
                     {
                         iterationNumber: 2,
@@ -97,7 +98,7 @@ describe("buildGenerationReviewMessages", () => {
         expect(text).toContain("Current plan (iteration 2");
         expect(text).toContain("Renamed Submit to Confirm in the diff.");
         expect(text).toContain("### Prior Verdicts On This Test");
-        expect(text).toContain("**Iteration 1** judged this `engine_error`");
+        expect(text).toContain("**Iteration 1** judged this `agent_limitation`");
         // The anchoring guard: prior verdicts are a fallible lead, not the answer.
         expect(text).toContain("fallible lead to investigate, never as the answer");
     });

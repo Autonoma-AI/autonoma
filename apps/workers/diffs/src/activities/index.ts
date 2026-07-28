@@ -15,7 +15,7 @@ export { reviewGeneration } from "./review/generation";
 export { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 
 import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-test";
-import { persistAnalysisFinding as persistAnalysisFindingImpl } from "./analysis/persist-finding";
+import { persistAnalysisClassification as persistAnalysisClassificationImpl } from "./analysis/persist-classification";
 import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impact-analysis";
 import { runReporter as runReporterImpl } from "./analysis/run-reporter";
 import { selfHealAnalysisTest as selfHealAnalysisTestImpl } from "./analysis/self-heal-test";
@@ -63,11 +63,11 @@ export const runReporter = withHeartbeat(runReporterImpl);
 export const settleAnalysisRun = withHeartbeat(settleAnalysisRunImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
 // The Investigator's own writes: its row-local self-heal plan rewrite (UpdateTest) + eager `delete` self-delete
-// (RemoveTest), and the idempotent finding upsert with which it files its own finding. All fast, but heartbeat for
+// (RemoveTest), and the append with which it files each iteration's classification. All fast, but heartbeat for
 // consistency with the other analysis activities.
 export const selfHealAnalysisTest = withHeartbeat(selfHealAnalysisTestImpl);
 export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
-export const persistAnalysisFinding = withHeartbeat(persistAnalysisFindingImpl);
+export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassificationImpl);
 
 // Compile-time check: ensure exported activities match the DiffsActivities contract.
 ({
@@ -88,7 +88,7 @@ export const persistAnalysisFinding = withHeartbeat(persistAnalysisFindingImpl);
     settleAnalysisRun,
 }) satisfies AnalysisActivities;
 ({ classifyInvestigationRun }) satisfies Pick<InvestigationActivities, "classifyInvestigationRun">;
-// The Investigator's own writes (self-heal, eager self-delete, own-finding persistence), on their own contract -
-// only the diffs worker implements them, so they stay off the AnalysisActivities contract the frozen investigation
-// worker shares.
-({ selfHealAnalysisTest, deleteAnalysisTest, persistAnalysisFinding }) satisfies InvestigatorActivities;
+// The Investigator's own writes (self-heal, eager self-delete, per-iteration classification), on their own
+// contract - only the diffs worker implements them, so they stay off the AnalysisActivities contract the frozen
+// investigation worker shares.
+({ selfHealAnalysisTest, deleteAnalysisTest, persistAnalysisClassification }) satisfies InvestigatorActivities;

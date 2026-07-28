@@ -21,7 +21,8 @@ export interface TestEntry {
         headline: string;
         findingId: string;
         generationId: string;
-        selfHealNote?: string;
+        /** Whether the run rewrote this test's plan and re-ran it before reaching the verdict. */
+        selfHealed?: boolean;
     };
 }
 

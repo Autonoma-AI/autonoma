@@ -54,7 +54,7 @@ Handle each existing issue at most once.
 - summary: the same verdict in ONE to THREE sentences of plain prose, for a GitHub PR comment and a one-line page subtitle. Those surfaces render neither Markdown blocks nor our tokens, so headings, bullets, links and \`evidence:\`/\`issue:\`/\`finding:\` references are flattened out of it - write it as prose that stands alone. Lead with whether the app misbehaved and what breaks for a user.
 
 # Self-heals are color, never an issue.
-When a finding was reached after the Investigator rewrote the plan (planEdited / a self-heal note), that is retry context - mention it briefly in the report if useful, but never open an issue for it. Findings, not fix mechanics, are the source of truth.`;
+When a finding was reached after a self-heal (the Investigator rewrote the plan and re-ran the test), that is retry context - mention it briefly in the report if useful, but never open an issue for it. Findings, not fix mechanics, are the source of truth.`;
 
 /** Build the per-run user prompt: the dynamic findings + branch history the Reporter reconciles. */
 export function buildReporterPrompt(input: ReporterInput): ModelMessage[] {
@@ -93,9 +93,8 @@ function renderFinding(finding: ReporterFinding): string {
     if (finding.actualBehavior != null) lines.push(`Actual: ${finding.actualBehavior}`);
     if (finding.observedAppIssues != null) lines.push(`Observed app issues: ${finding.observedAppIssues}`);
     if (finding.falsePositiveRisk != null) lines.push(`False-positive risk: ${finding.falsePositiveRisk}`);
-    if (finding.planEdited) {
-        const note = finding.selfHealNote != null ? ` (${finding.selfHealNote})` : "";
-        lines.push(`Reached after a self-heal (plan was edited)${note} - retry context, not an issue.`);
+    if (finding.selfHealed) {
+        lines.push("Reached after a self-heal (the plan was rewritten and re-run) - retry context, not an issue.");
     }
     if (finding.plan != null) lines.push(`Plan: ${truncate(finding.plan, MAX_PLAN_CHARS)}`);
     for (const evidence of finding.codeEvidence ?? []) {

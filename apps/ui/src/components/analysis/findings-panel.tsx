@@ -1,7 +1,7 @@
 import { Badge, Panel, PanelBody, PanelHeader, PanelTitle } from "@autonoma/blacklight";
-import type { InvestigationFinding } from "@autonoma/types";
+import { type AnalysisFindingView, analysisFindingSortKey } from "@autonoma/types";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
-import { analysisVerdictMeta, verdictSortKey } from "components/analysis/verdict-meta";
+import { analysisVerdictMeta } from "components/analysis/verdict-meta";
 import { useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
@@ -16,13 +16,13 @@ export function AnalysisFindingsPanel({
   prNumber,
   snapshotId,
 }: {
-  findings: InvestigationFinding[];
+  findings: AnalysisFindingView[];
   prNumber: number;
   snapshotId: string;
 }) {
   const [showCollapsed, setShowCollapsed] = useState(false);
 
-  const sorted = [...findings].sort((a, b) => verdictSortKey(a.category) - verdictSortKey(b.category));
+  const sorted = [...findings].sort((a, b) => analysisFindingSortKey(a.category) - analysisFindingSortKey(b.category));
   const actionable = sorted.filter((f) => analysisVerdictMeta(f.category).actionable);
   const collapsed = sorted.filter((f) => !analysisVerdictMeta(f.category).actionable);
   const bugCount = findings.filter((f) => f.category === "client_bug").length;
@@ -83,13 +83,11 @@ function FindingRow({
   prNumber,
   snapshotId,
 }: {
-  finding: InvestigationFinding;
+  finding: AnalysisFindingView;
   prNumber: number;
   snapshotId: string;
 }) {
   const meta = analysisVerdictMeta(finding.category);
-  // A merged finding (the Reconciler unioned several tests that hit the same issue) covers > 1 slug.
-  const mergedCount = finding.coveredSlugs != null && finding.coveredSlugs.length > 1 ? finding.coveredSlugs.length : 0;
   return (
     <li>
       <AppLink
@@ -107,11 +105,6 @@ function FindingRow({
             {finding.confidence != null ? ` · ${finding.confidence} confidence` : ""}
           </p>
         </div>
-        {mergedCount > 0 ? (
-          <Badge variant="outline" className="shrink-0">
-            seen in {mergedCount} tests
-          </Badge>
-        ) : null}
         <CaretRightIcon size={14} className="shrink-0 text-text-secondary" />
       </AppLink>
     </li>

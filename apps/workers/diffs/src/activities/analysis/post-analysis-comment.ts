@@ -180,7 +180,7 @@ function buildIssueBaseUrl(appSlug: string, prNumber: number): string {
 
 /**
  * Absolute base URL of the in-app per-snapshot finding pages for this PR; a card's replay link appends
- * `<snapshotId>/findings/<findingKey>`. An issue's card links here to the ONE run the Reporter designated as its
+ * `<snapshotId>/findings/<findingId>`. An issue's card links here to the ONE run the Reporter designated as its
  * clearest reproduction, while the card's title links to the branch-scoped issue itself.
  */
 function buildFindingBaseUrl(appSlug: string, prNumber: number): string {

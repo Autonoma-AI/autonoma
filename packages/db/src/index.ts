@@ -152,13 +152,11 @@ declare global {
         /**
          * The Reporter's grounded, branch-scoped issue store (and the report's) JSON columns. The manifest lists
          * exactly the evidence assets the Reporter fetched (embeddable by `evidence:<assetId>` token); the primary
-         * screenshot is the issue's hero frame; the suspected cause is the hedged, repo-validated code cause; and
-         * the finding slugs are the tests the issue currently covers across snapshots.
+         * screenshot is the issue's hero frame; and the suspected cause is the hedged, repo-validated code cause.
          */
         export type EvidenceManifest = z.infer<typeof evidenceManifestEntrySchema>[];
         export type PrimaryScreenshot = z.infer<typeof primaryScreenshotSchema>;
         export type SuspectedCause = z.infer<typeof suspectedCauseSchema>;
-        export type IssueFindingSlugs = string[];
         export type ScenarioAuth = {
             cookies?: Array<{
                 name: string;

@@ -5,7 +5,7 @@ import type { AuthoredIssueContent, RecordedIssueAction } from "../../../src/ana
 import type { ReporterExistingIssue, ReporterFinding } from "../../../src/analysis/report/types";
 
 function finding(slug: string, category: AnalysisVerdict): ReporterFinding {
-    return { slug, category, headline: slug, planEdited: false, screenshots: [] };
+    return { slug, category, headline: slug, selfHealed: false, screenshots: [] };
 }
 
 function openIssue(id: string, findingSlugs: string[]): ReporterExistingIssue {
@@ -17,7 +17,16 @@ function resolvedIssue(id: string, findingSlugs: string[]): ReporterExistingIssu
 }
 
 function content(findingSlugs: string[]): AuthoredIssueContent {
-    return { title: "t", kind: "bug", severity: "high", actualBehavior: "a", narrativeMarkdown: "n", findingSlugs };
+    return {
+        title: "t",
+        kind: "bug",
+        severity: "high",
+        actualBehavior: "a",
+        narrativeMarkdown: "n",
+        findingSlugs,
+        // The designated reproduction must be one of the covered slugs; coverage only reads the list.
+        primaryFindingSlug: findingSlugs[0] ?? "",
+    };
 }
 
 function openAction(findingSlugs: string[]): RecordedIssueAction {

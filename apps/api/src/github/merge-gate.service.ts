@@ -307,7 +307,7 @@ export class MergeGateService {
                 status: "completed",
                 conclusion: "neutral",
                 title: `Skipped by @${params.actorLogin}`,
-                summary: buildSkipCheckSummary(params.actorLogin, openBugs.findingKeys.length, params.reason),
+                summary: buildSkipCheckSummary(params.actorLogin, openBugs.findingIds.length, params.reason),
             });
             await this.checkRuns.setConclusion(params.repoFullName, check.headSha, "neutral").catch((err) => {
                 this.logger.warn("Merge gate: could not persist skip conclusion (no check row for head)", {
@@ -337,8 +337,8 @@ export class MergeGateService {
                     headSha: check.headSha,
                     snapshotId: openBugs.snapshotId,
                     actorLogin: params.actorLogin,
-                    openBugCount: openBugs.findingKeys.length,
-                    openFindingIds: openBugs.findingKeys,
+                    openBugCount: openBugs.findingIds.length,
+                    openFindingIds: openBugs.findingIds,
                     reason: params.reason,
                 },
             });
@@ -348,7 +348,7 @@ export class MergeGateService {
                 repoFullName: params.repoFullName,
                 prNumber: params.prNumber,
                 actorLogin: params.actorLogin,
-                openBugCount: openBugs.findingKeys.length,
+                openBugCount: openBugs.findingIds.length,
                 reason: params.reason,
             });
             if (skipCommentId != null) {
@@ -372,7 +372,7 @@ export class MergeGateService {
                     prNumber: params.prNumber,
                     headSha: check.headSha,
                     actorLogin: params.actorLogin,
-                    openBugCount: openBugs.findingKeys.length,
+                    openBugCount: openBugs.findingIds.length,
                     snapshotId: openBugs.snapshotId,
                 },
                 { [MERGE_GATE_ANALYTICS_GROUP]: params.organizationId },
@@ -382,7 +382,7 @@ export class MergeGateService {
                 repoFullName: params.repoFullName,
                 prNumber: params.prNumber,
                 actorLogin: params.actorLogin,
-                openBugCount: openBugs.findingKeys.length,
+                openBugCount: openBugs.findingIds.length,
                 reason: params.reason,
             });
 
@@ -401,7 +401,7 @@ export class MergeGateService {
                     repoFullName: params.repoFullName,
                     prNumber: params.prNumber,
                     actorLogin: params.actorLogin,
-                    openBugCount: openBugs.findingKeys.length,
+                    openBugCount: openBugs.findingIds.length,
                 },
             });
         });
@@ -419,10 +419,10 @@ export class MergeGateService {
         prNumber: number;
         actorLogin: string;
         reason: string;
-        openBugs: { snapshotId?: string; findingKeys: string[] };
+        openBugs: { snapshotId?: string; findingSlugs: string[] };
     }): Promise<void> {
         if (!reasonIndicatesFalsePositive(params.reason)) return;
-        if (params.openBugs.snapshotId == null || params.openBugs.findingKeys.length === 0) return;
+        if (params.openBugs.snapshotId == null || params.openBugs.findingSlugs.length === 0) return;
 
         try {
             const count = await this.falsePositiveCandidates.recordFromSkipReason({
@@ -430,7 +430,7 @@ export class MergeGateService {
                 repoFullName: params.repoFullName,
                 prNumber: params.prNumber,
                 snapshotId: params.openBugs.snapshotId,
-                findingKeys: params.openBugs.findingKeys,
+                findingKeys: params.openBugs.findingSlugs,
                 reportedBy: params.actorLogin,
                 reason: params.reason,
             });
@@ -672,7 +672,7 @@ export class MergeGateService {
         githubRepositoryId: number;
         repoFullName: string;
         headSha: string;
-    }): Promise<{ snapshotId?: string; findingKeys: string[] }> {
+    }): Promise<{ snapshotId?: string; findingIds: string[]; findingSlugs: string[] }> {
         const { organizationId, githubRepositoryId, repoFullName, headSha } = params;
         const snapshot = await this.db.branchSnapshot.findFirst({
             where: { headSha, branch: { application: { organizationId, githubRepositoryId } } },
@@ -684,17 +684,23 @@ export class MergeGateService {
                 organizationId,
                 extra: { repoFullName, headSha },
             });
-            return { findingKeys: [] };
+            return { findingIds: [], findingSlugs: [] };
         }
-        // Findings are keyed to the AnalysisJob; read them directly by the snapshot's PK.
+        // Findings are keyed to the AnalysisJob; read them directly by the snapshot's PK. The bug set is the one
+        // the run STANDS BEHIND - a self-heal iteration it superseded is history, and gating a merge on a verdict
+        // we already replaced would block a PR over a test we ourselves rewrote.
         const bugFindings = await this.db.analysisFinding.findMany({
-            where: { reportSnapshotId: snapshot.id, organizationId, category: CLIENT_BUG },
-            orderBy: { displayOrder: "asc" },
-            select: { findingKey: true },
+            where: { reportSnapshotId: snapshot.id, organizationId, currentClassification: { category: CLIENT_BUG } },
+            orderBy: { testCase: { slug: "asc" } },
+            select: { id: true, testCase: { select: { slug: true } } },
         });
+        // Two identity spaces, each matching the store that consumes it: `SkipRecord.openFindingIds` records the
+        // findings themselves, while a FindingFalsePositiveCandidate is keyed by the test slug the MCP channel
+        // also reports - the two sources have to name the same thing for the FP store to be readable.
         return {
             snapshotId: snapshot.id,
-            findingKeys: bugFindings.map((finding) => finding.findingKey),
+            findingIds: bugFindings.map((finding) => finding.id),
+            findingSlugs: bugFindings.map((finding) => finding.testCase.slug),
         };
     }
 

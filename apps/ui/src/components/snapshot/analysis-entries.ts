@@ -4,13 +4,18 @@ import type { EntryCategory, Section, TestEntry } from "./snapshot-entries";
 
 /**
  * Categorizes one test the analysis run investigated, straight from what the run recorded about it. `origin` says
- * how the test entered the run and `planEdited` says whether the run rewrote it, so no plan-id archaeology is
+ * how the test entered the run and a second classification says the run rewrote it, so no plan-id archaeology is
  * needed - and a selected test the run left alone still appears (as `checked`), which a plan diff cannot show.
  */
 function categoryOf(finding: AnalysisFindingView): EntryCategory {
     if (finding.category === "delete") return "removed";
     if (finding.origin === "proposed") return "added";
-    return finding.planEdited === true ? "modified" : "checked";
+    return wasSelfHealed(finding) ? "modified" : "checked";
+}
+
+/** The run rewrote this test's plan exactly when it classified it more than once. */
+function wasSelfHealed(finding: AnalysisFindingView): boolean {
+    return finding.classifications.length > 1;
 }
 
 /**
@@ -50,8 +55,8 @@ export function buildAnalysisSections({
 
 function toEntry(finding: AnalysisFindingView, category: EntryCategory, change: SnapshotChange | undefined): TestEntry {
     return {
-        // Routed by finding id (its slug), matching every other analysis surface - the finding IS the run's record
-        // for this test, and a `removed` test has no assignment left to key on.
+        // Routed by finding id, matching every other analysis surface - the finding IS the run's record for this
+        // test, and a `removed` test has no assignment left to key on.
         urlId: finding.id,
         category,
         testName: finding.testCase.name,
@@ -64,7 +69,7 @@ function toEntry(finding: AnalysisFindingView, category: EntryCategory, change: 
             headline: finding.headline,
             findingId: finding.id,
             generationId: finding.generationId,
-            selfHealNote: finding.selfHealNote,
+            selfHealed: wasSelfHealed(finding),
         },
     };
 }

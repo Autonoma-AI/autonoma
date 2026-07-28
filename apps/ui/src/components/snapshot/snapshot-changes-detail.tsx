@@ -112,10 +112,10 @@ function TestEntryDetail({ entry, isAuthoritative }: { entry: TestEntry; isAutho
   );
 }
 
-/** The verdict's own account of the run, plus the self-heal note when the run rewrote the plan to get there. */
+/** The verdict's own account of the run, noting when the run rewrote the plan and re-ran to get there. */
 function verdictProse(verdict: NonNullable<TestEntry["verdict"]>): string {
-  if (verdict.selfHealNote == null || verdict.selfHealNote.trim().length === 0) return verdict.headline;
-  return `${verdict.headline}\n\n${verdict.selfHealNote}`;
+  if (verdict.selfHealed !== true) return verdict.headline;
+  return `${verdict.headline}\n\nThe plan was rewritten and re-run before this verdict was reached.`;
 }
 
 /** The verdict badge plus links to the full finding (evidence, trace, video) and the run that produced it. */

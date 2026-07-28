@@ -1,4 +1,4 @@
-import type { AnalysisFindingView } from "@autonoma/types";
+import type { AnalysisClassificationSummary, AnalysisFindingView } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
 import { buildAnalysisSections } from "./analysis-entries";
 import type { SnapshotChange } from "./diffs-timeline-types";
@@ -9,17 +9,29 @@ const PROPOSED = { id: "tc-2", name: "guest-checkout.md", slug: "guest-checkout-
 
 function finding(overrides: Partial<AnalysisFindingView> = {}): AnalysisFindingView {
     return {
-        id: AFFECTED.slug,
+        id: "finding-1",
         slug: AFFECTED.slug,
         generationId: "gen-1",
         testCase: AFFECTED,
         category: "passed",
         headline: "Checkout still completes",
         origin: "pre_existing",
-        planEdited: false,
         selectionReason: "The diff rewrites the submit handler this test drives.",
         evidence: [],
+        classifications: [classification(1)],
         ...overrides,
+    };
+}
+
+/** One iteration of the run's self-heal loop; a finding with two of them is one the run rewrote and re-ran. */
+function classification(number: number): AnalysisClassificationSummary {
+    return {
+        id: `cls-${number}`,
+        number,
+        generationId: `gen-${number}`,
+        category: "outdated_test",
+        headline: "The toast copy changed",
+        createdAt: new Date("2026-07-27T18:00:00Z"),
     };
 }
 
@@ -54,19 +66,19 @@ describe("buildAnalysisSections - categorization from the run's own record", () 
 
     it("categorizes a self-healed test as modified and carries the previous plan from the diff", () => {
         const sections = buildAnalysisSections({
-            findings: [finding({ planEdited: true, selfHealNote: "Rewrote the toast assertion." })],
+            findings: [finding({ classifications: [classification(1), classification(2)] })],
             changes: [updatedChange()],
         });
 
         const entry = entryIn(sections, "Modified");
         expect(entry?.category).toBe("modified");
         expect(entry?.previousPlan).toBe("old plan");
-        expect(entry?.verdict?.selfHealNote).toBe("Rewrote the toast assertion.");
+        expect(entry?.verdict?.selfHealed).toBe(true);
     });
 
     it("categorizes a test authored this run as added", () => {
         const sections = buildAnalysisSections({
-            findings: [finding({ id: PROPOSED.slug, slug: PROPOSED.slug, testCase: PROPOSED, origin: "proposed" })],
+            findings: [finding({ id: "finding-2", slug: PROPOSED.slug, testCase: PROPOSED, origin: "proposed" })],
             changes: [],
         });
 
@@ -93,9 +105,9 @@ describe("buildAnalysisSections - verdict and run links", () => {
         expect(entry?.verdict).toEqual({
             category: "client_bug",
             headline: "Place order never enables",
-            findingId: AFFECTED.slug,
+            findingId: "finding-1",
             generationId: "gen-9",
-            selfHealNote: undefined,
+            selfHealed: false,
         });
     });
 });

@@ -46,7 +46,7 @@ export interface AnalysisCommentContext {
     prUrl: string;
     /** The in-app issue-detail base URL for this PR; each bug card appends its `issueId`. */
     issueBaseUrl: string;
-    /** The in-app snapshots base URL for this PR; a card's replay link appends `<snapshotId>/findings/<findingKey>`. */
+    /** The in-app snapshots base URL for this PR; a card's replay link appends `<snapshotId>/findings/<findingId>`. */
     findingBaseUrl: string;
     /** The branch's preview environment URL, if deployed. */
     previewUrl?: string;
@@ -58,7 +58,7 @@ export interface AnalysisCommentContext {
 export interface AnalysisCommentReplay {
     snapshotId: string;
     /** The stable per-report routing id the finding-detail page is keyed on. */
-    findingKey: string;
+    findingId: string;
 }
 
 /** One open bug issue rendered as a rich card. Media stays as an `s3://` key until signed on render. */
@@ -223,8 +223,8 @@ function buildIssueUrl(issue: AnalysisCommentIssue, context: AnalysisCommentCont
 /** The designated reproduction's finding-detail URL, when the issue resolved one. */
 function buildReplayUrl(issue: AnalysisCommentIssue, context: AnalysisCommentContext): string | undefined {
     if (issue.replay == null) return undefined;
-    const { snapshotId, findingKey } = issue.replay;
-    return `${context.findingBaseUrl}/${encodeURIComponent(snapshotId)}/findings/${encodeURIComponent(findingKey)}`;
+    const { snapshotId, findingId } = issue.replay;
+    return `${context.findingBaseUrl}/${encodeURIComponent(snapshotId)}/findings/${encodeURIComponent(findingId)}`;
 }
 
 /**

@@ -5,7 +5,7 @@ import { expect } from "vitest";
 import { MergeGateService } from "../../src/github/merge-gate.service";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
-import { seedFindingGenerations } from "../seed-finding-generations";
+import { seedAnalysisFindings } from "../seed-analysis-findings";
 
 interface CapturedEvent {
     event: string;
@@ -107,7 +107,7 @@ apiTestSuite({
 
             // Post the pending check, then simulate the worker having set it to failure.
             await service.postPending({ ...fixture.postParams });
-            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
+            await setCheckConclusion(harness, fixture, "head-1", "failure");
 
             await service.applySkipFromCommentWebhook(
                 harness.organizationId,
@@ -120,7 +120,11 @@ apiTestSuite({
             expect(skip?.actorLogin).toBe("dev-who-skipped");
             expect(skip?.openBugCount).toBe(2);
             expect(skip?.snapshotId).toBe(snapshotId);
-            expect(skip?.openFindingIds).toEqual(["checkout-submit", "cart-empties"]);
+            const bugFindingIds = await harness.db.analysisFinding.findMany({
+                where: { reportSnapshotId: snapshotId },
+                select: { id: true },
+            });
+            expect(new Set(skip?.openFindingIds)).toEqual(new Set(bugFindingIds.map((finding) => finding.id)));
             expect(skip?.reason).toBe("hotfix for prod outage");
 
             // The check is unblocked (neutral) on both GitHub and our store.
@@ -166,7 +170,7 @@ apiTestSuite({
             await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["only-bug"]);
 
             await service.postPending({ ...fixture.postParams });
-            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
+            await setCheckConclusion(harness, fixture, "head-1", "failure");
 
             const payload = skipCommentPayload(fixture, "/autonoma-skip fixing later", "dev");
             await service.applySkipFromCommentWebhook(harness.organizationId, payload);
@@ -198,7 +202,7 @@ apiTestSuite({
             const snapshotId = await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["checkout", "cart"]);
 
             await service.postPending({ ...fixture.postParams });
-            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
+            await setCheckConclusion(harness, fixture, "head-1", "failure");
 
             await service.applySkipFromCommentWebhook(
                 harness.organizationId,
@@ -243,7 +247,7 @@ apiTestSuite({
             await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["checkout", "cart"]);
 
             await service.postPending({ ...fixture.postParams });
-            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
+            await setCheckConclusion(harness, fixture, "head-1", "failure");
 
             const payload = skipCommentPayload(fixture, "/autonoma-skip false positive, checkout works", "dev-fp");
             await service.applySkipFromCommentWebhook(harness.organizationId, payload);
@@ -275,7 +279,7 @@ apiTestSuite({
             await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["only-bug"]);
 
             await service.postPending({ ...fixture.postParams });
-            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
+            await setCheckConclusion(harness, fixture, "head-1", "failure");
 
             await service.applySkipFromCommentWebhook(
                 harness.organizationId,
@@ -311,7 +315,7 @@ apiTestSuite({
             await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["only-bug"]);
 
             await service.postPending({ ...fixture.postParams });
-            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
+            await setCheckConclusion(harness, fixture, "head-1", "failure");
 
             // A bare command and a whitespace-only reason are both rejected.
             await service.applySkipFromCommentWebhook(
@@ -338,6 +342,60 @@ apiTestSuite({
             expect(replies[0]?.body).toContain("/autonoma-skip <why>");
         });
 
+        // The self-heal regression: a test whose FIRST classification was a client bug, rewritten and re-run to a
+        // pass, must not read as an open bug. The run does not stand behind the superseded verdict, so gating a
+        // merge on it would block a PR over a test we ourselves corrected.
+        test("a client_bug verdict the run superseded is not counted as an open bug", async ({ harness }) => {
+            const analytics = new RecordingAnalytics();
+            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            const service = new MergeGateService(harness.db, harness.githubApp, true, analytics, harness.services.falsePositiveCandidates);
+            const fixture = await createRepoApp(harness, "gate-superseded");
+
+            const branch = await harness.db.branch.create({
+                data: {
+                    name: `feature/superseded-${crypto.randomUUID()}`,
+                    applicationId: fixture.appId,
+                    organizationId: harness.organizationId,
+                },
+            });
+            const snapshot = await harness.db.branchSnapshot.create({
+                data: { branchId: branch.id, source: "WEBHOOK", status: "active", headSha: "head-1" },
+            });
+            await harness.db.analysisJob.create({
+                data: { snapshotId: snapshot.id, status: "completed", organizationId: harness.organizationId },
+            });
+            await harness.db.analysisReport.create({
+                data: {
+                    snapshotId: snapshot.id,
+                    verdict: "passed",
+                    summary: "The run found no client bugs.",
+                    reportMarkdown: "## Run\n\nNo client bugs.",
+                    organizationId: harness.organizationId,
+                },
+            });
+            await seedAnalysisFindings(harness.db, snapshot.id, [
+                {
+                    slug: "cart-badge",
+                    category: "passed",
+                    headline: "The badge is correct after the rewrite",
+                    superseded: [{ category: "client_bug", headline: "The badge shows the old count" }],
+                },
+            ]);
+
+            await service.postPending({ ...fixture.postParams });
+            await setCheckConclusion(harness, fixture, "head-1", "failure");
+            await service.applySkipFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/autonoma-skip nothing is actually open", "dev"),
+            );
+
+            const skip = await harness.db.skipRecord.findFirst({
+                where: { repoFullName: fixture.repoFullName, headSha: "head-1" },
+            });
+            expect(skip?.openBugCount).toBe(0);
+            expect(skip?.openFindingIds).toEqual([]);
+        });
+
         test("applySkipFromCommentWebhook ignores non-command comments and comments on a passing check", async ({
             harness,
         }) => {
@@ -353,7 +411,7 @@ apiTestSuite({
             const fixture = await createRepoApp(harness, "gate-skip-ignored");
             await createSnapshotWithBugs(harness, fixture.appId, "head-1", ["bug-a"]);
             await service.postPending({ ...fixture.postParams });
-            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "failure");
+            await setCheckConclusion(harness, fixture, "head-1", "failure");
 
             // A comment that is not the command: no skip.
             await service.applySkipFromCommentWebhook(
@@ -371,7 +429,7 @@ apiTestSuite({
             expect(await storedConclusion(harness, fixture)).toBe("failure");
 
             // The command on a check that already passed (success): nothing to skip.
-            await setCheckConclusion(harness, fixture.repoFullName, "head-1", "success");
+            await setCheckConclusion(harness, fixture, "head-1", "success");
             await service.applySkipFromCommentWebhook(
                 harness.organizationId,
                 skipCommentPayload(fixture, "/autonoma-skip not needed", "dev"),
@@ -545,16 +603,28 @@ async function createRepoApp(harness: APITestHarness, seed: string): Promise<Rep
     };
 }
 
-/** The worker sets the real conclusion at finalize; the tests stand in for it by writing the stored conclusion directly. */
+/**
+ * Land a terminal conclusion on the PR's check, as the analysis worker does: on GitHub AND in our own store. The
+ * gate reads its store to decide whether there is anything to skip; the assertions read the client to see what a
+ * reviewer would.
+ */
 async function setCheckConclusion(
     harness: APITestHarness,
-    repoFullName: string,
+    fixture: RepoAppFixture,
     headSha: string,
     conclusion: string,
 ): Promise<void> {
-    await harness.db.gitHubCheckRun.update({
-        where: { repoFullName_headSha: { repoFullName, headSha } },
+    const stored = await harness.db.gitHubCheckRun.update({
+        where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha } },
         data: { conclusion },
+    });
+    await fixture.fakeClient.updateCheckRun({
+        repoFullName: fixture.repoFullName,
+        checkRunId: stored.checkRunId,
+        status: "completed",
+        conclusion,
+        title: "Autonoma merge gate",
+        summary: "",
     });
 }
 
@@ -609,12 +679,12 @@ async function setGate(
     });
 }
 
-/** A feature-branch snapshot at `headSha` with a client_bug report carrying the given finding keys. */
+/** A feature-branch snapshot at `headSha` with a client_bug report carrying a bug finding per given slug. */
 async function createSnapshotWithBugs(
     harness: APITestHarness,
     applicationId: string,
     headSha: string,
-    findingKeys: string[],
+    bugSlugs: string[],
 ): Promise<string> {
     const branch = await harness.db.branch.create({
         data: {
@@ -638,20 +708,12 @@ async function createSnapshotWithBugs(
             organizationId: harness.organizationId,
         },
     });
-    // Findings key to the AnalysisJob; create them directly against the shared snapshot id. Each FKs the
-    // generation whose run produced its verdict.
-    const generationFor = await seedFindingGenerations(harness.db, snapshot.id, findingKeys);
-    await harness.db.analysisFinding.createMany({
-        data: findingKeys.map((key, index) => ({
-            reportSnapshotId: snapshot.id,
-            findingKey: key,
-            slug: key,
-            generationId: generationFor(key),
-            category: "client_bug",
-            headline: `Bug ${key}`,
-            displayOrder: index,
-            organizationId: harness.organizationId,
-        })),
-    });
+    // Findings key to the AnalysisJob; create them directly against the shared snapshot id. Each verdict FKs the
+    // generation whose run produced it.
+    await seedAnalysisFindings(
+        harness.db,
+        snapshot.id,
+        bugSlugs.map((slug) => ({ slug, category: "client_bug", headline: `Bug ${slug}` })),
+    );
     return snapshot.id;
 }

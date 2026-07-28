@@ -51,13 +51,16 @@ export async function loadAuthoritativeCheckpointInputs(
             reportedSnapshotIds.length > 0
                 ? await db.analysisFinding.findMany({
                       where: { reportSnapshotId: { in: reportedSnapshotIds }, organizationId },
-                      select: { reportSnapshotId: true, category: true },
+                      // One verdict per test - the classification the run stands behind. Tallying classifications
+                      // instead would count every test the Investigator self-healed more than once.
+                      select: { reportSnapshotId: true, currentClassification: { select: { category: true } } },
                   })
                 : [];
         const categoriesBySnapshot = new Map<string, string[]>();
         for (const finding of findings) {
+            if (finding.currentClassification == null) continue;
             const categories = categoriesBySnapshot.get(finding.reportSnapshotId) ?? [];
-            categories.push(finding.category);
+            categories.push(finding.currentClassification.category);
             categoriesBySnapshot.set(finding.reportSnapshotId, categories);
         }
 
