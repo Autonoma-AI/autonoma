@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.1.22](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.21...cli-v0.1.22) (2026-07-28)
+
+
+### Features
+
+* add Codex CLI support to the SDK-implementation handoff ([#1738](https://github.com/Autonoma-AI/agent/issues/1738)) ([30146c4](https://github.com/Autonoma-AI/agent/commit/30146c40e5544e229dcefe597cbaecbdd8e7d7ea))
+* **cli:** live Ink TUI for the planner - dashboard, in-TUI prompts, handoff reclaim ([#1683](https://github.com/Autonoma-AI/agent/issues/1683)) ([9dc9bc7](https://github.com/Autonoma-AI/agent/commit/9dc9bc7667b1f416f0fe255daa480e903504709e))
+* **cli:** TUI phase C - human file names, follow fixes, adaptive ETA ([#1704](https://github.com/Autonoma-AI/agent/issues/1704)) ([e2ddbe8](https://github.com/Autonoma-AI/agent/commit/e2ddbe81a8c4f6176744fa03f3b76b663092567e))
+* hand the SDK-integration step to the user's local coding agent ([#1665](https://github.com/Autonoma-AI/agent/issues/1665)) ([0e8f461](https://github.com/Autonoma-AI/agent/commit/0e8f46167c5b46f17d816ba4ad4765f5c0c428a5))
+* homa SDK-eval case + per-case agent notes/secrets support ([#1726](https://github.com/Autonoma-AI/agent/issues/1726)) ([6ff7358](https://github.com/Autonoma-AI/agent/commit/6ff73588537a377fc9f0bbd55b654d58b8ff7898))
+* iac vercel secret ([#1653](https://github.com/Autonoma-AI/agent/issues/1653)) ([9b540a0](https://github.com/Autonoma-AI/agent/commit/9b540a0d43fb08f03555fa584b8b54891048550e))
+* **merge-gate:** per-org blocking PR check on client bugs with Skip button ([#1697](https://github.com/Autonoma-AI/agent/issues/1697)) ([f03af54](https://github.com/Autonoma-AI/agent/commit/f03af541a73bd37b19d6fbdffc33fcc3c2696fc5))
+* **scenario:** built-in run-identity tokens + reject recipes that cannot provision ([#1799](https://github.com/Autonoma-AI/agent/issues/1799)) ([377c87e](https://github.com/Autonoma-AI/agent/commit/377c87e99f5ca0f83f2c4b9b1bee8242b630f2d9))
+* **scenario:** dry-run a candidate recipe without storing it ([#1802](https://github.com/Autonoma-AI/agent/issues/1802)) ([7fc116e](https://github.com/Autonoma-AI/agent/commit/7fc116efe5503dcdedb7da5c6bcc9e4105a404d3))
+* SDK-integration eval harness for the planner CLI ([#1500](https://github.com/Autonoma-AI/agent/issues/1500)) ([4d3a834](https://github.com/Autonoma-AI/agent/commit/4d3a8349d595bb501be43dbb59bb636aef1d259e))
+* support multi-repo apps in SDK-integration eval ([#1582](https://github.com/Autonoma-AI/agent/issues/1582)) ([c1d3152](https://github.com/Autonoma-AI/agent/commit/c1d31522ba97bd9dd0d97f33128d4d5f5f3e6454))
+
+
+### Bug Fixes
+
+* **cli:** accurate failure message when no recipe.json exists to submit ([#1784](https://github.com/Autonoma-AI/agent/issues/1784)) ([00ebb01](https://github.com/Autonoma-AI/agent/commit/00ebb019ddc06aba64d54a4496d68ac2e49545ac))
+* **cli:** always upload the recipe, even without AUTONOMA_API_URL ([#1755](https://github.com/Autonoma-AI/agent/issues/1755)) ([cac7134](https://github.com/Autonoma-AI/agent/commit/cac7134e6041c868bae96a22d16114062ae44fec))
+* **cli:** drop the manual SDK-handoff questions; brighter file highlight ([#1708](https://github.com/Autonoma-AI/agent/issues/1708)) ([aae35da](https://github.com/Autonoma-AI/agent/commit/aae35dae393db03392ec232ec8630f24719ac58b))
+* **cli:** stop the planner from stripping fields the recipe upload requires ([#1814](https://github.com/Autonoma-AI/agent/issues/1814)) ([b386291](https://github.com/Autonoma-AI/agent/commit/b386291e59272fe5303fa761d2235f008c555faa))
+
 ## [0.1.21](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.20...cli-v0.1.21) (2026-07-16)
 
 
