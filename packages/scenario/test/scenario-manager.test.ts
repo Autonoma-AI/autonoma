@@ -434,6 +434,38 @@ integrationTestSuite({
             await expect(manager.up(subject, scenarioId)).rejects.toThrow("does not have a stored recipe version");
         });
 
+        test("down: tears down against the endpoint up was pointed at, not the stored one", async ({
+            harness,
+            seedResult: { orgId, manager },
+        }) => {
+            harness.webhookServer.onRequest(() => ({
+                status: 200,
+                body: { auth: {}, refs: {}, refsToken: "tok" },
+            }));
+
+            // Its OWN app, whose stored endpoint points at a port nothing listens on: any call that
+            // ignores the override fails outright, so reaching the webhook server proves it was used.
+            // A fresh app rather than editing the seeded one, which the whole suite shares.
+            const { appId, deploymentId } = await harness.createApp(orgId, {
+                webhookUrl: "http://127.0.0.1:1/never-listening",
+                signingSecret: SIGNING_SECRET,
+            });
+            const scenarioId = await harness.createScenario(orgId, appId, "targeted", {
+                Organization: [{ name: "Acme Corp" }],
+            });
+            const generationId = await harness.createGeneration(orgId, appId, deploymentId);
+            const subject = new GenerationSubject(harness.db, generationId);
+            const override = harness.webhookServer.url;
+
+            const instance = await manager.up(subject, scenarioId, { sdkUrlOverride: override });
+            const torn = await manager.down(instance.id, undefined, override);
+
+            expect(instance.status).toBe("UP_SUCCESS");
+            expect(torn?.status).toBe("DOWN_SUCCESS");
+            // Both halves reached the overridden endpoint: an up here and a down here.
+            expect(harness.webhookServer.requests.map((request) => request.body.action)).toEqual(["up", "down"]);
+        });
+
         test("up: provisions a candidate recipe without storing it", async ({
             harness,
             seedResult: { orgId, appId, deploymentId, manager },

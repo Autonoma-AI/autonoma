@@ -207,7 +207,20 @@ export class ScenariosService extends Service {
      * future run uses. `save` then promotes the candidate, and only if the whole cycle
      * passed - a recipe that failed can never become the active one through this path.
      */
-    async dryRun(applicationId: string, organizationId: string, scenarioId: string, opts?: DryRunOptions) {
+    async dryRun(
+        applicationId: string,
+        organizationId: string,
+        scenarioId: string,
+        opts?: DryRunOptions,
+        /**
+         * Which preview to provision against, instead of the app's stored SDK endpoint.
+         *
+         * Must be RESOLVED SERVER-SIDE from a target id (see `listSdkDryRunTargets`) - never taken
+         * from a client, or a caller could point a signed provisioning request at any host. It is
+         * passed to `down` as well as `up`, so teardown reaches the same place setup did.
+         */
+        resolvedSdkUrl?: string,
+    ) {
         const { recipe, save = false } = opts ?? {};
         this.logger.info("Running scenario dry run", {
             applicationId,
@@ -258,6 +271,7 @@ export class ScenariosService extends Service {
         const instance = await this.scenarioManager.up(subject, scenarioId, {
             coldStartRetry: true,
             candidateRecipe: recipe,
+            sdkUrlOverride: resolvedSdkUrl,
         });
 
         if (instance.status === "UP_FAILED") {
@@ -272,7 +286,7 @@ export class ScenariosService extends Service {
             };
         }
 
-        const downResult = await this.scenarioManager.down(instance.id);
+        const downResult = await this.scenarioManager.down(instance.id, undefined, resolvedSdkUrl);
 
         if (downResult?.status === "DOWN_FAILED") {
             this.logger.info("Dry run failed during down phase", { applicationId, scenarioId });

@@ -10,6 +10,7 @@ import { deprecatedBuildNotice } from "./deprecated-build-notice";
 import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
 import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
+import { resolveDryRunTargetUrl } from "./resolve-dry-run-target";
 import type { RepoContext } from "./resolve-repo-context";
 import { jsonResult, toToolResult, unavailableResult } from "./tool-result";
 
@@ -620,8 +621,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "wrong guess costs nothing. Loop edit -> dry_run_scenario(recipe) as many times as you need, then " +
                 "pass `save: true` on the run that passes (it saves only after a clean up/down, so a recipe you have " +
                 "not seen work cannot be promoted). Omit `recipe` to run whatever is stored. " +
-                "NOTE: this hits the SDK endpoint currently configured for the app, which is not necessarily this " +
-                "PR's preview - so it tests the recipe, not this PR's SDK handler code. A scaled-to-zero preview " +
+                "By default this hits the SDK endpoint currently configured for the app, which is not necessarily this " +
+                "PR's preview - pass `target` (from list_dry_run_targets) to run against a specific one, which is what " +
+                "you want when the PR carries your SDK handler. A scaled-to-zero preview " +
                 "503s while it wakes; the tool rides through that warm-up, so give the first run extra time.",
             inputSchema: {
                 repoFullName: repoPrInput.repoFullName,
@@ -635,13 +637,20 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                     .describe(
                         "Make `recipe` the active recipe, but only if this run passes. Ignored without `recipe`.",
                     ),
+                target: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "A target `id` from list_dry_run_targets - the preview to provision against. Omit to use " +
+                            "the app's currently configured SDK endpoint, which is NOT necessarily this PR's.",
+                    ),
             },
             // Destructive because `save: true` promotes the candidate to the active recipe -
             // the same production mutation update_recipe performs. This server has no mutex
             // or activity feed, so the annotation is the only chance a client gets to prompt.
             annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
         },
-        async ({ repoFullName, scenarioId, recipe, save = false }) =>
+        async ({ repoFullName, scenarioId, recipe, save = false, target }) =>
             analytics.track("dry_run_scenario", async () => {
                 logger.info("dry_run_scenario", {
                     extra: { repoFullName, scenarioId, candidate: recipe != null, save },
@@ -653,8 +662,33 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                         organizationId,
                         scenarioId,
                         dryRunOptions(recipe, save),
+                        await resolveDryRunTargetUrl(services, applicationId, organizationId, target),
                     );
                     return jsonResult(result);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "list_dry_run_targets",
+        {
+            title: "List the previews a dry run can target",
+            description:
+                "List the preview environments a scenario dry run can be pointed at - this app's open PR previews " +
+                "and its main deployment - with whether each is deployed yet. Use a returned target `id` as " +
+                "dry_run_scenario's `target` to test a recipe against a SPECIFIC preview; without one the dry run " +
+                "uses the app's stored SDK endpoint, which is not necessarily the PR you are working on.",
+            inputSchema: { repoFullName: repoPrInput.repoFullName },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        },
+        async ({ repoFullName }) =>
+            analytics.track("list_dry_run_targets", async () => {
+                logger.info("list_dry_run_targets", { extra: { repoFullName } });
+                try {
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    return jsonResult(await services.onboarding.listSdkDryRunTargets(applicationId, organizationId));
                 } catch (err) {
                     return toToolResult(err);
                 }

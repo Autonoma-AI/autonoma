@@ -163,7 +163,20 @@ export class ScenarioManager {
         return this.markUpSuccess(instance.id, response, createPayload, resolvedVariables);
     }
 
-    async down(scenarioInstanceId: string, options?: SdkCallOptions): Promise<ScenarioInstance | undefined> {
+    /**
+     * Tear down a provisioned instance.
+     *
+     * `sdkUrlOverride` MUST match whatever `up` used. The instance records which deployment it
+     * belongs to, not which URL it was provisioned against, so an `up` aimed at some other preview
+     * would otherwise be torn down against the stored endpoint - leaving the real entities behind.
+     * Callers that split up and down across processes cannot rely on this and would need the URL
+     * persisted; today's only override caller does both in one function.
+     */
+    async down(
+        scenarioInstanceId: string,
+        options?: SdkCallOptions,
+        sdkUrlOverride?: string,
+    ): Promise<ScenarioInstance | undefined> {
         const instance = await this.db.scenarioInstance.findUnique({
             where: { id: scenarioInstanceId },
         });
@@ -188,6 +201,7 @@ export class ScenarioManager {
         const applicationData = await this.getApplicationDataForDeployment(
             instance.applicationId,
             instance.deploymentId,
+            sdkUrlOverride,
         );
         const sdkClient = this.createSdkClient(applicationData);
 

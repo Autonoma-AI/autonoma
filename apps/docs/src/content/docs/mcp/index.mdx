@@ -181,8 +181,9 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | `edit_previewkit_config` | repo, PR, app, fields | Changes structural config for one service (path, Dockerfile, port, health check, build-secret keys, connections) and rebuilds it. Only the fields you pass change; never sets a secret value |
 | `apply_config` | repo, PR, document, apply? | Saves a FULL config document (call `get_config` first, edit it, send the whole thing back) and, unless `apply:false`, redeploys the whole environment. The path for reshaping the preview: adding or removing an app, a service (a database, cache, side-container), or an addon - things a single-service edit can't express |
 | `wait_for_deploy` | repo, PR, app? | Blocks (up to ~45s, then re-callable) until the deploy settles (ready or failed) and returns the outcome plus the last few log lines, so you can see progress and keep debugging after a `set_secret`, `edit_previewkit_config`, or `apply_config` rebuild |
-| `dry_run_scenario` | repo, scenarioId, recipe?, save? | Runs a recipe against your deployed SDK (`up` then `down`). Pass a `recipe` to try an edit **without storing it**; pass `save: true` to promote it, which happens only if the run passes |
-| `update_recipe` | repo, scenarioId, recipe | Saves a recipe as the active one. Validated on save and rejected with the exact problems. Affects every future run of that scenario |
+| `dry_run_scenario` | repo, scenarioId, recipe?, save?, target? | Runs a recipe against your deployed SDK (`up` then `down`). Pass a `recipe` to try an edit **without storing it**; pass `save: true` to promote it, which happens only if the run passes; pass a `target` to run against a specific preview instead of the app's stored endpoint |
+| `list_dry_run_targets` | repo | The previews a dry run can be pointed at - the app's open PR previews and its main deployment, with whether each is deployed yet. Use a returned `id` as `dry_run_scenario`'s `target` |
+| `update_recipe` | repo, scenarioId, recipe, baseFingerprint? | Saves a recipe as the active one. Validated on save and rejected with the exact problems. Pass the `fingerprint` from `get_recipe` so a write that races another editor is rejected with their version rather than overwriting it. Affects every future run of that scenario |
 
 The write tools split cleanly by what they change, so your agent never has to guess which to use:
 
@@ -210,6 +211,8 @@ Passing a `recipe` runs *that* candidate instead of the stored one and persists 
 :::
 
 Two different things can be wrong, and they iterate at very different speeds. The **recipe** (wrong fields, a missing entity, a `_ref` pointing at nothing) is fixed here, in seconds. Your **SDK handler code** (a missing factory for a model, a broken insert) lives in your repo and only changes when the app is rebuilt and redeployed.
+
+By default a dry run hits the SDK endpoint the app currently has configured, which is not necessarily the preview for the PR you are working on. When your handler change is already deployed to its own PR preview, `list_dry_run_targets` plus `dry_run_scenario`'s `target` runs against that preview directly - so you can test a handler change without waiting for it to become the app's configured endpoint.
 
 They all apply asynchronously, so the loop is: **fix** with `set_secret` / `edit_previewkit_config` / `apply_config`, **confirm** with `wait_for_deploy` (which streams a short log tail and tells you `settled: false` if the rebuild is still running so you can call it again), then re-read if it failed.
 

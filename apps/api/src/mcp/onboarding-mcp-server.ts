@@ -15,6 +15,7 @@ import { deprecatedBuildNotice } from "./deprecated-build-notice";
 import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
 import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
+import { resolveDryRunTargetUrl } from "./resolve-dry-run-target";
 import { describeError, errorResult, jsonResult, toToolResult } from "./tool-result";
 
 /**
@@ -602,6 +603,30 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     );
 
     server.registerTool(
+        "list_dry_run_targets",
+        {
+            title: "List the previews a dry run can target",
+            description:
+                "List the preview environments a scenario dry run can be pointed at - the app's open PR " +
+                "previews and its main deployment - with which one Autonoma auto-detected as the SDK " +
+                "implementation PR and whether each is deployed yet. Use a returned target `id` with " +
+                "dry_run_scenario's `target` when you need to test against a specific preview (typically the " +
+                "PR that carries your SDK handler) rather than whatever endpoint the app currently has stored.",
+            inputSchema: { applicationId: z.string() },
+        },
+        async ({ applicationId }) =>
+            analytics.track("list_dry_run_targets", async () => {
+                try {
+                    const organizationId = await resolveOrg(applicationId);
+                    return jsonResult(await services.onboarding.listSdkDryRunTargets(applicationId, organizationId));
+                } catch (err) {
+                    logger.warn("list_dry_run_targets failed", { applicationId, err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
         "dry_run_scenario",
         {
             title: "Test a scenario recipe",
@@ -635,18 +660,32 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     .describe(
                         "Make `recipe` the active recipe, but only if this run passes. Ignored without `recipe`.",
                     ),
+                target: z
+                    .string()
+                    .optional()
+                    .describe(
+                        "A target `id` from list_dry_run_targets - the preview to provision against. Omit to use " +
+                            "the app's currently configured SDK endpoint.",
+                    ),
                 description: activityDescription,
             },
         },
-        async ({ applicationId, scenarioId, recipe, save = false, description }) =>
+        async ({ applicationId, scenarioId, recipe, save = false, target, description }) =>
             guardedWrite(
                 {
                     applicationId,
                     tool: "dry_run_scenario",
                     message: description ?? describeDryRun(recipe != null, save),
-                    toolArguments: { scenarioId, candidate: recipe != null, save },
+                    toolArguments: { scenarioId, candidate: recipe != null, save, target: target ?? null },
                 },
-                (org) => services.scenarios.dryRun(applicationId, org, scenarioId, dryRunOptions(recipe, save, userId)),
+                async (org) =>
+                    services.scenarios.dryRun(
+                        applicationId,
+                        org,
+                        scenarioId,
+                        dryRunOptions(recipe, save, userId),
+                        await resolveDryRunTargetUrl(services, applicationId, org, target),
+                    ),
             ),
     );
 
