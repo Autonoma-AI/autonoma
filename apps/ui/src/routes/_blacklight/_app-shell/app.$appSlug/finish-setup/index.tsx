@@ -37,6 +37,7 @@ import { type PreviewLogSource, PreviewLogsTabs } from "components/build-logs/pr
 import { ConnectAgentDialog, DEBUG_MCP_DOCS_URL } from "components/connect-agent-dialog";
 import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { useAuth } from "lib/auth";
+import { type DryRunOutcome, formatDryRunError } from "lib/format-dry-run-error";
 import {
   useAvailableVercelProjects,
   useConfigureAndDiscoverSdkTarget,
@@ -1332,20 +1333,6 @@ function DryRunStepBody({
   return <DryRunList applicationId={applicationId} selectedTargetId={selectedTargetId} />;
 }
 
-interface DryRunResult {
-  success: boolean;
-  phase?: string;
-  error?: string;
-}
-
-/** The dry-run error is `unknown` over the wire; render it as a readable string. */
-function formatDryRunError(error: unknown): string | undefined {
-  if (error == null) return undefined;
-  if (typeof error === "string") return error.length > 0 ? error : undefined;
-  if (error instanceof Error) return error.message;
-  return JSON.stringify(error);
-}
-
 function DryRunList({
   applicationId,
   selectedTargetId,
@@ -1356,7 +1343,7 @@ function DryRunList({
   const { data: scenarios } = useOnboardingScenarios(applicationId);
   const { data: targets } = useSdkDryRunTargets(applicationId);
   const runDryRun = useRunScenarioDryRun();
-  const [results, setResults] = useState<Record<string, DryRunResult>>({});
+  const [results, setResults] = useState<Record<string, DryRunOutcome>>({});
   const [isRunning, setIsRunning] = useState(false);
   const [logsExpanded, setLogsExpanded] = useState(true);
   // Owned here rather than lifted from the SDK step: that step's dialog lives in a
@@ -1379,7 +1366,7 @@ function DryRunList({
     setResults({});
     for (const scenario of list) {
       try {
-        const result = await new Promise<DryRunResult>((resolve, reject) => {
+        const result = await new Promise<DryRunOutcome>((resolve, reject) => {
           runDryRun.mutate(
             { applicationId, scenarioId: scenario.id, targetId: selectedTargetId },
             {
@@ -1390,8 +1377,11 @@ function DryRunList({
           );
         });
         setResults((prev) => ({ ...prev, [scenario.id]: result }));
-      } catch {
-        setResults((prev) => ({ ...prev, [scenario.id]: { success: false } }));
+      } catch (err) {
+        // Keep the reason on the row. A dry run that throws never reaches the SDK, so it
+        // leaves no instance and no preview logs - the toast carrying this message is the
+        // only other place it appears, and it is gone in seconds.
+        setResults((prev) => ({ ...prev, [scenario.id]: { success: false, error: formatDryRunError(err) } }));
       }
     }
     setIsRunning(false);

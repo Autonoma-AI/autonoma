@@ -47,8 +47,10 @@ import { WebhooksLogoIcon } from "@phosphor-icons/react/WebhooksLogo";
 import { XIcon } from "@phosphor-icons/react/X";
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { DryRunOutcomeNote } from "components/scenarios/dry-run-outcome-note";
 import { ScenarioInstancesList } from "components/scenarios/scenario-instances-list";
 import { useAuth } from "lib/auth";
+import { type DryRunOutcome, formatDryRunError } from "lib/format-dry-run-error";
 import { useAPIMutation } from "lib/query/api-queries";
 import { ensureScenariosData } from "lib/query/scenarios.queries";
 import { trpc } from "lib/trpc";
@@ -728,6 +730,7 @@ function InstancesDrawerSkeleton() {
 
 function ScenarioRow({ scenario, applicationId }: { scenario: ScenarioData; applicationId: string }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [outcome, setOutcome] = useState<DryRunOutcome | undefined>(undefined);
   const queryClient = useQueryClient();
 
   const dryRun = useAPIMutation({
@@ -741,11 +744,20 @@ function ScenarioRow({ scenario, applicationId }: { scenario: ScenarioData; appl
         });
       },
     }),
-    successToast: { title: "Dry run passed" },
+    // No successToast: the procedure RESOLVING only means the request completed - the run
+    // itself reports its own pass/fail in the payload, so a blanket "Dry run passed" toast
+    // announced success on runs that had just failed. The outcome is rendered on the row
+    // instead, where a failure's reason stays put rather than expiring with a toast.
+    onSuccess: (data) => setOutcome({ success: data.success, phase: data.phase, error: formatDryRunError(data.error) }),
+    // A throw means the run never reached the SDK (most often a recipe that would not
+    // resolve), so there is no instance and no preview log to read afterwards.
+    onError: (error) => setOutcome({ success: false, error: formatDryRunError(error) }),
+    errorToast: { title: "Dry run failed" },
   });
 
   function handleDryRun(e: React.MouseEvent) {
     e.stopPropagation();
+    setOutcome(undefined);
     dryRun.mutate({ applicationId, scenarioId: scenario.id });
   }
 
@@ -794,6 +806,13 @@ function ScenarioRow({ scenario, applicationId }: { scenario: ScenarioData; appl
           </Button>
         </td>
       </tr>
+      {outcome != null && (
+        <tr className="border-b border-border-dim">
+          <td colSpan={4} className="px-4 pb-3">
+            <DryRunOutcomeNote outcome={outcome} />
+          </td>
+        </tr>
+      )}
       <ScenarioDrawer
         scenario={scenario}
         applicationId={applicationId}
