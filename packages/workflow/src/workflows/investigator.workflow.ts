@@ -55,8 +55,15 @@ const SELF_HEAL_RERUN_REASON =
 /** How much of a fault's underlying error message to carry into the finding headline (the rest is only logged). */
 const FAULT_DETAIL_CAP = 200;
 
+/**
+ * Classification is the long pole of an Investigator pass: the vision probes, then a multi-step tool loop whose
+ * `analyze_video` reads re-send the whole recording, then the verdict call. Its own abort timeouts (3m probe +
+ * 12m investigation + 6m verdict) are what actually bound it, and they sum ABOVE 20m - so startToClose, the
+ * outer net, has to sit above that sum or Temporal kills a classification that is still making progress and the
+ * test is contained as an engine artifact instead of getting a verdict.
+ */
 const investigation = proxyActivities<InvestigationActivities>({
-    startToCloseTimeout: "20m",
+    startToCloseTimeout: "30m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.DIFFS,

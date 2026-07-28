@@ -68,6 +68,13 @@ export interface ClassifierDeps {
     /** The preview's k8s deployment health (worker injects the k8s client). */
     loadDeploymentHealth(): Promise<string>;
     reasoningModel: LanguageModel;
+    /** The model behind the screenshot tools and the deterministic probes. */
     visionModel: LanguageModel;
+    /**
+     * The model behind the `analyze_video` tool. Deliberately a DIFFERENT model from {@link visionModel}: video
+     * reads use the model that is best at literal value perception, while the screenshots stay on the other one,
+     * so a hallucinated video read can still be contradicted by an independent cross-model screenshot read.
+     */
+    videoModel: LanguageModel;
     maxSteps: number;
 }

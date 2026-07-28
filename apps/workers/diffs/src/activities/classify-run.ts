@@ -1,3 +1,4 @@
+import { InlineMp4VideoUploader } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import {
     LocalCodebaseReader,
@@ -13,6 +14,7 @@ import {
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { type InvestigationRunStep, stepOutputDataSchema } from "@autonoma/types";
 import type { ClassifyInvestigationRunInput, InvestigationTestResult } from "@autonoma/workflow/activities";
+import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import { resolvePrMeta } from "../codebase/pr-meta";
 import { withSnapshotContext } from "../codebase/snapshot-context";
 import { env } from "../env";
@@ -155,6 +157,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
                     "Deployment health is not wired in investigation v1 (no cross-cluster k8s read configured) - infer service health from the run + app logs instead.",
                 reasoningModel: session.getModel({ model: "classifier", tag: "investigation-classify" }),
                 visionModel: session.getModel({ model: "smart-visual", tag: "investigation-vision" }),
+                videoModel: session.getModel({ model: "smart-video", tag: "investigation-vision-video" }),
                 maxSteps: env.INVESTIGATION_CLASSIFY_MAX_STEPS,
             },
         );
@@ -306,10 +309,8 @@ export async function buildRunArtifacts(generation: GenerationRow): Promise<RunA
     // Prefer the dead-time-stripped mp4 the vision model bills fewer frames for; fall back to the original webm.
     const videoKey = generation.optimizedVideoUrl ?? generation.videoUrl;
     const videoBytes = videoKey != null ? await downloadMedia(videoKey) : undefined;
-    const video: RunVideo | undefined =
-        videoBytes != null
-            ? { data: videoBytes, mediaType: generation.optimizedVideoUrl != null ? "video/mp4" : "video/webm" }
-            : undefined;
+    const video =
+        videoBytes != null ? await resolveRunVideo(videoBytes, generation.optimizedVideoUrl != null) : undefined;
     const finalScreenshot =
         generation.finalScreenshot != null ? await downloadMedia(generation.finalScreenshot) : undefined;
 
@@ -333,6 +334,30 @@ export async function buildRunArtifacts(generation: GenerationRow): Promise<RunA
             rootLogger.warn("Could not download run media", { extra: { urlOrKey }, err: error });
             return undefined;
         }
+    }
+}
+
+/**
+ * Hand the classifier an mp4 recording. Both vision models route through OpenRouter, which accepts mp4 and
+ * rejects webm - the optimizer's output already is mp4, but a pre-optimizer run only has the original webm, so
+ * transcode it. A failed transcode still hands over the webm: the vision calls will likely be rejected and
+ * degrade to their own "could not analyze" note, which is strictly better than dropping the recording.
+ */
+async function resolveRunVideo(video: Uint8Array, isOptimizedMp4: boolean): Promise<RunVideo> {
+    if (isOptimizedMp4) return { data: video, mediaType: "video/mp4" };
+    const logger = rootLogger.child({ name: "resolveRunVideo" });
+    try {
+        const mp4 = await new InlineMp4VideoUploader(ffmpeg.path).transcodeToMp4(video);
+        logger.info("Transcoded a pre-optimizer webm recording to mp4", {
+            extra: { webmBytes: video.length, mp4Bytes: mp4.length },
+        });
+        return { data: new Uint8Array(mp4), mediaType: "video/mp4" };
+    } catch (error) {
+        logger.warn("Could not transcode the webm recording to mp4; sending it as-is", {
+            extra: { webmBytes: video.length },
+            err: error,
+        });
+        return { data: video, mediaType: "video/webm" };
     }
 }
 

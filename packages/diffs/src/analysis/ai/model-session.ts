@@ -4,6 +4,7 @@ import {
     CostCollector,
     inputCacheCostFunction,
     type LanguageModel,
+    MODEL_ENTRIES,
     type ModelEntry,
     type ModelOptions,
     ModelRegistry,
@@ -12,13 +13,18 @@ import {
 
 /**
  * Capability-named registry keys (following the engine's `{fast,smart,genius}-{visual,text}` convention).
- * - `smart-visual`: the cheap/fast tool-loop + vision model (Gemini Flash via OpenRouter), like diffs.
+ * - `smart-visual`: the cheap/fast vision model behind the deterministic probes and the screenshot tools
+ *   (Gemini Flash via OpenRouter), like diffs.
+ * - `smart-video`: the vision model behind the `analyze_video` tool (MiniMax M3 via OpenRouter). Deliberately a
+ *   DIFFERENT model from `smart-visual`: it reads literal on-screen values (a `-$350` sign, a card colour) far
+ *   more reliably, but it also invents error states - so the screenshot reads stay on `smart-visual` and a video
+ *   hallucination can still be caught by an independent cross-model read.
  * - `classifier`: the higher-quality final classifier (native OpenAI gpt-5.6-luna - it needs the native
  *   provider because it fails structured output through OpenRouter).
  * - `reporter`: the Reporter agent's model - strictly above `smart-visual` because it must BOTH read
  *   screenshots (vision) AND reason across findings/issues/time (a stronger native OpenAI gpt-5.6 tier).
  */
-export type InvestigationModelName = "smart-visual" | "classifier" | "reporter";
+export type InvestigationModelName = "smart-visual" | "smart-video" | "classifier" | "reporter";
 
 export interface InvestigationModelConfig {
     openaiApiKey: string;
@@ -26,6 +32,8 @@ export interface InvestigationModelConfig {
     classifierModelId?: string;
     /** Override the Reporter model id (default gpt-5.6-terra - the stronger vision+reasoning tier). */
     reporterModelId?: string;
+    /** Override the `analyze_video` model id (default minimax/minimax-m3), to revert without a code change. */
+    videoModelId?: string;
 }
 
 /** A per-run, metered facade over the @autonoma/ai model registry (mirrors the diffs ModelSession). */
@@ -48,6 +56,17 @@ interface ClassifierModel {
 
 const DEFAULT_CLASSIFIER_MODEL = "gpt-5.6-luna";
 const DEFAULT_REPORTER_MODEL = "gpt-5.6-terra";
+const DEFAULT_VIDEO_MODEL = "minimax/minimax-m3";
+
+/**
+ * The video-capable models `smart-video` can resolve to, keyed by OpenRouter id, so the video model is
+ * revertible through config rather than a deploy. Both route through OpenRouter, which rejects webm - the
+ * caller must hand these models mp4 (see the classify activity's transcode of pre-optimizer recordings).
+ */
+const VIDEO_MODELS: Record<string, ModelEntry> = {
+    "minimax/minimax-m3": MODEL_ENTRIES.MINIMAX_M3,
+    "google/gemini-3-flash-preview": OPENROUTER_MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW,
+};
 
 /**
  * Native-OpenAI models, keyed by id. Each entry declares its API surface and pricing together; add
@@ -71,7 +90,7 @@ const CLASSIFIER_MODELS: Record<string, ClassifierModel> = {
 
 /**
  * Open a metered model session. Reuses @autonoma/ai's ModelRegistry (providers, middleware, monitoring,
- * cost tracking) for the shared OpenRouter Gemini-Flash model, and registers a LOCAL native-OpenAI entry
+ * cost tracking) for the shared OpenRouter-routed vision models, and registers a LOCAL native-OpenAI entry
  * for the gpt-5.6-luna classifier (investigation-specific, so it stays out of the shared registry). The OpenAI
  * key is injected; OpenRouter/Gemini/Groq keys are read by @autonoma/ai from its own env.
  */
@@ -87,6 +106,7 @@ export function openModelSession(config: InvestigationModelConfig): ModelSession
     const registry = new ModelRegistry<InvestigationModelName>({
         models: {
             "smart-visual": OPENROUTER_MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW,
+            "smart-video": resolveVideoEntry(config.videoModelId ?? DEFAULT_VIDEO_MODEL),
             classifier: classifierEntry,
             reporter: reporterEntry,
         },
@@ -111,4 +131,13 @@ function resolveNativeEntry(openai: OpenAIProvider, modelId: string, capability:
         createModel: () => model.createModel(openai),
         pricing: model.pricing,
     };
+}
+
+/** Resolve the `smart-video` capability key to one of the {@link VIDEO_MODELS}, throwing on an unknown id. */
+function resolveVideoEntry(modelId: string): ModelEntry {
+    const entry = VIDEO_MODELS[modelId];
+    if (!entry) {
+        throw new Error(`Unknown video model id "${modelId}". Valid ids: ${Object.keys(VIDEO_MODELS).join(", ")}`);
+    }
+    return entry;
 }

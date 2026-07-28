@@ -8,11 +8,11 @@ import type { LanguageModel } from "./model-registry";
  * The minimal provider surface {@link LLMProvider} relies on: a `languageModel` factory. We only
  * resolve language models, so we require just this rather than the full AI SDK `Provider` - which
  * lets partial providers (e.g. OpenRouter's, which omits `embeddingModel` / `specificationVersion`)
- * be wrapped. The `never` parameter keeps the constraint contravariantly permissive across providers
- * whose `languageModel` accepts a narrower model-id union.
+ * be wrapped. The `never` parameters keep the constraint contravariantly permissive across providers
+ * whose `languageModel` accepts a narrower model-id union or its own settings shape.
  */
 interface LanguageModelProvider {
-    languageModel(modelId: never): LanguageModel;
+    languageModel(modelId: never, settings?: never): LanguageModel;
 }
 
 /** Singleton class to create an LLM provider instance. */
@@ -28,8 +28,15 @@ export class LLMProvider<TProvider extends LanguageModelProvider> {
         return this.instance!;
     }
 
-    public getModel(modelId: Parameters<TProvider["languageModel"]>[0]): LanguageModel {
-        return this.getInstance().languageModel(modelId);
+    /**
+     * Resolve a model, optionally with the provider's own model settings (e.g. OpenRouter's `extraBody`, which
+     * carries per-model routing preferences).
+     */
+    public getModel(
+        modelId: Parameters<TProvider["languageModel"]>[0],
+        settings?: Parameters<TProvider["languageModel"]>[1],
+    ): LanguageModel {
+        return this.getInstance().languageModel(modelId, settings);
     }
 }
 

@@ -18,6 +18,17 @@ export interface ModelEntry {
     createUploader?: () => VideoUploader;
 }
 
+/**
+ * OpenRouter serves `minimax/minimax-m3` from eight upstreams and they do NOT agree on video. Probed with one
+ * 3.3 MB run recording, only deepinfra and morph actually received it (~11.7k prompt tokens) and read the
+ * on-screen value correctly; novita and atlas-cloud silently DROPPED the `video_url` part (183 / 26 prompt
+ * tokens) and answered "I don't see any video", venice and together received it but misread the value, and
+ * gmicloud / minimax errored. A silently video-blind answer is the worst possible outcome for a vision tool -
+ * it reads as confident evidence that nothing was on screen - so routing is pinned rather than left to
+ * OpenRouter's default load balancing. Re-probe before widening this list.
+ */
+const MINIMAX_M3_ROUTING = { provider: { only: ["deepinfra", "morph"], allow_fallbacks: false } };
+
 export const MODEL_ENTRIES: Record<
     "GEMINI_3_FLASH_PREVIEW" | "MINISTRAL_8B" | "GPT_OSS_120B" | "MINIMAX_M3",
     ModelEntry
@@ -47,7 +58,7 @@ export const MODEL_ENTRIES: Record<
         }),
     },
     MINIMAX_M3: {
-        createModel: () => openRouterProvider.getModel("minimax/minimax-m3"),
+        createModel: () => openRouterProvider.getModel("minimax/minimax-m3", { extraBody: MINIMAX_M3_ROUTING }),
         // Priced from OpenRouter's minimax/minimax-m3 listing. Cache-read tokens ($0.06/M) are not
         // modelled (OpenRouter per-call cache reporting is not relied on) - a slight overestimate.
         pricing: simpleCostFunction({

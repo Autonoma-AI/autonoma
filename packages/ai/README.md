@@ -134,7 +134,7 @@ const result = await splitter.splitAssertions(
 A `VideoUploader` turns raw recording bytes into an `UploadedVideo` reference a message can carry. Two implementations exist, one per delivery path:
 
 - `VideoProcessor` - uploads to the Google GenAI Files API (for the `google.generative-ai` provider).
-- `InlineMp4VideoUploader` - transcodes the webm recording to mp4 with `ffmpeg` and inlines it as base64 (for OpenRouter-routed models, which reject webm).
+- `InlineMp4VideoUploader` - transcodes the webm recording to mp4 with `ffmpeg` and inlines it as base64 (for OpenRouter-routed models, which reject webm). It runs `ffmpeg` from PATH by default; a host whose image does not ship one passes the bundled binary instead (`new InlineMp4VideoUploader(ffmpeg.path)`). Its `transcodeToMp4(bytes)` is public for callers that attach the video themselves as an AI SDK `file` part and only need the format conversion.
 
 ### Coupling a model to its uploader
 

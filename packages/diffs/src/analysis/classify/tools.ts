@@ -20,6 +20,15 @@ const APP_LOGS_MAX_CHARS = 24_000;
 const PRIOR_RUNS_MAX_CHARS = 24_000;
 const COMPACT_MAX_CHARS = 16_000; // env/health lists, vision answers
 
+/**
+ * Per-call ceilings on the vision generations, so a hung provider connection fails the TOOL (which degrades to a
+ * "could not analyze" note the model can work around) instead of stalling until Temporal kills the whole
+ * activity. The video budget is the loose one: a full-run read re-uploads the whole recording and has been
+ * measured from ~10s to well over a minute depending on run length, where a screenshot answers in seconds.
+ */
+const VIDEO_ANALYSIS_TIMEOUT_MS = 3 * 60_000;
+const SCREENSHOT_ANALYSIS_TIMEOUT_MS = 60_000;
+
 /** The baseline tool: has this test ever passed? Call FIRST to set the prior. */
 export function createPriorRunsTool(loadBaseline: () => Promise<string>, cap: ToolCap): Tool {
     return tool({
@@ -207,16 +216,18 @@ async function describeMedia(
     visionModel: LanguageModel,
     prompt: string,
     media: { type: "image"; image: Uint8Array } | { type: "file"; data: Uint8Array; mediaType: string },
+    timeoutMs: number,
 ): Promise<string> {
     const { text } = await generateText({
         model: visionModel,
         messages: [{ role: "user", content: [{ type: "text", text: prompt }, media] }],
+        abortSignal: AbortSignal.timeout(timeoutMs),
     });
     return text;
 }
 
-/** Ask a vision model a specific question about the full run video (survey the whole run, including errors). */
-export function createAnalyzeVideoTool(run: RunArtifacts, visionModel: LanguageModel, cap: ToolCap): Tool {
+/** Ask the video model a specific question about the full run video (survey the whole run, including errors). */
+export function createAnalyzeVideoTool(run: RunArtifacts, videoModel: LanguageModel, cap: ToolCap): Tool {
     return tool({
         description:
             "Watch the run's full screen recording and answer a SPECIFIC question about it. Survey the WHOLE run, not just the blocking step: where the agent progressed AND every error state on screen (error toasts/banners, red text, 5xx, broken/blank renders, wrong responses) with the exact moment + verbatim text. Ask pointed questions (e.g. 'list every error message shown and after which action') rather than 'what happened'. Use this almost always.",
@@ -225,9 +236,10 @@ export function createAnalyzeVideoTool(run: RunArtifacts, visionModel: LanguageM
             if (run.video == null) return "No video recorded for this run.";
             try {
                 const answer = await describeMedia(
-                    visionModel,
+                    videoModel,
                     `${question}\n\nThis is the full screen recording of the run, start to finish.`,
                     { type: "file", data: run.video.data, mediaType: run.video.mediaType },
+                    VIDEO_ANALYSIS_TIMEOUT_MS,
                 );
                 // truncate (not narrow): re-running a vision call is expensive; keep head+tail rather than ask again.
                 return cap(answer, { tool: "analyze_video", mode: "truncate", maxChars: COMPACT_MAX_CHARS });
@@ -246,10 +258,12 @@ export function createAnalyzeScreenshotTool(run: RunArtifacts, visionModel: Lang
         execute: async ({ question }) => {
             if (run.finalScreenshot == null) return "No final screenshot available.";
             try {
-                const answer = await describeMedia(visionModel, question, {
-                    type: "image",
-                    image: run.finalScreenshot,
-                });
+                const answer = await describeMedia(
+                    visionModel,
+                    question,
+                    { type: "image", image: run.finalScreenshot },
+                    SCREENSHOT_ANALYSIS_TIMEOUT_MS,
+                );
                 return cap(answer, { tool: "analyze_screenshot", mode: "truncate", maxChars: COMPACT_MAX_CHARS });
             } catch (error) {
                 return `Could not analyze the screenshot: ${errorMessage(error)}`;
@@ -274,6 +288,7 @@ export function createViewStepScreenshotTool(run: RunArtifacts, visionModel: Lan
                     visionModel,
                     `This is the screenshot AFTER step ${step} of ${run.stepScreenshots.length}. ${question}`,
                     { type: "image", image },
+                    SCREENSHOT_ANALYSIS_TIMEOUT_MS,
                 );
                 return cap(answer, { tool: "view_step_screenshot", mode: "truncate", maxChars: COMPACT_MAX_CHARS });
             } catch (error) {
@@ -299,7 +314,7 @@ export function buildClassifierTools(deps: ClassifierDeps): Record<string, Tool>
         read_code: createReadCodeTool(deps.codebase, cap),
         grep_code: createGrepCodeTool(deps.codebase, cap),
         git_diff: createGitDiffTool(deps.codebase, cap),
-        analyze_video: createAnalyzeVideoTool(deps.run, deps.visionModel, cap),
+        analyze_video: createAnalyzeVideoTool(deps.run, deps.videoModel, cap),
         analyze_screenshot: createAnalyzeScreenshotTool(deps.run, deps.visionModel, cap),
         view_step_screenshot: createViewStepScreenshotTool(deps.run, deps.visionModel, cap),
     };

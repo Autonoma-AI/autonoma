@@ -9,6 +9,8 @@ import type { UploadedVideo, VideoUploader } from "./video-processor";
 
 const execFileAsync = promisify(execFile);
 
+const DEFAULT_FFMPEG_PATH = "ffmpeg";
+
 /**
  * {@link VideoUploader} for non-Google models routed through OpenRouter.
  *
@@ -17,29 +19,38 @@ const execFileAsync = promisify(execFile);
  * it as a `{ type: "file", data: <base64>, mediaType: "video/mp4" }` part, which
  * `@openrouter/ai-sdk-provider` (>= 2.10) converts into a `video_url` part. This is the non-Google
  * counterpart to {@link import("./video-processor").VideoProcessor} (Google Files API).
- *
- * Requires `ffmpeg` on PATH.
  */
 export class InlineMp4VideoUploader implements VideoUploader {
     private readonly logger = rootLogger.child({ name: this.constructor.name });
 
+    /**
+     * @param ffmpegPath the ffmpeg executable to run. Defaults to `ffmpeg` on PATH; hosts whose image does not
+     * ship ffmpeg pass the bundled binary instead (`@ffmpeg-installer/ffmpeg`'s `path`).
+     */
+    constructor(private readonly ffmpegPath: string = DEFAULT_FFMPEG_PATH) {}
+
     async uploadVideo(videoInput: VideoInput): Promise<UploadedVideo> {
-        const mp4 = await this.transcodeToMp4(videoInput);
+        const inBytes =
+            videoInput.data.type === "buffer"
+                ? Buffer.from(videoInput.data.buffer)
+                : await readFile(videoInput.data.path);
+        const mp4 = await this.transcodeToMp4(inBytes);
         this.logger.info("Inlined recording as mp4 for non-Google model", { extra: { mp4Bytes: mp4.length } });
         return { uri: mp4.toString("base64"), mimeType: "video/mp4" };
     }
 
-    private async transcodeToMp4(videoInput: VideoInput): Promise<Buffer> {
+    /**
+     * Transcode a recording (webm or mp4) to mp4 bytes. Public because callers that attach the video themselves -
+     * as an AI SDK `file` part rather than through {@link uploadVideo} - still need the format conversion:
+     * OpenRouter rejects webm outright.
+     */
+    async transcodeToMp4(video: Uint8Array): Promise<Buffer> {
         const dir = await mkdtemp(join(tmpdir(), "inline-mp4-"));
         const inPath = join(dir, "in");
         const outPath = join(dir, "out.mp4");
         try {
-            const inBytes =
-                videoInput.data.type === "buffer"
-                    ? Buffer.from(videoInput.data.buffer)
-                    : await readFile(videoInput.data.path);
-            await writeFile(inPath, inBytes);
-            await execFileAsync("ffmpeg", [
+            await writeFile(inPath, video);
+            await execFileAsync(this.ffmpegPath, [
                 "-y",
                 "-i",
                 inPath,
