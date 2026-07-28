@@ -2253,6 +2253,35 @@ model PreviewkitAppInstance {
   @@map("previewkit_app_instance")
 }
 
+// A generation of the key that encrypts previewkit secret VALUES. `wrap` is the
+// key material sealed by this environment's KMS CMK - never the plaintext key,
+// which exists only in memory, only in a process that needs it, and never in
+// configuration. These rows are therefore inert without `kms:Decrypt`.
+//
+// One generation is shared by every secret value (not one per bundle). Each
+// stored envelope names the generation `id` it was sealed with, so rotation is:
+// mint a new row as primary, let old envelopes keep resolving to their own
+// generation, re-encrypt in the background, leave the retired row in place.
+// Retired rows are never deleted: the row reserves its `id`, which must stay
+// unambiguous forever because envelopes name one. Because every
+// process resolves keys through this table rather than through its own
+// environment, a rotation needs no coordinated rollout.
+model PreviewkitSecretKey {
+  id        String  @id
+  /// The sealed key, never the plaintext - see `unwrap` in `@autonoma/secrets`.
+  wrap      Bytes
+  // Exactly one row should be primary; `mintSecretKey` demotes the others in the
+  // same transaction. Reads never trust more than the newest primary. Mapped to
+  // `is_primary` because `primary` is a reserved word in Postgres - Prisma quotes
+  // identifiers, but hand-written SQL against it would not have to.
+  primary   Boolean @default(false) @map("is_primary")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([primary])
+  @@map("previewkit_secret_key")
+}
+
 model PreviewkitSecret {
   id            String @id @default(cuid())
   applicationId String @map("application_id")

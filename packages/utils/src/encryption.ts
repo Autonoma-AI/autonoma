@@ -1,12 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
+import { toUint8Array } from "./to-uint8-array";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
-
-function toUint8Array(buf: Buffer): Uint8Array {
-    return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
-}
 
 export class EncryptionHelper {
     private readonly key: Uint8Array;
