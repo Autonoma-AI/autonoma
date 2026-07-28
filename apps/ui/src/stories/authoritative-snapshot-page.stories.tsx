@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
+import { userEvent, within } from "storybook/test";
 import { withRunSignals } from "./analysis-run-signals";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
@@ -475,6 +476,20 @@ export const Report: Story = {
 export const Changes: Story = {
   args: {
     path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/changes/cart-badge-count`,
+  },
+};
+
+/**
+ * The same row with the plan toggled to its diff: the rewritten assertion reads as a two-word edit rather than two
+ * near-identical blocks of prose the reader has to compare by eye.
+ */
+export const ChangesPlanDiff: Story = {
+  args: {
+    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/changes/cart-badge-count`,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: "Diff" }));
   },
 };
 

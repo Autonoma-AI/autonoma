@@ -26,7 +26,7 @@
         "@aws-sdk/client-secrets-manager": "^3.1048.0",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
-        "diff": "^8.0.4",
+        "diff": "catalog:",
         "zod": "catalog:"
     },
     "devDependencies": {

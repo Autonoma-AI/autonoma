@@ -13,6 +13,7 @@
         "build": "tsc -b && vite build",
         "typecheck": "tsc --noEmit",
         "preview": "vite preview",
+        "test": "vitest run",
         "fmt": "oxfmt --write src/"
     },
     "dependencies": {
@@ -25,6 +26,7 @@
         "@tanstack/react-virtual": "catalog:",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
+        "diff": "catalog:",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
         "recharts": "2.15.4",
@@ -39,6 +41,7 @@
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^6.0.1",
         "typescript": "catalog:",
-        "vite": "^8.0.16"
+        "vite": "^8.0.16",
+        "vitest": "catalog:"
     }
 }

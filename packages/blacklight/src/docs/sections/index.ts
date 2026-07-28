@@ -13,6 +13,7 @@ import { CheckboxSection } from "./checkbox";
 import { ColorsSection } from "./colors";
 import { DataTableSection } from "./data-table";
 import { DialogSection } from "./dialog";
+import { DiffSection } from "./diff";
 import { DrawerSection } from "./drawer";
 import { DropdownMenuSection } from "./dropdown-menu";
 import { InputSection } from "./input";
@@ -52,6 +53,7 @@ export const PAGE_COMPONENTS: Record<PageId, () => React.JSX.Element> = {
     checkbox: CheckboxSection,
     "data-table": DataTableSection,
     dialog: DialogSection,
+    diff: DiffSection,
     drawer: DrawerSection,
     "dropdown-menu": DropdownMenuSection,
     input: InputSection,

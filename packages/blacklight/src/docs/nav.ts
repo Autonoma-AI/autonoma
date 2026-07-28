@@ -26,6 +26,7 @@ export type PageId =
     | "textarea"
     | "tooltip"
     | "data-table"
+    | "diff"
     | "charts"
     | "dialog"
     | "dropdown-menu"
@@ -59,6 +60,7 @@ export const NAV_SECTIONS: { label: string; items: { id: PageId; label: string }
             { id: "checkbox", label: "Checkbox" },
             { id: "data-table", label: "Data Table" },
             { id: "dialog", label: "Dialog" },
+            { id: "diff", label: "Diff" },
             { id: "drawer", label: "Drawer" },
             { id: "dropdown-menu", label: "Dropdown Menu" },
             { id: "input", label: "Input" },

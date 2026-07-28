@@ -58,6 +58,7 @@ catalog:
   ai: ^6.0.94
   '@better-auth/api-key': ^1.6.25
   better-auth: ^1.6.25
+  diff: ^8.0.4
   dotenv: ^17.3.1
   hono: ^4.12.31
   '@hono/mcp': ^0.3.0

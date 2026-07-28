@@ -1,4 +1,4 @@
-import { Badge, cn } from "@autonoma/blacklight";
+import { Badge, Diff, cn } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { Link } from "@tanstack/react-router";
 import { analysisVerdictMeta } from "components/analysis/verdict-meta";
@@ -45,14 +45,15 @@ function TestEntryDetail({ entry, isAuthoritative }: { entry: TestEntry; isAutho
       <Prose>{entry.reasoning}</Prose>
     </DetailSection>
   );
-  const planSection = entry.plan != null && entry.plan.trim().length > 0 && (
-    <DetailSection label="Plan">
-      <ClampedProse>{entry.plan}</ClampedProse>
-    </DetailSection>
-  );
-  const previousPlanSection = entry.previousPlan != null && entry.previousPlan.trim().length > 0 && (
+  const plan = nonEmpty(entry.plan);
+  const previousPlan = nonEmpty(entry.previousPlan);
+
+  const planSection = plan != null && <PlanSection plan={plan} previousPlan={previousPlan} />;
+  // A previous plan with no current one means the test was dropped; there is
+  // nothing to diff it against, so it stands on its own.
+  const previousPlanSection = plan == null && previousPlan != null && (
     <DetailSection label="Previous plan">
-      <ClampedProse className="text-text-secondary">{entry.previousPlan}</ClampedProse>
+      <ClampedProse className="text-text-secondary">{previousPlan}</ClampedProse>
     </DetailSection>
   );
   const generationSection = entry.generation != null && (
@@ -144,6 +145,61 @@ function VerdictActions({ verdict }: { verdict: NonNullable<TestEntry["verdict"]
       </AppLink>
     </>
   );
+}
+
+/**
+ * The test's plan. When the checkpoint rewrote it, the previous version is one
+ * toggle away as a diff: the two are near-identical prose, and the edit that
+ * matters is usually a couple of words no reader would spot side by side.
+ */
+function PlanSection({ plan, previousPlan }: { plan: string; previousPlan?: string }) {
+  const [showDiff, setShowDiff] = useState(false);
+
+  if (previousPlan == null) {
+    return (
+      <DetailSection label="Plan">
+        <ClampedProse>{plan}</ClampedProse>
+      </DetailSection>
+    );
+  }
+
+  return (
+    <DetailSection
+      label="Plan"
+      headerExtras={
+        <div className="flex items-center gap-1 font-mono text-2xs uppercase tracking-widest">
+          {[
+            { label: "Current", diff: false },
+            { label: "Diff", diff: true },
+          ].map(({ label, diff }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => setShowDiff(diff)}
+              className={cn(
+                "px-1 transition-colors hover:text-text-primary",
+                showDiff === diff ? "text-text-primary underline" : "text-text-secondary",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      }
+    >
+      {showDiff ? (
+        <Diff oldSource={previousPlan} newSource={plan} showLineNumbers={false} />
+      ) : (
+        <ClampedProse>{plan}</ClampedProse>
+      )}
+    </DetailSection>
+  );
+}
+
+/** The trimmed text, or `undefined` when it is absent or blank. */
+function nonEmpty(text?: string): string | undefined {
+  const trimmed = text?.trim();
+  return trimmed != null && trimmed.length > 0 ? trimmed : undefined;
 }
 
 function reasoningLabel(category: TestEntry["category"]): string {

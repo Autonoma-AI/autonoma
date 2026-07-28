@@ -42,9 +42,11 @@ function Example() {
 
 ### UI Primitives
 
-Button, Card, Dialog, Drawer, DropdownMenu, Popover, Select, Tabs, DataTable, SortableTable, Toast, Tooltip, Input, Textarea, Checkbox, Switch, Label, Badge, Alert, Progress, Separator, Skeleton, ScrollArea, MetricCard, Panel, Sparkline, StatusDot, AgentCube, ChartContainer, ScreenshotWithOverlay, VideoPlayer
+Button, Card, Dialog, Diff, Drawer, DropdownMenu, Popover, Select, Tabs, DataTable, SortableTable, Toast, Tooltip, Input, Textarea, Checkbox, Switch, Label, Badge, Alert, Progress, Separator, Skeleton, ScrollArea, MetricCard, Panel, Sparkline, StatusDot, AgentCube, ChartContainer, ScreenshotWithOverlay, VideoPlayer
 
 `VideoPlayer` is the shared run-recording player: native controls plus a playback-speed selector, and - when an `optimizedSrc` (dead-time-stripped recording) is passed - an Optimized/Original toggle that defaults to the optimized recording.
+
+`Diff` compares two texts (`oldSource` / `newSource`) and renders them as a unified or split line grid, with word-level highlighting on changed lines and a distinct tint for relocated ones. It is tuned for prose rather than code - there is no syntax highlighting, and it defaults to showing the whole text as a single hunk. The diff itself is computed in `src/lib/diff.ts` (jsdiff plus the move-detection and whitespace-collapse policy on top), which is unit-tested and exports `parseSources` along with the `DiffLine` model.
 
 ### Command Display
 
@@ -90,4 +92,6 @@ cd packages/blacklight
 npx shadcn@latest add <component-name>
 ```
 
-Components land in `src/components/ui/`. After adding, re-export from `src/index.ts`.
+Components land in `src/components/ui/`. After adding, re-export from `src/index.ts`, then add a docs section under `src/docs/sections/` and register it in `src/docs/sections/index.ts` and `src/docs/nav.ts`.
+
+Browse the docs site with `pnpm --filter @autonoma/blacklight dev` and open `/docs`. Logic that is not purely presentational (like the diff engine) lives in `src/lib/` with tests; run them with `pnpm --filter @autonoma/blacklight test`.

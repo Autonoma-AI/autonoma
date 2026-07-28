@@ -64,6 +64,8 @@ export {
     DialogDescription,
     DialogClose,
 } from "./components/ui/dialog";
+export { Diff, type DiffProps } from "./components/ui/diff";
+export type { DiffLine, DiffOptions, InlineSegment } from "./lib/diff";
 export {
     Drawer,
     DrawerTrigger,
