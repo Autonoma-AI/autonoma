@@ -1,6 +1,6 @@
 import { bugVerdictSchema } from "@autonoma/types";
 import { z } from "zod";
-import { internalProcedure, protectedProcedure, router } from "../../trpc";
+import { internalProcedure, protectedProcedure, writeProcedure, router } from "../../trpc";
 
 export const bugsRouter = router({
     list: protectedProcedure
@@ -50,19 +50,19 @@ export const bugsRouter = router({
             services.bugs.getBugDetail(input.bugId, organizationId),
         ),
 
-    dismissIssue: protectedProcedure
+    dismissIssue: writeProcedure
         .input(z.object({ issueId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.bugs.dismissIssue(input.issueId, organizationId),
         ),
 
-    resolve: protectedProcedure
+    resolve: writeProcedure
         .input(z.object({ bugId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.bugs.resolveBug(input.bugId, organizationId),
         ),
 
-    reopen: protectedProcedure
+    reopen: writeProcedure
         .input(z.object({ bugId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.bugs.reopenBug(input.bugId, organizationId),

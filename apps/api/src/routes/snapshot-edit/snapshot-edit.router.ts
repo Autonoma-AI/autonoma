@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../../trpc";
+import { protectedProcedure, writeProcedure, router } from "../../trpc";
 
 // 20-char floor matches the CLI generator; a higher floor would reject conformant CLI output.
 const descriptionSchema = z
@@ -7,7 +7,7 @@ const descriptionSchema = z
     .min(20, "State what the test does - a falsifiable behavioral claim, not the steps - in at least 20 characters.");
 
 export const snapshotEditRouter = router({
-    start: protectedProcedure
+    start: writeProcedure
         .input(z.object({ branchId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.snapshotEdit.startEditSession(input.branchId, organizationId),
@@ -19,7 +19,7 @@ export const snapshotEditRouter = router({
             services.snapshotEdit.getEditSession(input.branchId, organizationId),
         ),
 
-    addTest: protectedProcedure
+    addTest: writeProcedure
         .input(
             z.object({
                 branchId: z.string(),
@@ -34,7 +34,7 @@ export const snapshotEditRouter = router({
             services.snapshotEdit.addTest(branchId, rest, organizationId),
         ),
 
-    addTests: protectedProcedure
+    addTests: writeProcedure
         .input(
             z.object({
                 branchId: z.string(),
@@ -55,7 +55,7 @@ export const snapshotEditRouter = router({
             services.snapshotEdit.addTests(branchId, rest, organizationId),
         ),
 
-    updateTest: protectedProcedure
+    updateTest: writeProcedure
         .input(
             z.object({
                 branchId: z.string(),
@@ -68,43 +68,43 @@ export const snapshotEditRouter = router({
             services.snapshotEdit.updateTest(branchId, rest, organizationId),
         ),
 
-    regenerateSteps: protectedProcedure
+    regenerateSteps: writeProcedure
         .input(z.object({ branchId: z.string(), testCaseId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.snapshotEdit.regenerateSteps(input.branchId, input.testCaseId, organizationId),
         ),
 
-    removeTest: protectedProcedure
+    removeTest: writeProcedure
         .input(z.object({ branchId: z.string(), testCaseId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.snapshotEdit.removeTest(input.branchId, input.testCaseId, organizationId),
         ),
 
-    discardChange: protectedProcedure
+    discardChange: writeProcedure
         .input(z.object({ branchId: z.string(), testCaseId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.snapshotEdit.discardChange(input.branchId, input.testCaseId, organizationId),
         ),
 
-    discardGeneration: protectedProcedure
+    discardGeneration: writeProcedure
         .input(z.object({ branchId: z.string(), generationId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.snapshotEdit.discardGeneration(input.branchId, input.generationId, organizationId),
         ),
 
-    queueGenerations: protectedProcedure
+    queueGenerations: writeProcedure
         .input(z.object({ branchId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.snapshotEdit.queueGenerations(input.branchId, organizationId),
         ),
 
-    finalize: protectedProcedure
+    finalize: writeProcedure
         .input(z.object({ branchId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.snapshotEdit.finalize(input.branchId, organizationId),
         ),
 
-    discard: protectedProcedure
+    discard: writeProcedure
         .input(z.object({ branchId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.snapshotEdit.discard(input.branchId, organizationId),

@@ -5,7 +5,7 @@ import {
     TestUserTeardownInputSchema,
 } from "@autonoma/types";
 import { z } from "zod";
-import { protectedProcedure, router } from "../../trpc";
+import { protectedProcedure, writeProcedure, router } from "../../trpc";
 
 export const deploymentsRouter = router({
     listActiveForApp: protectedProcedure
@@ -38,7 +38,7 @@ export const deploymentsRouter = router({
         .query(({ ctx: { services, organizationId }, input }) =>
             services.deployments.deploymentHistory(input.applicationId, input.environmentId, organizationId),
         ),
-    redeployApp: protectedProcedure
+    redeployApp: writeProcedure
         .input(RedeployPreviewkitAppInputSchema)
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.deployments.redeployAppForApplication(
@@ -54,12 +54,12 @@ export const deploymentsRouter = router({
         .query(({ ctx: { services, organizationId }, input }) =>
             services.previewkitEnvFactory.getOptionsForApp(input.applicationId, input.environmentId, organizationId),
         ),
-    testUserProvision: protectedProcedure
+    testUserProvision: writeProcedure
         .input(TestUserProvisionInputSchema)
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.previewkitEnvFactory.provisionForApp({ ...input, organizationId }),
         ),
-    testUserTeardown: protectedProcedure
+    testUserTeardown: writeProcedure
         .input(TestUserTeardownInputSchema)
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.previewkitEnvFactory.teardownForApp({ ...input, organizationId }),

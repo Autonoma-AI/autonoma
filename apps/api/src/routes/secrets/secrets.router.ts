@@ -5,7 +5,7 @@ import {
     ListSecretsInputSchema,
     UpsertSecretsInputSchema,
 } from "@autonoma/types";
-import { protectedProcedure, router } from "../../trpc";
+import { protectedProcedure, writeProcedure, router } from "../../trpc";
 
 export const secretsRouter = router({
     listApps: protectedProcedure
@@ -20,13 +20,13 @@ export const secretsRouter = router({
             services.secrets.list(input.applicationId, input.appName, organizationId),
         ),
 
-    upsert: protectedProcedure
+    upsert: writeProcedure
         .input(UpsertSecretsInputSchema)
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.secrets.upsert(input.applicationId, input.appName, input.items, organizationId),
         ),
 
-    delete: protectedProcedure
+    delete: writeProcedure
         .input(DeleteSecretInputSchema)
         .mutation(async ({ ctx: { services, organizationId }, input }) => {
             const deleted = await services.secrets.delete(

@@ -3,7 +3,7 @@ import { isPreviewUrl, previewOrigin } from "@autonoma/types";
 import { resolvePreviewkitBypassToken } from "@autonoma/utils";
 import { z } from "zod";
 import { env } from "../../env";
-import { protectedProcedure, router } from "../../trpc";
+import { protectedProcedure, writeProcedure, router } from "../../trpc";
 import { probePreview } from "./probe-preview";
 
 /**
@@ -35,7 +35,7 @@ function classifyDeployStatus(status: PreviewkitStatus): "gone" | "deploying" | 
 }
 
 export const previewAccessRouter = router({
-    issueToken: protectedProcedure
+    issueToken: writeProcedure
         .input(z.object({ redirectUrl: z.string().url() }))
         .mutation(async ({ input, ctx: { user } }) => {
             const url = input.redirectUrl.replace(/\/$/, "");

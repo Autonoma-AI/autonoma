@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../../trpc";
+import { protectedProcedure, writeProcedure, router } from "../../trpc";
 
 const testBySlugInput = z.object({ applicationId: z.string(), slug: z.string() });
 
@@ -16,13 +16,13 @@ export const testsRouter = router({
             services.tests.getTestDetail(input.applicationId, input.slug, input.snapshotId, organizationId),
         ),
 
-    rename: protectedProcedure
+    rename: writeProcedure
         .input(z.object({ testId: z.string(), name: z.string().min(1) }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.tests.renameTest(input.testId, input.name, organizationId),
         ),
 
-    delete: protectedProcedure
+    delete: writeProcedure
         .input(z.object({ testId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.tests.deleteTest(input.testId, organizationId),

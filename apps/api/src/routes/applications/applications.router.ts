@@ -1,7 +1,7 @@
 import { ApplicationArchitecture } from "@autonoma/db";
 import { z } from "zod";
 import { zfd } from "zod-form-data";
-import { protectedProcedure, router } from "../../trpc";
+import { protectedProcedure, writeProcedure, router } from "../../trpc";
 
 const CreateApplicationMetadataSchema = z.object({
     name: z.string().min(1),
@@ -44,7 +44,7 @@ export const applicationsRouter = router({
         services.applications.listApplications(organizationId),
     ),
 
-    create: protectedProcedure
+    create: writeProcedure
         .input(CreateApplicationFormDataSchema)
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.applications.createApplicationFromFormData({
@@ -53,7 +53,7 @@ export const applicationsRouter = router({
             }),
         ),
 
-    createMinimal: protectedProcedure
+    createMinimal: writeProcedure
         .input(z.object({ name: z.string().min(1) }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.applications.createMinimalApplication(input.name, organizationId),
@@ -65,18 +65,18 @@ export const applicationsRouter = router({
             services.applications.getSharedSecret(input.applicationId, organizationId),
         ),
 
-    delete: protectedProcedure
+    delete: writeProcedure
         .input(z.object({ id: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.applications.deleteApplication(input.id, organizationId),
         ),
 
-    updateData: protectedProcedure.input(UpdateDataSchema).mutation(({ ctx: { services, organizationId }, input }) => {
+    updateData: writeProcedure.input(UpdateDataSchema).mutation(({ ctx: { services, organizationId }, input }) => {
         const { id, ...data } = input;
         return services.applications.updateData(id, organizationId, data);
     }),
 
-    updateSettings: protectedProcedure
+    updateSettings: writeProcedure
         .input(UpdateSettingsSchema)
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.applications.updateSettings(input.id, organizationId, {

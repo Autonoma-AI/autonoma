@@ -11,6 +11,11 @@ export const env = createEnv({
     server: {
         API_PORT: z.string(),
         INTERNAL_DOMAIN: z.string().optional().default("autonoma.app"),
+        // Organization id of the single read-only demo org. When set, every mutation
+        // whose active org is this id is rejected at the API layer (see writeProcedure
+        // in trpc.ts), so the org powering the public demo can be browsed but never
+        // written to. Unset outside the environments that serve the demo.
+        DEMO_ORG: z.string().optional(),
         // Domain-ownership token OpenAI's Apps directory checks for at
         // /.well-known/openai-apps-challenge before accepting an MCP server
         // registration on this domain. Set per submission; harmless to leave

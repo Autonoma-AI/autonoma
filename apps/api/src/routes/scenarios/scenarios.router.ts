@@ -9,10 +9,10 @@ import {
     RemoveWebhookInputSchema,
     UpdateRecipeInputSchema,
 } from "@autonoma/types";
-import { internalProcedure, protectedProcedure, router } from "../../trpc";
+import { internalProcedure, protectedProcedure, writeProcedure, router } from "../../trpc";
 
 export const scenariosRouter = router({
-    configureWebhook: protectedProcedure
+    configureWebhook: writeProcedure
         .input(ConfigureWebhookInputSchema)
         .mutation(({ ctx, input }) =>
             ctx.services.scenarios.configureWebhook(
@@ -24,13 +24,13 @@ export const scenariosRouter = router({
             ),
         ),
 
-    removeWebhook: protectedProcedure
+    removeWebhook: writeProcedure
         .input(RemoveWebhookInputSchema)
         .mutation(({ ctx, input }) =>
             ctx.services.scenarios.removeWebhook(input.applicationId, input.deploymentId, ctx.organizationId),
         ),
 
-    discover: protectedProcedure
+    discover: writeProcedure
         .input(DiscoverInputSchema)
         .mutation(({ ctx, input }) =>
             ctx.services.scenarios.discover(input.applicationId, input.deploymentId, ctx.organizationId),
@@ -48,7 +48,7 @@ export const scenariosRouter = router({
         .input(ListWebhookCallsInputSchema)
         .query(({ ctx, input }) => ctx.services.scenarios.listWebhookCalls(input.applicationId, ctx.organizationId)),
 
-    dryRun: protectedProcedure
+    dryRun: writeProcedure
         .input(DryRunInputSchema)
         .mutation(({ ctx, input }) =>
             ctx.services.scenarios.dryRun(input.applicationId, ctx.organizationId, input.scenarioId),

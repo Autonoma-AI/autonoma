@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, router } from "../trpc";
+import { protectedProcedure, writeProcedure, router } from "../trpc";
 import { createInstallState } from "./github-state";
 
 export const githubRouter = router({
@@ -40,7 +40,7 @@ export const githubRouter = router({
             services.github.getApplicationRepository(organizationId, input.applicationId),
         ),
 
-    linkRepository: protectedProcedure
+    linkRepository: writeProcedure
         .input(
             z.object({
                 applicationId: z.string(),
@@ -51,13 +51,13 @@ export const githubRouter = router({
             services.github.linkRepository(organizationId, input.applicationId, input.githubRepoId),
         ),
 
-    unlinkRepository: protectedProcedure
+    unlinkRepository: writeProcedure
         .input(z.object({ applicationId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.github.unlinkRepository(organizationId, input.applicationId),
         ),
 
-    disconnect: protectedProcedure.mutation(({ ctx: { services, organizationId } }) =>
+    disconnect: writeProcedure.mutation(({ ctx: { services, organizationId } }) =>
         services.github.disconnect(organizationId),
     ),
 

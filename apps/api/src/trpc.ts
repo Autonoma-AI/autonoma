@@ -16,6 +16,7 @@ import superjson from "superjson";
 import { z } from "zod";
 import { isInternalEmail } from "./auth";
 import type { Context } from "./context";
+import { env } from "./env";
 
 /**
  * A Zod validation failure's default message is the JSON-serialized issues array,
@@ -124,6 +125,21 @@ export const protectedProcedure = t.procedure
 export const internalProcedure = protectedProcedure.use(async ({ ctx, next }) => {
     if (ctx.user.role !== "admin") {
         throw new TRPCError({ code: "FORBIDDEN", message: "Internal access required" });
+    }
+    return next({ ctx });
+});
+
+/**
+ * Like `protectedProcedure`, but rejects any write whose active org is the read-only
+ * demo org (`DEMO_ORG`). Every mutation uses this instead of `protectedProcedure`, so
+ * the write block is one enforced chokepoint rather than a per-resolver check that a
+ * new mutation could forget - the org powering the public demo can be browsed but
+ * never mutated. Reads stay on `protectedProcedure`: a demo viewer with the demo org
+ * active queries it normally. No-op when `DEMO_ORG` is unset (non-demo environments).
+ */
+export const writeProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+    if (env.DEMO_ORG != null && ctx.organizationId === env.DEMO_ORG) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "This is a read-only demo organization." });
     }
     return next({ ctx });
 });

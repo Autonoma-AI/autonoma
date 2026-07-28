@@ -4,7 +4,7 @@ import {
     UploadScenarioRecipeVersionsBodySchema,
 } from "@autonoma/types";
 import { z } from "zod";
-import { protectedProcedure, router } from "../../trpc";
+import { protectedProcedure, writeProcedure, router } from "../../trpc";
 
 export const applicationSetupsRouter = router({
     getLatest: protectedProcedure
@@ -25,7 +25,7 @@ export const applicationSetupsRouter = router({
             services.applicationSetups.artifactStatus(organizationId, input.applicationId),
         ),
 
-    prepareCliSetup: protectedProcedure
+    prepareCliSetup: writeProcedure
         .input(z.object({ applicationId: z.string(), pinnedSetupId: z.string().optional() }))
         .mutation(({ ctx: { services, organizationId, user }, input }) =>
             services.applicationSetups.prepareCliSetup(
@@ -36,19 +36,19 @@ export const applicationSetupsRouter = router({
             ),
         ),
 
-    uploadScenarioRecipeVersions: protectedProcedure
+    uploadScenarioRecipeVersions: writeProcedure
         .input(z.object({ setupId: z.string(), body: UploadScenarioRecipeVersionsBodySchema }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.applicationSetups.uploadScenarioRecipeVersions(input.setupId, organizationId, input.body),
         ),
 
-    uploadArtifacts: protectedProcedure
+    uploadArtifacts: writeProcedure
         .input(z.object({ setupId: z.string(), body: UploadArtifactsBodySchema }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.applicationSetups.uploadArtifacts(input.setupId, organizationId, input.body),
         ),
 
-    updateSetup: protectedProcedure
+    updateSetup: writeProcedure
         .input(z.object({ setupId: z.string(), body: UpdateSetupBodySchema }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.applicationSetups.updateSetup(input.setupId, organizationId, input.body),
