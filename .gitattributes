@@ -2,3 +2,8 @@
 *.jpeg filter=lfs diff=lfs merge=lfs -text
 *.jpg filter=lfs diff=lfs merge=lfs -text
 *.tar.gz filter=lfs diff=lfs merge=lfs -text
+
+# README art is served to anonymous readers through GitHub's markdown image
+# proxy, so it must be a plain blob: an LFS pointer renders as broken text and
+# every view bills against the LFS bandwidth quota. Keep these small (WebP).
+.github/assets/** -filter -diff -merge
