@@ -3,6 +3,7 @@ import * as k8s from "@kubernetes/client-node";
 import { logger as rootLogger } from "../logger";
 
 const POLL_INTERVAL_MS = 3_000;
+const DEFAULT_HOOK_TIMEOUT_MS = 15 * 60 * 1000;
 
 /**
  * Creates a one-off K8s Job in `namespace` using `image`, runs `command`
@@ -33,7 +34,7 @@ export async function runHookJob(
     options?: RunHookJobOptions,
 ): Promise<void> {
     const logger = rootLogger.child({ name: "runHookJob", namespace, app: appName });
-    const timeoutMs = options?.timeoutMs ?? 300_000;
+    const timeoutMs = options?.timeoutMs ?? DEFAULT_HOOK_TIMEOUT_MS;
     const onLog = options?.onLog;
 
     const suffix = Math.random().toString(36).slice(2, 8);
