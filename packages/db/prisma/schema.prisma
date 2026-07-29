@@ -2242,15 +2242,10 @@ model PreviewkitUsageWindow {
   windowStart DateTime @map("window_start")
   windowEnd   DateTime @map("window_end")
 
+  // Zero means zero: a window whose namespace had no samples records the same
+  // 0/0 as a genuinely idle one, and nothing distinguishes them afterwards.
   vcpuSeconds Float @map("vcpu_seconds")
   gbSeconds   Float @map("gb_seconds")
-
-  // True when the sweep found zero samples for this namespace in this window
-  // (the scraper wasn't collecting) rather than genuinely zero usage. Written
-  // at zero usage either way; this flag is what tells the two apart afterwards,
-  // so an outage's unpriced windows can be found and re-billed. Nothing alerts
-  // on it - a run of degraded rows is the only trace a metrics gap leaves.
-  degraded Boolean @default(false)
 
   createdAt DateTime @default(now()) @map("created_at")
 

@@ -18,11 +18,11 @@ const CATCH_UP_CAP_WINDOWS = 16;
 const RECENT_TEARDOWN_LOOKBACK_MS = 2 * 60 * 60 * 1000;
 // Prometheus keeps 7d/25GB (deployment/prometheus-agent/README.md) and evicts on
 // whichever bound hits first, so samples much older than a day aren't reliably
-// there. A checkpoint behind this horizon can only ever close empty, degraded
-// windows, so metering resumes from the horizon instead of grinding through them.
-// Nothing alerts when samples stop arriving: such windows close at zero usage
-// and are only visible as `degraded` rows. The previewkit-metering rule group
-// covers this job failing to run, which is a different thing.
+// there. A checkpoint behind this horizon can only ever close windows at zero
+// usage, so metering resumes from the horizon instead of grinding through them.
+// Samples that stop arriving leave no trace at all - the windows read as idle,
+// and nothing alerts on it. previewkit-metering only covers this job failing to
+// run, which is a different thing.
 const MAX_BACKFILL_MS = 24 * 60 * 60 * 1000;
 
 // Caps the ready-environments query so a runaway fleet can't OOM the cronjob.
@@ -45,8 +45,6 @@ interface WindowClosure {
     windowEnd: Date;
     vcpuSeconds: number;
     gbSeconds: number;
-    /** No samples in either series, so the zero usage recorded is unmeasured rather than idle. */
-    degraded: boolean;
 }
 
 export interface PreviewUsageMeterSweepResult {
@@ -142,7 +140,6 @@ export class PreviewUsageMeterSweepService extends Service {
                         windowEnd,
                         vcpuSeconds: cpuByNamespace.get(env.namespace) ?? 0,
                         gbSeconds: (averageGbByNamespace.get(env.namespace) ?? 0) * WINDOW_SECONDS,
-                        degraded: !cpuByNamespace.has(env.namespace) && !averageGbByNamespace.has(env.namespace),
                     });
                     return { env, succeeded };
                 }),
@@ -269,7 +266,6 @@ export class PreviewUsageMeterSweepService extends Service {
         windowEnd,
         vcpuSeconds,
         gbSeconds,
-        degraded,
     }: WindowClosure): Promise<boolean> {
         const window = await this.db.previewkitUsageWindow.upsert({
             where: { environmentId_windowStart: { environmentId: env.id, windowStart } },
@@ -280,7 +276,6 @@ export class PreviewUsageMeterSweepService extends Service {
                 windowEnd,
                 vcpuSeconds,
                 gbSeconds,
-                degraded,
             },
             update: {},
         });
@@ -292,7 +287,6 @@ export class PreviewUsageMeterSweepService extends Service {
             windowEnd,
             vcpuSeconds,
             gbSeconds,
-            degraded,
         });
 
         try {

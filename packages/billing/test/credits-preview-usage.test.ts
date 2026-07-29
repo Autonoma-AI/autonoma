@@ -138,11 +138,16 @@ integrationTestSuite({
             expect(customer.creditBalance).toBe(1_000);
         });
 
-        test("skips deduction for a degraded window with zero measured usage", async ({ harness }) => {
+        test("skips deduction for a window with zero measured usage", async ({ harness }) => {
             const orgId = await harness.createOrgWithBalance(1_000);
             await setPreviewUsageRates(harness, orgId);
 
-            const didDeduct = await harness.creditsService.deductCreditsForPreviewUsage(orgId, "win-degraded-1", 0, 0);
+            const didDeduct = await harness.creditsService.deductCreditsForPreviewUsage(
+                orgId,
+                "win-zero-usage-1",
+                0,
+                0,
+            );
             expect(didDeduct).toBe(false);
 
             const customer = await harness.db.billingCustomer.findUniqueOrThrow({ where: { organizationId: orgId } });

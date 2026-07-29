@@ -481,10 +481,10 @@ export class CreditsService extends Service {
      * (vCPU-seconds and memory GB-seconds), at the org's flat per-hour rates.
      * Charges are rounded up to a minimum of 1 whole credit, same as
      * `deductCreditsForLlmProxy` - there is no fractional-credit ledger, so an
-     * idle window's sub-credit cost is not tracked between calls. A window
-     * whose measured usage prices out to exactly zero (typically a `degraded`
-     * window with no samples) is skipped entirely, matching the non-positive-
-     * cost guard below.
+     * idle window's sub-credit cost is not tracked between calls. A window whose
+     * measured usage prices out to exactly zero - genuinely idle, or measured
+     * against samples that never arrived - is skipped entirely, matching the
+     * non-positive-cost guard below.
      *
      * Balance floors at zero rather than requiring sufficiency - a mid-flight
      * environment must never be half-billed. Idempotent on `usageWindowId`

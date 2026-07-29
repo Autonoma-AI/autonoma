@@ -65,7 +65,6 @@ integrationTestSuite({
             expect(window.windowEnd).toEqual(windowEnd);
             expect(window.vcpuSeconds).toBe(900);
             expect(window.gbSeconds).toBe(900); // 1 GB avg * 900s (15min) window
-            expect(window.degraded).toBe(false);
             expect(window.organizationId).toBe(orgId);
 
             const updatedEnv = await harness.db.previewkitEnvironment.findUniqueOrThrow({ where: { id: env.id } });
@@ -195,7 +194,7 @@ integrationTestSuite({
             expect(updatedEnv.meteredAt).toBeNull();
         });
 
-        test("marks zero-sample windows as degraded so they can be told apart from idle ones", async ({ harness }) => {
+        test("closes windows at zero usage when no samples came back, charging nothing", async ({ harness }) => {
             const orgId = await harness.createOrgWithBalance(100_000);
             const env = await harness.createPreviewkitEnvironment({
                 organizationId: orgId,
@@ -215,10 +214,10 @@ integrationTestSuite({
                 orderBy: { windowStart: "asc" },
             });
             expect(windows).toHaveLength(2);
-            expect(windows.every((w) => w.degraded)).toBe(true);
             expect(windows.every((w) => w.vcpuSeconds === 0 && w.gbSeconds === 0)).toBe(true);
 
-            // Zero-usage windows never charge a credit, degraded or not.
+            // These are indistinguishable from windows for an idle environment, which
+            // is why an outage's unpriced windows cannot be found again afterwards.
             const customer = await harness.db.billingCustomer.findUniqueOrThrow({ where: { organizationId: orgId } });
             expect(customer.creditBalance).toBe(100_000);
         });
