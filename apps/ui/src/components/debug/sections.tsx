@@ -7,6 +7,7 @@ import { KeyIcon } from "@phosphor-icons/react/Key";
 import { WarningIcon } from "@phosphor-icons/react/Warning";
 import { WebhooksLogoIcon } from "@phosphor-icons/react/WebhooksLogo";
 import { formatDate, formatDuration } from "lib/format";
+import { PreviewLink } from "../preview-link";
 import { DebugSection } from "./debug-section";
 import { ScenarioStatusBadge, SnapshotStatusBadge } from "./status-badges";
 import type { ScenarioInstanceDebug, SnapshotDebug, WebhookCallDebug } from "./types";
@@ -32,15 +33,13 @@ export function EnvironmentSection({ deploymentUrl, scenarioName, snapshot }: En
         {deploymentUrl != null && (
           <div className="flex items-center gap-2">
             <span className="font-mono text-3xs text-text-tertiary">URL</span>
-            <a
-              href={deploymentUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <PreviewLink
+              url={deploymentUrl}
               className="flex min-w-0 items-center gap-1 truncate font-mono text-xs text-primary-ink hover:underline"
             >
               <span className="truncate">{deploymentUrl}</span>
               <ArrowSquareOutIcon size={10} className="shrink-0" />
-            </a>
+            </PreviewLink>
           </div>
         )}
         {scenarioName != null && (

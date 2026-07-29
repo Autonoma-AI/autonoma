@@ -32,6 +32,7 @@ import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { Link, Navigate, createFileRoute } from "@tanstack/react-router";
 import { LogAppFilter } from "components/build-logs/log-app-filter";
 import { PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
+import { PreviewLink } from "components/preview-link";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import {
@@ -456,16 +457,14 @@ function AppRow({ app, environmentId }: { app: PreviewApp; environmentId: string
       </DataTableCell>
       <DataTableCell>
         {app.url != null ? (
-          <a
-            href={app.url}
-            target="_blank"
-            rel="noreferrer"
+          <PreviewLink
+            url={app.url}
             title={app.url}
             className="inline-flex max-w-full items-center gap-1 font-mono text-2xs text-text-secondary hover:text-text-primary hover:underline"
           >
             <ArrowSquareOutIcon size={12} className="shrink-0" />
             <span className="truncate">{app.url}</span>
-          </a>
+          </PreviewLink>
         ) : app.error != null ? (
           <span className="block max-w-md truncate font-mono text-2xs text-status-critical" title={app.error}>
             {app.error}

@@ -33,6 +33,7 @@ import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
+import { PreviewLink } from "components/preview-link";
 import { TabAttention } from "components/tab-attention";
 import { playChime } from "lib/attention/play-chime";
 import {
@@ -403,15 +404,13 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
       </div>
 
       {previewUrl != null ? (
-        <a
-          href={previewUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+        <PreviewLink
+          url={previewUrl}
           className="inline-flex max-w-full items-center gap-1.5 truncate font-mono text-2xs text-primary hover:underline"
         >
           <GlobeIcon size={13} />
           {previewUrl}
-        </a>
+        </PreviewLink>
       ) : isPreviewDeployRequestPhase(diagnostics.phase) ? (
         // The request-accepted window: the deploy was dispatched but no worker
         // activity exists yet, so logs are empty for up to a minute. Show the

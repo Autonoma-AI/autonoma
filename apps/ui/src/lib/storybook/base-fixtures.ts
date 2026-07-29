@@ -51,7 +51,13 @@ export const baseApplication: RouterOutputs["applications"]["list"][number] = {
 };
 
 const baseTrpcFixtures: TrpcFixtures = {
-    auth: { orgStatus: "approved" },
+    auth: {
+        orgStatus: "approved",
+        // The app shell (route.tsx / useActiveOrg) resolves the active org on
+        // every page under it, so the baseline must answer it or those stories
+        // render an error.
+        activeOrg: { id: ORG_ID, name: "Acme", slug: "acme", isDemo: false },
+    },
     applications: { list: [baseApplication] },
     github: { getInstallation: null },
     billing: {

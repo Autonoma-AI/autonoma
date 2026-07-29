@@ -24,6 +24,7 @@ import { LinkIcon } from "@phosphor-icons/react/Link";
 import { TimerIcon } from "@phosphor-icons/react/Timer";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
+import { PreviewLink } from "components/preview-link";
 import { formatDuration } from "lib/format";
 import { useRedeployPreviewApp } from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
@@ -214,15 +215,13 @@ function PreviewAppDetail({
       <div className="flex flex-wrap items-center gap-6">
         <InlineMeta label="URL" icon={LinkIcon}>
           {service.endpoint != null ? (
-            <a
-              href={service.endpoint}
-              target="_blank"
-              rel="noreferrer"
+            <PreviewLink
+              url={service.endpoint}
               className="inline-flex max-w-full items-center gap-1 transition-colors hover:text-text-primary hover:underline"
             >
               <ArrowSquareOutIcon size={11} className="shrink-0" />
               <span className="truncate">{service.endpoint}</span>
-            </a>
+            </PreviewLink>
           ) : (
             "-"
           )}
