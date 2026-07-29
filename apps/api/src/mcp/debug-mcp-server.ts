@@ -666,7 +666,10 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             description:
                 "Read a scenario's active recipe - the `create` graph your SDK endpoint uses to build that " +
                 "scenario's entities. Returns `fixtureJson: null` when the scenario has no recipe yet. Edit it and " +
-                "try it with dry_run_scenario before saving anything.",
+                "try it with dry_run_scenario before saving anything. " +
+                "`liveRecipeVersion` is the recipe test runs on main actually seed: versions are pinned per " +
+                "snapshot, so if `isLiveRecipeInSync` is false the `fixtureJson` above is NOT what production " +
+                "provisions - compare the two before concluding anything about why a run saw the wrong data.",
             inputSchema: { repoFullName: repoPrInput.repoFullName, scenarioId: z.string().min(1) },
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },

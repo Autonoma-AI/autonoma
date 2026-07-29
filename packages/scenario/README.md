@@ -68,6 +68,14 @@ const result = await client.discover();
 
 `applyScenarioRecipeUpdate` is the single write path for recipe edits and requires a `source`, so every stored recipe is attributable.
 
+### How a recipe edit reaches production
+
+Recipe versions are keyed by `(scenarioId, snapshotId)` and `loadRecipePayload` resolves the version pinned to the **run's snapshot** - never `scenario.activeRecipeVersionId`. Snapshots are cloned per PR and per deploy, so an edit is only live on the snapshots it was written to.
+
+`applyScenarioRecipeUpdate` therefore propagates each edit to **main's** active snapshot (and its pending one, when a deploy is mid-flight), and retargets `activeRecipeVersionId` to main's active-snapshot version so reads and runs agree. Each written row comes back tagged `active` (the pointer's own version), `main-active`, or `main-pending`.
+
+Main is the only branch written, on purpose. A feature branch's snapshot is the recipe its runs were evaluated against, so rewriting it under an in-flight PR would silently change what those results mean; a new branch picks up the current recipe by forking from main (`resolveSnapshotSource`). The corollary is the one to know: **an already-open PR never receives a recipe fix** - not even on a push, which forks from the branch's own active snapshot, not main's. Investigation twins and merge proposals are excluded for the same reason and are additionally **detached** snapshots (`createDetachedSnapshot`) whose candidate recipes must not be clobbered. Superseded snapshots are left alone too - nothing reads them.
+
 ### Built-in recipe tokens
 
 Every value in a `create` graph must be concrete except `{{testRunId}}` (the id sent to the SDK as the request's `testRunId`) and `{{testRunShortId}}` (an 8-character hash of it, for columns too short for a UUID). They exist because concurrent runs of the same scenario would otherwise collide on unique columns. Any other token is rejected on save and on ingest. The older `variables` block still resolves for recipes that carry one, but is no longer generated.

@@ -110,7 +110,7 @@ apiTestSuite({
 
             expect(result.updatedRecipeVersions).toEqual([
                 { id: scenario.activeRecipeVersionId, snapshotId: expect.any(String), target: "active" },
-                { id: pendingBefore.id, snapshotId: pendingSnapshotId, target: "pending" },
+                { id: pendingBefore.id, snapshotId: pendingSnapshotId, target: "main-pending" },
             ]);
 
             const recipeVersions = await harness.db.scenarioRecipeVersion.findMany({
@@ -145,7 +145,7 @@ apiTestSuite({
                 source: "UI",
             });
 
-            const pendingResult = result.updatedRecipeVersions.find((rv) => rv.target === "pending");
+            const pendingResult = result.updatedRecipeVersions.find((rv) => rv.target === "main-pending");
             expect(pendingResult?.snapshotId).toBe(pendingSnapshotId);
 
             const pendingRecipe = await harness.db.scenarioRecipeVersion.findUniqueOrThrow({
@@ -154,6 +154,128 @@ apiTestSuite({
             });
             expect(pendingRecipe.id).toBe(pendingResult?.id);
             expect(pendingRecipe.fixtureJson).toEqual(nextRecipe);
+        });
+
+        test("updateRecipe reaches main's live snapshot and leaves feature and detached snapshots alone", async ({
+            harness,
+        }) => {
+            const { service, scenario, branchId, app } = await createFixture(harness, "Scenario Recipe Branch Fanout");
+
+            // Move main off the snapshot the app was onboarded on, the way the first deploy does. The scenario's
+            // active pointer stays behind on the superseded one - that is what used to strand every edit.
+            const onboardingSnapshotId = (
+                await harness.db.scenarioRecipeVersion.findFirstOrThrow({
+                    where: { scenarioId: scenario.id },
+                    select: { snapshotId: true },
+                })
+            ).snapshotId;
+            const mainActive = await harness.db.branchSnapshot.create({
+                data: { branchId, source: "MANUAL", status: "active" },
+            });
+            await harness.db.branchSnapshot.update({
+                where: { id: onboardingSnapshotId },
+                data: { status: "superseded" },
+            });
+            await harness.db.branch.update({ where: { id: branchId }, data: { activeSnapshotId: mainActive.id } });
+
+            // An open PR branch with its own active snapshot (the recipe its runs were evaluated against, so an edit
+            // must not rewrite it), plus a DETACHED snapshot on it - an investigation twin, wired to no pointer -
+            // carrying a deliberately different staged recipe.
+            const prBranch = await harness.db.branch.create({
+                data: {
+                    name: "feature/recipe-fanout",
+                    applicationId: app.id,
+                    organizationId: harness.organizationId,
+                    prInfo: { create: { applicationId: app.id, prNumber: 77 } },
+                },
+            });
+            const [prActive, twin] = await Promise.all([
+                harness.db.branchSnapshot.create({
+                    data: { branchId: prBranch.id, source: "WEBHOOK", status: "active" },
+                }),
+                harness.db.branchSnapshot.create({
+                    data: { branchId: prBranch.id, source: "WEBHOOK", status: "active" },
+                }),
+            ]);
+            await harness.db.branch.update({ where: { id: prBranch.id }, data: { activeSnapshotId: prActive.id } });
+
+            const branchRecipe = makeRecipe({
+                description: "what the branch forked with",
+                create: { User: [{ _alias: "user1", name: "Branch Fork" }] },
+            });
+            const seedBranchVersion = async (snapshotId: string, fingerprint: string) => {
+                const schema = await harness.db.scenarioSchemaSnapshot.create({
+                    data: {
+                        applicationId: app.id,
+                        snapshotId,
+                        structureJson: { models: {} },
+                        fingerprint: `${fingerprint}-schema`,
+                    },
+                });
+                return harness.db.scenarioRecipeVersion.create({
+                    data: {
+                        scenarioId: scenario.id,
+                        snapshotId,
+                        schemaSnapshotId: schema.id,
+                        applicationId: app.id,
+                        organizationId: harness.organizationId,
+                        scenarioNameSnapshot: branchRecipe.name,
+                        fingerprint,
+                        validationStatus: branchRecipe.validation.status,
+                        validationMethod: branchRecipe.validation.method,
+                        validationPhase: branchRecipe.validation.phase,
+                        fixtureJson: branchRecipe,
+                    },
+                });
+            };
+            const prVersionBefore = await seedBranchVersion(prActive.id, "pr-fingerprint");
+            const twinVersion = await seedBranchVersion(twin.id, "twin-fingerprint");
+
+            const nextRecipe = makeRecipe({
+                description: "written to main",
+                create: { User: [{ _alias: "user1", name: "Main Only" }] },
+            });
+            const result = await service.updateRecipe({
+                applicationId: app.id,
+                organizationId: harness.organizationId,
+                scenarioId: scenario.id,
+                fixtureJson: JSON.stringify(nextRecipe),
+                source: "UI",
+            });
+
+            const written = new Map(result.updatedRecipeVersions.map((rv) => [rv.snapshotId, rv.target]));
+            expect(written.get(mainActive.id)).toBe("main-active");
+            expect(written.get(onboardingSnapshotId)).toBe("active");
+            expect(written.has(prActive.id)).toBe(false);
+            expect(written.has(twin.id)).toBe(false);
+
+            // What a run actually reads is keyed by snapshot, so assert the rows themselves.
+            const [mainVersion, prAfter, twinAfter] = await Promise.all([
+                harness.db.scenarioRecipeVersion.findUniqueOrThrow({
+                    where: { scenarioId_snapshotId: { scenarioId: scenario.id, snapshotId: mainActive.id } },
+                    select: { id: true, fixtureJson: true },
+                }),
+                harness.db.scenarioRecipeVersion.findUniqueOrThrow({
+                    where: { id: prVersionBefore.id },
+                    select: { fixtureJson: true, fingerprint: true },
+                }),
+                harness.db.scenarioRecipeVersion.findUniqueOrThrow({
+                    where: { id: twinVersion.id },
+                    select: { fixtureJson: true, fingerprint: true },
+                }),
+            ]);
+            expect(mainVersion.fixtureJson).toEqual(nextRecipe);
+            expect(prAfter.fixtureJson).toEqual(branchRecipe);
+            expect(prAfter.fingerprint).toBe("pr-fingerprint");
+            expect(twinAfter.fixtureJson).toEqual(branchRecipe);
+            expect(twinAfter.fingerprint).toBe("twin-fingerprint");
+
+            // The pointer follows main's live snapshot, so the next read and the next write agree with the runs.
+            const after = await harness.db.scenario.findUniqueOrThrow({
+                where: { id: scenario.id },
+                select: { activeRecipeVersionId: true },
+            });
+            expect(after.activeRecipeVersionId).toBe(mainVersion.id);
         });
 
         test("updateRecipe rejects invalid JSON and invalid recipe schema", async ({ harness }) => {

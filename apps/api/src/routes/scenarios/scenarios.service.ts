@@ -396,13 +396,25 @@ export class ScenariosService extends Service {
         if (scenario == null) throw new NotFoundError("Scenario not found");
 
         const pendingSnapshotId = scenario.application.mainBranch?.pendingSnapshotId ?? null;
-        const pendingRecipeVersion =
+        const mainActiveSnapshotId = scenario.application.mainBranch?.activeSnapshotId ?? null;
+
+        // The recipe a run resolves is the version pinned to the run's SNAPSHOT, never the active pointer, so
+        // report main's live version too. When it disagrees with the pointer, what you read above is not what
+        // production seeds - and there is otherwise no way to tell from the outside.
+        const [pendingRecipeVersion, liveRecipeVersion] = await Promise.all([
             pendingSnapshotId != null
-                ? await this.db.scenarioRecipeVersion.findUnique({
+                ? this.db.scenarioRecipeVersion.findUnique({
                       where: { scenarioId_snapshotId: { scenarioId: scenario.id, snapshotId: pendingSnapshotId } },
                       select: { id: true },
                   })
-                : null;
+                : null,
+            mainActiveSnapshotId != null
+                ? this.db.scenarioRecipeVersion.findUnique({
+                      where: { scenarioId_snapshotId: { scenarioId: scenario.id, snapshotId: mainActiveSnapshotId } },
+                      select: { id: true, snapshotId: true, fingerprint: true, fixtureJson: true, updatedAt: true },
+                  })
+                : null,
+        ]);
 
         return {
             fixtureJson: scenario.activeRecipeVersion?.fixtureJson ?? null,
@@ -416,10 +428,23 @@ export class ScenariosService extends Service {
                       }
                     : null,
             mainBranch: {
-                activeSnapshotId: scenario.application.mainBranch?.activeSnapshotId ?? null,
+                activeSnapshotId: mainActiveSnapshotId,
                 pendingSnapshotId,
             },
             pendingRecipeVersionExists: pendingRecipeVersion != null,
+            liveRecipeVersion:
+                liveRecipeVersion != null
+                    ? {
+                          id: liveRecipeVersion.id,
+                          snapshotId: liveRecipeVersion.snapshotId,
+                          fingerprint: liveRecipeVersion.fingerprint,
+                          fixtureJson: liveRecipeVersion.fixtureJson,
+                          updatedAt: liveRecipeVersion.updatedAt,
+                      }
+                    : null,
+            isLiveRecipeInSync:
+                liveRecipeVersion != null &&
+                liveRecipeVersion.fingerprint === scenario.activeRecipeVersion?.fingerprint,
         };
     }
 
@@ -438,16 +463,6 @@ export class ScenariosService extends Service {
                 lastSeenFingerprint: true,
                 applicationId: true,
                 organizationId: true,
-                application: {
-                    select: {
-                        mainBranch: {
-                            select: {
-                                activeSnapshotId: true,
-                                pendingSnapshotId: true,
-                            },
-                        },
-                    },
-                },
                 activeRecipeVersion: {
                     select: {
                         id: true,
@@ -511,7 +526,6 @@ export class ScenariosService extends Service {
         }
 
         const fingerprint = createHash("sha256").update(JSON.stringify(parsed)).digest("hex");
-        const pendingSnapshotId = scenario.application.mainBranch?.pendingSnapshotId;
         const fingerprintChanged = scenario.lastSeenFingerprint !== fingerprint;
 
         const { updatedRecipeVersions } = await applyScenarioRecipeUpdate(this.db, {
@@ -523,7 +537,6 @@ export class ScenariosService extends Service {
             },
             recipe: validation.data,
             fingerprint,
-            pendingSnapshotId: pendingSnapshotId ?? undefined,
             fingerprintChanged,
             source,
             actorUserId: params.actorUserId,

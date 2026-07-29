@@ -620,7 +620,9 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             description:
                 "Read a scenario's current recipe - the JSON `create` graph (plus `variables`) your SDK endpoint uses " +
                 "to build that scenario's entities in the app's database. Edit it and send it back with update_recipe. " +
-                "Returns `fixtureJson: null` when the scenario has no recipe yet.",
+                "Returns `fixtureJson: null` when the scenario has no recipe yet. " +
+                "`liveRecipeVersion` is the recipe test runs on main actually seed: versions are pinned per snapshot, " +
+                "so if `isLiveRecipeInSync` is false the `fixtureJson` above is NOT what production provisions.",
             inputSchema: { applicationId: z.string(), scenarioId: z.string() },
         },
         async ({ applicationId, scenarioId }) =>

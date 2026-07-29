@@ -53,7 +53,7 @@ import { useAuth } from "lib/auth";
 import { type DryRunOutcome, formatDryRunError } from "lib/format-dry-run-error";
 import { useAPIMutation } from "lib/query/api-queries";
 import { ensureScenariosData } from "lib/query/scenarios.queries";
-import { trpc } from "lib/trpc";
+import { type RouterOutputs, trpc } from "lib/trpc";
 import { Suspense, useState } from "react";
 import { useCurrentApplication } from "../../-use-current-application";
 import { SettingsTabNav } from "../settings/-settings-tab-nav";
@@ -411,9 +411,7 @@ type ScenarioData = {
   createdAt?: Date | string;
 };
 
-type RecipeUpdateResult = {
-  updatedRecipeVersions: Array<{ id: string; snapshotId: string; target: "active" | "pending" }>;
-};
+type RecipeUpdateResult = RouterOutputs["scenarios"]["updateRecipe"];
 
 function formatShortId(value: string | null | undefined): string {
   if (value == null) return "-";
@@ -556,7 +554,8 @@ function ScenarioRecipeEditor({ scenarioId, applicationId }: { scenarioId: strin
           <span className="font-mono text-3xs font-medium uppercase tracking-wider text-text-tertiary">Last Save</span>
           {lastUpdate.updatedRecipeVersions.map((version) => (
             <div key={`${version.target}-${version.id}`} className="flex items-center justify-between gap-3">
-              <Badge variant={version.target === "active" ? "success" : "outline"}>{version.target}</Badge>
+              {/* `main-active` is the target a test run actually reads, so it is the one worth highlighting. */}
+              <Badge variant={version.target === "main-active" ? "success" : "outline"}>{version.target}</Badge>
               <span className="font-mono text-2xs text-text-secondary">
                 {formatShortId(version.id)} / {formatShortId(version.snapshotId)}
               </span>
