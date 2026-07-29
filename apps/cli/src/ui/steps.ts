@@ -87,15 +87,23 @@ export const STEP_DOCS: Partial<Record<StepName, string>> = {
 // Budgets come from measured medians in PostHog (cli_step_completed,
 // status=done, 90 days to 2026-07-21; ~40-140 completions per step), rounded
 // up toward p60 since the distributions are heavily right-skewed with repo
-// size. recipeBuilder keeps a wide budget: the historical data predates the
-// coding-agent handoff.
+// size.
+//
+// recipeBuilder is measured over the post-handoff window only (45 days to
+// 2026-07-29, n=34) and its distribution is bimodal, not skewed: ~39% of runs
+// finish inside a minute because the SDK is already wired and there is nothing
+// to hand off, while ~19% run past 20 minutes doing the real integration. No
+// single number fits both, so the budget covers the working case (p70 of runs
+// that took over a minute) rather than the p90 tail - a step that overruns
+// corrects itself from its own observed pace once it starts, whereas budgeted
+// time that never gets spent inflates the estimate for the whole run before it.
 export const STEP_BUDGET: Record<StepName, { ms: number; userPaced?: true }> = {
     projectMapper: { ms: 3 * MIN },
     pagesFinder: { ms: 3 * MIN },
     kb: { ms: 12 * MIN },
     entityAudit: { ms: 10 * MIN },
     scenarioRecipe: { ms: 3 * MIN },
-    recipeBuilder: { ms: 45 * MIN, userPaced: true },
+    recipeBuilder: { ms: 12 * MIN, userPaced: true },
     testGenerator: { ms: 30 * MIN },
 };
 

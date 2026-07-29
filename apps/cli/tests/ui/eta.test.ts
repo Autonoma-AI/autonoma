@@ -101,9 +101,19 @@ describe("eta model", () => {
         store.setSizes({ pages: 400 });
         const huge = computeEta(store.getState()).etaMs;
         expect(huge).toBe(atKnee);
-        // The whole estimate stays inside the ~2.5h that real runs actually take,
-        // rather than the 8h a linear per-page rate predicts on a big repo.
-        expect(huge).toBeLessThan(150 * 60_000);
+        // The whole estimate stays inside the envelope real runs finish in
+        // (complete runs measure a p50 of ~84 min), rather than the 8h a linear
+        // per-page rate predicted on a big repo. A budget that creeps back past
+        // this is the regression, not the test.
+        expect(huge).toBeLessThan(120 * 60_000);
+    });
+
+    test("the biggest repo still estimates inside two hours", () => {
+        const store = createStore({ outputDir: "/out", meta: META });
+        store.setSizes({ pages: 5_000 });
+        // Every sized budget is saturated and every flat one is at full value:
+        // this is the largest cold-start estimate the model can produce.
+        expect(computeEta(store.getState()).etaMs).toBeLessThan(120 * 60_000);
     });
 
     test("the running step's own pace overrides its budget once observed", () => {

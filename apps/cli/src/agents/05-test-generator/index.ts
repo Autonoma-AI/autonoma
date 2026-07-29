@@ -14,7 +14,7 @@ import { runConsolidatedReview, type TestReviewFeedback } from "./review";
 const MAX_CONCURRENCY = 8;
 import { glob } from "glob";
 import { debugLog } from "../../core/debug";
-import { isTestFile, TEST_FILE_GLOB, TEST_INDEX_FILE, TESTS_DIR } from "../../core/test-files";
+import { INVALID_DIR, isTestFile, TEST_FILE_GLOB, TESTS_DIR } from "../../core/test-files";
 import { buildBashTool, buildGlobTool, buildGrepTool, buildListDirectoryTool, buildReadFileTool } from "../../tools";
 import { type DiscoveredFeature, loadFeatures, runFeatureDiscovery } from "../00b-feature-discovery/index";
 import { CoverageState, type FeatureNode, JOURNEY_STATE_FILE, loadBfsState } from "./graph";
@@ -27,6 +27,7 @@ import {
     buildWriteTestTool,
 } from "./tools";
 import { validateTestContent } from "./validation";
+import { generateIndex } from "./write-index";
 
 export interface TestGeneratorInput {
     projectRoot: string;
@@ -377,11 +378,11 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
         let markedInvalid = 0;
         for (const testPath of allTestFiles) {
             if (!isTestFile(testPath)) continue;
-            if (testPath.includes("/_invalid/")) continue;
+            if (testPath.includes(`/${INVALID_DIR}/`)) continue;
             const content = await readFile(testPath, "utf-8");
             const validation = validateTestContent(content);
             if (!validation.valid) {
-                const invalidDir = join(input.outputDir, TESTS_DIR, "_invalid");
+                const invalidDir = join(input.outputDir, TESTS_DIR, INVALID_DIR);
                 await mkdir(invalidDir, { recursive: true });
                 const dest = join(invalidDir, basename(testPath));
                 const annotated = `<!-- VALIDATION ERRORS: ${validation.errors.join("; ")} -->\n${content}`;
@@ -401,10 +402,15 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
         for (const dir of dirs.sort((a, b) => b.length - a.length)) {
             try {
                 await rmdir(dir);
-            } catch {
-                /* not empty */
+            } catch (err) {
+                debugLog("Leaving a non-empty test directory in place", { dir, err });
             }
         }
+
+        // The index written after generation predates the journey tests, every
+        // deletion the review cycle made, and the quarantine sweep above. Write
+        // it again now that the suite has stopped moving.
+        await generateIndex(input.outputDir, state);
     }
 
     // Output review happens live in the TUI - the run no longer stops to ask.
@@ -446,91 +452,6 @@ ${failedDetails}
 5. If the test is unfixable (the feature doesn't support the intended behavior), skip it and call finish
 
 IMPORTANT: Focus ONLY on this test. Do not write new tests or modify other files.`;
-}
-
-async function generateIndex(outputDir: string, state: CoverageState): Promise<void> {
-    const testsByFolder = new Map<string, string[]>();
-
-    for (const paths of state.testsWritten.values()) {
-        for (const p of paths) {
-            const parts = p.split("/");
-            if (parts.length >= 3) {
-                const folder = parts[1]!;
-                const existing = testsByFolder.get(folder) ?? [];
-                existing.push(p);
-                testsByFolder.set(folder, existing);
-            }
-        }
-    }
-
-    const stats = state.summary();
-    const folders = [...testsByFolder.entries()].map(([name, tests]) => ({
-        name,
-        test_count: tests.length,
-    }));
-
-    const critCounts = new Map([
-        ["critical", 0],
-        ["high", 0],
-        ["mid", 0],
-        ["low", 0],
-    ]);
-    const flowCounts = new Map<string, number>();
-    let totalSteps = 0;
-    let totalInteractions = 0;
-
-    for (const paths of state.testsWritten.values()) {
-        for (const p of paths) {
-            try {
-                const content = await readFile(join(outputDir, p), "utf-8");
-                const critMatch = content.match(/criticality:\s*(\w+)/);
-                const critVal = critMatch?.[1] ?? "";
-                if (critCounts.has(critVal)) critCounts.set(critVal, (critCounts.get(critVal) ?? 0) + 1);
-                const flowMatch = content.match(/flow:\s*"([^"]+)"/);
-                const flowVal = flowMatch?.[1];
-                if (flowVal) flowCounts.set(flowVal, (flowCounts.get(flowVal) ?? 0) + 1);
-                const stepMatches = content.match(/^\d+\.\s+(click|type|scroll|assert|hover|drag|read|refresh):/gm);
-                if (stepMatches) totalSteps += stepMatches.length;
-                const interactionMatches = content.match(/^\d+\.\s+(click|type|drag):/gm);
-                if (interactionMatches) totalInteractions += interactionMatches.length;
-            } catch {
-                /* file may not exist */
-            }
-        }
-    }
-
-    const avgSteps = stats.totalTests > 0 ? (totalSteps / stats.totalTests).toFixed(1) : "0";
-
-    let content = `---
-total_tests: ${stats.totalTests}
-total_folders: ${folders.length}
-avg_steps_per_test: ${avgSteps}
-total_interactions: ${totalInteractions}
-criticality:
-  critical: ${critCounts.get("critical") ?? 0}
-  high: ${critCounts.get("high") ?? 0}
-  mid: ${critCounts.get("mid") ?? 0}
-  low: ${critCounts.get("low") ?? 0}
-folders:
-${folders.map((f) => `  - name: "${f.name}"\n    test_count: ${f.test_count}`).join("\n")}
----
-
-# Test Suite Index
-
-Generated by BFS exploration. ${stats.tested} nodes tested, ${stats.skipped} skipped.
-
-## Folders
-
-| Folder | Tests |
-|--------|-------|
-${folders.map((f) => `| ${f.name} | ${f.test_count} |`).join("\n")}
-
-## All Tests
-
-${[...testsByFolder.entries()].flatMap(([_folder, tests]) => tests.map((t) => `- \`${t}\``)).join("\n")}
-`;
-
-    await writeFile(join(outputDir, TESTS_DIR, TEST_INDEX_FILE), content, "utf-8");
 }
 
 async function generateJourneyTests(outputDir: string, model: LanguageModel, projectRoot: string): Promise<number> {

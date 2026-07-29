@@ -19,6 +19,9 @@ export const TEST_INDEX_FILE = `INDEX${TEST_FILE_EXT}`;
 /** Directory under the output dir holding the generated suite. */
 export const TESTS_DIR = "qa-tests";
 
+/** Where structurally invalid tests are quarantined; not part of the suite. */
+export const INVALID_DIR = "_invalid";
+
 /** Recursive glob for every test file, for callers scanning the tests dir. */
 export const TEST_FILE_GLOB = `**/*${TEST_FILE_EXT}`;
 
