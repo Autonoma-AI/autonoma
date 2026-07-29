@@ -198,11 +198,16 @@ export async function ensureAnalysisIssueDetailData(queryClient: QueryClient, is
 
 /**
  * The per-job issue-set changes (opened / carried-forward / resolved) for a snapshot's analysis run, for the
- * snapshot per-job view. A suspense query; empty groups for a diffs snapshot. Fetched inside the report body's own
- * Suspense boundary so a diffs snapshot (which never renders that body) pays for no query.
+ * snapshot per-job view. A suspense query; empty groups for a diffs snapshot. Keyed by snapshotId, so the route
+ * loader prefetches it in the main batch (see `ensureAnalysisSnapshotIssueChangesData`) and the section paints at
+ * mount instead of firing a third serial round-trip behind its Suspense boundary.
  */
 export function useAnalysisSnapshotIssueChanges(snapshotId: string) {
     return useSuspenseQuery(trpc.branches.analysisSnapshotIssueChanges.queryOptions({ snapshotId }));
+}
+
+export async function ensureAnalysisSnapshotIssueChangesData(queryClient: QueryClient, snapshotId: string) {
+    await ensureAPIQueryData(queryClient, trpc.branches.analysisSnapshotIssueChanges.queryOptions({ snapshotId }));
 }
 
 export function useBranches(state: PullRequestStateFilter = "open") {

@@ -1655,12 +1655,16 @@ export class BranchesService extends Service {
         // detail (changes, created tests, executed tests) is real and driven by the snapshot's assignments either way.
         const diffsJob = snapshot.diffsJob ?? undefined;
 
-        const temporalWorkflowPromise: Promise<WorkflowRef | undefined> = options.includeWorkflow
-            ? findLatestWorkflowBySnapshotId(snapshotId).catch((error) => {
-                  this.logger.warn("Could not resolve Temporal workflow for snapshot", { snapshotId, error });
-                  return undefined;
-              })
-            : Promise.resolve(undefined);
+        // The workflow link is only rendered for a diffs snapshot (the authoritative layout gates it off). An
+        // authoritative snapshot has no diffs job, so resolving its `diffs-analysis-{snapshotId}` workflow round-trips
+        // to Temporal only to describe a workflow that does not exist and then discard the result - skip it entirely.
+        const temporalWorkflowPromise: Promise<WorkflowRef | undefined> =
+            options.includeWorkflow && snapshot.diffsJob != null
+                ? findLatestWorkflowBySnapshotId(snapshotId).catch((error) => {
+                      this.logger.warn("Could not resolve Temporal workflow for snapshot", { snapshotId, error });
+                      return undefined;
+                  })
+                : Promise.resolve(undefined);
 
         const { prInfo, ...branchRest } = snapshot.branch;
         // Strip the raw diffs job off the flat snapshot; it is returned separately as `diffsJobWithMeta` (undefined

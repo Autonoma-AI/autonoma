@@ -14,9 +14,9 @@ import { SnapshotReportTabs } from "components/snapshot/snapshot-report-tabs";
 import { SuiteChangesSummary } from "components/snapshot/suite-changes-summary";
 import { useAuth } from "lib/auth";
 import {
-  ensureAnalysisIssuesData,
   ensureAnalysisJobData,
   ensureAnalysisReportData,
+  ensureAnalysisSnapshotIssueChangesData,
   ensureSnapshotDetailData,
   ensureSnapshotReportData,
   FULL_SNAPSHOT_DETAIL,
@@ -38,18 +38,16 @@ export const Route = createFileRoute(
   loader: async ({ context, params: { appSlug, snapshotId } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
-    const [, , , analysisReport] = await Promise.all([
+    // Every prefetch here is keyed by snapshotId, so httpBatchLink coalesces them into one HTTP request. The branch's
+    // issues (branch-keyed, needed only by the report prose) are deliberately left out: they resolve post-mount inside
+    // the prose's own Suspense boundary rather than blocking the route on a second, dependent round-trip.
+    await Promise.all([
       ensureSnapshotReportData(context.queryClient, snapshotId),
       ensureSnapshotDetailData(context.queryClient, snapshotId, FULL_SNAPSHOT_DETAIL),
       ensureAnalysisJobData(context.queryClient, snapshotId),
       ensureAnalysisReportData(context.queryClient, snapshotId),
+      ensureAnalysisSnapshotIssueChangesData(context.queryClient, snapshotId),
     ]);
-    // The report prose resolves its `issue:` tokens against the whole BRANCH's issues - it is PR-cumulative, so it
-    // routinely references issues with no finding in this run. Keyed by branch, which only the report can tell us,
-    // hence a second step rather than another entry above.
-    if (analysisReport != null) {
-      await ensureAnalysisIssuesData(context.queryClient, analysisReport.branchId);
-    }
   },
   component: SnapshotReportLayout,
 });
