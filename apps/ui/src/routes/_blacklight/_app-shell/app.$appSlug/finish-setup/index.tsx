@@ -1272,12 +1272,17 @@ function ExternalSdkStepBody({ applicationId, selectedTargetId, onSelectTarget }
                 </a>
               )}
               {selectedTarget?.previewUrl != null && (
-                <a href={selectedTarget.previewUrl} target="_blank" rel="noopener noreferrer">
+                <Link
+                  to="/preview-waiting"
+                  search={{ to: selectedTarget.previewUrl }}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
                   <Button variant="outline" size="sm" className="gap-2">
                     <ArrowSquareOutIcon size={14} weight="bold" />
                     Open preview
                   </Button>
-                </a>
+                </Link>
               )}
             </div>
           </div>

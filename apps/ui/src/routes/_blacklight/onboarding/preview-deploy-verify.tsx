@@ -5,7 +5,7 @@ import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
 import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
-import { Navigate, createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
+import { Link, Navigate, createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
 import { LogAppFilter } from "components/build-logs/log-app-filter";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import {
@@ -149,15 +149,16 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
               <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">Readiness</p>
               <h2 className="mt-2 text-2xl font-medium text-text-primary">{statusTitle(data.diagnostics.status)}</h2>
               {data.previewUrl != null ? (
-                <a
-                  href={data.previewUrl}
+                <Link
+                  to="/preview-waiting"
+                  search={{ to: data.previewUrl }}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="mt-4 inline-flex max-w-full items-center gap-2 truncate font-mono text-sm text-primary-ink"
                 >
                   <GlobeIcon size={15} />
                   {data.previewUrl}
-                </a>
+                </Link>
               ) : isDeployRequested ? (
                 <DeployRequestIdleIndicator className="mt-5" />
               ) : (

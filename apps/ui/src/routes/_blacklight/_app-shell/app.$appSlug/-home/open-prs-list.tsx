@@ -2,6 +2,7 @@ import { Badge, cn, EmptyState, Skeleton } from "@autonoma/blacklight";
 import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { Link } from "@tanstack/react-router";
 import { formatRelativeTime } from "lib/format";
 import {
   INVESTIGATION_TONE_CLASS,
@@ -102,8 +103,9 @@ function PrRow({
           {pr.testCount} {pr.testCount === 1 ? "test" : "tests"}
         </span>
         {pr.previewUrl != null && (
-          <a
-            href={pr.previewUrl}
+          <Link
+            to="/preview-waiting"
+            search={{ to: pr.previewUrl }}
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
@@ -111,7 +113,7 @@ function PrRow({
           >
             preview
             <ArrowUpRightIcon size={11} weight="bold" />
-          </a>
+          </Link>
         )}
         {investigation != null && pr.snapshotId != null && (
           <InvestigationEntry prNumber={pr.prNumber} snapshotId={pr.snapshotId} investigation={investigation} />

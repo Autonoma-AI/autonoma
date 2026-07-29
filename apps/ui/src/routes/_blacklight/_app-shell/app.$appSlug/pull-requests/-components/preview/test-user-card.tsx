@@ -25,6 +25,7 @@ import { InfoIcon } from "@phosphor-icons/react/Info";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { UserFocusIcon } from "@phosphor-icons/react/UserFocus";
 import { UserPlusIcon } from "@phosphor-icons/react/UserPlus";
+import { Link } from "@tanstack/react-router";
 import {
   usePreviewTestUserOptions,
   usePreviewTestUserProvision,
@@ -269,9 +270,15 @@ function ProvisionErrorBanner({ message, previewUrl }: { message: string; previe
         <AlertDescription>
           The preview didn't respond in time - it's likely still waking up.{" "}
           {previewUrl != null ? (
-            <a href={previewUrl} target="_blank" rel="noreferrer" className="font-medium text-text-primary underline">
+            <Link
+              to="/preview-waiting"
+              search={{ to: previewUrl }}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-text-primary underline"
+            >
               Open it
-            </a>
+            </Link>
           ) : (
             "Open it"
           )}
@@ -330,7 +337,11 @@ function ActiveTestUserBody({
         </div>
         <div className="flex items-center gap-2">
           {previewUrl != null && (
-            <Button variant="outline" size="sm" render={<a href={previewUrl} target="_blank" rel="noreferrer" />}>
+            <Button
+              variant="outline"
+              size="sm"
+              render={<Link to="/preview-waiting" search={{ to: previewUrl }} target="_blank" rel="noreferrer" />}
+            >
               <ArrowSquareOutIcon />
               Open preview
             </Button>
