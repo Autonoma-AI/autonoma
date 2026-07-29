@@ -130,10 +130,39 @@ If the upload credentials are not set, the CLI just leaves the artifacts on disk
 | `AUTONOMA_GENERATION_ID` | for upload | The setup id artifacts are uploaded against. Injected by onboarding. |
 | `AUTONOMA_SHARED_SECRET` | no | Per-application secret used to sign SDK/webhook requests. Injected by onboarding. |
 | `AUTONOMA_DISTINCT_ID` | no | PostHog identity so CLI events join the signup funnel. Injected by onboarding. |
-| `DONT_TRACK` | no | Set to `1`/`true` to disable anonymous analytics. |
+| `DONT_TRACK` | no | Set to `1`/`true` to disable anonymous analytics and log shipping. |
 
 `AUTONOMA_API_TOKEN` + `AUTONOMA_GENERATION_ID` together enable automatic upload (the endpoint
 defaults to production unless `AUTONOMA_API_URL` is set).
+
+## Telemetry
+
+Two lanes, both to PostHog, both off when `DONT_TRACK=1`:
+
+- **Events** (`core/analytics.ts`) - `cli_run_started`, `cli_step_completed`, `$exception`, and friends,
+  posted to the capture endpoint.
+- **Logs** (`core/logs.ts`) - the run's narrative, shipped as OTLP records under the service name
+  `autonoma-planner`: run and step lifecycle, every agent tool call, tool errors, retries and nudges,
+  and everything the CLI prints to the user.
+
+Both lanes are indexed by the same identifiers (`core/session.ts`), so one run resolves the same way
+from either side:
+
+| Attribute | What it identifies |
+|-----------|--------------------|
+| `run_id` / `sessionId` | This CLI invocation. `sessionId` is PostHog's own grouping key, so a run's logs sit together. |
+| `generation_id` | The onboarding setup the run is fulfilling - the join back to an Autonoma record. |
+| `posthogDistinctId` | The person, when the app launched the CLI with an identity; otherwise an anonymous per-machine device id. |
+| `project_slug`, `cli_version`, `node_version` | Which project, which build, which runtime. |
+
+To read one run: filter logs by `service.name = autonoma-planner` and the `generation_id` (or `run_id`)
+you are chasing, ordered earliest-first.
+
+Log records carry **metadata only** - step names, agent and tool names, file paths, patterns, commands,
+durations, and error messages. Model prose and reasoning, prompts, and the contents of any file the
+agent read or wrote are never sent; those are what would carry a user's source code off their machine.
+Records are truncated and a single run is capped at 5000 of them, so a stuck agent loop cannot flood
+ingestion - the cap being reached is itself logged.
 
 ## Development
 

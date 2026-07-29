@@ -2,6 +2,7 @@ import { type LanguageModel, type ModelMessage, type ToolSet, ToolLoopAgent, has
 import { track } from "./analytics";
 import { createStepLogger, type StepInfo } from "./display";
 import { AgentError, classifyAgentError, sleep } from "./errors";
+import { captureLog } from "./logs";
 import { AI_MAX_RETRIES } from "./model";
 
 const MAX_RETRIES = 3;
@@ -114,6 +115,11 @@ export async function runAgent<T>(
     // original error as the cause so the known-error matcher can still read it.
     const fail = (err: unknown): never => {
         const msg = err instanceof Error ? err.message : String(err);
+        captureLog("error", `${config.id} failed: ${msg}`, {
+            source: "agent",
+            agent: config.id,
+            model: modelIdOf(model),
+        });
         throw new AgentError(`agent "${config.id}" (model ${modelIdOf(model)}) failed: ${msg}`, config.id, err);
     };
 
@@ -154,6 +160,11 @@ export async function runAgent<T>(
                     `  ${YELLOW}[${config.id}] agent stopped without finishing - nudging (${nudges}/${MAX_NUDGES})...${RESET}`,
                 );
                 track("cli_agent_nudged", { agent: config.id, nudge: nudges });
+                captureLog("warn", `${config.id} stopped without finishing - nudging (${nudges}/${MAX_NUDGES})`, {
+                    source: "agent",
+                    agent: config.id,
+                    nudge: nudges,
+                });
                 messages.push(...generation.response.messages);
                 messages.push({ role: "user", content: NUDGE_PROMPT });
                 generation = await agent.generate({
@@ -175,6 +186,19 @@ export async function runAgent<T>(
                 console.log(`  ${YELLOW}[${config.id}] provider error: ${msg}${RESET}`);
             }
             track("cli_agent_retryable_error", { agent: config.id, error_class: errorClass, retry });
+            captureLog(
+                "error",
+                errorClass === "timeout"
+                    ? `${config.id} step timed out after ${stepTimeout / 1000}s`
+                    : `${config.id} provider error: ${msg}`,
+                {
+                    source: "agent",
+                    agent: config.id,
+                    model: modelIdOf(model),
+                    error_class: errorClass,
+                    retry,
+                },
+            );
 
             if (retry < MAX_RETRIES - 1) {
                 console.log(`  ${YELLOW}[${config.id}] retrying (${retry + 1}/${MAX_RETRIES})...${RESET}`);

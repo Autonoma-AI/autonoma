@@ -1,3 +1,4 @@
+import { captureLog, type LogLevel as CaptureLevel } from "../core/logs";
 import { getActiveStore } from "./store";
 import type { CompletionChoice, CompletionStat, LogLevel } from "./types";
 
@@ -29,7 +30,26 @@ const MARKERS: Record<LogLevel, string> = {
     outro: "◆",
 };
 
+// Everything the pipeline says to the user funnels through `emit`, so shipping
+// from here captures the run's narrative once for both paths - the TUI store and
+// the plain headless/CI console - with no call-site changes.
+const CAPTURE_LEVELS: Record<LogLevel, CaptureLevel> = {
+    info: "info",
+    success: "info",
+    warn: "warn",
+    error: "error",
+    note: "info",
+    checkpoint: "info",
+    intro: "info",
+    outro: "info",
+};
+
 function emit(level: LogLevel, text: string, title?: string): void {
+    captureLog(CAPTURE_LEVELS[level], title != null ? `${title}: ${text}` : text, {
+        source: "output",
+        output_level: level,
+    });
+
     const store = getActiveStore();
     if (store != null) {
         store.appendLog({ level, text, title });

@@ -10,13 +10,16 @@ import { uploadRecipeFromDisk } from "./agents/04-recipe-builder/phases/submit";
 import { runSdkCommand } from "./agents/04-recipe-builder/sdk-command";
 import { loadConfig } from "./config";
 import type { AgentResult } from "./core/agent";
-import { track, trackError, flushAnalytics } from "./core/analytics";
+import { track, trackError } from "./core/analytics";
 import { BOLD, DIM, PRIMARY, RESET } from "./core/colors";
 import { type ProjectContext, loadContext } from "./core/context";
 import { formatException, describeKnownError, supportReference, isUserCancellation } from "./core/errors";
+import { flushTelemetry } from "./core/flush-telemetry";
 import { installInterruptHandler, installTerminationDiagnostics, restoreTerminal } from "./core/interrupt";
+import { captureLog } from "./core/logs";
 import { DEFAULT_MODEL } from "./core/model";
 import { displayPath, ensureOutputDir } from "./core/output";
+import { initSession } from "./core/session";
 import { teardownUi } from "./core/ui-lifecycle";
 import { readEnv } from "./env";
 import * as p from "./ui/prompts";
@@ -224,6 +227,11 @@ async function runStep(
 
     const stepStartedAt = Date.now();
     track("cli_step_started", { step });
+    captureLog("info", `Step started: ${label}`, {
+        source: "pipeline",
+        step,
+        retry_with_guidance: retryGuidance != null,
+    });
 
     state = await markStep(outputDir, state, step, "running");
     getActiveStore()?.startStep(step);
@@ -435,10 +443,20 @@ async function runStep(
         stepMetrics = { ...stepMetrics, test_count: await countGeneratedTests(outputDir) };
     }
 
+    const status = state.steps[step];
+    const durationMs = Date.now() - stepStartedAt;
+
     track("cli_step_completed", {
         step,
-        status: state.steps[step],
-        duration_ms: Date.now() - stepStartedAt,
+        status,
+        duration_ms: durationMs,
+        ...stepMetrics,
+    });
+    captureLog(status === "failed" ? "error" : "info", `Step ${status}: ${label}`, {
+        source: "pipeline",
+        step,
+        status,
+        duration_ms: durationMs,
         ...stepMetrics,
     });
 
@@ -619,7 +637,7 @@ async function main() {
         // are idempotent, so this is safe to run repeatedly to recover a failed run.
         const recipeUploaded = await uploadRecipeFromDisk(outputDir, config);
         await uploadArtifacts(config, outputDir);
-        await flushAnalytics();
+        await flushTelemetry();
         process.exit(recipeUploaded ? 0 : 1);
     }
 
@@ -648,7 +666,6 @@ async function main() {
     }
 
     console.log(BANNER);
-    p.intro("Let's generate your test suite");
 
     // ESC no longer exits; Ctrl+C twice (within 3s) does, with a resume hint.
     const resumeCommand = `autonoma-planner --resume` + (args.project ? ` --project ${args.project}` : "");
@@ -659,12 +676,13 @@ async function main() {
         // carries the signal code a reaper/CI reads, not a 0 that looks like normal completion.
         onExit: (exitCode = 0) => {
             track("cli_run_exited");
+            captureLog("warn", "Run interrupted before finishing", { source: "pipeline", exit_code: exitCode });
             mountedUi?.unmount();
             mountedUi = undefined;
             restoreTerminal();
             console.log("");
             p.log.warn(`Your progress is saved. To resume, run:\n  ${resumeCommand}`);
-            void flushAnalytics().finally(() => process.exit(exitCode));
+            void flushTelemetry().finally(() => process.exit(exitCode));
         },
     });
 
@@ -685,6 +703,15 @@ async function main() {
         permissionMode: strArg(args, "permission-mode"),
     });
 
+    // Seed telemetry identity before anything is captured: the generation id and
+    // slug only exist once loadConfig has merged the project/global .env files, and
+    // both lanes index every event and log record by them. The intro follows rather
+    // than leads for the same reason - greeting first would emit the run's opening
+    // record before it could be attributed to a project.
+    initSession({ generationId: config.autonomaGenerationId, projectSlug: config.projectSlug });
+
+    p.intro("Let's generate your test suite");
+
     if (!ensureAutonomaAuth()) {
         return;
     }
@@ -699,6 +726,12 @@ async function main() {
     p.log.info(`Project: ${config.projectRoot}`);
 
     track("cli_run_started", { model: modelName, non_interactive: nonInteractive });
+    captureLog("info", "Run started", {
+        source: "pipeline",
+        model: modelName,
+        non_interactive: nonInteractive,
+        platform: `${process.platform}-${process.arch}`,
+    });
 
     const outputDir = await ensureOutputDir(config.projectSlug);
     let state = await loadState(outputDir);
@@ -857,6 +890,10 @@ async function main() {
 
     const stepsDone = Object.values(state.steps).filter((s) => s === "done").length;
     track("cli_run_completed", { steps_done: stepsDone });
+    captureLog("info", `Run completed with ${stepsDone}/${STEP_ORDER.length} steps done`, {
+        source: "pipeline",
+        steps_done: stepsDone,
+    });
 
     // Only upload once the whole pipeline finished - a paused/failed run has
     // incomplete artifacts and would publish a half-built test suite.
@@ -911,7 +948,7 @@ async function main() {
 }
 
 main()
-    .then(() => flushAnalytics())
+    .then(() => flushTelemetry())
     .catch(async (err) => {
         // The dashboard may still be up; kill it first so the console is real
         // again - otherwise the error prints into the dead frame's captured
@@ -920,7 +957,7 @@ main()
         // A cancellation that bubbled all the way up - exit quietly without a stack
         // or an error-tracking event; the user chose to stop.
         if (isUserCancellation(err)) {
-            await flushAnalytics();
+            await flushTelemetry();
             process.exit(0);
         }
         const known = describeKnownError(err);
@@ -932,6 +969,11 @@ main()
             console.error(`\x1b[2m${supportReference()}\x1b[0m`);
         }
         trackError(err, { source: "uncaught" }, false);
-        await flushAnalytics();
+        captureLog("error", `Run crashed: ${err instanceof Error ? err.message : String(err)}`, {
+            source: "pipeline",
+            error_type: err instanceof Error ? err.name : "unknown",
+            known_error: known != null,
+        });
+        await flushTelemetry();
         process.exit(1);
     });

@@ -1,120 +1,13 @@
-import { randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
-import { readEnv } from "../env";
 import { debugLog } from "./debug";
-import { CLI_VERSION } from "./version";
-
-const AUTONOMA_HOME = join(homedir(), ".autonoma");
-const DEVICE_ID_PATH = join(AUTONOMA_HOME, ".device-id");
-const DISTINCT_ID_PATH = join(AUTONOMA_HOME, ".distinct-id");
-
-// PostHog project (public/ingestion) key. Safe to ship in a client - it can
-// only write events, not read. Same project as the landing page + app, so the
-// CLI events land in the same funnel. Override with AUTONOMA_POSTHOG_KEY.
-const POSTHOG_PUBLIC_KEY = "phc_mUOwUj62r8vyiisFPvXLC3G5RftETIBMnKNSHqTBdka";
-const DEFAULT_HOST = "https://us.i.posthog.com";
-
-function resolveKey(): string {
-    return (readEnv().AUTONOMA_POSTHOG_KEY ?? POSTHOG_PUBLIC_KEY).trim();
-}
-
-function resolveHost(): string {
-    return (readEnv().AUTONOMA_POSTHOG_HOST ?? DEFAULT_HOST).replace(/\/+$/, "");
-}
-
-// Tracking is ON by default; users opt out with DONT_TRACK=1 (or =true).
-function trackingDisabled(): boolean {
-    const v = readEnv().DONT_TRACK;
-    return v === "1" || v === "true";
-}
-
-// To stitch the CLI into the landing → app → auth → CLI funnel, the app/portal
-// passes the user's PostHog distinct_id to the CLI via AUTONOMA_DISTINCT_ID.
-// When present we use it (and let PostHog build the person profile so the funnel
-// connects). Otherwise we fall back to an anonymous per-machine device id and
-// suppress person processing so we don't create junk persons.
-let cachedIdentity: string | undefined;
-let identityResolved = false;
-
-function getIdentity(): string | undefined {
-    if (identityResolved) return cachedIdentity;
-    identityResolved = true;
-    cachedIdentity = resolveIdentity();
-    return cachedIdentity;
-}
-
-/**
- * Only the first invocation is launched from the app with AUTONOMA_DISTINCT_ID
- * set; a user re-running the CLI by hand loses it, drops to the anonymous device
- * id, and silently leaves the funnel. So the first run persists the id and later
- * runs read it back.
- */
-function resolveIdentity(): string | undefined {
-    const fromEnv = readEnv().AUTONOMA_DISTINCT_ID?.trim();
-    if (fromEnv != null && fromEnv.length > 0) {
-        persistIdentity(fromEnv);
-        return fromEnv;
-    }
-
-    try {
-        const stored = readFileSync(DISTINCT_ID_PATH, "utf-8").trim();
-        if (stored.length > 0) return stored;
-    } catch (err) {
-        debugLog("No persisted distinct id; falling back to the anonymous device id", { err });
-    }
-    return undefined;
-}
-
-function persistIdentity(id: string): void {
-    try {
-        mkdirSync(AUTONOMA_HOME, { recursive: true });
-        writeFileSync(DISTINCT_ID_PATH, id, { encoding: "utf-8", mode: 0o600 });
-    } catch (err) {
-        debugLog("Could not persist distinct id; re-runs may lose funnel attribution", { err });
-    }
-}
-
-// One id per process, attached to every event - lets you group a run's events,
-// count distinct runs, and dedupe. Stable for the life of the CLI invocation.
-const RUN_ID = randomUUID();
+import { getPostHogConfig } from "./posthog";
+import { getSession } from "./session";
 
 /**
  * The current run's id. Printed in failure output as a support reference so a
- * user-reported error maps 1:1 to its `$exception` event(s) in analytics.
+ * user-reported error maps 1:1 to its `$exception` event(s) and its log records.
  */
 export function getRunId(): string {
-    return RUN_ID;
-}
-
-let cachedDeviceId: string | undefined;
-
-function getDeviceId(): string {
-    if (cachedDeviceId) return cachedDeviceId;
-    try {
-        cachedDeviceId = readFileSync(DEVICE_ID_PATH, "utf-8").trim();
-        if (cachedDeviceId) return cachedDeviceId;
-    } catch (err) {
-        debugLog("No cached device id found; generating a fresh one", { err });
-    }
-    cachedDeviceId = randomUUID();
-    try {
-        mkdirSync(AUTONOMA_HOME, { recursive: true });
-        writeFileSync(DEVICE_ID_PATH, cachedDeviceId, { encoding: "utf-8", mode: 0o600 });
-    } catch (err) {
-        debugLog("Could not persist device id; using an in-memory id for this run", { err });
-    }
-    return cachedDeviceId;
-}
-
-let enabled: boolean | undefined;
-
-function isEnabled(): boolean {
-    if (enabled === undefined) {
-        enabled = !trackingDisabled() && resolveKey().length > 0;
-    }
-    return enabled;
+    return getSession().runId;
 }
 
 const pending = new Set<Promise<unknown>>();
@@ -124,27 +17,35 @@ const pending = new Set<Promise<unknown>>();
  * CLI - failures are swallowed. No PII or source code is ever sent.
  */
 export function track(event: string, properties: Record<string, unknown> = {}): void {
-    if (!isEnabled()) return;
+    const { enabled, key, host } = getPostHogConfig();
+    if (!enabled) return;
 
-    const identity = getIdentity();
+    const session = getSession();
     const body = JSON.stringify({
-        api_key: resolveKey(),
+        api_key: key,
         event,
-        distinct_id: identity ?? getDeviceId(),
+        distinct_id: session.distinctId,
         properties: {
             ...properties,
-            run_id: RUN_ID,
+            run_id: session.runId,
+            // Ties an event to the onboarding setup it belongs to, so a failed run
+            // in the app resolves to this run's events and log records.
+            generation_id: session.generationId,
+            project_slug: session.projectSlug,
+            // Groups a run's events with its log records, which carry the same id
+            // as PostHog's `sessionId` log attribute.
+            $session_id: session.runId,
             // Only build a person profile when we have a real identity from the app,
             // so the CLI joins the existing funnel person instead of creating a new one.
-            $process_person_profile: identity != null,
-            cli_version: CLI_VERSION,
+            $process_person_profile: session.identified,
+            cli_version: session.cliVersion,
             // Runtime version - lets us confirm/monitor Node-version-specific
             // failures (e.g. a `util.styleText` crash on Node < 22.13 in old deps).
-            node_version: process.versions.node,
+            node_version: session.nodeVersion,
         },
     });
 
-    const promise = fetch(`${resolveHost()}/capture/`, {
+    const promise = fetch(`${host}/capture/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body,
@@ -180,5 +81,8 @@ export function trackError(error: unknown, properties: Record<string, unknown> =
 /** Flush in-flight events before exit. Best-effort, bounded by `timeoutMs`. */
 export async function flushAnalytics(timeoutMs = 1500): Promise<void> {
     if (pending.size === 0) return;
-    await Promise.race([Promise.allSettled([...pending]), new Promise((resolve) => setTimeout(resolve, timeoutMs))]);
+    await Promise.race([
+        Promise.allSettled([...pending]),
+        new Promise((resolve) => setTimeout(resolve, timeoutMs).unref()),
+    ]);
 }

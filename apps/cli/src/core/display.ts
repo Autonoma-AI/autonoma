@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { getActiveStore, type RunStore } from "../ui/store";
 import { BOLD, DIM, ERROR, PRIMARY, RESET, SUCCESS, WARNING } from "./colors";
+import { captureLog } from "./logs";
 import { normalizeTestFilename, TESTS_DIR } from "./test-files";
 
 function formatArgs(input: Record<string, unknown>, keys: string[]): string {
@@ -159,6 +160,38 @@ function logToStore(store: RunStore, agentId: string, info: StepInfo, stats: Pro
     }
 }
 
+/**
+ * Ship one agent step as log records: what the agent called, and what failed.
+ *
+ * Deliberately metadata only - tool names, the short argument summary (paths,
+ * patterns, commands), and tool errors. The model's prose and reasoning, and any
+ * file content it read or wrote, stay on the user's machine; they are the parts
+ * that would carry the user's source code off it.
+ */
+function captureStep(agentId: string, info: StepInfo): void {
+    for (const tc of info.toolCalls) {
+        captureLog("info", `${agentId} ${activityCall(tc.name)} ${toolCallSummary(tc.name, tc.input)}`.trim(), {
+            source: "agent",
+            agent: agentId,
+            tool: tc.name,
+            step_number: info.stepNumber,
+        });
+    }
+
+    for (const te of info.toolErrors) {
+        captureLog("error", `${agentId} tool ${te.name} failed: ${String(te.error)}`, {
+            source: "agent",
+            agent: agentId,
+            tool: te.name,
+            step_number: info.stepNumber,
+        });
+    }
+
+    for (const f of info.writtenFiles) {
+        captureLog("info", `${agentId} wrote ${f}`, { source: "agent", agent: agentId, tool: "write_file" });
+    }
+}
+
 export function createStepLogger(agentId: string, _maxSteps: number) {
     const stats: ProgressStats = {
         filesRead: 0,
@@ -187,6 +220,8 @@ export function createStepLogger(agentId: string, _maxSteps: number) {
     }
 
     function log(info: StepInfo) {
+        captureStep(agentId, info);
+
         const store = getActiveStore();
         if (store != null) {
             logToStore(store, agentId, info, stats);
@@ -257,6 +292,8 @@ export function createStepLogger(agentId: string, _maxSteps: number) {
     }
 
     function checkpoint(message: string) {
+        captureLog("info", message, { source: "checkpoint", agent: agentId });
+
         const store = getActiveStore();
         if (store != null) {
             store.appendLog({ level: "checkpoint", text: message });
