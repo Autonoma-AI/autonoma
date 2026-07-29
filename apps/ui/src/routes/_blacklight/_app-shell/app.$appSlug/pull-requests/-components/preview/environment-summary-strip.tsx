@@ -14,7 +14,9 @@ import {
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
+import { PreviewLivenessBadge } from "components/preview-liveness-badge";
 import { useDeploymentHistory } from "lib/query/deployments.queries";
+import { pickPreviewLiveness, type PreviewLivenessState, usePreviewLiveness } from "lib/query/preview-access.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Component, type ReactNode, Suspense, useState } from "react";
 import { DEPLOYMENT_STATUS_META, DeploymentRow, type DeploymentHistoryRow } from "./deployment-row";
@@ -39,6 +41,13 @@ export function EnvironmentSummaryStrip({
 }) {
   const environmentActive = summary.status === "building" || summary.phase === "deploy_requested";
 
+  // Every managed service in a preview sleeps and wakes together, so one runtime
+  // state covers the whole environment. Query on the services' URLs; non-preview
+  // or unresolved ones fall through to "unknown" (no badge).
+  const livenessUrls = summary.services.map((service) => service.endpoint).filter((url): url is string => url != null);
+  const { data: liveness } = usePreviewLiveness(livenessUrls);
+  const livenessState = pickPreviewLiveness(liveness, livenessUrls);
+
   return (
     <div className="flex flex-wrap items-stretch divide-y divide-border-dim border border-border-dim bg-surface-base sm:flex-nowrap sm:divide-x sm:divide-y-0">
       <QueryErrorResetBoundary>
@@ -49,6 +58,7 @@ export function EnvironmentSummaryStrip({
                 applicationId={applicationId}
                 environmentId={environmentId}
                 environmentActive={environmentActive}
+                livenessState={livenessState}
               />
             </Suspense>
           </DeploymentSummaryErrorBoundary>
@@ -71,10 +81,12 @@ function DeploymentSummary({
   applicationId,
   environmentId,
   environmentActive,
+  livenessState,
 }: {
   applicationId: string;
   environmentId: string;
   environmentActive: boolean;
+  livenessState: PreviewLivenessState;
 }) {
   const { data: deployments } = useDeploymentHistory(applicationId, environmentId, {
     pollWhileActive: environmentActive,
@@ -91,6 +103,9 @@ function DeploymentSummary({
       ) : (
         <DeploymentSummaryDetail deployment={current} />
       )}
+      {/* The honest "is it up right now" signal, distinct from the deploy status:
+          a successful deploy that has since scaled to zero reads "Idle", not "Ready". */}
+      <PreviewLivenessBadge state={livenessState} />
       <Button
         variant="outline"
         size="xs"

@@ -3,6 +3,7 @@ import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { Link } from "@tanstack/react-router";
+import { PreviewLivenessBadge } from "components/preview-liveness-badge";
 import { formatRelativeTime } from "lib/format";
 import {
   INVESTIGATION_TONE_CLASS,
@@ -12,6 +13,7 @@ import {
   useInvestigationReportsBySnapshot,
 } from "lib/query/branches.queries";
 import { type LatestPullRequest, useLatestPullRequests } from "lib/query/latest-prs.queries";
+import { pickPreviewLiveness, type PreviewLivenessState, usePreviewLiveness } from "lib/query/preview-access.queries";
 import { AppLink } from "../../-app-link";
 import { CheckpointSummaryBadge } from "../pull-requests/-components/checkpoint-summary-badge";
 
@@ -20,6 +22,10 @@ export function OpenPrsList() {
   // Internal-only (@autonoma.app); the hook is disabled for everyone else, so no entry point renders.
   const investigation = useInvestigationReportsBySnapshot(
     prs.map((pr) => pr.snapshotId).filter((id): id is string => id != null),
+  );
+  // One batched liveness poll for every preview on the page (never wakes them).
+  const { data: liveness } = usePreviewLiveness(
+    prs.map((pr) => pr.previewUrl).filter((url): url is string => url != null),
   );
 
   return (
@@ -52,6 +58,7 @@ export function OpenPrsList() {
                 pr={pr}
                 investigation={pr.snapshotId != null ? investigation.bySnapshot.get(pr.snapshotId) : undefined}
                 investigationLoading={investigation.isLoading}
+                liveness={liveness}
               />
             ))
           )}
@@ -65,11 +72,14 @@ function PrRow({
   pr,
   investigation,
   investigationLoading,
+  liveness,
 }: {
   pr: LatestPullRequest;
   investigation?: InvestigationPresence;
   investigationLoading: boolean;
+  liveness?: Record<string, PreviewLivenessState>;
 }) {
+  const livenessState = pickPreviewLiveness(liveness, [pr.previewUrl]);
   return (
     <div className="relative flex items-center gap-3 border-t border-border-dim px-4 py-3 transition-colors first:border-t-0 hover:bg-surface-raised">
       <AppLink
@@ -103,17 +113,20 @@ function PrRow({
           {pr.testCount} {pr.testCount === 1 ? "test" : "tests"}
         </span>
         {pr.previewUrl != null && (
-          <Link
-            to="/preview-waiting"
-            search={{ to: pr.previewUrl }}
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="relative z-10 inline-flex items-center gap-0.5 text-primary-ink hover:underline"
-          >
-            preview
-            <ArrowUpRightIcon size={11} weight="bold" />
-          </Link>
+          <>
+            <PreviewLivenessBadge state={livenessState} className="text-[9px]" />
+            <Link
+              to="/preview-waiting"
+              search={{ to: pr.previewUrl }}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="relative z-10 inline-flex items-center gap-0.5 text-primary-ink hover:underline"
+            >
+              preview
+              <ArrowUpRightIcon size={11} weight="bold" />
+            </Link>
+          </>
         )}
         {investigation != null && pr.snapshotId != null && (
           <InvestigationEntry prNumber={pr.prNumber} snapshotId={pr.snapshotId} investigation={investigation} />

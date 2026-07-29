@@ -33,6 +33,7 @@ import { Link, Navigate, createFileRoute } from "@tanstack/react-router";
 import { LogAppFilter } from "components/build-logs/log-app-filter";
 import { PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
 import { PreviewLink } from "components/preview-link";
+import { PreviewLivenessBadge } from "components/preview-liveness-badge";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
 import {
@@ -45,6 +46,7 @@ import {
   useRedeployPreviewkitApp,
   useRedeployPreviewkitEnvironment,
 } from "lib/query/admin.queries";
+import { pickPreviewLiveness, type PreviewLivenessState, usePreviewLiveness } from "lib/query/preview-access.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense, useState } from "react";
 
@@ -209,6 +211,12 @@ function EnvironmentsTable() {
   ].sort((a, b) => a.name.localeCompare(b.name));
 
   const filtered = filterEnvironments(environments, query, organizationId);
+  // One batched liveness poll across every app URL on the page (read-only, no wake).
+  const { data: liveness } = usePreviewLiveness(
+    filtered
+      .flatMap((environment) => environment.apps.map((app) => app.url))
+      .filter((url): url is string => url != null),
+  );
 
   return (
     <div className="flex flex-col gap-3">
@@ -264,7 +272,7 @@ function EnvironmentsTable() {
             </DataTableHead>
             <DataTableBody>
               {filtered.map((environment) => (
-                <EnvironmentRow key={environment.id} environment={environment} />
+                <EnvironmentRow key={environment.id} environment={environment} liveness={liveness} />
               ))}
             </DataTableBody>
           </DataTable>
@@ -321,12 +329,22 @@ function RedeployButton({ environmentId }: { environmentId: string }) {
 // One environment per table row. The row shows the at-a-glance columns; the
 // caret expands a detail row beneath it with the per-app list. The Up / Logs
 // toggles reveal the Environment Factory and log panels in that same detail row.
-function EnvironmentRow({ environment }: { environment: PreviewEnvironment }) {
+function EnvironmentRow({
+  environment,
+  liveness,
+}: {
+  environment: PreviewEnvironment;
+  liveness?: Record<string, PreviewLivenessState>;
+}) {
   const [showApps, setShowApps] = useState(false);
   const [showEnvFactory, setShowEnvFactory] = useState(false);
   const [showLogs, setShowLogs] = useState(false);
   const isOpen = showApps || showEnvFactory || showLogs;
   const readyCount = environment.apps.filter((app) => app.status === "ready").length;
+  const livenessState = pickPreviewLiveness(
+    liveness,
+    environment.apps.map((app) => app.url),
+  );
 
   return (
     <>
@@ -354,13 +372,16 @@ function EnvironmentRow({ environment }: { environment: PreviewEnvironment }) {
           <span className="font-mono text-2xs text-text-primary">{environment.organization.name}</span>
         </DataTableCell>
         <DataTableCell>
-          <Badge
-            variant={ENV_HEALTH_VARIANT[environment.health]}
-            className="text-3xs"
-            title={`Pipeline status: ${environment.phase ?? environment.status}`}
-          >
-            {environment.health}
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            <Badge
+              variant={ENV_HEALTH_VARIANT[environment.health]}
+              className="text-3xs"
+              title={`Pipeline status: ${environment.phase ?? environment.status}`}
+            >
+              {environment.health}
+            </Badge>
+            <PreviewLivenessBadge state={livenessState} className="text-3xs" />
+          </div>
         </DataTableCell>
         <DataTableCell>
           <span className="font-mono text-2xs text-text-secondary">

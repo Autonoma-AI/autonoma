@@ -1,8 +1,25 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import type { RouterOutputs } from "lib/trpc";
 import { trpc } from "lib/trpc";
 
 type PreviewState = RouterOutputs["previewAccess"]["status"]["state"];
+
+/** Runtime power/health of a preview, straight from the cluster (asleep | waking | healthy | error | unknown). */
+export type PreviewLivenessState = RouterOutputs["previewAccess"]["liveness"][string];
+
+/**
+ * How often list views re-poll preview liveness. Slower than the waiting page's
+ * wake poll (this is a passive "is it up" glance, and the server already caches a
+ * whole-fleet snapshot for a few seconds), and - unlike the waiting page - this
+ * read NEVER wakes a preview, so polling it behind a list is free of side effects.
+ */
+const LIVENESS_POLL_MS = 8_000;
+
+// Mirrors previewAccess.liveness's server-side input cap (MAX_LIVENESS_URLS in
+// preview-access.router.ts). Past it the whole request fails validation and
+// EVERY row loses its badge, not just the overflow - so cap here and let a
+// large fleet (the admin view) degrade partially instead of all-or-nothing.
+const LIVENESS_URL_CAP = 200;
 
 /**
  * How often the waiting page re-checks a cold preview. Each poll sends a real
@@ -45,4 +62,41 @@ export function usePreviewStatus(url: string) {
         // pauses and they return to a page still claiming it is starting.
         refetchIntervalInBackground: true,
     });
+}
+
+/**
+ * Runtime liveness for a set of previews, keyed by the URL passed in, for LIST
+ * views (PR list, admin, the preview strip). Batched - one call covers every URL
+ * on the page. Unlike `usePreviewStatus`, this is a pure read that NEVER wakes a
+ * preview, so it is safe to poll behind a list. A URL that is not one of ours (or
+ * whose preview is torn down / not reachable) resolves to "unknown".
+ */
+export function usePreviewLiveness(urls: string[]) {
+    // Sort for a stable query key regardless of the caller's ordering, so the
+    // same set of URLs doesn't thrash the cache as rows re-render; cap to the
+    // server-side limit so an oversized set degrades partially, not entirely.
+    const sorted = [...urls].sort().slice(0, LIVENESS_URL_CAP);
+    return useQuery({
+        ...trpc.previewAccess.liveness.queryOptions({ urls: sorted }),
+        enabled: sorted.length > 0,
+        refetchInterval: LIVENESS_POLL_MS,
+    });
+}
+
+/**
+ * The single liveness state for one preview from a liveness map: every URL of a
+ * preview resolves to the same namespace state, so take the first that is known.
+ * "unknown" when none resolve (feature off, or not our preview).
+ */
+export function pickPreviewLiveness(
+    map: Record<string, PreviewLivenessState> | undefined,
+    urls: Array<string | undefined>,
+): PreviewLivenessState {
+    if (map == null) return "unknown";
+    for (const url of urls) {
+        if (url == null) continue;
+        const state = map[url];
+        if (state != null && state !== "unknown") return state;
+    }
+    return "unknown";
 }
