@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.260729.3](https://github.com/Autonoma-AI/agent/compare/v1.260729.2...v1.260729.3) (2026-07-29)
+
+
+### Features
+
+* **api:** record bug-fixed-before-merge outcomes on PR merge ([#1862](https://github.com/Autonoma-AI/agent/issues/1862)) ([22d7740](https://github.com/Autonoma-AI/agent/commit/22d7740fe59cd315aed91a89a89f1b8820dbe406))
+* **cli:** ship the run narrative to PostHog logs, indexed by generation id ([#1884](https://github.com/Autonoma-AI/agent/issues/1884)) ([8270863](https://github.com/Autonoma-AI/agent/commit/827086335bd86ca1c32f23c521c077e70c2dacbb))
+* **previewkit:** add a mint-key script for the secret encryption key ([#1891](https://github.com/Autonoma-AI/agent/issues/1891)) ([e9aed4a](https://github.com/Autonoma-AI/agent/commit/e9aed4a4775f1f50119ef5785307ed10f72604bb))
+* **previewkit:** mirror secret writes into encrypted Postgres tables ([#1835](https://github.com/Autonoma-AI/agent/issues/1835)) ([2d47df1](https://github.com/Autonoma-AI/agent/commit/2d47df1dbc701ac7cee0824ec8b59c93c81c24de))
+* **previewkit:** route scenario up to the app implementing the SDK ([#1847](https://github.com/Autonoma-AI/agent/issues/1847)) ([f74c1eb](https://github.com/Autonoma-AI/agent/commit/f74c1eb236809723fac84fbbd4a9e03809a1a0a2))
+
+
+### Bug Fixes
+
+* **analysis:** a checkpoint that confirmed nothing must not read 'Passing' ([#1893](https://github.com/Autonoma-AI/agent/issues/1893)) ([6f5d56f](https://github.com/Autonoma-AI/agent/commit/6f5d56fb9a1a4ae3cc658e4f19b55f56acb3f01f))
+* **analysis:** mark a generation failed when the run never happens ([#1892](https://github.com/Autonoma-AI/agent/issues/1892)) ([794ccd5](https://github.com/Autonoma-AI/agent/commit/794ccd5a78b6243d3fa891cc208d5d28d9609ab5))
+* **cli:** make the generated-test file contract explicit ([#1868](https://github.com/Autonoma-AI/agent/issues/1868)) ([676bc91](https://github.com/Autonoma-AI/agent/commit/676bc91555465653522239efb476382320e2e778))
+
 ## [1.260729.2](https://github.com/Autonoma-AI/agent/compare/v1.260729.1...v1.260729.2) (2026-07-29)
 
 
