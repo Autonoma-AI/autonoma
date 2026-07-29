@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.260729.1](https://github.com/Autonoma-AI/agent/compare/v1.260728.2...v1.260729.1) (2026-07-29)
+
+
+### Features
+
+* **api:** attribute PRs to all contributors for the stickiness merge-gate ([#1846](https://github.com/Autonoma-AI/agent/issues/1846)) ([d6407b6](https://github.com/Autonoma-AI/agent/commit/d6407b6ec96b7bd567bdf3686c47a462cc4e94db))
+* **api:** emit platform_signup for Vercel marketplace users ([#1852](https://github.com/Autonoma-AI/agent/issues/1852)) ([bec2512](https://github.com/Autonoma-AI/agent/commit/bec251222d6d9142b7205f0d7f8222602456ff02))
+* **api:** make the DEMO_ORG organization read-only at the API layer ([#1843](https://github.com/Autonoma-AI/agent/issues/1843)) ([eb8c5c6](https://github.com/Autonoma-AI/agent/commit/eb8c5c6d906499b2074c6d4a6d050efac2b26d13))
+* **blacklight:** add a Diff component and use it for test-plan changes ([#1836](https://github.com/Autonoma-AI/agent/issues/1836)) ([b018487](https://github.com/Autonoma-AI/agent/commit/b018487c160b6ef02598f8d68b878e04deb2d012))
+* **preview:** point GitHub-comment preview links at the front door ([#1831](https://github.com/Autonoma-AI/agent/issues/1831)) ([43d7d1a](https://github.com/Autonoma-AI/agent/commit/43d7d1a41699f0557226b1d67c9a75ba4e696025))
+* **preview:** route in-app preview links through the waiting page ([#1856](https://github.com/Autonoma-AI/agent/issues/1856)) ([4c654b3](https://github.com/Autonoma-AI/agent/commit/4c654b365736b17deb7a5061cb5a4884f74f1505))
+* replace the analysis delete verdict with a kept plan_mismatch ([#1838](https://github.com/Autonoma-AI/agent/issues/1838)) ([b101175](https://github.com/Autonoma-AI/agent/commit/b1011757968f4134822451cadcf2a975bd8abbe7))
+
+
+### Bug Fixes
+
+* **analytics:** close the activation-funnel instrumentation gaps ([#1746](https://github.com/Autonoma-AI/agent/issues/1746)) ([865350c](https://github.com/Autonoma-AI/agent/commit/865350c980f0a235ec046b0172a9958320ddcb92))
+* **ci:** stop the public-mirror sync failing on a broken pipe ([#1854](https://github.com/Autonoma-AI/agent/issues/1854)) ([9676dc3](https://github.com/Autonoma-AI/agent/commit/9676dc3c6ca8607b8e8e76bf5239b696e9305450))
+* **deployment:** restore kube-state-metrics RBAC and probe informer health ([#1849](https://github.com/Autonoma-AI/agent/issues/1849)) ([83eff47](https://github.com/Autonoma-AI/agent/commit/83eff479b5555d27eb6c3501a47b3d7fd106fb0b))
+* **onboarding:** keep the whole of onboarding on the onboarding MCP ([#1841](https://github.com/Autonoma-AI/agent/issues/1841)) ([6476675](https://github.com/Autonoma-AI/agent/commit/6476675816cd1e688463303ffed044008dfa1b72))
+* orphan ingress entries for gh app ([#1850](https://github.com/Autonoma-AI/agent/issues/1850)) ([a0e9cc1](https://github.com/Autonoma-AI/agent/commit/a0e9cc15d7b45e102c8dae0694e51b4ff2286984))
+
 ## [1.260728.2](https://github.com/Autonoma-AI/agent/compare/v1.260728.1...v1.260728.2) (2026-07-28)
 
 
