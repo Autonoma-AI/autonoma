@@ -1,5 +1,6 @@
 import { Button } from "@autonoma/blacklight";
 import { FloppyDiskIcon } from "@phosphor-icons/react/FloppyDisk";
+import { fieldIssueSummaries } from "../../../onboarding/-components/previewkit/topology-draft";
 import { usePreviewDraft } from "./-draft-context";
 
 /**
@@ -9,7 +10,11 @@ import { usePreviewDraft } from "./-draft-context";
  * draft dirty. Saving writes one new config revision covering all sections.
  */
 export function PreviewSaveBar() {
-  const { issues, hookErrors, isDirty, canSave, isSaving, save, cancel } = usePreviewDraft();
+  const { draft, issues, hookErrors, isDirty, canSave, isSaving, save, cancel } = usePreviewDraft();
+  // Field errors render next to their own field, which may be on another app or
+  // another tab than the one being edited - so a change made anywhere (a secret,
+  // say) would hit a disabled Save with nothing on screen saying why.
+  const blockers = fieldIssueSummaries(issues.fieldErrors, draft.apps);
 
   return (
     <div className="flex flex-col gap-4">
@@ -19,6 +24,19 @@ export function PreviewSaveBar() {
           {issues.documentErrors.map((message) => (
             <p key={message} className="mt-2 text-sm text-text-secondary">
               {message}
+            </p>
+          ))}
+        </div>
+      ) : undefined}
+      {blockers.length > 0 ? (
+        <div className="border-l-2 border-status-critical bg-status-critical/10 px-4 py-3">
+          <p className="font-mono text-2xs uppercase tracking-widest text-status-critical">Fix before saving</p>
+          {blockers.map((blocker) => (
+            <p key={blocker.key} className="mt-2 text-sm text-text-secondary">
+              <span className="font-mono text-2xs uppercase tracking-wider text-text-primary">
+                {blocker.app} · {blocker.field} ({blocker.tab} tab)
+              </span>{" "}
+              {blocker.message}
             </p>
           ))}
         </div>

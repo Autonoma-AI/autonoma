@@ -12,6 +12,7 @@ import {
     envRow,
     envRowsFromDotenv,
     fieldIssueKey,
+    fieldIssueSummaries,
     hookFieldErrors,
     mapIssuesToDraft,
     nextDraftId,
@@ -560,5 +561,51 @@ describe("topology-draft retired build presets", () => {
         };
         const document = documentsFromDraft(converted).primary.document;
         expect(authoringPreviewConfigSchema.safeParse(document).success).toBe(true);
+    });
+});
+
+describe("fieldIssueSummaries", () => {
+    it("names the app, field and tab of every blocking field error", () => {
+        const draft = draftFromConfig(
+            previewConfigSchema.parse({
+                version: 1,
+                apps: [
+                    { name: "web", port: 3000, build: { framework: "next", package_manager: "pnpm" } },
+                    { name: "api", port: 8080, dockerfile: "Dockerfile" },
+                ],
+            }),
+            [],
+            "saved",
+        );
+        const issues = validateDraftClientSide(documentsFromDraft(draft));
+        expect(issues.fieldErrors.size).toBeGreaterThan(0);
+
+        const summaries = fieldIssueSummaries(issues.fieldErrors, draft.apps);
+        expect(summaries).toHaveLength(issues.fieldErrors.size);
+        const buildMethod = summaries.find((summary) => summary.field === "Build method");
+        expect(buildMethod?.app).toBe("web");
+        expect(buildMethod?.tab).toBe("Overview");
+        expect(buildMethod?.message).toContain('"runtime"');
+    });
+
+    it("files a variable error under the tab that edits variables", () => {
+        const draft = draftFromConfig(
+            previewConfigSchema.parse({
+                version: 1,
+                apps: [{ name: "web", port: 3000, dockerfile: "Dockerfile" }],
+            }),
+            [],
+            "saved",
+        );
+        const app = draft.apps[0];
+        if (app == null) throw new Error("expected an app");
+        // A connection to a service that isn't declared - a semantics error filed
+        // against `connections`, which no editor renders inline.
+        const broken = { ...draft, apps: [{ ...app, env: [envRow("DATABASE_URL", "{{ghost.url}}", false)] }] };
+        const issues = validateDraftClientSide(documentsFromDraft(broken));
+
+        const summaries = fieldIssueSummaries(issues.fieldErrors, broken.apps);
+        expect(summaries[0]?.field).toBe("Variables");
+        expect(summaries[0]?.tab).toBe("Variables");
     });
 });

@@ -1221,6 +1221,89 @@ export function fieldIssueKey(draftId: number, field: AppDraftField): string {
 }
 
 /**
+ * Where each app field is edited: its label, and the tab of the app pane it sits
+ * on (see AppView's tabs). One entry per field, so a new field cannot be added
+ * without saying where a message should send the reader.
+ */
+const APP_FIELD_LOCATIONS: Record<AppDraftField, { label: string; tab: string }> = {
+    name: { label: "Name", tab: "Overview" },
+    path: { label: "Path", tab: "Overview" },
+    buildMode: { label: "Build method", tab: "Overview" },
+    buildContext: { label: "Root directory", tab: "Overview" },
+    dockerfile: { label: "Dockerfile", tab: "Overview" },
+    runtime: { label: "Runtime", tab: "Overview" },
+    runtimeVersion: { label: "Runtime version", tab: "Overview" },
+    buildScript: { label: "Build script", tab: "Overview" },
+    entrypoint: { label: "Entrypoint", tab: "Overview" },
+    port: { label: "Port", tab: "Overview" },
+    command: { label: "Start command", tab: "Overview" },
+    healthCheck: { label: "Health check", tab: "Overview" },
+    primary: { label: "Frontend role", tab: "Overview" },
+    sdkImplemented: { label: "SDK role", tab: "Overview" },
+    dependsOn: { label: "Depends on", tab: "Overview" },
+    env: { label: "Variables", tab: "Variables" },
+    connections: { label: "Variables", tab: "Variables" },
+    buildSecrets: { label: "Variables", tab: "Variables" },
+};
+
+export interface FieldIssueSummary {
+    /** Stable key for rendering, the same one the issue is filed under. */
+    key: string;
+    app: string;
+    field: string;
+    tab: string;
+    message: string;
+}
+
+/**
+ * Flattens field-level errors into messages that name where the problem is -
+ * app, field and tab. A field error only renders next to its own field, so a
+ * blocked save whose cause sits on another app (or another tab of the same app)
+ * would otherwise disable the save bar with nothing on screen explaining it.
+ */
+export function fieldIssueSummaries(fieldIssues: Map<string, string[]>, apps: AppDraft[]): FieldIssueSummary[] {
+    const appNameById = new Map(apps.map((app) => [app.id, app.name.trim()]));
+    const summaries: FieldIssueSummary[] = [];
+
+    for (const [key, messages] of fieldIssues) {
+        const parsed = parseFieldIssueKey(key);
+        if (parsed == null) continue;
+        const appName = appNameById.get(parsed.draftId);
+        const location = APP_FIELD_LOCATIONS[parsed.field];
+        for (const message of messages) {
+            summaries.push({
+                key: `${key}:${message}`,
+                app: appName == null || appName === "" ? "Unnamed app" : appName,
+                field: location.label,
+                tab: location.tab,
+                message,
+            });
+        }
+    }
+
+    return summaries;
+}
+
+interface ParsedFieldIssueKey {
+    draftId: number;
+    field: AppDraftField;
+}
+
+function parseFieldIssueKey(key: string): ParsedFieldIssueKey | undefined {
+    const separator = key.indexOf(":");
+    if (separator === -1) return undefined;
+    const draftId = Number(key.slice(0, separator));
+    const field = key.slice(separator + 1);
+    if (!Number.isFinite(draftId)) return undefined;
+    return isAppDraftField(field) ? { draftId, field } : undefined;
+}
+
+function isAppDraftField(value: string): value is AppDraftField {
+    const fields: readonly string[] = APP_DRAFT_FIELDS;
+    return fields.includes(value);
+}
+
+/**
  * Maps ConfigIssues (Zod-style paths into a compiled document) onto draft field
  * keys via the compile-time index map. Issues that don't point inside `apps`
  * become document-level messages.
