@@ -19,13 +19,9 @@ import type {
 } from "../src/activities";
 import { TaskQueue } from "../src/task-queues";
 import { type InvestigatorWorkflowInput, investigatorWorkflow } from "../src/workflows/investigator.workflow";
+import { teardownTestWorkflowEnvironment } from "./fixtures/teardown-test-workflow-environment";
 import { createTimeSkippingTestEnvironment } from "./fixtures/test-workflow-environment";
-
-// Compute the workflows bundle entrypoint directly rather than importing `workflowsPath` from ../src/worker: that
-// barrel also re-exports the Node-side worker, which transitively imports @autonoma/db (its env.ts validates
-// DATABASE_URL at import time). A hermetic workflow test must not require a database - CI runs it without one. The
-// Temporal worker bundles this entrypoint in the sandbox, where no db import exists.
-const workflowsPath = new URL("../src/workflows/index.ts", import.meta.url).pathname;
+import { workflowBundle } from "./fixtures/workflow-bundle";
 
 /**
  * Behavioral tests for the Investigator's verdict state machine: the self-heal loop, the full taxonomy (a
@@ -205,15 +201,8 @@ beforeAll(async () => {
     const diffsWorker = await Worker.create({
         connection: env.nativeConnection,
         taskQueue: TaskQueue.DIFFS,
-        workflowsPath,
+        workflowBundle: workflowBundle(),
         activities: analysisActivities,
-        // Preserve workflow function names so the client can resolve `investigatorWorkflow` from the bundle by name.
-        bundlerOptions: {
-            webpackConfigHook: (config) => {
-                config.optimization = { ...config.optimization, minimize: false };
-                return config;
-            },
-        },
     });
     const webWorker = await Worker.create({
         connection: env.nativeConnection,
@@ -227,12 +216,10 @@ beforeAll(async () => {
     });
     workers = [diffsWorker, webWorker, generalWorker];
     runners = Promise.all(workers.map((worker) => worker.run())).then(() => undefined);
-}, 120_000);
+});
 
 afterAll(async () => {
-    for (const worker of workers ?? []) worker.shutdown();
-    await runners?.catch(() => undefined);
-    await env?.teardown();
+    await teardownTestWorkflowEnvironment({ env, workers, runner: runners });
 });
 
 beforeEach(() => {

@@ -6,9 +6,10 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AnalysisActivities } from "../src/activities";
 import { TaskQueue } from "../src/task-queues";
 import { analysisWorkflow } from "../src/workflows/analysis.workflow";
+import { teardownTestWorkflowEnvironment } from "./fixtures/teardown-test-workflow-environment";
 import { createTimeSkippingTestEnvironment } from "./fixtures/test-workflow-environment";
+import { workflowBundle } from "./fixtures/workflow-bundle";
 
-const workflowsPath = new URL("../src/workflows/index.ts", import.meta.url).pathname;
 const snapshotId = "analysis-snapshot";
 let sequence = 0;
 
@@ -49,22 +50,14 @@ beforeAll(async () => {
     worker = await Worker.create({
         connection: env.nativeConnection,
         taskQueue: TaskQueue.DIFFS,
-        workflowsPath,
+        workflowBundle: workflowBundle(),
         activities,
-        bundlerOptions: {
-            webpackConfigHook: (config) => {
-                config.optimization = { ...config.optimization, minimize: false };
-                return config;
-            },
-        },
     });
     runner = worker.run();
-}, 120_000);
+});
 
 afterAll(async () => {
-    worker.shutdown();
-    await runner;
-    await env.teardown();
+    await teardownTestWorkflowEnvironment({ env, workers: [worker], runner });
 });
 
 beforeEach(() => {

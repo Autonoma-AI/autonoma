@@ -99,6 +99,28 @@ Three worker types poll their respective task queues:
 
 Activities are defined as typed stubs in `src/activities/`. Workers provide the actual implementations. This allows the workflow package to reference activity signatures without importing heavy engine dependencies.
 
+## Testing
+
+`pnpm test` runs the real workflows against Temporal's time-skipping test server with mocked activities - no database
+and no Temporal deployment required.
+
+The workflow bundle is expensive to build (webpack, ~4MB, up to ~75s on a contended CI runner), so `test/global-setup.ts`
+builds it **once per run** before any suite starts. A worker that hosts workflows must therefore take the prebuilt
+bundle rather than bundle its own:
+
+```ts
+const worker = await Worker.create({
+    connection: env.nativeConnection,
+    taskQueue: TaskQueue.DIFFS,
+    workflowBundle: workflowBundle(), // test/fixtures/workflow-bundle.ts - never `workflowsPath` here
+    activities,
+});
+```
+
+Workers that only host activities need no bundle. Start the environment with `createTimeSkippingTestEnvironment()` (it
+pins the test server version and retries a failed download), and tear a suite down with
+`teardownTestWorkflowEnvironment({ env, workers, runner })` so a half-finished `beforeAll` cannot bury its own error.
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
