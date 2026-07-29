@@ -792,7 +792,9 @@ vercelInstallationsRouter.patch("/:installationId/resources/:resourceId", async 
 
     return c.json({
         id: updated.id,
+        productId: updated.productId,
         name: updated.name,
+        metadata: updated.metadata,
         status: updated.status,
         billingPlan:
             updated.billingPlan != null
@@ -892,7 +894,9 @@ vercelInstallationsRouter.get("/:installationId/resources/:resourceId", async (c
 
     return c.json({
         id: resource.id,
+        productId: resource.productId,
         name: resource.name,
+        metadata: resource.metadata,
         status: resource.status,
         billingPlan:
             resource.billingPlan != null
