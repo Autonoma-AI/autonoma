@@ -11,7 +11,7 @@ import { getVercelEncryptionHelper } from "../context";
 import { PlatformEventEmitter, VERCEL_PROVIDER } from "../posthog/emit-platform-events";
 import { authenticateVercelRequest } from "./vercel-auth";
 import { createBillingPeriod } from "./vercel-billing";
-import { resolveUniqueOrgSlug } from "./vercel-helpers";
+import { resolveUniqueOrgSlug, toVercelInstallationWireStatus } from "./vercel-helpers";
 
 const logger = rootLogger.child({ name: "VercelInstallationsRouter" });
 const platformEvents = new PlatformEventEmitter(db);
@@ -498,7 +498,7 @@ vercelInstallationsRouter.get("/:installationId", async (c) => {
 
     return c.json({
         id: installation.vercelInstallationId,
-        status: installation.status,
+        status: toVercelInstallationWireStatus(installation.status),
         billingPlan:
             installation.billingPlan != null
                 ? {
@@ -655,7 +655,7 @@ vercelInstallationsRouter.post("/:installationId/resources", async (c) => {
         // Mark installation as active and assign the plan
         await tx.vercelInstallation.update({
             where: { id: installation.id },
-            data: { status: "active", billingPlanId: plan.id },
+            data: { status: VercelInstallationStatus.active, billingPlanId: plan.id },
         });
 
         // Ensure billing customer exists for Vercel provider

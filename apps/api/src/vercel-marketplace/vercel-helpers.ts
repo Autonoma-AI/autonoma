@@ -1,5 +1,6 @@
-import { db } from "@autonoma/db";
+import { db, VercelInstallationStatus } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
+import type { VercelInstallationWireStatus } from "@autonoma/types";
 import { encryptionHelper } from "../encryption";
 
 const VERCEL_MARKETPLACE_SSO_URL = "https://vercel.com/api/marketplace/sso";
@@ -33,6 +34,21 @@ export function buildVercelSsoRedirectUrl(vercelInstallationId: string, teamId: 
  */
 export function vercelPreferredOrgKey(userId: string): string {
     return `vercel-preferred-org:${userId}`;
+}
+
+const INSTALLATION_WIRE_STATUS_BY_DB_STATUS: Record<VercelInstallationStatus, VercelInstallationWireStatus> = {
+    [VercelInstallationStatus.active]: "ready",
+    [VercelInstallationStatus.deleted]: "uninstalled",
+};
+
+/**
+ * Maps our internal `VercelInstallation.status` (active/deleted) to the
+ * status vocabulary Vercel's Partner API expects on `GET /installations/:id`
+ * (ready/pending/onboarding/suspended/resumed/uninstalled/error) - the two
+ * vocabularies don't line up, so the DB value can never be forwarded as-is.
+ */
+export function toVercelInstallationWireStatus(status: VercelInstallationStatus): VercelInstallationWireStatus {
+    return INSTALLATION_WIRE_STATUS_BY_DB_STATUS[status];
 }
 
 /**
