@@ -305,11 +305,15 @@ export function useSnapshotDetail(snapshotId: string, options?: SnapshotDetailOp
         refetchInterval: (query) => {
             const data = query.state.data;
             if (data == null) return false;
-            const affectedGens = data.diffsJob.affectedTests.map((t) => t.generation);
+            // An authoritative snapshot has no diffs job; its liveness is polled by the analysis-report/job queries,
+            // not this one. With no diffs job there is nothing on this payload to keep watching for.
+            const diffsJob = data.diffsJob;
+            if (diffsJob == null) return data.refinementLoop?.status === "running" ? 5000 : false;
+            const affectedGens = diffsJob.affectedTests.map((t) => t.generation);
             const hasIncompleteGenerations = affectedGens.some(
                 (g) => g != null && INCOMPLETE_GENERATION_STATUSES.has(g.status),
             );
-            const hasInFlightDiffsJob = !TERMINAL_DIFFS_JOB_STATUSES.has(data.diffsJob.status);
+            const hasInFlightDiffsJob = !TERMINAL_DIFFS_JOB_STATUSES.has(diffsJob.status);
             const hasInFlightLoop = data.refinementLoop?.status === "running";
             return hasIncompleteGenerations || hasInFlightDiffsJob || hasInFlightLoop ? 5000 : false;
         },

@@ -466,7 +466,7 @@ function buildCumulativeTestChangeSections(details: SnapshotDetail[]): PRTestSec
     const snapshotId = detail.snapshot.id;
     const sections = buildSections({
       changes: detail.changes,
-      affectedTests: detail.diffsJob.affectedTests,
+      affectedTests: detail.diffsJob?.affectedTests ?? [],
       createdTests: detail.createdTests,
     });
 

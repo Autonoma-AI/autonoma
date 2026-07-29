@@ -101,7 +101,7 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
           {pipelineOpen ? "Hide pipeline" : "Show pipeline"}
         </Button>
       )}
-      {!isAuthoritative && diffsJob.temporalWorkflow != null && (
+      {diffsJob?.temporalWorkflow != null && (
         <TemporalLink workflowId={diffsJob.temporalWorkflow.workflowId} runId={diffsJob.temporalWorkflow.runId} />
       )}
       <SentryLogsLink filterField="snapshotId" filterValue={snapshotId} />
@@ -137,7 +137,7 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
         <SnapshotReportBody report={report} detail={detail} prNumber={prNumber} />
       )}
 
-      {isAdmin && !isAuthoritative && pipelineOpen && (
+      {isAdmin && diffsJob != null && pipelineOpen && (
         <PipelineStrip
           diffsJob={diffsJob}
           changes={changes}

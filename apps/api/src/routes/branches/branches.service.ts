@@ -7,13 +7,14 @@ import {
     computeSnapshotHealth,
     countOpenBugsBySnapshot,
     failingExecutionIds,
-    type FailingByKind,
     listExecutedTestsForSnapshot,
     loadAuthoritativeCheckpointInputs,
     type LoadedAuthoritativeInputs,
     loadIssueKindsForExecutions,
     type SnapshotExecutedTest,
     type SnapshotHealthCounts,
+    type SnapshotHealthResult,
+    type SnapshotHealth,
     tallyExecutedTests,
 } from "@autonoma/checkpoint";
 import type { AnalysisJobStatus, Prisma } from "@autonoma/db";
@@ -1194,24 +1195,17 @@ export class BranchesService extends Service {
         this.prCache.kickOff(applicationId, organizationId);
 
         return branches.map(({ prInfo, activeSnapshot, ...branch }) => {
-            const authoritative = activeSnapshot != null ? authoritativeBySnapshot.get(activeSnapshot.id) : undefined;
-            const legacyBugCount = activeSnapshot != null ? (bugCountBySnapshot.get(activeSnapshot.id) ?? 0) : 0;
-            // An authoritative snapshot's bug count is its open bug issues (finalize persists it as clientBugCount),
-            // not `Bug` rows (it files none); a legacy snapshot uses its Bug-derived count.
-            const bugCount =
-                authoritative != null
-                    ? (authoritative.bugCount ?? authoritative.findingBuckets?.bug ?? 0)
-                    : legacyBugCount;
-
-            const summary =
+            // No active snapshot: nothing to present. A snapshot that exists always goes through `presentCheckpoint`,
+            // the one place the legacy-vs-authoritative fork lives.
+            const { summary, health, bugCount } =
                 activeSnapshot != null
-                    ? summaryFromHealth(
-                          activeSnapshot.status,
-                          healthBySnapshot.get(activeSnapshot.id),
-                          legacyBugCount,
-                          { authoritative },
-                      )
-                    : undefined;
+                    ? presentCheckpoint({
+                          snapshotStatus: activeSnapshot.status,
+                          healthResult: healthBySnapshot.get(activeSnapshot.id),
+                          legacyBugCount: bugCountBySnapshot.get(activeSnapshot.id) ?? 0,
+                          authoritative: authoritativeBySnapshot.get(activeSnapshot.id),
+                      })
+                    : { summary: undefined, health: "unknown" as const, bugCount: 0 };
 
             const prStatus = computePrPipelineStatus({
                 activeSnapshot:
@@ -1219,13 +1213,6 @@ export class BranchesService extends Service {
                 latestRun: latestRunByBranch.get(branch.id),
                 previewEnv: previewStateByPr.get(prInfo!.prNumber),
             });
-
-            const health =
-                authoritative != null
-                    ? authoritativeSnapshotHealth(authoritative)
-                    : activeSnapshot != null
-                      ? (healthBySnapshot.get(activeSnapshot.id)?.health ?? "unknown")
-                      : "unknown";
 
             return {
                 ...branch,
@@ -1407,14 +1394,12 @@ export class BranchesService extends Service {
         const active = branch.activeSnapshot;
         const summary =
             active != null
-                ? summaryFromHealth(
-                      active.status,
-                      healthBySnapshot.get(active.id),
-                      bugCountBySnapshot.get(active.id) ?? 0,
-                      {
-                          authoritative: authoritativeBySnapshot.get(active.id),
-                      },
-                  )
+                ? presentCheckpoint({
+                      snapshotStatus: active.status,
+                      healthResult: healthBySnapshot.get(active.id),
+                      legacyBugCount: bugCountBySnapshot.get(active.id) ?? 0,
+                      authoritative: authoritativeBySnapshot.get(active.id),
+                  }).summary
                 : undefined;
 
         return computePrPipelineStatus({
@@ -1553,19 +1538,13 @@ export class BranchesService extends Service {
 
         return snapshots.map((snapshot) => {
             const changeSummary = changeSummaryBySnapshot.get(snapshot.id) ?? NO_SUITE_CHANGES;
-            const openBugCount = bugCountBySnapshot.get(snapshot.id) ?? 0;
-            const authoritative = authoritativeBySnapshot.get(snapshot.id);
-            // An authoritative snapshot's bug count is its open bug issues (finalize persists it as clientBugCount),
-            // not `Bug` rows (it files none); its health is derived from the same count so the rail's raw fields
-            // agree with the badge.
-            const bugCount =
-                authoritative != null
-                    ? (authoritative.bugCount ?? authoritative.findingBuckets?.bug ?? 0)
-                    : openBugCount;
-            const health =
-                authoritative != null
-                    ? authoritativeSnapshotHealth(authoritative)
-                    : (healthBySnapshot.get(snapshot.id)?.health ?? "unknown");
+            const { summary, health, bugCount } = presentCheckpoint({
+                snapshotStatus: snapshot.status,
+                healthResult: healthBySnapshot.get(snapshot.id),
+                legacyBugCount: bugCountBySnapshot.get(snapshot.id) ?? 0,
+                authoritative: authoritativeBySnapshot.get(snapshot.id),
+                suiteChangeCount: changeSummary.added + changeSummary.removed + changeSummary.updated,
+            });
             return {
                 ...snapshot,
                 changeSummary,
@@ -1579,10 +1558,7 @@ export class BranchesService extends Service {
                     totalTests: snapshot._count.testCaseAssignments,
                 },
                 bugCount,
-                summary: summaryFromHealth(snapshot.status, healthBySnapshot.get(snapshot.id), openBugCount, {
-                    suiteChangeCount: changeSummary.added + changeSummary.removed + changeSummary.updated,
-                    authoritative,
-                }),
+                summary,
             };
         });
     }
@@ -1674,19 +1650,10 @@ export class BranchesService extends Service {
 
         if (snapshot == null) throw new NotFoundError("Snapshot not found");
 
-        // An authoritative-mode snapshot has an AnalysisJob, not a DiffsJob, so its detail carries no diffs-pipeline
-        // metadata - the page reads its findings from the AnalysisReport instead. Synthesize an empty, terminal
-        // diffs job so the shared detail shape (changes, created tests, executed tests - all still real and driven
-        // by the snapshot's assignments) loads for the changes tab; the diffs-only surfaces (pipeline strip,
-        // Temporal link) are gated off in the authoritative layout.
-        const diffsJob: NonNullable<typeof snapshot.diffsJob> = snapshot.diffsJob ?? {
-            status: "completed",
-            analysisReasoning: null,
-            failureReason: null,
-            startedAt: null,
-            completedAt: null,
-            affectedTests: [],
-        };
+        // An authoritative-mode snapshot has an AnalysisJob, not a DiffsJob, so it carries no diffs-pipeline metadata
+        // and `diffsJob` is absent - the page reads its findings from the AnalysisReport instead. The rest of the
+        // detail (changes, created tests, executed tests) is real and driven by the snapshot's assignments either way.
+        const diffsJob = snapshot.diffsJob ?? undefined;
 
         const temporalWorkflowPromise: Promise<WorkflowRef | undefined> = options.includeWorkflow
             ? findLatestWorkflowBySnapshotId(snapshotId).catch((error) => {
@@ -1696,8 +1663,8 @@ export class BranchesService extends Service {
             : Promise.resolve(undefined);
 
         const { prInfo, ...branchRest } = snapshot.branch;
-        // The raw diffs job is captured into `diffsJob` above (with the authoritative fallback); strip it here so
-        // it is not spread into the flat snapshot, which returns it separately as `diffsJobWithMeta`.
+        // Strip the raw diffs job off the flat snapshot; it is returned separately as `diffsJobWithMeta` (undefined
+        // for an authoritative snapshot, which has none).
         const { diffsJob: _rawDiffsJob, branch: _branch, ...snapshotRest } = snapshot;
         const flatSnapshot = {
             ...snapshotRest,
@@ -1718,11 +1685,11 @@ export class BranchesService extends Service {
                 : Promise.resolve(undefined),
         ]);
 
-        const diffsJobWithMeta = {
-            ...diffsJob,
-            firstIterationReasoning,
-            temporalWorkflow,
-        };
+        // Absent for an authoritative snapshot; the diffs-pipeline surfaces (pipeline strip, Temporal link) that read
+        // it are not rendered there. `firstIterationReasoning`/`temporalWorkflow` are diffs-pipeline metadata, so they
+        // ride with the job or not at all.
+        const diffsJobWithMeta =
+            diffsJob != null ? { ...diffsJob, firstIterationReasoning, temporalWorkflow } : undefined;
 
         // Created tests are the assignments added vs. the previous snapshot; resolve them
         // from the already-computed changes so a single diff drives both surfaces. The
@@ -1964,33 +1931,59 @@ function prInfoStateFilter(state: PullRequestStateFilter): Prisma.FeatureBranchI
     return { prState: state };
 }
 
-// Maps a bulk `aggregateSnapshotHealth` result into the shared presentation summary. An authoritative snapshot
-// (one the merged analysis pipeline ran, so `authoritative` is set) derives its summary from the AnalysisReport
-// verdict + finding categories instead of the legacy health/Bug model, which the pipeline does not populate.
-function summaryFromHealth(
-    snapshotStatus: string,
-    healthResult: { counts: SnapshotHealthCounts; failingByKind: FailingByKind } | undefined,
-    openBugCount: number,
-    options?: { issueOccurrenceCount?: number; suiteChangeCount?: number; authoritative?: LoadedAuthoritativeInputs },
-): CheckpointPresentationSummary | undefined {
-    if (options?.authoritative != null) {
-        return buildAuthoritativeCheckpointSummary({
-            jobStatus: options.authoritative.jobStatus,
-            findingBuckets: options.authoritative.findingBuckets,
-            bugCount: options.authoritative.bugCount,
-            totalTests: healthResult?.counts.totalTests,
-            suiteChangeCount: options.suiteChangeCount,
-        });
+/** A snapshot's checkpoint presentation: the badge summary, the raw health signal, and the bug count - the three
+ * fields the PR list, the checkpoint rail and the PR pipeline status each render off one snapshot. */
+interface CheckpointPresentation {
+    summary: CheckpointPresentationSummary | undefined;
+    health: SnapshotHealth;
+    bugCount: number;
+}
+
+/**
+ * The ONE place the legacy-vs-authoritative choice is made. An authoritative snapshot (the merged analysis pipeline
+ * ran, so `authoritative` is set) derives all three fields from the AnalysisReport verdict + finding categories; a
+ * legacy snapshot derives them from the health/Bug model the analysis pipeline does not populate. Every surface that
+ * renders a checkpoint calls this rather than re-deriving the fork per field - so the badge, the raw `health` beside
+ * it, and the `bugCount` can never disagree about which pipeline ran.
+ */
+function presentCheckpoint(input: {
+    snapshotStatus: string;
+    healthResult: SnapshotHealthResult | undefined;
+    legacyBugCount: number;
+    authoritative: LoadedAuthoritativeInputs | undefined;
+    issueOccurrenceCount?: number;
+    suiteChangeCount?: number;
+}): CheckpointPresentation {
+    const { snapshotStatus, healthResult, legacyBugCount, authoritative } = input;
+    if (authoritative != null) {
+        return {
+            summary: buildAuthoritativeCheckpointSummary({
+                jobStatus: authoritative.jobStatus,
+                findingBuckets: authoritative.findingBuckets,
+                bugCount: authoritative.bugCount,
+                totalTests: healthResult?.counts.totalTests,
+                suiteChangeCount: input.suiteChangeCount,
+            }),
+            health: authoritativeSnapshotHealth(authoritative),
+            // Open bug issues (finalize persists them as clientBugCount), never `Bug` rows - the pipeline files none.
+            bugCount: authoritative.bugCount ?? authoritative.findingBuckets?.bug ?? 0,
+        };
     }
-    if (healthResult == null) return undefined;
-    return buildCheckpointSummary({
-        snapshotStatus,
-        counts: healthResult.counts,
-        openBugCount,
-        issueOccurrenceCount: options?.issueOccurrenceCount,
-        failingByKind: healthResult.failingByKind,
-        suiteChangeCount: options?.suiteChangeCount,
-    });
+    return {
+        summary:
+            healthResult != null
+                ? buildCheckpointSummary({
+                      snapshotStatus,
+                      counts: healthResult.counts,
+                      openBugCount: legacyBugCount,
+                      issueOccurrenceCount: input.issueOccurrenceCount,
+                      failingByKind: healthResult.failingByKind,
+                      suiteChangeCount: input.suiteChangeCount,
+                  })
+                : undefined,
+        health: healthResult?.health ?? "unknown",
+        bugCount: legacyBugCount,
+    };
 }
 
 const PreviewUrlsSchema = z.record(z.string(), z.string());

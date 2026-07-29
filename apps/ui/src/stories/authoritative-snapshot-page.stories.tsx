@@ -421,16 +421,8 @@ const snapshotDetail: NonNullable<TrpcFixtures["branches"]> = {
         previousPlan: "1. Add two items.\n2. Assert the cart badge reads 2.",
       },
     ],
-    diffsJob: {
-      status: "completed",
-      analysisReasoning: null,
-      failureReason: null,
-      startedAt: null,
-      completedAt: null,
-      affectedTests: [],
-      firstIterationReasoning: undefined,
-      temporalWorkflow: undefined,
-    },
+    // An authoritative snapshot has no diffs job; the report is what drives this page.
+    diffsJob: undefined,
     createdTests: [],
     refinementLoop: undefined,
     health: "critical",

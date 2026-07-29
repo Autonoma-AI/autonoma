@@ -21,8 +21,9 @@ export function useSnapshotSections(snapshotId: string): Section[] {
         // failed, there are no authoritative sections - and the raw plan diff must NOT be shown, since a failed
         // run's changes are discarded. The changes page renders a run-status empty state in that case.
         if (isAuthoritative) return findings != null ? buildAnalysisSections({ findings, changes }) : [];
-        return buildSections({ changes, affectedTests: diffsJob.affectedTests, createdTests });
-    }, [isAuthoritative, findings, changes, diffsJob.affectedTests, createdTests]);
+        // A non-authoritative snapshot always carries a diffs job; the affected tests drive the legacy sections.
+        return buildSections({ changes, affectedTests: diffsJob?.affectedTests ?? [], createdTests });
+    }, [isAuthoritative, findings, changes, diffsJob?.affectedTests, createdTests]);
 }
 
 // Resolves the single test entry addressed by `testId` (its `urlId`) within the snapshot.
