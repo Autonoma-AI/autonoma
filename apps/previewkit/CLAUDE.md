@@ -361,6 +361,16 @@ The runner drains the sink's buffer before it exits.
 - `pnpm --filter @autonoma/previewkit build` - rolldown bundle of the runner into `dist/` (what the
   Dockerfile's builder stage runs). `dist/index.js` boots under plain `node` - no tsx at runtime.
 - `pnpm --filter @autonoma/previewkit test` - unit tests (`vitest.config.ts`, excludes `test/integration/**`). No Docker needed.
+- `pnpm --filter @autonoma/previewkit mint-key` - mints the encryption key that seals previewkit
+  secret values, for the database `DATABASE_URL` points at. Needs `PREVIEWKIT_SECRETS_CMK` (the
+  alias is `alias/previewkit-secrets`) and `kms:GenerateDataKey` on that CMK. Deliberately does not
+  import `src/env.ts`, so it runs without the runner's GitHub credentials.
+    - Every environment has its own database and its own keys, so this runs once per environment.
+      Point `DATABASE_URL` at the one you mean.
+    - It refuses to mint when the database already has a key, because a second key is promoted
+      immediately and starts a rotation: new writes seal under it while everything already stored
+      still needs the old one until re-encrypted. Pass `--rotate` when that is the intent, or
+      `--key-id <id>` to choose the id.
 - `pnpm --filter @autonoma/previewkit test:integration` - Testcontainers (real Postgres). Needs Docker running.
     - Integration tests import `src/env.ts`, which (even under `TESTING=true`, which only skips the
       logger env) still requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY` (base64-encoded PEM),
