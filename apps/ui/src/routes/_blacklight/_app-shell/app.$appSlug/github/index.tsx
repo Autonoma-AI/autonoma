@@ -19,6 +19,7 @@ import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { LinkBreakIcon } from "@phosphor-icons/react/LinkBreak";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { createFileRoute } from "@tanstack/react-router";
+import { useActiveOrg } from "lib/query/auth.queries";
 import {
   useDisconnectGithub,
   useGithubConfig,
@@ -127,6 +128,9 @@ function InstallationPanel({
 }) {
   const disconnect = useDisconnectGithub();
   const [confirming, setConfirming] = useState(false);
+  // The demo shows a real org's installation; its GitHub settings page is not ours
+  // to send visitors to, so drop the outbound "Manage on GitHub" link in demo mode.
+  const isDemo = useActiveOrg().data?.isDemo === true;
 
   return (
     <Panel>
@@ -167,15 +171,17 @@ function InstallationPanel({
           </div>
         ) : (
           <div className="flex items-center gap-3">
-            <a
-              href={settingsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded px-3 py-1.5 text-xs text-text-tertiary transition-colors hover:bg-surface-raised hover:text-text-secondary"
-            >
-              <ArrowSquareOutIcon size={14} />
-              Manage on GitHub
-            </a>
+            {!isDemo && (
+              <a
+                href={settingsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded px-3 py-1.5 text-xs text-text-tertiary transition-colors hover:bg-surface-raised hover:text-text-secondary"
+              >
+                <ArrowSquareOutIcon size={14} />
+                Manage on GitHub
+              </a>
+            )}
             <Button variant="ghost" size="sm" className="gap-2 text-text-tertiary" onClick={() => setConfirming(true)}>
               <LinkBreakIcon size={14} />
               Disconnect
@@ -192,6 +198,7 @@ function LinkedRepositoryPanel({ settingsUrl }: { settingsUrl: string }) {
   const { data: repos } = useGithubRepositories();
   const linkRepository = useLinkRepository();
   const unlinkRepository = useUnlinkRepository();
+  const isDemo = useActiveOrg().data?.isDemo === true;
 
   const linkedRepo = repos.find((r) => r.id === app.githubRepositoryId);
   const [editing, setEditing] = useState(false);
@@ -296,17 +303,19 @@ function LinkedRepositoryPanel({ settingsUrl }: { settingsUrl: string }) {
               })}
             </SelectContent>
           </Select>
-          <p className="font-mono text-2xs text-text-tertiary">
-            Can't find your repository?{" "}
-            <a
-              href={settingsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-primary-ink underline underline-offset-2 transition-colors hover:text-primary-ink/80"
-            >
-              Configure repository access on GitHub
-            </a>
-          </p>
+          {!isDemo && (
+            <p className="font-mono text-2xs text-text-tertiary">
+              Can't find your repository?{" "}
+              <a
+                href={settingsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary-ink underline underline-offset-2 transition-colors hover:text-primary-ink/80"
+              >
+                Configure repository access on GitHub
+              </a>
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-3">

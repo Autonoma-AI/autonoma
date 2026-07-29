@@ -6,6 +6,8 @@ import { createTRPCClient, httpBatchLink, httpLink, splitLink } from "@trpc/clie
 import type { inferRouterOutputs } from "@trpc/server";
 import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { env } from "env";
+import { demoModalStore } from "lib/demo-modal-store";
+import { isDemoReadOnlyError } from "lib/demo-read-only-error";
 import posthog from "posthog-js";
 import superjson from "superjson";
 
@@ -42,6 +44,13 @@ export const queryClient = new QueryClient({
             }
         },
         onError: (error, variables, _context, mutation) => {
+            // A write blocked by the read-only demo org is an expected UX gate, not a
+            // failure: pop the "sign up to continue" modal (globally, so no per-control
+            // guards) and skip the Sentry/error-toast path a real error would take.
+            if (isDemoReadOnlyError(error)) {
+                demoModalStore.open();
+                return;
+            }
             // TODO: replace with logger.error when frontend logger is available
             Sentry.captureException(error);
             const event = getEventPath(mutation.options.mutationKey);

@@ -32,13 +32,23 @@ function formatZodMessage(error: z.ZodError): string {
     return [...new Set(lines)].join("\n");
 }
 
+/**
+ * Marker cause attached to the `writeProcedure` rejection so the client can detect a
+ * demo write-block reliably (via `data.demoReadOnly`) instead of string-matching the
+ * message. The UI turns that flag into the "sign up to continue" modal rather than a
+ * generic error toast. See {@link writeProcedure} and the errorFormatter below.
+ */
+export class DemoReadOnlyError extends Error {}
+
 export const t = initTRPC.context<Context>().create({
     transformer: superjson,
     errorFormatter({ shape, error }) {
+        // Always present so the client's error shape carries a stable boolean.
+        const demoReadOnly = error.cause instanceof DemoReadOnlyError;
         if (error.cause instanceof z.ZodError) {
-            return { ...shape, message: formatZodMessage(error.cause) };
+            return { ...shape, message: formatZodMessage(error.cause), data: { ...shape.data, demoReadOnly } };
         }
-        return shape;
+        return { ...shape, data: { ...shape.data, demoReadOnly } };
     },
 });
 
@@ -139,7 +149,11 @@ export const internalProcedure = protectedProcedure.use(async ({ ctx, next }) =>
  */
 export const writeProcedure = protectedProcedure.use(async ({ ctx, next }) => {
     if (env.DEMO_ORG != null && ctx.organizationId === env.DEMO_ORG) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "This is a read-only demo organization." });
+        throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "This is a read-only demo organization.",
+            cause: new DemoReadOnlyError(),
+        });
     }
     return next({ ctx });
 });

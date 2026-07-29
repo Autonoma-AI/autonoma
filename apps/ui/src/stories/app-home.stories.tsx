@@ -12,7 +12,7 @@ const SNAPSHOT_ID = "snapshot_fixture_01";
  * cases, two open bugs, and a completed onboarding. Every literal typechecks
  * against `RouterOutputs`, so these rot loudly when the API shape changes.
  */
-const dashboardFixtures: TrpcFixtures = {
+export const dashboardFixtures: TrpcFixtures = {
   branches: {
     list: [],
     detailByName: {

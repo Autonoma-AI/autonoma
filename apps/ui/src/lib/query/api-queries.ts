@@ -2,6 +2,7 @@ import { type DefaultError, type UseMutationOptions, useMutation } from "@tansta
 import type { EnsureQueryDataOptions, QueryClient, QueryKey } from "@tanstack/react-query";
 import { notFound } from "@tanstack/react-router";
 import { isTRPCClientError } from "@trpc/client";
+import { isDemoReadOnlyError } from "lib/demo-read-only-error";
 import { toastManager } from "lib/toast-manager";
 import type { ReactNode } from "react";
 
@@ -67,6 +68,11 @@ export function useAPIMutation<TData = unknown, TError = DefaultError, TVariable
         },
         onError: (...args) => {
             const [error, variables] = args;
+            // The global MutationCache turns a demo write-block into the sign-up modal;
+            // suppress the duplicate error toast here.
+            if (isDemoReadOnlyError(error)) {
+                return onError?.(...args);
+            }
             const props =
                 typeof errorToast === "function"
                     ? errorToast(error, variables)

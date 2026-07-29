@@ -50,3 +50,10 @@ export function ensureOrganizationsData(queryClient: QueryClient) {
 export function ensureOrgStatusData(queryClient: QueryClient) {
     return ensureAPIQueryData(queryClient, trpc.auth.orgStatus.queryOptions());
 }
+
+// --- Active Org ---
+
+// Carries the server-computed `isDemo` flag that drives the read-only demo UX.
+export function useActiveOrg() {
+    return useQuery(trpc.auth.activeOrg.queryOptions());
+}

@@ -14,6 +14,8 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { useAuth, useAuthClient } from "lib/auth";
 import { toastManager } from "lib/toast-manager";
 import { type ReactNode, useState } from "react";
+import { DemoBanner } from "./demo-banner";
+import { DemoModal } from "./demo-modal";
 import { FeedbackModal } from "./feedback-modal";
 import { Sidebar, useAppNav, useSidebarCollapsed } from "./sidebar";
 
@@ -60,6 +62,7 @@ function MinimalLayout({ children }: { children: ReactNode }) {
         </div>
       </div>
 
+      <DemoBanner />
       <div className="relative z-10 flex-1 overflow-y-auto">{children}</div>
     </div>
   );
@@ -96,6 +99,7 @@ export function AppShellLayout({ children }: { children: ReactNode }) {
       <ToastProvider toastManager={toastManager}>
         <MinimalLayout>{children}</MinimalLayout>
         <AppShellToasts />
+        <DemoModal />
       </ToastProvider>
     );
   }
@@ -116,11 +120,13 @@ export function AppShellLayout({ children }: { children: ReactNode }) {
           <main className="relative flex flex-col overflow-hidden bg-surface-void">
             <GridBackground />
 
+            <DemoBanner />
             <div className="relative z-10 flex-1 overflow-y-auto p-6">{children}</div>
           </main>
         </div>
         <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
         <AppShellToasts />
+        <DemoModal />
       </TooltipProvider>
     </ToastProvider>
   );
