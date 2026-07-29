@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.260729.2](https://github.com/Autonoma-AI/agent/compare/v1.260729.1...v1.260729.2) (2026-07-29)
+
+
+### Features
+
+* add invalid_test verdict to remove irreparably-broken tests ([#1853](https://github.com/Autonoma-AI/agent/issues/1853)) ([653232a](https://github.com/Autonoma-AI/agent/commit/653232a96632b007843413839b68df538376a9f8))
+* **api:** add Autonoma SDK test-data endpoint for self-hosted E2E ([#1759](https://github.com/Autonoma-AI/agent/issues/1759)) ([1e5aa7d](https://github.com/Autonoma-AI/agent/commit/1e5aa7daf7552e85d70c15c74c18a7f7f1b1ef4b))
+* **api:** public 'See the demo' entry that mints a read-only session ([#1857](https://github.com/Autonoma-AI/agent/issues/1857)) ([5fde257](https://github.com/Autonoma-AI/agent/commit/5fde257e97d32a1d2fbe2dcd48276af0f6896354))
+* **cli:** end the run with a summary you can act on ([#1866](https://github.com/Autonoma-AI/agent/issues/1866)) ([9fa9e17](https://github.com/Autonoma-AI/agent/commit/9fa9e1736e4dcd0e7ea321307b9b8382ac890547))
+* **db:** drop previewkit_usage_window.degraded ([#1879](https://github.com/Autonoma-AI/agent/issues/1879)) ([1062d6b](https://github.com/Autonoma-AI/agent/commit/1062d6bb33bf2b9f7cab5e61133ef179d1371c53))
+* **deployment:** alert when the previewkit usage meter stops completing ([#1870](https://github.com/Autonoma-AI/agent/issues/1870)) ([f10e79f](https://github.com/Autonoma-AI/agent/commit/f10e79f3e10cdb7dd2f0c4be5c8f96dd21367028))
+* **ui:** show a wait state while the onboarding preview builds ([#1863](https://github.com/Autonoma-AI/agent/issues/1863)) ([bf1a98f](https://github.com/Autonoma-AI/agent/commit/bf1a98fa38da3e18be1266dcd3a865222dddc1d5))
+
+
+### Bug Fixes
+
+* **cli:** resolve recipe tokens in the planner's own sdk up ([#1842](https://github.com/Autonoma-AI/agent/issues/1842)) ([7c48e75](https://github.com/Autonoma-AI/agent/commit/7c48e7590d953cd252f3e0b5d5bb398fb0a736f5))
+* **cli:** stop the ETA extrapolating a linear per-page cost ([#1858](https://github.com/Autonoma-AI/agent/issues/1858)) ([361cddc](https://github.com/Autonoma-AI/agent/commit/361cddcfac272422df390670f54a6fab7fb602a6))
+* map vercel installation status response ([#1874](https://github.com/Autonoma-AI/agent/issues/1874)) ([930f978](https://github.com/Autonoma-AI/agent/commit/930f978b97ec5f8531c656e41fcdac54a26e7886))
+* **ui:** make multirepo dependency repos editable in the preview config ([#1817](https://github.com/Autonoma-AI/agent/issues/1817)) ([ed3ad18](https://github.com/Autonoma-AI/agent/commit/ed3ad1804ebf9a32c4b11d681deae3a2f4cec9dc))
+* **ui:** make the onboarding planner command obviously copy-and-run ([#1861](https://github.com/Autonoma-AI/agent/issues/1861)) ([7f86f28](https://github.com/Autonoma-AI/agent/commit/7f86f285f41281ce99bc39296a425f138bd36e69))
+* **workers:** bound general worker activity concurrency to stop OOMKills ([#1880](https://github.com/Autonoma-AI/agent/issues/1880)) ([f91e8c2](https://github.com/Autonoma-AI/agent/commit/f91e8c2e8a56284f60639b36cc29f88b32ab7469))
+
 ## [1.260729.1](https://github.com/Autonoma-AI/agent/compare/v1.260728.2...v1.260729.1) (2026-07-29)
 
 
