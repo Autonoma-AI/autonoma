@@ -1,11 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
-import { glob } from "glob";
+import { join } from "node:path";
 import type { AppConfig } from "../config";
 import * as p from "../ui/prompts";
 import { debugLog } from "./debug";
 import { loadGitInfo } from "./git";
-import { isTestFile, TEST_FILE_GLOB, TESTS_DIR } from "./test-files";
+import { listTestFiles } from "./test-files";
 
 interface UploadFile {
     name: string;
@@ -21,34 +20,43 @@ interface UploadFile {
 const ARTIFACT_FILES = ["AUTONOMA.md", "scenarios.md", "entity-audit.md"];
 
 async function readArtifacts(outputDir: string): Promise<UploadFile[]> {
-    const files: UploadFile[] = [];
-    for (const name of ARTIFACT_FILES) {
-        try {
-            const content = await readFile(join(outputDir, name), "utf-8");
-            files.push({ name, content });
-        } catch (err) {
-            // Not every run produces every artifact (e.g. no entity audit); skip
-            // the ones that aren't on disk.
-            debugLog(`Artifact ${name} not on disk; skipping upload`, { err });
-        }
-    }
-    return files;
+    // Read together: no artifact depends on another, so reading them in sequence
+    // only added round trips. The per-file catch stays inside the map, so one
+    // missing artifact still skips just itself.
+    const files = await Promise.all(
+        ARTIFACT_FILES.map(async (name) => {
+            try {
+                return { name, content: await readFile(join(outputDir, name), "utf-8") };
+            } catch (err) {
+                // Not every run produces every artifact (e.g. no entity audit); skip
+                // the ones that aren't on disk.
+                debugLog(`Artifact ${name} not on disk; skipping upload`, { err });
+                return undefined;
+            }
+        }),
+    );
+    return files.filter((file): file is UploadFile => file != null);
 }
 
 async function readTestCases(outputDir: string): Promise<UploadFile[]> {
-    const testsDir = join(outputDir, TESTS_DIR);
-    const matches = await glob(TEST_FILE_GLOB, { cwd: testsDir, nodir: true });
+    const testPaths = await listTestFiles(outputDir);
 
-    const files: UploadFile[] = [];
-    for (const match of matches) {
-        const name = basename(match);
-        if (!isTestFile(name)) continue;
+    // One read per test, all at once: a suite is hundreds of small files and no
+    // read depends on another, so reading them in sequence spent the upload
+    // waiting on the disk. Promise.all keeps listTestFiles' sorted order, which
+    // the payload relies on being deterministic.
+    return await Promise.all(
+        testPaths.map(async (testPath) => {
+            // Paths arrive as "qa-tests/<folder...>/<name>"; the platform wants the
+            // folder relative to the suite root, so drop the leading segment.
+            const segments = testPath.split("/").slice(1);
+            const name = segments[segments.length - 1]!;
+            const folder = segments.slice(0, -1).join("/");
 
-        const content = await readFile(join(testsDir, match), "utf-8");
-        const folderPath = relative(".", match).split("/").slice(0, -1).join("/");
-        files.push({ name, content, folder: folderPath.length > 0 ? folderPath : undefined });
-    }
-    return files;
+            const content = await readFile(join(outputDir, testPath), "utf-8");
+            return { name, content, folder: folder.length > 0 ? folder : undefined };
+        }),
+    );
 }
 
 async function postJson(url: string, token: string, body: unknown): Promise<void> {
