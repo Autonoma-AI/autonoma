@@ -60,7 +60,7 @@ The interactive dashboard is Ink 7 + React 19, and follows a strict store-first 
   objects per render, and a ~2MB grid retained at repaint rate leaks hundreds of MB per
   minute (this exact shape OOMed real runs; render it inline in the component that built it).
 - Iterate visually with `pnpm ui:gallery` (fixture-driven scenes, Tab/Shift+Tab). Design
-  rationale and constraints: `docs/ui-design-brief.md`; roadmap: `docs/tui-plan.md`.
+  rationale and constraints: `docs/ui-design-brief.md`.
 
 ## Tooling
 

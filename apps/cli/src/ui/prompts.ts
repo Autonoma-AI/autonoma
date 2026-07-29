@@ -1,5 +1,5 @@
 import { getActiveStore } from "./store";
-import type { LogLevel } from "./types";
+import type { CompletionChoice, CompletionStat, LogLevel } from "./types";
 
 /**
  * The pipeline's one interaction surface. With the TUI mounted, non-blocking
@@ -80,6 +80,35 @@ export async function welcome(opts: { title: string; lines: string[]; cta: strin
         return;
     }
     await store.runWelcome(opts);
+}
+
+/**
+ * The closing summary overlay, shown once the pipeline finishes. Resolves with
+ * what the user picked. Headless runs print the counts and answer "exit" -
+ * there is no dashboard to stay and read.
+ */
+export async function completion(opts: {
+    title: string;
+    stats: CompletionStat[];
+    lines: string[];
+}): Promise<CompletionChoice> {
+    const store = getActiveStore();
+    if (store == null) {
+        const counts = opts.stats.map((s) => `  ${s.value} ${s.label}`).join("\n");
+        console.log(`◆ ${opts.title}\n${counts}\n${opts.lines.map((l) => `  ${l}`).join("\n")}`);
+        return "exit";
+    }
+    return await store.runCompletion(opts);
+}
+
+/**
+ * Keep the dashboard up after the run so the user can read what was produced;
+ * resolves when they quit. A no-op headless - there is nothing to browse.
+ */
+export async function browse(): Promise<void> {
+    const store = getActiveStore();
+    if (store == null) return;
+    await store.runBrowse();
 }
 
 /**

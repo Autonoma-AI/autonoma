@@ -41,8 +41,8 @@ inside the dashboard; the terminal is handed over only for the
 SDK-integration handoff below, and the dashboard comes back when the agent exits.
 
 Piped output, CI, and `--non-interactive` keep the plain line-based output. See
-`docs/ui-design-brief.md` for the design rationale and `docs/tui-plan.md` for the build plan;
-`pnpm ui:gallery` steps through every dashboard state with fixture data (Tab / Shift+Tab).
+`docs/ui-design-brief.md` for the design rationale; `pnpm ui:gallery` steps through every
+dashboard state with fixture data (Tab / Shift+Tab).
 Pass a past run's output directory - `pnpm ui:gallery ~/.autonoma/<slug>` - to add a scene
 backed by real files, so navigation and scrolling can be tested on real documents.
 

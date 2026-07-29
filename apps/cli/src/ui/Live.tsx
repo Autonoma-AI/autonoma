@@ -29,6 +29,12 @@ export function Live({ store }: { store: RunStore }) {
   const onHelp = useCallback((open: boolean) => store.setHelpOpen(open), [store]);
   const onSkipCountdown = useCallback(() => store.skipCountdown(), [store]);
   const onDismissWelcome = useCallback(() => store.dismissWelcome(), [store]);
+  const onCompletionChoice = useCallback(
+    (choice: Parameters<RunStore["setCompletionChoice"]>[0]) => store.setCompletionChoice(choice),
+    [store],
+  );
+  const onSubmitCompletion = useCallback(() => store.submitCompletion(), [store]);
+  const onExitBrowse = useCallback(() => store.exitBrowse(), [store]);
   const prompt = useMemo(
     () => ({
       onAction: (a: Parameters<RunStore["dispatchPrompt"]>[0]) => store.dispatchPrompt(a),
@@ -46,6 +52,9 @@ export function Live({ store }: { store: RunStore }) {
       prompt={prompt}
       onSkipCountdown={onSkipCountdown}
       onDismissWelcome={onDismissWelcome}
+      onCompletionChoice={onCompletionChoice}
+      onSubmitCompletion={onSubmitCompletion}
+      onExitBrowse={onExitBrowse}
     />
   );
 }

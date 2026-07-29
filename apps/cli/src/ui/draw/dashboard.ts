@@ -7,6 +7,7 @@ import { STEP_DOCS, STEP_INTROS, STEP_OUTPUTS } from "../steps";
 import { theme } from "../theme";
 import type { ActivityEntry, Artifact, RunState, StepNode } from "../types";
 import { drawHints, drawSpans, drawTopBar, type Hint } from "./chrome";
+import { drawCompletionModal } from "./completion";
 import { drawCountdownModal } from "./countdown";
 import { drawHelpModal } from "./help";
 import { drawPromptModal } from "./prompt";
@@ -436,6 +437,19 @@ export function drawDashboard(g: Grid, state: RunState): void {
         drawWelcomeModal(g, state);
         return;
     }
+    if (state.completion != null) {
+        drawHints(
+            g,
+            H - 1,
+            [
+                { k: "←→ / h l", label: "choose", color: theme.sky },
+                { k: "enter", label: "confirm", color: theme.accent },
+            ],
+            [exitHint],
+        );
+        drawCompletionModal(g, state);
+        return;
+    }
     if (state.countdown != null) {
         drawHints(g, H - 1, [{ k: "enter", label: "continue now", color: theme.sky }], [exitHint]);
         drawCountdownModal(g, state);
@@ -464,7 +478,10 @@ export function drawDashboard(g: Grid, state: RunState): void {
     );
     const focusHints: Hint[] = [{ k: "←→ / h l", label: "files / document", color: theme.sky }];
     if (state.nav.focus === "main") focusHints.push({ k: "esc", label: "back to files", color: theme.sky });
-    drawHints(g, H - 1, focusHints, [exitHint]);
+    // Browsing after the run: the only way out is a key nobody would guess, so
+    // it replaces the Ctrl+C hint rather than crowding in beside it.
+    const leaveHint: Hint = state.browsing ? { k: "q", label: "exit", color: theme.accent } : exitHint;
+    drawHints(g, H - 1, focusHints, [leaveHint]);
 
     // Reading a document: shade the WHOLE dashboard - including the entire
     // FILES column, the open file's row and all - leaving only the hero (the

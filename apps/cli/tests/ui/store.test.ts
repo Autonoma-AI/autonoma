@@ -215,6 +215,51 @@ describe("run store", () => {
         expect(store.getState().welcome).toBeUndefined();
     });
 
+    test("the completion overlay defaults to browsing and resolves the chosen answer", async () => {
+        const store = makeStore();
+        const done = store.runCompletion({
+            title: "Your test suite is ready.",
+            stats: [{ value: 142, label: "E2E tests" }],
+            lines: [],
+        });
+        expect(store.getState().completion?.choice).toBe("browse");
+        store.submitCompletion();
+        expect(await done).toBe("browse");
+        expect(store.getState().completion).toBeUndefined();
+    });
+
+    test("choosing browse leaves the dashboard live until the user quits", async () => {
+        const store = makeStore();
+        const chosen = store.runCompletion({ title: "done", stats: [], lines: [] });
+        store.submitCompletion();
+        await chosen;
+        expect(store.getState().browsing).toBe(true);
+
+        const browsing = store.runBrowse();
+        store.exitBrowse();
+        await browsing;
+        expect(store.getState().browsing).toBe(false);
+    });
+
+    test("choosing exit never enters browse mode", async () => {
+        const store = makeStore();
+        const chosen = store.runCompletion({ title: "done", stats: [], lines: [] });
+        store.setCompletionChoice("exit");
+        store.submitCompletion();
+        expect(await chosen).toBe("exit");
+        expect(store.getState().browsing).toBe(false);
+    });
+
+    test("quitting before runBrowse is awaited does not hang the caller", async () => {
+        const store = makeStore();
+        const chosen = store.runCompletion({ title: "done", stats: [], lines: [] });
+        store.submitCompletion();
+        await chosen;
+        // The keypress lands in the gap between the choice and the await.
+        store.exitBrowse();
+        await expect(store.runBrowse()).resolves.toBeUndefined();
+    });
+
     test("finish freezes the run with an outcome", () => {
         const store = makeStore();
         store.finish({ kind: "complete" });

@@ -5,7 +5,7 @@ import { useTerminalSize, type TermSize } from "./hooks/useTerminalSize";
 import type { NavAction } from "./nav";
 import type { PromptAction } from "./prompt";
 import { Dashboard } from "./screens/Dashboard";
-import type { PromptRequest, RunState } from "./types";
+import type { CompletionChoice, PromptRequest, RunState } from "./types";
 
 /** Everything a prompt needs from the outside: draft edits, submit, cancel. */
 export interface PromptHandlers {
@@ -25,6 +25,9 @@ export function App({
   prompt,
   onSkipCountdown,
   onDismissWelcome,
+  onCompletionChoice,
+  onSubmitCompletion,
+  onExitBrowse,
   size,
 }: {
   state: RunState;
@@ -37,6 +40,12 @@ export function App({
   onSkipCountdown?: () => void;
   /** Enter on the opening welcome: begin the run. */
   onDismissWelcome?: () => void;
+  /** Arrows on the closing summary: highlight a choice. */
+  onCompletionChoice?: (choice: CompletionChoice) => void;
+  /** Enter on the closing summary: take the highlighted choice. */
+  onSubmitCompletion?: () => void;
+  /** q while browsing a finished run: tear the dashboard down. */
+  onExitBrowse?: () => void;
   size?: TermSize;
 }) {
   const measured = useTerminalSize();
@@ -62,6 +71,15 @@ export function App({
       return;
     }
 
+    // The closing summary: arrows pick a choice, enter confirms it.
+    if (state.completion != null) {
+      if (key.leftArrow || input === "h") onCompletionChoice?.("browse");
+      else if (key.rightArrow || input === "l") onCompletionChoice?.("exit");
+      else if (key.tab) onCompletionChoice?.(state.completion.choice === "browse" ? "exit" : "browse");
+      else if (key.return) onSubmitCompletion?.();
+      return;
+    }
+
     // The pre-handoff countdown: enter continues immediately, nothing else.
     if (state.countdown != null) {
       if (key.return) onSkipCountdown?.();
@@ -72,6 +90,13 @@ export function App({
     const activePrompt = state.prompt.current;
     if (activePrompt != null && prompt != null) {
       handlePromptKey(activePrompt, input, key, prompt);
+      return;
+    }
+
+    // Browsing a finished run: q is the way out (the run is over, so there is
+    // nothing left for Ctrl+C to interrupt).
+    if (state.browsing && input === "q") {
+      onExitBrowse?.();
       return;
     }
 

@@ -16,7 +16,7 @@ import { type ProjectContext, loadContext } from "./core/context";
 import { formatException, describeKnownError, supportReference, isUserCancellation } from "./core/errors";
 import { installInterruptHandler, installTerminationDiagnostics, restoreTerminal } from "./core/interrupt";
 import { DEFAULT_MODEL } from "./core/model";
-import { ensureOutputDir } from "./core/output";
+import { displayPath, ensureOutputDir } from "./core/output";
 import { teardownUi } from "./core/ui-lifecycle";
 import { readEnv } from "./env";
 import * as p from "./ui/prompts";
@@ -53,6 +53,7 @@ import { uploadArtifacts } from "./core/upload";
 import { CLI_VERSION } from "./core/version";
 import { STEP_INTROS, STEP_SUMMARIES } from "./ui/steps";
 import { getActiveStore, type RunStore } from "./ui/store";
+import type { CompletionStat } from "./ui/types";
 
 const PAGES_FILE = "pages.json";
 
@@ -74,6 +75,31 @@ async function loadPages(
     } catch {
         return new Map();
     }
+}
+
+/** Pluralized so the completion modal reads "1 page" and not "1 pages". */
+function stat(value: number, singular: string, plural: string): CompletionStat {
+    return { value, label: value === 1 ? singular : plural };
+}
+
+/**
+ * The headline counts for the completion modal, read back from disk rather
+ * than from the run store: a resumed run reports the whole suite, not just the
+ * steps this session happened to execute.
+ */
+async function collectRunStats(outputDir: string): Promise<CompletionStat[]> {
+    const { parseEntityNames } = await import("./core/parse-entity-audit");
+    const { countGeneratedTests } = await import("./core/count-generated-tests");
+    const [pages, entities, tests] = await Promise.all([
+        loadPages(outputDir),
+        parseEntityNames(outputDir),
+        countGeneratedTests(outputDir),
+    ]);
+    return [
+        stat(pages.size, "page", "pages"),
+        stat(entities.length, "data model", "data models"),
+        stat(tests, "E2E test", "E2E tests"),
+    ];
 }
 
 function parseArgs(argv: string[]) {
@@ -405,12 +431,8 @@ async function runStep(
         stepMetrics = { ...stepMetrics, entity_count: (await parseEntityNames(outputDir)).length };
     }
     if (step === "testGenerator") {
-        const { readdir } = await import("node:fs/promises");
-        const entries = await readdir(join(outputDir, "qa-tests"), { recursive: true }).catch(() => []);
-        stepMetrics = {
-            ...stepMetrics,
-            test_count: entries.map((e) => String(e)).filter((e) => e.endsWith(".md")).length,
-        };
+        const { countGeneratedTests } = await import("./core/count-generated-tests");
+        stepMetrics = { ...stepMetrics, test_count: await countGeneratedTests(outputDir) };
     }
 
     track("cli_step_completed", {
@@ -856,6 +878,25 @@ async function main() {
 
     const anyFailed = Object.values(state.steps).some((s) => s === "failed");
     getActiveStore()?.finish({ kind: allStepsDone ? "complete" : anyFailed ? "failed" : "paused" });
+
+    // A finished run has something to show for itself, so it gets a closing
+    // summary and the offer to stay in the dashboard and read it. A failed or
+    // paused one goes straight to the scrollback: its story is the error.
+    if (allStepsDone) {
+        const choice = await p.completion({
+            title: "Your test suite is ready.",
+            stats: await collectRunStats(outputDir),
+            lines: [`Saved in ${displayPath(outputDir)}`, "Next: continue on autonoma.app"],
+        });
+        track("cli_completion_choice", { choice });
+        if (choice === "browse") {
+            // Nothing is being generated any more; the brand bar would keep
+            // claiming otherwise for as long as the user reads.
+            getActiveStore()?.setMeta({ title: "Your test suite" });
+            await p.browse();
+        }
+    }
+
     mountedUi?.unmount();
     mountedUi = undefined;
 
@@ -863,8 +904,8 @@ async function main() {
     // summary and the next step in the scrollback instead.
     if (allStepsDone) {
         p.log.success("Your test suite is ready.");
-        p.log.info(`Artifacts: ${outputDir}`);
-        p.log.info("Next: connect a preview environment and run it -> https://autonoma.app");
+        p.log.info(`Saved in ${displayPath(outputDir)}`);
+        p.log.info("Next: continue on autonoma.app");
     }
     p.outro("Done");
 }

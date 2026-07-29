@@ -187,6 +187,27 @@ function completeScene(): RunStore {
     return store;
 }
 
+function completionScene(): RunStore {
+    const store = completeScene();
+    void store.runCompletion({
+        title: "Your test suite is ready.",
+        stats: [
+            { value: 24, label: "pages" },
+            { value: 35, label: "data models" },
+            { value: 142, label: "E2E tests" },
+        ],
+        lines: ["Saved in ~/.autonoma/acme-web", "Next: continue on autonoma.app"],
+    });
+    return store;
+}
+
+function browsingScene(): RunStore {
+    const store = completionScene();
+    store.submitCompletion();
+    store.setMeta({ title: "Your test suite" });
+    return store;
+}
+
 function promptScene(): RunStore {
     const store = midRunScene();
     // Fire-and-forget: the gallery answers via the panel; queued ones follow.
@@ -272,6 +293,8 @@ export function buildScenes(): Scene[] {
         },
         { id: "tests", label: "test generation - hero shows a test file", store: testWritingScene() },
         { id: "done", label: "complete", store: completeScene() },
+        { id: "completion", label: "completion - the closing summary and its two choices", store: completionScene() },
+        { id: "browsing", label: "browsing - reading the results after the run, q to exit", store: browsingScene() },
     ];
 }
 

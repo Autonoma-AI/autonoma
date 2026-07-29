@@ -50,8 +50,11 @@ export function drawHelpModal(g: Grid, state: RunState): void {
         ["f", "follow the newest file again"],
         ["g / G", "jump to top / bottom"],
         ["?", "toggle this help"],
-        ["Ctrl+C twice", "exit - progress is saved, --resume continues"],
     ];
+    // Reading the results of a finished run: q leaves, and there is no progress
+    // left for the Ctrl+C line to promise.
+    if (state.browsing) keys.push(["q", "exit - your results stay on disk"]);
+    else keys.push(["Ctrl+C twice", "exit - progress is saved, --resume continues"]);
 
     // Errors scroll out of the activity feed; keep the recent ones reviewable.
     const problems = state.log.filter((e) => e.level === "error" || e.level === "warn").slice(-RECENT_PROBLEMS);

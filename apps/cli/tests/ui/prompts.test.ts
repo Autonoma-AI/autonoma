@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import * as p from "../../src/ui/prompts";
 import { createStore, setActiveStore, type RunStore } from "../../src/ui/store";
 
@@ -125,6 +125,23 @@ describe("prompts facade headless (no store)", () => {
         await expect(
             p.multiselect({ message: "?", options: [{ value: "a", label: "A" }], initialValues: ["a"] }),
         ).resolves.toEqual(["a"]);
+    });
+    test("the completion overlay answers exit and never blocks headless", async () => {
+        const log = vi.spyOn(console, "log").mockImplementation(() => {});
+        const choice = await p.completion({
+            title: "Your test suite is ready.",
+            stats: [
+                { value: 24, label: "pages" },
+                { value: 142, label: "E2E tests" },
+            ],
+            lines: ["Everything is saved in autonoma/."],
+        });
+        // Nobody is watching a headless run, so it reports and leaves - blocking
+        // on a choice here would hang CI forever.
+        expect(choice).toBe("exit");
+        expect(log.mock.calls.at(0)?.[0]).toContain("142 E2E tests");
+        await expect(p.browse()).resolves.toBeUndefined();
+        log.mockRestore();
     });
 });
 

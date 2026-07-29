@@ -36,6 +36,29 @@ describe("dashboard rendering", () => {
     unmount();
   });
 
+  test("completion scene shows the counts and both choices", () => {
+    const { lastFrame, unmount } = render(<App state={sceneState("completion")} onNav={() => {}} size={SIZE} />);
+    const frame = lastFrame() ?? "";
+    expect(frame).toContain("RUN COMPLETE");
+    expect(frame).toContain("Your test suite is ready.");
+    expect(frame).toContain("24");
+    expect(frame).toContain("pages");
+    expect(frame).toContain("142");
+    expect(frame).toContain("E2E tests");
+    expect(frame).toContain("Browse the results");
+    expect(frame).toContain("Exit");
+    unmount();
+  });
+
+  test("browsing scene drops the overlay and offers q to exit", () => {
+    const { lastFrame, unmount } = render(<App state={sceneState("browsing")} onNav={() => {}} size={SIZE} />);
+    const frame = lastFrame() ?? "";
+    expect(frame).not.toContain("RUN COMPLETE");
+    expect(frame).toContain("FILES");
+    expect(frame).toContain("exit");
+    unmount();
+  });
+
   test("complete scene reads complete with every step done", () => {
     const { lastFrame, unmount } = render(<App state={sceneState("done")} onNav={() => {}} size={SIZE} />);
     const frame = lastFrame() ?? "";

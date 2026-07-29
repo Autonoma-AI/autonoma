@@ -196,6 +196,28 @@ export interface WelcomeState {
     cta: string;
 }
 
+/** A headline count on the completion overlay, e.g. 24 / "pages". */
+export interface CompletionStat {
+    value: number;
+    /** Noun for the count, pluralized by the caller to match the value. */
+    label: string;
+}
+
+/** What the user chose to do once the run finished. */
+export type CompletionChoice = "browse" | "exit";
+
+/** The closing summary overlay, shown once the pipeline finishes. Waits for
+ * the user to choose between browsing what was produced and leaving. */
+export interface CompletionState {
+    title: string;
+    /** Headline counts, drawn as a row of big numbers. */
+    stats: CompletionStat[];
+    /** Body paragraphs, wrapped at draw time. */
+    lines: string[];
+    /** The highlighted choice; browsing is the default. */
+    choice: CompletionChoice;
+}
+
 export interface RunState {
     startedAt: number;
     now: number;
@@ -224,6 +246,11 @@ export interface RunState {
     countdown?: CountdownState;
     /** Opening welcome overlay, shown once at the start of a fresh run. */
     welcome?: WelcomeState;
+    /** Closing summary overlay, shown once the pipeline finishes. */
+    completion?: CompletionState;
+    /** The run is over and the user chose to stay and read the results; the
+     * dashboard is live for navigation until they quit. */
+    browsing: boolean;
     /** Total ms spent blocked on user questions - excluded from elapsed/ETA. */
     waitedMs: number;
     /** Size signals for the ETA model (sized step budgets). */

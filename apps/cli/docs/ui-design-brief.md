@@ -126,8 +126,10 @@ A Vercel‑style dark TUI, three columns under a status bar:
   `FOLLOWING LATEST` indicators and scroll.
 - **Bottom:** an activity feed (tool calls) + a controls/hotkey bar.
 
-On completion: a success banner — *"Your test suite is ready — 142 tests across 24
-pages."* — with a primary CTA **"CONNECT A PREVIEW & RUN →"**.
+On completion: a centered summary modal mirroring the opening welcome - *"Your test
+suite is ready."* over the run's headline counts (pages, data models, E2E tests) - and
+two choices, **"Browse the results"** (default) and **"Exit"**. Browsing keeps the
+dashboard live so the files can be read; `q` leaves.
 
 ---
 
@@ -243,8 +245,8 @@ proper redesign.
    rhythm, alignment, and color hierarchy.
 6. **Mouse support** — clicking steps, artifacts, scrolling, buttons.
 7. **Empty/initial states** — meaningful content before artifacts exist.
-8. **Completion state** — the "test suite is ready" + "CONNECT A PREVIEW & RUN" moment,
-   designed as a real call to action.
+8. ~~**Completion state**~~ - done: the closing summary modal + browse-after-run mode.
+   Still open: a real "CONNECT A PREVIEW & RUN" call to action beyond the link.
 
 ---
 

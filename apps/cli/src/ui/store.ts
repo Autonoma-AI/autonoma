@@ -8,6 +8,8 @@ import { STEP_BUDGET, STEP_ORDER, UI_STEP_LABELS, UI_STEP_WHY } from "./steps";
 import type {
     Artifact,
     ArtifactStatus,
+    CompletionChoice,
+    CompletionStat,
     ContentKind,
     LogEntry,
     LogLevel,
@@ -100,6 +102,24 @@ export interface RunStore {
     runWelcome(opts: { title: string; lines: string[]; cta: string }): Promise<void>;
     /** Enter on the welcome: dismiss it and resolve. */
     dismissWelcome(): void;
+
+    /**
+     * Show the closing summary overlay; resolves with what the user picked once
+     * they press enter.
+     */
+    runCompletion(opts: { title: string; stats: CompletionStat[]; lines: string[] }): Promise<CompletionChoice>;
+    /** Move the highlight between the completion overlay's choices. */
+    setCompletionChoice(choice: CompletionChoice): void;
+    /** Enter on the completion overlay: dismiss it and resolve the highlighted choice. */
+    submitCompletion(): void;
+
+    /**
+     * Hold the dashboard open after the run so the user can read what was
+     * produced; resolves when they quit.
+     */
+    runBrowse(): Promise<void>;
+    /** Quit browsing: resolve runBrowse so the caller can tear the UI down. */
+    exitBrowse(): void;
 }
 
 const LOG_CAP = 500;
@@ -206,6 +226,7 @@ export function createStore(opts: StoreOptions): RunStore {
         prompt: { queued: 0, draft: { index: 0, text: "", cursor: 0, checked: [] } },
         waitedMs: 0,
         sizes: {},
+        browsing: false,
     };
 
     const listeners = new Set<() => void>();
@@ -214,6 +235,9 @@ export function createStore(opts: StoreOptions): RunStore {
     let countdownTimer: ReturnType<typeof setTimeout> | undefined;
     let countdownResolve: (() => void) | undefined;
     let welcomeResolve: (() => void) | undefined;
+    let completionResolve: ((choice: CompletionChoice) => void) | undefined;
+    let browseResolve: (() => void) | undefined;
+    let browseExited = false;
     let clock: ReturnType<typeof setInterval> | undefined;
     let logSeq = 0;
     let activitySeq = 0;
@@ -597,6 +621,49 @@ export function createStore(opts: StoreOptions): RunStore {
             const resolve = welcomeResolve;
             welcomeResolve = undefined;
             if (state.welcome != null) set({ ...state, welcome: undefined });
+            resolve?.();
+        },
+
+        runCompletion({ title, stats, lines }) {
+            return new Promise<CompletionChoice>((resolve) => {
+                completionResolve = resolve;
+                if (process.stdout.isTTY) process.stdout.write(BELL);
+                set({ ...state, completion: { title, stats, lines, choice: "browse" } });
+            });
+        },
+
+        setCompletionChoice(choice) {
+            const completion = state.completion;
+            if (completion == null || completion.choice === choice) return;
+            set({ ...state, completion: { ...completion, choice } });
+        },
+
+        submitCompletion() {
+            const completion = state.completion;
+            if (completion == null) return;
+            const resolve = completionResolve;
+            completionResolve = undefined;
+            // Entering browse mode in the same set() as dismissing the overlay:
+            // a frame with neither would flash the run's hint bar back up.
+            set({ ...state, completion: undefined, browsing: completion.choice === "browse" });
+            resolve?.(completion.choice);
+        },
+
+        runBrowse() {
+            // The user can quit in the gap between submitCompletion and this
+            // call; without the flag that press would be lost and the CLI would
+            // hang on a promise nothing resolves.
+            if (browseExited) return Promise.resolve();
+            return new Promise<void>((resolve) => {
+                browseResolve = resolve;
+            });
+        },
+
+        exitBrowse() {
+            browseExited = true;
+            const resolve = browseResolve;
+            browseResolve = undefined;
+            if (state.browsing) set({ ...state, browsing: false });
             resolve?.();
         },
     };

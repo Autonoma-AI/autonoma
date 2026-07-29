@@ -15,6 +15,16 @@ export function getOutputDir(projectSlug: string): string {
     return join(AUTONOMA_HOME, projectSlug);
 }
 
+/**
+ * An absolute path as a human would write it. Every output path lives under the
+ * home directory, so printing it in full spends a third of the line on
+ * something the reader already knows.
+ */
+export function displayPath(absPath: string): string {
+    const home = homedir();
+    return absPath.startsWith(home) ? `~${absPath.slice(home.length)}` : absPath;
+}
+
 export async function ensureOutputDir(projectSlug: string): Promise<string> {
     const dir = getOutputDir(projectSlug);
     await mkdir(dir, { recursive: true });
