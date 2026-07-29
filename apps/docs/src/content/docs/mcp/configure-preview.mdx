@@ -25,6 +25,10 @@ You connect this server from inside onboarding, because it pins itself to the ap
 3. **Authorize Autonoma.** The first time your agent calls a tool it opens a browser to sign in. Approve it - until you do, every Autonoma tool fails. You can trigger it up front instead: in Claude Code run `/mcp` and authenticate `autonoma-onboarding`.
 4. Tell your agent: `configure my preview with the autonoma-onboarding MCP, code <your code>`. Say the server's name verbatim - an agent with several MCPs connected cannot tell which one "configure my preview" means, and will guess. "The Autonoma MCP" is not specific enough either, since Autonoma has two.
 
+![The preview config step in Autonoma, titled "Configure with a coding agent". Three numbered steps run down the panel: install the Autonoma MCP, with tabs for Claude Code, Cursor, Windsurf and Other showing the claude mcp add command; authorize Autonoma; and pair your app, showing a large pairing code (EKQGGK85) and the line to give your agent - "configure my preview with the autonoma-onboarding MCP, code EKQGGK85". On the right an outlined wireframe cube labelled "Autonoma Agent" reads "waiting to pair". Along the bottom, a smaller link reads "Rather wire it up yourself? Configure manually"](/img/mcp/configure-preview-ui.png)
+
+That one screen is the fork between the two paths: the agent flow is the default, and the manual config form is the **Configure manually** link along the bottom.
+
 The pairing code is how the agent knows *which* app to configure - you never hand it a repo name, and it can only ever touch an app in an organization you belong to.
 
 ## Connection details
@@ -133,6 +137,10 @@ Once paired, the agent works a loop, and the Autonoma UI streams every step:
 
 While the agent holds the config, the Autonoma UI is read-only and shows what it is doing in real time. You can press **Take over** at any point to reclaim the config and continue by hand; the agent stands down immediately. If the agent goes idle, control returns to you automatically.
 
+![The read-only Autonoma screen while the agent works. A green "MCP - onboarding - connected" badge, the heading "Claude is configuring your preview", a "Take over" button, and a progress bar reading 3 of 4 calls. A "Tool calls" list names each call as it completes - pair, get_config, apply_config - with trigger_deploy still spinning. Beside it, "Preview taking shape" lists the application, database and variables the agent has configured so far, and a deploy section shows the web app building and the database ready](/img/mcp/agent-configuring.png)
+
+The tool-call list is an audit log: every tool in the [table below](#what-your-agent-can-do) shows up here as the agent uses it, so you can see exactly what it changed.
+
 The server's connect-time instructions already tell your agent what Autonoma is and the order to use these tools, so even an agent that has never seen Autonoma knows where to start. Any client can also reach that guidance without a setup file: invoke the **`configure_preview`** prompt (a guided flow that pairs with your code and runs the loop), or read the **onboarding guide** resource (`autonoma://onboarding-guide`) on demand - useful when a long session has pushed the connect-time instructions out of the agent's context.
 
 ## Secrets stay yours
@@ -140,6 +148,10 @@ The server's connect-time instructions already tell your agent what Autonoma is 
 ![The agent sends only key names; you enter the values in the UI and they reach Autonoma encrypted - the agent never sees them](/img/mcp/secrets-flow.jpg)
 
 When your app needs a secret value the agent does not have - an API key, a database URL, a token - it calls `request_env` with only the **key names**. That surfaces a prompt in the Autonoma UI where **you** enter the values. The values go straight from your browser to Autonoma, encrypted; the agent never sees them and there is no tool that accepts a secret value.
+
+![The env request prompt in Autonoma. A note reads "Claude needs these environment values for web. Values stay in your browser and go straight to Autonoma - the agent never sees them", followed by the agent's reason for each key: "Found these referenced in apps/web/.env.example - Stripe powers checkout, Resend sends the signup emails, and OpenAI backs the search summaries". Three rows - STRIPE_SECRET_KEY, RESEND_API_KEY and OPENAI_API_KEY - each with an empty masked value field. A "Paste .env" button sits top right, an "I don't have these" button bottom right, and a counter reads "0 of 3 filled - empty keys are reported as unavailable so the agent adapts"](/img/mcp/env-request.png)
+
+The agent tells you *why* it needs each key, and you can skip any of them - an empty key is reported back as unavailable so the agent adapts rather than stalling.
 
 The agent should always ask you first whether to set env from your `.env` (you paste it into the UI) or to configure it yourself - so you decide, every time, what Autonoma stores.
 

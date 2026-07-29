@@ -17,6 +17,10 @@ Declaring a Postgres service does **not** inject `DATABASE_URL` into your apps. 
 
 The one-token case covers most apps - `{{db.url}}` expands to the service's full canonical connection string:
 
+![The variable editor in Autonoma with a connection selected. The key is DATABASE_URL, the Source control is set to CONNECTION with the note "wired to a service or app in this preview, resolved at deploy time", and the value field holds the token curly-brace db dot url. Below it a "Fills in at deploy" block spells out what the token becomes - db's connection string](/img/preview-environments/variables-connection.png)
+
+In the dashboard this is the **Connection** source, and the editor resolves each token as you type - so you can see what `{{db.url}}` will become before you deploy, and a name that isn't declared is flagged there rather than at save time.
+
 ```yaml
 # stack configuration
 apps:

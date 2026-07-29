@@ -9,8 +9,12 @@ description: How to give your preview apps the credentials they need - API keys,
 
 ## Two ways to set a secret
 
-- **In the config UI (most common).** The **Variables** step of preview setup lets you add each key and value inline. This is the right place for a one-off, or when you're setting things up by hand for the first time.
+- **In the config UI (most common).** The **Variables** step of preview setup holds every variable for an app in one list, with an editor beside it. This is the right place for a one-off, or when you're setting things up by hand for the first time.
 - **From the API (for CI / automation).** Script it when you have many keys, or rotate them from a pipeline. See [Managing secrets from the API](#managing-secrets-from-the-api) below.
+
+![The Variables step of preview setup. On the left a list splits into two groups - Connections, holding DATABASE_URL with an arrow to db and a BUILD chip, and Secrets, holding STRIPE_SECRET_KEY and RESEND_API_KEY, each with a padlock. On the right an "Edit variable" panel shows the selected key, a Source control switching between SECRET and CONNECTION with SECRET active and the note "stored encrypted in AWS, injected at runtime, never shown again after saving", a value field reading "•••••• (set)" with a Replace value button and the note that the stored value can't be read back, and an Injection block reading "injected at runtime - always on for every variable" with an "also inject at build time" toggle beneath it](/img/preview-environments/variables-secret.png)
+
+Two things in that panel are worth knowing before you start. A saved secret can only be **replaced**, never read back - the value field shows `•••••• (set)` and nothing else. And the **Source** control is where the secret-versus-connection decision below actually gets made, with the product writing the one-line rationale for each next to it.
 
 Both routes write to the same encrypted store, so a value set in the UI is visible to the API and vice versa. The value lives in AWS Secrets Manager - never in your config, never in your repo - and is only ever readable by your own organization. Updates take effect on the next preview deploy for that app.
 

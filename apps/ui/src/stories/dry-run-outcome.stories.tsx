@@ -9,6 +9,15 @@ import { DryRunOutcomeNote } from "components/scenarios/dry-run-outcome-note";
 const meta = {
   title: "Components/DryRunOutcomeNote",
   component: DryRunOutcomeNote,
+  decorators: [
+    // Padding lives here so a docs screenshot of this card already has its own
+    // margin - see the `ui-screenshots` skill on why the crop must not add it.
+    (Story) => (
+      <div className="mx-auto max-w-3xl bg-surface-void p-14">
+        <Story />
+      </div>
+    ),
+  ],
 } satisfies Meta<typeof DryRunOutcomeNote>;
 
 export default meta;

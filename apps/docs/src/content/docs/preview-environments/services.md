@@ -27,6 +27,10 @@ You can add **several**. If nothing on this list resembles your setup, skip the 
 
 Each extra service is one Docker image with a few fields:
 
+![An extra service card in preview setup. The header names it a Docker image with a delete button; below it Name, Image and Port fields hold mailpit, axllent/mailpit v1.21 and 8025. An "Environment variables" block carries a count chip and two key/value rows, with a "Paste .env" button and a lime "Add env var" button beneath. A collapsed "Advanced service config" disclosure sits at the bottom of the card](/img/preview-environments/service-card.png)
+
+The env-var block takes a whole `.env` at once if you have one, and the rest of the fields stay out of the way behind the collapsed disclosure until you need them.
+
 | Field | What it does |
 | --- | --- |
 | **Image** | The Docker image to run, e.g. `axllent/mailpit` or `otel/opentelemetry-collector`. |
@@ -40,6 +44,10 @@ Add a service, fill in its image, ports, and any env vars, and repeat for each o
 ### Advanced service config
 
 Most images need only an image, a port, and a few env vars. When one needs more, the **Advanced service config** section exposes the rest:
+
+![The advanced service config section expanded. It holds a primary port name, an additional-ports box containing metrics:9090, command and args fields, and a readiness probe block with its kind set to HTTP - which reveals the fields that only that kind uses: an HTTP path, a probe port defaulting to the primary, an initial delay in seconds and a period in seconds](/img/preview-environments/service-probe.png)
+
+The readiness probe's fields depend on the kind you pick - HTTP asks for a path, Exec asks for a command, TCP asks only for a port - so the section changes shape as you choose.
 
 | Field | What it does |
 | --- | --- |

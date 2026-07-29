@@ -11,14 +11,18 @@ Databases are their own step in onboarding. Most apps declare at least one; many
 
 ## Add the databases your app needs
 
-A preview can run more than one database at once - Postgres for your data, Redis for your cache, Mongo for a document store - side by side. Each is an independent card where you choose an **engine** and a **version**:
+A preview can run more than one database at once - Postgres for your data, Redis for your cache, Mongo for a document store - side by side. You add each from the engine palette, and each becomes an independent card where you choose a **version**:
+
+![The Databases step of preview setup, showing an empty engine palette as five buttons in a row - Postgres, MySQL, Redis, Valkey and MongoDB - under the line "add as many as your app needs, each gets its own setup"](/img/preview-environments/database-engines.png)
+
 
 | Engine | Default port | Example version |
 | --- | --- | --- |
 | Postgres | 5432 | 16 |
 | MySQL | 3306 | 8 |
 | MongoDB | 27017 | 7 |
-| Redis / Valkey | 6379 | 7 |
+| Redis | 6379 | 7 |
+| Valkey | 6379 | 7 |
 
 The engine sets the default port and pulls the right image; the **Version** field pins the exact tag, so a repo on an older engine is never forced onto ours. The **Name** is filled in for you (`db`, `cache`, `mongo`, ...) and is what the connection string uses - edit it if you want a different one. Add a card per database, and the preview brings them all up together.
 
@@ -55,11 +59,15 @@ npm run migrate
 
 These run on every full preview deploy - each new commit pushed to the PR. A per-app redeploy from the dashboard re-rolls just that one app and does not re-run setup tasks, so reach for a full redeploy when you need migrations applied. Skippable too, if the app migrates itself on startup.
 
-**Defaults, not rules.** Schema and seed default to on-create; migrations default to every-commit. But nothing is forced - move any task to whichever bucket fits your project.
+**Defaults, not rules.** Schema and seed belong on-create; migrations belong on every-commit. Nothing is forced, but a task's group is fixed when you add it - you choose by which group's **Add task** you press, so moving one means deleting it and adding it back in the other group.
 
 ## Where a task runs
 
 Every setup task runs as a one-off job with your repo checked out, after the databases are up and before your apps start. What you choose is which app's build the command borrows:
+
+![A Postgres database card in preview setup with two setup task groups. The first, "run once - on create", holds a command box with prisma migrate deploy and prisma db seed; the second, "run on every commit / PR", holds prisma migrate deploy. Each has a WHERE control switching between "in the build" (active, in lime) and "separate job" (in violet), an App picker naming which app's image the command borrows, and a nested PHASE control choosing before build or after build. Below them a "Where does it run?" explainer contrasts the two options side by side in the same lime and violet](/img/preview-environments/setup-task-where.png)
+
+The **Where** control is per task, and the **Phase** row underneath only applies to *in the build* - a separate job has no build to sit before or after. The lime and violet in the explainer are the same colours the control uses, so you can read a configured task at a glance.
 
 | | In the build | Separate job |
 | --- | --- | --- |

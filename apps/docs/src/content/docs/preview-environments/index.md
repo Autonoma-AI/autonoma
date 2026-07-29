@@ -22,11 +22,13 @@ A repository can also have a standing **main-branch environment**: a preview dep
 
 ## What you configure
 
-You set up your stack in the Autonoma dashboard (the preview environment onboarding flow), which saves the configuration for your repository. The flow has three required steps - **Apps**, **Databases**, and **Variables** - plus two optional pieces most projects never need. It declares:
+You set up your stack in the Autonoma dashboard (the preview environment onboarding flow), which saves the configuration for your repository. The flow leads with a coding agent: pair your agent to the app and it fills the configuration in for you, while you watch read-only. See [Set up a preview with a coding agent](/mcp/configure-preview/) for that path - the rest of this section describes what it is configuring, and applies either way.
+
+To fill it in yourself, take **Configure manually** on that screen. The manual flow has four required steps - **Apps**, **Database**, **Variables**, and a **Review** step that confirms the configuration and deploys it - plus two optional pieces most projects never need. It declares:
 
 - **Apps** to build and deploy (each becomes a public HTTPS URL) - see [Apps and builds](/preview-environments/apps/)
 - **Databases** the apps need (Postgres, MySQL, MongoDB, Redis / Valkey), each with guided setup for schema, seed data, and migrations - see [Databases](/preview-environments/databases/)
-- **Variables** - environment variables and secrets for each app and database, with templates that resolve hostnames at deploy time and a per-row toggle to mark a value as a secret
+- **Variables** - environment variables and secrets for each app and database, with templates that resolve hostnames at deploy time and a per-variable **Source** control choosing whether a value is a stored secret or a connection to something else in the preview
 - **Extra services** (optional) - non-database Docker images like Sentry or an OTel collector - see [Extra services](/preview-environments/services/)
 - **Lifecycle hooks** (optional) - commands that run around each deploy - see [Lifecycle hooks](/preview-environments/hooks/)
 
@@ -43,7 +45,7 @@ Either way, images are pushed to a private registry and pulled by the preview cl
 
 ## Secrets
 
-Secrets such as API keys and third-party tokens are stored encrypted and kept out of your stack configuration. Flag any value as a secret with the per-row toggle in the onboarding **Variables** step, or manage them out-of-band via the REST API (handy for CI and rotating values without editing the config). They can be owner-scoped (every PR sees them) or PR-scoped (just this PR, useful for testing prod credentials in isolation). Autonoma also injects a few [built-in environment variables](/preview-environments/secrets/#built-in-environment-variables) (`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR`, `AUTONOMA_PREVIEWKIT_URL`) into every preview so your app can detect it's running in a preview. See [Secrets](/preview-environments/secrets/).
+Secrets such as API keys and third-party tokens are stored encrypted and kept out of your stack configuration. Flag any value as a secret with the **Source** control in the onboarding **Variables** step, or manage them out-of-band via the REST API (handy for CI and rotating values without editing the config). They can be owner-scoped (every PR sees them) or PR-scoped (just this PR, useful for testing prod credentials in isolation). Autonoma also injects a few [built-in environment variables](/preview-environments/secrets/#built-in-environment-variables) (`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR`, `AUTONOMA_PREVIEWKIT_URL`) into every preview so your app can detect it's running in a preview. See [Secrets](/preview-environments/secrets/).
 
 ## What's next
 

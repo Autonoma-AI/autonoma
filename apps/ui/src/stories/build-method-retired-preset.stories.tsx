@@ -44,7 +44,7 @@ const baseDraft = draftFromConfig(storedPresetConfig, [], "saved");
 function BuildMethodEditor({ initial }: { initial: AppDraft }) {
   const [app, setApp] = useState(initial);
   return (
-    <div className="mx-auto max-w-4xl bg-surface-void p-6">
+    <div className="mx-auto max-w-5xl bg-surface-void p-14">
       <BuildModeSection
         app={app}
         applicationId="app_fixture_01"

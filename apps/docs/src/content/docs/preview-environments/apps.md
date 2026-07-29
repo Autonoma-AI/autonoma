@@ -22,6 +22,10 @@ Manual is the default because it needs nothing in your repo - you pick a languag
 
 A manual build starts from a language image, installs your dependencies with a build script, and runs your app with an entrypoint. You pick a **runtime** from the catalog:
 
+![The manual build editor for an app. On the left, a grid of runtime tiles with Node selected, then Version, a Build script field badged bash, and an Entrypoint field. On the right a sticky "Build spec" rail previews the result - the runtime and version, the resolved base image, the build context at the repo root, the working directory, the entrypoint, and an "installed for you" list of tool chips](/img/preview-environments/build-manual.png)
+
+The **Build spec** rail on the right is live: it resolves the base image, context, working directory and preinstalled toolbelt as you choose, so you can see what you are about to get before you deploy.
+
 | Runtime | Base image | Default version |
 | --- | --- | --- |
 | Node.js | `node:{version}-bookworm-slim` | 22 |
@@ -69,7 +73,6 @@ A few fields apply to every app, whichever build method you pick:
 | --- | --- |
 | **Name** | Lowercase identifier used in resource names and the preview URL. |
 | **Port** | The port your app listens on inside the container. |
-| **Health check** | A path Autonoma requests to confirm the app is up (e.g. `/health`). |
 
 ### The frontend app
 

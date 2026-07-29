@@ -116,3 +116,26 @@ Rules for anything under `.github/assets/`:
 - **Look at the result before committing**, same as any other screenshot here.
 
 The banner (`.github/assets/banner.webp`) is generated art, not a screenshot - see the `documentation-authoring` skill for the image generator, and keep it on the docs palette (`#0a0a0a` background, `#C2E812` accent).
+
+## Screenshots for the docs site
+
+`apps/docs` uses screenshots as a third image tier alongside the generated hero and diagram art. The plan, the per-page opportunity list, and what is already shipped live in `apps/docs/screenshot-plan.md` - read it before adding one.
+
+Two things bite here that do not bite on a PR screenshot:
+
+- **Start Storybook with `VITE_API_URL=https://api.autonoma.app`.** Storybook serves from localhost, and `getApiOrigin()` (`apps/ui/src/lib/api-origin.ts`) returns `env.VITE_API_URL` on localhost - so any screen rendering an endpoint bakes `http://localhost:4000` into the image. The MCP config screen shows a full `claude mcp add` command; shipped unset, it teaches readers the wrong URL. Scan the frame for dev hostnames before shipping.
+- **A full-page shot is unreadable at docs width.** The content column is ~768px, so a 1440-wide capture lands at a 53% downscale. Crop the nav rail and top bar off - the same shot at 1120 wide reads at ~72%, which is the difference between legible and not. And never place an image inside a numbered list item; it inherits the list indent and shrinks further.
+
+**Padding belongs in the story, not the crop.** Give each story's decorator a generous `p-14` and a `bg-surface-void`, shoot at the decorator's own max-width, and crop **only the dead space below the component**. Never trim the left, right or top edge - `sharp.trim()` removes uniform borders, which means it eats exactly the padding the decorator just added, and then the content sits flush against the image border no matter how much you extend afterwards. This cost three rounds to spot.
+
+**Page stories have no decorator to hang padding on**, since they render the real app shell. There the crop carries the margin: pick the content rectangle by eye from a full capture, subtract the margin from `left`/`top` and add twice it to `width`/`height`. Where the page's own whitespace is thinner than the margin you want, `extend` the canvas with the page background sampled from an empty region of the same shot - that is safe here precisely because there is no decorator padding for a trim to eat.
+
+One trap when you add that padding: it comes out of the content width, so `max-w-4xl` minus `p-14` leaves 784px and drops the component below the `lg` breakpoint - which silently collapsed the Build spec rail into one column. Widen the decorator (`max-w-5xl`) so the padding does not change which layout renders, and check the shot still shows the same layout a user sees.
+
+**The old approach, kept only as background:** `.docs-content img` renders at 100% of the ~768px content column and draws a 1px border, so content flush to the edge reads as cropped rather than framed - and sits oddly next to the generated diagrams, which have their own internal margin. Pad to `--surface-base` (`#0a0a0a`), the colour the image slot already sits on, so the padding is invisible and only the breathing room shows.
+
+Scale the pad to the *rendered* size, not the pixel size: a 2x terminal capture is ~2150px wide and a component crop ~880px, but both render at ~768px, so a flat pixel pad lands at wildly different sizes on the page. Target ~30px rendered - `pad = round(30 * max(1, width / 768))`. Trim the image first so the step is idempotent and captures from different paths end up equal.
+
+Docs images go to `apps/docs/public/img/<section>/<name>.png` (PNG, not JPEG - chroma subsampling smears thin UI text on dark backgrounds) and are referenced as `/img/<section>/<name>.png`. Verify with `cd apps/docs && node_modules/.bin/astro build`, then `astro preview` and look at the page at ~1280px wide.
+
+**Alt text is the whole value of the image to an agent.** `llms.txt` / `llms-full.txt` are generated at build time and an image degrades to its alt text there, so describe what is actually on screen - the labels, the states, the numbers - not "screenshot of the config page".

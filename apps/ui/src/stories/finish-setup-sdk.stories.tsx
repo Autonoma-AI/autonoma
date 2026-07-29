@@ -4,6 +4,7 @@ import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import type { RouterOutputs } from "lib/trpc";
 import { HttpResponse, http } from "msw";
+import { userEvent, within } from "storybook/test";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
 const PREVIEW_URL = "https://acme-web-pr-42.preview.autonoma.app";
@@ -51,6 +52,32 @@ function makeOnboardingState(): RouterOutputs["onboarding"]["getState"] {
   };
 }
 
+/**
+ * Onboarding before the planner has ever run: no artifact has landed, so the
+ * page opens on the CLI step with every checklist row still pending.
+ */
+function makeArtifactsState(): RouterOutputs["onboarding"]["getState"] {
+  return {
+    ...makeOnboardingState(),
+    artifactsUploaded: false,
+    hasContent: false,
+  };
+}
+
+/**
+ * Onboarding after a successful SDK validation: the endpoint answered discover
+ * and reported its models, which is what renders the confirmation chip next to
+ * the Validate SDK button.
+ */
+function makeSdkValidatedState(): RouterOutputs["onboarding"]["getState"] {
+  return {
+    ...makeOnboardingState(),
+    sdkConfigured: true,
+    lastDiscoveredAt: FIXTURE_EPOCH,
+    lastDiscoveredModels: 12,
+  };
+}
+
 const artifactStatus: RouterOutputs["applicationSetups"]["artifactStatus"] = {
   complete: true,
   stepComplete: true,
@@ -60,6 +87,26 @@ const artifactStatus: RouterOutputs["applicationSetups"]["artifactStatus"] = {
     { key: "kb", received: true },
     { key: "scenarios", received: true },
   ],
+};
+
+const pendingArtifactStatus: RouterOutputs["applicationSetups"]["artifactStatus"] = {
+  complete: false,
+  stepComplete: false,
+  artifacts: [
+    { key: "recipe", received: false },
+    { key: "tests", received: false },
+    { key: "kb", received: false },
+    { key: "scenarios", received: false },
+  ],
+};
+
+/** The token + generation id the CLI step bakes into its copyable command. */
+const cliSetup: RouterOutputs["applicationSetups"]["prepareCliSetup"] = {
+  // Deliberately shaped like a placeholder, not like a credential: this story is
+  // the source of a published docs screenshot, and a realistic-looking token there
+  // teaches readers that pasting real ones into screenshots is fine.
+  apiKey: "ask_your_api_token_here",
+  setupId: "your_generation_id_here",
 };
 
 const mainTarget: SdkDryRunTarget = {
@@ -210,16 +257,45 @@ const sidebarFixtures: TrpcFixtures = {
   bugs: { listSummary: [] },
 };
 
-function sdkStepFixtures(targets: SdkDryRunTargets): TrpcFixtures {
+/** A GitHub/PreviewKit app, so the SDK step renders the BYO preview-target flow. */
+const noVercelProjects: RouterOutputs["onboarding"]["listAvailableVercelProjects"] = {
+  connected: false,
+  projects: [],
+  connectUrl: "https://vercel.com/integrations/autonoma/new",
+  linkedProject: undefined,
+};
+
+function sdkStepFixtures(
+  targets: SdkDryRunTargets,
+  state: RouterOutputs["onboarding"]["getState"] = makeOnboardingState(),
+): TrpcFixtures {
   return {
     onboarding: {
-      getState: makeOnboardingState(),
+      getState: state,
       listSdkDryRunTargets: targets,
       prepareSdkTarget: { status: "ready" },
+      listAvailableVercelProjects: noVercelProjects,
     },
     github: { getCommit: headCommit },
     applicationSetups: { artifactStatus },
-    applications: { list: [baseApplication], getSharedSecret: { sharedSecret: "9f2c4a1e8b7d6c5f" } },
+    applications: { list: [baseApplication], getSharedSecret: { sharedSecret: "your_shared_secret_here" } },
+    ...sidebarFixtures,
+  };
+}
+
+/**
+ * The CLI step: nothing uploaded yet, so the page opens on it and the checklist
+ * reads as pending. The step mints its own API token + generation id through
+ * `prepareCliSetup`, which is what fills in the copyable command.
+ */
+function artifactsStepFixtures(): TrpcFixtures {
+  return {
+    onboarding: {
+      getState: makeArtifactsState(),
+      listSdkDryRunTargets: readyTargets,
+    },
+    applicationSetups: { artifactStatus: pendingArtifactStatus, prepareCliSetup: cliSetup },
+    applications: { list: [baseApplication], getSharedSecret: { sharedSecret: "your_shared_secret_here" } },
     ...sidebarFixtures,
   };
 }
@@ -267,6 +343,18 @@ function dryRunStepFixtures(targets: SdkDryRunTargets): TrpcFixtures {
     applications: { list: [baseApplication] },
     scenarios: { list: scenarioList },
     ...sidebarFixtures,
+  };
+}
+
+/**
+ * A validated SDK step. Because the step is complete the page opens on the
+ * dry-run step, so the story walks back to the SDK step - which is why the
+ * dry-run step's scenario list is fixtured here too.
+ */
+function sdkValidatedFixtures(): TrpcFixtures {
+  return {
+    ...sdkStepFixtures(readyTargets, makeSdkValidatedState()),
+    scenarios: { list: scenarioList },
   };
 }
 
@@ -354,9 +442,36 @@ type Story = StoryObj<typeof meta>;
 
 const PATH = `/app/${baseApplication.slug}/finish-setup`;
 
+/**
+ * The first step, before the planner has run: the copyable CLI command carrying
+ * the API token and generation id, and the artifact checklist still pending.
+ */
+export const ArtifactsStep: Story = {
+  args: { path: PATH },
+  parameters: { msw: { handlers: appShellHandlers(artifactsStepFixtures()) } },
+};
+
 export const TargetReady: Story = {
   args: { path: PATH },
   parameters: { msw: { handlers: appShellHandlers(sdkStepFixtures(readyTargets)) } },
+};
+
+/**
+ * The SDK step after a successful validation, showing the "Discovered 12 models"
+ * chip. A complete SDK step means the page opens on the dry-run step, so the
+ * story clicks the SDK entry in the stepper to get back to it.
+ */
+export const SdkValidated: Story = {
+  args: { path: PATH },
+  parameters: { msw: { handlers: appShellHandlers(sdkValidatedFixtures()) } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    // The whole page arrives behind a route loader and a Suspense boundary, so
+    // give both queries longer than the 1s testing-library default.
+    const sdkStep = await canvas.findByRole("button", { name: /Implement the Autonoma SDK/ }, { timeout: 10_000 });
+    await userEvent.click(sdkStep);
+    await canvas.findByText(/Discovered 12 models/, undefined, { timeout: 10_000 });
+  },
 };
 
 export const TargetFailed: Story = {

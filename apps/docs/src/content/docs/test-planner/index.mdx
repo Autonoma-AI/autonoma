@@ -12,8 +12,12 @@ description: The planner is a CLI that reads your codebase and generates a compl
 You launch the planner from the **Finish setup → Upload test artifacts** step in the dashboard, which hands you a ready-to-paste command with your token and generation id baked in:
 
 ```bash
-AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... npx @autonoma-ai/planner@latest
+AUTONOMA_SHARED_SECRET=... AUTONOMA_DISTINCT_ID=... AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... npx @autonoma-ai/planner@latest
 ```
+
+![The Upload test artifacts step in Autonoma. A "Finish setup" stepper reads 0 of 3 complete, with step 1 "CLI - upload test artifacts" active and steps 2 "SDK" and 3 "Dry run" ahead of it. Below, a copyable command block holds the full npx line with your shared secret, distinct id, API token and generation id filled in. Underneath, a checklist headed "What it generates + uploads" lists recipe.json (environment-factory recipes), qa-tests/ (the generated end-to-end test cases as markdown), AUTONOMA.md (a knowledge base of your app's pages and flows) and scenarios.md (named test-data scenarios), each with an empty pending circle](/img/test-planner/upload-artifacts.png)
+
+The checklist next to the command is how you watch the upload land: each artifact ticks off as the planner sends it.
 
 That `npx` line downloads and runs the planner, published on npm as `@autonoma-ai/planner` (the installed command is `autonoma-planner`). Run it from the root of the repo you want to test. It works against your **frontend** (to map pages and flows) and your **backend** (to map data models and wire up test data). If those live in separate repos, run it where it can reach both.
 
@@ -21,7 +25,11 @@ It works through seven steps; everything it produces is readable live in the das
 
 ## Watch it work
 
-A full run can take an hour or more, so the pipeline phase runs inside a live dashboard right in your terminal: the steps and their progress on the left, every generated file in the middle, and the document being written right now on the right - streaming live from disk so you can read the knowledge base, scenarios, and tests as they're produced. An activity feed at the bottom shows exactly what the agent is doing at any moment, and the top bar tracks elapsed time and a single estimated time remaining.
+A full run can take an hour or more, so the pipeline phase runs inside a live dashboard right in your terminal.
+
+![The planner's terminal dashboard mid-run. A top bar reads "autonoma - Generating your test suite", the project acme-web, elapsed time, an ETA of about 1h 29m left, and 10 percent complete. Below it the seven pipeline steps run left to right as a strip - Map project and Map pages ticked, "Build knowledge base" active at 9 of 24 pages, then Model data, Design scenarios, Set up test data and Write E2E tests still queued. The lower half splits in two: a FILES list on the left showing the Knowledge Base WRITING plus two finished JSON artifacts, and on the right the AUTONOMA.md document streaming in live, marked WRITING LIVE and FOLLOWING LATEST. An ACTIVITY feed along the bottom logs each agent call - read, grep, write - and a hint bar lists the keys for scrolling, following and opening files](/img/test-planner/tui-dashboard.png)
+
+The pipeline runs as a strip across the top, so you can see every step and which one is live. Underneath, the files it has produced sit on the left and the document being written right now fills the pane on the right - streaming live from disk, so you can read the knowledge base, scenarios and tests as they are produced. The activity feed shows exactly what the agent is doing at any moment, and the top bar tracks elapsed time and a single estimated time remaining.
 
 Navigate with the arrow keys (or `h/j/k/l`): move between panels, open any produced file, and scroll it while the run continues. Press `f` to jump back to following the newest file. Progress is saved continuously - Ctrl+C twice exits, and `--resume` picks up where you left off.
 
@@ -42,6 +50,10 @@ Navigate with the arrow keys (or `h/j/k/l`): move between panels, open any produ
 Setting up test data means wiring the [Environment Factory](/environment-factory/) into your backend - real code in your repo. Instead of handing you instructions to paste somewhere, the planner launches your **locally installed coding agent** (Claude Code or Codex CLI) in one session, the same way `git commit` opens your editor: the dashboard steps aside, your agent takes the terminal, and control returns when it's done.
 
 The agent installs the SDK, builds the endpoint, registers factories that call your app's real creation code, generates the test-data recipe, and validates every entity against your locally running app - creating records, checking your database, tearing them down, and checking they're gone. When it reports the integration complete, the planner uploads the recipe and moves on to test generation.
+
+![The planner's terminal just before the handoff. A modal sits over the dimmed dashboard, badged "UP NEXT", headed "Handing off to Claude Code". It explains that the terminal is about to switch to Claude Code, that this dashboard disappears while it works, and that you come straight back here afterwards. A footer reads "Continuing in 10s - enter continue now"](/img/test-planner/tui-handoff.png)
+
+The dashboard warns you before it steps aside, and you can skip the countdown with `enter`.
 
 By default the session is fully autonomous; pass `--permission-mode` to make it ask before edits or commands instead. If no supported agent is installed (or you decline), the planner writes the full instructions to `~/.autonoma/<app>/integration-prompt.md` so you can implement them with any assistant, then continue with `--resume`.
 

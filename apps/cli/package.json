@@ -28,7 +28,8 @@
         "typecheck": "tsc --noEmit",
         "lint": "oxlint src tests evals",
         "fmt": "oxfmt --write src tests evals",
-        "prepublishOnly": "pnpm build"
+        "prepublishOnly": "pnpm build",
+        "tui:frames": "tsx scripts/render-tui-frames.tsx"
     },
     "dependencies": {
         "@openrouter/ai-sdk-provider": "^2.10.0",

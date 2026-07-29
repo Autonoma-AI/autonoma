@@ -24,6 +24,10 @@ Every pull request runs through the same loop, from opening the PR to a reviewed
 4. **Run tests** - the agent runs your test suite against the preview, exercising the app in a real browser.
 5. **Review on PR** - Autonoma reviews each run, confirms what passed and what broke, and comments the result back on the pull request.
 
+![A pull request page in Autonoma. A red badge reads "1 open bug" beside a note that one environment or scenario issue was found. The headline reads "This PR has open bugs to fix", and the summary underneath says checkout is broken on this PR - the Place order button never enables even with a valid card and address, so no customer can complete a purchase, while cart and add-to-cart still work. Below is the written report, and a Checkpoint history rail on the right lists the latest run as "needs attention" with 1 failed, 2 passed and 1 bug, over an earlier healthy run with 3 passed](/img/introduction/pr-review.png)
+
+That last step is the one you live with day to day: a written verdict on the pull request, the bugs separated from the infrastructure noise, and the evidence for each.
+
 When the PR closes, the preview environment and its data are torn down automatically.
 
 ## What you set up
