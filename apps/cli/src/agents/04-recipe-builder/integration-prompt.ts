@@ -16,7 +16,7 @@ import { COMPLETION_MARKER_FILE } from "./completion";
  */
 
 /** Bump when the prompt's contract changes; surfaced in the file header. */
-export const INTEGRATION_PROMPT_VERSION = 6;
+export const INTEGRATION_PROMPT_VERSION = 7;
 
 /** The rendered prompt lives here in the app's planner output dir. */
 export const INTEGRATION_PROMPT_FILE = "integration-prompt.md";
@@ -175,30 +175,47 @@ exceptions. Autonoma substitutes these built-in tokens per run, because concurre
 of the same scenario would otherwise collide on unique columns:
   • {{${TEST_RUN_ID_TOKEN}}}      - this run's id, the same value your endpoint receives as "testRunId"
   • {{${TEST_RUN_SHORT_ID_TOKEN}}} - an 8-character hash of it, for columns too short to hold a UUID
-Put one inside any field that must be unique per run - an email, a slug, a subdomain -
-including as part of a longer string. Any OTHER {{token}} is rejected on upload: there is
-no general variable mechanism, so never invent one.
+Put one inside any field that must be unique per run, as part of a longer string so the
+value still reads as real: "admin+{{${TEST_RUN_ID_TOKEN}}}@acme.test", "acme-{{${TEST_RUN_SHORT_ID_TOKEN}}}".
+Any OTHER {{token}} is rejected on upload: there is no general variable mechanism, so
+never invent one.
+
+WHICH fields need a token is not a judgement call and not a guess from the field name.
+Before you write the recipe, ENUMERATE the uniqueness rules for every entity you seed:
+read the schema definitions and migrations, and query the live database you are already
+connected to for its unique constraints and unique indexes. Then put a token inside a
+value covered by each one (for a composite unique tuple, tokenizing a single member is
+enough). Non-obvious constraints - an external reference, a code, a composite
+(tenant, name) - are exactly the ones name-matching misses. A unique column with no
+token is the one defect single-instance testing cannot reveal: it surfaces only when a
+customer runs two tests at once.
 
 ═══ TRACK YOUR WORK - DO NOT STOP UNTIL IT IS COMPLETE ═══
 Before implementing, write a checklist file inside the app (e.g. IMPLEMENTATION.md)
 and keep it updated. It must enumerate, as explicit checkboxes: EVERY entity the
 entity audit says needs a factory (by name, copied from the audit), plus the
-endpoint, teardown, the auth callback, the maintenance note, and the full-recipe
-pass. Check items off only when actually done and verified. The single most common
-failure is stopping with entities left uncovered.
+endpoint, teardown, the auth callback, the maintenance note, the full-recipe pass,
+and the two-concurrent-instances proof. Check items off only when actually done and
+verified. The single most common failure is stopping with entities left uncovered.
 
 ═══ VALIDATE - ENTITY BY ENTITY, THEN THE WHOLE RECIPE ═══
 You validate your own work by driving the endpoint through THIS CLI's signed client
 and inspecting the database. The CLI signs every request with the canonical secret
 from the environment, so you never construct signatures yourself. The commands:
   • ${params.cliCommand} sdk discover --url <endpoint-url>
-  • ${params.cliCommand} sdk up --url <endpoint-url> --recipe <file> [--timeout <seconds>]
+  • ${params.cliCommand} sdk up --url <endpoint-url> --recipe <file> [--test-run-id <id>] [--timeout <seconds>]
         (prints JSON; the response body includes a "refsToken")
   • ${params.cliCommand} sdk down --url <endpoint-url> --refs-token <token-from-up>
 The --recipe file may be your full recipe.json or a slice containing just the
 entities under test. Each request times out after 120s by default; a cold
 full-recipe up (first compile + many real-service inserts) can exceed that, so
 pass --timeout <seconds> to raise it rather than falling back to smaller slices.
+
+\`sdk up\` resolves {{${TEST_RUN_ID_TOKEN}}} and {{${TEST_RUN_SHORT_ID_TOKEN}}} before sending, exactly as the
+platform does, and prints the "testRunId" and "resolvedVariables" it used next to the
+response. So the database holds the SUBSTITUTED values, never the literal token - read
+"resolvedVariables" to know what to query for. A substituted value in the DB is the
+token WORKING; never "fix" that by replacing the token with a hardcoded value.
 
 Work through the entities in dependency order (parents before children). For EACH
 entity:
@@ -220,10 +237,30 @@ Once every entity passes independently, run the FULL recipe as one pass:
   • confirm a WRONG signature is rejected (the SDK does this for you - do not disable it)
   • confirm the up response's auth payload contains real credentials, not a placeholder
 
+═══ PROVE TWO INSTANCES CAN COEXIST - MANDATORY, LAST ═══
+Every check above tears down before the next up, so a recipe whose unique columns hold
+hardcoded values passes all of them. Real test runs OVERLAP: the customer runs two tests
+at once and the second seed hits the first one's rows. Prove yours survives that:
+  1. ${params.cliCommand} sdk up --url <url> --recipe ${params.recipePath} --test-run-id concurrent-a
+  2. ${params.cliCommand} sdk up --url <url> --recipe ${params.recipePath} --test-run-id concurrent-b
+     (do NOT tear down A first - both instances must be up at the same time)
+  3. BOTH must succeed. Then down A, then down B, and confirm in the DB that each
+     teardown removed only its own rows and that nothing is left behind.
+A failure here is a unique-constraint violation, and it names the exact column that is
+not per-run. Fix it where it lives: put a token in that field if the recipe supplies it,
+or derive it from the "testRunId" your handler receives if your factory generates it.
+Then repeat from step 1. Do not weaken the constraint and do not disable the check.
+
+Escape hatch, only after honest attempts: if an entity truly cannot be seeded twice
+concurrently because the app's own schema forces a global singleton, write that in
+IMPLEMENTATION.md - name the table, the constraint, and why it cannot be made per-run -
+and then proceed. Never leave this step silently unfinished.
+
 ═══ FINISH - THE LAST THING YOU DO ═══
-Only after every entity and the full-recipe pass are green, and ${params.recipePath}
-holds the recipe you validated, write the completion marker so the CLI knows the
-session is done and can upload the recipe:
+Only after every entity, the full-recipe pass, and the two-concurrent-instances proof
+are green (or the blocking constraint is documented in IMPLEMENTATION.md), and
+${params.recipePath} holds the recipe you validated, write the completion marker so the
+CLI knows the session is done and can upload the recipe:
     ${join(params.outputDir, COMPLETION_MARKER_FILE)}
 Its contents MUST be exactly:
     { "complete": true }

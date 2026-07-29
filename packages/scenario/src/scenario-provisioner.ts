@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { logger } from "@autonoma/logger";
 import type { AuthPayload, ScenarioRecipe, ScenarioVariableScalar } from "@autonoma/types";
-import { resolveRecipePayload } from "./scenario-recipe-resolver";
+import { resolveRecipePayload } from "@autonoma/types/scenario-recipe-resolver";
 import { NOOP_RECORDER } from "./sdk-call-recorder";
 import { SdkClient, type SdkCallOptions } from "./sdk-client";
 

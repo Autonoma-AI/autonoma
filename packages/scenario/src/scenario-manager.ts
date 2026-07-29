@@ -8,10 +8,11 @@ import {
     type ScenarioVariableScalar,
     type UpResponse,
 } from "@autonoma/types";
+import { resolveRecipePayload } from "@autonoma/types/scenario-recipe-resolver";
 import { withColdStartRetry } from "./cold-start-retry";
 import { DbSdkCallRecorder } from "./db-sdk-call-recorder";
 import type { EncryptionHelper } from "./encryption";
-import { hashRecipe, resolveRecipePayload } from "./scenario-recipe-resolver";
+import { hashRecipe } from "./hash-recipe";
 import { ScenarioRecipeStore } from "./scenario-recipe-store";
 import type { ScenarioSubject } from "./scenario-subject";
 import { SdkClient, type SdkCallOptions } from "./sdk-client";

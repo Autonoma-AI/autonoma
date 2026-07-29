@@ -8,9 +8,16 @@ import { runSdkCommand, type SdkCommandIo } from "../../src/agents/04-recipe-bui
 
 const SECRET = "sdk-cmd-secret";
 
+/** The `up` request body the emulator last received, so a test can assert what was actually sent. */
+interface UpRequest {
+    testRunId?: string;
+    create?: Record<string, Array<Record<string, unknown>>>;
+}
+
 /** A signed-endpoint emulator: verifies x-signature against SECRET, then answers
  *  per action (up returns a refsToken). Mirrors the SDK handler's wire contract. */
-function startEmulator(): Promise<{ server: Server; url: string }> {
+function startEmulator(): Promise<{ server: Server; url: string; lastUp: () => UpRequest | undefined }> {
+    let lastUp: UpRequest | undefined;
     const server = createServer((req, res) => {
         const chunks: Buffer[] = [];
         req.on("data", (c: Buffer) => chunks.push(c));
@@ -18,7 +25,9 @@ function startEmulator(): Promise<{ server: Server; url: string }> {
             const raw = Buffer.concat(chunks).toString();
             const sigOk = req.headers["x-signature"] === createHmac("sha256", SECRET).update(raw).digest("hex");
             if (!sigOk) return void res.writeHead(401).end(JSON.stringify({ error: "bad signature" }));
-            const action = String((JSON.parse(raw) as { action?: unknown }).action ?? "");
+            const parsed: { action?: unknown } & UpRequest = JSON.parse(raw);
+            const action = String(parsed.action ?? "");
+            if (action === "up") lastUp = { testRunId: parsed.testRunId, create: parsed.create };
             const body =
                 action === "up"
                     ? { refsToken: "tok-123", auth: { headers: { Authorization: "Bearer real" } } }
@@ -32,7 +41,7 @@ function startEmulator(): Promise<{ server: Server; url: string }> {
         server.listen(0, "127.0.0.1", () => {
             const addr = server.address();
             const port = typeof addr === "object" && addr != null ? addr.port : 0;
-            resolve({ server, url: `http://127.0.0.1:${port}/api/autonoma` });
+            resolve({ server, url: `http://127.0.0.1:${port}/api/autonoma`, lastUp: () => lastUp });
         });
     });
 }
@@ -53,7 +62,7 @@ function captureIo(env: NodeJS.ProcessEnv): SdkCommandIo & { out: string; err: s
 }
 
 let dir: string;
-let emulator: { server: Server; url: string };
+let emulator: Awaited<ReturnType<typeof startEmulator>>;
 
 beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "sdk-cmd-"));
@@ -100,6 +109,83 @@ describe("runSdkCommand", () => {
         const code = await runSdkCommand(["up", "--url", emulator.url, "--recipe", recipeFile], io);
 
         expect(code).toBe(0);
+    });
+
+    test("up: substitutes the built-in tokens before POSTing, and reports what it substituted", async () => {
+        const recipeFile = join(dir, "slice.json");
+        await writeFile(
+            recipeFile,
+            JSON.stringify({
+                create: {
+                    User: [{ _alias: "u1", email: "admin+{{testRunId}}@acme.test", slug: "{{testRunShortId}}" }],
+                },
+            }),
+            "utf-8",
+        );
+
+        const io = captureIo({ AUTONOMA_SHARED_SECRET: SECRET });
+        const code = await runSdkCommand(
+            ["up", "--url", emulator.url, "--recipe", recipeFile, "--test-run-id", "run-abc"],
+            io,
+        );
+
+        expect(code).toBe(0);
+        const sentUser = emulator.lastUp()?.create?.User?.[0];
+        expect(sentUser?.email).toBe("admin+run-abc@acme.test");
+        expect(sentUser?.slug).toMatch(/^[0-9a-f]{8}$/);
+
+        const parsed: { testRunId: string; resolvedVariables: Record<string, string> } = JSON.parse(io.out);
+        expect(parsed.testRunId).toBe("run-abc");
+        expect(parsed.resolvedVariables.testRunId).toBe("run-abc");
+        expect(parsed.resolvedVariables.testRunShortId).toBe(sentUser?.slug);
+    });
+
+    test("up: two runs of the same recipe seed different values for the tokenized fields", async () => {
+        const recipeFile = join(dir, "slice.json");
+        await writeFile(
+            recipeFile,
+            JSON.stringify({ create: { User: [{ email: "admin+{{testRunId}}@acme.test" }] } }),
+            "utf-8",
+        );
+
+        const io = captureIo({ AUTONOMA_SHARED_SECRET: SECRET });
+        await runSdkCommand(["up", "--url", emulator.url, "--recipe", recipeFile, "--test-run-id", "run-a"], io);
+        const first = emulator.lastUp()?.create?.User?.[0]?.email;
+        await runSdkCommand(["up", "--url", emulator.url, "--recipe", recipeFile, "--test-run-id", "run-b"], io);
+        const second = emulator.lastUp()?.create?.User?.[0]?.email;
+
+        expect(first).toBe("admin+run-a@acme.test");
+        expect(second).toBe("admin+run-b@acme.test");
+    });
+
+    test("up: a token Autonoma does not substitute fails before the request (exit 1)", async () => {
+        const recipeFile = join(dir, "slice.json");
+        await writeFile(recipeFile, JSON.stringify({ create: { User: [{ email: "{{ownerEmail}}" }] } }), "utf-8");
+
+        const io = captureIo({ AUTONOMA_SHARED_SECRET: SECRET });
+        const code = await runSdkCommand(["up", "--url", emulator.url, "--recipe", recipeFile], io);
+
+        expect(code).toBe(1);
+        expect(io.err).toContain("Unknown recipe variable: ownerEmail");
+        expect(emulator.lastUp()).toBeUndefined();
+    });
+
+    test("up: resolves a token the recipe declares in its own variables block", async () => {
+        const recipeFile = join(dir, "slice.json");
+        await writeFile(
+            recipeFile,
+            JSON.stringify({
+                create: { User: [{ email: "{{ownerEmail}}" }] },
+                variables: { ownerEmail: { strategy: "literal", value: "owner@acme.test" } },
+            }),
+            "utf-8",
+        );
+
+        const io = captureIo({ AUTONOMA_SHARED_SECRET: SECRET });
+        const code = await runSdkCommand(["up", "--url", emulator.url, "--recipe", recipeFile], io);
+
+        expect(code).toBe(0);
+        expect(emulator.lastUp()?.create?.User?.[0]?.email).toBe("owner@acme.test");
     });
 
     test("down: takes a refs-token (exit 0)", async () => {

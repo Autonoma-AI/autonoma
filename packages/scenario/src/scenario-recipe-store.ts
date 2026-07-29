@@ -7,8 +7,10 @@ import {
     type ScenarioRecipesFile,
     type ScenarioVariableScalar,
 } from "@autonoma/types";
+import { resolveRecipePayload } from "@autonoma/types/scenario-recipe-resolver";
+import { extractStructure } from "./extract-structure";
 import { findRecipeProblems } from "./find-recipe-problems";
-import { extractStructure, hashRecipe, resolveRecipePayload } from "./scenario-recipe-resolver";
+import { hashRecipe } from "./hash-recipe";
 
 interface ReplaceParams {
     snapshotId: string;
@@ -53,7 +55,8 @@ interface RawFixtureParams {
  * Persistence layer for scenario recipes.
  *
  * Owns ingestion (`replaceScenarioRecipes`) and lookup (`loadRecipePayload`).
- * Pure templating/structure logic lives in `scenario-recipe-resolver.ts`.
+ * Pure templating lives in `@autonoma/types/scenario-recipe-resolver`; structure derivation in
+ * `extract-structure.ts`.
  */
 export class ScenarioRecipeStore {
     private readonly logger: Logger;

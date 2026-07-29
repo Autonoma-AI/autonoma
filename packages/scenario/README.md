@@ -72,6 +72,8 @@ const result = await client.discover();
 
 Every value in a `create` graph must be concrete except `{{testRunId}}` (the id sent to the SDK as the request's `testRunId`) and `{{testRunShortId}}` (an 8-character hash of it, for columns too short for a UUID). They exist because concurrent runs of the same scenario would otherwise collide on unique columns. Any other token is rejected on save and on ingest. The older `variables` block still resolves for recipes that carry one, but is no longer generated.
 
+Substitution itself lives in `@autonoma/types/scenario-recipe-resolver`, next to the token contract it evaluates, so the planner CLI can resolve a recipe the same way when validating an integration locally without depending on this Prisma-backed package. `resolveRecipePayload` is re-exported here for callers already holding `@autonoma/scenario`.
+
 ### SDK endpoint signing
 
 All SDK endpoint requests are signed with HMAC-SHA256 using a per-application shared secret. The secret is stored encrypted (AES-256-GCM) in the database and decrypted at call time via `EncryptionHelper`. The signature is sent in the `x-signature` header.

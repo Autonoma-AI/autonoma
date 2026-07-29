@@ -1,3 +1,5 @@
+import { TEST_RUN_ID_TOKEN, TEST_RUN_SHORT_ID_TOKEN } from "@autonoma/types";
+
 export const SCENARIO_DESIGN_PROMPT = `You are a scenario designer for E2E testing. You read an entity audit and design a single "standard" test data scenario.
 
 ## Your input
@@ -40,9 +42,22 @@ After frontmatter, write entity tables showing the data for the standard scenari
 Use markdown tables. Show enough detail that a recipe builder can generate the exact records.
 
 ## Data values
-Every value in the scenario is concrete and static - write the actual data the
-records should hold. Do NOT use placeholders, tokens, or templated/"dynamic"
-values; the recipe builder generates the exact records from what you write.`;
+Write the actual data the records should hold - a real email, a real company name,
+a real id - not "test1" or "TBD". The recipe builder generates the exact records
+from what you write.
+
+There are exactly two dynamic values, and every field that must be UNIQUE per test
+run has to carry one of them:
+- {{${TEST_RUN_ID_TOKEN}}} - the id of the run being seeded
+- {{${TEST_RUN_SHORT_ID_TOKEN}}} - an 8-character hash of it, for short columns
+
+An email, a username, a slug, a subdomain, an account number, an external reference -
+anything the database will refuse a second copy of - must embed a token INSIDE an
+otherwise real-looking value ("admin+{{${TEST_RUN_ID_TOKEN}}}@acme.test",
+"acme-{{${TEST_RUN_SHORT_ID_TOKEN}}}"), never replace the value entirely. Two tests
+run at the same time seed this scenario twice; without the token the second one fails
+on a unique constraint. Everything else stays concrete and static, and no other
+{{token}} or bare {variable} exists - inventing one is rejected.`;
 
 export const RECIPE_ENTITY_PROMPT = `You generate a recipe payload for a single entity type. Given the entity name, count, field constraints, enum values to cover, and FK refs to previously created entities, output a JSON array of entity records.
 

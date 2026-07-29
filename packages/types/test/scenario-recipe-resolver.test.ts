@@ -1,6 +1,6 @@
-import type { ScenarioRecipe } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
 import { resolveRecipePayload } from "../src/scenario-recipe-resolver";
+import type { ScenarioRecipe } from "../src/schemas/scenarios";
 
 const TEST_RUN_ID = "11111111-2222-4333-8444-555555555555";
 const OTHER_TEST_RUN_ID = "99999999-8888-4777-8666-555555555555";

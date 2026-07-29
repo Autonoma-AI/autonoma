@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { ScenarioRecipeVariablesSchema, type ScenarioVariableScalar } from "@autonoma/types";
+import { resolveRecipeCreateGraph } from "@autonoma/types/scenario-recipe-resolver";
 import { z } from "zod";
 import * as sdk from "./http-client";
 
@@ -7,13 +9,15 @@ import * as sdk from "./http-client";
  * agent's endpoint client. The agent shells out to it to exercise its own
  * integration: `discover`, `up` (returns a refsToken), and `down` (takes that
  * token). The CLI owns request signing (HMAC over the raw body with the canonical
- * AUTONOMA_SHARED_SECRET from the env) and the request shape, so the agent
- * validates against the exact client the platform's test runner uses instead of
- * hand-rolling signatures.
+ * AUTONOMA_SHARED_SECRET from the env), recipe-token resolution, and the request
+ * shape, so the agent validates against the exact payload the platform's test
+ * runner sends instead of hand-rolling either.
  *
  * Output contract (so the agent can parse it): a single JSON object
- * `{ ok, status, body }` on stdout, and an exit code - 0 on a 2xx, 1 on a non-2xx
- * or request error, 2 on a usage error (missing secret/url/args).
+ * `{ ok, status, body }` on stdout - `up` adds `testRunId` and the
+ * `resolvedVariables` it substituted, so the agent knows which values to look for
+ * in the database - and an exit code: 0 on a 2xx, 1 on a non-2xx or request error,
+ * 2 on a usage error (missing secret/url/args).
  */
 
 /**
@@ -30,8 +34,11 @@ export interface SdkCommandIo {
 }
 
 const createSchema = z.record(z.string(), z.array(z.unknown()));
-const envelopeSchema = z.object({ recipes: z.array(z.object({ create: createSchema })).min(1) });
-const bareCreateWrapperSchema = z.object({ create: createSchema });
+const recipeSliceSchema = z.object({ create: createSchema, variables: ScenarioRecipeVariablesSchema.optional() });
+const envelopeSchema = z.object({ recipes: z.array(recipeSliceSchema).min(1) });
+
+/** A recipe's unresolved entity graph plus the variable block that names its non-built-in tokens. */
+type RecipeSlice = z.infer<typeof recipeSliceSchema>;
 
 /**
  * The flags any `sdk` subcommand accepts. `.strict()` so a typo'd flag is a hard
@@ -82,8 +89,19 @@ export async function runSdkCommand(argv: string[], io: SdkCommandIo): Promise<n
                 io.stderr("--recipe <file> is required for `up`.\n");
                 return 2;
             }
-            const create = await loadCreatePayload(flags.recipe);
-            return emit(io, await sdk.up(config, create, flags["test-run-id"] ?? `cli-${Date.now()}`));
+            const testRunId = flags["test-run-id"] ?? `cli-${Date.now()}`;
+            const slice = await loadRecipeSlice(flags.recipe);
+            const resolution = resolveRecipeCreateGraph({
+                create: slice.create,
+                variables: slice.variables,
+                testRunId,
+            });
+            // Substitution walks the graph as plain JSON, so re-parse to recover the entity -> records shape.
+            const create = createSchema.parse(resolution.createPayload);
+            return emit(io, await sdk.up(config, create, testRunId), {
+                testRunId,
+                resolvedVariables: resolution.resolvedVariables,
+            });
         }
 
         if (action === "down") {
@@ -107,19 +125,36 @@ export async function runSdkCommand(argv: string[], io: SdkCommandIo): Promise<n
     }
 }
 
+/** What `up` substituted into the recipe, so the agent can predict the rows the seed produced. */
+interface EmittedResolution {
+    testRunId: string;
+    resolvedVariables: Record<string, ScenarioVariableScalar>;
+}
+
 /** Emit the response as JSON and map HTTP success to the process exit code. */
-function emit(io: SdkCommandIo, res: sdk.SdkResponse): number {
-    io.stdout(JSON.stringify({ ok: res.ok, status: res.status, body: res.body }, null, 2) + "\n");
+function emit(io: SdkCommandIo, res: sdk.SdkResponse, resolution?: EmittedResolution): number {
+    const output =
+        resolution == null
+            ? { ok: res.ok, status: res.status, body: res.body }
+            : {
+                  ok: res.ok,
+                  status: res.status,
+                  body: res.body,
+                  testRunId: resolution.testRunId,
+                  resolvedVariables: resolution.resolvedVariables,
+              };
+    io.stdout(JSON.stringify(output, null, 2) + "\n");
     return res.ok ? 0 : 1;
 }
 
 /**
- * Read the `create` payload (entity -> records) from a recipe file. Accepts a full
- * recipe envelope (`{ recipes: [{ create }] }`), a `{ create }` wrapper, or a bare
- * `create` map - so the agent can point at the whole recipe.json or a single-entity
- * slice it wrote. Validated with zod (no casts) at this file boundary.
+ * Read a recipe's `create` graph (entity -> records) and its `variables` block from
+ * a recipe file. Accepts a full recipe envelope (`{ recipes: [{ create }] }`), a
+ * `{ create }` wrapper, or a bare `create` map - so the agent can point at the whole
+ * recipe.json or a single-entity slice it wrote. Validated with zod (no casts) at
+ * this file boundary.
  */
-async function loadCreatePayload(file: string): Promise<Record<string, unknown[]>> {
+async function loadRecipeSlice(file: string): Promise<RecipeSlice> {
     const raw = await readFile(file, "utf-8");
 
     let json: unknown;
@@ -130,13 +165,13 @@ async function loadCreatePayload(file: string): Promise<Record<string, unknown[]
     }
 
     const envelope = envelopeSchema.safeParse(json);
-    if (envelope.success) return envelope.data.recipes[0]!.create;
+    if (envelope.success) return envelope.data.recipes[0]!;
 
-    const wrapped = bareCreateWrapperSchema.safeParse(json);
-    if (wrapped.success) return wrapped.data.create;
+    const wrapped = recipeSliceSchema.safeParse(json);
+    if (wrapped.success) return wrapped.data;
 
     const bare = createSchema.safeParse(json);
-    if (bare.success) return bare.data;
+    if (bare.success) return { create: bare.data };
 
     throw new Error(
         `${file} is not a valid recipe: expected a full recipe envelope, a { create } object, or a bare { Entity: [records] } map.`,

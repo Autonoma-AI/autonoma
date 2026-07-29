@@ -18,7 +18,7 @@ export type {
     RecipeUpdateActiveVersion,
     RecipeUpdateTarget,
 } from "./apply-scenario-recipe-update";
-export { resolveRecipePayload } from "./scenario-recipe-resolver";
+export { resolveRecipePayload } from "@autonoma/types/scenario-recipe-resolver";
 export { findRecipeProblems } from "./find-recipe-problems";
 export { resolveSdkConfig, type SdkConfig } from "./sdk-config-resolver";
 export {

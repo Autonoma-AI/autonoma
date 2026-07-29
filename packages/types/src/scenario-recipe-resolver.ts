@@ -1,17 +1,24 @@
 import { createHash } from "node:crypto";
 import {
-    type ScenarioRecipe,
-    ScenarioRecipeSchema,
     type ScenarioRecipeVariables,
-    type ScenarioStructureJson,
+    ScenarioRecipeSchema,
     type ScenarioVariableDefinition,
     type ScenarioVariableScalar,
     TEST_RUN_SHORT_ID_TOKEN,
     BUILT_IN_RECIPE_TOKEN_LIST,
     isBuiltInRecipeToken,
     isRecord,
-    isScenarioRef,
-} from "@autonoma/types";
+} from "./schemas/scenarios";
+
+/**
+ * The evaluator for the recipe-token contract declared in `schemas/scenarios.ts`. Every host that sends a `create`
+ * graph to a customer's Environment Factory resolves it through here - the platform's provisioner and the planner
+ * CLI's validation client alike - so an agent validating its integration locally exercises the payload production
+ * would send.
+ *
+ * Reached through the `@autonoma/types/scenario-recipe-resolver` subpath rather than the package barrel: it needs
+ * `node:crypto` for the SHA-256 a short id is derived from, and the barrel is imported by the browser bundle.
+ */
 
 const TEMPLATE_PATTERN = /\{\{([a-zA-Z0-9_]+)\}\}/g;
 const FULL_TEMPLATE_PATTERN = /^\{\{([a-zA-Z0-9_]+)\}\}$/;
@@ -26,7 +33,7 @@ const COMPANY_PREFIXES = ["Acme", "Northstar", "Summit", "Atlas", "Pioneer", "Ni
 const COMPANY_SUFFIXES = ["Labs", "Systems", "Works", "Collective", "Cloud", "Dynamics", "Studio", "Partners"];
 const LOREM_WORDS = ["alpha", "beta", "gamma", "delta", "signal", "vector", "launch", "pixel", "orbit", "ember"];
 
-const FAKER_GENERATORS = {
+const FAKER_GENERATORS: Record<string, (seed: string) => string> = {
     "person.firstName": (seed: string) => pickFrom(seed, "first-name", FIRST_NAMES),
     "person.lastName": (seed: string) => pickFrom(seed, "last-name", LAST_NAMES),
     "internet.email": (seed: string) => {
@@ -41,11 +48,24 @@ const FAKER_GENERATORS = {
         return `${prefix} ${suffix}`;
     },
     "lorem.words": (seed: string) => [0, 1, 2].map((index) => pickFrom(seed, `lorem-${index}`, LOREM_WORDS)).join(" "),
-} satisfies Record<string, (seed: string) => string>;
+};
 
-interface RecipeResolutionResult {
+export interface RecipeResolutionResult {
     createPayload: Record<string, unknown>;
+    /**
+     * Every token that was substituted, mapped to the value it took - the complete record of what makes one
+     * provisioning of a recipe differ from the next, so a caller can derive the exact rows to expect.
+     */
     resolvedVariables: Record<string, ScenarioVariableScalar>;
+}
+
+export interface RecipeCreateGraphResolution {
+    /** The `create` graph, tokens unsubstituted. */
+    create: Record<string, unknown>;
+    /** The recipe's `variables` block, when it declares one. A token it does not name must be a built-in. */
+    variables?: ScenarioRecipeVariables;
+    /** The run identity tokens resolve against - the `testRunId` the Environment Factory receives. */
+    testRunId: string;
 }
 
 /**
@@ -60,91 +80,33 @@ export function resolveRecipePayload(fixtureJson: unknown, testRunId: string): R
         throw new Error(`Invalid recipe JSON: ${parsed.error.message}`);
     }
 
-    const recipe = parsed.data;
-    const variables = recipe.variables ?? {};
-    const usedTokens = collectTemplateTokens(recipe.create);
+    return resolveRecipeCreateGraph({ create: parsed.data.create, variables: parsed.data.variables, testRunId });
+}
+
+/**
+ * Resolve a `create` graph already separated from its recipe envelope - the same substitution
+ * `resolveRecipePayload` performs, for a caller holding a graph rather than a whole recipe (a single-entity
+ * slice, a graph authored in-flight).
+ *
+ * Throws if the graph uses a token that neither `variables` nor the built-ins define, or if `variables` defines
+ * one the graph never uses.
+ */
+export function resolveRecipeCreateGraph(params: RecipeCreateGraphResolution): RecipeResolutionResult {
+    const { create, testRunId } = params;
+    const variables = params.variables ?? {};
+    const usedTokens = collectTemplateTokens(create);
 
     validateRecipeVariables({ usedTokens, variables });
 
     if (usedTokens.size === 0) {
-        return { createPayload: recipe.create, resolvedVariables: {} };
+        return { createPayload: create, resolvedVariables: {} };
     }
 
     const resolvedVariables = resolveAllTokens({ usedTokens, variables, testRunId });
-    const populatedPayload = replaceTemplateTokens(recipe.create, resolvedVariables);
+    const populatedPayload = replaceTemplateTokens(create, resolvedVariables);
 
     assertNoUnresolvedTokens(populatedPayload);
     return { createPayload: populatedPayload, resolvedVariables };
-}
-
-/**
- * Compute a deterministic SHA-256 fingerprint over a recipe payload.
- * Used to detect changes across uploads.
- */
-export function hashRecipe(recipe: unknown): string {
-    return createHash("sha256").update(JSON.stringify(recipe)).digest("hex");
-}
-
-/**
- * Derive a structure summary (model -> fields/refs) from the recipes in a file.
- * Used to populate `scenarioSchemaSnapshot.structureJson`.
- *
- * Pure transform; output keys are sorted for stable fingerprints.
- */
-export function extractStructure(recipes: ScenarioRecipe[]): ScenarioStructureJson {
-    const models: Record<string, { fields: string[]; refs: Record<string, string> }> = {};
-
-    for (const recipe of recipes) {
-        const aliasTargets = collectAliasTargets(recipe.create);
-
-        for (const [modelName, entities] of Object.entries(recipe.create)) {
-            if (!Array.isArray(entities)) {
-                continue;
-            }
-
-            const model = models[modelName] ?? { fields: [], refs: {} };
-            for (const entity of entities) {
-                if (!isRecord(entity)) {
-                    continue;
-                }
-
-                for (const [key, value] of Object.entries(entity)) {
-                    if (key === "_alias") {
-                        continue;
-                    }
-
-                    if (!model.fields.includes(key)) {
-                        model.fields.push(key);
-                    }
-
-                    if (isScenarioRef(value)) {
-                        const targetModel = resolveRefTarget(value, aliasTargets);
-                        if (targetModel != null) {
-                            model.refs[key] = targetModel;
-                        }
-                    }
-                }
-            }
-
-            models[modelName] = model;
-        }
-    }
-
-    return {
-        models: Object.fromEntries(
-            Object.entries(models)
-                .sort(([left], [right]) => left.localeCompare(right))
-                .map(([modelName, model]) => [
-                    modelName,
-                    {
-                        fields: [...model.fields].sort((left, right) => left.localeCompare(right)),
-                        refs: Object.fromEntries(
-                            Object.entries(model.refs).sort(([left], [right]) => left.localeCompare(right)),
-                        ),
-                    },
-                ]),
-        ),
-    };
 }
 
 interface ScenarioGenerationContext {
@@ -317,7 +279,7 @@ function assertNoUnresolvedTokens(value: unknown): void {
 }
 
 function seededFakerValue(generator: string, testRunId: string, tokenName: string): string {
-    const generate = FAKER_GENERATORS[generator as keyof typeof FAKER_GENERATORS];
+    const generate = FAKER_GENERATORS[generator];
     if (generate == null) {
         throw new Error(`Unsupported faker generator: ${generator}`);
     }
@@ -340,31 +302,4 @@ function indexFromSeed(seed: string, label: string, length: number): number {
 
 function shortHash(seed: string): string {
     return createHash("sha256").update(seed).digest("hex").slice(0, SHORT_ID_LENGTH);
-}
-
-function collectAliasTargets(createPayload: ScenarioRecipe["create"]): Record<string, string> {
-    const aliasTargets: Record<string, string> = {};
-
-    for (const [modelName, entities] of Object.entries(createPayload)) {
-        if (!Array.isArray(entities)) {
-            continue;
-        }
-
-        for (const entity of entities) {
-            if (!isRecord(entity)) {
-                continue;
-            }
-
-            const alias = entity._alias;
-            if (typeof alias === "string" && alias.length > 0) {
-                aliasTargets[alias] = modelName;
-            }
-        }
-    }
-
-    return aliasTargets;
-}
-
-function resolveRefTarget(value: { _ref: string }, aliasTargets: Record<string, string>): string | null {
-    return aliasTargets[value._ref] ?? null;
 }

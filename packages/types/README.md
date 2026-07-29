@@ -4,13 +4,16 @@ Shared Zod schemas, TypeScript types, and constants used across the Autonoma mon
 
 ## Package Exports
 
-The package exposes three entry points:
+The package exposes four entry points:
 
 | Entry Point | Import Path | Contents |
 |-------------|-------------|----------|
 | Root | `@autonoma/types` | Re-exports everything (schemas, constants, types) |
 | Schemas | `@autonoma/types/schemas` | Zod schemas and inferred TypeScript types |
 | Constants | `@autonoma/types/constants` | Shared constants (timeouts, retries, platforms) |
+| Recipe resolver | `@autonoma/types/scenario-recipe-resolver` | `resolveRecipePayload` / `resolveRecipeCreateGraph` - the evaluator for the recipe-token contract |
+
+The recipe resolver is deliberately outside the root barrel: it needs `node:crypto`, and the barrel is imported by the browser bundle.
 
 ## Schemas
 
@@ -88,5 +91,5 @@ import type { ReviewVerdict, AuthPayload } from "@autonoma/types";
 
 - **Zod-first** - Every schema is a Zod object. TypeScript types are inferred with `z.infer`, never hand-written.
 - **Shared across tRPC boundary** - The API uses these schemas for input validation; the frontend gets type safety for free through tRPC's type inference. Never manually define API types on the frontend.
-- **No runtime dependencies beyond Zod** - This package is intentionally lightweight.
+- **No runtime dependencies beyond Zod** - This package is intentionally lightweight. The one module that reaches for a Node built-in, `scenario-recipe-resolver`, is reachable only through its own subpath so the root barrel stays browser-safe.
 - **ESM only** - No CommonJS. All imports use bare specifiers without file extensions.

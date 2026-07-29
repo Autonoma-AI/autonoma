@@ -1,6 +1,6 @@
 import { logger as rootLogger } from "@autonoma/logger";
 import { findRecipeCreateGraphProblems, type ScenarioRecipe } from "@autonoma/types";
-import { resolveRecipePayload } from "./scenario-recipe-resolver";
+import { resolveRecipePayload } from "@autonoma/types/scenario-recipe-resolver";
 
 /**
  * Stand-in run id for the resolution rehearsal. Its only job is to make token

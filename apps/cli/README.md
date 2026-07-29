@@ -76,10 +76,11 @@ of a copy-paste guide, the CLI hands the whole integration to your **locally-ins
 one interactive, autonomous session - like `git commit` with no `-m` opening your editor. You watch
 it install the SDK, build the endpoint, write the factories, **generate the test-data recipe**, and
 validate each entity itself: for every entity it runs `up`, checks your database for the new rows,
-runs `down`, and checks they're gone. It drives the endpoint through the CLI's own signed client
-(`autonoma-planner sdk discover|up|down`), so its checks use the exact request signing the platform
-uses. When it reports the session complete, the CLI uploads the recipe it produced and continues to
-test generation.
+runs `down`, and checks they're gone. It finishes by seeding two instances at once, proving your
+recipe survives concurrent test runs. It drives the endpoint through the CLI's own signed client
+(`autonoma-planner sdk discover|up|down`), so its checks use the exact request signing and the exact
+recipe-token substitution the platform uses. When it reports the session complete, the CLI uploads
+the recipe it produced and continues to test generation.
 
 - `--agent <name>` - preselect the agent to hand off to (`claude` or `codex`). Omit to auto-detect;
   if both are installed you're prompted to pick.
