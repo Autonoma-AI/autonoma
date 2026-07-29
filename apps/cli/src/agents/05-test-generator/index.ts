@@ -617,6 +617,13 @@ Write 5-8 journey tests using the write_test tool with folder "journeys". Then c
         depth: 0,
         status: "queued",
     });
+    // Mark the node as being explored before the agent runs. This phase has no
+    // next_node tool, so nothing else ever would - and write_test resolves an
+    // unrecognized nodeId against the node in progress. Without this, a journey
+    // test written under anything but the literal id "journeys" (models routinely
+    // send the filename instead) is rejected, and the rejection tells the model to
+    // call a tool it has not been given.
+    journeyState.nextNode();
 
     let journeyResult: AgentResult | undefined;
     const journeyFinish = tool({
