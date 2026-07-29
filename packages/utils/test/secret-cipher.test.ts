@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { SecretCipher, readEnvelopeKeyId, type SecretScope } from "../src/secret-cipher";
+import { SecretCipher, readEnvelopeKeyId, scopeIn, type SecretScope } from "../src/secret-cipher";
 
 function makeCipher(keyId = "1"): SecretCipher {
     return new SecretCipher(keyId, randomBytes(32));
@@ -57,6 +57,39 @@ describe("SecretCipher", () => {
         const cipher = makeCipher("7");
 
         expect(readEnvelopeKeyId(cipher.encrypt("value", APP_SCOPE))).toBe("7");
+    });
+
+    // scopeIn exists so callers stop hand-building scopes. That is only safe if a
+    // derived scope authenticates identically to the literal it replaces.
+    describe("scopeIn", () => {
+        it("derives a scope that opens what the equivalent literal sealed", () => {
+            const cipher = makeCipher();
+            const sealed = cipher.encrypt("value", APP_SCOPE);
+
+            const derived = scopeIn(
+                { kind: "app", applicationId: APP_SCOPE.applicationId, appName: "web" },
+                "DATABASE_URL",
+            );
+
+            expect(cipher.decrypt(sealed, derived)).toBe("value");
+        });
+
+        it("derives an org scope that opens what the equivalent literal sealed", () => {
+            const cipher = makeCipher();
+            const sealed = cipher.encrypt("value", ORG_SCOPE);
+
+            const derived = scopeIn({ kind: "org", organizationId: ORG_SCOPE.organizationId, name: "neon" }, "token");
+
+            expect(cipher.decrypt(sealed, derived)).toBe("value");
+        });
+
+        it("keeps a different key in the same bundle a different scope", () => {
+            const cipher = makeCipher();
+            const bundle = { kind: "app", applicationId: "app_123", appName: "web" } as const;
+            const sealed = cipher.encrypt("value", scopeIn(bundle, "DATABASE_URL"));
+
+            expect(() => cipher.decrypt(sealed, scopeIn(bundle, "REDIS_URL"))).toThrow();
+        });
     });
 
     describe("key generations", () => {

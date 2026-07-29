@@ -338,9 +338,10 @@ pinned in `deployment/previewkit/cluster/gatekeeper/`, there is no image env var
 `BYPASS_TOKEN_KEY`, and `EKS_*`/`AWS_REGION`.
 Previewkit secret VALUES held in Postgres are encrypted with a key generation from the
 `previewkit_secret_key` table, unwrapped on demand via KMS by `SecretKeys` (`@autonoma/secrets`).
-There is deliberately NO key env var: the runner needs only `kms:Decrypt` on this environment's CMK
+There is deliberately NO key env var: the runner needs only `kms:Decrypt` on the shared CMK
 via `PreviewkitServiceRole`, and a deploy with no secrets never calls KMS at all. Rotation, IAM, the
-one-CMK-per-environment rule, and the CMK-deletion risk are in `packages/secrets/README.md`.
+why environments are isolated by their databases rather than by IAM, and the CMK-deletion
+risk are in `packages/secrets/README.md`.
 `PREVIEWKIT_JOB_SPEC` is the per-Job `{mode, event, ...}` payload the API sets on each runner Job.
 `DATABASE_URL` is set on each runner Job by the launcher (PreviewkitJobLauncher, apps/api) to the
 _launching API's own_ DATABASE_URL - an explicit env var that overrides the production DATABASE_URL

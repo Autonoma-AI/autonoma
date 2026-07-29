@@ -2312,20 +2312,20 @@ model PreviewkitAppInstance {
   @@map("previewkit_app_instance")
 }
 
-// A generation of the key that encrypts previewkit secret VALUES. `wrap` is the
-// key material sealed by this environment's KMS CMK - never the plaintext key,
+// One version of the key that encrypts previewkit secret values. `wrap` is the
+// key material sealed by the previewkit secrets CMK - never the plaintext key,
 // which exists only in memory, only in a process that needs it, and never in
 // configuration. These rows are therefore inert without `kms:Decrypt`.
 //
-// One generation is shared by every secret value (not one per bundle). Each
-// stored envelope names the generation `id` it was sealed with, so rotation is:
-// mint a new row as primary, let old envelopes keep resolving to their own
-// generation, re-encrypt in the background, leave the retired row in place.
-// Retired rows are never deleted: the row reserves its `id`, which must stay
-// unambiguous forever because envelopes name one. Because every
-// process resolves keys through this table rather than through its own
-// environment, a rotation needs no coordinated rollout.
-model PreviewkitSecretKey {
+// One version is shared by every secret value (not one per bundle). Each stored
+// envelope names the `id` it was sealed with, so rotation is: mint a new row as
+// primary, let old envelopes keep resolving to their own version, re-encrypt in
+// the background, leave the retired row in place. Retired rows are never
+// deleted: the row reserves its `id`, which must stay unambiguous forever
+// because envelopes name one. Because every process resolves keys through this
+// table rather than through its own environment, a rotation needs no coordinated
+// rollout.
+model PreviewkitEncryptionKey {
   id        String  @id
   /// The sealed key, never the plaintext - see `unwrap` in `@autonoma/secrets`.
   wrap      Bytes
@@ -2335,10 +2335,13 @@ model PreviewkitSecretKey {
   // identifiers, but hand-written SQL against it would not have to.
   primary   Boolean @default(false) @map("is_primary")
 
+  values    PreviewkitSecretValue[]
+  orgValues PreviewkitOrgSecretValue[]
+
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([primary])
-  @@map("previewkit_secret_key")
+  @@map("previewkit_encryption_key")
 }
 
 model PreviewkitSecret {
@@ -2347,7 +2350,8 @@ model PreviewkitSecret {
   appName       String @map("app_name")
   awsSecretArn  String @map("aws_secret_arn")
 
-  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  application Application               @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  values      PreviewkitSecretValue[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2355,6 +2359,38 @@ model PreviewkitSecret {
   @@unique([applicationId, appName])
   @@index([applicationId])
   @@map("previewkit_secret")
+}
+
+// One encrypted value in an app's secret bundle. `envelope` is SecretCipher
+// output (`v1.<generation>.<base64>`); the plaintext is never stored, and it
+// only decrypts under the scope of this exact row, so a ciphertext moved to
+// another application or key fails rather than leaking.
+//
+// `fingerprint` and `maskedLength` are derived at seal time precisely so listing
+// a bundle - which needs key names and a "does this match what I hold?" check,
+// not values - never has to unwrap a key or decrypt anything.
+model PreviewkitSecretValue {
+  id              String @id @default(cuid())
+  secretId        String @map("secret_id")
+  /// The environment variable name, e.g. DATABASE_URL. Not a cryptographic key.
+  key             String
+  envelope        String
+  /// Which encryption key sealed `envelope`. Restrict, not Cascade: a key must
+  /// not be deletable while any value still needs it to be readable.
+  encryptionKeyId String @map("encryption_key_id")
+  /// Non-reversible SHA-256 prefix, for equality checks without the value.
+  fingerprint     String
+  maskedLength    Int    @map("masked_length")
+
+  secret        PreviewkitSecret        @relation(fields: [secretId], references: [id], onDelete: Cascade)
+  encryptionKey PreviewkitEncryptionKey @relation(fields: [encryptionKeyId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([secretId, key])
+  @@index([encryptionKeyId])
+  @@map("previewkit_secret_value")
 }
 
 // Org-scoped credentials referenced by preview config addons via the
@@ -2367,7 +2403,8 @@ model PreviewkitOrgSecret {
   name           String
   awsSecretArn   String @map("aws_secret_arn")
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  values       PreviewkitOrgSecretValue[]
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -2375,6 +2412,28 @@ model PreviewkitOrgSecret {
   @@unique([organizationId, name])
   @@index([organizationId])
   @@map("previewkit_org_secret")
+}
+
+/// The org-scoped mirror of `PreviewkitSecretValue`; see that model for the
+/// reasoning behind every field.
+model PreviewkitOrgSecretValue {
+  id              String @id @default(cuid())
+  orgSecretId     String @map("org_secret_id")
+  key             String
+  envelope        String
+  encryptionKeyId String @map("encryption_key_id")
+  fingerprint     String
+  maskedLength    Int    @map("masked_length")
+
+  orgSecret     PreviewkitOrgSecret     @relation(fields: [orgSecretId], references: [id], onDelete: Cascade)
+  encryptionKey PreviewkitEncryptionKey @relation(fields: [encryptionKeyId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([orgSecretId, key])
+  @@index([encryptionKeyId])
+  @@map("previewkit_org_secret_value")
 }
 
 // An Application's preview config document - latest-only, one row per

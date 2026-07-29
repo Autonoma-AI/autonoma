@@ -25,6 +25,22 @@ export type SecretScope =
     | { kind: "org"; organizationId: string; name: string; key: string };
 
 /**
+ * The bundle a secret value lives in - a {@link SecretScope} without the key.
+ * Callers hold one of these per bundle and derive a scope per value with
+ * {@link scopeIn}, so the authenticated data is assembled in one place rather
+ * than spelled out at each call site where a field could quietly be missed.
+ */
+export type SecretBundle =
+    | { kind: "app"; applicationId: string; appName: string }
+    | { kind: "org"; organizationId: string; name: string };
+
+export function scopeIn(bundle: SecretBundle, key: string): SecretScope {
+    return bundle.kind === "app"
+        ? { kind: "app", applicationId: bundle.applicationId, appName: bundle.appName, key }
+        : { kind: "org", organizationId: bundle.organizationId, name: bundle.name, key };
+}
+
+/**
  * Reads the key id an envelope was sealed under, without needing the key. This
  * is how a caller knows which key generation to fetch and unwrap before it can
  * decrypt (see `SecretKeys` in `@autonoma/secrets`).

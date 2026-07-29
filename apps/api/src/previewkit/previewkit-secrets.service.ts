@@ -1,6 +1,7 @@
 import { db, type PrismaClient } from "@autonoma/db";
 import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { MAX_MASKED_LENGTH, secretFingerprint } from "@autonoma/secrets";
 import type { SecretItem, SecretSummary } from "@autonoma/types";
 import {
     CreateSecretCommand,
@@ -14,7 +15,6 @@ import {
     UpdateSecretCommand,
 } from "@aws-sdk/client-secrets-manager";
 import type { PreviewkitSecretsUpsertResult } from "../routes/onboarding/onboarding-dependencies";
-import { secretFingerprint } from "./secret-fingerprint";
 import {
     collisionMessage,
     describeSecretOwner,
@@ -22,6 +22,7 @@ import {
     ownerTags,
     type SecretOwnerIdentity,
 } from "./secret-ownership";
+import { SecretValueMirror } from "./secret-value-mirror";
 
 /**
  * Per-segment sanitizer for AWS Secrets Manager names. The full assembled
@@ -61,6 +62,20 @@ function sanitizeName(segment: string): string {
  * runtime ExternalSecret bridge (in Previewkit's deployer) picks up new keys
  * on the next deploy.
  */
+/** The Application fields the AWS bundle name and its owner tags are derived from. */
+interface SecretBundleOwner {
+    id: string;
+    name: string;
+    organization: { slug: string };
+}
+
+interface ReconcileAwsBundleParams {
+    applicationId: string;
+    appName: string;
+    items: SecretItem[];
+    app: SecretBundleOwner;
+}
+
 export class PreviewkitSecretsService {
     private readonly client: SecretsManagerClient;
     private readonly logger: Logger;
@@ -68,6 +83,8 @@ export class PreviewkitSecretsService {
     constructor(
         awsRegion: string,
         private readonly prisma: PrismaClient = db,
+        /** Off by default, so every existing construction site keeps AWS-only behaviour. */
+        private readonly mirror: SecretValueMirror = new SecretValueMirror(),
     ) {
         this.client = new SecretsManagerClient({ region: awsRegion });
         this.logger = rootLogger.child({ name: this.constructor.name });
@@ -94,7 +111,7 @@ export class PreviewkitSecretsService {
         return Object.entries(values)
             .map(([key, value]) => ({
                 key,
-                maskedLength: Math.min(value.length, 32),
+                maskedLength: Math.min(value.length, MAX_MASKED_LENGTH),
                 updatedAt: now,
                 fingerprint: secretFingerprint(value),
             }))
@@ -149,6 +166,27 @@ export class PreviewkitSecretsService {
             throw new NotFoundError(`Application not found: ${applicationId}`);
         }
 
+        const result = await this.reconcileAwsBundle({ applicationId, appName, items, app });
+
+        // The single path out of the authoritative write, so no reconcile branch can
+        // return without mirroring - and the mirror runs on a routine edit of an
+        // existing bundle, which is the common case, not just on create and adopt.
+        await this.mirror.put({ kind: "app", applicationId: app.id, appName }, items);
+
+        return result;
+    }
+
+    /**
+     * Brings the AWS bundle in line with `items` and repoints the `previewkit_secret`
+     * row, returning what happened. Every branch here has performed an authoritative
+     * write by the time it returns, which is what lets {@link upsert} mirror once.
+     */
+    private async reconcileAwsBundle({
+        applicationId,
+        appName,
+        items,
+        app,
+    }: ReconcileAwsBundleParams): Promise<PreviewkitSecretsUpsertResult> {
         const orgSlug = app.organization.slug;
         const identity: SecretOwnerIdentity = { applicationId: app.id, orgSlug, applicationName: app.name, appName };
         const secretName = this.buildSecretName(orgSlug, app.name, appName);
@@ -213,6 +251,7 @@ export class PreviewkitSecretsService {
             create: { applicationId: app.id, appName, awsSecretArn: arn },
             update: { awsSecretArn: arn },
         });
+
         return { created, changed };
     }
 
@@ -265,6 +304,8 @@ export class PreviewkitSecretsService {
             }),
         );
 
+        await this.mirror.remove({ kind: "app", applicationId: app.id, appName }, key);
+
         this.logger.info("Secret deleted", { applicationId, appName, key });
         return true;
     }
@@ -281,7 +322,7 @@ export class PreviewkitSecretsService {
     private async findApplication(
         applicationId: string,
         callerOrgId: string | undefined,
-    ): Promise<{ id: string; name: string; organization: { slug: string } } | null> {
+    ): Promise<SecretBundleOwner | null> {
         return this.prisma.application.findFirst({
             where: callerOrgId != null ? { id: applicationId, organizationId: callerOrgId } : { id: applicationId },
             select: { id: true, name: true, organization: { select: { slug: true } } },

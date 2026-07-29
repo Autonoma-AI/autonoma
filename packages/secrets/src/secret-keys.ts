@@ -3,10 +3,11 @@ import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { readEnvelopeKeyId, SecretCipher } from "@autonoma/utils";
 import { keyEncryptionContext } from "./key-encryption-context";
 import type { KeyProvider } from "./key-provider";
+import { NoPrimaryEncryptionKeyError } from "./no-primary-encryption-key-error";
 
 /**
- * Resolves the cipher for a previewkit secret operation, unwrapping key
- * generations from `previewkit_secret_key` on demand.
+ * Resolves the cipher for a previewkit secret operation, unwrapping encryption
+ * keys from `previewkit_encryption_key` on demand.
  *
  * Unwrapping happens at the point of use, not at startup: a deploy with no
  * secrets never calls the key provider at all, revoking the process's IAM takes
@@ -18,7 +19,7 @@ import type { KeyProvider } from "./key-provider";
  */
 export class SecretKeys {
     /**
-     * Unwrapped generations, keyed by the key id AND the exact wrapped bytes it
+     * Unwrapped keys, keyed by the key id AND the exact wrapped bytes it
      * came from. Keying on the id alone would assume an id names one material
      * forever, which nothing in the schema can enforce: delete a row and re-mint
      * the same id, and a long-lived process would keep serving its stale
@@ -39,35 +40,30 @@ export class SecretKeys {
     }
 
     /**
-     * The cipher for new writes. Which generation is primary is re-read on every
-     * call rather than cached, so promoting a new generation takes effect
+     * The cipher for new writes. Which key is primary is re-read on every
+     * call rather than cached, so promoting a new key takes effect
      * immediately - that is what lets a rotation skip a coordinated rollout.
      */
     async primary(): Promise<SecretCipher> {
-        const row = await this.db.previewkitSecretKey.findFirst({
+        const row = await this.db.previewkitEncryptionKey.findFirst({
             where: { primary: true },
             orderBy: { createdAt: "desc" },
         });
 
-        if (row == null) {
-            throw new Error(
-                "No primary previewkit secret key generation exists. " +
-                    "Mint one with mintSecretKey before writing secrets.",
-            );
-        }
+        if (row == null) throw new NoPrimaryEncryptionKeyError();
 
         return this.resolve(row.id, row.wrap);
     }
 
-    /** The cipher that can open `envelope`, which may be an older generation than the primary. */
+    /** The cipher that can open `envelope`, which may be an older key than the primary. */
     async forEnvelope(envelope: string): Promise<SecretCipher> {
         const keyId = readEnvelopeKeyId(envelope);
 
-        const row = await this.db.previewkitSecretKey.findUnique({ where: { id: keyId } });
+        const row = await this.db.previewkitEncryptionKey.findUnique({ where: { id: keyId } });
         if (row == null) {
             throw new Error(
-                `Cannot decrypt a secret sealed with key id "${keyId}": that generation is not in ` +
-                    `previewkit_secret_key. It was deleted before every value using it was re-encrypted.`,
+                `Cannot decrypt a secret sealed with key id "${keyId}": that encryption key is not in ` +
+                    `previewkit_encryption_key. It was deleted before every value using it was re-encrypted.`,
             );
         }
 
@@ -80,7 +76,7 @@ export class SecretKeys {
         const cached = this.ciphers.get(cacheKey);
         if (cached != null) return cached;
 
-        this.logger.info("Unwrapping a previewkit secret key generation", { extra: { keyId } });
+        this.logger.info("Unwrapping a previewkit encryption key", { extra: { keyId } });
         const material = await this.provider.unwrap(wrapped, keyEncryptionContext(keyId));
 
         const cipher = new SecretCipher(keyId, material);

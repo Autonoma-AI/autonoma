@@ -18,7 +18,7 @@ function mint(harness: SecretsHarness, keyId: string): Promise<void> {
 secretsSuite({
     name: "SecretKeys",
     cases: (test) => {
-        test("seals and opens a value through the primary generation", async ({ harness }) => {
+        test("seals and opens a value through the primary encryption key", async ({ harness }) => {
             await mint(harness, "1");
             const secretKeys = keys(harness);
 
@@ -28,7 +28,7 @@ secretsSuite({
             expect(opener.decrypt(sealed, SCOPE)).toBe("postgres://secret");
         });
 
-        test("wraps and unwraps each generation under its own key id", async ({ harness }) => {
+        test("wraps and unwraps each key under its own key id", async ({ harness }) => {
             await mint(harness, "1");
             await keys(harness).primary();
 
@@ -44,7 +44,7 @@ secretsSuite({
             expect(harness.provider.unwrapped).toHaveLength(0);
         });
 
-        test("unwraps a generation once and reuses it", async ({ harness }) => {
+        test("unwraps a key once and reuses it", async ({ harness }) => {
             await mint(harness, "1");
             const secretKeys = keys(harness);
 
@@ -64,7 +64,7 @@ secretsSuite({
             const longLived = keys(harness);
             const sealedByReplaced = (await longLived.primary()).encrypt("value", SCOPE);
 
-            await harness.db.previewkitSecretKey.delete({ where: { id: "1" } });
+            await harness.db.previewkitEncryptionKey.delete({ where: { id: "1" } });
             await mint(harness, "1");
 
             const afterRemint = await longLived.primary();
@@ -74,15 +74,15 @@ secretsSuite({
             const freshProcess = await keys(harness).forEnvelope(sealedAfterRemint);
             expect(freshProcess.decrypt(sealedAfterRemint, SCOPE)).toBe("value");
 
-            // And the replaced generation's material must be gone, not lingering in the cache.
+            // And the replaced key's material must be gone, not lingering in the cache.
             expect(() => afterRemint.decrypt(sealedByReplaced, SCOPE)).toThrow();
         });
 
-        test("explains itself when no generation has been minted", async ({ harness }) => {
-            await expect(keys(harness).primary()).rejects.toThrow("No primary previewkit secret key generation");
+        test("explains itself when no encryption key has been minted", async ({ harness }) => {
+            await expect(keys(harness).primary()).rejects.toThrow("No primary previewkit encryption key");
         });
 
-        test("reads values sealed by an older generation after a new primary is promoted", async ({ harness }) => {
+        test("reads values sealed by an older key after a new primary is promoted", async ({ harness }) => {
             await mint(harness, "1");
             const sealedUnderOld = (await keys(harness).primary()).encrypt("value", SCOPE);
 
@@ -94,7 +94,7 @@ secretsSuite({
             expect(opener.decrypt(sealedUnderOld, SCOPE)).toBe("value");
         });
 
-        test("picks up a promoted generation without a restart or an env change", async ({ harness }) => {
+        test("picks up a promoted key without a restart or an env change", async ({ harness }) => {
             await mint(harness, "1");
             const secretKeys = keys(harness);
             expect((await secretKeys.primary()).keyId).toBe("1");
@@ -109,7 +109,7 @@ secretsSuite({
             await mint(harness, "1");
             await mint(harness, "2");
 
-            const primaries = await harness.db.previewkitSecretKey.findMany({ where: { primary: true } });
+            const primaries = await harness.db.previewkitEncryptionKey.findMany({ where: { primary: true } });
 
             expect(primaries.map((row) => row.id)).toEqual(["2"]);
         });
@@ -117,26 +117,28 @@ secretsSuite({
         test("refuses to reuse a key id", async ({ harness }) => {
             await mint(harness, "1");
 
-            await expect(mint(harness, "1")).rejects.toThrow('Secret key generation "1" already exists');
+            await expect(mint(harness, "1")).rejects.toThrow('Encryption key "1" already exists');
         });
 
-        test("names the generation when it was deleted before its values were re-encrypted", async ({ harness }) => {
+        test("names the encryption key when it was deleted before its values were re-encrypted", async ({
+            harness,
+        }) => {
             await mint(harness, "1");
             const sealed = (await keys(harness).primary()).encrypt("value", SCOPE);
 
             await mint(harness, "2");
-            await harness.db.previewkitSecretKey.delete({ where: { id: "1" } });
+            await harness.db.previewkitEncryptionKey.delete({ where: { id: "1" } });
 
             await expect(keys(harness).forEnvelope(sealed)).rejects.toThrow(
-                'sealed with key id "1": that generation is not in previewkit_secret_key',
+                'sealed with key id "1": that encryption key is not in previewkit_encryption_key',
             );
         });
 
-        test("does not commit a generation whose key could not be minted", async ({ harness }) => {
+        test("does not commit an encryption key that could not be minted", async ({ harness }) => {
             harness.provider = new FakeKeyProvider(new Error("AccessDeniedException"));
 
             await expect(mint(harness, "1")).rejects.toThrow("AccessDeniedException");
-            expect(await harness.db.previewkitSecretKey.count()).toBe(0);
+            expect(await harness.db.previewkitEncryptionKey.count()).toBe(0);
         });
     },
 });

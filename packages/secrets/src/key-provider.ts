@@ -3,9 +3,9 @@
  * tests and non-AWS hosts can supply their own without a KMS client.
  *
  * `encryptionContext` is additional authenticated data: a blob generated under
- * one context only unwraps under the same one, which stops a wrapped key being
- * swapped between key generations. Providers that log it (KMS does, via
- * CloudTrail) also make each unwrap traceable to the key id it was for.
+ * one context only unwraps under the same one, so one key's wrapped blob cannot
+ * be passed off as another's. Providers that log it (KMS does, via CloudTrail)
+ * also make each unwrap traceable to the key id it was for.
  */
 export interface KeyProvider {
     /** Mints new key material and returns it alongside its wrapped form. Only the wrapped form is ever stored. */

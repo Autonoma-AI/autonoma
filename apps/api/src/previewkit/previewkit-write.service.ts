@@ -1,10 +1,10 @@
 import { NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { secretFingerprint } from "@autonoma/secrets";
 import { type PreviewConfig, type PreviewRedeployAppMode, SecretItemSchema, SecretKeySchema } from "@autonoma/types";
 import type { PreviewkitConfigService } from "../routes/onboarding/previewkit-config-service";
 import type { PreviewkitSecretsService } from "./previewkit-secrets.service";
 import type { PreviewkitTriggerService } from "./previewkit-trigger.service";
-import { secretFingerprint } from "./secret-fingerprint";
 
 /** The config read/write capability this service needs; narrowed so tests can inject a fake. */
 type ConfigStore = Pick<PreviewkitConfigService, "getConfig" | "save">;

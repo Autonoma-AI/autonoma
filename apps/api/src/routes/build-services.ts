@@ -6,6 +6,7 @@ import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import { LokiLogStore } from "@autonoma/logger/loki-log-store";
 import { ScenarioRecipeStore, type EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
+import { KmsKeyProvider, SecretKeys, SecretValues } from "@autonoma/secrets";
 import type { StorageProvider } from "@autonoma/storage";
 import { DiffsRunPreparer, type GenerationProvider } from "@autonoma/test-updates";
 import type {
@@ -14,6 +15,7 @@ import type {
     TriggerPreviewTeardownParams,
 } from "@autonoma/types";
 import type { PipelineWorkflows } from "@autonoma/workflow";
+import { KMSClient } from "@aws-sdk/client-kms";
 import { ApplicationSetupService } from "../application-setup/application-setup.service";
 import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
@@ -32,6 +34,7 @@ import { PreviewkitSecretStatusService } from "../previewkit/previewkit-secret-s
 import { PreviewkitSecretsService } from "../previewkit/previewkit-secrets.service";
 import { PreviewkitTriggerService } from "../previewkit/previewkit-trigger.service";
 import { PreviewkitWriteService } from "../previewkit/previewkit-write.service";
+import { SecretValueMirror } from "../previewkit/secret-value-mirror";
 import { RateLimiterService } from "../rate-limit/rate-limiter.service";
 import { AdminService } from "./admin/admin.service";
 import { ApiKeysService } from "./api-keys/api-keys.service";
@@ -123,7 +126,8 @@ export function buildServices({
     triggerPreviewRedeployApp,
 }: ServicesParams): Services {
     const billingService = createBillingService(conn);
-    const previewkitSecretsService = new PreviewkitSecretsService(env.S3_REGION, conn);
+    const secretValueMirror = buildSecretValueMirror(conn);
+    const previewkitSecretsService = new PreviewkitSecretsService(env.S3_REGION, conn, secretValueMirror);
     const previewkitEnvironmentsService = new PreviewkitEnvironmentsService(conn);
     // Loki-backed log tails for the MCP get_build_logs / get_app_logs tools.
     // Undefined when PREVIEWKIT_LOKI_URL is unset (dev / self-host), mirroring the
@@ -212,7 +216,7 @@ export function buildServices({
         secrets: previewkitSecretsService,
         previewkitSecretStatus: new PreviewkitSecretStatusService(conn, previewkitSecretsService),
         previewkitLogs: new PreviewkitLogsService(previewkitEnvironmentsService, buildLogStore, appLogStore),
-        orgSecrets: new OrgSecretsService(conn, env.AWS_REGION ?? "us-east-1"),
+        orgSecrets: new OrgSecretsService(conn, env.AWS_REGION ?? "us-east-1", secretValueMirror),
         github: githubService,
         falsePositiveCandidates: falsePositiveCandidatesService,
         mergeGate: new MergeGateService(
@@ -238,4 +242,19 @@ export function buildServices({
         previewkitEnvironments: previewkitEnvironmentsService,
         getVercelEncryptionHelper,
     };
+}
+
+/**
+ * The Postgres mirror for previewkit secret writes, or a disabled one when this
+ * environment has no CMK. `PREVIEWKIT_SECRETS_CMK` is the marker that an
+ * environment has been provisioned for database-stored secrets; without it there
+ * is nothing to unwrap a key generation with, so writes stay AWS-only. Unwrapping
+ * itself never names the CMK - a symmetric KMS ciphertext identifies its own key.
+ */
+function buildSecretValueMirror(conn: PrismaClient): SecretValueMirror {
+    if (env.PREVIEWKIT_SECRETS_CMK == null) return new SecretValueMirror();
+
+    const kms = new KMSClient({ region: env.AWS_REGION ?? "us-east-1" });
+    const keys = new SecretKeys(conn, new KmsKeyProvider(kms, env.PREVIEWKIT_SECRETS_CMK));
+    return new SecretValueMirror(new SecretValues(conn, keys));
 }

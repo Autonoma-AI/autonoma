@@ -46,6 +46,14 @@ Scopes are `{ kind: "app", applicationId, appName, key }` for `PreviewkitSecret`
 
 `readEnvelopeKeyId` reads which generation sealed an envelope without needing any key - that is how a caller knows which one to fetch and unwrap.
 
+Callers hold a `SecretBundle` (a scope without the key) and derive each value's scope with `scopeIn(bundle, key)`, so the authenticated data is assembled in one place instead of being spelled out per call site where a field could quietly be missed:
+
+```ts
+const bundle: SecretBundle = { kind: "app", applicationId, appName };
+
+cipher.encrypt(value, scopeIn(bundle, "DATABASE_URL"));
+```
+
 This package deliberately knows nothing about where key material comes from: it takes 32 bytes and a key id. In production those come from `SecretKeys` in `@autonoma/secrets`, which unwraps generations out of the `previewkit_secret_key` table via KMS; tests construct a cipher directly from `randomBytes(32)`.
 
 ## Architecture Notes

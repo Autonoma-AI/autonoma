@@ -62,6 +62,14 @@ export class KmsKeyProvider implements KeyProvider {
     }
 }
 
+/**
+ * KMS reports some failures with an unhelpful message - an encryption-context
+ * mismatch arrives as "UnknownError" - so lead with the exception name, which is
+ * what an operator can actually search for.
+ */
 function describe(err: unknown): string {
-    return err instanceof Error ? err.message : String(err);
+    if (!(err instanceof Error)) return String(err);
+
+    const detail = err.message.length > 0 && err.message !== err.name ? `: ${err.message}` : "";
+    return `${err.name}${detail}`;
 }

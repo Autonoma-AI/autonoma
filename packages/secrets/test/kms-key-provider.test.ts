@@ -35,7 +35,7 @@ kmsSuite({
         // The property the storage model leans on: wrapped keys live in the
         // database next to the values they protect, so a blob must not open
         // under a key id other than the one it was minted for.
-        test("refuses to unwrap a key under a different generation's context", async ({ harness }) => {
+        test("refuses to unwrap a key under a different key's context", async ({ harness }) => {
             const kms = provider(harness);
             const { wrapped } = await kms.generate(keyEncryptionContext("1"));
 

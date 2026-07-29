@@ -144,12 +144,13 @@ export const env = createEnv({
         // read from the database before returning them to the browser. Must match BYPASS_TOKEN_KEY in Previewkit.
         PREVIEWKIT_BYPASS_TOKEN_KEY: z.string().min(64).optional(),
 
-        // KMS key that wraps the previewkit secret key generations in
-        // previewkit_secret_key (a key id, ARN, or `alias/...`). Not a secret: the
+        // KMS key that wraps the previewkit encryption keys in
+        // previewkit_encryption_key (a key id, ARN, or `alias/...`). Not a secret: the
         // wrapped keys live in the database and only `kms:Decrypt` on this CMK can
-        // open them. Needed only to MINT a generation (mintSecretKey,
+        // open them. Needed only to MINT a key (mintSecretKey,
         // @autonoma/secrets) - unwrapping names no CMK, since a symmetric KMS
-        // ciphertext identifies its own key. One CMK per environment.
+        // ciphertext identifies its own key. One CMK is shared by every environment;
+        // see packages/secrets/README.md for why IAM does not isolate them.
         PREVIEWKIT_SECRETS_CMK: z.string().min(1).optional(),
 
         // Enables preview environments: pull_request webhooks and the

@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger, type Logger } from "@autonoma/logger";
+import { MAX_MASKED_LENGTH } from "@autonoma/secrets";
 import type { OrgSecretItem, SecretSummary } from "@autonoma/types";
 import {
     CreateSecretCommand,
@@ -9,6 +10,7 @@ import {
     SecretsManagerClient,
     UpdateSecretCommand,
 } from "@aws-sdk/client-secrets-manager";
+import { SecretValueMirror } from "../../previewkit/secret-value-mirror";
 
 /**
  * Org-scoped secret bundles referenced by preview config addons via the
@@ -26,6 +28,8 @@ export class OrgSecretsService {
     constructor(
         private readonly conn: PrismaClient,
         private readonly awsRegion: string,
+        /** Off by default, so every existing construction site keeps AWS-only behaviour. */
+        private readonly mirror: SecretValueMirror = new SecretValueMirror(),
     ) {
         this.client = new SecretsManagerClient({ region: awsRegion });
         this.logger = rootLogger.child({ name: this.constructor.name });
@@ -46,7 +50,7 @@ export class OrgSecretsService {
         return Object.entries(values)
             .map(([key, value]) => ({
                 key,
-                maskedLength: Math.min(value.length, 32),
+                maskedLength: Math.min(value.length, MAX_MASKED_LENGTH),
                 updatedAt: now,
             }))
             .sort((a, b) => a.key.localeCompare(b.key));
@@ -71,6 +75,9 @@ export class OrgSecretsService {
         } else {
             await this.mergeIntoSecret(existing.awsSecretArn, items);
         }
+
+        // Mirror the same values into Postgres, encrypted. Best-effort until reads move there.
+        await this.mirror.put({ kind: "org", organizationId, name }, items);
     }
 
     async delete(organizationId: string, name: string, key: string): Promise<void> {
@@ -94,6 +101,8 @@ export class OrgSecretsService {
                 SecretString: JSON.stringify(values),
             }),
         );
+
+        await this.mirror.remove({ kind: "org", organizationId, name }, key);
 
         this.logger.info("Org secret key deleted", { organizationId, name, key });
     }
