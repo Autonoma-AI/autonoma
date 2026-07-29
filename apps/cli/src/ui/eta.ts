@@ -1,4 +1,4 @@
-import { STEP_MS_PER_PAGE } from "./steps";
+import { STEP_PAGE_SIZING } from "./steps";
 import type { ProjectSizes, RunState, StepNode } from "./types";
 
 export interface EtaResult {
@@ -12,8 +12,6 @@ export interface EtaResult {
 
 /** Floors so a user-paced step never collapses the ETA to "0 min left" mid-step. */
 const USER_PACED_MIN_REMAINING_MS = 30_000;
-/** A sized budget never drops below this, however small the project reads. */
-const SIZED_BUDGET_FLOOR_MS = 90_000;
 /** Trust the running step's own pace once this much of it is observed. */
 const LIVE_RATE_MIN_DONE = 3;
 const LIVE_RATE_MIN_ELAPSED_MS = 60_000;
@@ -43,11 +41,9 @@ function clamp01(n: number): number {
 /** A step's budget: sized by the known page count where duration scales with
  * it, the flat measured median otherwise. */
 function budgetFor(step: StepNode, sizes: ProjectSizes): number {
-    const msPerPage = STEP_MS_PER_PAGE[step.name];
-    if (msPerPage != null && sizes.pages != null && sizes.pages > 0) {
-        return Math.max(SIZED_BUDGET_FLOOR_MS, sizes.pages * msPerPage);
-    }
-    return step.budgetMs;
+    const sizing = STEP_PAGE_SIZING[step.name];
+    if (sizing == null || sizes.pages == null || sizes.pages <= 0) return step.budgetMs;
+    return sizing.baseMs + sizing.msPerPage * Math.min(sizes.pages, sizing.kneePages);
 }
 
 /** How "done" a running step is: real sub-progress when we have it, else time. */
@@ -85,7 +81,7 @@ function paceRatio(state: RunState): number {
     let budgeted = 0;
     for (const name of state.stepOrder) {
         const step = state.steps[name];
-        if (step.status !== "done" || step.budgetMaxMs != null) continue;
+        if (step.status !== "done" || step.userPaced) continue;
         if (step.startedAt == null || step.endedAt == null) continue;
         actual += Math.max(0, step.endedAt - step.startedAt);
         budgeted += budgetFor(step, state.sizes);
@@ -129,14 +125,14 @@ export function computeEta(state: RunState): EtaResult {
             const frac = runningFraction(step, nowAgent, budget);
             consumedBudget += budget * frac;
             let rem = liveRemainingMs(step, nowAgent) ?? budget * (1 - frac);
-            if (step.budgetMaxMs != null) rem = Math.max(rem, USER_PACED_MIN_REMAINING_MS);
+            if (step.userPaced) rem = Math.max(rem, USER_PACED_MIN_REMAINING_MS);
             remaining += rem;
             continue;
         }
 
         // pending / failed / paused - full budget still ahead, scaled by the
         // run's observed pace (user-paced steps keep their flat budget).
-        remaining += step.budgetMaxMs != null ? budget : budget * ratio;
+        remaining += step.userPaced ? budget : budget * ratio;
     }
 
     const pct = totalBudget > 0 ? clamp01(consumedBudget / totalBudget) * 100 : 0;

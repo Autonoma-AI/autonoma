@@ -124,7 +124,7 @@ function initialSteps(): Record<StepName, StepNode> {
         label: UI_STEP_LABELS[name],
         status: "pending",
         budgetMs: STEP_BUDGET[name].ms,
-        budgetMaxMs: STEP_BUDGET[name].maxMs,
+        userPaced: STEP_BUDGET[name].userPaced ?? false,
         artifactIds: [],
         why: UI_STEP_WHY[name],
     });

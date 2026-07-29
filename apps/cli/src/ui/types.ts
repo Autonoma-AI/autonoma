@@ -22,7 +22,8 @@ export interface StepNode {
     label: string;
     status: StepStatus;
     budgetMs: number;
-    budgetMaxMs?: number;
+    /** Paced by the user's coding agent, not by this run - see STEP_BUDGET. */
+    userPaced: boolean;
     startedAt?: number;
     endedAt?: number;
     sub?: SubProgress;

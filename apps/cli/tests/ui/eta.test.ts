@@ -1,12 +1,24 @@
 import { describe, expect, test, vi } from "vitest";
+import type { StepName } from "../../src/core/state";
 import { computeEta, formatClock, formatEtaLabel } from "../../src/ui/eta";
-import { STEP_BUDGET, STEP_ORDER } from "../../src/ui/steps";
+import { STEP_BUDGET, STEP_ORDER, STEP_PAGE_SIZING } from "../../src/ui/steps";
 import { createStore } from "../../src/ui/store";
 
 const META = { title: "t", project: "p", version: "0" };
 
 function totalBudgetMs(): number {
     return STEP_ORDER.reduce((n, s) => n + STEP_BUDGET[s].ms, 0);
+}
+
+/** The flat budgets of every step a page count does not resize. */
+function unsizedBudgetMs(): number {
+    return STEP_ORDER.filter((s) => STEP_PAGE_SIZING[s] == null).reduce((n, s) => n + STEP_BUDGET[s].ms, 0);
+}
+
+function sizedBudgetMs(step: StepName, pages: number): number {
+    const sizing = STEP_PAGE_SIZING[step];
+    if (sizing == null) throw new Error(`${step} is not page-sized`);
+    return sizing.baseMs + sizing.msPerPage * Math.min(pages, sizing.kneePages);
 }
 
 describe("eta model", () => {
@@ -66,21 +78,32 @@ describe("eta model", () => {
     test("a known page count sizes the page-scaled budgets", () => {
         const store = createStore({ outputDir: "/out", meta: META });
         const flat = computeEta(store.getState()).etaMs;
-        // 4 pages: kb 4x25s=100s and tests 4x300s=20min replace the 12min/30min flat budgets.
         store.setSizes({ pages: 4 });
         const sized = computeEta(store.getState()).etaMs;
         expect(sized).toBeLessThan(flat);
-        const expected = totalBudgetMs() - STEP_BUDGET.kb.ms - STEP_BUDGET.testGenerator.ms + 4 * 25_000 + 4 * 300_000;
-        expect(sized).toBe(expected);
+        expect(sized).toBe(unsizedBudgetMs() + sizedBudgetMs("kb", 4) + sizedBudgetMs("testGenerator", 4));
     });
 
-    test("a tiny page count never collapses a sized budget below the floor", () => {
+    test("a tiny page count still carries the step's fixed base cost", () => {
         const store = createStore({ outputDir: "/out", meta: META });
         store.setSizes({ pages: 1 });
         const eta = computeEta(store.getState());
-        // kb at 1 page would be 25s; the 90s floor applies.
-        const expected = totalBudgetMs() - STEP_BUDGET.kb.ms - STEP_BUDGET.testGenerator.ms + 90_000 + 300_000;
-        expect(eta.etaMs).toBe(expected);
+        // 1 page is one marginal page on top of the base, not a near-zero budget.
+        expect(eta.etaMs).toBe(unsizedBudgetMs() + sizedBudgetMs("kb", 1) + sizedBudgetMs("testGenerator", 1));
+    });
+
+    test("a huge page count saturates at the knee instead of extrapolating", () => {
+        const store = createStore({ outputDir: "/out", meta: META });
+        // 30 pages reaches both knees (kb 30, testGenerator 25), so every page
+        // past it is free and a 13x bigger project budgets exactly the same.
+        store.setSizes({ pages: 30 });
+        const atKnee = computeEta(store.getState()).etaMs;
+        store.setSizes({ pages: 400 });
+        const huge = computeEta(store.getState()).etaMs;
+        expect(huge).toBe(atKnee);
+        // The whole estimate stays inside the ~2.5h that real runs actually take,
+        // rather than the 8h a linear per-page rate predicts on a big repo.
+        expect(huge).toBeLessThan(150 * 60_000);
     });
 
     test("the running step's own pace overrides its budget once observed", () => {
@@ -110,11 +133,11 @@ describe("eta model", () => {
         store.endStep("projectMapper", "done");
         const eta = computeEta(store.getState());
         // Pending agent-paced budgets double; user-paced ones stay flat.
-        const agentPaced = STEP_ORDER.filter((s) => s !== "projectMapper" && STEP_BUDGET[s].maxMs == null).reduce(
+        const agentPaced = STEP_ORDER.filter((s) => s !== "projectMapper" && STEP_BUDGET[s].userPaced !== true).reduce(
             (n, s) => n + STEP_BUDGET[s].ms,
             0,
         );
-        const userPaced = STEP_ORDER.filter((s) => STEP_BUDGET[s].maxMs != null).reduce(
+        const userPaced = STEP_ORDER.filter((s) => STEP_BUDGET[s].userPaced === true).reduce(
             (n, s) => n + STEP_BUDGET[s].ms,
             0,
         );

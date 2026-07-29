@@ -79,37 +79,55 @@ export const STEP_DOCS: Partial<Record<StepName, string>> = {
 };
 
 /**
- * ETA budgets per step (ms). Most are flat; the recipe builder hands off to the
- * user's own coding agent so it is user-paced and carries a max bound.
+ * ETA budgets per step (ms), used when no size signal applies. `userPaced`
+ * marks the step that hands off to the user's own coding agent: its duration
+ * reflects the human, not this run's pace, so the ETA neither scales it by the
+ * observed pace ratio nor reads a pace from it.
  */
 // Budgets come from measured medians in PostHog (cli_step_completed,
 // status=done, 90 days to 2026-07-21; ~40-140 completions per step), rounded
 // up toward p60 since the distributions are heavily right-skewed with repo
-// size. recipeBuilder keeps a wide user-paced budget: the historical data
-// predates the coding-agent handoff.
-export const STEP_BUDGET: Record<StepName, { ms: number; maxMs?: number }> = {
+// size. recipeBuilder keeps a wide budget: the historical data predates the
+// coding-agent handoff.
+export const STEP_BUDGET: Record<StepName, { ms: number; userPaced?: true }> = {
     projectMapper: { ms: 3 * MIN },
     pagesFinder: { ms: 3 * MIN },
     kb: { ms: 12 * MIN },
     entityAudit: { ms: 10 * MIN },
     scenarioRecipe: { ms: 3 * MIN },
-    recipeBuilder: { ms: 45 * MIN, maxMs: 120 * MIN },
-    testGenerator: { ms: 30 * MIN, maxMs: 60 * MIN },
+    recipeBuilder: { ms: 45 * MIN, userPaced: true },
+    testGenerator: { ms: 30 * MIN },
 };
 
+export interface PageSizing {
+    /** The part of the step that does not scale with page count. */
+    baseMs: number;
+    /** Marginal cost of each page, up to the knee. */
+    msPerPage: number;
+    /** Page count past which further pages add nothing to the budget. */
+    kneePages: number;
+}
+
 /**
- * Per-page budget rates for the steps whose duration scales with the page
- * count, which is known once the pages step completes. Only pages qualify as
+ * Page-count sizing for the steps whose duration scales with the number of
+ * pages, which is known once the pages step completes. Only pages qualify as
  * a predictor today: the other size signals (entities, tests) are produced BY
  * their own steps, so they can't size those budgets ahead of time - the live
  * in-run rate (eta.ts) covers them instead.
  *
+ * The curve saturates on purpose. These steps batch and parallelize their
+ * work, so measured cost per page collapses as repos grow - kb ran 3.9s/page
+ * on an 81-page repo against 15-25s/page on 15-page ones. A flat per-page rate
+ * extrapolates that small-repo cost across a large one and predicts multi-hour
+ * steps that never happen, so past `kneePages` extra pages are free. The knee
+ * is what bounds the estimate: base + msPerPage x kneePages is the most a
+ * sized step can ever be budgeted.
+ *
  * Measured from cli_step_completed events carrying size telemetry (PostHog,
- * status=done, to 2026-07-23). Small sample (a handful of runs), so these are
- * priors leaning toward the p75, not a regression - refine as data accrues.
- * kb: 14-25s/page observed; testGenerator: ~3 tests/page x ~105s/test.
+ * status=done, to 2026-07-29). Small sample (a handful of runs), so these are
+ * priors, not a regression - refine as data accrues.
  */
-export const STEP_MS_PER_PAGE: Partial<Record<StepName, number>> = {
-    kb: 25_000,
-    testGenerator: 300_000,
+export const STEP_PAGE_SIZING: Partial<Record<StepName, PageSizing>> = {
+    kb: { baseMs: 3 * MIN, msPerPage: 20_000, kneePages: 30 },
+    testGenerator: { baseMs: 10 * MIN, msPerPage: 2 * MIN, kneePages: 25 },
 };
