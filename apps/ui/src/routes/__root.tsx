@@ -1,9 +1,9 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { Outlet, createRootRouteWithContext, useLocation } from "@tanstack/react-router";
+import { Outlet, createRootRouteWithContext, useLocation, useRouterState } from "@tanstack/react-router";
 import { useIsMobile } from "hooks/use-is-mobile";
 import { Monitor } from "lucide-react";
 import posthog from "posthog-js";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useAuth } from "../lib/auth";
 import type { authClient } from "../lib/auth";
 import type { TRPCOptionsProxy } from "../lib/trpc";
@@ -30,6 +30,23 @@ function usePosthogIdentify() {
       organizationId: activeOrganizationId,
     });
   }, [isAuthenticated, user, activeOrganizationId]);
+}
+
+/**
+ * Captures the activation funnel's entry step, once per app session. Driven off the
+ * route rather than a click site so it sits with the other centralized capture
+ * calls. `enabled` is false on mobile, where the layout renders the blocker instead
+ * of onboarding - counting those would inflate the step with users who never saw it.
+ */
+function useOnboardingOpened(enabled: boolean) {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const fired = useRef(false);
+
+  useEffect(() => {
+    if (!enabled || fired.current || !pathname.startsWith("/onboarding")) return;
+    fired.current = true;
+    posthog.capture("onboarding.opened");
+  }, [enabled, pathname]);
 }
 
 function MobileBlocker() {
@@ -61,6 +78,7 @@ function RootLayout() {
   const { pathname } = useLocation();
 
   usePosthogIdentify();
+  useOnboardingOpened(!isMobile);
 
   const isMobileAllowed = MOBILE_ALLOWED_PATHS.some((path) => pathname.startsWith(path));
 

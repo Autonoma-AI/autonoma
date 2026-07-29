@@ -61,6 +61,11 @@ if (isPostHogEnabled) {
   posthog.init(posthogKey, {
     api_host: "/ingest",
     ui_host: "https://us.posthog.com",
+    // This is a client-routed SPA, so the default only ever emits the $pageview
+    // for the initial document load - every in-app navigation went untracked and
+    // all pathname-based metrics undercounted. "history_change" also captures
+    // pushState/replaceState navigations.
+    capture_pageview: "history_change",
     session_recording: {
       recordCrossOriginIframes: true,
     },

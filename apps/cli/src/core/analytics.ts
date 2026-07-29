@@ -8,6 +8,7 @@ import { CLI_VERSION } from "./version";
 
 const AUTONOMA_HOME = join(homedir(), ".autonoma");
 const DEVICE_ID_PATH = join(AUTONOMA_HOME, ".device-id");
+const DISTINCT_ID_PATH = join(AUTONOMA_HOME, ".distinct-id");
 
 // PostHog project (public/ingestion) key. Safe to ship in a client - it can
 // only write events, not read. Same project as the landing page + app, so the
@@ -34,9 +35,45 @@ function trackingDisabled(): boolean {
 // When present we use it (and let PostHog build the person profile so the funnel
 // connects). Otherwise we fall back to an anonymous per-machine device id and
 // suppress person processing so we don't create junk persons.
+let cachedIdentity: string | undefined;
+let identityResolved = false;
+
 function getIdentity(): string | undefined {
-    const id = readEnv().AUTONOMA_DISTINCT_ID?.trim();
-    return id && id.length > 0 ? id : undefined;
+    if (identityResolved) return cachedIdentity;
+    identityResolved = true;
+    cachedIdentity = resolveIdentity();
+    return cachedIdentity;
+}
+
+/**
+ * Only the first invocation is launched from the app with AUTONOMA_DISTINCT_ID
+ * set; a user re-running the CLI by hand loses it, drops to the anonymous device
+ * id, and silently leaves the funnel. So the first run persists the id and later
+ * runs read it back.
+ */
+function resolveIdentity(): string | undefined {
+    const fromEnv = readEnv().AUTONOMA_DISTINCT_ID?.trim();
+    if (fromEnv != null && fromEnv.length > 0) {
+        persistIdentity(fromEnv);
+        return fromEnv;
+    }
+
+    try {
+        const stored = readFileSync(DISTINCT_ID_PATH, "utf-8").trim();
+        if (stored.length > 0) return stored;
+    } catch (err) {
+        debugLog("No persisted distinct id; falling back to the anonymous device id", { err });
+    }
+    return undefined;
+}
+
+function persistIdentity(id: string): void {
+    try {
+        mkdirSync(AUTONOMA_HOME, { recursive: true });
+        writeFileSync(DISTINCT_ID_PATH, id, { encoding: "utf-8", mode: 0o600 });
+    } catch (err) {
+        debugLog("Could not persist distinct id; re-runs may lose funnel attribution", { err });
+    }
 }
 
 // One id per process, attached to every event - lets you group a run's events,
