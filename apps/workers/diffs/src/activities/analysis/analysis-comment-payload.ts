@@ -40,6 +40,7 @@ const COVERAGE_CATEGORY_NOUN: Record<AnalysisVerdict, string> = {
     environment_failure: "environment failure",
     scenario_issue: "scenario issue",
     plan_mismatch: "unresolved test",
+    invalid_test: "invalid test",
 };
 
 /** URLs + PR identifiers the comment links to. */

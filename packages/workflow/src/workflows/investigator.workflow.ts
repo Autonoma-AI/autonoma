@@ -208,6 +208,13 @@ async function runWithSelfHeal(params: SelfHealParams): Promise<AnalysisCandidat
         await persist(iteration, { generationId, category, headline, report });
         const finding: AnalysisCandidateFinding = { slug, testCaseId, generationId, category, headline, origin };
 
+        // `invalid_test` is a deliberate coverage-plane REMOVAL - the classifier proved the test is irreparable, so
+        // its assignment is dropped via the uniform RemoveTest path (contained; the classification record - the WHY -
+        // is preserved regardless). Reachable up front (a provable impossibility) or on the final self-heal iteration.
+        // On that post-heal path a rewrite has already repointed the assignment at a plan the run knows fails, so if
+        // the removal does not land, `planIdBeforeSelfHeal` is passed to undo it - the snapshot must never promote a
+        // known-failing rewrite for a test the run declared irreparable.
+        if (category === "invalid_test") await removeInvalidTest(snapshotId, slug, planIdBeforeSelfHeal);
         // Every verdict but `plan_mismatch` is final on the spot. `plan_mismatch` means the app rendered correctly and
         // the test's plan does not match it, so it gets a self-heal attempt before it settles.
         if (category !== "plan_mismatch") return finding;
@@ -297,6 +304,7 @@ function toClassificationReport(result: InvestigationTestResult): AnalysisClassi
         actualBehavior: verdict?.actualBehavior,
         whatHappened: verdict?.whatHappened,
         planMismatchNote: verdict?.planMismatchNote,
+        invalidTestNote: verdict?.invalidTestNote,
         rootCause: verdict?.rootCause,
         remediation: verdict?.remediation,
         observedAppIssues: verdict?.observedAppIssues,
@@ -368,6 +376,36 @@ async function revertSelfHealRewrite(snapshotId: string, slug: string, planId: s
             extra: { slug, message: rootFailureMessage(error) },
         });
     }
+}
+
+/**
+ * Remove an `invalid_test`: the classifier proved the test is irreparably broken (a feature that never existed,
+ * structurally unexecutable steps, a premise the app contradicts), so its assignment is dropped from the twin via
+ * the uniform `RemoveTest` path. The verdict is already on disk by the time this runs; the removal is CONTAINED - a
+ * failure to remove never sinks the verdict, and the test's `TestCase` + classification record (the WHY) survive
+ * either way. Idempotent: a slug with no assignment is a logged no-op.
+ *
+ * `revertToPlanId` is set only on the post-heal path (a self-heal rewrite already repointed the assignment at a plan
+ * the run knows fails). If the removal does NOT actually drop the assignment - it threw, or reported `deleted: false`
+ * - that failing rewrite would otherwise promote, the exact outcome the kept-`plan_mismatch` path reverts to avoid;
+ * so we undo it here too. A no-op when the removal succeeded (nothing to promote) or no rewrite landed (id absent).
+ */
+async function removeInvalidTest(snapshotId: string, slug: string, revertToPlanId: string | undefined): Promise<void> {
+    let removed = false;
+    try {
+        const result = await investigator.deleteAnalysisTest({ snapshotId, slug });
+        removed = result.deleted;
+        log.info("Removed an invalid test from the twin", {
+            snapshot: { snapshotId },
+            extra: { slug, deleted: result.deleted, reason: result.reason },
+        });
+    } catch (error) {
+        log.warn("Failed to remove an invalid test; keeping its assignment", {
+            snapshot: { snapshotId },
+            extra: { slug, message: rootFailureMessage(error) },
+        });
+    }
+    if (!removed) await revertSelfHealRewrite(snapshotId, slug, revertToPlanId);
 }
 
 /**

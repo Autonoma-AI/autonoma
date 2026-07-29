@@ -14,6 +14,7 @@ export { finalizeDiffs } from "./finalize-diffs";
 export { reviewGeneration } from "./review/generation";
 export { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 
+import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-test";
 import { persistAnalysisClassification as persistAnalysisClassificationImpl } from "./analysis/persist-classification";
 import { revertSelfHealPlan as revertSelfHealPlanImpl } from "./analysis/revert-self-heal-plan";
 import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impact-analysis";
@@ -63,10 +64,12 @@ export const runReporter = withHeartbeat(runReporterImpl);
 export const settleAnalysisRun = withHeartbeat(settleAnalysisRunImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
 // The Investigator's own writes: its row-local self-heal plan rewrite (UpdateTest), the revert of that rewrite when
-// a `plan_mismatch` is kept (RevertPlan, no re-run), and the append with which it files each iteration's
-// classification. All fast, but heartbeat for consistency with the other analysis activities.
+// a `plan_mismatch` is kept (RevertPlan, no re-run), the removal of an irreparable test on `invalid_test`
+// (RemoveTest), and the append with which it files each iteration's classification. All fast, but heartbeat for
+// consistency with the other analysis activities.
 export const selfHealAnalysisTest = withHeartbeat(selfHealAnalysisTestImpl);
 export const revertSelfHealPlan = withHeartbeat(revertSelfHealPlanImpl);
+export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
 export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassificationImpl);
 
 // Compile-time check: ensure exported activities match the DiffsActivities contract.
@@ -88,11 +91,12 @@ export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassi
     settleAnalysisRun,
 }) satisfies AnalysisActivities;
 ({ classifyInvestigationRun }) satisfies Pick<InvestigationActivities, "classifyInvestigationRun">;
-// The Investigator's own writes (self-heal, the revert that undoes it, per-iteration classification), on their own
-// contract - only the diffs worker implements them, so they stay off the AnalysisActivities contract the frozen
-// investigation worker shares.
+// The Investigator's own writes (self-heal, the revert that undoes it, the `invalid_test` removal, per-iteration
+// classification), on their own contract - only the diffs worker implements them, so they stay off the
+// AnalysisActivities contract the frozen investigation worker shares.
 ({
     selfHealAnalysisTest,
     revertSelfHealPlan,
+    deleteAnalysisTest,
     persistAnalysisClassification,
 }) satisfies InvestigatorActivities;

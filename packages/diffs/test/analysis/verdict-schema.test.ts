@@ -16,6 +16,7 @@ function modelVerdict(overrides: Partial<VerdictForModel>): VerdictForModel {
         falsePositiveRisk: null,
         suggestedTestUpdate: null,
         planMismatchNote: null,
+        invalidTestNote: null,
         observedAppIssues: null,
         evidence: [{ source: "run", detail: "what the run showed", file: null, lines: null, snippet: null }],
         keyStepIndex: null,
@@ -114,5 +115,36 @@ describe("toRunVerdict", () => {
         );
 
         expect(verdict).toMatchObject({ category: "plan_mismatch", suggestedTestUpdate: "", planMismatchNote: "" });
+    });
+
+    it("carries the impossibility note + false-positive check on an invalid_test verdict", () => {
+        const verdict = toRunVerdict(
+            modelVerdict({
+                category: "invalid_test",
+                invalidTestNote: "asserts a Reports tab; git history shows it never existed",
+                falsePositiveRisk: "checked git blame - the component was never added, so not salvageable",
+            }),
+        );
+        expect(verdict).toMatchObject({
+            category: "invalid_test",
+            invalidTestNote: "asserts a Reports tab; git history shows it never existed",
+            falsePositiveRisk: "checked git blame - the component was never added, so not salvageable",
+        });
+        // invalid_test is a coverage-plane removal - the app is fine, so it carries no app expected/actual.
+        expect("expectedBehavior" in verdict).toBe(false);
+        expect("actualBehavior" in verdict).toBe(false);
+    });
+
+    it("rejects an invalid_test with no evidence (impossibility must be proven - schema min 1)", () => {
+        expect(() =>
+            toRunVerdict(
+                modelVerdict({
+                    category: "invalid_test",
+                    invalidTestNote: "not browser-executable",
+                    falsePositiveRisk: "none",
+                    evidence: [],
+                }),
+            ),
+        ).toThrow();
     });
 });

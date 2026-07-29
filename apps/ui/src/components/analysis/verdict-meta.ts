@@ -35,6 +35,7 @@ const VERDICT_STYLE: Record<AnalysisVerdict, { label: string; variant: FindingBa
     scenario_issue: { label: "Scenario issue", variant: "warn" },
     environment_failure: { label: "Environment failure", variant: "outline" },
     plan_mismatch: { label: "Plan mismatch", variant: "secondary" },
+    invalid_test: { label: "Invalid test", variant: "warn" },
 };
 
 export function analysisVerdictMeta(category: string): AnalysisVerdictMeta {

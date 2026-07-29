@@ -56,6 +56,12 @@ export const investigationFindingSchema = z.object({
      * so there is no app-behavior claim to make - and is the diagnosis a reviewer acts on.
      */
     planMismatchNote: z.string().optional(),
+    /**
+     * For an `invalid_test` (analysis findings): which impossibility failure mode (nonexistent feature / unexecutable
+     * steps / wrong premise / unrecoverable) and the proof the test cannot be recovered. It stands in for
+     * expected/actual on that category - the app worked - and is the justification behind removing the test.
+     */
+    invalidTestNote: z.string().optional(),
     /** App problems seen in the run independent of this test's pass/fail. */
     observedAppIssues: z.string().optional(),
     remediation: z.string().optional(),

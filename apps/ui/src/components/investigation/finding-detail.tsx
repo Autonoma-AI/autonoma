@@ -133,6 +133,12 @@ function FindingBody({
         </Section>
       )}
 
+      {finding.invalidTestNote != null && finding.invalidTestNote.trim() !== "" && (
+        <Section title="Why this test was removed">
+          <p className="text-sm leading-relaxed text-text-primary">{finding.invalidTestNote}</p>
+        </Section>
+      )}
+
       {finding.remediation != null && (
         <Section title="Remediation">
           <p className="text-sm leading-relaxed text-text-primary">{finding.remediation}</p>

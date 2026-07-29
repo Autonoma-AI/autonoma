@@ -8,6 +8,9 @@ import type { EntryCategory, Section, TestEntry } from "./snapshot-entries";
  * needed - and a selected test the run left alone still appears (as `checked`), which a plan diff cannot show.
  */
 function categoryOf(finding: AnalysisFindingView): EntryCategory {
+    // An `invalid_test` verdict removed the test's assignment - it belongs under Removed regardless of how it entered
+    // the run (a proposed test the run could not establish is removed just the same).
+    if (finding.category === "invalid_test") return "removed";
     if (finding.origin === "proposed") return "added";
     // Named by verdict rather than by presentation tier, because what matters here is this verdict's BEHAVIOR: a kept
     // `plan_mismatch` restores the plan its self-heal replaced, so the run left the test as it found it - checked, not

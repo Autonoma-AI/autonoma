@@ -2837,8 +2837,9 @@ model AnalysisClassification {
   generation   TestGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
 
   /// The AnalysisVerdict this iteration reached (passed/client_bug/engine_artifact/environment_failure/
-  /// scenario_issue/plan_mismatch). A superseded self-heal iteration carries `plan_mismatch`, the same terminal it
-  /// routes to. Stored as a plain string so an older row (pre-merge `outdated_test`/`bad_test`/`delete`) still reads.
+  /// scenario_issue/plan_mismatch/invalid_test). A superseded self-heal iteration carries `plan_mismatch`, the same
+  /// terminal it routes to. Stored as a plain string so an older row (pre-merge `outdated_test`/`bad_test`/`delete`)
+  /// still reads.
   category          String
   confidence        String?
   headline          String  @db.Text
@@ -2850,6 +2851,9 @@ model AnalysisClassification {
   /// The `plan_mismatch` self-heal post-mortem: what the test asserted that was wrong, the rewrite attempted, and
   /// why it still failed. Set only for a `plan_mismatch` verdict.
   planMismatchNote  String? @map("plan_mismatch_note") @db.Text
+  /// The `invalid_test` justification: which impossibility failure mode (nonexistent feature / unexecutable steps /
+  /// wrong premise / unrecoverable) and the proof the test cannot be recovered. Set only for an `invalid_test` verdict.
+  invalidTestNote   String? @map("invalid_test_note") @db.Text
   observedAppIssues String? @map("observed_app_issues") @db.Text
   remediation       String? @db.Text
   rootCause         String? @map("root_cause") @db.Text

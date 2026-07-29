@@ -20,6 +20,14 @@ describe("summarizeVerdictPlanes", () => {
         ]);
     });
 
+    it("counts invalid_test on the coverage plane and never lets it flip the app-health verdict", () => {
+        const summary = summarizeVerdictPlanes(["passed", "invalid_test", "invalid_test"]);
+
+        expect(summary.verdict).toBe("passed");
+        expect(summary.coverage.total).toBe(2);
+        expect(summary.coverage.byCategory).toEqual([{ category: "invalid_test", count: 2 }]);
+    });
+
     it("flips to client_bug when any finding is one, and never counts client_bug on the coverage plane", () => {
         const summary = summarizeVerdictPlanes(["client_bug", "engine_artifact"]);
 

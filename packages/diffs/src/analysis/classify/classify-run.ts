@@ -164,6 +164,10 @@ function buildPriorPassSection(priorPass: NonNullable<ClassifyContext["priorPass
         "  again (the pipeline resolves the exhausted loop; it is NOT your job to escalate). Do NOT flip to",
         "  client_bug merely because the corrected plan also fails - your own prior pass already attributed the",
         "  behavior to an intentional change, and a failing rewrite does not un-prove that.",
+        "- If this re-run has now PROVED the test can never pass because its premise is impossible (the feature/flow",
+        "  it asserts does not and did not exist, or its steps are structurally unexecutable) - not merely that this",
+        "  rewrite did not stabilize it - classify invalid_test with that proof in evidence. A still-failing plan",
+        "  WITHOUT that proof of impossibility stays plan_mismatch.",
         "- ONLY convict client_bug on a re-run if you observed NEW evidence of a real defect this PR introduced",
         "  that the prior pass did not have (a new error state, a backend-confirmed failure) - and say what is new.",
     ].join("\n");

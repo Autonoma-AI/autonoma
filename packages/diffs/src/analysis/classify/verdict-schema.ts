@@ -17,20 +17,27 @@ export const VerdictForModel = z.object({
     headline: z.string(),
     // What the app SHOULD have done / what it actually did - the app-health plane's behavior claim. Filled by
     // `passed` and `client_bug`; null for every coverage verdict (engine_artifact / environment_failure /
-    // scenario_issue / plan_mismatch), which describe a non-app cause instead.
+    // scenario_issue / plan_mismatch / invalid_test), which describe a non-app cause instead.
     expectedBehavior: z.string().nullable(),
     actualBehavior: z.string().nullable(),
     // Free-form account of what happened - the coverage plane's analog of expected/actual. Filled by the coverage
-    // faults (engine_artifact / environment_failure / scenario_issue); null for the app-health verdicts and plan_mismatch.
+    // faults (engine_artifact / environment_failure / scenario_issue); null for the app-health verdicts, plan_mismatch
+    // and invalid_test (which carry their own dedicated notes instead).
     whatHappened: z.string().nullable(),
-    // The false-positive self-check. Set for client_bug / environment_failure / scenario_issue; null for passed /
-    // engine_artifact / plan_mismatch.
+    // The false-positive self-check. Set for client_bug / environment_failure / scenario_issue / invalid_test; null
+    // for passed / engine_artifact / plan_mismatch.
     falsePositiveRisk: z.string().nullable(),
     // The COMPLETE revised test plan for a plan_mismatch (the plan the self-heal loop re-runs); null otherwise.
     suggestedTestUpdate: z.string().nullable(),
     // The plan_mismatch self-heal post-mortem: what the test asserted that was wrong, the rewrite attempted, and why
     // it still failed; null for every other category.
     planMismatchNote: z.string().nullable(),
+    // The invalid_test justification (null for every other category): name the failure mode - a NONEXISTENT feature
+    // (no component / i18n key / git history), STRUCTURALLY UNEXECUTABLE steps (a plan step no browser test can drive,
+    // e.g. "run this SQL"), a PREMISE that CONTRADICTS the app, or an otherwise UNRECOVERABLE test - and PROVE it (the
+    // evidence array must back the claim). This verdict REMOVES the test, so the bar is impossibility, not "wrong":
+    // default to plan_mismatch (keep) whenever you are unsure.
+    invalidTestNote: z.string().nullable(),
     // App problems VISIBLE in the video that are independent of this test's pass/fail (broken images, empty
     // content where data is expected, layout/overlap issues, things not loading). Null when the app looked healthy.
     observedAppIssues: z.string().nullable(),
@@ -72,6 +79,7 @@ export function toRunVerdict(modelVerdict: VerdictForModel): RunVerdict {
         falsePositiveRisk: modelVerdict.falsePositiveRisk ?? undefined,
         suggestedTestUpdate: modelVerdict.suggestedTestUpdate ?? undefined,
         planMismatchNote: modelVerdict.planMismatchNote ?? undefined,
+        invalidTestNote: modelVerdict.invalidTestNote ?? undefined,
         observedAppIssues: modelVerdict.observedAppIssues ?? undefined,
         evidence: modelVerdict.evidence.map((item) => ({
             source: item.source,

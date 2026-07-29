@@ -5,6 +5,8 @@ import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type {
     ClassifyInvestigationRunInput,
+    DeleteAnalysisTestInput,
+    DeleteAnalysisTestOutput,
     InvestigationTestResult,
     InvestigationVerdict,
     PersistAnalysisClassificationInput,
@@ -27,12 +29,13 @@ const workflowsPath = new URL("../src/workflows/index.ts", import.meta.url).path
 /**
  * Behavioral tests for the Investigator's verdict state machine: the self-heal loop, the full taxonomy (a
  * terminal verdict passes through; an exhausted `plan_mismatch` loop resolves to a KEPT `plan_mismatch` and reverts
- * its failed rewrite rather than removing the test), containment (a classify fault is contained as a coverage-plane
- * verdict, never a throw), and what it PERSISTS - one classification per iteration, the superseded one always
- * written before the rewrite it motivates. They run the REAL workflow in the time-skipping test environment with
- * mocked activities, so the assertions are on observable outcomes - the verdicts it files, how many times the test
- * re-ran, the plan-edit it authored, and whether it reverted - not on internal calls. classify + self-heal + revert
- * all resolve on the DIFFS queue (the pipeline is re-homed into the diffs worker); the web run is the only other
+ * its failed rewrite rather than removing the test; an `invalid_test` REMOVES the test - up front, or after a failed
+ * heal), containment (a classify fault is contained as a coverage-plane verdict, never a throw), and what it
+ * PERSISTS - one classification per iteration, the superseded one always written before the rewrite it motivates.
+ * They run the REAL workflow in the time-skipping test environment with mocked activities, so the assertions are on
+ * observable outcomes - the verdicts it files, how many times the test re-ran, the plan-edit it authored, whether it
+ * reverted, and whether it removed the test - not on internal calls. classify + self-heal + revert + delete all
+ * resolve on the DIFFS queue (the pipeline is re-homed into the diffs worker); the web run is the only other
  * activity, and passing no scenario means the GENERAL queue is never scheduled.
  */
 
@@ -59,6 +62,10 @@ interface Harness {
     selfHealCalls: SelfHealAnalysisTestInput[];
     /** What selfHealAnalysisTest returns (the prepared re-run generation, or a skip). */
     selfHealOutput: SelfHealAnalysisTestOutput;
+    /** Every test removal the loop requested - the `invalid_test` path fires it; the keep paths assert it never does. */
+    deleteCalls: DeleteAnalysisTestInput[];
+    /** What deleteAnalysisTest returns, so a test can drive the removal-failed fallback (`deleted: false`). */
+    deleteOutput: DeleteAnalysisTestOutput;
     /** Every plan revert the loop requested, captured to assert a kept plan_mismatch restores its original plan. */
     revertCalls: RevertSelfHealPlanInput[];
     /** Every classification the Investigator filed, in order - the loop's whole record of what it concluded. */
@@ -73,6 +80,8 @@ const harness: Harness = {
     webRuns: [],
     selfHealCalls: [],
     selfHealOutput: { prepared: false, skippedReason: "not scripted" },
+    deleteCalls: [],
+    deleteOutput: { deleted: true },
     revertCalls: [],
     persistCalls: [],
     events: [],
@@ -142,6 +151,11 @@ const analysisActivities = {
         harness.events.push("revert");
         return { reverted: true };
     },
+    async deleteAnalysisTest(input: DeleteAnalysisTestInput): Promise<DeleteAnalysisTestOutput> {
+        harness.deleteCalls.push(input);
+        harness.events.push("delete");
+        return harness.deleteOutput;
+    },
     async persistAnalysisClassification(
         input: PersistAnalysisClassificationInput,
     ): Promise<PersistAnalysisClassificationOutput> {
@@ -204,6 +218,8 @@ beforeEach(() => {
         previousPlanId: ORIGINAL_PLAN_ID,
         scenarioId: undefined,
     };
+    harness.deleteCalls = [];
+    harness.deleteOutput = { deleted: true };
     harness.revertCalls = [];
 });
 
@@ -297,6 +313,8 @@ describe("investigatorWorkflow verdict state machine", () => {
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION, HEALED_GENERATION]);
         // Only ONE plan-edit was authored (the final iteration does not request another re-run) ...
         expect(harness.selfHealCalls).toHaveLength(1);
+        // ... the kept test is NOT removed ...
+        expect(harness.deleteCalls).toHaveLength(0);
         // ... and the failed rewrite is undone by repointing the assignment at the plan record it replaced, so the
         // original plan is what promotes (a rewrite optimized to pass can blunt the assertion catching a real bug).
         expect(harness.revertCalls).toEqual([{ snapshotId: "snap-1", slug: SLUG, planId: ORIGINAL_PLAN_ID }]);
@@ -366,6 +384,95 @@ describe("investigatorWorkflow verdict state machine", () => {
         // The verdict is filed ONCE, before the rewrite is attempted: a plan is never edited on the strength of a
         // verdict that is not on disk, and a rewrite that never landed leaves that one record standing as the terminal.
         expect(harness.events).toEqual(["persist:plan_mismatch", "selfHeal"]);
+    });
+
+    it("removes the test up front on an invalid_test verdict, without self-healing", async () => {
+        // The classifier proved the test is irreparable (a feature that never existed) on the FIRST pass - a
+        // provable impossibility is reachable up front, skipping self-heal.
+        harness.classifyQueue = [
+            classified(verdict("invalid_test", { headline: "asserts a feature that never existed" })),
+        ];
+
+        const finding = await runInvestigator();
+
+        expect(finding).toEqual({
+            slug: SLUG,
+            testCaseId: TEST_CASE_ID,
+            generationId: ORIGINAL_GENERATION,
+            category: "invalid_test",
+            headline: "asserts a feature that never existed",
+            origin: "pre_existing",
+        });
+        // It ran once and did NOT self-heal (invalid_test is terminal) ...
+        expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);
+        expect(harness.selfHealCalls).toHaveLength(0);
+        expect(harness.revertCalls).toHaveLength(0);
+        // ... the test's assignment is removed via the uniform RemoveTest path ...
+        expect(harness.deleteCalls).toEqual([{ snapshotId: "snap-1", slug: SLUG }]);
+        // ... and the removal happens AFTER the verdict is on disk, so the classification record (the WHY) survives.
+        expect(harness.persistCalls).toHaveLength(1);
+        expect(harness.persistCalls[0]?.classification.category).toBe("invalid_test");
+        expect(harness.persistCalls[0]?.classification.report).toEqual(expectedReport());
+        expect(harness.events).toEqual(["persist:invalid_test", "delete"]);
+    });
+
+    it("removes the test when a self-heal re-run proves it invalid", async () => {
+        // A softer wrong-test case routes through plan_mismatch -> self-heal first; the re-run then establishes the
+        // test is irreparable - so it lands on invalid_test and the test is removed.
+        harness.classifyQueue = [
+            classified(verdict("plan_mismatch", { suggestedTestUpdate: REVISED_PLAN })),
+            classified(verdict("invalid_test", { headline: "unrecoverable even after the rewrite" })),
+        ];
+
+        const finding = await runInvestigator();
+
+        expect(finding).toEqual({
+            slug: SLUG,
+            testCaseId: TEST_CASE_ID,
+            generationId: HEALED_GENERATION,
+            category: "invalid_test",
+            headline: "unrecoverable even after the rewrite",
+            origin: "pre_existing",
+        });
+        expect(harness.webRuns).toEqual([ORIGINAL_GENERATION, HEALED_GENERATION]);
+        // It self-healed once before concluding the test is invalid ...
+        expect(harness.selfHealCalls).toHaveLength(1);
+        // ... the test is REMOVED, not reverted: the assignment is gone, so restoring its old plan is moot.
+        expect(harness.deleteCalls).toEqual([{ snapshotId: "snap-1", slug: SLUG }]);
+        expect(harness.revertCalls).toHaveLength(0);
+        // Both iterations filed; the terminal invalid_test lands after the self-heal, and the removal comes last.
+        expect(harness.persistCalls.map((call) => call.classification.category)).toEqual([
+            "plan_mismatch",
+            "invalid_test",
+        ]);
+        expect(harness.events).toEqual(["persist:plan_mismatch", "selfHeal", "persist:invalid_test", "delete"]);
+    });
+
+    it("reverts the self-heal rewrite when a post-heal invalid_test cannot actually be removed", async () => {
+        // The post-heal removal path already repointed the assignment at a rewrite the run knows fails. If the removal
+        // does NOT land (here: deleted:false), that failing rewrite would otherwise promote - so the loop must undo it
+        // by restoring the plan the loop started from, the same guarantee the kept-plan_mismatch path gives.
+        harness.deleteOutput = { deleted: false, reason: "no assignment for this slug on the snapshot" };
+        harness.classifyQueue = [
+            classified(verdict("plan_mismatch", { suggestedTestUpdate: REVISED_PLAN })),
+            classified(verdict("invalid_test", { headline: "unrecoverable even after the rewrite" })),
+        ];
+
+        const finding = await runInvestigator();
+
+        expect(finding.category).toBe("invalid_test");
+        // The removal was attempted but reported nothing dropped ...
+        expect(harness.deleteCalls).toEqual([{ snapshotId: "snap-1", slug: SLUG }]);
+        // ... so the failed rewrite is undone: the assignment is restored to the plan the loop started from.
+        expect(harness.revertCalls).toEqual([{ snapshotId: "snap-1", slug: SLUG, planId: ORIGINAL_PLAN_ID }]);
+        // The revert runs AFTER the removal attempt, and only because it came back empty.
+        expect(harness.events).toEqual([
+            "persist:plan_mismatch",
+            "selfHeal",
+            "persist:invalid_test",
+            "delete",
+            "revert",
+        ]);
     });
 
     it("does not self-heal a client bug - it is terminal on the first run", async () => {

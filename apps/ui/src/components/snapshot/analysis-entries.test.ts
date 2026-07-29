@@ -94,6 +94,34 @@ describe("buildAnalysisSections - categorization from the run's own record", () 
         expect(entryIn(sections, "Checked")?.category).toBe("checked");
         expect(entryIn(sections, "Modified")).toBeUndefined();
     });
+
+    it("categorizes an invalid_test as removed - its assignment was dropped from the twin", () => {
+        const sections = buildAnalysisSections({
+            findings: [finding({ category: "invalid_test", headline: "asserts a feature that never existed" })],
+            changes: [],
+        });
+
+        expect(entryIn(sections, "Removed")?.category).toBe("removed");
+        expect(entryIn(sections, "Checked")).toBeUndefined();
+    });
+
+    it("categorizes a proposed test the run found invalid as removed, not added", () => {
+        const sections = buildAnalysisSections({
+            findings: [
+                finding({
+                    id: "finding-2",
+                    slug: PROPOSED.slug,
+                    testCase: PROPOSED,
+                    origin: "proposed",
+                    category: "invalid_test",
+                }),
+            ],
+            changes: [],
+        });
+
+        expect(entryIn(sections, "Removed")?.category).toBe("removed");
+        expect(entryIn(sections, "Added")).toBeUndefined();
+    });
 });
 
 describe("buildAnalysisSections - verdict and run links", () => {

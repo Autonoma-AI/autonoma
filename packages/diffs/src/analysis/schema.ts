@@ -12,6 +12,7 @@ export const Category = z.enum([
     "environment_failure",
     "scenario_issue",
     "plan_mismatch",
+    "invalid_test",
 ]);
 export type Category = z.infer<typeof Category>;
 
@@ -106,10 +107,25 @@ const planMismatchBase = verdictBase.extend({
 });
 
 /**
+ * `invalid_test`: the test is IRREPARABLY broken and must be REMOVED - the high-confidence, affirmative counterpart
+ * to `plan_mismatch` (salvageable, kept). This verdict destroys a test, so it carries a mandatory false-positive
+ * self-check and a dedicated justification note, and its evidence proving the impossibility is required (min 1,
+ * enforced on the arm below). No app expected/actual - the app is fine.
+ */
+const invalidTestBase = verdictBase.extend({
+    /** The justification, prescribed: which failure mode (nonexistent feature / structurally unexecutable steps /
+     * wrong premise contradicting the app / otherwise unrecoverable) and the PROOF of impossibility. */
+    invalidTestNote: z.string(),
+    /** The mandatory "could this actually be salvageable?" self-check - the guardrail against over-removal. */
+    falsePositiveRisk: z.string(),
+});
+
+/**
  * The outcome of classifying one run, as a per-category discriminated union: each arm carries exactly the fields
  * that category needs. The app-health verdicts (`passed`, `client_bug`) describe app behavior (expected/actual); the
  * coverage faults (`engine_artifact`, `environment_failure`, `scenario_issue`) carry a free-form `whatHappened`;
- * `plan_mismatch` carries the revised plan + its post-mortem. The wire schema the model fills is a flat object (see
+ * `plan_mismatch` carries the revised plan + its post-mortem; `invalid_test` carries its impossibility justification +
+ * a mandatory false-positive check + required evidence. The wire schema the model fills is a flat object (see
  * `VerdictForModel`) piped into this union, so the model sees a plain object while consumers get per-category
  * narrowing and no category is forced to emit fields that don't apply to it.
  */
@@ -120,5 +136,6 @@ export const RunVerdict = z.discriminatedUnion("category", [
     setupFailureBase.extend({ category: z.literal("scenario_issue") }),
     coverageVerdictBase.extend({ category: z.literal("engine_artifact") }),
     planMismatchBase.extend({ category: z.literal("plan_mismatch") }),
+    invalidTestBase.extend({ category: z.literal("invalid_test"), evidence: z.array(Evidence).min(1) }),
 ]);
 export type RunVerdict = z.infer<typeof RunVerdict>;

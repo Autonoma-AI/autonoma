@@ -231,6 +231,53 @@ const KEPT_PLAN_MISMATCH: AnalysisFindingView = {
   ],
 };
 
+/**
+ * A test the Investigator found irreparably broken: it asserts a Reports export the app has never had, so no rewrite
+ * could recover it and the run REMOVED it (an `invalid_test`). Its assignment is gone from the promoted suite, which is
+ * why the suite-changes view files it under "Removed"; the finding + its classification survive as the record of why.
+ * Non-blocking coverage, so the run's bug count stays at one.
+ */
+const INVALID_TEST_FINDING: AnalysisFindingView = {
+  id: "export-report-pdf",
+  slug: "export-report-pdf",
+  category: "invalid_test",
+  confidence: "high",
+  planFidelity: "diverged",
+  headline: "Test drives a Reports export the app has never had",
+  invalidTestNote:
+    'The test opens a "Reports" tab and asserts a "Download PDF" button, but the app has no Reports surface: there ' +
+    "is no route, component, or i18n key for one, and git history shows it never existed. There is no assertion to " +
+    "rewrite against an implemented behavior, so the test cannot be recovered and is removed.",
+  falsePositiveRisk:
+    "Checked git history and the locale catalog - no Reports route, component, or string ever existed, so this is " +
+    "not a salvageable stale test.",
+  evidence: [
+    {
+      source: "code",
+      detail: "No `/reports` route is registered anywhere in the router tree.",
+      file: "apps/web/src/router.tsx",
+      lines: "1-120",
+      snippet: '// no "/reports" route is registered anywhere in the router tree',
+    },
+  ],
+  stepCount: 4,
+  runSuccess: false,
+  generationId: "gen_export_report_pdf_1",
+  testCase: { id: "tc_export_report_pdf", name: "export-report-pdf.md", slug: "export-report-pdf" },
+  origin: "pre_existing",
+  selectionReason: "The diff touches the reporting module this test was generated against.",
+  classifications: [
+    {
+      id: "cls_export_report_pdf_1",
+      number: 1,
+      generationId: "gen_export_report_pdf_1",
+      category: "invalid_test",
+      headline: "Test drives a Reports export the app has never had",
+      createdAt: RUN_AT,
+    },
+  ],
+};
+
 // The one bug issue this run opened, as a list summary - shown in the snapshot's per-job "Issues this checkpoint".
 const PLACE_ORDER_ISSUE_SUMMARY = {
   id: "issue_place_order",
@@ -586,6 +633,34 @@ export const ReportNeedsReview: Story = {
             findings: analysisReportData.findings
               .filter((finding) => finding.slug !== "coupon-apply")
               .concat(KEPT_PLAN_MISMATCH),
+          },
+        },
+      }),
+    },
+  },
+};
+
+/**
+ * The suite-changes tab with a REMOVED test in it: the Investigator classified this test `invalid_test` (it drives a
+ * feature the app never had), so it dropped the assignment and the test appears under "Removed". The selected row shows
+ * the "Invalid test" verdict and why it was pulled. The `invalid_test` finding is swapped in for the engine_artifact so
+ * the run's coverage count stays correct.
+ */
+export const ChangesRemoved: Story = {
+  args: {
+    path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}/changes/export-report-pdf`,
+  },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...pageFixtures,
+        branches: {
+          ...pageFixtures.branches,
+          analysisReport: {
+            ...analysisReportData,
+            findings: analysisReportData.findings
+              .filter((finding) => finding.slug !== "payment-iframe")
+              .concat(INVALID_TEST_FINDING),
           },
         },
       }),

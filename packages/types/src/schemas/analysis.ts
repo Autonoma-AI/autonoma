@@ -21,15 +21,20 @@ export type AnalysisRunOutcome =
  * - App-health: `client_bug` (the app misbehaved - the only true positive against the PR) and `passed`. This
  *   plane drives the PR's headline verdict.
  * - Coverage-confidence: `engine_artifact` (a harness/engine fault - flake, crash, timeout), `environment_failure`
- *   (the preview/infra was unavailable), `scenario_issue` (the test data was mis-seeded), and `plan_mismatch` (the
+ *   (the preview/infra was unavailable), `scenario_issue` (the test data was mis-seeded), `plan_mismatch` (the
  *   app rendered correctly but the test's plan does not match it - self-heal could not stabilize it within budget,
- *   so it is kept for a later run rather than removed). This plane never counts as a bug against the PR and never
- *   blocks the run.
+ *   so it is KEPT for a later run rather than removed), and `invalid_test` (the test is irreparably broken - it
+ *   covers something that cannot exist, has structurally unexecutable steps, or a premise the app contradicts - so
+ *   it is REMOVED). This plane never counts as a bug against the PR and never blocks the run.
  *
- * `plan_mismatch` is both a classifier category and a terminal verdict: the classifier emits it, the Investigator
- * routes it through a self-heal plan rewrite + re-run, and when that loop exhausts on a healthy app it resolves back
- * to `plan_mismatch` - kept, never deleted. A budget-exhausted test may be salvageable in a later snapshot, or may be
- * surfacing a real defect the classifier misdiagnosed. There is deliberately no "unknown" bucket: a fault the
+ * `plan_mismatch` and `invalid_test` split the "the test is wrong" space along recoverability: `plan_mismatch` is
+ * salvageable (keep), `invalid_test` is irreparable (remove). `plan_mismatch` is both a classifier category and a
+ * terminal verdict: the classifier emits it, the Investigator routes it through a self-heal plan rewrite + re-run,
+ * and when that loop exhausts on a healthy app it resolves back to `plan_mismatch` - kept, never deleted. A
+ * budget-exhausted test may be salvageable in a later snapshot, or may be surfacing a real defect the classifier
+ * misdiagnosed. `invalid_test` is the high-confidence, affirmative counterpart: the classifier must justify it with
+ * evidence of impossibility, and the Investigator removes the test's assignment (its `TestCase` + classification
+ * record are preserved). There is deliberately no "unknown" bucket: a fault the
  * Investigator cannot classify resolves to `engine_artifact`, never to a silent drop.
  */
 export const analysisVerdictSchema = z.enum([
@@ -39,6 +44,7 @@ export const analysisVerdictSchema = z.enum([
     "environment_failure",
     "scenario_issue",
     "plan_mismatch",
+    "invalid_test",
 ]);
 export type AnalysisVerdict = z.infer<typeof analysisVerdictSchema>;
 
@@ -68,6 +74,10 @@ const VERDICT_TIER: Record<AnalysisVerdict, AnalysisFindingTier> = {
     engine_artifact: "coverage",
     environment_failure: "coverage",
     scenario_issue: "coverage",
+    // A deliberate, evidence-backed removal - non-blocking coverage, collapsed with the other faults rather than
+    // surfaced like a kept `plan_mismatch` (that tier is for tests that MIGHT be catching a real defect and need a
+    // human eye; an `invalid_test` is a high-confidence call, not a question).
+    invalid_test: "coverage",
     passed: "passed",
 };
 
@@ -192,6 +202,9 @@ export const analysisClassificationReportSchema = z.object({
     /** The `plan_mismatch` self-heal post-mortem: what the test asserted that was wrong, the rewrite attempted, and
      * why it still failed. Set only for a `plan_mismatch` verdict. */
     planMismatchNote: z.string().optional(),
+    /** The `invalid_test` justification: which impossibility failure mode (nonexistent feature / unexecutable steps /
+     * wrong premise / unrecoverable) and the proof. Set only for an `invalid_test` verdict. */
+    invalidTestNote: z.string().optional(),
     rootCause: z.string().optional(),
     remediation: z.string().optional(),
     /** App problems seen in the run independent of this test's pass/fail. */

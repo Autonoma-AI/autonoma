@@ -119,3 +119,42 @@ export const PlanMismatch: Story = {
     backLink,
   },
 };
+
+/**
+ * An `invalid_test`: the app worked, but the test is irreparably broken - it asserts a feature that never existed, so
+ * no rewrite could recover it and the Investigator removed it. Like `plan_mismatch` it carries no app expected/actual;
+ * its diagnosis is the "Why this test was removed" justification, which the classifier had to prove.
+ */
+export const InvalidTest: Story = {
+  args: {
+    finding: {
+      id: "export-report-pdf-md",
+      slug: "export-report-pdf-md",
+      category: "invalid_test",
+      confidence: "high",
+      planFidelity: "diverged",
+      falsePositiveRisk:
+        "Checked the git history and the i18n catalog for a Reports surface - there is no component, route, or " +
+        "string for one, so this is not a salvageable stale test.",
+      stepCount: 4,
+      headline: "Test drives a Reports export that the app has never had",
+      invalidTestNote:
+        'The test opens a "Reports" tab and asserts a "Download PDF" button, but the app has no Reports surface: ' +
+        "there is no route, component, or i18n key for one, and git history shows it never existed. There is no " +
+        "assertion to rewrite against an implemented behavior, so the test cannot be recovered and is removed.",
+      evidence: [
+        {
+          source: "code",
+          detail: "grep across the app and locale files finds no Reports route, component, or string.",
+          file: "apps/web/src/router.tsx",
+          lines: "1-120",
+          snippet: '// no "/reports" route is registered anywhere in the router tree',
+        },
+      ],
+      plan: 'Setup\n1. Open the app.\n\nSteps\n1. click the "Reports" tab\n2. click "Download PDF"\n3. assert a PDF downloads',
+      videoUrl: "https://assets.autonoma.app/test-generation/demo/video.webm",
+    },
+    meta: analysisVerdictMeta("invalid_test"),
+    backLink,
+  },
+};

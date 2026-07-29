@@ -193,6 +193,20 @@ export interface RevertSelfHealPlanOutput {
     reason?: string;
 }
 
+export interface DeleteAnalysisTestInput {
+    /** The snapshot the test's assignment lives on. */
+    snapshotId: string;
+    /** The test whose assignment to remove from the snapshot. */
+    slug: string;
+}
+
+export interface DeleteAnalysisTestOutput {
+    /** Whether an assignment was actually removed (false when the slug had no assignment on the snapshot). */
+    deleted: boolean;
+    /** Why nothing was removed, when `deleted` is false. */
+    reason?: string;
+}
+
 /**
  * The parent stages of the merged analysis pipeline plus its one terminal settlement activity. The settlement
  * owns the snapshot, generation, job, merge-gate, and PR-comment protocol so no workflow exit can leave an
@@ -206,16 +220,17 @@ export interface AnalysisActivities {
 
 /**
  * The Investigator's own write activities: its row-local test edits on the snapshot - a self-heal plan rewrite
- * (`UpdateTest`) and the revert of that rewrite when a `plan_mismatch` is kept (`RevertPlan`, no re-run so the failed
- * rewrite is not promoted), both via the canonical `TestSuiteUpdater` update actions - plus
- * `persistAnalysisClassification`, with which it files each iteration's outcome as it happens. A separate contract
- * from `AnalysisActivities` (the parent stages); the
- * parent also proxies it to contain a child that crashed, appending a fault classification rather than overwriting what
- * the child wrote.
+ * (`UpdateTest`), the revert of that rewrite when a `plan_mismatch` is kept (`RevertPlan`, no re-run so the failed
+ * rewrite is not promoted), and the removal of an irreparable test on an `invalid_test` verdict (`RemoveTest`) - all
+ * via the canonical `TestSuiteUpdater` update actions - plus `persistAnalysisClassification`, with which it files each
+ * iteration's outcome as it happens. `invalid_test` is the only verdict that removes a test. A separate contract from
+ * `AnalysisActivities` (the parent stages); the parent also proxies it to contain a child that crashed, appending a
+ * fault classification rather than overwriting what the child wrote.
  */
 export interface InvestigatorActivities {
     selfHealAnalysisTest(input: SelfHealAnalysisTestInput): Promise<SelfHealAnalysisTestOutput>;
     revertSelfHealPlan(input: RevertSelfHealPlanInput): Promise<RevertSelfHealPlanOutput>;
+    deleteAnalysisTest(input: DeleteAnalysisTestInput): Promise<DeleteAnalysisTestOutput>;
     persistAnalysisClassification(
         input: PersistAnalysisClassificationInput,
     ): Promise<PersistAnalysisClassificationOutput>;
