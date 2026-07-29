@@ -287,7 +287,7 @@ export class OnboardingManager {
         // secret write throws, the config never saves, so the two stores stay
         // consistent (the rare residual - secrets written, config not - is the
         // safe direction: extra secret values are harmless until referenced).
-        await this.upsertConfigSecrets(applicationId, organizationId, document, secrets);
+        await this.upsertConfigSecrets(applicationId, organizationId, document, dependencyDocuments, secrets);
 
         const saved = await this.previewkitConfig.save(applicationId, organizationId, document, dependencyDocuments);
 
@@ -328,11 +328,18 @@ export class OnboardingManager {
         await secretsService.assertSecretPathsAvailable(applicationId, [...new Set(appNames)], organizationId);
     }
 
-    /** Validate secret app names against the document being saved, then upsert (AWS) before the DB commit. */
+    /**
+     * Validate secret app names against the documents being saved, then upsert (AWS)
+     * before the DB commit. Checked against the whole topology, primary plus every
+     * dependency document: a dependency-repo app owns a secret bundle under this same
+     * Application (the deploy resolves secrets over the merged config), so matching
+     * only the primary document would reject the secrets of a multirepo backend.
+     */
     private async upsertConfigSecrets(
         applicationId: string,
         organizationId: string,
         document: unknown,
+        dependencyDocuments: PreviewkitDependencyDocument[],
         secrets: PreviewkitConfigSecrets,
     ): Promise<void> {
         const withUpserts = secrets.filter((entry) => entry.upserts.length > 0);
@@ -344,6 +351,13 @@ export class OnboardingManager {
             throw new BadRequestError("Cannot save secrets: the PreviewKit config is invalid");
         }
         const appNames = new Set(parsed.data.apps.map((app) => app.name));
+        for (const dependency of dependencyDocuments) {
+            const dependencyParsed = previewConfigSchema.safeParse(dependency.document);
+            if (!dependencyParsed.success) {
+                throw new BadRequestError(`Cannot save secrets: the config for "${dependency.repo}" is invalid`);
+            }
+            for (const app of dependencyParsed.data.apps) appNames.add(app.name);
+        }
         for (const entry of secrets) {
             if (!appNames.has(entry.appName)) {
                 throw new NotFoundError(`PreviewKit app '${entry.appName}' is not defined in the config`);

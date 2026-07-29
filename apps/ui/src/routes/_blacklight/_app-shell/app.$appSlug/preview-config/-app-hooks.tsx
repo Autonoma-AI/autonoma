@@ -49,6 +49,7 @@ export function AppHooks({ app }: { app: AppDraft }) {
           label={group.label}
           description={group.description}
           appName={appName}
+          repoKey={app.repoKey}
           steps={draft.hooks[group.key]}
           errors={hookErrors}
           onChange={(steps) => updateGroup(group.key, steps)}
@@ -62,6 +63,7 @@ function AppHookGroup({
   label,
   description,
   appName,
+  repoKey,
   steps,
   errors,
   onChange,
@@ -69,6 +71,8 @@ function AppHookGroup({
   label: string;
   description: string;
   appName: string;
+  /** The document a new step is written to: the one declaring the app it targets. */
+  repoKey: string;
   /** The full group list across all apps - edits map over it, display filters it. */
   steps: HookDraft[];
   errors: Map<string, string[]>;
@@ -85,7 +89,7 @@ function AppHookGroup({
   }
 
   function addStep() {
-    onChange([...steps, { id: nextDraftId(), app: appName, command: "" }]);
+    onChange([...steps, { id: nextDraftId(), repoKey, app: appName, command: "" }]);
   }
 
   return (

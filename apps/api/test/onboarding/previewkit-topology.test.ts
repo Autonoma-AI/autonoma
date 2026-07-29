@@ -219,6 +219,55 @@ integrationTestSuite({
             expect(reloaded.dependencyConfigs[0]?.document?.apps[0]?.port).toBe(4001);
         });
 
+        test("savePreviewkitConfig accepts secrets for a dependency-repo app", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 93_050);
+            const { github, applications } = buildTopologyServices(harness, orgId, [
+                { id: 93_051, name: "api", fullName: "acme/api", defaultBranch: "main" },
+            ]);
+            const secretsService = {
+                list: vi.fn(async () => []),
+                upsert: vi.fn(async () => undefined),
+                delete: vi.fn(async () => true),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                github,
+                applications,
+                previewkitSecretsService: secretsService,
+            });
+            await setStep(harness, appId, "previewkit_configuring");
+
+            const dependencyDocuments = [
+                { repo: "acme/api", document: { version: 1, apps: [{ name: "api-app", path: ".", port: 4000 }] } },
+            ];
+
+            // The app lives in the dependency document, and its secret bundle lives
+            // under this same Application - which the deploy resolves over the merged
+            // config, so the save must not judge the name by the primary document alone.
+            await manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), dependencyDocuments, [
+                { appName: "api-app", upserts: [{ key: "RAILS_MASTER_KEY", value: "s3cret" }], deletes: [] },
+            ]);
+
+            expect(secretsService.upsert).toHaveBeenCalledWith(
+                appId,
+                "api-app",
+                [{ key: "RAILS_MASTER_KEY", value: "s3cret" }],
+                orgId,
+            );
+
+            // A name no document declares is still rejected, and nothing is written.
+            secretsService.upsert.mockClear();
+            await expect(
+                manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), dependencyDocuments, [
+                    { appName: "ghost", upserts: [{ key: "TOKEN", value: "x" }], deletes: [] },
+                ]),
+            ).rejects.toThrow("PreviewKit app 'ghost' is not defined in the config");
+            expect(secretsService.upsert).not.toHaveBeenCalled();
+        });
+
         test("savePreviewkitConfig returns warning-severity issues instead of dropping them", async ({
             harness,
             seedResult: { orgId, manager, createApp },

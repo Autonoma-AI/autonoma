@@ -4,7 +4,6 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { useState } from "react";
 import {
-  PRIMARY_REPO_KEY,
   envRow,
   envRowsFromDotenv,
   fieldIssueKey,
@@ -46,7 +45,6 @@ export function EnvVarManager({ app, services, deployableApps, issues, updateApp
   const targets = bindTargets(services, deployableApps);
   const variables = variableViews(app, targets);
   const injected = injectedVars(app.primary);
-  const secretsSupported = app.repoKey === PRIMARY_REPO_KEY;
 
   const [selected, setSelected] = useState<number | undefined>(undefined);
   const [search, setSearch] = useState("");
@@ -163,7 +161,6 @@ export function EnvVarManager({ app, services, deployableApps, issues, updateApp
                 app={app}
                 view={selectedView}
                 targets={targets}
-                secretsSupported={secretsSupported}
                 onChange={handleChange}
                 onDelete={handleDelete}
               />

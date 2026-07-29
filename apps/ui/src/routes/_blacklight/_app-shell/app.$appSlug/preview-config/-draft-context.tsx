@@ -1,9 +1,4 @@
-import {
-  connectionTargets,
-  authoringPreviewConfigSchema,
-  validatePreviewConfigSemantics,
-  zodIssuesToConfigIssues,
-} from "@autonoma/types";
+import { authoringPreviewConfigSchema, connectionTargets } from "@autonoma/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePreviewkitConfig, useSavePreviewkitConfig } from "lib/onboarding/onboarding-api";
 import { useApplicationRepositoryFromGitHub } from "lib/query/github.queries";
@@ -23,7 +18,6 @@ import {
   PRIMARY_REPO_KEY,
   type AppDraft,
   type BranchConventionDraft,
-  type CompiledDocument,
   type DraftIssues,
   type EnvRowDraft,
   type HookDraft,
@@ -34,11 +28,11 @@ import {
   type TopologyDraft,
   diffAppSecrets,
   documentsFromDraft,
+  validateDraftClientSide,
   draftFromConfig,
+  draftWithRepos,
   emptyAppDraft,
-  emptyDraftIssues,
   hookFieldErrors,
-  mapIssuesToDraft,
   pruneDanglingDependsOn,
   serviceDraftForRecipe,
   serviceRecipeSupportsUrlToken,
@@ -123,7 +117,10 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     snapshotCompiled(documentsFromDraft(draft)),
   );
 
-  // Secret keys each primary app loaded with, so a save can diff upserts/deletes.
+  // Secret keys each app loaded with, so a save can diff upserts/deletes. Keyed by
+  // app name alone across every repo of the topology: names are unique across the
+  // merged topology (the save rejects a collision) and a secret bundle is stored per
+  // (application, app name), so a dependency-repo app needs no separate namespace.
   // Values are never fetched (AWS is write-only) - only key names, shown masked.
   const loadedSecretKeys = useRef<Map<string, string[]>>(new Map());
   // Snapshot of the draft to revert to on Cancel; refreshed on load and on save.
@@ -132,7 +129,10 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const apps = draft.apps.filter((app) => app.repoKey === PRIMARY_REPO_KEY && app.name.trim().length >= 2);
+      // Every app of the topology, dependency repos included: a dependency app owns
+      // a secret bundle under this same application, so skipping it showed a
+      // multirepo backend as having no secrets at all while its values were set.
+      const apps = draft.apps.filter((app) => app.name.trim().length >= 2);
       const entries = await Promise.all(
         apps.map(async (app) => {
           const appName = app.name.trim();
@@ -152,7 +152,6 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
       setDraft((current) => {
         const representedKeys = new Map<string, string[]>();
         const apps = current.apps.map((app) => {
-          if (app.repoKey !== PRIMARY_REPO_KEY) return app;
           // Merge in existing secret keys (if any) and keep the merged list sorted.
           const appName = app.name.trim();
           const keys = storedKeys.get(appName) ?? [];
@@ -182,13 +181,12 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
   }, [appId]);
 
   const compiled = documentsFromDraft(draft);
-  const issues = validatePrimaryDocument(compiled.primary);
+  const issues = validateDraftClientSide(compiled);
   // Names a hook may target: any app with a name. Hooks reference apps only.
   const hookAppNames = draft.apps.map((app) => app.name).filter((name) => name.trim() !== "");
   const hookErrors = hookFieldErrors(draft.hooks, hookAppNames);
   const hasBlockingIssues = issues.fieldErrors.size > 0 || issues.documentErrors.length > 0 || hookErrors.size > 0;
   const secretsDirty = draft.apps.some((app) => {
-    if (app.repoKey !== PRIMARY_REPO_KEY) return false;
     const diff = diffAppSecrets(app.env, loadedSecretKeys.current.get(app.name.trim()) ?? []);
     return diff.upserts.length > 0 || diff.deletes.length > 0;
   });
@@ -267,21 +265,10 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
 
   function setRepos(repos: RepoDraft[]) {
     setDraft((current) => {
-      const oldNameById = new Map(current.repos.map((repo) => [repo.id, repo.name]));
-      const renameByOldName = new Map<string, string>();
-      for (const repo of repos) {
-        const oldName = oldNameById.get(repo.id);
-        if (oldName != null && oldName !== repo.name) renameByOldName.set(oldName, repo.name);
-      }
-      const validKeys = new Set([PRIMARY_REPO_KEY, ...repos.map((repo) => repo.name)]);
-      const apps = current.apps
-        .map((app) => {
-          const renamed = renameByOldName.get(app.repoKey);
-          return renamed != null ? { ...app, repoKey: renamed } : app;
-        })
-        .filter((app) => validKeys.has(app.repoKey));
-      // Dropping a dependency repo drops its apps - and with them their hooks.
-      return pruneDanglingDependsOn({ ...current, repos, apps, hooks: pruneHooksToApps(current.hooks, apps) });
+      const next = draftWithRepos(current, repos);
+      // Dropping a dependency repo drops its apps - and with them any hook, in any
+      // document, that targeted one of those apps by name.
+      return pruneDanglingDependsOn({ ...next, hooks: pruneHooksToApps(next.hooks, next.apps) });
     });
   }
 
@@ -320,7 +307,7 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     if (!canSave) return;
     const submission = documentsFromDraft(draft);
     const secrets = draft.apps
-      .filter((app) => app.repoKey === PRIMARY_REPO_KEY && app.name.trim().length >= 2)
+      .filter((app) => app.name.trim().length >= 2)
       .map((app) => {
         const diff = diffAppSecrets(app.env, loadedSecretKeys.current.get(app.name.trim()) ?? []);
         return { appName: app.name.trim(), upserts: diff.upserts, deletes: diff.deletes };
@@ -354,7 +341,6 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
             };
             const keyMap = new Map<string, string[]>();
             for (const app of next.apps) {
-              if (app.repoKey !== PRIMARY_REPO_KEY) continue;
               keyMap.set(
                 app.name.trim(),
                 app.env.filter((row) => row.sensitive && row.key.trim() !== "").map((row) => row.key.trim()),
@@ -452,23 +438,4 @@ function sameSnapshots(a: Record<string, string>, b: Record<string, string>): bo
   const keys = Object.keys(a);
   if (keys.length !== Object.keys(b).length) return false;
   return keys.every((key) => a[key] === b[key]);
-}
-
-/**
- * Client-side validation for the primary document: schema shape + semantic checks
- * (depends_on, primary), mapped back onto draft fields via the compile-time index
- * map. Hook issues are excluded here - the HooksSection renders them inline per
- * row from `hookFieldErrors`, so routing them to the document banner too would
- * double-report. Dependency documents are validated server-side on save.
- */
-function validatePrimaryDocument(primary: CompiledDocument): DraftIssues {
-  const result = emptyDraftIssues();
-  const parsed = authoringPreviewConfigSchema.safeParse(primary.document);
-  if (!parsed.success) {
-    mapIssuesToDraft(zodIssuesToConfigIssues(parsed.error), primary.indexToDraftId, result);
-    return result;
-  }
-  const semanticIssues = validatePreviewConfigSemantics(parsed.data).filter((issue) => issue.path[0] !== "hooks");
-  mapIssuesToDraft(semanticIssues, primary.indexToDraftId, result);
-  return result;
 }

@@ -8,12 +8,7 @@ import {
   Skeleton,
   cn,
 } from "@autonoma/blacklight";
-import {
-  authoringPreviewConfigSchema,
-  validatePreviewConfigSemantics,
-  zodIssuesToConfigIssues,
-  type ConfigIssue,
-} from "@autonoma/types";
+import { authoringPreviewConfigSchema } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
@@ -56,7 +51,9 @@ import {
   appFieldFromDocumentKey,
   diffAppSecrets,
   documentsFromDraft,
+  validateDraftClientSide,
   draftFromConfig,
+  draftWithRepos,
   emptyAppDraft,
   emptyDraftIssues,
   fieldIssueKey,
@@ -258,11 +255,15 @@ function PreviewkitConfigContent({
     setServerIssues(emptyDraftIssues());
   }
 
-  // Seed each primary-repo app's existing secrets (key names only) into the draft so the Variables step shows stored secrets as masked "(set)" rows and the save can diff them.
+  // Seed each app's existing secrets (key names only) into the draft so the Variables
+  // step shows stored secrets as masked "(set)" rows and the save can diff them. Covers
+  // dependency-repo apps too: they own a bundle under this same application, and the
+  // Variables step renders an editor for every app, so skipping one would accept a
+  // value the save then drops.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const apps = draft.apps.filter((app) => app.repoKey === PRIMARY_REPO_KEY && app.name.trim().length >= 2);
+      const apps = draft.apps.filter((app) => app.name.trim().length >= 2);
       const entries = await Promise.all(
         apps.map(async (app) => {
           const appName = app.name.trim();
@@ -282,7 +283,6 @@ function PreviewkitConfigContent({
       setDraft((current) => {
         const representedKeys = new Map<string, string[]>();
         const apps = current.apps.map((app) => {
-          if (app.repoKey !== PRIMARY_REPO_KEY) return app;
           const appName = app.name.trim();
           const keys = storedKeys.get(appName) ?? [];
           const env = withSecretRows(app.env, keys);
@@ -322,7 +322,6 @@ function PreviewkitConfigContent({
   };
   const allSaved = [PRIMARY_REPO_KEY, ...draft.repos.map((repo) => repo.name)].every(groupSaved);
   const secretsDirty = draft.apps.some((app) => {
-    if (app.repoKey !== PRIMARY_REPO_KEY) return false;
     const diff = diffAppSecrets(app.env, loadedSecretKeys.current.get(app.name.trim()) ?? []);
     return diff.upserts.length > 0 || diff.deletes.length > 0;
   });
@@ -470,23 +469,9 @@ function PreviewkitConfigContent({
   }
 
   function handleReposChange(repos: RepoDraft[]) {
-    setDraft((current) => {
-      const oldNameById = new Map(current.repos.map((repo) => [repo.id, repo.name]));
-      const renameByOldName = new Map<string, string>();
-      for (const repo of repos) {
-        const oldName = oldNameById.get(repo.id);
-        if (oldName != null && oldName !== repo.name) renameByOldName.set(oldName, repo.name);
-      }
-      const validKeys = new Set([PRIMARY_REPO_KEY, ...repos.map((repo) => repo.name)]);
-      const apps = current.apps
-        .map((app) => {
-          const renamed = renameByOldName.get(app.repoKey);
-          return renamed != null ? { ...app, repoKey: renamed } : app;
-        })
-        .filter((app) => validKeys.has(app.repoKey));
-      // Removing a repo drops its apps; prune any depends_on that referenced them.
-      return pruneDanglingDependsOn({ ...current, repos, apps });
-    });
+    // Removing a repo drops its apps, services and hooks; prune any depends_on that
+    // referenced them.
+    setDraft((current) => pruneDanglingDependsOn(draftWithRepos(current, repos)));
   }
 
   function save(onSaved?: () => void) {
@@ -529,7 +514,7 @@ function PreviewkitConfigContent({
     // call: sensitive rows with a (re-)entered value upsert to AWS, loaded keys no
     // longer represented are deleted. Only primary-repo apps have a secret store.
     const secrets = draft.apps
-      .filter((app) => app.repoKey === PRIMARY_REPO_KEY && app.name.trim().length >= 2)
+      .filter((app) => app.name.trim().length >= 2)
       .map((app) => {
         const diff = diffAppSecrets(app.env, loadedSecretKeys.current.get(app.name.trim()) ?? []);
         return { appName: app.name.trim(), upserts: diff.upserts, deletes: diff.deletes };
@@ -569,7 +554,6 @@ function PreviewkitConfigContent({
             };
             const keyMap = new Map<string, string[]>();
             for (const app of next.apps) {
-              if (app.repoKey !== PRIMARY_REPO_KEY) continue;
               keyMap.set(
                 app.name.trim(),
                 app.env.filter((row) => row.sensitive && row.key.trim() !== "").map((row) => row.key.trim()),
@@ -1425,67 +1409,6 @@ function getConfigStepCompletion({
 
 function hasAppFieldErrors(issues: DraftIssues, draftId: number): boolean {
   return APP_DRAFT_FIELDS.some((field) => issues.fieldErrors.has(fieldIssueKey(draftId, field)));
-}
-
-/**
- * Validates the draft entirely client-side: per-document schema checks (shape,
- * within-doc duplicate names, the at-least-one-app rule) plus semantic checks on
- * the MERGED topology - mirroring how PreviewKit concatenates every repo's
- * config at deploy, so cross-repo `depends_on`/env references don't false-error.
- */
-function validateDraftClientSide(compiled: ReturnType<typeof documentsFromDraft>): DraftIssues {
-  const result = emptyDraftIssues();
-
-  const allDocuments = [
-    { label: "primary repo", ...compiled.primary },
-    ...compiled.dependencies.map((dependency) => ({ label: dependency.repo, ...dependency })),
-  ];
-
-  const mergedApps: unknown[] = [];
-  const mergedIndexToDraftId = new Map<number, number>();
-  let mergedServices: unknown = compiled.primary.document.services;
-
-  for (const entry of allDocuments) {
-    const parsed = authoringPreviewConfigSchema.safeParse(entry.document);
-    if (!parsed.success) {
-      const issues = zodIssuesToConfigIssues(parsed.error).map((issue) =>
-        labelDocumentIssue(issue, entry.label, allDocuments.length > 1),
-      );
-      mapIssuesToDraft(issues, entry.indexToDraftId, result);
-    }
-
-    const apps = entry.document.apps;
-    if (Array.isArray(apps)) {
-      for (const [index, app] of apps.entries()) {
-        const draftId = entry.indexToDraftId.get(index);
-        if (draftId != null) mergedIndexToDraftId.set(mergedApps.length, draftId);
-        mergedApps.push(app);
-      }
-    }
-  }
-  if (!Array.isArray(mergedServices)) mergedServices = [];
-
-  const merged = authoringPreviewConfigSchema.safeParse({
-    version: 1,
-    apps: mergedApps,
-    services: mergedServices,
-  });
-  if (merged.success) {
-    const issues = validatePreviewConfigSemantics(merged.data);
-    mapIssuesToDraft(issues, mergedIndexToDraftId, result);
-  } else if (mergedApps.length > 0) {
-    // Cross-document duplicate names surface here (the schema's uniqueness
-    // refine runs per document otherwise).
-    const issues = zodIssuesToConfigIssues(merged.error).filter((issue) => issue.path.length === 0);
-    mapIssuesToDraft(issues, mergedIndexToDraftId, result);
-  }
-
-  return result;
-}
-
-function labelDocumentIssue(issue: ConfigIssue, label: string, multiRepo: boolean): ConfigIssue {
-  if (!multiRepo || issue.path[0] === "apps") return issue;
-  return { ...issue, message: `${label}: ${issue.message}` };
 }
 
 function mergeIssues(client: DraftIssues, server: DraftIssues): DraftIssues {

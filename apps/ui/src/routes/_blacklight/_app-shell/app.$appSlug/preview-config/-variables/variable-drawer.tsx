@@ -79,8 +79,6 @@ interface VariableDrawerProps {
   /** The variable being edited (a real draft row - a freshly added one starts blank). */
   view: VariableView;
   targets: BindTarget[];
-  /** Whether this app supports AWS-stored secrets - primary-repo apps only. */
-  secretsSupported: boolean;
   onChange: (form: VariableForm) => void;
   onDelete: () => void;
 }
@@ -91,7 +89,7 @@ interface VariableDrawerProps {
  * every other editor on this page) - there is no per-variable save; the page's
  * "Save config" bar persists the whole draft as one config revision.
  */
-export function VariableDrawer({ app, view, targets, secretsSupported, onChange, onDelete }: VariableDrawerProps) {
+export function VariableDrawer({ app, view, targets, onChange, onDelete }: VariableDrawerProps) {
   const [revealed, setRevealed] = useState(false);
   // Stored secret being replaced: the user opted to type a new value over the
   // write-only stored one.
@@ -101,7 +99,7 @@ export function VariableDrawer({ app, view, targets, secretsSupported, onChange,
   const form = formFromView(view);
   const isStoredSecret = view.isStoredSecret;
   const isNew = view.key === "";
-  const error = validateForm(form, app, view, targets, secretsSupported);
+  const error = validateForm(form, app, view, targets);
   const pristine = form.key === "" && form.value === "";
   const references = connectionReferences(targets);
   const resolved = referencedTokens(form.value, targets);

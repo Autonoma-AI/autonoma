@@ -12,7 +12,7 @@ import {
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
-import { nextDraftId, type HookDraft, type HookGroup, type HooksDraft } from "./topology-draft";
+import { nextDraftId, PRIMARY_REPO_KEY, type HookDraft, type HookGroup, type HooksDraft } from "./topology-draft";
 
 const HOOKS_DOCS_URL = "https://docs.autonoma.app/preview-environments/hooks/";
 
@@ -112,7 +112,10 @@ function HookGroupEditor({
   }
 
   function addStep() {
-    onChange([...steps, { id: nextDraftId(), app: "", command: "" }]);
+    // The target app is picked afterwards from a dropdown that spans every repo,
+    // so a step authored here lands on the primary document; the merged topology is
+    // what the deploy validates hook targets against.
+    onChange([...steps, { id: nextDraftId(), repoKey: PRIMARY_REPO_KEY, app: "", command: "" }]);
   }
 
   return (

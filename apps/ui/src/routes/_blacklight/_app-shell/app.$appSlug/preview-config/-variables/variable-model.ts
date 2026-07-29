@@ -132,7 +132,6 @@ export function validateForm(
     app: AppDraft,
     view: VariableView | undefined,
     targets: BindTarget[],
-    secretsSupported: boolean,
 ): string | undefined {
     const key = form.key.trim();
     if (key === "") return "Key is required.";
@@ -159,10 +158,6 @@ export function validateForm(
         return undefined;
     }
 
-    // Every typed value is a secret, and secrets live per primary-repo app.
-    if (!secretsSupported) {
-        return "Dependency-repo apps can't store secrets - use a connection to a service instead.";
-    }
     // A stored secret stays masked (its value is write-only, so there is no
     // unmask path) - but renaming one needs the value typed again.
     if (view != null && view.isStoredSecret && key !== view.key && form.value.trim() === "") {
