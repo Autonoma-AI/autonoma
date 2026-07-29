@@ -61,6 +61,13 @@ export const env = createEnv({
         // local dev and previewkit, where the MCP endpoint shares the API origin.
         MCP_RESOURCE_URL: z.string().url().optional(),
         SCENARIO_ENCRYPTION_KEY: z.string().min(1),
+        // Autonoma SDK test-data endpoint. Shared with the Autonoma test runner
+        // (used to verify HMAC signatures on /api/autonoma requests); signing
+        // secret is server-private (signs the refs-token that authorizes teardown).
+        // Optional: only the self-hosted E2E test runner provisions them, so the
+        // API must still boot everywhere else - the endpoint stays inert when unset.
+        AUTONOMA_SHARED_SECRET: z.string().optional(),
+        AUTONOMA_SIGNING_SECRET: z.string().optional(),
         GOOGLE_CLIENT_ID: z.string().min(1),
         GOOGLE_CLIENT_SECRET: z.string().min(1),
 

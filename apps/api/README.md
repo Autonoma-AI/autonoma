@@ -58,6 +58,8 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `MERGE_GATE_ENABLED`                        | No       | `false`                    | Global master kill switch for the Autonoma merge gate (the blocking `Autonoma` check). Effective gate = this AND the org's `OrganizationSettings.mergeGateEnabled`. Must match the diffs worker's value. Never enable fleet-wide without per-org opt-in.                                                  |
 | `MERGE_GATE_SLACK_CHANNEL`                  | No       | -                          | Channel (`C0123…` id or `#name`) the merge-gate skip alert posts to via the `SLACK_BOT_TOKEN` bot (`chat.postMessage`; who + PR + reason). Unset (or no bot token) = alerts are silently skipped.        |
 | `TESTING`                                   | No       | `false`                    | Test environment flag - prevents loading production modules                                                                                                                                                                                                                                            |
+| `AUTONOMA_SHARED_SECRET`                    | No       | -                          | HMAC secret shared with the Autonoma self-hosted E2E test runner, used to verify signatures on `POST /api/autonoma`. When unset (the default in prod and most alphas), the endpoint mounts an inert `503`.                                                                                              |
+| `AUTONOMA_SIGNING_SECRET`                   | No       | -                          | Server-private secret that signs the refs-token authorizing `down` teardown on `/api/autonoma`. Must be set together with `AUTONOMA_SHARED_SECRET` to activate the endpoint.                                                                                                                            |
 
 Additionally, the inherited env schemas require database (`DATABASE_URL`), logger (`SENTRY_DSN`, `NODE_ENV`), and storage (`S3_BUCKET`, AWS credentials) variables.
 
@@ -68,6 +70,7 @@ Additionally, the inherited env schemas require database (`DATABASE_URL`), logge
 ```
 Hono HTTP server
   ├── /health              - health check
+  ├── /api/autonoma        - Autonoma SDK test-data endpoint (HMAC-signed; self-hosted E2E only, inert 503 when unconfigured)
   ├── /v1/auth/**          - better-auth (Google OAuth, sessions)
   ├── /v1/github/**        - GitHub webhooks and API endpoints
   ├── /v1/previewkit/**    - Previewkit environments + secrets (secrets/status/schema native; deploy/teardown/redeploy forwarded to Previewkit)

@@ -188,6 +188,12 @@ importers:
       '@ai-sdk/google':
         specifier: 'catalog:'
         version: 3.0.30(zod@4.3.6)
+      '@autonoma-ai/sdk':
+        specifier: ^0.2.9
+        version: 0.2.9(zod@4.3.6)
+      '@autonoma-ai/server-hono':
+        specifier: ^0.2.9
+        version: 0.2.9(zod@4.3.6)
       '@autonoma/analytics':
         specifier: workspace:*
         version: link:../../packages/analytics
@@ -2521,6 +2527,14 @@ packages:
 
   '@autonoma-ai/envsync@2.0.1':
     resolution: {integrity: sha512-+BMZZGb2xaGq3Phhs50E3QGTFi9S/g9v1p1d7Ejq13Oi3H+KFODWWQrnGBUTCM4v0yKV50BMpgN5Elm867BkfQ==}
+
+  '@autonoma-ai/sdk@0.2.9':
+    resolution: {integrity: sha512-GOgbPPpyZYxmuxEO1SCTIORjfjoi7T2V2mDrsh7pVUwUcf7Vtq6dZIK7lAEMPKLyNLIq5uiPkUY3xFQu9NKowQ==}
+    peerDependencies:
+      zod: ^3.23.0 || ^4.0.0
+
+  '@autonoma-ai/server-hono@0.2.9':
+    resolution: {integrity: sha512-ux5pbflyXjVh/8vLT9WO2GI4BnJm+NKt05RH8YxO5YCAc4QDyyAmGMkluAnDjDsuZ7jB0b7hVh5dZ2Q65/T5bw==}
 
   '@aws-crypto/crc32@5.2.0':
     resolution: {integrity: sha512-nLbCWqQNgUiwwtFsen1AdzAtvuLRsQS8rYgMuxCrdKf9kOssamGLuPwyTY9wyYblNr9+1XM8v6zoDTPPSIeANg==}
@@ -14045,6 +14059,16 @@ snapshots:
       '@aws-sdk/client-secrets-manager': 3.1045.0
     transitivePeerDependencies:
       - aws-crt
+
+  '@autonoma-ai/sdk@0.2.9(zod@4.3.6)':
+    dependencies:
+      zod: 4.3.6
+
+  '@autonoma-ai/server-hono@0.2.9(zod@4.3.6)':
+    dependencies:
+      '@autonoma-ai/sdk': 0.2.9(zod@4.3.6)
+    transitivePeerDependencies:
+      - zod
 
   '@aws-crypto/crc32@5.2.0':
     dependencies:

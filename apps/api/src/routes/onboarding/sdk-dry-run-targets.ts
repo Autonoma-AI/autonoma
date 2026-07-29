@@ -198,7 +198,9 @@ export async function listSdkDryRunTargets(
             select: {
                 githubRepositoryId: true,
                 onboardingState: { select: { previewUrl: true } },
-                mainBranch: { select: { deployment: { select: { webDeployment: { select: { url: true } } } } } },
+                mainBranch: {
+                    select: { deployment: { select: { webhookUrl: true, webDeployment: { select: { url: true } } } } },
+                },
             },
         }),
         db.branch.findMany({
@@ -206,7 +208,7 @@ export async function listSdkDryRunTargets(
             select: {
                 name: true,
                 prInfo: { select: { prNumber: true, prTitle: true } },
-                deployment: { select: { webDeployment: { select: { url: true } } } },
+                deployment: { select: { webhookUrl: true, webDeployment: { select: { url: true } } } },
             },
             orderBy: { createdAt: "desc" },
         }),
@@ -245,7 +247,7 @@ export async function listSdkDryRunTargets(
             previewkitTargetByPr.set(environment.prNumber, buildPreviewkitTargetInfo(environment, logger));
         }
     }
-    const branchByPr = new Map<number, { prTitle?: string; branchName: string; deployUrl?: string }>();
+    const branchByPr = new Map<number, { prTitle?: string; branchName: string; deployUrl?: string; sdkUrl?: string }>();
     for (const branch of openBranches) {
         const prNumber = branch.prInfo?.prNumber;
         if (prNumber == null) continue;
@@ -253,6 +255,9 @@ export async function listSdkDryRunTargets(
             prTitle: branch.prInfo?.prTitle ?? undefined,
             branchName: branch.name,
             deployUrl: branch.deployment?.webDeployment?.url ?? undefined,
+            // A split UI/API-host deployment stores its SDK endpoint separately; prefer
+            // it so the dry-run hits the API host, not <deployUrl>/api/autonoma.
+            sdkUrl: branch.deployment?.webhookUrl ?? undefined,
         });
     }
 
@@ -290,7 +295,9 @@ export async function listSdkDryRunTargets(
             label: "main",
             availability: "ready",
             previewUrl: mainExternalPreviewUrl,
-            sdkUrl: buildSdkUrl(mainExternalPreviewUrl),
+            // Prefer the deployment's explicit SDK endpoint (split UI/API host) over
+            // the single-origin <previewUrl>/api/autonoma convention.
+            sdkUrl: application.mainBranch?.deployment?.webhookUrl ?? buildSdkUrl(mainExternalPreviewUrl),
             requiresSharedSecretInput: true,
             isAutoDetected: false,
         });
@@ -334,16 +341,19 @@ export async function listSdkDryRunTargets(
             });
         } else {
             const deployUrl = branchInfo?.deployUrl;
+            const hasPreview = deployUrl != null && deployUrl !== "";
             targets.push({
                 id,
                 kind: "pr",
                 source: "external",
                 label,
                 prNumber,
-                availability: deployUrl != null && deployUrl !== "" ? "ready" : "no_preview",
+                availability: hasPreview ? "ready" : "no_preview",
                 previewUrl: deployUrl,
-                sdkUrl: deployUrl != null && deployUrl !== "" ? buildSdkUrl(deployUrl) : undefined,
-                requiresSharedSecretInput: deployUrl != null && deployUrl !== "",
+                // Prefer the deployment's explicit SDK endpoint (split UI/API host) over
+                // the single-origin <deployUrl>/api/autonoma convention.
+                sdkUrl: branchInfo?.sdkUrl ?? (hasPreview ? buildSdkUrl(deployUrl) : undefined),
+                requiresSharedSecretInput: hasPreview,
                 isAutoDetected,
             });
         }

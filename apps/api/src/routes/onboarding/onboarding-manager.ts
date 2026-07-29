@@ -692,6 +692,7 @@ export class OnboardingManager {
                 repoId: application.githubRepositoryId ?? undefined,
                 prNumber: body.prNumber,
                 previewUrl: body.previewUrl,
+                sdkUrl: body.sdkUrl,
             });
             if (triggered && application.onboardingState.diffTriggerConfirmedAt == null) {
                 await this.db.onboardingState.update({
@@ -720,6 +721,7 @@ export class OnboardingManager {
             await this.triggerDiffsFromSignal(application.id, application.organizationId, {
                 repoId: application.githubRepositoryId ?? undefined,
                 previewUrl: body.previewUrl,
+                sdkUrl: body.sdkUrl,
             });
         }
 
@@ -734,7 +736,7 @@ export class OnboardingManager {
     private async triggerDiffsFromSignal(
         applicationId: string,
         organizationId: string,
-        params: { repoId?: number; prNumber?: number; previewUrl: string },
+        params: { repoId?: number; prNumber?: number; previewUrl: string; sdkUrl?: string },
     ): Promise<boolean> {
         const diffsTrigger = this.options.diffsTrigger;
         if (diffsTrigger == null || params.repoId == null) {
@@ -746,7 +748,10 @@ export class OnboardingManager {
             return false;
         }
 
-        const webhookUrl = buildSdkUrl(params.previewUrl);
+        // A deployment whose SDK endpoint is on a different origin than its browser
+        // URL (split UI/API host) supplies an explicit sdkUrl; otherwise the webhook
+        // is the single-origin convention `<previewUrl>/api/autonoma`.
+        const webhookUrl = params.sdkUrl ?? buildSdkUrl(params.previewUrl);
         try {
             if (params.prNumber != null) {
                 await diffsTrigger.triggerPrDiffs({

@@ -11,6 +11,11 @@ export interface DeploymentSignalInput {
 const deploymentSignalBodySchema = z.object({
     applicationId: z.string().min(1),
     previewUrl: z.string().url(),
+    // Optional explicit SDK/env-factory webhook URL, for deployments whose SDK
+    // endpoint is NOT on the same origin as the browser-facing preview (e.g. a
+    // split UI/API host). When absent, the webhook falls back to
+    // `<previewUrl>/api/autonoma` (buildSdkUrl), preserving single-origin apps.
+    sdkUrl: z.union([z.string().url(), z.literal("").transform(() => undefined)]).optional(),
     branch: z
         .union([z.string().regex(/^[A-Za-z0-9._/-]{1,255}$/), z.literal("").transform(() => undefined)])
         .optional(),

@@ -7,6 +7,7 @@ import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from "better-a
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { applicationSetupHttpRouter } from "./application-setup/application-setup-http.router";
+import { autonomaSdkHttpRouter } from "./autonoma-sdk/autonoma-sdk-http.router";
 import { auth, createContext, storageProvider } from "./context";
 import { diffsHttpRouter } from "./diffs/diffs-http.router";
 import { env } from "./env";
@@ -242,6 +243,9 @@ export function createApiApp() {
     });
 
     app.get("/health", (c) => c.json({ ok: true }));
+
+    // Autonoma SDK test-data endpoint. HMAC-signed via AUTONOMA_SHARED_SECRET.
+    app.route("/api/autonoma", autonomaSdkHttpRouter);
 
     return app;
 }
