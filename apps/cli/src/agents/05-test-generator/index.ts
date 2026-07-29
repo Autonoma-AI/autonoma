@@ -1,14 +1,18 @@
+import { existsSync } from "node:fs";
 import { mkdir, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { type LanguageModel, tool } from "ai";
 import { z } from "zod";
 import type { AppConfig } from "../../config";
 import { type AgentResult, formatRetryGuidance, runAgent } from "../../core/agent";
+import { track } from "../../core/analytics";
 import { formatContext, type ProjectContext } from "../../core/context";
 import { createStepLogger } from "../../core/display";
 import { formatException } from "../../core/errors";
 import { loadGitignorePatterns } from "../../core/gitignore";
+import { captureLog } from "../../core/logs";
 import { getModel } from "../../core/model";
+import { restoreDeletedTest } from "./restore-deleted-test";
 import { runConsolidatedReview, type TestReviewFeedback } from "./review";
 
 const MAX_CONCURRENCY = 8;
@@ -323,6 +327,12 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
             console.log(`  Generated ${journeyCount} journey tests`);
         }
 
+        // Tests the review cycle removed that neither the fix agent nor the
+        // restore could put back - a restore fails on a full disk, or on a
+        // directory the cleanup pass pruned. Tracked by path, not counted, so a
+        // later cycle that does restore one can take it back out again.
+        const lostTests = new Set<string>();
+
         // --- Review → Fix cycle (max MAX_REVIEW_CYCLES) ---
         const MAX_REVIEW_CYCLES = 4;
 
@@ -338,18 +348,21 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
                 break;
             }
 
-            // Delete failing tests before feeding back to planner
+            // Delete failing tests before feeding back to planner, so a rewrite
+            // lands on a clean path. Each one is restored below if its fix agent
+            // never wrote it back.
             for (const fb of reviewResult.feedback) {
                 try {
                     await unlink(fb.testPath);
-                } catch {
-                    /* already gone */
+                } catch (err) {
+                    debugLog("Failing test was already gone before its fix pass", { path: fb.relativePath, err });
                 }
             }
 
             // Fix in parallel - each test gets its own focused prompt
             console.log(`  Feeding ${reviewResult.feedback.length} tests back to planner for fixes`);
 
+            let restored = 0;
             const fixBatchSize = MAX_CONCURRENCY;
             for (let i = 0; i < reviewResult.feedback.length; i += fixBatchSize) {
                 const batch = reviewResult.feedback.slice(i, i + fixBatchSize);
@@ -366,10 +379,36 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
                                 `  [fix] Error fixing ${fb.relativePath}: ${err instanceof Error ? err.message : String(err)}`,
                             );
                         }
+                        if (await restoreDeletedTest(fb.testPath, fb.content)) {
+                            restored++;
+                            lostTests.delete(fb.relativePath);
+                        } else if (!existsSync(fb.testPath)) {
+                            // Neither the fix agent nor the restore produced a
+                            // file. The test is gone from the suite, and only the
+                            // index will say so.
+                            lostTests.add(fb.relativePath);
+                        } else {
+                            lostTests.delete(fb.relativePath);
+                        }
                     }),
                 );
             }
 
+            if (lostTests.size > 0) {
+                console.warn(`  ${lostTests.size} test${lostTests.size === 1 ? "" : "s"} could not be put back`);
+            }
+            if (restored > 0) {
+                console.log(
+                    `  ${restored} test${restored === 1 ? "" : "s"} were not rewritten - restored the original`,
+                );
+                track("cli_review_tests_restored", { count: restored, cycle: cycle + 1 });
+                captureLog("warn", `${restored} reviewed tests were not rewritten - restored the pre-review content`, {
+                    source: "test-generator",
+                    step: "review-fix",
+                    count: restored,
+                    cycle: cycle + 1,
+                });
+            }
             console.log(`  Fix pass complete`);
         }
 
@@ -434,6 +473,10 @@ function buildReviewFixPrompt(fb: TestReviewFeedback): string {
         })
         .join("\n");
 
+    const segments = fb.relativePath.split("/");
+    const filename = segments.pop() ?? fb.relativePath;
+    const folder = segments.join("/");
+
     return `Fix this ONE test that failed review. The reviewer found specific problems - read the feedback carefully and use your tools to investigate and fix.
 
 ## Test: ${fb.relativePath}
@@ -448,7 +491,7 @@ ${failedDetails}
 1. Read the source files for this feature to understand what the real UI looks like
 2. If the feedback mentions scenario data issues, use read_output to read scenarios.md and use ONLY values that exist there
 3. Fix the specific issues the reviewer identified - use the evidence and suggestions
-4. Rewrite the test using write_test - the tool validates structure automatically
+4. Rewrite the test using write_test with folder "${folder}" and filename "${filename}" - the same path it already has. Do not rename or move it. The tool validates structure automatically.
 5. If the test is unfixable (the feature doesn't support the intended behavior), skip it and call finish
 
 IMPORTANT: Focus ONLY on this test. Do not write new tests or modify other files.`;
