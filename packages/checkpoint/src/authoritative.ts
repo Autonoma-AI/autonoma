@@ -1,8 +1,27 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { type AnalysisFindingBucketCounts, countAnalysisFindingBuckets } from "@autonoma/types";
+import {
+    type AnalysisFindingBucketCounts,
+    type CheckpointExecutionState,
+    countAnalysisFindingBuckets,
+} from "@autonoma/types";
 import type { SnapshotHealth } from "./health";
-import type { AuthoritativeCheckpointInputs } from "./presentation";
+import { type AuthoritativeCheckpointInputs, buildAuthoritativeCheckpointSummary } from "./presentation";
+
+/**
+ * The health signal each execution state stands for. A `Record` over the state union, so a new execution state is a
+ * compile error here until it is given one - health can never silently default to "healthy" for a state nobody
+ * considered.
+ */
+const HEALTH_BY_EXECUTION_STATE: Record<CheckpointExecutionState, SnapshotHealth> = {
+    passed: "healthy",
+    failed: "critical",
+    pipeline_failed: "critical",
+    running: "running",
+    not_started: "unknown",
+    stale: "unknown",
+    unknown: "unknown",
+};
 
 // The per-snapshot authoritative data the summary layer needs, keyed by snapshot id. A snapshot appears here only
 // when the merged analysis pipeline ran on it (it has an `AnalysisJob`); a legacy diffs/shadow snapshot is absent,
@@ -96,12 +115,11 @@ export async function loadAuthoritativeCheckpointInputs(
 }
 
 /**
- * The legacy `SnapshotHealth` signal for an authoritative snapshot, derived from the same issue-based bug count as
- * its summary, so the raw `health`/`bugCount` fields agree with the badge. A running/report-less job is `running`;
- * an open bug (or pipeline failure) is `critical`; otherwise `healthy`.
+ * The legacy `SnapshotHealth` signal for an authoritative snapshot, read off the execution state its own summary
+ * derived, so the raw `health` field cannot disagree with the badge rendered beside it. `not_started` - a run that
+ * confirmed nothing, or selected nothing - is `unknown` rather than `healthy`: surfaces that gate on
+ * `health === "healthy"` are claiming the app was checked, and it was not.
  */
 export function authoritativeSnapshotHealth(inputs: LoadedAuthoritativeInputs): SnapshotHealth {
-    if (inputs.jobStatus === "failed") return "critical";
-    if (inputs.jobStatus === "running" || inputs.findingBuckets == null) return "running";
-    return (inputs.bugCount ?? inputs.findingBuckets.bug) > 0 ? "critical" : "healthy";
+    return HEALTH_BY_EXECUTION_STATE[buildAuthoritativeCheckpointSummary(inputs).executionState];
 }

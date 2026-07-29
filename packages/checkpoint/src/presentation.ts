@@ -88,6 +88,10 @@ export interface AuthoritativeCheckpointInputs {
  * AnalysisReport verdict + finding-category counts and its AnalysisJob lifecycle - never from the legacy
  * health/Bug model, which the pipeline does not populate (it files no Bug rows and its passed tests never land in
  * the legacy "passed" bucket). Coverage-plane findings never turn the checkpoint red or "awaiting triage".
+ *
+ * "No bugs" is not the same claim as "passing". A run only reads as green once at least one test actually confirmed
+ * the app; a run that reached a verdict on nothing reads as "No runs", and one that selected nothing as "No tests
+ * affected".
  */
 export function buildAuthoritativeCheckpointSummary(
     inputs: AuthoritativeCheckpointInputs,
@@ -157,6 +161,21 @@ function deriveAuthoritativePresentation(
     // non-blocking and never make the checkpoint red.
     if (bugCount > 0) {
         return { tone: "critical", label: `${bugCount} ${plural(bugCount, "bug")}`, executionState: "failed" };
+    }
+
+    // Nothing was selected: Impact Analysis found no test worth running against this diff. A quiet outcome, but not
+    // a passing one - there is no evidence either way, so it must not read as a suite that went green.
+    const investigated = buckets.bug + buckets.passed + buckets.coverage;
+    if (investigated === 0) {
+        return { tone: "neutral", label: "No tests affected", executionState: "not_started" };
+    }
+
+    // Tests were selected and not one of them produced app-level evidence: every run was blocked, crashed, or could
+    // not be stabilized. `warning`, not `critical` - the PR is not proven broken, our harness failed to exercise it,
+    // and colouring that the same as a real client bug would train the reader to stop trusting red.
+    if (buckets.passed === 0) {
+        const reason = buckets.coverage > 0 ? `${buckets.coverage} blocked` : undefined;
+        return { tone: "warning", label: "No runs", reason, executionState: "not_started" };
     }
 
     const reason = buckets.coverage > 0 ? `${buckets.coverage} couldn't confirm` : undefined;

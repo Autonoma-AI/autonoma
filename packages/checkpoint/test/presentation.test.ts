@@ -163,15 +163,46 @@ describe("buildAuthoritativeCheckpointSummary", () => {
         expect(summary.label).toBe("1 bug");
     });
 
-    it("does not turn a coverage-only checkpoint red or awaiting-triage", () => {
+    it("reads a coverage-only checkpoint as 'No runs' - not green, and not red either", () => {
         const summary = buildAuthoritativeCheckpointSummary({
             jobStatus: "completed",
             findingBuckets: { bug: 0, passed: 0, coverage: 3 },
         });
 
+        // Three tests were selected and not one of them confirmed anything about the app. Warning rather than
+        // critical: the PR is not proven broken, our harness failed to exercise it.
+        expect(summary.tone).toBe("warning");
+        expect(summary.label).toBe("No runs");
+        expect(summary.reason).toBe("3 blocked");
+        expect(summary.executionState).toBe("not_started");
+    });
+
+    it("keeps a partially-confirmed checkpoint green, with the unconfirmed count as a reason", () => {
+        const summary = buildAuthoritativeCheckpointSummary({
+            jobStatus: "completed",
+            findingBuckets: { bug: 0, passed: 4, coverage: 2 },
+        });
+
+        // One blocked test must not un-green a PR the rest of the suite verified, or the colour stops meaning
+        // anything - the count still rides along as the reason.
         expect(summary.tone).toBe("success");
         expect(summary.label).toBe("Passing");
-        expect(summary.reason).toBe("3 couldn't confirm");
+        expect(summary.reason).toBe("2 couldn't confirm");
+    });
+
+    it("distinguishes a run that selected nothing from one that confirmed nothing", () => {
+        const summary = buildAuthoritativeCheckpointSummary({
+            jobStatus: "completed",
+            findingBuckets: { bug: 0, passed: 0, coverage: 0 },
+            totalTests: 12,
+        });
+
+        // Nothing to check is a quiet outcome, not a passing one - and it is a different thing to tell the reader
+        // than "we tried twelve and got nothing back".
+        expect(summary.tone).toBe("neutral");
+        expect(summary.label).toBe("No tests affected");
+        expect(summary.reason).toBeUndefined();
+        expect(summary.executionState).toBe("not_started");
     });
 
     it("reads a running job (no report yet) as Analyzing (neutral)", () => {
