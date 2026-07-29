@@ -9,6 +9,7 @@ import { cors } from "hono/cors";
 import { applicationSetupHttpRouter } from "./application-setup/application-setup-http.router";
 import { autonomaSdkHttpRouter } from "./autonoma-sdk/autonoma-sdk-http.router";
 import { auth, createContext, storageProvider } from "./context";
+import { demoHttpRouter } from "./demo/demo-http.router";
 import { diffsHttpRouter } from "./diffs/diffs-http.router";
 import { env } from "./env";
 import { githubHttpRouter } from "./github/github-http.router";
@@ -188,6 +189,16 @@ export function createApiApp() {
         app.route("/v1/products", vercelProductsRouter);
     } else {
         logger.info("Vercel Marketplace routes disabled (VERCEL_CLIENT_ID not set)");
+    }
+
+    // ─── Demo ───────────────────────────────────────────────────────────
+    // The public "See the demo" entry. Only mounted when DEMO_ORG names the
+    // read-only demo org; every other environment never exposes the route.
+
+    if (env.DEMO_ORG != null) {
+        app.route("/v1/demo", demoHttpRouter);
+    } else {
+        logger.info("Demo entry route disabled (DEMO_ORG not set)");
     }
 
     // ─── Upload ───────────────────────────────────────────────────────

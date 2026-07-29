@@ -2,12 +2,8 @@ import type { Prisma, PrismaClient } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
 import type { Auth } from "../../auth";
 import { env } from "../../env";
+import { setSessionActiveOrg } from "../auth/set-session-active-org";
 import { Service } from "../service";
-
-type SessionPayload = {
-    session: Record<string, unknown>;
-    user: Record<string, unknown>;
-};
 
 type AdminGitHubRepository = {
     id: number;
@@ -56,17 +52,6 @@ export class AdminService extends Service {
         private readonly githubApp: GitHubApp,
     ) {
         super();
-    }
-
-    private async updateSessionOrgInRedis(sessionToken: string, orgId: string) {
-        const ctx = await this.auth.$context;
-        const raw = await ctx.secondaryStorage?.get(sessionToken);
-        if (raw == null) return;
-
-        const parsed = JSON.parse(raw as string) as SessionPayload;
-        parsed.session.activeOrganizationId = orgId;
-        const ttl = Math.floor((new Date(parsed.session.expiresAt as string).getTime() - Date.now()) / 1000);
-        await ctx.secondaryStorage?.set(sessionToken, JSON.stringify(parsed), ttl);
     }
 
     async listOrganizations(input: ListOrganizationsInput) {
@@ -197,7 +182,7 @@ export class AdminService extends Service {
             for (const session of sessions) {
                 const s = session as typeof session & { activeOrganizationId?: string | null };
                 if (s.activeOrganizationId == null) {
-                    await this.updateSessionOrgInRedis(session.token, orgId);
+                    await setSessionActiveOrg(this.auth, session.token, orgId);
                 }
             }
         }
@@ -279,7 +264,7 @@ export class AdminService extends Service {
             create: { userId, organizationId: orgId, role: "admin" },
         });
 
-        await this.updateSessionOrgInRedis(sessionToken, orgId);
+        await setSessionActiveOrg(this.auth, sessionToken, orgId);
 
         this.logger.info("Admin switched to org", { userId, orgId });
     }
