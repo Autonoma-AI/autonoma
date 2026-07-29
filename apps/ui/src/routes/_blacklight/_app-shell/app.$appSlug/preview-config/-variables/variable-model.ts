@@ -7,6 +7,7 @@ import {
     isReservedPreviewkitEnvKey,
 } from "@autonoma/types";
 import {
+    dedupeSecretRows,
     envRow,
     serviceRecipeSupportsUrlToken,
     sortEnvRows,
@@ -176,6 +177,10 @@ export interface ApplyResult {
  * is a sensitive (AWS-stored) row; a connection is a non-sensitive templated
  * row. `buildTime` rides on the row and compiles to `build_secrets` (secret) or
  * `connections[].build_time` (connection).
+ *
+ * The edited row is passed to {@link dedupeSecretRows} as the keeper, because a
+ * key typed here can land on a masked row the async stored-secret merge appended
+ * while the user was still typing it.
  */
 export function applyVariable(app: AppDraft, rowId: number | undefined, form: VariableForm): ApplyResult {
     const key = form.key.trim();
@@ -185,17 +190,17 @@ export function applyVariable(app: AppDraft, rowId: number | undefined, form: Va
 
     if (existing == null) {
         const created = envRow(key, value, sensitive, "new", form.buildTime);
-        return { patch: { env: sortEnvRows([...app.env, created]) }, rowId: created.id };
+        return { patch: { env: sortEnvRows(dedupeSecretRows([...app.env, created], created.id)) }, rowId: created.id };
     }
 
     // A stored secret keeps its "secret" origin while it stays sensitive (a blank
     // value means "unchanged in AWS"); switching it to a connection makes it a
     // plaintext templated row, so its AWS secret is dropped on the next save.
     const origin = existing.origin === "secret" && !sensitive ? "config" : existing.origin;
-    const env = app.env.map((row) =>
+    const edited = app.env.map((row) =>
         row.id === existing.id ? { ...row, key, value, sensitive, buildTime: form.buildTime, origin } : row,
     );
-    return { patch: { env }, rowId: existing.id };
+    return { patch: { env: dedupeSecretRows(edited, existing.id) }, rowId: existing.id };
 }
 
 /** Drops a variable. */

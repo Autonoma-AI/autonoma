@@ -1051,6 +1051,52 @@ export function withSecretRows(envRows: EnvRowDraft[], secretKeys: string[]): En
     return sortEnvRows([...envRows, ...secretRows]);
 }
 
+/**
+ * A row that only mirrors a secret stored in AWS: `origin: "secret"` with no
+ * typed value. AWS never returns a value, so such a row carries nothing the user
+ * entered and can be dropped without losing anything.
+ */
+function isStoredSecretRow(row: EnvRowDraft): boolean {
+    return row.origin === "secret" && row.value === "";
+}
+
+/**
+ * Collapses a key held by two rows at once, dropping the ones that merely mirror
+ * a stored secret. {@link withSecretRows} seeds those mirror rows from the AWS key
+ * list on load, and that merge can land while the user is still typing a key the
+ * list already contains: it sees the half-typed `STRIPE_SECRET_K`, appends its own
+ * `STRIPE_SECRET_KEY` row, and the two collide the moment the user finishes the
+ * key. `keepId` - the row being edited - therefore wins over a mirror row even
+ * when the mirror comes first in the list.
+ *
+ * Any other duplicate is left in place for the drawer's "already exists" check to
+ * report: renaming a variable onto an occupied key must not silently delete the
+ * row - and the value - it collided with. Blank-key rows are never touched;
+ * several freshly-added rows are legitimately blank at once.
+ */
+export function dedupeSecretRows(rows: EnvRowDraft[], keepId?: number): EnvRowDraft[] {
+    const rowsByKey = new Map<string, EnvRowDraft[]>();
+    for (const row of rows) {
+        const key = row.key.trim();
+        if (key === "") continue;
+        rowsByKey.set(key, [...(rowsByKey.get(key) ?? []), row]);
+    }
+
+    const droppedIds = new Set<number>();
+    for (const group of rowsByKey.values()) {
+        if (group.length < 2) continue;
+        const keeper = group.find((row) => row.id === keepId) ?? group.find((row) => !isStoredSecretRow(row));
+        // Only mirror rows, none of them being edited: no basis for picking a
+        // survivor, so leave the collision to validation rather than guess.
+        if (keeper == null) continue;
+        for (const row of group) {
+            if (row.id !== keeper.id && isStoredSecretRow(row)) droppedIds.add(row.id);
+        }
+    }
+
+    return droppedIds.size === 0 ? rows : rows.filter((row) => !droppedIds.has(row.id));
+}
+
 /** Key prefixes framework toolchains inline at build time (client bundles). */
 const BUILD_TIME_ENV_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "PUBLIC_"];
 

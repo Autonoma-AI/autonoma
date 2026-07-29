@@ -6,6 +6,8 @@ import {
 } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
 import {
+    dedupeSecretRows,
+    diffAppSecrets,
     documentsFromDraft,
     draftFromConfig,
     draftWithRepos,
@@ -18,6 +20,7 @@ import {
     nextDraftId,
     parseDotenv,
     validateDraftClientSide,
+    withSecretRows,
     PRIMARY_REPO_KEY,
     type HooksDraft,
 } from "./topology-draft";
@@ -512,6 +515,49 @@ describe("envRowsFromDotenv", () => {
         const rows = envRowsFromDotenv(existing, [{ key: "STRIPE_KEY", value: "new" }]);
         expect(rows).toHaveLength(1);
         expect(rows[0]).toMatchObject({ id: existing[0]!.id, value: "new", sensitive: true, buildTime: true });
+    });
+});
+
+describe("dedupeSecretRows", () => {
+    it("keeps the row being typed when the stored-secret merge already added that key", () => {
+        // The variable list is editable before the AWS key list arrives, so the merge
+        // can land on a half-typed key it cannot match - and appends its own masked
+        // row for the same stored secret.
+        const typed = envRow("STRIPE_SECRET_K", "sk_live_new", true, "new", false);
+        const merged = withSecretRows([typed], ["STRIPE_SECRET_KEY"]);
+        expect(merged).toHaveLength(2);
+
+        // The user finishes the key: both rows now hold STRIPE_SECRET_KEY.
+        const edited = merged.map((row) => (row.id === typed.id ? { ...row, key: "STRIPE_SECRET_KEY" } : row));
+        const rows = dedupeSecretRows(edited, typed.id);
+
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ id: typed.id, key: "STRIPE_SECRET_KEY", value: "sk_live_new" });
+        // The surviving row still represents the stored secret, so the save overwrites
+        // it instead of deleting it.
+        expect(diffAppSecrets(rows, ["STRIPE_SECRET_KEY"])).toEqual({
+            upserts: [{ key: "STRIPE_SECRET_KEY", value: "sk_live_new" }],
+            deletes: [],
+        });
+    });
+
+    it("keeps the edited row when the masked stored row sorts first", () => {
+        const stored = envRow("STRIPE_SECRET_KEY", "", true, "secret", false);
+        const typed = envRow("STRIPE_SECRET_KEY", "sk_live_new", true, "new", false);
+        expect(dedupeSecretRows([stored, typed], typed.id).map((row) => row.id)).toEqual([typed.id]);
+    });
+
+    it("leaves a collision with a row holding a typed value for validation to report", () => {
+        // Renaming a variable onto an occupied key must not silently delete the row -
+        // and the value - it collided with; the drawer reports the duplicate instead.
+        const occupied = envRow("DATABASE_URL", "postgres://x", true, "config", false);
+        const renamed = envRow("DATABASE_URL", "postgres://y", true, "new", false);
+        expect(dedupeSecretRows([occupied, renamed], renamed.id)).toHaveLength(2);
+    });
+
+    it("leaves blank-key rows alone", () => {
+        const rows = [envRow("", "", true, "new", false), envRow("", "", true, "new", false)];
+        expect(dedupeSecretRows(rows)).toHaveLength(2);
     });
 });
 
