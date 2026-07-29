@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { analytics } from "@autonoma/analytics";
 import { hashApiKey } from "@autonoma/auth";
 import { syncVercelPlanPricing } from "@autonoma/billing";
 import { db, VercelBillingPeriodStatus, VercelInstallationStatus } from "@autonoma/db";
@@ -7,11 +8,13 @@ import { toSlug } from "@autonoma/utils";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getVercelEncryptionHelper } from "../context";
+import { PlatformEventEmitter, VERCEL_PROVIDER } from "../posthog/emit-platform-events";
 import { authenticateVercelRequest } from "./vercel-auth";
 import { createBillingPeriod } from "./vercel-billing";
 import { resolveUniqueOrgSlug } from "./vercel-helpers";
 
 const logger = rootLogger.child({ name: "VercelInstallationsRouter" });
+const platformEvents = new PlatformEventEmitter(db);
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -87,15 +90,15 @@ async function resolveOrganizationForInstallation(
     return org.id;
 }
 
-async function resolveUserForEmail(email: string, name?: string): Promise<string> {
+async function resolveUserForEmail(email: string, name?: string): Promise<{ userId: string; isNewUser: boolean }> {
     const existing = await db.user.findUnique({ where: { email }, select: { id: true } });
-    if (existing != null) return existing.id;
+    if (existing != null) return { userId: existing.id, isNewUser: false };
 
     const user = await db.user.create({
         data: { name: name ?? email, email, emailVerified: true, role: "user" },
         select: { id: true },
     });
-    return user.id;
+    return { userId: user.id, isNewUser: true };
 }
 
 /** Find-then-create-if-missing (never an upsert-with-empty-update). Returns the member id. */
@@ -218,18 +221,41 @@ vercelInstallationsRouter.put("/:installationId", async (c) => {
 
     logger.info("Upserting installation", { installationId, accountId, accountName });
 
-    const organizationId = await resolveOrganizationForInstallation(installationId, accountId, accountName);
+    const userEmail = auth.userEmail ?? `vercel-${vercelUserId}@vercel-marketplace.internal`;
+    const userName = (auth.userEmail != null ? auth.userName : accountName) ?? userEmail;
 
-    const userId =
-        auth.userEmail != null
-            ? await resolveUserForEmail(auth.userEmail, auth.userName)
-            : await resolveUserForEmail(`vercel-${vercelUserId}@vercel-marketplace.internal`, accountName);
+    const [organizationId, { userId, isNewUser }, defaultPlan] = await Promise.all([
+        resolveOrganizationForInstallation(installationId, accountId, accountName),
+        resolveUserForEmail(userEmail, userName),
+        getDefaultPlan(),
+    ]);
 
-    const defaultPlan = await getDefaultPlan();
+    if (isNewUser) {
+        try {
+            platformEvents.onUserCreated({
+                userId,
+                email: userEmail,
+                name: userName,
+                organizationId,
+                provider: VERCEL_PROVIDER,
+            });
+        } catch (error) {
+            logger.error("Failed to emit platform_signup for Vercel installation user", { error, userId });
+        }
+    }
+
     const accessTokenEnc = accessToken != null ? getVercelEncryptionHelper().encrypt(accessToken) : undefined;
 
-    await db.$transaction(async (tx) => {
+    const isNewInstallation = await db.$transaction(async (tx) => {
         await ensureMemberExistsOrCreate(userId, organizationId);
+
+        // Read inside the transaction so create-vs-update detection shares the upsert's
+        // snapshot. Best-effort for a metrics event: a concurrent PUT for the same
+        // installation can still race, at worst double-emitting installation_completed.
+        const existingInstallation = await tx.vercelInstallation.findUnique({
+            where: { vercelInstallationId: installationId },
+            select: { id: true },
+        });
 
         // Supersede older installation rows for the same Vercel account: a
         // reconnect arrives with a new installationId, so the upsert below
@@ -272,9 +298,26 @@ vercelInstallationsRouter.put("/:installationId", async (c) => {
                 billingPlanId: defaultPlan?.id,
             },
         });
+
+        return existingInstallation == null;
     });
 
     logger.info("Installation upserted", { installationId, organizationId });
+
+    if (isNewInstallation) {
+        analytics.capture(
+            userId,
+            "vercel.installation_completed",
+            {
+                installation_id: installationId,
+                vercel_account_id: accountId,
+                organization_id: organizationId,
+                user_id: userId,
+                provider: VERCEL_PROVIDER,
+            },
+            { organization: organizationId },
+        );
+    }
 
     return c.json({
         billingPlan:

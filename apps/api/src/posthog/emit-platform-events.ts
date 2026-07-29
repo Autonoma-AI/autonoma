@@ -8,6 +8,12 @@ import { type Logger, logger as rootLogger } from "@autonoma/logger";
 const REFERRING_BLOG_COOKIE = "autonoma_referring_blog";
 const HYPOTHESIS_COOKIE = "autonoma_hypothesis";
 
+/**
+ * `provider` value for users provisioned through the Vercel marketplace flows, which create
+ * User rows directly (outside better-auth) and therefore emit `platform_signup` themselves.
+ */
+export const VERCEL_PROVIDER = "vercel";
+
 export interface AttributionCookies {
     referringBlog?: string;
     hypothesis?: string;

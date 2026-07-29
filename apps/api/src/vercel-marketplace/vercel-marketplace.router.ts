@@ -10,9 +10,11 @@ import { setSignedCookie } from "hono/cookie";
 import { z } from "zod";
 import { auth, redisClient } from "../context";
 import { env } from "../env";
+import { PlatformEventEmitter, VERCEL_PROVIDER } from "../posthog/emit-platform-events";
 import { resolveUniqueOrgSlug, vercelPreferredOrgKey } from "./vercel-helpers";
 
 const logger = rootLogger.child({ name: "VercelMarketplaceRouter" });
+const platformEvents = new PlatformEventEmitter(db);
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -265,11 +267,7 @@ async function ensureVercelUserAndOrg(params: EnsureVercelUserAndOrgParams): Pro
 
     logger.info("Ensuring Vercel user and org", { email, hasTeamId: teamId != null });
 
-    const user = await db.user.upsert({
-        where: { email },
-        update: { name, image: picture },
-        create: { name, email, emailVerified: true, image: picture, role: "user" },
-    });
+    const { userId, isNewUser } = await findOrCreateSsoUser(email, name, picture);
 
     // Upsert Vercel account link (no unique constraint, so find-or-create)
     // Note: SSO accessToken is not stored - it's only for authentication flow
@@ -283,18 +281,18 @@ async function ensureVercelUserAndOrg(params: EnsureVercelUserAndOrgParams): Pro
             data: {
                 accountId: sub,
                 providerId: "vercel-marketplace",
-                userId: user.id,
+                userId,
             },
         });
     } else {
         await db.account.update({
             where: { id: existingAccount.id },
-            data: { userId: user.id },
+            data: { userId },
         });
     }
 
     const organizationId = await resolveOrganizationId({
-        userId: user.id,
+        userId,
         teamId,
         name,
         accessToken,
@@ -302,20 +300,59 @@ async function ensureVercelUserAndOrg(params: EnsureVercelUserAndOrgParams): Pro
         installationId,
     });
 
+    if (isNewUser) {
+        try {
+            platformEvents.onUserCreated({ userId, email, name, organizationId, provider: VERCEL_PROVIDER });
+        } catch (error) {
+            logger.error("Failed to emit platform_signup for Vercel SSO user", { error, userId });
+        }
+    }
+
     // Independent once organizationId is known - member linkage and billing
     // provisioning touch unrelated tables.
     await Promise.all([
         db.member.upsert({
-            where: { userId_organizationId: { userId: user.id, organizationId } },
+            where: { userId_organizationId: { userId, organizationId } },
             update: {},
-            create: { userId: user.id, organizationId, role: "owner" },
+            create: { userId, organizationId, role: "owner" },
         }),
         ensureBillingProvisioning(db, organizationId),
     ]);
 
-    logger.info("Vercel user and org resolved", { userId: user.id, organizationId });
+    logger.info("Vercel user and org resolved", { userId, organizationId });
 
-    return { userId: user.id, organizationId };
+    return { userId, organizationId };
+}
+
+/**
+ * Find-or-create keyed by email. Replaces a plain upsert so the caller learns whether a NEW
+ * platform user was created (to emit `platform_signup` exactly once). The catch handles the
+ * race where a concurrent Vercel request (e.g. the installation PUT) creates the user between
+ * our read and write.
+ */
+async function findOrCreateSsoUser(
+    email: string,
+    name: string,
+    picture?: string,
+): Promise<{ userId: string; isNewUser: boolean }> {
+    const existing = await db.user.findUnique({ where: { email }, select: { id: true } });
+    if (existing != null) {
+        await db.user.update({ where: { email }, data: { name, image: picture } });
+        return { userId: existing.id, isNewUser: false };
+    }
+
+    try {
+        const created = await db.user.create({
+            data: { name, email, emailVerified: true, image: picture, role: "user" },
+            select: { id: true },
+        });
+        return { userId: created.id, isNewUser: true };
+    } catch (error) {
+        const raced = await db.user.findUnique({ where: { email }, select: { id: true } });
+        if (raced == null) throw error;
+        logger.debug("Concurrent Vercel user creation, reusing existing user", { userId: raced.id, error });
+        return { userId: raced.id, isNewUser: false };
+    }
 }
 
 async function resolveOrganizationId(params: ResolveOrganizationIdParams): Promise<string> {
