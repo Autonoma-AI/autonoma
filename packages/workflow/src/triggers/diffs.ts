@@ -1,37 +1,12 @@
 import { logger, withObservabilityContext } from "@autonoma/logger";
-import { WorkflowIdConflictPolicy } from "@temporalio/client";
 import { getTemporalClient } from "../client";
-import { getWorkflowSearchAttributes } from "../search-attributes";
-import { TaskQueue } from "../task-queues";
 import type { WorkflowRef } from "../types";
-import { WORKFLOW_TYPE } from "../workflows/workflow-types";
 
-export interface TriggerDiffsJobParams {
-    branchId: string;
-    snapshotId: string;
-}
-
-export async function triggerDiffsJob(params: TriggerDiffsJobParams): Promise<void> {
-    const { branchId, snapshotId } = params;
-
-    return await withObservabilityContext({ branch: { branchId }, snapshot: { snapshotId } }, async () => {
-        logger.info("Triggering diffs analysis workflow");
-
-        const client = await getTemporalClient();
-        const workflowId = `diffs-analysis-${snapshotId}`;
-
-        await client.workflow.start(WORKFLOW_TYPE.DIFFS_ANALYSIS, {
-            workflowId,
-            workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
-            taskQueue: TaskQueue.DIFFS,
-            searchAttributes: getWorkflowSearchAttributes(),
-            args: [{ snapshotId }],
-        });
-
-        logger.info("Diffs analysis workflow started", { workflowId });
-    });
-}
-
+/**
+ * Nothing starts a diffs workflow any more - a PR run is always an analysis run. What remains here serves the
+ * runs that already exist: the read path behind a snapshot's Temporal link, and the cancel used when a push
+ * supersedes a pending snapshot created before the cutover.
+ */
 export async function findLatestWorkflowBySnapshotId(snapshotId: string): Promise<WorkflowRef | undefined> {
     const client = await getTemporalClient();
     const handle = client.workflow.getHandle(`diffs-analysis-${snapshotId}`);

@@ -14,10 +14,6 @@ const diffsRunPreparer = new DiffsRunPreparer({
     db,
     logger: logger.child({ name: "DiffsRunPreparer" }),
     workflows: temporalPipelineWorkflows,
-    flags: {
-        analysisAuthoritativeEnabled: env.ANALYSIS_AUTHORITATIVE_ENABLED,
-        investigationShadowEnabled: env.INVESTIGATION_SHADOW_ENABLED,
-    },
 });
 
 export const diffsTriggerService = new DiffsTriggerService(

@@ -29,7 +29,6 @@ export {
 } from "./queries/settle-analysis-run-state";
 export {
     DiffsRunPreparer,
-    type DiffsRunFlags,
     type DiffsRunPreparerDeps,
     type PrepareDiffsRunParams,
     type PrepareDiffsRunResult,

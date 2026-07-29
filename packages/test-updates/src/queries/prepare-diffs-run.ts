@@ -4,27 +4,15 @@ import type { Logger } from "@autonoma/logger";
 import type { PipelineWorkflows } from "@autonoma/workflow";
 import { BranchAlreadyHasPendingSnapshotError } from "../snapshot-draft";
 import { TestSuiteUpdater } from "../test-update-manager";
-import { createDetachedSnapshot } from "./create-detached-snapshot";
 import { settleAnalysisRunState } from "./settle-analysis-run-state";
 
 const DIFFS_SUPERSEDE_REASON = "Superseded by a newer diffs request";
 const ANALYSIS_SUPERSEDE_REASON = "Superseded by a newer analysis request";
 
-/**
- * The two env gates that pick the pipeline, injected (never read from an app's env inside this shared package) so
- * the API and the worker pass their own. `analysisAuthoritativeEnabled` is the global master switch for the
- * merged analysis pipeline; `investigationShadowEnabled` gates the diffs fallback's investigation shadow.
- */
-export interface DiffsRunFlags {
-    analysisAuthoritativeEnabled: boolean;
-    investigationShadowEnabled: boolean;
-}
-
 export interface DiffsRunPreparerDeps {
     db: PrismaClient;
     logger: Logger;
     workflows: PipelineWorkflows;
-    flags: DiffsRunFlags;
 }
 
 export interface PrepareDiffsRunParams {
@@ -42,27 +30,22 @@ export type PrepareDiffsRunResult = { skipped: true } | { skipped: false; snapsh
 /**
  * The reusable "start a PR run" core, extracted from the API's DiffsTriggerService so the API webhook paths and
  * the PreviewKit-managed Temporal path run the exact same sequence (only the upstream branch/sha resolution
- * differs). Creates the branch deployment + the real pending snapshot, then starts the org's pipeline on it:
+ * differs). Creates the branch deployment + the real pending snapshot, then starts the merged analysis pipeline
+ * on it: an AnalysisJob plus the analysis workflow, which promotes the snapshot at finalize.
  *
- * - analysis disabled (default for the fleet): the diffs job is the PR analysis - a DiffsJob, the diffs workflow,
- *   and the inert investigation shadow.
- * - analysis enabled (per-org, behind the global switch): the merged analysis pipeline IS the PR analysis - an
- *   AnalysisJob, the analysis workflow on the real pending snapshot, and NO diffs job or investigation shadow.
- *
- * Superseding a branch's in-flight run cancels whichever pipeline was running (diffs or analysis) so a flip
- * between pushes is safe.
+ * Analysis is the only PR-analysis pipeline - there is no per-org or env choice to make here. Supersession still
+ * closes out a pre-cutover diffs run (see {@link supersedeStalePipeline}), because a branch whose pending
+ * snapshot came from one must still be unblocked by the next push.
  */
 export class DiffsRunPreparer {
     private readonly db: PrismaClient;
     private readonly logger: Logger;
     private readonly workflows: PipelineWorkflows;
-    private readonly flags: DiffsRunFlags;
 
-    constructor({ db, logger, workflows, flags }: DiffsRunPreparerDeps) {
+    constructor({ db, logger, workflows }: DiffsRunPreparerDeps) {
         this.db = db;
         this.logger = logger;
         this.workflows = workflows;
-        this.flags = flags;
     }
 
     async prepare({
@@ -157,9 +140,8 @@ export class DiffsRunPreparer {
     }
 
     /**
-     * Create the branch's real pending snapshot and start the org's PR-analysis pipeline on it: the merged
-     * analysis pipeline for an analysis-enabled org (promotes + files bugs at finalize), otherwise the diffs job
-     * plus the inert investigation shadow. Returns the created snapshot id.
+     * Create the branch's real pending snapshot and start the analysis pipeline on it (it promotes the snapshot
+     * and files its findings at finalize). Returns the created snapshot id.
      */
     private async startAnalysisPipeline({
         branchId,
@@ -172,35 +154,14 @@ export class DiffsRunPreparer {
         headSha: string;
         baseSha: string;
     }): Promise<string> {
-        const analysisEnabled = await this.resolveAnalysisEnabled(organizationId);
-        const snapshotId = await this.createSnapshot(branchId, organizationId, headSha, baseSha, analysisEnabled);
+        const snapshotId = await this.createSnapshot(branchId, organizationId, headSha, baseSha);
 
-        if (analysisEnabled) {
-            await this.workflows.triggerAnalysis({ snapshotId });
-            this.logger.info("Analysis pipeline triggered on the real pending snapshot", {
-                branchId,
-                snapshot: { snapshotId },
-            });
-            return snapshotId;
-        }
-
-        await this.workflows.triggerDiffs({ branchId, snapshotId });
-        await this.maybeTriggerShadows({ diffsSnapshotId: snapshotId, branchId, organizationId, headSha, baseSha });
-        return snapshotId;
-    }
-
-    /**
-     * Whether the merged analysis pipeline is this org's PR analysis. Requires BOTH the global master switch and
-     * the org's own `analysisEnabled` setting, so the fleet stays on diffs unless the switch is on, and even then
-     * only deliberately-flipped orgs run analysis.
-     */
-    private async resolveAnalysisEnabled(organizationId: string): Promise<boolean> {
-        if (!this.flags.analysisAuthoritativeEnabled) return false;
-        const settings = await this.db.organizationSettings.findUnique({
-            where: { organizationId },
-            select: { analysisEnabled: true },
+        await this.workflows.triggerAnalysis({ snapshotId });
+        this.logger.info("Analysis pipeline triggered on the real pending snapshot", {
+            branchId,
+            snapshot: { snapshotId },
         });
-        return settings?.analysisEnabled === true;
+        return snapshotId;
     }
 
     private async createSnapshot(
@@ -208,7 +169,6 @@ export class DiffsRunPreparer {
         organizationId: string,
         headSha: string,
         baseSha: string,
-        analysisEnabled: boolean,
     ): Promise<string> {
         try {
             const updater = await TestSuiteUpdater.startUpdate({
@@ -219,7 +179,7 @@ export class DiffsRunPreparer {
                 headSha,
                 baseSha,
             });
-            await this.createJob(updater.snapshotId, organizationId, analysisEnabled);
+            await this.createJob(updater.snapshotId, organizationId);
             return updater.snapshotId;
         } catch (error) {
             if (!(error instanceof BranchAlreadyHasPendingSnapshotError)) throw error;
@@ -242,32 +202,27 @@ export class DiffsRunPreparer {
                 headSha,
                 baseSha,
             });
-            await this.createJob(updater.snapshotId, organizationId, analysisEnabled);
+            await this.createJob(updater.snapshotId, organizationId);
             return updater.snapshotId;
         }
     }
 
-    /** Create the status-tracking job for the snapshot: an AnalysisJob when analysis runs, else a DiffsJob. */
-    private async createJob(snapshotId: string, organizationId: string, analysisEnabled: boolean): Promise<void> {
-        if (analysisEnabled) {
-            // Only the job is created up-front; Investigators persist findings against it during fan-out. The
-            // AnalysisReport is authored later by the Reporter, so a report's existence means the Reporter ran.
-            await this.db.analysisJob.create({
-                data: { snapshotId, organizationId, status: "running", startedAt: new Date() },
-            });
-            this.logger.info("AnalysisJob created", { snapshot: { snapshotId } });
-            return;
-        }
-        await this.db.diffsJob.create({
-            data: { snapshotId, organizationId, status: "pending" },
+    /** Create the snapshot's status-tracking AnalysisJob. */
+    private async createJob(snapshotId: string, organizationId: string): Promise<void> {
+        // Only the job is created up-front; Investigators persist findings against it during fan-out. The
+        // AnalysisReport is authored later by the Reporter, so a report's existence means the Reporter ran.
+        await this.db.analysisJob.create({
+            data: { snapshotId, organizationId, status: "running", startedAt: new Date() },
         });
-        this.logger.info("DiffsJob created", { snapshotId });
+        this.logger.info("AnalysisJob created", { snapshot: { snapshotId } });
     }
 
     /**
      * Cancel whatever pipeline was running on a superseded snapshot. Every step is a best-effort no-op when it
-     * does not apply, so this is safe regardless of whether the stale run was a diffs run or an analysis run
-     * (which may differ from the new one if the org's setting was flipped between pushes).
+     * does not apply, which is what makes this safe for a stale snapshot from either pipeline: a pending snapshot
+     * created before the diffs cutover still has a diffs run (and possibly an investigation shadow) to close, and
+     * nothing else unblocks that branch. Drop the diffs/shadow steps once Temporal reports no `diffsAnalysisWorkflow`
+     * or `investigationWorkflow` executions - they never self-reap, `triggerDiffsJob` set no execution timeout.
      */
     private async supersedeStalePipeline(staleSnapshotId: string): Promise<void> {
         await Promise.allSettled([
@@ -332,64 +287,6 @@ export class DiffsRunPreparer {
             if (result.count > 0) this.logger.info("Stale DiffsJob marked as superseded", { snapshotId });
         } catch (error) {
             this.logger.warn("Failed to mark stale DiffsJob as superseded", { snapshotId, err: error });
-        }
-    }
-
-    private async maybeTriggerShadows(params: {
-        diffsSnapshotId: string;
-        branchId: string;
-        organizationId: string;
-        headSha: string;
-        baseSha: string;
-    }): Promise<void> {
-        if (!this.flags.investigationShadowEnabled) return;
-        await this.startInvestigationShadow(params);
-    }
-
-    /**
-     * Create the investigation shadow's own detached snapshot, pair it onto the diffs snapshot via
-     * `investigationSnapshotId`, and start the investigation workflow on it. Never rejects: a failed
-     * create/pair/start is contained so it never sinks the trigger.
-     */
-    private async startInvestigationShadow(params: {
-        diffsSnapshotId: string;
-        branchId: string;
-        organizationId: string;
-        headSha: string;
-        baseSha: string;
-    }): Promise<void> {
-        const { diffsSnapshotId, branchId, organizationId, headSha, baseSha } = params;
-        try {
-            const created = await createDetachedSnapshot({
-                db: this.db,
-                branchId,
-                organizationId,
-                source: TriggerSource.WEBHOOK,
-                headSha,
-                baseSha,
-            });
-            if (created == null) {
-                this.logger.info("No baseline suite; skipping investigation shadow", {
-                    snapshot: { snapshotId: diffsSnapshotId },
-                });
-                return;
-            }
-
-            await this.db.branchSnapshot.update({
-                where: { id: diffsSnapshotId },
-                data: { investigationSnapshotId: created.snapshotId },
-            });
-
-            await this.workflows.triggerInvestigation({ snapshotId: created.snapshotId });
-            this.logger.info("Investigation shadow triggered on detached snapshot", {
-                snapshot: { snapshotId: created.snapshotId },
-                extra: { diffsSnapshotId },
-            });
-        } catch (error) {
-            this.logger.warn("Investigation shadow failed to start", {
-                snapshot: { snapshotId: diffsSnapshotId },
-                err: error,
-            });
         }
     }
 }

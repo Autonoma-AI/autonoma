@@ -138,10 +138,7 @@ apiTestSuite({
             expect(deployment.webhookHeaders).toEqual({ "X-Auth": "secret" });
             expect(deployment.webDeployment!.url).toBe("https://preview.example.com");
 
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                branchId: result.branchId,
-                snapshotId: result.snapshotId,
-            });
+            expect(harness.triggerAnalysis).toHaveBeenCalledWith({ snapshotId: result.snapshotId });
         });
 
         test("triggers diffs for an existing branch", async ({ harness, seedResult: { app, service } }) => {
@@ -277,10 +274,10 @@ apiTestSuite({
             expect(oldSnapshot).not.toBeNull();
             expect(oldSnapshot!.status).toBe("cancelled");
 
-            // Its DiffsJob is marked failed with a superseded reason
-            const oldDiffsJob = await harness.db.diffsJob.findUnique({ where: { snapshotId: first.snapshotId } });
-            expect(oldDiffsJob!.status).toBe("failed");
-            expect(oldDiffsJob!.failureReason).toBe("Superseded by a newer diffs request");
+            // Its AnalysisJob is marked failed with a superseded reason
+            const oldJob = await harness.db.analysisJob.findUnique({ where: { snapshotId: first.snapshotId } });
+            expect(oldJob!.status).toBe("failed");
+            expect(oldJob!.failureReason).toBe("Superseded by a newer analysis request");
 
             // The new snapshot should be processing
             const newSnapshot = await harness.db.branchSnapshot.findUnique({ where: { id: second.snapshotId } });
@@ -297,13 +294,9 @@ apiTestSuite({
             expect(detail.snapshot.id).toBe(first.snapshotId);
             expect(detail.snapshot.status).toBe("cancelled");
 
-            // cancelDiffsJob was called with the stale snapshot's id, and the second
-            // triggerDiffsJob call carries the new snapshot id.
+            // The stale run was cancelled by id, and the fresh analysis run started on the new snapshot.
             expect(harness.triggerWorkflow).toHaveBeenCalledWith(first.snapshotId);
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                branchId: second.branchId,
-                snapshotId: second.snapshotId,
-            });
+            expect(harness.triggerAnalysis).toHaveBeenCalledWith({ snapshotId: second.snapshotId });
         });
 
         test("throws NotFoundError when no application linked to repo", async ({
@@ -424,10 +417,7 @@ apiTestSuite({
             expect(branch.mainInfo).not.toBeNull();
             expect(branch.prInfo).toBeNull();
 
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                branchId: result.branchId,
-                snapshotId: result.snapshotId,
-            });
+            expect(harness.triggerAnalysis).toHaveBeenCalledWith({ snapshotId: result.snapshotId });
         });
 
         test("skips main diffs when the head already matches the active snapshot", async ({
@@ -542,7 +532,10 @@ apiTestSuite({
             ).rejects.toThrow(NotFoundError);
         });
 
-        test("creates a detached, paired investigation snapshot forked from the baseline; hidden from history; report resolves via FK", async ({
+        // Nothing creates investigation twins any more, but the ones already in the database must keep rendering:
+        // their report hangs off the twin and has to resolve from the PR snapshot id via the pairing FK, and the
+        // twin has to stay hidden from user-facing history. Both are read paths over pre-cutover rows.
+        test("resolves a paired investigation report from the PR snapshot, and keeps the twin out of history", async ({
             harness,
             seedResult: { app, service },
         }) => {
@@ -555,13 +548,7 @@ apiTestSuite({
                 "Organization",
             );
 
-            const { testCaseId } = await setupBranchWithBaseline(
-                harness.db,
-                harness.organizationId,
-                app.id,
-                70,
-                "feature/branch-70",
-            );
+            await setupBranchWithBaseline(harness.db, harness.organizationId, app.id, 70, "feature/branch-70");
 
             const result = await service.triggerPrDiffs({
                 organizationId: harness.organizationId,
@@ -571,47 +558,31 @@ apiTestSuite({
                 webhookUrl: "https://webhook.example.com/hook",
             });
 
-            const diffsSnapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
+            const twin = await harness.db.branchSnapshot.create({
+                data: { branchId: result.branchId!, source: TriggerSource.WEBHOOK, status: "active" },
+            });
+            await harness.db.branchSnapshot.update({
                 where: { id: result.snapshotId },
-                select: { investigationSnapshotId: true, branchId: true },
+                data: { investigationSnapshotId: twin.id },
             });
-            const twinId = diffsSnapshot.investigationSnapshotId;
-            expect(twinId).not.toBeNull();
 
-            // The twin is on the same branch, but wired to NO branch pointer (it is detached).
-            const twin = await harness.db.branchSnapshot.findUniqueOrThrow({
-                where: { id: twinId! },
-                select: { branchId: true, status: true },
-            });
-            expect(twin.branchId).toBe(diffsSnapshot.branchId);
+            // The twin is detached - on the branch, but behind none of its pointers.
             const branch = await harness.db.branch.findUniqueOrThrow({
                 where: { id: result.branchId },
                 select: { pendingSnapshotId: true, activeSnapshotId: true, baseSnapshotId: true },
             });
             expect(branch.pendingSnapshotId).toBe(result.snapshotId);
-            expect([branch.pendingSnapshotId, branch.activeSnapshotId, branch.baseSnapshotId]).not.toContain(twinId);
+            expect([branch.pendingSnapshotId, branch.activeSnapshotId, branch.baseSnapshotId]).not.toContain(twin.id);
 
-            // The twin carries the baseline suite copied with its PINNED plan.
-            const twinAssignments = await harness.db.testCaseAssignment.findMany({
-                where: { snapshotId: twinId! },
-                select: { testCaseId: true, planId: true },
-            });
-            expect(twinAssignments).toHaveLength(1);
-            expect(twinAssignments[0]!.testCaseId).toBe(testCaseId);
-            expect(twinAssignments[0]!.planId).not.toBeNull();
-
-            // The investigation workflow runs on the twin, not the diffs snapshot.
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith({ snapshotId: twinId });
-
-            // The twin is hidden from user-facing snapshot history; the diffs snapshot is not.
+            // The twin stays out of user-facing snapshot history; the PR snapshot does not.
             const history = await harness.services.branches.listSnapshots(result.branchId!, harness.organizationId);
             expect(history.map((s) => s.id)).toContain(result.snapshotId);
-            expect(history.map((s) => s.id)).not.toContain(twinId);
+            expect(history.map((s) => s.id)).not.toContain(twin.id);
 
             // The report lives on the twin but resolves from the PR snapshot id via the pairing FK.
             await harness.db.investigationReport.create({
                 data: {
-                    snapshotId: twinId!,
+                    snapshotId: twin.id,
                     // Only a report carrying the denormalized island header (appSlug) surfaces from
                     // the presence read; a markdown-only row is hidden as unrenderable.
                     appSlug: "test-app",
@@ -627,101 +598,6 @@ apiTestSuite({
             );
             expect(report?.testCount).toBe(3);
             expect(report?.clientBugCount).toBe(1);
-        });
-
-        test("runs the diffs job (not analysis) when analysis is disabled for the org", async ({
-            harness,
-            seedResult: { app, service },
-        }) => {
-            await harness.services.github.handleInstallation(
-                33333,
-                harness.organizationId,
-                "test-org",
-                999,
-                "Organization",
-            );
-            harness.githubApp.defaultClient.addPullRequest("org/my-repo", {
-                number: 100,
-                title: "Test PR #100",
-                headRef: "feature/branch-100",
-                baseSha: "initial-sha",
-                commits: ["head-sha-100"],
-            });
-            await setupBranchWithBaseline(harness.db, harness.organizationId, app.id, 100, "feature/branch-100");
-
-            const result = await service.triggerPrDiffs({
-                organizationId: harness.organizationId,
-                repoId: 1001,
-                prNumber: 100,
-                url: "https://preview.example.com",
-                webhookUrl: "https://webhook.example.com/hook",
-            });
-
-            // Analysis is off by default (master switch off), so the diffs job is the PR analysis: a DiffsJob is
-            // created for the snapshot and the merged analysis pipeline is never triggered.
-            expect(await harness.db.diffsJob.findUnique({ where: { snapshotId: result.snapshotId } })).not.toBeNull();
-            expect(await harness.db.analysisJob.count({ where: { organizationId: harness.organizationId } })).toBe(0);
-            expect(harness.triggerAnalysis).not.toHaveBeenCalled();
-        });
-
-        test("supersession cancels the in-flight investigation twin and its workflow", async ({
-            harness,
-            seedResult: { app, service },
-        }) => {
-            await harness.services.github.handleInstallation(
-                33333,
-                harness.organizationId,
-                "test-org",
-                999,
-                "Organization",
-            );
-            harness.githubApp.defaultClient.addPullRequest("org/my-repo", {
-                number: 90,
-                title: "Test PR #90",
-                headRef: "feature/branch-90",
-                baseSha: "initial-sha",
-                commits: ["head-sha-90"],
-            });
-            await setupBranchWithBaseline(harness.db, harness.organizationId, app.id, 90, "feature/branch-90");
-
-            const first = await service.triggerPrDiffs({
-                organizationId: harness.organizationId,
-                repoId: 1001,
-                prNumber: 90,
-                url: "https://preview.example.com",
-                webhookUrl: "https://webhook.example.com/hook",
-            });
-            const firstTwinId = (
-                await harness.db.branchSnapshot.findUniqueOrThrow({
-                    where: { id: first.snapshotId },
-                    select: { investigationSnapshotId: true },
-                })
-            ).investigationSnapshotId;
-            expect(firstTwinId).not.toBeNull();
-
-            const second = await service.triggerPrDiffs({
-                organizationId: harness.organizationId,
-                repoId: 1001,
-                prNumber: 90,
-                url: "https://preview-v2.example.com",
-                webhookUrl: "https://webhook.example.com/hook",
-            });
-            expect(second.snapshotId).not.toBe(first.snapshotId);
-
-            // The stale twin is marked terminal, and its workflow was cancelled by id.
-            const staleTwin = await harness.db.branchSnapshot.findUniqueOrThrow({ where: { id: firstTwinId! } });
-            expect(staleTwin.status).toBe("cancelled");
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith(firstTwinId);
-
-            // The fresh diffs snapshot has its own, distinct twin.
-            const secondTwinId = (
-                await harness.db.branchSnapshot.findUniqueOrThrow({
-                    where: { id: second.snapshotId },
-                    select: { investigationSnapshotId: true },
-                })
-            ).investigationSnapshotId;
-            expect(secondTwinId).not.toBeNull();
-            expect(secondTwinId).not.toBe(firstTwinId);
         });
 
         test("throws when PR not found on GitHub", async ({ harness, seedResult: { service } }) => {

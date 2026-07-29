@@ -117,8 +117,7 @@ grows.
 
 Per-org opt-in blocking GitHub check on client bugs, skippable with a `/autonoma-skip <reason>` PR comment. Off by
 default and bounded by the global `MERGE_GATE_ENABLED` kill switch; enabled per trusted org via the internal
-`admin.setMergeGateEnabled` procedure (which requires the org's `analysisEnabled`, since the gate reads the
-authoritative analysis verdict).
+`admin.setMergeGateEnabled` procedure.
 
 - `MergeGateService` (`src/github/merge-gate.service.ts`) owns the API-side lifecycle: post the pending `Autonoma`
   check on `pull_request.opened/synchronize/reopened/ready_for_review`; honor a `/autonoma-skip <reason>` comment on

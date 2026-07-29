@@ -16,7 +16,7 @@ export default defineConfig({
             GOOGLE_CLIENT_SECRET: "test",
             GEMINI_API_KEY: "test",
             REDIS_URL: "redis://localhost:6379",
-            // Exercise the shadow investigation path (detached snapshot + pairing) in integration tests.
+            // Exercise the remaining investigation entry points (re-investigation sweep, merge flow).
             INVESTIGATION_SHADOW_ENABLED: "true",
             // GitHub App: tests run against the fake (LOCAL_DEV=true). Real credentials
             // are unnecessary; passing them as base64 PEM is awkward in test fixtures.

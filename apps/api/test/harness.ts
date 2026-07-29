@@ -5,12 +5,7 @@ import type { IntegrationHarness } from "@autonoma/integration-test";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { LocalStorageProvider, S3Storage, type StorageProvider } from "@autonoma/storage";
 import { FakeGenerationProvider } from "@autonoma/test-updates";
-import type {
-    PipelineWorkflows,
-    TriggerAnalysisJobParams,
-    TriggerDiffsJobParams,
-    TriggerInvestigationJobParams,
-} from "@autonoma/workflow";
+import type { PipelineWorkflows, TriggerAnalysisJobParams, TriggerInvestigationJobParams } from "@autonoma/workflow";
 import Redis from "ioredis";
 import { type Mock, vi } from "vitest";
 import { buildAuth } from "../src/auth";
@@ -27,9 +22,6 @@ class FakePipelineWorkflows implements PipelineWorkflows {
         private readonly onWorkflow: Mock,
         private readonly onAnalysis: Mock,
     ) {}
-    triggerDiffs(params: TriggerDiffsJobParams): Promise<void> {
-        return this.onWorkflow(params);
-    }
     cancelDiffs(snapshotId: string): Promise<void> {
         return this.onWorkflow(snapshotId);
     }

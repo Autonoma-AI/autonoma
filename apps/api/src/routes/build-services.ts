@@ -158,10 +158,6 @@ export function buildServices({
         db: conn,
         logger: logger.child({ name: "DiffsRunPreparer" }),
         workflows: pipelineWorkflows,
-        flags: {
-            analysisAuthoritativeEnabled: env.ANALYSIS_AUTHORITATIVE_ENABLED,
-            investigationShadowEnabled: env.INVESTIGATION_SHADOW_ENABLED,
-        },
     });
     const diffsTriggerService = new DiffsTriggerService(conn, githubService, diffsRunPreparer, pipelineWorkflows);
     const onboardingOptions = {

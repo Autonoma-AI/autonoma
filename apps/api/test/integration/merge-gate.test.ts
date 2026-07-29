@@ -1,6 +1,5 @@
 import { PostHogAnalytics } from "@autonoma/analytics";
 import { ApplicationArchitecture } from "@autonoma/db";
-import { BadRequestError } from "@autonoma/errors";
 import { expect } from "vitest";
 import { MergeGateService } from "../../src/github/merge-gate.service";
 import { apiTestSuite } from "../api-test";
@@ -49,7 +48,7 @@ apiTestSuite({
             const fixture = await createRepoApp(harness, "gate-post");
 
             // Disabled org (per-org flag off): no check, no row.
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: false });
+            await setGate(harness, false);
             const disabled = new MergeGateService(
                 harness.db,
                 harness.githubApp,
@@ -66,7 +65,7 @@ apiTestSuite({
             ).toBeNull();
 
             // Enabled org: an in-progress check is posted and persisted, idempotently per head.
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            await setGate(harness, true);
             const enabled = new MergeGateService(
                 harness.db,
                 harness.githubApp,
@@ -89,7 +88,7 @@ apiTestSuite({
             harness,
         }) => {
             const analytics = new RecordingAnalytics();
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            await setGate(harness, true);
             const service = new MergeGateService(
                 harness.db,
                 harness.githubApp,
@@ -158,7 +157,7 @@ apiTestSuite({
 
         test("a repeated /autonoma-skip writes no duplicate record, event, or note", async ({ harness }) => {
             const analytics = new RecordingAnalytics();
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            await setGate(harness, true);
             const service = new MergeGateService(
                 harness.db,
                 harness.githubApp,
@@ -190,7 +189,7 @@ apiTestSuite({
             harness,
         }) => {
             const analytics = new RecordingAnalytics();
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            await setGate(harness, true);
             const service = new MergeGateService(
                 harness.db,
                 harness.githubApp,
@@ -235,7 +234,7 @@ apiTestSuite({
 
         test("a repeated FP-claiming /autonoma-skip does not duplicate FP candidates", async ({ harness }) => {
             const analytics = new RecordingAnalytics();
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            await setGate(harness, true);
             const service = new MergeGateService(
                 harness.db,
                 harness.githubApp,
@@ -267,7 +266,7 @@ apiTestSuite({
             harness,
         }) => {
             const analytics = new RecordingAnalytics();
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            await setGate(harness, true);
             const service = new MergeGateService(
                 harness.db,
                 harness.githubApp,
@@ -303,7 +302,7 @@ apiTestSuite({
             harness,
         }) => {
             const analytics = new RecordingAnalytics();
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            await setGate(harness, true);
             const service = new MergeGateService(
                 harness.db,
                 harness.githubApp,
@@ -347,8 +346,14 @@ apiTestSuite({
         // merge on it would block a PR over a test we ourselves corrected.
         test("a client_bug verdict the run superseded is not counted as an open bug", async ({ harness }) => {
             const analytics = new RecordingAnalytics();
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
-            const service = new MergeGateService(harness.db, harness.githubApp, true, analytics, harness.services.falsePositiveCandidates);
+            await setGate(harness, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
             const fixture = await createRepoApp(harness, "gate-superseded");
 
             const branch = await harness.db.branch.create({
@@ -400,7 +405,7 @@ apiTestSuite({
             harness,
         }) => {
             const analytics = new RecordingAnalytics();
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            await setGate(harness, true);
             const service = new MergeGateService(
                 harness.db,
                 harness.githubApp,
@@ -441,7 +446,7 @@ apiTestSuite({
             harness,
         }) => {
             const analytics = new RecordingAnalytics();
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: true });
+            await setGate(harness, true);
             const service = new MergeGateService(
                 harness.db,
                 harness.githubApp,
@@ -510,9 +515,7 @@ apiTestSuite({
             expect(analytics.captures.map((c) => c.event)).not.toContain("merge_gate.bypassed");
         });
 
-        test("enableForOrg requires analysisEnabled and registers branch protection; disable de-registers it", async ({
-            harness,
-        }) => {
+        test("enableForOrg registers branch protection; disable de-registers it", async ({ harness }) => {
             const analytics = new RecordingAnalytics();
             const service = new MergeGateService(
                 harness.db,
@@ -523,12 +526,8 @@ apiTestSuite({
             );
             const fixture = await createRepoApp(harness, "gate-enable");
 
-            // Without analysisEnabled, enabling is refused.
-            await setGate(harness, { analysisEnabled: false, mergeGateEnabled: false });
-            await expect(service.enableForOrg(harness.organizationId)).rejects.toBeInstanceOf(BadRequestError);
-
-            // With analysisEnabled, enabling flips the flag and requires `Autonoma` on all branches (via ruleset).
-            await setGate(harness, { analysisEnabled: true, mergeGateEnabled: false });
+            // Enabling flips the flag and requires `Autonoma` on all branches (via ruleset).
+            await setGate(harness, false);
             const result = await service.enableForOrg(harness.organizationId);
             expect(result.enabled).toBe(true);
             expect(result.protections.some((p) => p.result.status === "applied")).toBe(true);
@@ -668,14 +667,11 @@ function skipCommentPayload(fixture: RepoAppFixture, body: string, login: string
     };
 }
 
-async function setGate(
-    harness: APITestHarness,
-    flags: { analysisEnabled: boolean; mergeGateEnabled: boolean },
-): Promise<void> {
+async function setGate(harness: APITestHarness, mergeGateEnabled: boolean): Promise<void> {
     await harness.db.organizationSettings.upsert({
         where: { organizationId: harness.organizationId },
-        create: { organizationId: harness.organizationId, ...flags },
-        update: flags,
+        create: { organizationId: harness.organizationId, mergeGateEnabled },
+        update: { mergeGateEnabled },
     });
 }
 

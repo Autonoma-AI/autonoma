@@ -13,9 +13,9 @@ export const env = createEnv({
         GITHUB_APP_PRIVATE_KEY: base64PrivateKey,
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
         GITHUB_APP_SLUG: z.string().min(1),
-        // Merged analysis pipeline (classifier re-homed from the investigation worker). All OPTIONAL so this
-        // worker boots unchanged when analysis is off (ANALYSIS_AUTHORITATIVE_ENABLED, gated on the API side);
-        // createModelSession throws a clear error if the classifier key is missing when analysis runs.
+        // Merged analysis pipeline (classifier re-homed from the investigation worker). Kept OPTIONAL so a
+        // deployment with the analysis kill switch thrown still boots; createModelSession throws a clear error if
+        // the classifier key is missing, failing the analysis run rather than the whole worker.
         // The native-OpenAI classifier key (injected into the model session). The OpenRouter/Gemini/Groq keys are
         // read by @autonoma/ai from its own env (smart-visual runs via OpenRouter).
         OPENAI_API_KEY: z.string().min(1).optional(),
@@ -27,18 +27,13 @@ export const env = createEnv({
         INVESTIGATION_CLASSIFY_MAX_STEPS: z.coerce.number().default(60),
         // Optional Loki base URL for the classifier's get_app_logs tool (e.g. http://loki.autonoma.app:3100).
         LOKI_URL: z.string().optional(),
-        // Master switch for the authoritative analysis PR comment. OFF by default so the pipeline can run + promote
-        // for a canary org without posting to GitHub until the comment is deliberately turned on.
-        ANALYSIS_PR_COMMENT_ENABLED: z.stringbool().default(false),
-        // Pipeline gates for the PreviewKit-triggered PR run (`prepareDiffsRun` activity), which reuses the API's
-        // per-org analysis-vs-diffs logic. MUST be set to the same values as the API so the PreviewKit path picks
-        // the same pipeline: ANALYSIS_AUTHORITATIVE_ENABLED is the global analysis master switch (else diffs);
-        // INVESTIGATION_SHADOW_ENABLED gates the diffs fallback's investigation shadow.
-        ANALYSIS_AUTHORITATIVE_ENABLED: z.stringbool().default(false),
-        INVESTIGATION_SHADOW_ENABLED: z.stringbool().default(false),
+        // Master switch for the authoritative analysis PR comment. ON by default, matching the pipeline it reports
+        // on: an analysis run that posts nothing is invisible to the PR author. Set false to keep the pipeline
+        // running + promoting while it stops touching GitHub.
+        ANALYSIS_PR_COMMENT_ENABLED: z.stringbool().default(true),
         // Global master kill-switch for the Autonoma merge gate. OFF by default: while off, the finalize seam never
         // posts a verdict conclusion no matter an org's per-org `mergeGateEnabled`. Effective gate =
-        // MERGE_GATE_ENABLED && org.mergeGateEnabled (&& analysisEnabled, enforced at enable time).
+        // MERGE_GATE_ENABLED && org.mergeGateEnabled.
         MERGE_GATE_ENABLED: z.stringbool().default(false),
     },
     runtimeEnv: process.env,

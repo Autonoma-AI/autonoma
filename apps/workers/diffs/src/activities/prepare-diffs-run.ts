@@ -3,28 +3,22 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { buildSdkUrl, DiffsRunPreparer } from "@autonoma/test-updates";
 import { temporalPipelineWorkflows } from "@autonoma/workflow";
 import type { PrepareDiffsRunInput, PrepareDiffsRunResult } from "@autonoma/workflow/activities";
-import { env } from "../env";
 
 const logger = rootLogger.child({ name: "prepareDiffsRun" });
 
 // Built once and reused across activity invocations - the preparer is stateless over its deps (db + the shared
-// Temporal pipeline-workflows collaborator + this worker's pipeline gates, which must mirror the API's).
+// Temporal pipeline-workflows collaborator).
 const preparer = new DiffsRunPreparer({
     db,
     logger,
     workflows: temporalPipelineWorkflows,
-    flags: {
-        analysisAuthoritativeEnabled: env.ANALYSIS_AUTHORITATIVE_ENABLED,
-        investigationShadowEnabled: env.INVESTIGATION_SHADOW_ENABLED,
-    },
 });
 
 /**
  * Prepare + start the PR run for a PreviewKit-managed preview that just went ready, via the shared
- * {@link DiffsRunPreparer} - the SAME per-org analysis-vs-diffs sequence the API webhook paths run (create the
- * deployment + snapshot, then start the analysis pipeline for an analysis-enabled org, else the diffs job +
- * investigation shadow, superseding any in-flight run). Runs on the DIFFS queue; the runner reaches it only
- * through Temporal, never over HTTP.
+ * {@link DiffsRunPreparer} - the SAME sequence the API webhook paths run (create the deployment + snapshot, then
+ * start the analysis pipeline, superseding any in-flight run). Runs on the DIFFS queue; the runner reaches it
+ * only through Temporal, never over HTTP.
  */
 export async function prepareDiffsRun(input: PrepareDiffsRunInput): Promise<PrepareDiffsRunResult> {
     logger.info("Preparing PR run for PreviewKit preview", {

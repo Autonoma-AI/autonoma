@@ -1882,17 +1882,15 @@ model OrganizationSettings {
   // roll autofix out per trusted org (Centinel first) before enabling it broadly.
   investigationAutofixEnabled Boolean @default(false) @map("investigation_autofix_enabled")
 
-  // Whether the merged analysis pipeline is this org's PR-analysis pipeline: when on, the pipeline runs on the
-  // branch's real pending snapshot, promotes it, and files real Bug/Issue - retiring the diffs job for the org.
-  // The trigger reads this, gated by the global ANALYSIS_AUTHORITATIVE_ENABLED master switch, so a flip is per-org
-  // and reversible for the whole fleet. Off until a deliberate go/no-go.
+  // VESTIGIAL - no code reads this. Analysis is the only PR-analysis pipeline, so there is no longer a per-org
+  // choice to express. Kept for one release because a rolling deploy has old pods still selecting the column;
+  // drop it in the follow-up that removes the diffs workflow. The values left in the 4 existing rows mean nothing.
   analysisEnabled Boolean @default(false) @map("analysis_enabled")
 
   // Whether the Autonoma merge gate is active for this org: post the `Autonoma` check on every PR (any base
   // branch), map the authoritative verdict to its conclusion, require the check across all branches via a repo
   // ruleset, and honor the Skip button. Off by default - enabled per trusted org, never fleet-wide by flag.
-  // Requires analysisEnabled (the gate reads the authoritative verdict) and is additionally gated by the global
-  // MERGE_GATE_ENABLED kill switch.
+  // Additionally gated by the global MERGE_GATE_ENABLED kill switch.
   mergeGateEnabled Boolean @default(false) @map("merge_gate_enabled")
 
   // Whether previewkit compute-usage billing is enforced for this org: a new deploy/redeploy is declined once the

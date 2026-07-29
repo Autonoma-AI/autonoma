@@ -1,6 +1,6 @@
 import type { PostHogAnalytics } from "@autonoma/analytics";
 import type { PrismaClient } from "@autonoma/db";
-import { BadRequestError, NotFoundError } from "@autonoma/errors";
+import { NotFoundError } from "@autonoma/errors";
 import type { BranchProtectionResult, GitHubApp, GitHubInstallationClient } from "@autonoma/github";
 import {
     createGitHubCheckRunStore,
@@ -516,27 +516,18 @@ export class MergeGateService {
     }
 
     /**
-     * Enable the gate for an org: requires `analysisEnabled` (the gate reads the authoritative verdict), flips
-     * `mergeGateEnabled`, and registers `Autonoma` as a required status check on each linked repo's default branch.
+     * Enable the gate for an org: flips `mergeGateEnabled` and registers `Autonoma` as a required status check on
+     * each linked repo's default branch. Every org runs the analysis pipeline, so there is no longer a
+     * pipeline precondition to check - the authoritative verdict the gate reads always exists.
      */
     async enableForOrg(organizationId: string): Promise<MergeGateEnableResult> {
         this.logger.info("Merge gate: enableForOrg", { organizationId });
 
-        await this.db.$transaction(async (tx) => {
-            const settings = await tx.organizationSettings.findUnique({
-                where: { organizationId },
-                select: { analysisEnabled: true },
-            });
-            if (settings?.analysisEnabled !== true) {
-                throw new BadRequestError(
-                    "Merge gate requires analysisEnabled: the gate reads the authoritative analysis verdict, " +
-                        "which only orgs on the analysis pipeline produce. Enable analysis for this org first.",
-                );
-            }
-            await tx.organizationSettings.update({
-                where: { organizationId },
-                data: { mergeGateEnabled: true },
-            });
+        // Upsert, not update: nearly every org has no settings row until one is deliberately changed.
+        await this.db.organizationSettings.upsert({
+            where: { organizationId },
+            create: { organizationId, mergeGateEnabled: true },
+            update: { mergeGateEnabled: true },
         });
 
         const protections = await this.applyBranchProtection(organizationId, "register");
@@ -566,9 +557,9 @@ export class MergeGateService {
         if (!this.mergeGateEnabled) return false;
         const settings = await this.db.organizationSettings.findUnique({
             where: { organizationId },
-            select: { mergeGateEnabled: true, analysisEnabled: true },
+            select: { mergeGateEnabled: true },
         });
-        return settings?.mergeGateEnabled === true && settings.analysisEnabled === true;
+        return settings?.mergeGateEnabled === true;
     }
 
     /**
