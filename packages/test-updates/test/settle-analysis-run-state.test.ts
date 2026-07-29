@@ -128,6 +128,57 @@ testUpdateSuite({
             expect(job.status).toBe("completed");
         });
 
+        test("promotes a run whose generations never ran, keeping each one and its verdict", async ({
+            harness,
+            seedResult: { organizationId, applicationId, folderId },
+        }) => {
+            const draft = await harness.startDraft(organizationId, applicationId);
+            const manager = harness.generationManagerFor(draft);
+            const testCase = await draft.addTestCase({
+                folderId,
+                name: "Companies list",
+                description: "Loads the companies list",
+                plan: "Open companies",
+            });
+            // Never leaves `pending`: this is what an Investigator whose scenario setup failed leaves behind.
+            const generationId = await manager.addJob(testCase.planId);
+            await harness.db.analysisJob.create({
+                data: { snapshotId: draft.snapshotId, organizationId, status: "running", startedAt: new Date() },
+            });
+            const finding = await harness.db.analysisFinding.create({
+                data: { reportSnapshotId: draft.snapshotId, organizationId, testCaseId: testCase.testCaseId },
+            });
+            const classification = await harness.db.analysisClassification.create({
+                data: {
+                    findingId: finding.id,
+                    number: 1,
+                    organizationId,
+                    generationId,
+                    category: "engine_artifact",
+                    headline: "Scenario setup failed before the app was exercised.",
+                },
+            });
+            await harness.db.analysisFinding.update({
+                where: { id: finding.id },
+                data: { currentClassificationId: classification.id },
+            });
+
+            const result = await settleAnalysisRunState({
+                db: harness.db,
+                snapshotId: draft.snapshotId,
+                outcome: { kind: "succeeded" },
+            });
+
+            expect(result).toMatchObject({ settled: true, snapshotStatus: "active", generationsFailed: 1 });
+            const [generation, settledFinding] = await Promise.all([
+                harness.db.testGeneration.findUnique({ where: { id: generationId } }),
+                harness.db.analysisFinding.findUniqueOrThrow({ where: { id: finding.id } }),
+            ]);
+            expect(generation).toMatchObject({ status: "failed", failure: { kind: "engine_error" } });
+            // The whole point: promoting the snapshot must not cascade the verdict away.
+            expect(settledFinding.currentClassificationId).toBe(classification.id);
+        });
+
         test("downgrades a blocked promotion to failure and settles every state", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },

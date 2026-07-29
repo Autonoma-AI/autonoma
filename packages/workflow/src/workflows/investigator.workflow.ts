@@ -434,6 +434,7 @@ async function runAndClassify(
                 snapshot: { snapshotId },
                 extra: { slug, message },
             });
+            await markGenerationFailed(snapshotId, slug, testGenerationId, { kind: "scenario_setup", message });
             return faultOutcome(message, "Scenario setup failed before the app was exercised");
         }
     }
@@ -442,10 +443,15 @@ async function runAndClassify(
         try {
             await web.runWebGeneration({ testGenerationId });
         } catch (error) {
+            const message = rootFailureMessage(error);
             log.warn("Shadow generation errored; classifying the failed run anyway", {
                 snapshot: { snapshotId },
-                extra: { slug, message: rootFailureMessage(error) },
+                extra: { slug, message },
             });
+            // The engine records its own terminal status, so this only bites when the activity failed before the
+            // engine took ownership (task timeout, worker crash, image pull) - exactly the case that would
+            // otherwise strand the generation at `pending`.
+            await markGenerationFailed(snapshotId, slug, testGenerationId, { kind: "engine_error", message });
         }
         const result = await investigation.classifyInvestigationRun({
             snapshotId,
@@ -483,6 +489,32 @@ async function runAndClassify(
                 });
             });
         }
+    }
+}
+
+/**
+ * Record WHY a generation never produced a run, on the generation itself. The engine marks its own outcome once it
+ * starts, so this covers the paths where it never got that far - and those are the ones that matter: an unmarked
+ * generation stays `pending`, and a `pending` generation is swept at settlement, which used to delete it and take
+ * this test's classification with it.
+ *
+ * Contained and non-cancellable: a superseded run still records why its generations failed, and a failure to write
+ * the status never sinks the verdict the caller is about to file. The activity itself is idempotent and refuses to
+ * overwrite a generation the engine already settled.
+ */
+async function markGenerationFailed(
+    snapshotId: string,
+    slug: string,
+    testGenerationId: string,
+    failure: PrismaJson.GenerationFailure,
+): Promise<void> {
+    try {
+        await CancellationScope.nonCancellable(() => general.markGenerationFailed({ testGenerationId, failure }));
+    } catch (error) {
+        log.warn("Could not mark the generation as failed; its status stays as the engine left it", {
+            snapshot: { snapshotId },
+            extra: { slug, testGenerationId, message: rootFailureMessage(error) },
+        });
     }
 }
 

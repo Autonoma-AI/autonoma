@@ -1,4 +1,4 @@
-import type { AnalysisClassificationReport, AnalysisTestOrigin } from "@autonoma/types";
+import { type AnalysisClassificationReport, type AnalysisTestOrigin, analysisVerdictPlane } from "@autonoma/types";
 import type { AnalysisCandidateFinding } from "@autonoma/workflow/activities";
 import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
@@ -11,6 +11,7 @@ import type {
     InvestigationVerdict,
     PersistAnalysisClassificationInput,
     PersistAnalysisClassificationOutput,
+    MarkGenerationFailedInput,
     RevertSelfHealPlanInput,
     RevertSelfHealPlanOutput,
     SelfHealAnalysisTestInput,
@@ -34,9 +35,9 @@ const workflowsPath = new URL("../src/workflows/index.ts", import.meta.url).path
  * PERSISTS - one classification per iteration, the superseded one always written before the rewrite it motivates.
  * They run the REAL workflow in the time-skipping test environment with mocked activities, so the assertions are on
  * observable outcomes - the verdicts it files, how many times the test re-ran, the plan-edit it authored, whether it
- * reverted, and whether it removed the test - not on internal calls. classify + self-heal + revert + delete all
- * resolve on the DIFFS queue (the pipeline is re-homed into the diffs worker); the web run is the only other
- * activity, and passing no scenario means the GENERAL queue is never scheduled.
+ * reverted, whether it removed the test, and what it recorded about the generation it ran - not on internal calls.
+ * classify + self-heal + revert + delete all resolve on the DIFFS queue (the pipeline is re-homed into the diffs
+ * worker); the web run resolves on the WEB queue, and scenario provisioning + generation status on the GENERAL one.
  */
 
 const SLUG = "checkout-flow";
@@ -72,6 +73,12 @@ interface Harness {
     persistCalls: PersistAnalysisClassificationInput[];
     /** Ordered log of the writes the loop made, so a test can assert a verdict lands BEFORE the rewrite it causes. */
     events: string[];
+    /** When set, scenario provisioning throws it - the run never reaches the app. */
+    scenarioUpError?: Error;
+    /** When set, the web activity throws it, standing in for a failure before the engine owned the generation. */
+    webRunError?: Error;
+    /** Every generation status the loop recorded, so a test can assert a run that never happened says so. */
+    markFailedCalls: MarkGenerationFailedInput[];
 }
 
 const harness: Harness = {
@@ -85,6 +92,7 @@ const harness: Harness = {
     revertCalls: [],
     persistCalls: [],
     events: [],
+    markFailedCalls: [],
 };
 
 /** Monotonic counter for unique workflow ids across executions (workflow ids must not collide within the run). */
@@ -168,6 +176,23 @@ const analysisActivities = {
 const webActivities = {
     async runWebGeneration(input: { testGenerationId: string }): Promise<void> {
         harness.webRuns.push(input.testGenerationId);
+        const failure = harness.webRunError;
+        if (failure != null) throw failure;
+    },
+};
+
+const generalActivities = {
+    async scenarioUp(input: { entityId: string; scenarioId: string }): Promise<{ scenarioInstanceId: string }> {
+        harness.events.push("scenarioUp");
+        if (harness.scenarioUpError != null) throw harness.scenarioUpError;
+        return { scenarioInstanceId: `instance-${input.scenarioId}` };
+    },
+    async scenarioDown(): Promise<void> {
+        harness.events.push("scenarioDown");
+    },
+    async markGenerationFailed(input: MarkGenerationFailedInput): Promise<void> {
+        harness.markFailedCalls.push(input);
+        harness.events.push(`markFailed:${input.failure.kind}`);
     },
 };
 
@@ -195,7 +220,12 @@ beforeAll(async () => {
         taskQueue: TaskQueue.WEB,
         activities: webActivities,
     });
-    workers = [diffsWorker, webWorker];
+    const generalWorker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue: TaskQueue.GENERAL,
+        activities: generalActivities,
+    });
+    workers = [diffsWorker, webWorker, generalWorker];
     runners = Promise.all(workers.map((worker) => worker.run())).then(() => undefined);
 }, 120_000);
 
@@ -221,14 +251,21 @@ beforeEach(() => {
     harness.deleteCalls = [];
     harness.deleteOutput = { deleted: true };
     harness.revertCalls = [];
+    harness.scenarioUpError = undefined;
+    harness.webRunError = undefined;
+    harness.markFailedCalls = [];
 });
 
-function runInvestigator(origin: AnalysisTestOrigin = "pre_existing"): Promise<AnalysisCandidateFinding> {
+function runInvestigator(
+    origin: AnalysisTestOrigin = "pre_existing",
+    scenarioId?: string,
+): Promise<AnalysisCandidateFinding> {
     const input: InvestigatorWorkflowInput = {
         snapshotId: "snap-1",
         slug: SLUG,
         testCaseId: TEST_CASE_ID,
         testGenerationId: ORIGINAL_GENERATION,
+        scenarioId,
         reason: "diff touched checkout",
         origin,
     };
@@ -541,5 +578,56 @@ describe("investigatorWorkflow verdict state machine", () => {
 
         // The SDK/timeout signature is a preview/environment failure, not the PR's fault and not an engine flake.
         expect(finding.category).toBe("environment_failure");
+    });
+
+    it("records why the generation failed when scenario setup blocks it before the app is exercised", async () => {
+        harness.scenarioUpError = new Error("HTTP 400: no factory is registered for the emails model");
+
+        const finding = await runInvestigator("pre_existing", "scenario-1");
+
+        // The app was never reached, so the test is contained on the coverage plane and never runs.
+        expect(analysisVerdictPlane(finding.category)).toBe("coverage");
+        expect(harness.webRuns).toEqual([]);
+        // The generation itself carries WHY it never ran, in the customer's own words - without this it stays
+        // `pending`, and a pending generation is swept at settlement, taking this test's verdict with it.
+        expect(harness.markFailedCalls).toEqual([
+            {
+                testGenerationId: ORIGINAL_GENERATION,
+                failure: {
+                    kind: "scenario_setup",
+                    message: "HTTP 400: no factory is registered for the emails model",
+                },
+            },
+        ]);
+        // The verdict is still filed, and only after the generation's status is on disk.
+        expect(harness.events.slice(0, 2)).toEqual(["scenarioUp", "markFailed:scenario_setup"]);
+        expect(harness.persistCalls).toHaveLength(1);
+    });
+
+    it("records an engine failure when the run errors before the engine owns the generation", async () => {
+        harness.webRunError = new Error("activity task timed out before the worker started");
+        harness.classifyQueue = [classified(verdict("passed", { headline: "green anyway" }))];
+
+        await runInvestigator();
+
+        // The engine normally writes its own terminal status; this covers the window before it can, where the
+        // generation would otherwise be abandoned mid-`pending`.
+        expect(harness.markFailedCalls).toEqual([
+            {
+                testGenerationId: ORIGINAL_GENERATION,
+                failure: { kind: "engine_error", message: "activity task timed out before the worker started" },
+            },
+        ]);
+        // A failed run is still classified - the failure IS the signal - so the status write must not short-circuit it.
+        expect(harness.classifyCalls).toHaveLength(1);
+    });
+
+    it("leaves the generation alone when the run completes", async () => {
+        harness.classifyQueue = [classified(verdict("passed"))];
+
+        await runInvestigator();
+
+        // Nothing to record: the engine owns the status of a generation it actually ran.
+        expect(harness.markFailedCalls).toEqual([]);
     });
 });

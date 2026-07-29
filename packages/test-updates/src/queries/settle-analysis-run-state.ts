@@ -1,8 +1,15 @@
 import type { PrismaClient, SnapshotStatus } from "@autonoma/db";
-import { logger as rootLogger } from "@autonoma/logger";
+import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { AnalysisRunOutcome } from "@autonoma/types";
 import { SnapshotNotPendingError } from "../snapshot-draft";
 import { IncompleteGenerationsError, TestSuiteUpdater } from "../test-update-manager";
+
+/**
+ * Recorded on a generation the run finished without ever executing. Reaching settlement still `pending` means no
+ * Investigator ever took ownership of it - a pipeline fault, not a test outcome - so the row is kept and marked
+ * rather than deleted.
+ */
+const STRANDED_GENERATION_REASON = "The analysis run finished without ever executing this generation";
 
 export interface SettleAnalysisRunStateInput {
     db: PrismaClient;
@@ -14,6 +21,7 @@ export interface SettleAnalysisRunStateResult {
     /** False when another actor already settled this run. Callers must skip side effects in that case. */
     settled: boolean;
     snapshotStatus?: SnapshotStatus;
+    /** Generations this settlement marked failed: those a non-promoting outcome cut short, plus any left stranded. */
     generationsFailed: number;
     /** Suite changes discarded by a non-promoting outcome. */
     discardedChangeCount: number;
@@ -26,6 +34,10 @@ export interface SettleAnalysisRunStateResult {
  *
  * Snapshot settlement is the mutex. Once it succeeds, this caller owns the terminal job and generation writes;
  * callers that lose the race return a no-op result rather than throwing or repeating external side effects.
+ *
+ * Every generation this run leaves behind is MARKED, never removed. A generation is the anchor its test's
+ * AnalysisClassification hangs off (the FK cascades), so deleting one erases the verdict the run reached about that
+ * test - which reads downstream as a test that was never judged, and a checkpoint with nothing to report.
  */
 export async function settleAnalysisRunState({
     db,
@@ -44,6 +56,12 @@ export async function settleAnalysisRunState({
         logger.info("Finished settling authoritative analysis run state", { snapshot: { snapshotId }, extra: result });
         return result;
     }
+
+    // Before promoting: settle any generation the run left `pending`. Promotion refuses to run while incomplete
+    // generations remain, and marking them is what earns that - deleting them instead would take each one's
+    // AnalysisClassification with it (the FK cascades), erasing the verdict its test was judged on.
+    const strandedGenerations =
+        outcome.kind === "succeeded" ? await failStrandedGenerations(db, snapshotId, logger) : 0;
 
     const snapshotSettlement = await settleSnapshot(updater, outcome);
     if (snapshotSettlement == null) {
@@ -87,7 +105,7 @@ export async function settleAnalysisRunState({
     const result = {
         settled: true,
         snapshotStatus: snapshotSettlement.status,
-        generationsFailed,
+        generationsFailed: generationsFailed + strandedGenerations,
         discardedChangeCount,
         outcome: settledOutcome,
     };
@@ -104,13 +122,35 @@ async function loadUpdater(db: PrismaClient, snapshotId: string): Promise<TestSu
     }
 }
 
+/**
+ * Mark every generation the run left `pending` as failed. Each Investigator records its own generation's outcome, so
+ * one still `pending` here was never owned by anything - log it, because after that it means a pipeline fault worth
+ * chasing (a target no Investigator ran, or a child that died before its first activity).
+ *
+ * `queued`/`running` are deliberately untouched: that is work genuinely in flight, and it should keep blocking
+ * promotion rather than being declared failed out from under itself.
+ */
+async function failStrandedGenerations(db: PrismaClient, snapshotId: string, logger: Logger): Promise<number> {
+    const { count } = await db.testGeneration.updateMany({
+        where: { snapshotId, status: "pending" },
+        data: { status: "failed", failure: engineError(STRANDED_GENERATION_REASON) },
+    });
+    if (count > 0) {
+        logger.warn("Analysis run reached settlement with generations that never ran", {
+            snapshot: { snapshotId },
+            extra: { strandedGenerations: count },
+        });
+    }
+    return count;
+}
+
 async function settleSnapshot(
     updater: TestSuiteUpdater,
     outcome: AnalysisRunOutcome,
 ): Promise<{ status: SnapshotStatus; outcome: AnalysisRunOutcome } | undefined> {
     try {
         if (outcome.kind === "succeeded") {
-            await updater.finalize({ discardPendingGenerations: true });
+            await updater.finalize();
             return { status: "active", outcome };
         }
         if (outcome.kind === "failed") {
