@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isPreviewHostname, isPreviewOrigin, isPreviewUrl, previewOrigin } from "../src/preview-url";
+import {
+    buildPreviewFrontDoorUrl,
+    isPreviewHostname,
+    isPreviewOrigin,
+    isPreviewUrl,
+    previewOrigin,
+} from "../src/preview-url";
 
 const DOMAIN = "autonoma.app";
 // What buildAppHostname actually emits: 12 hex characters of an HMAC digest.
@@ -109,5 +115,27 @@ describe("previewOrigin", () => {
 
     it("returns undefined for unparseable input", () => {
         expect(previewOrigin("not a url")).toBeUndefined();
+    });
+});
+
+describe("buildPreviewFrontDoorUrl", () => {
+    const APP = "https://autonoma.app";
+    const PREVIEW = "https://a3f8b21c4d9e.preview.autonoma.app/checkout?step=2";
+
+    it("wraps a preview URL in the front-door path with the target url-encoded", () => {
+        expect(buildPreviewFrontDoorUrl(APP, PREVIEW)).toBe(
+            "https://autonoma.app/v1/previewkit/open?to=https%3A%2F%2Fa3f8b21c4d9e.preview.autonoma.app%2Fcheckout%3Fstep%3D2",
+        );
+    });
+
+    it("tolerates a trailing slash on the base", () => {
+        expect(buildPreviewFrontDoorUrl("https://autonoma.app/", `https://${HOST}`)).toBe(
+            `https://autonoma.app/v1/previewkit/open?to=${encodeURIComponent(`https://${HOST}`)}`,
+        );
+    });
+
+    it("round-trips: the encoded target decodes back to the raw preview URL", () => {
+        const url = new URL(buildPreviewFrontDoorUrl(APP, PREVIEW));
+        expect(url.searchParams.get("to")).toBe(PREVIEW);
     });
 });

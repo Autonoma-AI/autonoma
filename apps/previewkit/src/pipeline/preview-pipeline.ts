@@ -9,6 +9,7 @@ import {
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
+import { buildPreviewFrontDoorUrl } from "@autonoma/types";
 import type {
     BuildPreviewImagesOutput,
     DeployPreviewEnvironmentInput,
@@ -1938,12 +1939,18 @@ export class PreviewPipeline {
             .filter((addon) => addon.status === "failed" && addon.error != null && addon.error !== "")
             .map((addon) => ({ summary: `${addon.name} (addon) - error`, body: addon.error! }));
 
+        // The visible "See preview" CTA points at the front door, which forks a
+        // browser (-> waiting page) from an agent (-> 307 to the raw URL). The raw
+        // URL still rides along in the hidden machine-readable block so an agent
+        // reading the comment body has a direct link.
+        const previewUrl = result.previewUrl;
         return payloadBuilder({
             state: result.ready ? "running" : "critical",
             prNumber,
             commitSha: headSha,
             assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
-            previewUrl: result.previewUrl,
+            previewUrl: previewUrl != null ? buildPreviewFrontDoorUrl(env.APP_URL, previewUrl) : undefined,
+            previewUrls: previewUrl != null ? [previewUrl] : [],
             message: result.ready
                 ? "Preview is ready. Autonoma can run the selected tests against this commit."
                 : `${result.readyCount}/${result.totalCount} preview services are ready. Autonoma cannot run the full sweep yet.`,

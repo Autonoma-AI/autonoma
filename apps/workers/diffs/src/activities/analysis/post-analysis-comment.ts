@@ -103,6 +103,7 @@ export async function postAnalysisComment({
             issueBaseUrl: buildIssueBaseUrl(meta.appSlug, prMeta.prNumber),
             findingBaseUrl: buildFindingBaseUrl(meta.appSlug, prMeta.prNumber),
             previewUrl,
+            appBaseUrl: resolveAppUrl(),
             assetBaseUrl: resolveCommentAssetBaseUrl({ appUrl: resolveAppUrl() }),
         },
         makeScreenshotSigner(storage, meta.snapshotId),

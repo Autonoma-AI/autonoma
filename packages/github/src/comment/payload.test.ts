@@ -311,3 +311,23 @@ describe("payloadBuilder", () => {
         expect(markdown).toContain("````\nFix the bug.\n```\n- old\n+ new\n```\n````");
     });
 });
+
+describe("machine-readable preview URLs", () => {
+    it("renders a hidden autonoma:preview-urls block carrying the raw URLs", () => {
+        const markdown = renderMarkdown(
+            payloadBuilder({
+                state: "running",
+                prNumber: 42,
+                previewUrl: "https://autonoma.app/v1/previewkit/open?to=x",
+                previewUrls: ["https://a3f8b21c4d9e.preview.autonoma.app"],
+            }),
+        );
+        // Invisible in GitHub's rendered view (HTML comment), present in the raw body.
+        expect(markdown).toContain('<!-- autonoma:preview-urls ["https://a3f8b21c4d9e.preview.autonoma.app"] -->');
+    });
+
+    it("omits the block entirely when there are no preview URLs", () => {
+        const markdown = renderMarkdown(payloadBuilder({ state: "healthy", prNumber: 42 }));
+        expect(markdown).not.toContain("autonoma:preview-urls");
+    });
+});

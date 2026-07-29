@@ -59,6 +59,8 @@ const CTA_TEXT_PREFIXES: Record<string, string> = {
 
 export function renderMarkdown(payload: AutonomaCommentPayload, options?: { marker?: string }): string {
     const sections: string[] = [`<!-- ${options?.marker ?? DEFAULT_COMMENT_MARKER} -->`];
+    const machineUrls = renderMachineReadableUrls(payload);
+    if (machineUrls != null) sections.push(machineUrls);
     const rich = payload.bugs.some(isRichBug);
 
     // Text-first: a status emoji + generated title, then the state label + headline as plain markdown - no
@@ -132,6 +134,23 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
     if (payload.handoff != null) sections.push("", renderHandoff(payload.handoff));
 
     return sections.join("\n");
+}
+
+// Marker the machine-readable block is keyed by, so an agent can find the raw
+// preview URLs deterministically instead of scraping the rendered CTA (which is a
+// front-door link, not a direct URL).
+const PREVIEW_URLS_MARKER = "autonoma:preview-urls";
+
+/**
+ * A hidden HTML-comment block carrying the raw preview URLs as JSON. Invisible in
+ * GitHub's rendered view; present in the raw comment body an agent fetches via
+ * `gh api` / `gh pr view --comments`. Returns undefined when there are none, so
+ * the block never appears empty.
+ */
+function renderMachineReadableUrls(payload: AutonomaCommentPayload): string | undefined {
+    const urls = payload.previewUrls.filter((url) => url !== "");
+    if (urls.length === 0) return undefined;
+    return `<!-- ${PREVIEW_URLS_MARKER} ${JSON.stringify(urls)} -->`;
 }
 
 /**

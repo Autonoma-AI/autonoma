@@ -74,6 +74,7 @@ export async function postInvestigationPrComment(
             prUrl: buildPrUrl(meta.appSlug, prMeta.prNumber),
             reportBaseUrl: buildReportBaseUrl(meta.appSlug, prMeta.prNumber, primary.id),
             previewUrl,
+            appBaseUrl: resolveAppUrl(),
             assetBaseUrl: resolveCommentAssetBaseUrl({ appUrl: resolveAppUrl() }),
             repoFullName: meta.repoFullName,
             stats,

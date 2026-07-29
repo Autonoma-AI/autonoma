@@ -9,7 +9,13 @@ import type {
     AutonomaCommentPayload,
     AutonomaCommentState,
 } from "@autonoma/github/comment";
-import { ANALYSIS_VERDICT, type AnalysisVerdict, type CoverageSummary, type SuspectedCause } from "@autonoma/types";
+import {
+    ANALYSIS_VERDICT,
+    type AnalysisVerdict,
+    type CoverageSummary,
+    type SuspectedCause,
+    buildPreviewFrontDoorUrl,
+} from "@autonoma/types";
 
 /** The verdict that makes the comment critical - a client bug is the only class that counts against the PR. */
 const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
@@ -48,8 +54,10 @@ export interface AnalysisCommentContext {
     issueBaseUrl: string;
     /** The in-app snapshots base URL for this PR; a card's replay link appends `<snapshotId>/findings/<findingId>`. */
     findingBaseUrl: string;
-    /** The branch's preview environment URL, if deployed. */
+    /** The branch's raw preview environment URL, if deployed. Wrapped in the front door before it reaches a reader. */
     previewUrl?: string;
+    /** Public origin serving the API, used to build the front-door link the visible preview CTAs point at. */
+    appBaseUrl: string;
     /** Base URL the comment's status/CTA image assets are served from. */
     assetBaseUrl: string;
 }
@@ -115,11 +123,24 @@ export async function buildAnalysisCommentPayload(
 ): Promise<AutonomaCommentPayload> {
     // Only bug issues count against the PR; the coverage plane never degrades the headline (two-plane invariant).
     const state: AutonomaCommentState = input.verdict === CLIENT_BUG ? "critical" : "healthy";
-    const bugs = await Promise.all(input.bugIssues.map((issue) => toBug(issue, context, signScreenshot)));
+
+    // The visible preview links (the top CTA and each bug's "Open preview") point at
+    // the front door, which forks a browser to the waiting page from an agent to the
+    // raw URL. The raw URL rides along in the hidden machine-readable block - this
+    // comment carries no services list, so without it an agent reading the body would
+    // have no direct preview URL at all.
+    const hasPreview = context.previewUrl != null && context.previewUrl !== "";
+    const previewFrontDoorUrl = hasPreview
+        ? buildPreviewFrontDoorUrl(context.appBaseUrl, context.previewUrl!)
+        : undefined;
+
+    const bugs = await Promise.all(
+        input.bugIssues.map((issue) => toBug(issue, context, previewFrontDoorUrl, signScreenshot)),
+    );
 
     const ctas: AutonomaCommentCta[] = [{ label: "Open in Autonoma", href: context.prUrl }];
-    if (context.previewUrl != null && context.previewUrl !== "") {
-        ctas.push({ label: "See preview", href: context.previewUrl });
+    if (previewFrontDoorUrl != null) {
+        ctas.push({ label: "See preview", href: previewFrontDoorUrl });
     }
 
     const coverageLine = buildCoverageLine(input.coverage);
@@ -136,6 +157,7 @@ export async function buildAnalysisCommentPayload(
         addons: [],
         warnings: coverageLine != null ? [coverageLine] : [],
         details: [],
+        previewUrls: hasPreview ? [context.previewUrl!] : [],
         bugs,
     };
 }
@@ -196,6 +218,7 @@ function countNoun(count: number, noun: string): string {
 function toBug(
     issue: AnalysisCommentIssue,
     context: AnalysisCommentContext,
+    previewHref: string | undefined,
     signScreenshot: (s3Key: string) => Promise<string | undefined>,
 ): Promise<AutonomaCommentBug> {
     const issueUrl = buildIssueUrl(issue, context);
@@ -211,7 +234,7 @@ function toBug(
         description: issue.actualBehavior,
         suspectedCause: issue.suspectedCause?.explanation,
         evidence: toEvidence(issue.suspectedCause),
-        previewHref: context.previewUrl,
+        previewHref,
     }));
 }
 

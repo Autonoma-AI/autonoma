@@ -13,7 +13,8 @@ const context: AnalysisCommentContext = {
     prUrl: "https://beta.autonoma.app/app/acme/pull-requests/42/",
     issueBaseUrl: "https://beta.autonoma.app/app/acme/pull-requests/42/issues",
     findingBaseUrl: "https://beta.autonoma.app/app/acme/pull-requests/42/snapshots",
-    previewUrl: "https://preview.example.com",
+    previewUrl: "https://a3f8b21c4d9e.preview.autonoma.app",
+    appBaseUrl: "https://beta.autonoma.app",
     assetBaseUrl: "https://beta.autonoma.app/github-comment/",
 };
 
@@ -293,5 +294,21 @@ describe("buildAnalysisCommentPayload", () => {
 
         expect(body).toContain("No app issues; three proposed tests could not be established.");
         expect(body).toContain("3 proposed tests could not be established");
+    });
+
+    it("points the visible preview CTA at the front door and keeps the raw URL for machines", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            { verdict: "client_bug", bugIssues: [bugIssue()] },
+            context,
+            sign,
+        );
+
+        const seePreview = payload.ctas.find((cta) => cta.label === "See preview");
+        expect(seePreview?.href).toBe(
+            `https://beta.autonoma.app/v1/previewkit/open?to=${encodeURIComponent(context.previewUrl!)}`,
+        );
+        expect(payload.bugs[0]?.previewHref).toBe(seePreview?.href);
+        // No services list on this comment, so the hidden block is the only raw URL an agent gets.
+        expect(payload.previewUrls).toEqual([context.previewUrl]);
     });
 });

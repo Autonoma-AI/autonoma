@@ -12,7 +12,8 @@ const context: InvestigationCommentContext = {
     commitSha: "e5d627abcdef",
     prUrl: "https://beta.autonoma.app/app/acme/pull-requests/42/",
     reportBaseUrl: "https://beta.autonoma.app/app/acme/pull-requests/42/snapshots/snap_1/investigation",
-    previewUrl: "https://preview.example.com",
+    previewUrl: "https://a3f8b21c4d9e.preview.autonoma.app",
+    appBaseUrl: "https://beta.autonoma.app",
     assetBaseUrl: "https://beta.autonoma.app/github-comment/",
     repoFullName: "acme/web",
     stats,
@@ -209,5 +210,19 @@ describe("buildInvestigationCommentPayload", () => {
             noSign,
         );
         expect(withoutPreview.ctas.map((cta) => cta.label)).toEqual(["Open in Autonoma"]);
+    });
+
+    it("points the visible preview CTA at the front door and keeps the raw URL for machines", async () => {
+        const payload = await buildInvestigationCommentPayload([result("csv-export", "client_bug")], context, noSign);
+
+        const seePreview = payload.ctas.find((cta) => cta.label === "See preview");
+        // The human CTA goes through the front door, which forks browser vs. agent.
+        expect(seePreview?.href).toBe(
+            `https://beta.autonoma.app/v1/previewkit/open?to=${encodeURIComponent(context.previewUrl!)}`,
+        );
+        // The per-bug "Open preview" href is the same front-door link, not the raw URL.
+        expect(payload.bugs[0]?.previewHref).toBe(seePreview?.href);
+        // The raw URL survives for an agent reading the body - this comment has no services list.
+        expect(payload.previewUrls).toEqual([context.previewUrl]);
     });
 });

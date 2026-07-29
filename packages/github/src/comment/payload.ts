@@ -24,6 +24,7 @@ export function payloadBuilder(input: PayloadBuilderInput): AutonomaCommentPaylo
         bugs,
         warnings: input.warnings ?? [],
         details: input.details ?? buildServiceErrorDetails(services),
+        previewUrls: input.previewUrls ?? [],
     };
 }
 

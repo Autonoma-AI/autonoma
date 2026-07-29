@@ -116,6 +116,15 @@ export const AutonomaCommentPayloadSchema = z.object({
     warnings: z.array(z.string()).default([]),
     details: z.array(z.object({ summary: z.string(), body: z.string() })).default([]),
     handoff: AutonomaCommentHandoffSchema.optional(),
+    /**
+     * Raw preview URLs for machines. The visible "See preview" CTA points at the
+     * front door (which forks browser vs. agent), so a coding agent reading this
+     * comment via `gh` would otherwise be left with no direct URL - most of all on
+     * the investigation comment, whose services list is empty. Rendered as a hidden
+     * HTML-comment block, invisible in GitHub's rendered view but present in the raw
+     * body an agent fetches.
+     */
+    previewUrls: z.array(z.string()).default([]),
 });
 export type AutonomaCommentPayload = z.infer<typeof AutonomaCommentPayloadSchema>;
 
@@ -143,6 +152,8 @@ export type PayloadBuilderInput = {
     message?: string;
     details?: Array<{ summary: string; body: string }>;
     warnings?: string[];
+    /** Raw preview URLs for the hidden machine-readable block; see the payload field. */
+    previewUrls?: string[];
 };
 
 export type GitHubCommentClient = {

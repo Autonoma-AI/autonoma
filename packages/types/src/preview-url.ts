@@ -74,6 +74,36 @@ export function previewOrigin(candidate: string): string | undefined {
     return parseUrl(candidate)?.origin;
 }
 
+/**
+ * Public path of the preview front door. Kept here as the one written form both
+ * the API (which mounts it) and every link emitter (which points at it) agree on.
+ * It is the `/v1/previewkit` mount (apps/api/src/app.ts) plus the `/open` route
+ * (apps/api/src/previewkit/previewkit-http.router.ts) - a deliberate copy of those
+ * two segments, because the mount and the route are declared apart and cannot be
+ * composed into one exported string without threading Hono internals through this
+ * dependency-free package. An apps/api test asserts this literal value; the mount
+ * and route are stable and change together with it.
+ */
+export const PREVIEW_FRONT_DOOR_PATH = "/v1/previewkit/open";
+
+/**
+ * Wraps a raw preview URL in a front-door link: `<appBaseUrl>/v1/previewkit/open?to=<preview>`.
+ *
+ * Every Autonoma-emitted preview link a human AND a machine can both reach (a
+ * GitHub comment CTA) must point here, not at the raw preview: the front door
+ * forks on the client, sending a browser to the waiting page and a curl/agent
+ * straight through with a 307. An in-app link, reached only by an authenticated
+ * browser, should navigate to the SPA waiting route directly and skip this.
+ *
+ * `appBaseUrl` is the public origin that serves the API (the emitter's `APP_URL`);
+ * a trailing slash on it is tolerated. `previewUrl` is passed through verbatim -
+ * validate it with {@link isPreviewUrl} at the point it enters the system, not here.
+ */
+export function buildPreviewFrontDoorUrl(appBaseUrl: string, previewUrl: string): string {
+    const base = appBaseUrl.replace(/\/$/, "");
+    return `${base}${PREVIEW_FRONT_DOOR_PATH}?to=${encodeURIComponent(previewUrl)}`;
+}
+
 function isTrustedPreviewUrl(url: URL, internalDomain: string): boolean {
     if (url.protocol !== "https:") return false;
     // Previews are only ever served on 443, so a non-default port is not one of

@@ -1,12 +1,9 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import { isPreviewUrl } from "@autonoma/types";
 import type { Context } from "hono";
 import { env } from "../../env";
+import { resolveFrontDoorRedirect } from "./preview-front-door-decision";
 
 const logger = rootLogger.child({ name: "previewFrontDoor" });
-
-/** SPA route that authenticates the visitor, waits out the cold start, and bounces to the preview. */
-const WAITING_ROUTE = "/preview-waiting";
 
 /**
  * The front door every Autonoma-emitted preview link points at, served at
@@ -30,34 +27,23 @@ const WAITING_ROUTE = "/preview-waiting";
  *
  * The 307 is a recovery path, not the mechanism: preview PR comments also carry the
  * raw URLs in a machine-readable block, so an agent should never need this branch.
+ *
+ * The decision itself lives in `preview-front-door-decision.ts` (env-free, unit-
+ * tested); this handler just reads `env` and turns the decision into a `Response`.
  */
 export function previewFrontDoor(c: Context): Response {
-    const to = c.req.query("to");
+    const decision = resolveFrontDoorRedirect({
+        to: c.req.query("to"),
+        secFetchMode: c.req.header("sec-fetch-mode"),
+        accept: c.req.header("accept"),
+        appUrl: env.APP_URL,
+        internalDomain: env.INTERNAL_DOMAIN,
+    });
 
-    if (to == null || !isPreviewUrl(to, env.INTERNAL_DOMAIN)) {
-        logger.warn("Preview front door called with a disallowed target", { extra: { to } });
+    if (decision.kind === "invalid") {
+        logger.warn("Preview front door called with a disallowed target", { extra: { to: c.req.query("to") } });
         return c.text("Missing or invalid `to` - it must be a preview URL.", 400);
     }
-
-    if (!isBrowserNavigation(c.req.header("sec-fetch-mode"), c.req.header("accept"))) {
-        // A programmatic caller wants the app, not a waiting room. 307 rather than
-        // 302 so the method and body survive for anything that is not a GET.
-        return c.redirect(to, 307);
-    }
-
-    return c.redirect(`${env.APP_URL}${WAITING_ROUTE}?to=${encodeURIComponent(to)}`, 302);
-}
-
-/**
- * Whether this request is a browser opening a page, as opposed to curl, an HTTP
- * library, or an MCP agent. `Sec-Fetch-Mode: navigate` is sent by every current
- * browser on a top-level navigation and by nothing else; the `Accept` check is the
- * fallback for the handful of older browsers that predate Fetch Metadata.
- *
- * Erring toward "not a browser" is the safe direction - that branch returns the
- * same redirect a machine wants, and a browser following it still reaches the app.
- */
-function isBrowserNavigation(secFetchMode: string | undefined, accept: string | undefined): boolean {
-    if (secFetchMode != null) return secFetchMode === "navigate";
-    return accept != null && accept.includes("text/html");
+    // 307 (not 302) for a machine so the method and body survive if it ever isn't a GET.
+    return c.redirect(decision.location, decision.kind === "passthrough" ? 307 : 302);
 }

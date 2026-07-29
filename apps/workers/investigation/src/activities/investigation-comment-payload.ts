@@ -7,6 +7,7 @@ import type {
     AutonomaCommentState,
     AutonomaCommentStats,
 } from "@autonoma/github/comment";
+import { buildPreviewFrontDoorUrl } from "@autonoma/types";
 import type { InvestigationTestResult } from "@autonoma/workflow/activities";
 
 /** Verdict categories that warrant action (a "warning" state) when there are no outright client bugs. */
@@ -43,8 +44,10 @@ export interface InvestigationCommentContext {
     prUrl: string;
     /** The in-app report base URL for this snapshot (".../investigation"); per-finding "See full report" links append the slug. */
     reportBaseUrl: string;
-    /** The preview environment URL for the branch, if deployed. */
+    /** The raw preview environment URL for the branch, if deployed. Wrapped in the front door before it reaches a reader. */
     previewUrl?: string;
+    /** Public origin serving the API, used to build the front-door link the visible preview CTAs point at. */
+    appBaseUrl: string;
     /** Base URL the comment's status/CTA image assets are served from. */
     assetBaseUrl: string;
     /** GitHub repo "owner/name" - fed to the coding-agent handoff (e.g. Claude Code's `repositories=` param). */
@@ -86,11 +89,21 @@ export async function buildInvestigationCommentPayload(
                 ? "incomplete"
                 : "healthy";
 
-    const bugs = await Promise.all(shown.map((result) => toBug(result, context, signScreenshot)));
+    // The visible preview links (the top CTA and each bug's "Open preview") point
+    // at the front door, which forks a browser to the waiting page from an agent to
+    // the raw URL. The raw URL rides along in the hidden machine-readable block -
+    // this comment carries no services list, so without it an agent reading the body
+    // would have no direct preview URL at all.
+    const hasPreview = context.previewUrl != null && context.previewUrl !== "";
+    const previewFrontDoorUrl = hasPreview
+        ? buildPreviewFrontDoorUrl(context.appBaseUrl, context.previewUrl!)
+        : undefined;
+
+    const bugs = await Promise.all(shown.map((result) => toBug(result, context, previewFrontDoorUrl, signScreenshot)));
 
     const ctas: AutonomaCommentCta[] = [{ label: "Open in Autonoma", href: context.prUrl }];
-    if (context.previewUrl != null && context.previewUrl !== "") {
-        ctas.push({ label: "See preview", href: context.previewUrl });
+    if (previewFrontDoorUrl != null) {
+        ctas.push({ label: "See preview", href: previewFrontDoorUrl });
     }
 
     return {
@@ -105,6 +118,7 @@ export async function buildInvestigationCommentPayload(
         addons: [],
         warnings: [],
         details: [],
+        previewUrls: hasPreview ? [context.previewUrl!] : [],
         bugs,
         // Only offer the handoff when there is something to fix.
         handoff: shown.length > 0 ? buildHandoff(shown, context) : undefined,
@@ -228,6 +242,7 @@ function appliedNote(diagnosis: NonNullable<InvestigationTestResult["scenarioDia
 async function toBug(
     result: InvestigationTestResult,
     context: InvestigationCommentContext,
+    previewHref: string | undefined,
     signScreenshot: (s3Url: string) => Promise<string | undefined>,
 ): Promise<AutonomaCommentBug> {
     const verdict = result.verdict;
@@ -255,6 +270,6 @@ async function toBug(
             lines: item.lines,
             snippet: item.snippet,
         })),
-        previewHref: context.previewUrl,
+        previewHref,
     };
 }
