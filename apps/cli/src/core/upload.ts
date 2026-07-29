@@ -5,6 +5,7 @@ import type { AppConfig } from "../config";
 import * as p from "../ui/prompts";
 import { debugLog } from "./debug";
 import { loadGitInfo } from "./git";
+import { isTestFile, TEST_FILE_GLOB, TESTS_DIR } from "./test-files";
 
 interface UploadFile {
     name: string;
@@ -35,13 +36,13 @@ async function readArtifacts(outputDir: string): Promise<UploadFile[]> {
 }
 
 async function readTestCases(outputDir: string): Promise<UploadFile[]> {
-    const testsDir = join(outputDir, "qa-tests");
-    const matches = await glob("**/*.md", { cwd: testsDir, nodir: true });
+    const testsDir = join(outputDir, TESTS_DIR);
+    const matches = await glob(TEST_FILE_GLOB, { cwd: testsDir, nodir: true });
 
     const files: UploadFile[] = [];
     for (const match of matches) {
         const name = basename(match);
-        if (name === "INDEX.md") continue;
+        if (!isTestFile(name)) continue;
 
         const content = await readFile(join(testsDir, match), "utf-8");
         const folderPath = relative(".", match).split("/").slice(0, -1).join("/");

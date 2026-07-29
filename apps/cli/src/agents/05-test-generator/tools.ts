@@ -4,6 +4,7 @@ import { hasToolCall, type LanguageModel, stepCountIs, tool, ToolLoopAgent } fro
 import matter from "gray-matter";
 import { z } from "zod";
 import { AI_MAX_RETRIES } from "../../core/model";
+import { TEST_FILE_EXT, TESTS_DIR, normalizeTestFilename } from "../../core/test-files";
 import { buildBashTool, buildGlobTool, buildGrepTool, buildReadFileTool } from "../../tools";
 import { type CoverageState, saveBfsState } from "./graph";
 import { VALID_VERBS } from "./validation";
@@ -58,7 +59,9 @@ export function buildWriteTestTool(state: CoverageState, outputDir: string) {
             "Validates frontmatter before writing. Returns error if frontmatter is invalid.",
         inputSchema: z.object({
             folder: z.string().describe("Subfolder name under qa-tests/"),
-            filename: z.string().describe("File name (e.g. login-valid-credentials.md)"),
+            filename: z
+                .string()
+                .describe(`File name ending in ${TEST_FILE_EXT} (e.g. login-valid-credentials${TEST_FILE_EXT})`),
             content: z.string().describe("Full file content including YAML frontmatter"),
             nodeId: z.string().describe("The FeatureNode ID this test belongs to"),
         }),
@@ -115,7 +118,7 @@ export function buildWriteTestTool(state: CoverageState, outputDir: string) {
                 };
             }
 
-            const relPath = join("qa-tests", input.folder, input.filename);
+            const relPath = join(TESTS_DIR, input.folder, normalizeTestFilename(input.filename));
             const absPath = join(outputDir, relPath);
 
             try {
@@ -139,10 +142,10 @@ export function buildCreateFolderTool(outputDir: string) {
             folder: z.string().describe("Folder name (kebab-case)"),
         }),
         execute: async (input) => {
-            const absPath = join(outputDir, "qa-tests", input.folder);
+            const absPath = join(outputDir, TESTS_DIR, input.folder);
             try {
                 await mkdir(absPath, { recursive: true });
-                return { path: join("qa-tests", input.folder) };
+                return { path: join(TESTS_DIR, input.folder) };
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
                 return { error: `Failed to create folder: ${message}` };

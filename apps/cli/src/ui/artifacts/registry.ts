@@ -1,3 +1,4 @@
+import { TEST_INDEX_FILE } from "../../core/test-files";
 import type { Artifact, ContentKind } from "../types";
 
 /**
@@ -15,7 +16,7 @@ const KNOWN_FILES: Record<string, { title: string; description?: string }> = {
     "scenarios.md": { title: "Test Data Scenarios", description: "The data your tests run against" },
     "recipe.json": { title: "Test Data Recipe", description: "How test data is created" },
     "IMPLEMENTATION.md": { title: "SDK Integration Checklist", description: "SDK integration progress notes" },
-    "INDEX.md": { title: "Test Suite Index", description: "Every test in the suite" },
+    [TEST_INDEX_FILE]: { title: "Test Suite Index", description: "Every test in the suite" },
     "integration-prompt.md": { title: "Integration Instructions", description: "The coding agent's spec" },
     "autonoma-config.json": { title: "Planner Config", description: "How the planner runs on this repo" },
 };

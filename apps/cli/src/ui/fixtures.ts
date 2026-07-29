@@ -1,6 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { debugLog } from "../core/debug";
+import { isTestFile, TESTS_DIR } from "../core/test-files";
 import { readForLive } from "./artifacts/reader";
 import { basename, kindOf } from "./artifacts/registry";
 import { STEP_ORDER } from "./steps";
@@ -331,7 +332,7 @@ export async function directoryScene(dir: string): Promise<Scene> {
     const candidates = entries
         .map((entry) => String(entry))
         .filter((rel) => !rel.split("/").some((part) => part.startsWith(".") || part === "node_modules"))
-        .filter((rel) => (rel.includes("qa-tests/") || rel.startsWith("qa-tests")) && rel.endsWith(".md"))
+        .filter((rel) => rel.startsWith(`${TESTS_DIR}/`) && isTestFile(rel))
         .slice(0, DIR_SCENE_MAX_FILES);
     // Stat everything concurrently - a sequential await per file makes the
     // gallery take visibly long to become interactive on big suites.

@@ -1,10 +1,7 @@
 import { readdir } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import { debugLog } from "./debug";
-
-const TESTS_DIR = "qa-tests";
-/** The suite's own table of contents, not a test - it lives alongside them. */
-const INDEX_FILE = "INDEX.md";
+import { isTestFile, TESTS_DIR } from "./test-files";
 
 /**
  * How many E2E tests the run produced.
@@ -18,7 +15,7 @@ export async function countGeneratedTests(outputDir: string): Promise<number> {
     const dir = join(outputDir, TESTS_DIR);
     try {
         const entries = await readdir(dir, { recursive: true });
-        return entries.map((e) => String(e)).filter((e) => e.endsWith(".md") && basename(e) !== INDEX_FILE).length;
+        return entries.map(String).filter(isTestFile).length;
     } catch (err) {
         debugLog("Failed to read the generated tests directory, reporting zero", { dir, err });
         return 0;

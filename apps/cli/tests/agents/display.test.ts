@@ -96,3 +96,34 @@ describe("formatEnumGaps", () => {
         expect(result).toContain("missing: inactive, banned");
     });
 });
+
+describe("the write_test dashboard mirror", () => {
+    test("records the path write_test actually wrote, normalization included", async () => {
+        const { createStepLogger } = await import("../../src/core/display");
+        const { createStore, setActiveStore } = await import("../../src/ui/store");
+
+        const store = createStore({ outputDir: "/out", meta: { title: "t", project: "p", version: "0" } });
+        setActiveStore(store);
+        try {
+            const logger = createStepLogger("test-generator", 50);
+            // The model omitted the extension; write_test normalizes it, so a
+            // mirror that trusted the raw name would list a nonexistent file.
+            logger.log({
+                stepNumber: 1,
+                maxSteps: 50,
+                text: "",
+                toolCalls: [
+                    { name: "write_test", input: { folder: "account", filename: "edit-profile", nodeId: "n1" } },
+                ],
+                toolErrors: [],
+                writtenFiles: [],
+            });
+
+            const paths = store.getState().artifactOrder;
+            expect(paths).toContain("qa-tests/account/edit-profile.md");
+            expect(paths).not.toContain("qa-tests/account/edit-profile");
+        } finally {
+            setActiveStore(undefined);
+        }
+    });
+});

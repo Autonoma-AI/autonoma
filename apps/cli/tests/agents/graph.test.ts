@@ -3,9 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
 import {
+    BFS_STATE_FILE,
     CoverageState,
     estimateExpectedTests,
     type FeatureNode,
+    JOURNEY_STATE_FILE,
     saveBfsState,
     loadBfsState,
 } from "../../src/agents/05-test-generator/graph";
@@ -197,6 +199,32 @@ describe("dashboard sub-progress reporting", () => {
             });
         } finally {
             setActiveStore(undefined);
+        }
+    });
+});
+
+describe("state persistence is per-generator", () => {
+    test("journey generation does not overwrite the BFS run's progress", async () => {
+        const dir = await mkdtemp(join(tmpdir(), "autonoma-graph-"));
+        try {
+            const bfs = new CoverageState();
+            bfs.enqueue(makeNode({ id: "checkout" }));
+            bfs.markTested("checkout", ["qa-tests/checkout/pay.md"]);
+            await saveBfsState(dir, bfs);
+
+            // Journey tests run through the same write_test tool with their own
+            // state; sharing a file made the first journey write erase the BFS
+            // nodes and test paths that --resume depends on.
+            const journey = new CoverageState(JOURNEY_STATE_FILE);
+            journey.enqueue(makeNode({ id: "journeys" }));
+            journey.markTested("journeys", ["qa-tests/journeys/signup-to-purchase.md"]);
+            await saveBfsState(dir, journey);
+
+            const resumed = await loadBfsState(dir);
+            expect(resumed?.allTestPaths()).toEqual(["qa-tests/checkout/pay.md"]);
+            expect(JOURNEY_STATE_FILE).not.toBe(BFS_STATE_FILE);
+        } finally {
+            await rm(dir, { recursive: true, force: true });
         }
     });
 });

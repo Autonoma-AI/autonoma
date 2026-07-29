@@ -14,9 +14,10 @@ import { runConsolidatedReview, type TestReviewFeedback } from "./review";
 const MAX_CONCURRENCY = 8;
 import { glob } from "glob";
 import { debugLog } from "../../core/debug";
+import { isTestFile, TEST_FILE_GLOB, TEST_INDEX_FILE, TESTS_DIR } from "../../core/test-files";
 import { buildBashTool, buildGlobTool, buildGrepTool, buildListDirectoryTool, buildReadFileTool } from "../../tools";
 import { type DiscoveredFeature, loadFeatures, runFeatureDiscovery } from "../00b-feature-discovery/index";
-import { CoverageState, type FeatureNode, loadBfsState } from "./graph";
+import { CoverageState, type FeatureNode, JOURNEY_STATE_FILE, loadBfsState } from "./graph";
 import { SYSTEM_PROMPT } from "./prompt";
 import {
     buildCreateFolderTool,
@@ -372,15 +373,15 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
         }
 
         // --- Final validation sweep: move structurally invalid tests to _invalid/ ---
-        const allTestFiles = await glob(join(input.outputDir, "qa-tests", "**/*.md"));
+        const allTestFiles = await glob(join(input.outputDir, TESTS_DIR, TEST_FILE_GLOB));
         let markedInvalid = 0;
         for (const testPath of allTestFiles) {
-            if (basename(testPath) === "INDEX.md") continue;
+            if (!isTestFile(testPath)) continue;
             if (testPath.includes("/_invalid/")) continue;
             const content = await readFile(testPath, "utf-8");
             const validation = validateTestContent(content);
             if (!validation.valid) {
-                const invalidDir = join(input.outputDir, "qa-tests", "_invalid");
+                const invalidDir = join(input.outputDir, TESTS_DIR, "_invalid");
                 await mkdir(invalidDir, { recursive: true });
                 const dest = join(invalidDir, basename(testPath));
                 const annotated = `<!-- VALIDATION ERRORS: ${validation.errors.join("; ")} -->\n${content}`;
@@ -394,7 +395,7 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
         }
 
         // --- Clean up empty directories ---
-        const dirs = await glob(join(input.outputDir, "qa-tests", "**/"), {
+        const dirs = await glob(join(input.outputDir, TESTS_DIR, "**/"), {
             dot: false,
         });
         for (const dir of dirs.sort((a, b) => b.length - a.length)) {
@@ -529,7 +530,7 @@ ${folders.map((f) => `| ${f.name} | ${f.test_count} |`).join("\n")}
 ${[...testsByFolder.entries()].flatMap(([_folder, tests]) => tests.map((t) => `- \`${t}\``)).join("\n")}
 `;
 
-    await writeFile(join(outputDir, "qa-tests", "INDEX.md"), content, "utf-8");
+    await writeFile(join(outputDir, TESTS_DIR, TEST_INDEX_FILE), content, "utf-8");
 }
 
 async function generateJourneyTests(outputDir: string, model: LanguageModel, projectRoot: string): Promise<number> {
@@ -550,10 +551,10 @@ async function generateJourneyTests(outputDir: string, model: LanguageModel, pro
 
     if (!autonomaMd) return 0;
 
-    const existingTests = await glob(join(outputDir, "qa-tests", "**/*.md"));
+    const existingTests = await glob(join(outputDir, TESTS_DIR, TEST_FILE_GLOB));
     const existingTitles: string[] = [];
     for (const t of existingTests) {
-        if (basename(t) === "INDEX.md") continue;
+        if (!isTestFile(t)) continue;
         const content = await readFile(t, "utf-8");
         const titleMatch = content.match(/title:\s*"([^"]+)"/);
         if (titleMatch) existingTitles.push(titleMatch[1]!);
@@ -590,7 +591,7 @@ Each journey test:
 Write 5-8 journey tests using the write_test tool with folder "journeys". Then call finish.`;
 
     const ignorePatterns = await loadGitignorePatterns(projectRoot);
-    const journeyState = new CoverageState();
+    const journeyState = new CoverageState(JOURNEY_STATE_FILE);
     journeyState.enqueue({
         id: "journeys",
         name: "Journey Tests",

@@ -2,6 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { reportSubProgress } from "../../core/progress";
 
+/** Persisted BFS progress: which nodes are explored and what each one wrote. */
+export const BFS_STATE_FILE = ".bfs-state.json";
+/** Journey generation's own progress, kept apart from the BFS run's. */
+export const JOURNEY_STATE_FILE = ".journey-state.json";
+
 /** Prior tests-per-node until the run has enough real data to measure its own. */
 const TESTS_PER_NODE_PRIOR = 3;
 /** Processed nodes needed before trusting the run's own tests/node ratio. */
@@ -41,6 +46,14 @@ export class CoverageState {
     queue: string[] = [];
     testsWritten: Map<string, string[]> = new Map();
     currentNode?: string;
+
+    /**
+     * Where this state persists. Journey generation runs a second, independent
+     * CoverageState through the same write_test tool; without its own file its
+     * first write would overwrite the BFS run's file, dropping every node and
+     * test path a --resume needs.
+     */
+    constructor(readonly stateFile: string = BFS_STATE_FILE) {}
 
     enqueue(node: FeatureNode): boolean {
         if (this.nodes.has(node.id)) return false;
@@ -133,8 +146,8 @@ export class CoverageState {
         };
     }
 
-    static deserialize(data: SerializedCoverageState): CoverageState {
-        const state = new CoverageState();
+    static deserialize(data: SerializedCoverageState, stateFile: string = BFS_STATE_FILE): CoverageState {
+        const state = new CoverageState(stateFile);
         state.nodes = new Map(Object.entries(data.nodes));
         state.queue = data.queue;
         state.currentNode = data.currentNode ?? undefined;
@@ -143,15 +156,13 @@ export class CoverageState {
     }
 }
 
-const STATE_FILE = ".bfs-state.json";
-
 export async function saveBfsState(outputDir: string, state: CoverageState): Promise<void> {
-    const path = join(outputDir, STATE_FILE);
+    const path = join(outputDir, state.stateFile);
     await writeFile(path, JSON.stringify(state.serialize(), null, 2), "utf-8");
 }
 
 export async function loadBfsState(outputDir: string): Promise<CoverageState | undefined> {
-    const path = join(outputDir, STATE_FILE);
+    const path = join(outputDir, BFS_STATE_FILE);
     try {
         const raw = await readFile(path, "utf-8");
         return CoverageState.deserialize(JSON.parse(raw));

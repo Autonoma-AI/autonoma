@@ -3,6 +3,7 @@ import { join, relative, basename } from "node:path";
 import { type LanguageModel } from "ai";
 import { glob } from "glob";
 import { createStepLogger } from "../../core/display";
+import { isTestFile, TEST_FILE_GLOB, TESTS_DIR } from "../../core/test-files";
 import { runReviewPass } from "./review-pass";
 import { ALL_RUBRICS, type DimensionResult } from "./rubrics";
 
@@ -59,7 +60,7 @@ export async function runConsolidatedReview(
     projectRoot: string,
     model: LanguageModel,
 ): Promise<{ passed: number; failed: number; feedback: TestReviewFeedback[] }> {
-    const testsDir = join(outputDir, "qa-tests");
+    const testsDir = join(outputDir, TESTS_DIR);
     const logger = createStepLogger("review", 5);
 
     let scenarioData: string | undefined;
@@ -69,10 +70,10 @@ export async function runConsolidatedReview(
         /* scenarios not available */
     }
 
-    const testFiles = await glob(join(testsDir, "**/*.md"));
+    const testFiles = await glob(join(testsDir, TEST_FILE_GLOB));
     const tests: { path: string; relativePath: string; content: string; flow: string }[] = [];
     for (const testPath of testFiles) {
-        if (basename(testPath) === "INDEX.md") continue;
+        if (!isTestFile(testPath)) continue;
         if (testPath.includes("/_invalid/")) continue;
         const content = await readFile(testPath, "utf-8");
         const flowMatch = content.match(/^---\n[\s\S]*?flow:\s*["']?([^"'\n]+)["']?\s*\n[\s\S]*?---/m);

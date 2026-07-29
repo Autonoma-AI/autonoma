@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { getActiveStore, type RunStore } from "../ui/store";
 import { BOLD, DIM, ERROR, PRIMARY, RESET, SUCCESS, WARNING } from "./colors";
+import { normalizeTestFilename, TESTS_DIR } from "./test-files";
 
 function formatArgs(input: Record<string, unknown>, keys: string[]): string {
     const parts: string[] = [];
@@ -126,10 +127,14 @@ function logToStore(store: RunStore, agentId: string, info: StepInfo, stats: Pro
         }
         if (tc.name === "write_test") {
             stats.filesWritten++;
-            // Mirrors the write_test tool: qa-tests/{folder}/{filename}.
+            // Must resolve the path exactly as write_test does, normalization
+            // included - a mirror that skips it points the FILES list at a name
+            // no file was written under.
             const folder = String(tc.input.folder ?? "");
             const filename = String(tc.input.filename ?? "");
-            if (folder && filename) store.noteWrite(join("qa-tests", folder, filename));
+            if (folder && filename) {
+                store.noteWrite(join(TESTS_DIR, folder, normalizeTestFilename(filename)));
+            }
         }
 
         if (tc.name === "bash") {
