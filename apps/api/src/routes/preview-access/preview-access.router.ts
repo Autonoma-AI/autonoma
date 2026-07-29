@@ -4,7 +4,13 @@ import { resolvePreviewkitBypassToken } from "@autonoma/utils";
 import { z } from "zod";
 import { env } from "../../env";
 import { protectedProcedure, writeProcedure, router } from "../../trpc";
+import type { PreviewLivenessState } from "./preview-liveness.service";
 import { probePreview } from "./probe-preview";
+import { resolvePreviewLivenessService } from "./resolve-preview-liveness";
+
+// A batched liveness poll covers a whole list view at once; cap it so a single
+// request can never fan out to an unbounded set.
+const MAX_LIVENESS_URLS = 200;
 
 /**
  * What the deploy status alone tells the waiting page, or undefined when the
@@ -82,7 +88,69 @@ export const previewAccessRouter = router({
 
         return { state: await probePreview(input.url) };
     }),
+
+    /**
+     * Per-URL preview power/health state for LIST views, keyed by the input URL.
+     *
+     * Read straight from the preview cluster's Kubernetes API, so - unlike
+     * `status` above - this NEVER wakes a sleeping preview. Safe to poll behind a
+     * list of environments. A URL that is not a preview, not in the caller's org,
+     * or has no live workloads (and any URL at all when liveness is not
+     * configured) resolves to "unknown".
+     */
+    liveness: protectedProcedure
+        .input(z.object({ urls: z.array(z.url()).max(MAX_LIVENESS_URLS) }))
+        .query(async ({ input, ctx: { user } }): Promise<Record<string, PreviewLivenessState>> => {
+            const service = resolvePreviewLivenessService();
+            if (service == null) return unknownFor(input.urls);
+
+            // Instances store the bare origin; a list URL may be an origin already
+            // or carry a path. Normalize, keeping each origin's original URL keys.
+            const originByUrl = new Map<string, string>();
+            for (const url of input.urls) {
+                if (!isPreviewUrl(url, env.INTERNAL_DOMAIN)) continue;
+                const origin = previewOrigin(url);
+                if (origin != null) originByUrl.set(url, origin);
+            }
+            const origins = [...new Set(originByUrl.values())];
+
+            // The DB lookup (org-scoped: only the caller's previews resolve to a
+            // namespace) and the whole-fleet snapshot are independent.
+            const [instances, fleet] = await Promise.all([
+                origins.length === 0
+                    ? Promise.resolve([])
+                    : db.previewkitAppInstance.findMany({
+                          where: {
+                              url: { in: origins },
+                              environment: { organization: { members: { some: { user: { email: user.email } } } } },
+                          },
+                          select: { url: true, environment: { select: { namespace: true } } },
+                      }),
+                service.getFleet(),
+            ]);
+
+            const namespaceByOrigin = new Map<string, string>();
+            for (const instance of instances) {
+                // url is nullable in the schema; the `url in origins` filter only
+                // ever returns non-null rows, but narrow it for the type.
+                if (instance.url != null) namespaceByOrigin.set(instance.url, instance.environment.namespace);
+            }
+
+            const result: Record<string, PreviewLivenessState> = {};
+            for (const url of input.urls) {
+                const origin = originByUrl.get(url);
+                const namespace = origin != null ? namespaceByOrigin.get(origin) : undefined;
+                result[url] = namespace != null ? service.stateForNamespace(namespace, fleet) : "unknown";
+            }
+            return result;
+        }),
 });
+
+function unknownFor(urls: string[]): Record<string, PreviewLivenessState> {
+    const result: Record<string, PreviewLivenessState> = {};
+    for (const url of urls) result[url] = "unknown";
+    return result;
+}
 
 async function findAuthorizedEnvironment(url: string, userEmail: string) {
     // Instances store the bare origin, but a link can carry a deep path (a per-bug

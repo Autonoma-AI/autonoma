@@ -4,17 +4,26 @@
     "private": true,
     "type": "module",
     "exports": {
-        ".": "./src/index.ts"
+        ".": "./src/index.ts",
+        "./eks": "./src/eks-kubeconfig.ts",
+        "./preview-liveness": "./src/preview-liveness/index.ts"
     },
     "scripts": {
         "build": "tsc --noCheck",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix src/",
         "fmt": "oxfmt --write src/",
-        "test": "vitest run --passWithNoTests"
+        "test": "vitest run --passWithNoTests",
+        "test:integration": "vitest run --config vitest.integration.config.ts"
     },
     "dependencies": {
+        "@autonoma/logger": "workspace:*",
+        "@aws-crypto/sha256-js": "^5.2.0",
+        "@aws-sdk/client-eks": "^3.1048.0",
+        "@aws-sdk/credential-provider-node": "^3.972.42",
         "@kubernetes/client-node": "catalog:",
+        "@smithy/protocol-http": "^5.3.14",
+        "@smithy/signature-v4": "^5.3.14",
         "@t3-oss/env-core": "catalog:",
         "zod": "catalog:"
     },

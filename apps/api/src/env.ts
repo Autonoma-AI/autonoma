@@ -184,6 +184,24 @@ export const env = createEnv({
         // cluster. Unset disables log streaming (the route returns 503).
         PREVIEWKIT_LOKI_URL: z.url().optional(),
 
+        // Read-only reach into the PREVIEW cluster's Kubernetes API (a different
+        // EKS cluster than the API's own) so list views can show each preview's
+        // power/health state - asleep / waking / healthy / error - derived from
+        // Deployment + pod state. This is a pure LIST that never scales anything,
+        // so unlike an HTTP probe through the Gatekeeper it never WAKES a
+        // sleeping preview. When set, ENDPOINT + CA let the API skip
+        // eks:DescribeCluster (mirrors the previewkit runner); it also needs an
+        // IAM identity mapped into the preview cluster's RBAC
+        // (deployment/previewkit/cluster/api-liveness-rbac.yaml).
+        //
+        // Declared optional so dev / self-host / CI (PREVIEWKIT_ENABLED off) boot
+        // without them, but REQUIRED when PREVIEWKIT_ENABLED is true - enforced by
+        // the createFinalSchema refine below, which is where the fail-fast
+        // rationale lives.
+        PREVIEWKIT_EKS_CLUSTER_NAME: z.string().min(1).optional(),
+        PREVIEWKIT_EKS_CLUSTER_ENDPOINT: z.url().optional(),
+        PREVIEWKIT_EKS_CLUSTER_CA: z.string().min(1).optional(),
+
         // Used to indicate that we're running in a test environment.
         // This is only intended to avoid importing certain modules, do not use it for any other purpose.
         TESTING: z.stringbool().default(false),
@@ -206,4 +224,23 @@ export const env = createEnv({
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,
+    // Fail fast at boot, not later at runtime. When previews are enabled this API
+    // is expected to read preview power/health from the preview cluster, so its
+    // coordinates are required. Degrading to "unknown" would only defer the
+    // failure to whoever first needs the signal (a preview list view) - better to
+    // break on start (caught on beta) and fix the config once. A conditional
+    // refine rather than required fields so the vars stay optional where previews
+    // are off (dev / self-host / CI must boot without them).
+    createFinalSchema: (shape) =>
+        z
+            .object(shape)
+            .refine(
+                (val) =>
+                    !(val.PREVIEWKIT_ENABLED && (val.PREVIEWKIT_EKS_CLUSTER_NAME == null || val.AWS_REGION == null)),
+                {
+                    message:
+                        "PREVIEWKIT_ENABLED=true requires PREVIEWKIT_EKS_CLUSTER_NAME and AWS_REGION (preview liveness reads the preview cluster's Kubernetes API).",
+                    path: ["PREVIEWKIT_EKS_CLUSTER_NAME"],
+                },
+            ),
 });

@@ -27,6 +27,7 @@ jobs:
     runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       db: ${{ steps.filter.outputs.db }}
+      k8s: ${{ steps.filter.outputs.k8s }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -38,6 +39,8 @@ jobs:
           filters: |
             db:
               - 'packages/db/prisma/**'
+            k8s:
+              - 'packages/k8s/**'
 
   check-migrations:
     name: Check Prisma Migrations
@@ -93,6 +96,40 @@ jobs:
             echo "$diff_output"
             exit 1
           fi
+
+  k8s-integration:
+    name: K8s Integration (kind)
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: changes
+    # Real kind cluster; only worth spinning up when @autonoma/k8s itself changes.
+    if: needs.changes.outputs.k8s == 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: useblacksmith/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The suite creates and tears down its own kind cluster, so we only need
+      # the kind + kubectl binaries present (Docker is already on the runner).
+      - name: Install kind and kubectl
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
+          chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
+          curl -Lo ./kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+          chmod +x ./kubectl && sudo mv ./kubectl /usr/local/bin/kubectl
+
+      - name: Integration test
+        run: TESTING=true pnpm --filter @autonoma/k8s test:integration
 
   lint:
     name: Lint

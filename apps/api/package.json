@@ -31,6 +31,7 @@
         "@autonoma/errors": "workspace:*",
         "@autonoma/github": "workspace:*",
         "@autonoma/investigation": "workspace:*",
+        "@autonoma/k8s": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/scenario": "workspace:*",
         "@autonoma/secrets": "workspace:*",

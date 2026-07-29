@@ -1,3 +1,4 @@
+import { EksKubeconfigLoader } from "@autonoma/k8s/eks";
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
 import { LokiBuildLogSink } from "@autonoma/logger/loki-build-log-sink";
 import * as k8s from "@kubernetes/client-node";
@@ -9,7 +10,6 @@ import { BuildKitBuilder } from "./builder/buildkit-builder";
 import { BuildKitJobManager } from "./builder/buildkit-job-manager";
 import { createPreviewkitDefaults } from "./config";
 import { Deployer } from "./deployer/deployer";
-import { EksKubeconfigLoader } from "./deployer/eks-kubeconfig";
 import { resolveNpmRegistryMirror } from "./dockerfile-builder/resolve-npm-registry-mirror";
 import { env } from "./env";
 import { GitHubProvider } from "./git-provider/github-provider";

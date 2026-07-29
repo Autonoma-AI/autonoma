@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EksKubeconfigLoader } from "../../src/deployer/eks-kubeconfig";
+import { EksKubeconfigLoader } from "../src/eks-kubeconfig";
 
 const STATIC_CLUSTER = {
     endpoint: "https://preview.example.test",
