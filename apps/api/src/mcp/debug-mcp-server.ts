@@ -207,7 +207,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                     });
                     return jsonResult({
                         primaryUrl: summary.primaryUrl,
-                        sdkUrl: derivePreviewSdkUrl(summary.primaryUrl, undefined),
+                        // The handler lives on the app flagged `sdk_implemented`, which
+                        // is the primary app only in a single-app / full-stack project.
+                        sdkUrl: derivePreviewSdkUrl(summary.sdkAppUrl ?? summary.primaryUrl, undefined),
                         endpoints,
                     });
                 } catch (err) {
@@ -581,7 +583,10 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "declare secret keys in an app's build_secrets and set values with set_secret. An app's `build` is " +
                 "either `runtime` (pick a language runtime, write a bash build_script and a single-line entrypoint) " +
                 "or `dockerfile` (build a Dockerfile committed in the repo); if get_config handed you an app still " +
-                "on an older framework preset, convert it to `runtime` before saving. Unless `apply` is " +
+                "on an older framework preset, convert it to `runtime` before saving. If a scenario up 404s, check " +
+                "`sdk_implemented`: it marks the app serving the `/api/autonoma` handler (exactly one app, independent " +
+                "of `primary`), and without it the up is sent to the primary app, which has no handler in a split " +
+                "front/API topology. Unless `apply` is " +
                 "false, redeploys the WHOLE environment against the new document (a topology change touches more than " +
                 "one service). Rule of thumb: reshape the preview -> here; tweak one existing service's build/wiring " +
                 "-> edit_previewkit_config; a secret value -> set_secret. The redeploy is async - call " +

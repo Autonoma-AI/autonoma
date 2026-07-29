@@ -37,9 +37,9 @@ interface AppCardProps {
   /** Whether to show the cross-app "Depends on" control - only relevant once the
    * project spans more than one repo, so it stays hidden for single-repo projects. */
   showDependsOn: boolean;
-  /** Whether to show the frontend (primary) toggle. With a single app there is
-   * nothing to choose - it is the frontend by default - so the toggle is hidden. */
-  showFrontendToggle: boolean;
+  /** Whether to show the per-app role toggles (frontend, SDK host). With a single
+   * app there is nothing to choose - it is both by default - so they stay hidden. */
+  showRoleToggles: boolean;
   /** Start expanded. Cards default to open so the fields are visible and never
    * auto-collapse while editing. */
   defaultExpanded?: boolean;
@@ -51,6 +51,7 @@ interface AppCardProps {
   onChange: (id: number, patch: Partial<AppDraft>) => void;
   onRepoChange?: (id: number, patch: Partial<RepoDraft>) => void;
   onSetPrimary: (id: number) => void;
+  onSetSdkApp: (id: number) => void;
   onRemove: (id: number) => void;
 }
 
@@ -62,13 +63,14 @@ export function AppCard({
   issues,
   dependencyOptions,
   showDependsOn,
-  showFrontendToggle,
+  showRoleToggles,
   defaultExpanded = true,
   repo,
   repoAppCount = 0,
   onChange,
   onRepoChange,
   onSetPrimary,
+  onSetSdkApp,
   onRemove,
 }: AppCardProps) {
   const errorCount = countIssues(issues.fieldErrors, app.id);
@@ -120,7 +122,7 @@ export function AppCard({
               <span className="font-mono text-2xs text-text-secondary">· {app.port}</span>
             ) : undefined}
           </button>
-          {showFrontendToggle ? (
+          {showRoleToggles ? (
             <div className="flex shrink-0 items-center gap-2">
               <Label htmlFor={`pk-app-${app.id}-primary`} className="cursor-pointer text-2xs text-text-secondary">
                 Frontend
@@ -149,6 +151,35 @@ export function AppCard({
               />
             </div>
           ) : undefined}
+          {showRoleToggles ? (
+            <div className="flex shrink-0 items-center gap-2">
+              <Label htmlFor={`pk-app-${app.id}-sdk`} className="cursor-pointer text-2xs text-text-secondary">
+                SDK
+              </Label>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label="About the SDK app"
+                      className="flex items-center text-text-secondary transition-colors hover:text-text-primary"
+                    >
+                      <InfoIcon size={13} />
+                    </button>
+                  }
+                />
+                <TooltipContent className="max-w-xs">
+                  The app that serves the Autonoma SDK endpoint (/api/autonoma), where test data is created and torn
+                  down before each run. Often the same app as the frontend; in a split front/API project it is the API.
+                </TooltipContent>
+              </Tooltip>
+              <Switch
+                id={`pk-app-${app.id}-sdk`}
+                checked={app.sdkImplemented}
+                onCheckedChange={() => onSetSdkApp(app.id)}
+              />
+            </div>
+          ) : undefined}
           <Button
             variant="ghost"
             size="icon-xs"
@@ -160,6 +191,7 @@ export function AppCard({
           </Button>
         </div>
         <FieldMessages issues={issues} draftId={app.id} field="primary" />
+        <FieldMessages issues={issues} draftId={app.id} field="sdkImplemented" />
       </div>
 
       {open ? (

@@ -1,5 +1,5 @@
 import type { PreviewkitAddonStatus, PreviewkitAppStatus, Prisma, PreviewkitStatus } from "@autonoma/db";
-import { previewConfigSchema } from "@autonoma/types";
+import { declaredSdkAppName, previewConfigSchema, resolveSdkAppName } from "@autonoma/types";
 
 type PreviewEnvironmentStatus =
     | "ready"
@@ -42,7 +42,7 @@ type PreviewkitAppBuildOutcome =
     | { status: "failed"; durationMs: number; error: string; logUrl?: string; runtime?: PreviewServiceIconKey };
 
 type PreviewkitManifest = {
-    apps?: Array<{ name: string; port?: number | null; primary?: boolean | null }>;
+    apps?: Array<{ name: string; port?: number | null; primary?: boolean | null; sdk_implemented?: boolean | null }>;
     services?: Array<{ name: string; recipe?: string | null; version?: string | null }>;
     addons?: Array<{ name: string; provider?: string | null }>;
 };
@@ -71,6 +71,7 @@ export function missingPreviewSummary(headSha: string | null, reason: string) {
         source: "none" as const,
         status: "missing" as const,
         primaryUrl: null,
+        sdkAppUrl: null,
         phase: null,
         error: reason,
         headSha,
@@ -108,6 +109,9 @@ export function legacyPreviewSummary({
         source: "legacy" as const,
         status: "ready" as const,
         primaryUrl: url,
+        // A legacy env has no resolved config to read a role flag from: the one
+        // known URL is both the preview and the SDK host.
+        sdkAppUrl: url,
         phase: null,
         error: null,
         headSha,
@@ -505,7 +509,12 @@ export function projectManifest(resolvedConfig: Prisma.JsonValue): PreviewkitMan
     const parsed = previewConfigSchema.safeParse(resolvedConfig);
     if (!parsed.success) return {};
     return {
-        apps: parsed.data.apps.map((app) => ({ name: app.name, port: app.port, primary: app.primary ?? null })),
+        apps: parsed.data.apps.map((app) => ({
+            name: app.name,
+            port: app.port,
+            primary: app.primary ?? null,
+            sdk_implemented: app.sdk_implemented ?? null,
+        })),
         services: parsed.data.services.map((service) => ({
             name: service.name,
             recipe: service.recipe,
@@ -657,6 +666,29 @@ export function resolvePrimaryUrl(manifest: PreviewkitManifest, urls: Record<str
         .find((url): url is string => url != null && url !== "");
     if (firstManifestUrl != null) return firstManifestUrl;
     return Object.values(urls)[0] ?? null;
+}
+
+/**
+ * The preview origin of the app the config EXPLICITLY declares as the SDK host,
+ * or null when nothing is declared (so a caller can tell an explicit answer apart
+ * from the primary-app fallback that {@link resolveSdkAppUrl} folds in).
+ */
+export function resolveDeclaredSdkAppUrl(manifest: PreviewkitManifest, urls: Record<string, string>): string | null {
+    const declaredAppName = declaredSdkAppName(manifest.apps ?? []);
+    const declaredAppUrl = declaredAppName != null ? urls[declaredAppName] : undefined;
+    return declaredAppUrl != null && declaredAppUrl !== "" ? declaredAppUrl : null;
+}
+
+/**
+ * The preview origin of the app hosting the Environment Factory handler: the app
+ * flagged `sdk_implemented`, else the primary app's URL. Callers append the fixed
+ * `/api/autonoma` path themselves (see `derivePreviewSdkUrl`).
+ */
+export function resolveSdkAppUrl(manifest: PreviewkitManifest, urls: Record<string, string>): string | null {
+    const sdkAppName = resolveSdkAppName(manifest.apps ?? []);
+    const sdkAppUrl = sdkAppName != null ? urls[sdkAppName] : undefined;
+    if (sdkAppUrl != null && sdkAppUrl !== "") return sdkAppUrl;
+    return resolvePrimaryUrl(manifest, urls);
 }
 
 function safeAddonEndpoint(value: Prisma.JsonValue | undefined): string | null {

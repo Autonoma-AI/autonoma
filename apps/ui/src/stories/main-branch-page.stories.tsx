@@ -93,6 +93,7 @@ function previewkitSummary() {
     branch: "main",
     status: "failed" as const,
     primaryUrl: null,
+    sdkAppUrl: null,
     phase: "build_failed",
     error: "All app builds failed; see per-app build outcomes for details.",
     headSha: HEAD_SHA,

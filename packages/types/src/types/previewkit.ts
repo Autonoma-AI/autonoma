@@ -102,6 +102,11 @@ export interface DeployPreviewEnvironmentOutput {
     previewUrl?: string;
     /** Primary app url, for the GitHub deployment status (diffs trigger). */
     primaryUrl?: string;
+    /**
+     * Url of the app hosting the Environment Factory handler (`sdk_implemented`,
+     * else the primary app) - the origin scenario up/down calls are sent to.
+     */
+    sdkAppUrl?: string;
 }
 
 /** `rebuild` re-builds the image then redeploys; `restart` re-rolls the running pods. */

@@ -17,6 +17,7 @@ import {
     parseStringRecord,
     projectManifest,
     resolvePrimaryUrl,
+    resolveSdkAppUrl,
     toAppBuildOutcomeMap,
 } from "./preview-summary";
 
@@ -662,6 +663,7 @@ export class DeploymentsService extends Service {
         const manifest = projectManifest(environment.resolvedConfig);
         const urls = parseStringRecord(environment.urls);
         const primaryUrl = resolvePrimaryUrl(manifest, urls);
+        const sdkAppUrl = resolveSdkAppUrl(manifest, urls);
         const appBuilds = toAppBuildOutcomeMap(effectiveLatestBuild?.appBuilds ?? []);
         const derivedServices = buildServiceSummaries({
             branchName,
@@ -698,6 +700,7 @@ export class DeploymentsService extends Service {
             branch: branchName,
             status,
             primaryUrl,
+            sdkAppUrl,
             phase: environment.phase,
             error: buildingOverPriorAttempt ? null : environment.error,
             headSha: currentHeadSha ?? environment.headSha,

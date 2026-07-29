@@ -400,6 +400,11 @@ function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allow
         command: z.string().optional(),
         health_check: z.string().optional(),
         primary: z.boolean().optional(),
+        // This app serves the Environment Factory handler (`/api/autonoma`), so
+        // scenario up/down calls go to its preview URL. Independent of `primary`:
+        // a full-stack app (Next.js, Rails) is both the browsed frontend and the
+        // SDK host, while a split topology mounts the handler on its API service.
+        sdk_implemented: z.boolean().optional(),
         resources: buildResourcesSchema("app", allowCustomResources),
         depends_on: z.array(z.string()).optional(),
     });
@@ -482,6 +487,47 @@ export const authoringPreviewConfigSchema = buildPreviewConfigSchema(authoredBui
 export type PreviewConfig = z.infer<typeof previewConfigSchema>;
 export type AppConfig = PreviewConfig["apps"][number];
 export type Connection = z.infer<typeof connectionSchema>;
+
+/**
+ * The minimum an app entry has to expose to answer "which app is the primary /
+ * the SDK host?" - so the resolvers below work on a full {@link AppConfig} and on
+ * the projections (the API's manifest view) alike.
+ */
+export interface AppRole {
+    name: string;
+    primary?: boolean | null;
+    sdk_implemented?: boolean | null;
+}
+
+/**
+ * The app whose preview URL is THE preview URL: the one marked `primary`, else
+ * the first declared. This is what a reviewer opens and what the agents browse.
+ */
+export function resolvePrimaryAppName(apps: readonly AppRole[]): string | undefined {
+    const primary = apps.find((app) => app.primary === true) ?? apps[0];
+    return primary?.name;
+}
+
+/**
+ * The app that explicitly declares itself the SDK host, or undefined when none
+ * does. Callers that must distinguish "the config says so" from "we guessed"
+ * (an endpoint persisted from an older deploy is worth overruling only in the
+ * first case) ask this; everyone else wants {@link resolveSdkAppName}.
+ */
+export function declaredSdkAppName(apps: readonly AppRole[]): string | undefined {
+    return apps.find((app) => app.sdk_implemented === true)?.name;
+}
+
+/**
+ * The app that hosts the Environment Factory handler, and therefore the app a
+ * scenario up/down is sent to: the one flagged `sdk_implemented`, falling back to
+ * the primary app. The fallback is what every pre-flag document relies on, and it
+ * is right for a full-stack app; a split topology (front + separate API) must set
+ * the flag or the up lands on the frontend, which has no handler.
+ */
+export function resolveSdkAppName(apps: readonly AppRole[]): string | undefined {
+    return declaredSdkAppName(apps) ?? resolvePrimaryAppName(apps);
+}
 
 /** A `{{target.property}}` connection token parsed into its parts. */
 export interface ConnectionToken {
@@ -570,6 +616,7 @@ export type ConfigIssueCode =
     | "empty_hook_command"
     | "no_primary"
     | "multiple_primary"
+    | "multiple_sdk_implemented"
     | "duplicate_name"
     | "unknown_connection_target"
     | "duplicate_connection_key"
@@ -682,6 +729,18 @@ export function validatePreviewConfigSemantics(config: PreviewConfig): ConfigIss
                 message: "Only one app can be marked as primary",
             });
         }
+    }
+
+    // No warning for zero: an app without the flag falls back to the primary,
+    // which is correct for a full-stack app and for every pre-flag document.
+    const sdkIndexes = config.apps.flatMap((app, index) => (app.sdk_implemented === true ? [index] : []));
+    for (const index of sdkIndexes.slice(1)) {
+        issues.push({
+            severity: "error",
+            code: "multiple_sdk_implemented",
+            path: ["apps", index, "sdk_implemented"],
+            message: "Only one app can host the Autonoma SDK endpoint",
+        });
     }
 
     const repoNames = new Set((config.config?.multirepo?.repos ?? []).map((repo) => repo.name));

@@ -158,6 +158,11 @@ export interface AppDraft {
     command: string;
     healthCheck: string;
     primary: boolean;
+    /**
+     * This app serves the Environment Factory handler, so scenario up/down calls
+     * target it. Independent of `primary` - a full-stack app is both.
+     */
+    sdkImplemented: boolean;
     dependsOn: string[];
     /** Unified variable list: secrets (sensitive) and connections (bindings). */
     env: EnvRowDraft[];
@@ -381,6 +386,7 @@ export function emptyAppDraft(repoKey: string, origin: AppDraftOrigin = "manual"
         command: "",
         healthCheck: "/",
         primary: false,
+        sdkImplemented: false,
         dependsOn: [],
         env: [],
         origin,
@@ -559,6 +565,7 @@ function appDraftFromConfig(app: PreviewConfig["apps"][number], repoKey: string,
     draft.command = app.command ?? "";
     draft.healthCheck = app.health_check ?? "";
     draft.primary = app.primary === true;
+    draft.sdkImplemented = app.sdk_implemented === true;
     draft.dependsOn = app.depends_on ?? [];
     // Connections become non-sensitive binding rows; build-time secret keys seed
     // sensitive rows (value blank - AWS never returns it), marked build-time. The
@@ -976,6 +983,7 @@ function compileApp(app: AppDraft): Record<string, unknown> {
     if (app.buildMode !== "runtime" && app.command.trim() !== "") compiled.command = app.command.trim();
     if (app.healthCheck.trim() !== "") compiled.health_check = app.healthCheck.trim();
     if (app.primary) compiled.primary = true;
+    if (app.sdkImplemented) compiled.sdk_implemented = true;
     if (app.dependsOn.length > 0) compiled.depends_on = app.dependsOn;
 
     // Secrets (sensitive rows) live in AWS; only their build-time subset is named
@@ -1187,6 +1195,7 @@ export const APP_DRAFT_FIELDS = [
     "command",
     "healthCheck",
     "primary",
+    "sdkImplemented",
     "dependsOn",
     "env",
     "connections",
@@ -1254,6 +1263,7 @@ const APP_FIELD_BY_DOCUMENT_KEY: Record<string, AppDraftField> = {
     command: "command",
     health_check: "healthCheck",
     primary: "primary",
+    sdk_implemented: "sdkImplemented",
     depends_on: "dependsOn",
     connections: "connections",
     build_secrets: "buildSecrets",

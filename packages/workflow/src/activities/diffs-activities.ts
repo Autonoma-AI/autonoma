@@ -13,6 +13,12 @@ export interface PrepareDiffsRunInput {
     baseSha: string;
     /** The preview origin the diffs run seeds and tests against. */
     url: string;
+    /**
+     * Origin of the app hosting the Environment Factory handler, when the topology
+     * splits front and API. The persisted SDK endpoint is built from this; absent,
+     * it falls back to `url`.
+     */
+    sdkAppUrl?: string;
 }
 
 export type PrepareDiffsRunResult = { skipped: true } | { skipped: false; snapshotId: string };

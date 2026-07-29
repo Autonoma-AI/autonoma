@@ -44,6 +44,7 @@ import type { DeployResult, Deployer } from "../deployer/deployer";
 import { type AddonOutputs, type EnvInjector, type PublicUrlInfo } from "../deployer/env-injector";
 import { runHookJob } from "../deployer/hook-job-runner";
 import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
+import { resolveSdkAppUrl } from "../diffs/resolve-sdk-app-url";
 import { generateDockerfile } from "../dockerfile-builder/generate-dockerfile";
 import { resolveBuildTurboFilter } from "../dockerfile-builder/resolve-build-turbo-filter";
 import { env } from "../env";
@@ -919,6 +920,7 @@ export class PreviewPipeline {
         const primaryApps = mergedConfig.apps.filter((a) => primaryAppNames.includes(a.name));
         const previewUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
         const primaryUrl = resolvePrimaryUrl(primaryApps, result.urls);
+        const sdkAppUrl = resolveSdkAppUrl(primaryApps, result.urls);
 
         const output: DeployPreviewEnvironmentOutput = {
             ready: readyCount === totalCount,
@@ -931,6 +933,7 @@ export class PreviewPipeline {
         };
         if (previewUrl != null) output.previewUrl = previewUrl;
         if (primaryUrl != null) output.primaryUrl = primaryUrl;
+        if (sdkAppUrl != null) output.sdkAppUrl = sdkAppUrl;
 
         logger.info("Preview environment deployed", {
             repo: repoFullName,

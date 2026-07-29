@@ -78,6 +78,14 @@ A few fields apply to every app, whichever build method you pick:
 
 When a project has more than one app, one is marked the **frontend** with a toggle. The frontend is the app Autonoma's agents open in the browser to test, and its URL becomes the preview's primary URL. Each project has exactly one frontend; the others still get their own URLs but aren't the entry point.
 
+### The SDK app
+
+A second toggle marks the app that serves your [Environment Factory](/environment-factory/) handler at `/api/autonoma`. That's where Autonoma sends the `up` and `down` calls that seed and clean up test data before each run, so it has to point at the app whose code actually mounts the handler.
+
+It's independent of the frontend toggle. A full-stack app (Next.js, Rails, Django) serves the pages the agents browse *and* the handler, so it carries both. A split project marks the browser-facing app as the frontend and the API service as the SDK app.
+
+Leave it unset and Autonoma falls back to the frontend, which is right for a single-app project - but in a split project it sends every `up` to an app with no handler, and scenario setup fails with a 404.
+
 ### Depends on
 
 Once your project pulls in a [connected repository](/preview-environments/multirepo/), each app gets a **Depends on** control for start ordering: the app waits for the apps and services it lists before it starts. Use it when, for example, your frontend shouldn't boot until an API from another repository is reachable.

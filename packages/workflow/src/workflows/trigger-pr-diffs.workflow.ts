@@ -14,6 +14,8 @@ export interface TriggerPrDiffsInput {
     headSha: string;
     baseSha: string;
     url: string;
+    /** Origin of the app hosting the Environment Factory handler; absent, `url` hosts it. */
+    sdkAppUrl?: string;
 }
 
 /**

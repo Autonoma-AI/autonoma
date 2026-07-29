@@ -27,7 +27,7 @@ function isAppTab(value: unknown): value is AppTab {
  * app's slice of the deploy hooks (Hooks).
  */
 export function AppView({ app }: { app: AppDraft }) {
-  const { appId, draft, deployableApps, issues, repoGroups, allNames, updateApp, setPrimaryApp, removeApp } =
+  const { appId, draft, deployableApps, issues, repoGroups, allNames, updateApp, setPrimaryApp, setSdkApp, removeApp } =
     usePreviewDraft();
   // A dependency-repo app scopes the file tree to that repo; a primary-repo app
   // has no RepoDraft, so the tree resolves to the Application's primary repo.
@@ -91,10 +91,11 @@ export function AppView({ app }: { app: AppDraft }) {
           issues={issues}
           dependencyOptions={allNames.filter((name) => name.trim() !== "" && name !== app.name)}
           showDependsOn={repoGroups.length > 1}
-          showFrontendToggle={deployableApps.length > 1}
+          showRoleToggles={deployableApps.length > 1}
           defaultExpanded
           onChange={updateApp}
           onSetPrimary={setPrimaryApp}
+          onSetSdkApp={setSdkApp}
           onRemove={removeApp}
         />
       </TabsContent>

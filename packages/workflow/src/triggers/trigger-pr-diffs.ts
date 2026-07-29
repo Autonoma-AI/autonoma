@@ -13,6 +13,12 @@ export interface TriggerPrDiffsJobParams {
     baseSha: string;
     /** The preview origin the diffs run seeds and tests against. */
     url: string;
+    /**
+     * Origin of the app hosting the Environment Factory handler, when it is not the
+     * app under `url` (a split front/API topology). The scenario up/down endpoint is
+     * derived from this; absent, it falls back to `url`.
+     */
+    sdkAppUrl?: string;
 }
 
 /**
@@ -23,7 +29,7 @@ export interface TriggerPrDiffsJobParams {
  * its `diffs-analysis-${snapshotId}` id, preserving the existing supersede model.
  */
 export async function triggerPrDiffsJob(params: TriggerPrDiffsJobParams): Promise<void> {
-    const { organizationId, branchId, headSha, baseSha, url } = params;
+    const { organizationId, branchId, headSha, baseSha, url, sdkAppUrl } = params;
 
     return await withObservabilityContext({ branch: { branchId } }, async () => {
         logger.info("Triggering PR diffs run workflow");
@@ -37,7 +43,7 @@ export async function triggerPrDiffsJob(params: TriggerPrDiffsJobParams): Promis
                 workflowIdConflictPolicy: WorkflowIdConflictPolicy.FAIL,
                 taskQueue: TaskQueue.DIFFS,
                 searchAttributes: getWorkflowSearchAttributes(),
-                args: [{ organizationId, branchId, headSha, baseSha, url }],
+                args: [{ organizationId, branchId, headSha, baseSha, url, sdkAppUrl }],
             });
             logger.info("PR diffs run workflow started", { workflowId });
         } catch (err) {

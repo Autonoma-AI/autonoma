@@ -11,7 +11,13 @@ import { resolvePreviewkitBypassToken } from "@autonoma/utils";
 import { env } from "../../env";
 import { Service } from "../service";
 import { derivePreviewSdkUrl } from "./preview-sdk-url";
-import { parseStringRecord, projectManifest, resolvePrimaryUrl } from "./preview-summary";
+import {
+    parseStringRecord,
+    projectManifest,
+    resolveDeclaredSdkAppUrl,
+    resolvePrimaryUrl,
+    resolveSdkAppUrl,
+} from "./preview-summary";
 
 // The tenant provision/teardown are synchronous requests through the ALB, whose
 // idle timeout defaults to 60s: hold the connection longer with no bytes flowing
@@ -110,9 +116,9 @@ export class PreviewkitEnvFactoryService extends Service {
     /**
      * Resolve everything the admin popover needs for a preview environment: the
      * owning Application, its scenarios that have an active recipe, the preview's
-     * app URLs, and a suggested SDK URL (the preview branch's persisted SDK
-     * endpoint, falling back to the primary origin + the main-branch webhook path
-     * for envs without a branch deployment). Returns a `disabledReason` instead of
+     * app URLs, and a suggested SDK URL (the app the config declares as the SDK
+     * host, else the preview branch's persisted SDK endpoint, else the primary
+     * origin + the main-branch webhook path). Returns a `disabledReason` instead of
      * throwing when a manual up cannot be run.
      */
     async getOptions(environmentId: string): Promise<EnvFactoryOptions> {
@@ -126,9 +132,9 @@ export class PreviewkitEnvFactoryService extends Service {
                 githubRepositoryId: true,
                 urls: true,
                 resolvedConfig: true,
-                // The preview's own SDK endpoint, resolved to the app that actually
-                // hosts it and persisted by the diffs trigger. Preferred over the
-                // primary-origin derivation, which assumes the SDK lives on the
+                // The SDK endpoint the diffs trigger persisted for this preview. Used
+                // when the config declares no SDK host, and still ahead of the
+                // primary-origin derivation, which assumes the handler lives on the
                 // primary (front) app - untrue when it's a separate service.
                 branch: { select: { deployment: { select: { webhookUrl: true } } } },
             },
@@ -181,12 +187,21 @@ export class PreviewkitEnvFactoryService extends Service {
             return disabled("The linked application has no scenarios with a recipe. Run discover first.");
         }
 
-        // Prefer the preview's persisted SDK endpoint (resolved to the app that
-        // hosts it); fall back to the primary-origin derivation for envs without a
-        // branch deployment yet (e.g. main-branch env 0).
-        const suggestedSdkUrl =
-            environment.branch?.deployment?.webhookUrl ??
-            derivePreviewSdkUrl(primaryUrl, application.mainBranch?.deployment?.webhookUrl);
+        // An app this env's own resolved config DECLARES as the SDK host outranks the
+        // endpoint persisted on the branch deployment: that row is written by whichever
+        // diffs trigger ran (and on the main branch it can be an endpoint from a
+        // long-gone deploy), so it is the older, weaker statement of where the handler
+        // lives. Absent a declaration, the persisted endpoint stands - it may encode a
+        // deliberate override - and last comes the origin-derived guess for an env with
+        // no branch deployment yet (e.g. main-branch env 0).
+        const mainWebhookUrl = application.mainBranch?.deployment?.webhookUrl;
+        const declaredSdkAppUrl = resolveDeclaredSdkAppUrl(manifest, urls);
+        const declaredSdkUrl =
+            declaredSdkAppUrl != null ? derivePreviewSdkUrl(declaredSdkAppUrl, mainWebhookUrl) : undefined;
+        const persistedSdkUrl = environment.branch?.deployment?.webhookUrl ?? undefined;
+        const derivedSdkUrl = derivePreviewSdkUrl(resolveSdkAppUrl(manifest, urls), mainWebhookUrl);
+
+        const suggestedSdkUrl = declaredSdkUrl ?? persistedSdkUrl ?? derivedSdkUrl;
         if (suggestedSdkUrl == null) {
             return disabled("This environment has no app URL to target yet.");
         }

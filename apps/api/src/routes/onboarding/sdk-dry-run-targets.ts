@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { previewConfigSchema } from "@autonoma/types";
+import { previewConfigSchema, resolveSdkAppName } from "@autonoma/types";
 import { z } from "zod";
 import { buildSdkUrl } from "./sdk-url";
 
@@ -99,10 +99,10 @@ function firstPreviewAppName(urls: Record<string, string>): string | undefined {
 }
 
 /**
- * An unparsable `resolvedConfig` silently falls back to "first URL wins", which
- * can point the SDK at a non-primary app - log it so the misroute is traceable.
- * A null config (env created before its first deploy resolved) is expected and
- * stays quiet.
+ * The app hosting the SDK handler per the env's resolved config. An unparsable
+ * `resolvedConfig` silently falls back to "first URL wins", which can point the
+ * SDK at an app with no handler - log it so the misroute is traceable. A null
+ * config (env created before its first deploy resolved) is expected and stays quiet.
  */
 function sdkAppNameFromConfig(resolvedConfig: unknown, environmentId: string, logger: Logger): string | undefined {
     if (resolvedConfig == null) return undefined;
@@ -113,8 +113,7 @@ function sdkAppNameFromConfig(resolvedConfig: unknown, environmentId: string, lo
         });
         return undefined;
     }
-    const primary = parsed.data.apps.find((app) => app.primary === true);
-    return primary?.name ?? parsed.data.apps[0]?.name;
+    return resolveSdkAppName(parsed.data.apps);
 }
 
 interface PreviewkitTargetInfo {

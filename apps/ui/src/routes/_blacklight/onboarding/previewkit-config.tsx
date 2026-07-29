@@ -418,6 +418,18 @@ function PreviewkitConfigContent({
     }));
   }
 
+  // The SDK host is exclusive like the frontend, but a single app can hold both
+  // roles (a full-stack app serves the handler it is tested through).
+  function setSdkApp(id: number) {
+    setDraft((current) => ({
+      ...current,
+      apps: current.apps.map((app) => ({
+        ...app,
+        sdkImplemented: app.id === id ? !app.sdkImplemented : false,
+      })),
+    }));
+  }
+
   // A fresh app's name defaults to its repo: the primary repo's short name for
   // this-repo apps, the alias for a dependency repo - deduped against the names
   // already in use, so a second app from the same repo gets `name-2`.
@@ -677,6 +689,7 @@ function PreviewkitConfigContent({
                 onUpdateApp={updateApp}
                 onUpdateRepo={updateRepo}
                 onSetPrimaryApp={setPrimaryApp}
+                onSetSdkApp={setSdkApp}
                 onRemoveApp={removeApp}
               />
               {draft.repos.length > 0 ? (
@@ -1033,6 +1046,7 @@ function AppsStep({
   onUpdateApp,
   onUpdateRepo,
   onSetPrimaryApp,
+  onSetSdkApp,
   onRemoveApp,
 }: {
   applicationId: string;
@@ -1047,6 +1061,7 @@ function AppsStep({
   onUpdateApp: (id: number, patch: Partial<AppDraft>) => void;
   onUpdateRepo: (id: number, patch: Partial<RepoDraft>) => void;
   onSetPrimaryApp: (id: number) => void;
+  onSetSdkApp: (id: number) => void;
   onRemoveApp: (id: number) => void;
 }) {
   return (
@@ -1086,12 +1101,13 @@ function AppsStep({
                       issues={issues}
                       dependencyOptions={dependencyOptions.filter((name) => name !== app.name)}
                       showDependsOn={hasDependencyRepos}
-                      showFrontendToggle={draftApps.length > 1}
+                      showRoleToggles={draftApps.length > 1}
                       repo={groupRepo}
                       repoAppCount={groupRepoAppCount}
                       onChange={onUpdateApp}
                       onRepoChange={onUpdateRepo}
                       onSetPrimary={onSetPrimaryApp}
+                      onSetSdkApp={onSetSdkApp}
                       onRemove={onRemoveApp}
                     />
                   ))

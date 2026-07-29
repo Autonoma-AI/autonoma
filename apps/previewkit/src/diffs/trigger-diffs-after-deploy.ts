@@ -58,8 +58,9 @@ export async function triggerDiffsAfterDeploy(
         headSha: event.headSha,
         baseSha: event.baseSha,
         url: result.primaryUrl,
+        sdkAppUrl: result.sdkAppUrl,
     });
     logger.info("Diffs run workflow triggered for ready preview", {
-        extra: { ...ids.extra, branchId: event.branchId, url: result.primaryUrl },
+        extra: { ...ids.extra, branchId: event.branchId, url: result.primaryUrl, sdkAppUrl: result.sdkAppUrl },
     });
 }

@@ -67,6 +67,7 @@ interface PreviewDraftValue {
   isSaving: boolean;
   updateApp: (id: number, patch: Partial<AppDraft>) => void;
   setPrimaryApp: (id: number) => void;
+  setSdkApp: (id: number) => void;
   /** Appends an empty app to the repo and returns its draft id, so callers can select it. */
   addApp: (repoKey: string) => number;
   /** Registers a new dependency repo, seeds its first app, and returns the app's draft id. */
@@ -242,6 +243,18 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     }));
   }
 
+  // The SDK host is exclusive like the frontend, but a single app can hold both
+  // roles (a full-stack app serves the handler it is tested through).
+  function setSdkApp(id: number) {
+    setDraft((current) => ({
+      ...current,
+      apps: current.apps.map((app) => ({
+        ...app,
+        sdkImplemented: app.id === id ? !app.sdkImplemented : false,
+      })),
+    }));
+  }
+
   function addApp(repoKey: string): number {
     const app = emptyAppDraft(repoKey);
     setDraft((current) => ({ ...current, apps: [...current.apps, app] }));
@@ -377,6 +390,7 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     isSaving: saveConfig.isPending,
     updateApp,
     setPrimaryApp,
+    setSdkApp,
     addApp,
     addAppFromNewRepo,
     removeApp,

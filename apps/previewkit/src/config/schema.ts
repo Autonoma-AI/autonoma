@@ -1,9 +1,12 @@
 export {
     STANDARD_RESOURCES,
     previewConfigSchema,
+    resolvePrimaryAppName,
+    resolveSdkAppName,
     trustedPreviewConfigSchema,
     type AddonConfig,
     type AppConfig,
+    type AppRole,
     type Build,
     type BranchConvention,
     type ContainerResources,

@@ -29,7 +29,7 @@ const preparer = new DiffsRunPreparer({
 export async function prepareDiffsRun(input: PrepareDiffsRunInput): Promise<PrepareDiffsRunResult> {
     logger.info("Preparing PR run for PreviewKit preview", {
         branch: { branchId: input.branchId },
-        extra: { headSha: input.headSha, url: input.url },
+        extra: { headSha: input.headSha, url: input.url, sdkAppUrl: input.sdkAppUrl },
     });
 
     // Mirror the API: prefer the branch's active-snapshot head as the diff base, falling back to the PR base sha
@@ -40,13 +40,16 @@ export async function prepareDiffsRun(input: PrepareDiffsRunInput): Promise<Prep
     });
     const baseSha = branch?.activeSnapshot?.headSha ?? input.baseSha;
 
+    // The SDK endpoint hangs off the app that implements the handler, which is not
+    // always the app the tests browse: a split topology mounts it on its API
+    // service, and pointing the up at the frontend origin 404s.
     const prepared = await preparer.prepare({
         branchId: input.branchId,
         organizationId: input.organizationId,
         headSha: input.headSha,
         baseSha,
         url: input.url,
-        webhookUrl: buildSdkUrl(input.url),
+        webhookUrl: buildSdkUrl(input.sdkAppUrl ?? input.url),
     });
 
     if (prepared.skipped) {
