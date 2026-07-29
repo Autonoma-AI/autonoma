@@ -22,6 +22,15 @@ export {
     type RequiredCheckRulesetParams,
     type BranchProtectionResult,
 } from "./github-installation-client";
+export { parseCoAuthoredByTrailers, type CoAuthorTrailer } from "./contributors/parse-co-authors";
+export {
+    resolveContributorsFromCommits,
+    contributorKey,
+    isUnresolved,
+    type ResolvedContributor,
+    type ResolveContributorsOptions,
+    type CommitForContributors,
+} from "./contributors/resolve-contributors-from-commits";
 export type { EtagStore } from "./etag-store";
 export { FakeGitHubApp } from "./fake/fake-github-app";
 export { FakeGitHubInstallationClient } from "./fake/fake-github-installation-client";

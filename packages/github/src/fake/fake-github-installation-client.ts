@@ -186,6 +186,14 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         if (!repo.treePaths.includes(path)) repo.treePaths.push(path);
     }
 
+    /** Rewrites a branch's commit list, e.g. to simulate a force-push that drops commits. Not for the default branch. */
+    setBranchCommits(fullName: string, branch: string, shas: string[]): void {
+        const repo = this.requireRepo(fullName);
+        const branchData = repo.branches.get(branch);
+        if (branchData == null) throw new Error(`Branch "${branch}" not found in ${fullName}`);
+        branchData.commits = [...shas];
+    }
+
     /** Appends a commit to a branch. For the default branch, pass its name (e.g. "main"). */
     pushCommit(fullName: string, branch: string, sha: string): void {
         const repo = this.requireRepo(fullName);

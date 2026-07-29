@@ -2139,6 +2139,30 @@ model SkipRecord {
   @@map("skip_record")
 }
 
+// One person who contributed to a PR/branch: a commit author, a `Co-authored-by:` co-author, or the opener.
+// Stickiness is a per-developer habit, so a branch's outcome must be attributable to ALL its authors, not
+// just the PR opener. Refreshed on pull_request open/synchronize/close, keyed by (repo, PR, contributorKey).
+model BranchContributor {
+  id             String   @id @default(cuid())
+  organizationId String   @map("organization_id")
+  repoFullName   String   @map("repo_full_name")
+  prNumber       Int      @map("pr_number")
+  branchId       String?  @map("branch_id")
+  login          String?
+  displayName    String?  @map("display_name")
+  email          String?
+  isOpener       Boolean  @default(false) @map("is_opener")
+  contributorKey String   @map("contributor_key")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([repoFullName, prNumber, contributorKey])
+  @@index([organizationId, createdAt])
+  @@index([repoFullName, prNumber])
+  @@index([login])
+  @@map("branch_contributor")
+}
+
 // Which channel surfaced a false-positive candidate.
 enum FalsePositiveCandidateSource {
   mcp_client_agent // the client's own coding agent reported it via the debug MCP `report_false_positive` tool

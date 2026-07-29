@@ -137,6 +137,18 @@ authoritative analysis verdict).
 - **Requires GitHub App settings** (non-code): the `checks: write` permission, the `issue_comment` webhook
   subscription (for `/autonoma-skip`), and `administration: write` for programmatic branch protection. Nothing
   functions until these are applied.
+- **Per-developer attribution** (`BranchContributorService`, `src/github/branch-contributor.service.ts`):
+  stickiness is an individual habit, so a branch's outcome must attribute to ALL its authors, not just the
+  opener. On `pull_request.opened/synchronize/reopened/ready_for_review/closed` it resolves the PR's full
+  contributor set - every commit author (login when GitHub linked the email to an account) plus every
+  `Co-authored-by:` co-author (kept as name/email, unresolved) plus the opener - and upserts one
+  `BranchContributor` row per person, keyed by `(repoFullName, prNumber, contributorKey)` and accumulating
+  across pushes. It also exposes `resolveFixingPushAuthors`,
+  which returns the commit authors (including `Co-authored-by:` co-authors) for a given push/commit SHA. The
+  `merge_gate.skipped` and `merge_gate.bypassed` PostHog events already carry the
+  actor login (`actorLogin` / `mergedByLogin`) so the funnel breaks down per developer. Pure co-author
+  parsing and contributor resolution live in `@autonoma/github` (`resolveContributorsFromCommits`,
+  `parseCoAuthoredByTrailers`).
 
 ### Previewkit deploy credits gate
 

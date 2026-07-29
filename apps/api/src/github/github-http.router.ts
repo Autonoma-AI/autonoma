@@ -11,6 +11,7 @@ import { investigationMergeTriggerService } from "../investigation/investigation
 import { previewkitTriggerService } from "../previewkit/previewkit-service";
 import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.service";
 import { BranchesService } from "../routes/branches/branches.service";
+import { BranchContributorService } from "./branch-contributor.service";
 import { FalsePositiveCandidateService } from "./false-positive-candidate.service";
 import { buildGitHubApp } from "./github-app";
 import { GitHubInstallationService } from "./github-installation.service";
@@ -39,6 +40,7 @@ const mergeGateService = new MergeGateService(
     falsePositiveCandidatesService,
     new MergeGateSlackNotifier(env.SLACK_BOT_TOKEN, env.MERGE_GATE_SLACK_CHANNEL),
 );
+const branchContributorService = new BranchContributorService(db, githubService);
 
 export const githubHttpRouter = new Hono<GitHubEnv>();
 
@@ -231,16 +233,19 @@ async function dispatchWebhookEvent(
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("opened", organizationId, payload);
             await mergeGateService.postPendingFromWebhook(organizationId, payload);
+            await branchContributorService.refreshFromWebhook(organizationId, payload);
             return;
         case "pull_request_synchronize":
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("synchronize", organizationId, payload);
             await mergeGateService.postPendingFromWebhook(organizationId, payload);
+            await branchContributorService.refreshFromWebhook(organizationId, payload);
             return;
         case "pull_request_reopened":
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("reopened", organizationId, payload);
             await mergeGateService.postPendingFromWebhook(organizationId, payload);
+            await branchContributorService.refreshFromWebhook(organizationId, payload);
             return;
         case "pull_request_ready_for_review":
             // A draft marked ready for review is no longer a draft, so the
@@ -249,12 +254,14 @@ async function dispatchWebhookEvent(
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("ready_for_review", organizationId, payload);
             await mergeGateService.postPendingFromWebhook(organizationId, payload);
+            await branchContributorService.refreshFromWebhook(organizationId, payload);
             return;
         case "pull_request_closed":
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestTeardown(organizationId, payload);
             await startInvestigationMerge(organizationId, payload);
             await mergeGateService.recordMergeFromWebhook(organizationId, payload);
+            await branchContributorService.refreshFromWebhook(organizationId, payload);
             return;
         case "issue_comment_created":
             await mergeGateService.applySkipFromCommentWebhook(organizationId, payload);
