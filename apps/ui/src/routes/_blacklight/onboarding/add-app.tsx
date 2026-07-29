@@ -19,6 +19,7 @@ import { DeleteApplicationDialog } from "components/delete-application-dialog";
 import { useCompleteGithub } from "lib/onboarding/onboarding-api";
 import { type OnboardingOrigin, buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useCreateMinimalApplication } from "lib/query/applications.queries";
+import { useActiveOrg } from "lib/query/auth.queries";
 import {
   useGithubConfig,
   useGithubInstallation,
@@ -214,6 +215,9 @@ function RepoAndNameStep({
   const createApp = useCreateMinimalApplication();
   const linkRepository = useLinkRepository();
   const completeGithub = useCompleteGithub();
+  // The demo shows a real org's installation; don't send visitors out to its GitHub
+  // settings page.
+  const isDemo = useActiveOrg().data?.isDemo === true;
 
   const [selectedRepoId, setSelectedRepoId] = useState<number | undefined>();
   const [name, setName] = useState("");
@@ -343,7 +347,7 @@ function RepoAndNameStep({
               )}
             </div>
           )}
-          {settingsUrl != null && (
+          {settingsUrl != null && !isDemo && (
             <p className="font-mono text-2xs text-text-secondary">
               Can't find your repository?{" "}
               <a
