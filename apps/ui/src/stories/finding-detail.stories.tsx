@@ -82,3 +82,40 @@ export const OriginalOnly: Story = {
     backLink,
   },
 };
+
+/**
+ * A kept `plan_mismatch`: the app worked, the test's plan did not match it, and self-heal could not stabilize it
+ * within budget. It carries no app expected/actual - there is no app-behavior claim to make - so its diagnosis is the
+ * "Why it could not be stabilized" post-mortem instead.
+ */
+export const PlanMismatch: Story = {
+  args: {
+    finding: {
+      id: "cart-badge-count-md",
+      slug: "cart-badge-count-md",
+      category: "plan_mismatch",
+      confidence: "high",
+      planFidelity: "exact",
+      stepCount: 7,
+      headline: "Cart badge test asserts a count format the app no longer renders",
+      planMismatchNote:
+        'The test asserts the badge reads "3 items", but the PR changed the badge to a bare numeral ("3"). I rewrote ' +
+        "the assertion to the numeral and re-ran it, and it still failed: the badge only renders once the cart " +
+        "drawer has been opened, which this plan never does. Re-recording the flow needs a step the plan does not " +
+        "have, so the original plan is kept for a later run rather than replaced with a rewrite that fails.",
+      evidence: [
+        {
+          source: "code",
+          detail: "The badge switched to a bare numeral in this PR.",
+          file: "components/cart/cart-badge.tsx",
+          lines: "18-22",
+          snippet: "-  <span>{count} items</span>\n+  <span aria-label={`${count} items`}>{count}</span>",
+        },
+      ],
+      plan: "Setup\n1. Open the storefront.\n\nSteps\n1. click the cart icon\n2. assert the badge reads “3 items”",
+      videoUrl: "https://assets.autonoma.app/test-generation/demo/video.webm",
+    },
+    meta: analysisVerdictMeta("plan_mismatch"),
+    backLink,
+  },
+};

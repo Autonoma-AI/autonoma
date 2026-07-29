@@ -46,11 +46,9 @@ describe("buildAnalysisCommentPayload", () => {
                 coverage: {
                     byCategory: [
                         { category: "engine_artifact", count: 2 },
-                        { category: "delete", count: 3 },
+                        { category: "plan_mismatch", count: 3 },
                     ],
                     total: 5,
-                    unestablishedProposed: 2,
-                    obsoleteRemoved: 1,
                 },
                 summary: "The app misbehaved on one flow; two runs were engine flakes.",
             },
@@ -167,7 +165,7 @@ describe("buildAnalysisCommentPayload", () => {
         expect(payload.bugs[0]?.evidence).toEqual([]);
     });
 
-    it("summarizes the coverage plane on one line: delete split first, then per-category, delete excluded", async () => {
+    it("summarizes the coverage plane on one line, per category", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
                 verdict: "client_bug",
@@ -176,20 +174,16 @@ describe("buildAnalysisCommentPayload", () => {
                     byCategory: [
                         { category: "engine_artifact", count: 2 },
                         { category: "environment_failure", count: 1 },
-                        { category: "delete", count: 3 },
+                        { category: "plan_mismatch", count: 3 },
                     ],
                     total: 6,
-                    unestablishedProposed: 2,
-                    obsoleteRemoved: 1,
                 },
             },
             context,
             sign,
         );
 
-        expect(payload.warnings).toEqual([
-            "2 proposed tests could not be established · 1 obsolete test removed · 2 engine artifacts · 1 environment failure",
-        ]);
+        expect(payload.warnings).toEqual(["2 engine artifacts · 1 environment failure · 3 unresolved tests"]);
     });
 
     it("is healthy with no cards, summary, or coverage line on a clean pass", async () => {
@@ -210,8 +204,6 @@ describe("buildAnalysisCommentPayload", () => {
                 coverage: {
                     byCategory: [{ category: "scenario_issue", count: 1 }],
                     total: 1,
-                    unestablishedProposed: 0,
-                    obsoleteRemoved: 0,
                 },
             },
             context,
@@ -280,20 +272,18 @@ describe("buildAnalysisCommentPayload", () => {
                 verdict: "passed",
                 bugIssues: [],
                 coverage: {
-                    byCategory: [],
-                    total: 0,
-                    unestablishedProposed: 3,
-                    obsoleteRemoved: 0,
+                    byCategory: [{ category: "plan_mismatch", count: 3 }],
+                    total: 3,
                 },
-                summary: "No app issues; three proposed tests could not be established.",
+                summary: "No app issues; three tests could not be stabilized.",
             },
             context,
             sign,
         );
         const body = renderMarkdown(payload);
 
-        expect(body).toContain("No app issues; three proposed tests could not be established.");
-        expect(body).toContain("3 proposed tests could not be established");
+        expect(body).toContain("No app issues; three tests could not be stabilized.");
+        expect(body).toContain("3 unresolved tests");
     });
 
     it("points the visible preview CTA at the front door and keeps the raw URL for machines", async () => {

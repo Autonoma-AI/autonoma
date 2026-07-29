@@ -28,7 +28,7 @@ const RUN_SIGNALS: Record<
         origin: "pre_existing",
         selectionReason: "The cart badge counter markup changed, and this test asserts its text.",
         supersededBy: {
-            category: "outdated_test",
+            category: "plan_mismatch",
             headline: "The badge renders the new count; the test still asserts the old copy.",
         },
     },

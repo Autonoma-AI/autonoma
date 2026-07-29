@@ -12,8 +12,10 @@ function modelVerdict(overrides: Partial<VerdictForModel>): VerdictForModel {
         headline: "headline",
         expectedBehavior: null,
         actualBehavior: null,
+        whatHappened: null,
         falsePositiveRisk: null,
         suggestedTestUpdate: null,
+        planMismatchNote: null,
         observedAppIssues: null,
         evidence: [{ source: "run", detail: "what the run showed", file: null, lines: null, snippet: null }],
         keyStepIndex: null,
@@ -68,21 +70,49 @@ describe("toRunVerdict", () => {
         ).toThrow();
     });
 
-    it("carries no behavior fields on an engine artifact", () => {
-        const verdict = toRunVerdict(modelVerdict({ category: "engine_artifact" }));
-        expect(verdict.category).toBe("engine_artifact");
+    it("carries whatHappened but no app-behavior fields on an engine artifact", () => {
+        const verdict = toRunVerdict(
+            modelVerdict({
+                category: "engine_artifact",
+                whatHappened: "the native confirm dialog could not be driven",
+            }),
+        );
+        expect(verdict).toMatchObject({
+            category: "engine_artifact",
+            whatHappened: "the native confirm dialog could not be driven",
+        });
+        // A coverage fault describes what happened, not app expected-vs-actual, and carries no false-positive check.
         expect("expectedBehavior" in verdict).toBe(false);
         expect("actualBehavior" in verdict).toBe(false);
         expect("falsePositiveRisk" in verdict).toBe(false);
     });
 
-    it("carries the revised plan on a wrong-test verdict", () => {
+    it("carries the revised plan and post-mortem on a plan_mismatch verdict", () => {
         const verdict = toRunVerdict(
-            modelVerdict({ category: "outdated_test", suggestedTestUpdate: "Setup / Steps / Verification ..." }),
+            modelVerdict({
+                category: "plan_mismatch",
+                suggestedTestUpdate: "Setup / Steps / Verification ...",
+                planMismatchNote: "asserted old copy; rewrote to the new label; still failed",
+            }),
         );
         expect(verdict).toMatchObject({
-            category: "outdated_test",
+            category: "plan_mismatch",
             suggestedTestUpdate: "Setup / Steps / Verification ...",
+            planMismatchNote: "asserted old copy; rewrote to the new label; still failed",
         });
+        // A plan_mismatch is on the coverage plane - it carries no app expected/actual.
+        expect("expectedBehavior" in verdict).toBe(false);
+        expect("actualBehavior" in verdict).toBe(false);
+    });
+
+    // "No viable rewrite" is a real answer on a plan_mismatch, and the self-heal loop reads an empty rewrite as "keep
+    // this test without re-running it". Rejecting the verdict instead would be contained upstream as an
+    // engine_artifact - turning this pipeline's flagship outcome into a harness fault and losing the diagnosis.
+    it("defaults a plan_mismatch's rewrite and post-mortem to empty rather than rejecting the verdict", () => {
+        const verdict = toRunVerdict(
+            modelVerdict({ category: "plan_mismatch", suggestedTestUpdate: null, planMismatchNote: null }),
+        );
+
+        expect(verdict).toMatchObject({ category: "plan_mismatch", suggestedTestUpdate: "", planMismatchNote: "" });
     });
 });

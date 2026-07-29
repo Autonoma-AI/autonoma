@@ -17,7 +17,6 @@ import {
     reporterIssueSeveritySchema,
     reporterIssueStatusSchema,
     summarizeVerdictPlanes,
-    type VerdictPlaneFinding,
 } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { fetchTestSuiteInfo } from "@autonoma/test-updates";
@@ -330,12 +329,12 @@ async function persistReporterResult(
     impactReasoning: string | undefined,
     logger: Logger,
 ): Promise<RunReporterOutput> {
-    const [snapshot, planes] = await Promise.all([
+    const [snapshot, findingCategories] = await Promise.all([
         db.branchSnapshot.findUnique({
             where: { id: snapshotId },
             select: { branchId: true, branch: { select: { organizationId: true } } },
         }),
-        loadFindingPlanes(snapshotId),
+        loadFindingCategories(snapshotId),
     ]);
     if (snapshot == null) throw new Error(`Snapshot ${snapshotId} not found; cannot persist the reporter result`);
     const { branchId } = snapshot;
@@ -354,7 +353,7 @@ async function persistReporterResult(
             await applyIssue(tx, issue, { snapshotId, branchId, organizationId });
         }
 
-        const header = deriveReportHeader(planes, await countOpenBugIssues(tx, branchId));
+        const header = deriveReportHeader(findingCategories, await countOpenBugIssues(tx, branchId));
         await writeReport(tx, { snapshotId, organizationId, impactReasoning, header, result });
         return { ...counts, verdict: header.verdict, clientBugCount: header.clientBugCount };
     });
@@ -375,10 +374,10 @@ interface ReportHeader {
  * the branch's open bug-kind issues (so a bug carried across snapshots keeps the PR red even when no test re-ran
  * it, and resolving flips it green). The verdict is `client_bug` iff the bug count is positive.
  */
-function deriveReportHeader(planes: VerdictPlaneFinding[], openBugCount: number): ReportHeader {
-    const coverage = summarizeVerdictPlanes(planes).coverage;
+function deriveReportHeader(categories: string[], openBugCount: number): ReportHeader {
+    const coverage = summarizeVerdictPlanes(categories).coverage;
     const verdict = openBugCount > 0 ? ANALYSIS_VERDICT.client_bug : ANALYSIS_VERDICT.passed;
-    return { verdict, clientBugCount: openBugCount, testCount: planes.length, coverage };
+    return { verdict, clientBugCount: openBugCount, testCount: categories.length, coverage };
 }
 
 interface WriteReportInput {
@@ -414,20 +413,15 @@ async function writeReport(tx: PrismaWriteClient, input: WriteReportInput): Prom
 }
 
 /**
- * This run's findings as the verdict-plane summary reads them (category + the delete-origin tag). One entry per
- * TEST, not per classification - the counts here become the report's `testCount` and coverage tallies.
+ * This run's terminal verdicts, one per TEST rather than per classification - the counts taken from these become the
+ * report's `testCount` and coverage tallies.
  */
-async function loadFindingPlanes(snapshotId: string): Promise<VerdictPlaneFinding[]> {
+async function loadFindingCategories(snapshotId: string): Promise<string[]> {
     const rows = await db.analysisFinding.findMany({
         where: { reportSnapshotId: snapshotId, currentClassificationId: { not: null } },
-        select: { origin: true, currentClassification: { select: { category: true } } },
+        select: { currentClassification: { select: { category: true } } },
     });
-    const planes: VerdictPlaneFinding[] = [];
-    for (const row of rows) {
-        if (row.currentClassification == null) continue;
-        planes.push({ category: row.currentClassification.category, origin: row.origin ?? undefined });
-    }
-    return planes;
+    return rows.flatMap((row) => (row.currentClassification == null ? [] : [row.currentClassification.category]));
 }
 
 /** The branch's open bug-kind issues - the count that drives the verdict. */

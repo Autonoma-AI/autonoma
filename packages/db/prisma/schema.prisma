@@ -2700,9 +2700,8 @@ model AnalysisReport {
   impactReasoning String? @map("impact_reasoning") @db.Text
 
   /// The coverage-confidence plane summary: per-category counts of the run's findings that are not app-health
-  /// (engine_artifact/environment_failure/scenario_issue/delete), plus the delete-origin split (proposed tests
-  /// the run could not establish vs pre-existing tests removed as obsolete). Display-only blob.
-  /// ![{ byCategory: { category: string; count: number }[]; total: number; unestablishedProposed: number; obsoleteRemoved: number }]
+  /// (engine_artifact/environment_failure/scenario_issue/plan_mismatch). Display-only blob.
+  /// ![{ byCategory: { category: string; count: number }[]; total: number }]
   coverage Json?
 
   /// Dead column: nothing writes or reads it. Superseded by `summary`, which the Reporter authors directly.
@@ -2813,8 +2812,8 @@ model AnalysisClassification {
   generation   TestGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
 
   /// The AnalysisVerdict this iteration reached (passed/client_bug/engine_artifact/environment_failure/
-  /// scenario_issue/delete), or - on a superseded iteration - the classifier's raw `outdated_test`/`bad_test`,
-  /// which is why superseded rows never feed a taxonomy read.
+  /// scenario_issue/plan_mismatch). A superseded self-heal iteration carries `plan_mismatch`, the same terminal it
+  /// routes to. Stored as a plain string so an older row (pre-merge `outdated_test`/`bad_test`/`delete`) still reads.
   category          String
   confidence        String?
   headline          String  @db.Text
@@ -2823,6 +2822,9 @@ model AnalysisClassification {
   expectedBehavior  String? @map("expected_behavior") @db.Text
   actualBehavior    String? @map("actual_behavior") @db.Text
   whatHappened      String? @map("what_happened") @db.Text
+  /// The `plan_mismatch` self-heal post-mortem: what the test asserted that was wrong, the rewrite attempted, and
+  /// why it still failed. Set only for a `plan_mismatch` verdict.
+  planMismatchNote  String? @map("plan_mismatch_note") @db.Text
   observedAppIssues String? @map("observed_app_issues") @db.Text
   remediation       String? @db.Text
   rootCause         String? @map("root_cause") @db.Text

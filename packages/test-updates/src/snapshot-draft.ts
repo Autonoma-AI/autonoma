@@ -351,6 +351,23 @@ export class SnapshotDraft {
     }
 
     /**
+     * Repoints a test case's assignment at a plan record it already had, without minting a new one. Unlike
+     * `updatePlan`, this leaves the snapshot's plan history untouched: restoring the id the assignment held before an
+     * edit makes the snapshot genuinely unchanged for that test, so the `planId`-keyed change computations do not
+     * report it as modified.
+     */
+    public async restorePlan({ testCaseId, planId }: { testCaseId: string; planId: string }): Promise<void> {
+        this.logger.info("Restoring a previous plan for test case", { testCaseId, planId });
+
+        await this.db.testCaseAssignment.update({
+            where: { snapshotId_testCaseId: { snapshotId: this.snapshotId, testCaseId } },
+            data: { planId },
+        });
+
+        this.logger.info("Plan restored for test case", { testCaseId, planId });
+    }
+
+    /**
      * Reverts a test case to its previous snapshot assignment.
      *
      * If the test existed in the previous snapshot, replaces the current assignment

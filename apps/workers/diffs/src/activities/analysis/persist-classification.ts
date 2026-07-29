@@ -83,6 +83,7 @@ function buildClassificationFields(classification: AnalysisCandidateClassificati
         expectedBehavior: report?.expectedBehavior,
         actualBehavior: report?.actualBehavior,
         whatHappened: report?.whatHappened,
+        planMismatchNote: report?.planMismatchNote,
         observedAppIssues: report?.observedAppIssues,
         remediation: report?.remediation,
         rootCause: report?.rootCause,

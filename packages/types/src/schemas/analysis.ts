@@ -21,18 +21,16 @@ export type AnalysisRunOutcome =
  * - App-health: `client_bug` (the app misbehaved - the only true positive against the PR) and `passed`. This
  *   plane drives the PR's headline verdict.
  * - Coverage-confidence: `engine_artifact` (a harness/engine fault - flake, crash, timeout), `environment_failure`
- *   (the preview/infra was unavailable), `scenario_issue` (the test data was mis-seeded), and `delete` (a
- *   correct app whose test could not be stabilized, so the Investigator deleted its own row). This plane never
- *   counts as a bug against the PR and never blocks the run.
+ *   (the preview/infra was unavailable), `scenario_issue` (the test data was mis-seeded), and `plan_mismatch` (the
+ *   app rendered correctly but the test's plan does not match it - self-heal could not stabilize it within budget,
+ *   so it is kept for a later run rather than removed). This plane never counts as a bug against the PR and never
+ *   blocks the run.
  *
- * `delete` is not a classifier output: the Investigator resolves it when a `test_is_wrong` self-heal loop
- * exhausts on a healthy app (the final iteration disallows another rewrite). ONE terminal covers both an
- * un-fixable affected test and an un-stabilizable new test - the report tells them apart from data (was the
- * plan pinned by the snapshot or authored this run), not a separate verdict. There is deliberately no "unknown"
- * bucket: a fault the Investigator cannot classify resolves to `engine_artifact`, never to a silent drop.
- *
- * `test_is_wrong` (the old `outdated_test` + `bad_test`, collapsed) is intentionally absent - it is a TRANSIENT
- * loop-routing signal inside the Investigator, never emitted as a finding.
+ * `plan_mismatch` is both a classifier category and a terminal verdict: the classifier emits it, the Investigator
+ * routes it through a self-heal plan rewrite + re-run, and when that loop exhausts on a healthy app it resolves back
+ * to `plan_mismatch` - kept, never deleted. A budget-exhausted test may be salvageable in a later snapshot, or may be
+ * surfacing a real defect the classifier misdiagnosed. There is deliberately no "unknown" bucket: a fault the
+ * Investigator cannot classify resolves to `engine_artifact`, never to a silent drop.
  */
 export const analysisVerdictSchema = z.enum([
     "passed",
@@ -40,31 +38,50 @@ export const analysisVerdictSchema = z.enum([
     "engine_artifact",
     "environment_failure",
     "scenario_issue",
-    "delete",
+    "plan_mismatch",
 ]);
 export type AnalysisVerdict = z.infer<typeof analysisVerdictSchema>;
 
 export const ANALYSIS_VERDICT = analysisVerdictSchema.enum;
 
 /**
- * The copied classifier's raw Category values that collapse to the transient `test_is_wrong` bucket. Both REQUIRE
- * the app to have rendered, which is why an exhausted self-heal loop on either resolves to `delete` (a correct app
- * whose test could not be stabilized), never to a bug.
+ * How a finding is presented: the ordered tiers every findings list groups and sorts by.
  *
- * They live here rather than beside the classifier because the Temporal workflow sandbox cannot import
- * `@autonoma/diffs/analysis` to reference that enum by symbol, and both the Investigator's routing and the stored
- * category type need them.
+ * - `bug`: the only verdict that counts against the PR.
+ * - `needs_review`: non-blocking, but it needs a human eye - a `plan_mismatch` the run could not stabilize may be
+ *   surfacing a real defect the classifier misdiagnosed, so it is surfaced rather than collapsed with the rest.
+ * - `coverage`: a non-blocking harness/infra/data fault.
+ * - `passed`: the green rows.
  */
-export const analysisTestIsWrongCategorySchema = z.enum(["outdated_test", "bad_test"]);
-export type AnalysisTestIsWrongCategory = z.infer<typeof analysisTestIsWrongCategorySchema>;
+export type AnalysisFindingTier = "bug" | "needs_review" | "coverage" | "passed";
 
 /**
- * Every value `AnalysisClassification.category` can hold: a terminal verdict, or - on an iteration that a self-heal
- * superseded - the classifier's raw `test_is_wrong` category. Superseded rows are why this is wider than
- * `AnalysisVerdict`, and why one must never feed a taxonomy read.
+ * THE partition of the verdict taxonomy - the one place a verdict's presentation is declared. Every other split
+ * below (plane, bucket, sort order) derives from it, so they cannot drift from each other or from the taxonomy, and
+ * no surface may re-derive a tier by testing verdict literals of its own.
+ *
+ * A `Record` over the `AnalysisVerdict` SSOT, so adding a verdict is a compile error here until it is given a tier.
  */
-export const analysisClassificationCategorySchema = z.union([analysisVerdictSchema, analysisTestIsWrongCategorySchema]);
-export type AnalysisClassificationCategory = z.infer<typeof analysisClassificationCategorySchema>;
+const VERDICT_TIER: Record<AnalysisVerdict, AnalysisFindingTier> = {
+    client_bug: "bug",
+    plan_mismatch: "needs_review",
+    engine_artifact: "coverage",
+    environment_failure: "coverage",
+    scenario_issue: "coverage",
+    passed: "passed",
+};
+
+/** Where each tier sorts: what needs action first, then what needs a look, then the remaining non-blocking rows. */
+const TIER_ORDER: Record<AnalysisFindingTier, number> = { bug: 0, needs_review: 1, coverage: 2, passed: 3 };
+
+/**
+ * The tier a finding is presented in. Verdicts arrive from the store as plain strings, so an unknown value falls back
+ * to `coverage` - never actionable, never blocking - matching the UI's graceful fallback.
+ */
+export function analysisFindingTier(category: string): AnalysisFindingTier {
+    const parsed = analysisVerdictSchema.safeParse(category);
+    return parsed.success ? VERDICT_TIER[parsed.data] : "coverage";
+}
 
 /**
  * The two planes the verdict taxonomy splits into. `app_health` is the only plane that counts against the PR;
@@ -73,62 +90,41 @@ export type AnalysisClassificationCategory = z.infer<typeof analysisClassificati
 export type AnalysisVerdictPlane = "app_health" | "coverage";
 
 /**
- * The single source of truth for the plane partition of the verdict taxonomy, derived from every surface that
- * needs it (the Reconciler coverage summary, the PR verdict headline, the checkpoint rail). A `Record` over the
- * `AnalysisVerdict` SSOT, so adding a verdict is a compile error here until it is assigned a plane - a plane can
- * never silently omit a verdict or count one twice.
+ * The plane a verdict falls on, derived from its tier: the app-health plane is exactly the tiers that speak to the
+ * app's behavior (a bug, or a pass), and everything else is coverage-confidence.
  */
-const VERDICT_PLANE: Record<AnalysisVerdict, AnalysisVerdictPlane> = {
-    client_bug: "app_health",
-    passed: "app_health",
-    engine_artifact: "coverage",
-    environment_failure: "coverage",
-    scenario_issue: "coverage",
-    delete: "coverage",
-};
+export function analysisVerdictPlane(category: string): AnalysisVerdictPlane {
+    const tier = analysisFindingTier(category);
+    return tier === "bug" || tier === "passed" ? "app_health" : "coverage";
+}
 
 /** The coverage-plane verdicts, derived from the partition over the schema's option list (never hand-listed). */
 export const coverageVerdicts: AnalysisVerdict[] = analysisVerdictSchema.options.filter(
-    (verdict) => VERDICT_PLANE[verdict] === "coverage",
+    (verdict) => analysisVerdictPlane(verdict) === "coverage",
 );
 
 /**
- * The plane a verdict falls on. Verdicts arrive from the store as plain strings, so an unknown value falls back
- * to `coverage` - it never counts against the PR - matching the UI's graceful fallback.
- */
-export function analysisVerdictPlane(category: string): AnalysisVerdictPlane {
-    const parsed = analysisVerdictSchema.safeParse(category);
-    return parsed.success ? VERDICT_PLANE[parsed.data] : "coverage";
-}
-
-/**
- * The presentation bucket a finding falls in: a client bug (the only verdict that counts against the PR), a
- * passed app-health check, or a non-blocking coverage-plane check. Derived from the plane partition plus the
- * single actionable verdict, so it can never drift from the taxonomy.
+ * The bucket a finding is COUNTED in - the three the checkpoint reports. Coarser than the tier on purpose:
+ * `needs_review` is non-blocking, so it counts as coverage even though it is presented on its own.
  */
 export type AnalysisFindingBucket = "bug" | "passed" | "coverage";
 
 export function analysisFindingBucket(category: string): AnalysisFindingBucket {
-    if (analysisVerdictPlane(category) === "coverage") return "coverage";
-    return category === analysisVerdictSchema.enum.client_bug ? "bug" : "passed";
+    const tier = analysisFindingTier(category);
+    if (tier === "bug" || tier === "passed") return tier;
+    return "coverage";
 }
 
 /**
- * Where each bucket sorts in a findings list: the actionable bugs first, then the coverage plane, then the passing
- * checks - so an expanded list surfaces what still needs attention before the green rows.
- */
-const BUCKET_ORDER: Record<AnalysisFindingBucket, number> = { bug: 0, coverage: 1, passed: 2 };
-
-/**
- * Sort key for a finding, by the presentation bucket of its terminal verdict `category`. THE ordering for every
+ * Sort key for a finding, by the presentation tier of its terminal verdict `category`. THE ordering for every
  * findings list - the report page, the snapshot's suite-changes sections, and the Reporter's own prompt - so a
  * reader never meets the same findings in two different orders. It is a pure function of the verdict, which is why
  * no row stores it.
  *
- * Equal for every finding in the same bucket, so a caller that needs a stable list must order its query too.
+ * Equal for every finding in the same tier, so a caller that needs a stable list must order its query too.
  */
 export function analysisFindingSortKey(category: string): number {
-    return BUCKET_ORDER[analysisFindingBucket(category)];
+    return TIER_ORDER[analysisFindingTier(category)];
 }
 
 /** How many findings fall in each presentation bucket. */
@@ -146,20 +142,19 @@ export function countAnalysisFindingBuckets(categories: Iterable<string>): Analy
 }
 
 /**
- * How a test entered the analysis run - the data tag that tells a `delete` finding apart:
+ * How a test entered the analysis run:
  *
  * - `pre_existing`: an affected test the PR's diff touched (Impact Analysis marked it via `RegenerateSteps`). Its
  *   global TestCase is a real suite member.
  * - `proposed`: a brand-new test Impact Analysis authored this run for functionality the PR adds (via `AddTest`).
  *
- * Narration only: a `delete` removes this run's assignment either way. What origin buys is being able to read the
- * two apart afterwards ("couldn't establish N proposed tests" vs "removed N obsolete tests") without a separate
- * verdict for each.
+ * Narration only: it lets the report tell a proposed test the run could not establish apart from a pre-existing one,
+ * without a separate verdict for each.
  */
 export const analysisTestOriginSchema = z.enum(["pre_existing", "proposed"]);
 export type AnalysisTestOrigin = z.infer<typeof analysisTestOriginSchema>;
 
-/** How many deduped findings carry a given coverage-plane category (categories with zero are omitted). */
+/** How many findings carry a given coverage-plane category (categories with zero are omitted). */
 export const coverageCategoryCountSchema = z.object({
     category: analysisVerdictSchema,
     count: z.number().int().nonnegative(),
@@ -167,20 +162,15 @@ export const coverageCategoryCountSchema = z.object({
 export type CoverageCategoryCount = z.infer<typeof coverageCategoryCountSchema>;
 
 /**
- * The coverage-confidence plane of a run, summarized. `byCategory` counts the DEDUPED findings per coverage
- * category (one distinct issue counted once); the delete split counts individual TESTS (finding members) so a
- * merged `delete` group still reports every test it could not establish or removed. This is the shape the
- * Reconciler derives (`summarizeVerdictPlanes`), persists onto `AnalysisReport.coverage` (a JSON blob), and the
- * PR comment / UI read back - so it lives here as the single source of truth, validated at the read boundary.
+ * The coverage-confidence plane of a run, summarized: `byCategory` counts the findings per coverage category (one
+ * per test) plus the plane total. This is the shape `summarizeVerdictPlanes`
+ * derives, persists onto `AnalysisReport.coverage` (a JSON blob), and the PR comment / UI read back - so it lives
+ * here as the single source of truth, validated at the read boundary.
  */
 export const coverageSummarySchema = z.object({
     byCategory: z.array(coverageCategoryCountSchema),
-    /** Total deduped findings on the coverage plane. */
+    /** Total findings on the coverage plane. */
     total: z.number().int().nonnegative(),
-    /** delete tests that were proposed this run and could not be established (member-level, by origin). */
-    unestablishedProposed: z.number().int().nonnegative(),
-    /** delete tests that pre-existed and were removed as obsolete (member-level, by origin). */
-    obsoleteRemoved: z.number().int().nonnegative(),
 });
 export type CoverageSummary = z.infer<typeof coverageSummarySchema>;
 
@@ -192,11 +182,16 @@ export type CoverageSummary = z.infer<typeof coverageSummarySchema>;
  */
 export const analysisClassificationReportSchema = z.object({
     confidence: z.string().optional(),
-    /** What the app SHOULD have done / what it actually did - the classifier's per-category behavior fields. */
+    /** What the app SHOULD have done / what it actually did - the app-health plane's behavior claim (`passed` and
+     * `client_bug` only). */
     expectedBehavior: z.string().optional(),
     actualBehavior: z.string().optional(),
-    /** Legacy free-form narrative fields (frozen investigation twin); the analysis path uses expected/actual. */
+    /** Free-form "what happened" narrative - the coverage plane's analog of expected/actual: `engine_artifact`,
+     * `environment_failure`, and `scenario_issue` carry it (also holds rows written before the expected/actual split). */
     whatHappened: z.string().optional(),
+    /** The `plan_mismatch` self-heal post-mortem: what the test asserted that was wrong, the rewrite attempted, and
+     * why it still failed. Set only for a `plan_mismatch` verdict. */
+    planMismatchNote: z.string().optional(),
     rootCause: z.string().optional(),
     remediation: z.string().optional(),
     /** App problems seen in the run independent of this test's pass/fail. */
@@ -240,8 +235,9 @@ export const analysisClassificationSummarySchema = z.object({
     number: z.number(),
     /** The generation this iteration ran and judged - links to that run's own page (video, steps, trace). */
     generationId: z.string(),
-    /** The verdict this iteration reached. A superseded one carries the classifier's raw `outdated_test`/
-     * `bad_test`, which is outside `AnalysisVerdict` - render it as a plain label, never through the taxonomy. */
+    /** The verdict this iteration reached - a member of `AnalysisVerdict` (a superseded self-heal iteration carries
+     * `plan_mismatch`, the same terminal it routes to). Kept a plain string so a stored value outside the current
+     * taxonomy still renders as a plain label rather than throwing. */
     category: z.string(),
     headline: z.string(),
     createdAt: z.date(),

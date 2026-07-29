@@ -177,7 +177,7 @@ integrationTestSuite({
                 testCaseId,
                 origin: "pre_existing",
                 number: 1,
-                classification: classification("outdated_test", generationIds[0], {
+                classification: classification("plan_mismatch", generationIds[0], {
                     headline: "The test asserts the old copy",
                     report: { conversationUrl: "s3://conversations/pass-1.json", plan: "assert -$350.00" },
                 }),
@@ -187,7 +187,7 @@ integrationTestSuite({
                 testCaseId,
                 origin: "pre_existing",
                 number: 2,
-                classification: classification("delete", generationIds[1], {
+                classification: classification("plan_mismatch", generationIds[1], {
                     headline: "Still wrong after the rewrite",
                     report: { conversationUrl: "s3://conversations/pass-2.json", plan: "assert +$350.00" },
                 }),
@@ -204,10 +204,10 @@ integrationTestSuite({
             expect(findings).toHaveLength(1);
             const finding = findings[0];
             expect(finding?.classifications).toHaveLength(2);
-            expect(finding?.currentClassification?.category).toBe("delete");
+            expect(finding?.currentClassification?.category).toBe("plan_mismatch");
 
             const [first, latest] = finding?.classifications ?? [];
-            expect(first?.category).toBe("outdated_test");
+            expect(first?.category).toBe("plan_mismatch");
             expect(first?.generationId).toBe(generationIds[0]);
             expect(first?.conversationUrl).toBe("s3://conversations/pass-1.json");
             expect(first?.plan).toBe("assert -$350.00");

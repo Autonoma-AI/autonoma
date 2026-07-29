@@ -50,6 +50,12 @@ export const investigationFindingSchema = z.object({
     expectedBehavior: z.string().optional(),
     actualBehavior: z.string().optional(),
     whatHappened: z.string().optional(),
+    /**
+     * For a `plan_mismatch` (analysis findings): what the test asserted that no longer matches the app, the rewrite
+     * self-heal attempted, and why it still failed. It stands in for expected/actual on that category - the app worked,
+     * so there is no app-behavior claim to make - and is the diagnosis a reviewer acts on.
+     */
+    planMismatchNote: z.string().optional(),
     /** App problems seen in the run independent of this test's pass/fail. */
     observedAppIssues: z.string().optional(),
     remediation: z.string().optional(),

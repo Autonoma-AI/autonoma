@@ -76,12 +76,18 @@ export interface InvestigationVerdict {
     actualBehavior?: string;
     /** The false-positive self-check. Set for a bug / setup failure; absent for a passed run or a harness fault. */
     falsePositiveRisk?: string;
-    /** Legacy free-form narrative fields (frozen investigation twin only); the analysis path uses
-     * expected/actual above. Kept optional so both producers type-check during the twin's deprecation. */
+    /** Free-form "what happened" narrative. The analysis path's coverage faults (engine_artifact /
+     * environment_failure / scenario_issue) fill it; the frozen investigation twin still emits it for every
+     * category. Kept optional so both producers type-check during the twin's deprecation. */
     whatHappened?: string;
+    /** Legacy free-form narrative fields (frozen investigation twin only); the analysis path uses expected/actual
+     * (app-health) or whatHappened (coverage) above. */
     rootCause?: string;
     remediation?: string;
     suggestedTestUpdate?: string;
+    /** The analysis `plan_mismatch` self-heal post-mortem: what the test asserted that was wrong, the rewrite
+     * attempted, and why it still failed. Set only for a `plan_mismatch` verdict. */
+    planMismatchNote?: string;
     /** App problems visible in the video independent of the test's pass/fail; absent if the app looked healthy. */
     observedAppIssues?: string;
     evidence: InvestigationEvidence[];

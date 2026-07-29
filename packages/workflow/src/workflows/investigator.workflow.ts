@@ -1,9 +1,8 @@
 import {
     type AnalysisClassificationReport,
-    type AnalysisTestIsWrongCategory,
     type AnalysisTestOrigin,
     type AnalysisVerdict,
-    analysisTestIsWrongCategorySchema,
+    analysisVerdictSchema,
 } from "@autonoma/types";
 import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
 import type {
@@ -22,10 +21,10 @@ import { categorizeInfraFailure } from "../scenario-setup-failure";
 import { TaskQueue } from "../task-queues";
 
 /**
- * Max run+classify iterations for one test: the initial run plus, on a "test is wrong" verdict, a single self-heal
+ * Max run+classify iterations for one test: the initial run plus, on a `plan_mismatch` verdict, a single self-heal
  * re-run of a rewritten plan. Bounded so the loop always terminates - the final iteration never rewrites nor
- * re-runs (the plan-edit path is withheld), which is what guarantees termination and forces a still-wrong test to
- * `delete`.
+ * re-runs (the plan-edit path is withheld), which guarantees termination and resolves a still-wrong test to a KEPT
+ * `plan_mismatch` (never removed).
  */
 const MAX_INVESTIGATOR_ITERATIONS = 2;
 
@@ -35,18 +34,6 @@ const MAX_INVESTIGATOR_ITERATIONS = 2;
  * same child restates its own row rather than appending a second fault.
  */
 export const CONTAINMENT_CLASSIFICATION_NUMBER = MAX_INVESTIGATOR_ITERATIONS + 1;
-
-/**
- * Where one classifier verdict routes. `test_is_wrong` is the transient loop bucket: the APP rendered correctly but
- * the TEST itself is wrong (a stale plan, or a plan wrong by design - the old `outdated_test` + `bad_test`). It is
- * NEVER a finding's terminal verdict; it drives a self-heal plan rewrite + re-run, and when the loop exhausts on a
- * healthy app it resolves to the `delete` terminal. The iteration that reached it still persists its own
- * classification, which is what makes a wrong self-heal auditable afterwards - so the routing carries the raw
- * category along rather than collapsing it to a sentinel the persist call would have to widen back to a string.
- */
-type RoutedVerdict =
-    | { kind: "terminal"; category: AnalysisVerdict }
-    | { kind: "test_is_wrong"; category: AnalysisTestIsWrongCategory };
 
 /** Reason recorded for a self-heal re-run, fed to the classifier as context for the follow-up iteration. */
 const SELF_HEAL_RERUN_REASON =
@@ -103,21 +90,23 @@ export interface InvestigatorWorkflowInput {
     scenarioId?: string;
     /** Why the test was selected - passed to the classifier as context, and stored on the finding. */
     reason: string;
-    /** Whether this test pre-existed (affected) or was authored this run (proposed). Rides onto the finding and
-     * decides how the report narrates a `delete`. */
+    /** Whether this test pre-existed (affected) or was authored this run (proposed). Rides onto the finding, which is
+     * how the suite-changes view groups it and how the report tells the two apart. */
     origin: AnalysisTestOrigin;
 }
 
 /**
  * Investigator (child workflow, one per test): run the test's generation on the web worker, classify the outcome,
  * and resolve ONE terminal verdict across the full two-plane taxonomy. It writes no rows other than its own test's
- * (plan edit + eager self-delete) and files no bugs (the Reporter owns the cross-test reconciliation).
+ * (a self-heal plan edit, and the revert of that edit when a plan_mismatch is kept) and files no bugs (the Reporter
+ * owns the cross-test reconciliation).
  *
- * When a run shows the TEST itself is wrong on a healthy app it self-heals: rewrite the plan on this test's own
- * rows and re-run, bounded by MAX_INVESTIGATOR_ITERATIONS. If that loop exhausts (the final iteration withholds the
- * re-run), the test is a correct-app test we cannot stabilize, so it resolves to `delete` and the Investigator
- * eagerly drops its own assignment. It ALWAYS reaches a verdict - a scenario/classify fault is contained as a
- * coverage-plane one (environment_failure / scenario_issue / engine_artifact), never a silent drop.
+ * When a run shows the TEST's plan is wrong on a healthy app it self-heals: rewrite the plan on this test's own rows
+ * and re-run, bounded by MAX_INVESTIGATOR_ITERATIONS. If that loop exhausts (the final iteration withholds the
+ * re-run), the test is a correct-app test we cannot stabilize, so it resolves to a KEPT `plan_mismatch` - the
+ * Investigator does NOT remove it, and reverts the failed rewrite so the test's original plan is what promotes. It
+ * ALWAYS reaches a verdict - a scenario/classify fault is contained as a coverage-plane one (environment_failure /
+ * scenario_issue / engine_artifact), never a silent drop.
  *
  * EVERY iteration persists its own classification as it happens, so the verdict that authored a self-heal survives
  * the rewrite that followed it, and a crash mid-loop still leaves what the loop had concluded so far.
@@ -164,9 +153,10 @@ type PersistClassification = (
 
 /**
  * Run the test and route its verdict. A terminal verdict (client_bug / passed / engine_artifact /
- * environment_failure / scenario_issue) is returned immediately. A `test_is_wrong` verdict (healthy app, wrong
- * test) triggers a plan rewrite on this test's own rows + a re-run - up to MAX_INVESTIGATOR_ITERATIONS iterations;
- * the final one withholds the re-run, so a still-`test_is_wrong` test resolves to `delete` (eager self-delete).
+ * environment_failure / scenario_issue) is returned immediately. A `test_is_wrong` verdict (healthy app, the test's
+ * plan does not match it) triggers a plan rewrite on this test's own rows + a re-run - up to
+ * MAX_INVESTIGATOR_ITERATIONS iterations; the final one withholds the re-run, so a still-wrong test resolves to a KEPT
+ * `plan_mismatch` with any rewrite reverted.
  *
  * Each iteration persists its classification before the loop decides what to do next, so the rewrite is always
  * authored AFTER the verdict that motivated it is on disk.
@@ -179,6 +169,9 @@ async function runWithSelfHeal(params: SelfHealParams): Promise<AnalysisCandidat
     // The prior iteration's verdict, carried into a self-heal re-run's classify call so the second iteration judges
     // the corrected plan against the first's conclusion instead of re-investigating from scratch.
     let priorPass: { category: string; headline: string; rootCause?: string } | undefined;
+    // The plan record the assignment held before a self-heal rewrite. Set if and only if a rewrite landed - self-heal
+    // refuses to rewrite what it cannot undo - so this being absent means there is nothing to put back.
+    let planIdBeforeSelfHeal: string | undefined;
 
     // `reason` is the ORIGINAL selection reason (the loop reassigns a separate `currentReason` for re-runs), which
     // is the provenance the Reporter wants on the finding.
@@ -207,64 +200,46 @@ async function runWithSelfHeal(params: SelfHealParams): Promise<AnalysisCandidat
         }
 
         const report = toClassificationReport(outcome.result);
-        const routed = routeVerdict(outcome.verdict.category);
-        if (routed.kind === "terminal") {
-            const { category } = routed;
-            await persist(iteration, { generationId, category, headline: outcome.verdict.headline, report });
-            return { slug, testCaseId, generationId, category, headline: outcome.verdict.headline, origin };
-        }
+        const category = routeVerdict(outcome.verdict.category);
+        const headline = outcome.verdict.headline;
+        // File the verdict BEFORE acting on it, on every path: a plan is never edited on the strength of a verdict that
+        // is not on disk, and an iteration a self-heal supersedes keeps its own row (with its own classifier
+        // conversation), which is what makes a wrong self-heal auditable afterwards.
+        await persist(iteration, { generationId, category, headline, report });
+        const finding: AnalysisCandidateFinding = { slug, testCaseId, generationId, category, headline, origin };
 
-        // The test looks wrong on a healthy app. A self-heal rewrite + re-run is available unless this is the
-        // final iteration (which withholds the plan-edit path so the loop always terminates) or the classifier
-        // proposed no revised plan - in either case the loop is over and this iteration IS the `delete`.
+        // Every verdict but `plan_mismatch` is final on the spot. `plan_mismatch` means the app rendered correctly and
+        // the test's plan does not match it, so it gets a self-heal attempt before it settles.
+        if (category !== "plan_mismatch") return finding;
+
+        // A rewrite + re-run is available unless this is the final iteration (which withholds the plan-edit path so the
+        // loop always terminates) or the classifier proposed no revised plan.
         const isFinalIteration = iteration === MAX_INVESTIGATOR_ITERATIONS;
         const revisedPlan = outcome.verdict.suggestedTestUpdate;
         const canSelfHeal = !isFinalIteration && revisedPlan != null && revisedPlan !== "";
         if (!canSelfHeal) {
-            return await resolveToDelete({
-                snapshotId,
-                slug,
-                testCaseId,
-                generationId,
-                number: iteration,
-                verdict: outcome.verdict,
-                report,
-                origin,
-                persist,
+            // Out of self-heal budget: the test is KEPT as `plan_mismatch`, never removed - it may be salvageable in a
+            // later snapshot, or may be surfacing a defect the classifier misdiagnosed.
+            log.info("Test could not be stabilized on a healthy app; keeping it as plan_mismatch", {
+                snapshot: { snapshotId },
+                extra: { slug, origin, revertToPlanId: planIdBeforeSelfHeal },
             });
+            await revertSelfHealRewrite(snapshotId, slug, planIdBeforeSelfHeal);
+            return finding;
         }
-
-        // This iteration is about to be superseded by the rewrite it motivates, so persist it BEFORE authoring
-        // that rewrite: a plan must never be edited on the strength of a verdict that is not on disk. It keeps its
-        // raw classifier category and its own conversation, which is what makes a wrong self-heal auditable.
-        await persist(iteration, {
-            generationId,
-            category: routed.category,
-            headline: outcome.verdict.headline,
-            report,
-        });
 
         const rerun = await prepareSelfHealRerun(snapshotId, slug, revisedPlan);
-        if (rerun == null) {
-            // The rewrite never landed, so this iteration is still the one being recorded - re-filing its slot
-            // restates the row just written, replacing the superseded verdict with the `delete` it resolves to.
-            return await resolveToDelete({
-                snapshotId,
-                slug,
-                testCaseId,
-                generationId,
-                number: iteration,
-                verdict: outcome.verdict,
-                report,
-                origin,
-                persist,
-            });
-        }
+        // The rewrite never landed, so this iteration's verdict - already filed - is the one the run stands behind, and
+        // there is no plan edit to undo.
+        if (rerun == null) return finding;
 
         log.info("Self-healing: rewrote the plan on the test's own rows; re-running", {
             snapshot: { snapshotId },
-            extra: { slug, iteration, category: outcome.verdict.category },
+            extra: { slug, iteration, category },
         });
+        // Hold the id the rewrite replaced so a later kept `plan_mismatch` restores the plan the loop STARTED from -
+        // never an intermediate rewrite, which is why a second rewrite must not overwrite this.
+        planIdBeforeSelfHeal ??= rerun.previousPlanId;
         generationId = rerun.testGenerationId;
         currentScenarioId = rerun.scenarioId;
         currentReason = SELF_HEAL_RERUN_REASON;
@@ -275,8 +250,8 @@ async function runWithSelfHeal(params: SelfHealParams): Promise<AnalysisCandidat
         };
     }
 
-    // The final iteration always returns (a terminal verdict, or `delete` when it withholds the re-run), so the
-    // loop never falls through. This fail-safe keeps the return total for the type checker.
+    // The final iteration always returns (a terminal verdict, or the kept `plan_mismatch` when it withholds the
+    // re-run), so the loop never falls through. This fail-safe keeps the return total for the type checker.
     return {
         slug,
         testCaseId,
@@ -288,28 +263,17 @@ async function runWithSelfHeal(params: SelfHealParams): Promise<AnalysisCandidat
 }
 
 /**
- * Map the classifier's Category (an opaque string here) onto the Investigator's terminal taxonomy, or the
- * transient `test_is_wrong` bucket. `passed`, `client_bug`, `engine_artifact`, `environment_failure`, and
- * `scenario_issue` pass through 1:1; `outdated_test`/`bad_test` collapse to `test_is_wrong`. `delete` is never a
- * classifier output (the Investigator derives it), and an unrecognized category is treated as `engine_artifact`
- * - a coverage-plane fault, never a silent drop and never a bug against the PR.
+ * Validate the classifier's category (an opaque string here) as an `AnalysisVerdict`. The classifier's own `Category`
+ * enum and this taxonomy hold the same values - `classifier-category-coupling.test.ts` pins that - so every category
+ * passes through as itself. An unrecognized one is treated as `engine_artifact`: a coverage-plane fault, never a silent
+ * drop and never a bug against the PR.
  *
- * Coupled to the copied classifier's `Category` enum (`@autonoma/diffs/analysis`): the category literals are
- * hardcoded because the workflow sandbox cannot import that package to reference the enum by symbol.
+ * `plan_mismatch` needs no special routing here - it IS a terminal verdict. The loop treats it as the one category that
+ * first gets a self-heal attempt, and persists it whether it heals or exhausts.
  */
-function routeVerdict(category: string): RoutedVerdict {
-    const raw = analysisTestIsWrongCategorySchema.safeParse(category);
-    if (raw.success) return { kind: "test_is_wrong", category: raw.data };
-    switch (category) {
-        case "passed":
-        case "client_bug":
-        case "engine_artifact":
-        case "environment_failure":
-        case "scenario_issue":
-            return { kind: "terminal", category };
-        default:
-            return { kind: "terminal", category: "engine_artifact" };
-    }
+function routeVerdict(category: string): AnalysisVerdict {
+    const parsed = analysisVerdictSchema.safeParse(category);
+    return parsed.success ? parsed.data : "engine_artifact";
 }
 
 /** The outcome of one run+classify iteration: a real classifier verdict (with the full rich result to persist), or
@@ -332,6 +296,7 @@ function toClassificationReport(result: InvestigationTestResult): AnalysisClassi
         expectedBehavior: verdict?.expectedBehavior,
         actualBehavior: verdict?.actualBehavior,
         whatHappened: verdict?.whatHappened,
+        planMismatchNote: verdict?.planMismatchNote,
         rootCause: verdict?.rootCause,
         remediation: verdict?.remediation,
         observedAppIssues: verdict?.observedAppIssues,
@@ -352,81 +317,57 @@ function toClassificationReport(result: InvestigationTestResult): AnalysisClassi
 }
 
 /**
- * Author the classifier's revised plan onto THIS test's own (snapshot, testCase) rows and prepare a fresh shadow
- * generation to re-run: `selfHealAnalysisTest` applies `UpdateTest` via the TestSuiteUpdater on the detached
- * snapshot, editing this test case's plan in place (slug preserved, scenario preserved) and queuing one
- * generation - it never repoints any other test. Returns undefined - fall through to `delete` - when no generation
- * could be prepared (e.g. the slug has no assignment on the snapshot).
+ * Author the classifier's revised plan onto THIS test's own (snapshot, testCase) rows and prepare a fresh generation to
+ * re-run: `selfHealAnalysisTest` applies `UpdateTest` via the TestSuiteUpdater, repointing this test case's assignment
+ * at the rewritten plan (slug preserved, scenario preserved) and queuing one generation - it never repoints any other
+ * test. It also reports the plan id it replaced, which is what a kept `plan_mismatch` restores. Returns undefined -
+ * the loop then resolves to a kept `plan_mismatch` - when no generation could be prepared (e.g. the slug has no
+ * assignment on the snapshot).
  */
 async function prepareSelfHealRerun(
     snapshotId: string,
     slug: string,
     revisedPlan: string,
-): Promise<{ testGenerationId: string; scenarioId?: string } | undefined> {
+): Promise<{ testGenerationId: string; scenarioId?: string; previousPlanId: string } | undefined> {
     const created = await investigator.selfHealAnalysisTest({ snapshotId, slug, plan: revisedPlan });
-    if (created.testGenerationId == null) {
-        log.info("Could not prepare a self-heal re-run; will delete the test", {
+    if (!created.prepared) {
+        log.info("Could not prepare a self-heal re-run; keeping the test as plan_mismatch", {
             snapshot: { snapshotId },
-            extra: { slug, reason: created.skippedReason ?? "no generation prepared" },
+            extra: { slug, reason: created.skippedReason },
         });
         return undefined;
     }
-    return { testGenerationId: created.testGenerationId, scenarioId: created.scenarioId };
-}
-
-interface ResolveToDeleteParams {
-    snapshotId: string;
-    slug: string;
-    testCaseId: string;
-    generationId: string;
-    /** The iteration that reached this conclusion - the slot its classification is filed under. */
-    number: number;
-    verdict: InvestigationVerdict;
-    /** This run's evidence, carried onto the `delete` so the finding renders the run it was derived from. */
-    report: AnalysisClassificationReport;
-    origin: AnalysisTestOrigin;
-    persist: PersistClassification;
+    return {
+        testGenerationId: created.testGenerationId,
+        scenarioId: created.scenarioId,
+        previousPlanId: created.previousPlanId,
+    };
 }
 
 /**
- * Resolve a `test_is_wrong` iteration with no rewrite left to the `delete` terminal: the app rendered correctly but
- * the test could not be stabilized, so the Investigator drops its OWN test's assignment on the twin (a row-local
- * write). The verdict is recorded FIRST - the removal is a consequence of the verdict, and a removal we cannot
- * explain is worse than one we failed to make. Contained either way: a delete failure never sinks the verdict.
+ * Undo a self-heal rewrite when the loop settles on a KEPT `plan_mismatch`, by repointing the assignment back at the
+ * plan the rewrite replaced. A rewrite is optimized to make the test pass, so it can blunt the very assertion catching a
+ * real defect - and a plan we know still fails must never be the one that promotes.
  *
- * The classification carries `delete` rather than the classifier's raw `outdated_test`/`bad_test`, because `delete`
- * is what this iteration concluded; an earlier iteration's raw category stays untouched on its own row.
+ * A no-op when `planId` is absent, which - because self-heal refuses to rewrite a test it cannot restore - means no
+ * rewrite landed and there is nothing to undo. Contained: a failed revert leaves the rewritten plan in place but never
+ * sinks the verdict, which is already on disk, and the rewrite stays visible on its own iteration's classification
+ * either way.
  */
-async function resolveToDelete({
-    snapshotId,
-    slug,
-    testCaseId,
-    generationId,
-    number,
-    verdict,
-    report,
-    origin,
-    persist,
-}: ResolveToDeleteParams): Promise<AnalysisCandidateFinding> {
-    log.info("Test could not be stabilized on a healthy app; removing its assignment", {
-        snapshot: { snapshotId },
-        extra: { slug, category: verdict.category, origin },
-    });
-    await persist(number, { generationId, category: "delete", headline: verdict.headline, report });
-
+async function revertSelfHealRewrite(snapshotId: string, slug: string, planId: string | undefined): Promise<void> {
+    if (planId == null) return;
     try {
-        const deletion = await investigator.deleteAnalysisTest({ snapshotId, slug });
-        log.info("Self-delete complete", {
+        const reverted = await investigator.revertSelfHealPlan({ snapshotId, slug, planId });
+        log.info("Restored the test's pre-self-heal plan", {
             snapshot: { snapshotId },
-            extra: { slug, deleted: deletion.deleted, reason: deletion.reason },
+            extra: { slug, reverted: reverted.reverted, reason: reverted.reason },
         });
     } catch (error) {
-        log.warn("Self-delete failed; still reporting the delete verdict", {
+        log.warn("Failed to restore the pre-self-heal plan; keeping the test with the rewritten plan", {
             snapshot: { snapshotId },
             extra: { slug, message: rootFailureMessage(error) },
         });
     }
-    return { slug, testCaseId, generationId, category: "delete", headline: verdict.headline, origin };
 }
 
 /**

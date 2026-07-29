@@ -5,12 +5,12 @@ import { Worker } from "@temporalio/worker";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type {
     ClassifyInvestigationRunInput,
-    DeleteAnalysisTestInput,
-    DeleteAnalysisTestOutput,
     InvestigationTestResult,
     InvestigationVerdict,
     PersistAnalysisClassificationInput,
     PersistAnalysisClassificationOutput,
+    RevertSelfHealPlanInput,
+    RevertSelfHealPlanOutput,
     SelfHealAnalysisTestInput,
     SelfHealAnalysisTestOutput,
 } from "../src/activities";
@@ -26,20 +26,22 @@ const workflowsPath = new URL("../src/workflows/index.ts", import.meta.url).path
 
 /**
  * Behavioral tests for the Investigator's verdict state machine: the self-heal loop, the full taxonomy (a
- * terminal verdict passes through, an exhausted `test_is_wrong` loop resolves to `delete` + drops the test's
- * assignment), containment (a classify fault is contained as a coverage-plane verdict, never a throw), and what it
- * PERSISTS - one classification per iteration, the superseded one always written before the rewrite it motivates.
- * They run the REAL workflow in the time-skipping test environment with mocked activities, so the assertions are on
- * observable outcomes - the verdicts it files, how many times the test re-ran, the plan-edit it authored, and
- * whether it self-deleted - not on internal calls. classify + self-heal + delete all resolve on the DIFFS queue
- * (the pipeline is re-homed into the diffs worker); the web run is the only other activity, and passing no scenario
- * means the GENERAL queue is never scheduled.
+ * terminal verdict passes through; an exhausted `plan_mismatch` loop resolves to a KEPT `plan_mismatch` and reverts
+ * its failed rewrite rather than removing the test), containment (a classify fault is contained as a coverage-plane
+ * verdict, never a throw), and what it PERSISTS - one classification per iteration, the superseded one always
+ * written before the rewrite it motivates. They run the REAL workflow in the time-skipping test environment with
+ * mocked activities, so the assertions are on observable outcomes - the verdicts it files, how many times the test
+ * re-ran, the plan-edit it authored, and whether it reverted - not on internal calls. classify + self-heal + revert
+ * all resolve on the DIFFS queue (the pipeline is re-homed into the diffs worker); the web run is the only other
+ * activity, and passing no scenario means the GENERAL queue is never scheduled.
  */
 
 const SLUG = "checkout-flow";
 const TEST_CASE_ID = "tc-checkout";
 const ORIGINAL_GENERATION = "gen-original";
 const HEALED_GENERATION = "gen-healed";
+/** The plan the assignment pointed at before a self-heal - what a kept `plan_mismatch` restores. */
+const ORIGINAL_PLAN_ID = "plan-original";
 const REVISED_PLAN = "1. Open checkout.\n2. Assert the label the app actually shows.";
 
 /** A mutable per-test script the mocked activities read, letting each test drive the classifier + re-run outcomes. */
@@ -57,8 +59,8 @@ interface Harness {
     selfHealCalls: SelfHealAnalysisTestInput[];
     /** What selfHealAnalysisTest returns (the prepared re-run generation, or a skip). */
     selfHealOutput: SelfHealAnalysisTestOutput;
-    /** Every self-delete the loop requested, captured to assert the eager delete of the test's own row. */
-    deleteCalls: DeleteAnalysisTestInput[];
+    /** Every plan revert the loop requested, captured to assert a kept plan_mismatch restores its original plan. */
+    revertCalls: RevertSelfHealPlanInput[];
     /** Every classification the Investigator filed, in order - the loop's whole record of what it concluded. */
     persistCalls: PersistAnalysisClassificationInput[];
     /** Ordered log of the writes the loop made, so a test can assert a verdict lands BEFORE the rewrite it causes. */
@@ -70,8 +72,8 @@ const harness: Harness = {
     classifyCalls: [],
     webRuns: [],
     selfHealCalls: [],
-    selfHealOutput: {},
-    deleteCalls: [],
+    selfHealOutput: { prepared: false, skippedReason: "not scripted" },
+    revertCalls: [],
     persistCalls: [],
     events: [],
 };
@@ -103,7 +105,7 @@ function classified(v: InvestigationVerdict): InvestigationTestResult {
 }
 
 /**
- * The rich report the fixture's classified result yields on a terminal/delete finding - the classifier output the
+ * The rich report the fixture's classified result yields on any terminal finding - the classifier output the
  * pipeline now carries instead of discarding. Asserting it in the state-machine tests proves the capture happens
  * for every terminal path (undefined-valued media/trace keys are elided by `toEqual`).
  */
@@ -135,9 +137,10 @@ const analysisActivities = {
         harness.events.push("selfHeal");
         return harness.selfHealOutput;
     },
-    async deleteAnalysisTest(input: DeleteAnalysisTestInput): Promise<DeleteAnalysisTestOutput> {
-        harness.deleteCalls.push(input);
-        return { deleted: true };
+    async revertSelfHealPlan(input: RevertSelfHealPlanInput): Promise<RevertSelfHealPlanOutput> {
+        harness.revertCalls.push(input);
+        harness.events.push("revert");
+        return { reverted: true };
     },
     async persistAnalysisClassification(
         input: PersistAnalysisClassificationInput,
@@ -195,8 +198,13 @@ beforeEach(() => {
     harness.selfHealCalls = [];
     harness.persistCalls = [];
     harness.events = [];
-    harness.selfHealOutput = { testGenerationId: HEALED_GENERATION, scenarioId: undefined };
-    harness.deleteCalls = [];
+    harness.selfHealOutput = {
+        prepared: true,
+        testGenerationId: HEALED_GENERATION,
+        previousPlanId: ORIGINAL_PLAN_ID,
+        scenarioId: undefined,
+    };
+    harness.revertCalls = [];
 });
 
 function runInvestigator(origin: AnalysisTestOrigin = "pre_existing"): Promise<AnalysisCandidateFinding> {
@@ -219,7 +227,7 @@ function runInvestigator(origin: AnalysisTestOrigin = "pre_existing"): Promise<A
 describe("investigatorWorkflow verdict state machine", () => {
     it("rewrites the plan and re-runs when the first run shows the test itself is stale", async () => {
         harness.classifyQueue = [
-            classified(verdict("outdated_test", { suggestedTestUpdate: REVISED_PLAN, headline: "stale assertion" })),
+            classified(verdict("plan_mismatch", { suggestedTestUpdate: REVISED_PLAN, headline: "stale assertion" })),
             classified(verdict("passed", { headline: "healed and green" })),
         ];
 
@@ -237,12 +245,12 @@ describe("investigatorWorkflow verdict state machine", () => {
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION, HEALED_GENERATION]);
 
-        // Both iterations were filed, each pinned to the run it judged - the superseded `outdated_test` verdict
+        // Both iterations were filed, each pinned to the run it judged - the superseded `plan_mismatch` verdict
         // (the one that authored the rewrite) survives the pass that replaced it, which is the whole point.
         expect(
             harness.persistCalls.map((call) => [call.classification.category, call.classification.generationId]),
         ).toEqual([
-            ["outdated_test", ORIGINAL_GENERATION],
+            ["plan_mismatch", ORIGINAL_GENERATION],
             ["passed", HEALED_GENERATION],
         ]);
         // Each is filed under the loop's own iteration counter, so re-filing one restates it rather than inventing
@@ -250,7 +258,7 @@ describe("investigatorWorkflow verdict state machine", () => {
         expect(harness.persistCalls.map((call) => call.number)).toEqual([1, 2]);
         // ... and it was filed BEFORE the rewrite it motivated: a plan must never be edited on the strength of a
         // verdict that is not yet on disk.
-        expect(harness.events).toEqual(["persist:outdated_test", "selfHeal", "persist:passed"]);
+        expect(harness.events).toEqual(["persist:plan_mismatch", "selfHeal", "persist:passed"]);
         // The per-test provenance rides onto the finding from the ORIGINAL selection reason, not the re-run's.
         expect(harness.persistCalls.map((call) => call.selectionReason)).toEqual([
             "diff touched checkout",
@@ -258,83 +266,86 @@ describe("investigatorWorkflow verdict state machine", () => {
         ]);
         // The plan-edit was authored against THIS test's own snapshot + test case, carrying the classifier's plan.
         expect(harness.selfHealCalls).toEqual([{ snapshotId: "snap-1", slug: SLUG, plan: REVISED_PLAN }]);
-        expect(harness.deleteCalls).toHaveLength(0);
+        // A passed re-run KEEPS the rewrite - the self-heal succeeded, so there is nothing to revert.
+        expect(harness.revertCalls).toHaveLength(0);
         // The re-run's classify carries the prior pass's verdict, so the second pass judges the corrected plan
         // against the first pass's conclusion instead of re-investigating from scratch.
         expect(harness.classifyCalls.map((call) => call.priorPass)).toEqual([
             undefined,
-            { category: "outdated_test", headline: "stale assertion", rootCause: "n/a" },
+            { category: "plan_mismatch", headline: "stale assertion", rootCause: "n/a" },
         ]);
     });
 
-    it("resolves to delete and self-deletes the row when the test never heals (loop exhausted)", async () => {
+    it("keeps the test as plan_mismatch and reverts the rewrite when it never heals (loop exhausted)", async () => {
         harness.classifyQueue = [
-            classified(verdict("outdated_test", { suggestedTestUpdate: REVISED_PLAN })),
-            classified(verdict("outdated_test", { suggestedTestUpdate: REVISED_PLAN, headline: "still stale" })),
+            classified(verdict("plan_mismatch", { suggestedTestUpdate: REVISED_PLAN })),
+            classified(verdict("plan_mismatch", { suggestedTestUpdate: REVISED_PLAN, headline: "still stale" })),
         ];
 
         const finding = await runInvestigator();
 
         // It ran exactly twice (initial + one self-heal) and the final iteration withheld the re-run, so a
-        // still-`test_is_wrong` test on a healthy app resolves to `delete` - there is no "unknown"/passed bucket.
+        // still-wrong test on a healthy app resolves to a KEPT `plan_mismatch` - never removed, never a bug.
         expect(finding).toEqual({
             slug: SLUG,
             testCaseId: TEST_CASE_ID,
             generationId: HEALED_GENERATION,
-            category: "delete",
+            category: "plan_mismatch",
             headline: "still stale",
             origin: "pre_existing",
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION, HEALED_GENERATION]);
         // Only ONE plan-edit was authored (the final iteration does not request another re-run) ...
         expect(harness.selfHealCalls).toHaveLength(1);
-        // ... and the Investigator dropped its OWN test's assignment on the twin.
-        expect(harness.deleteCalls).toEqual([{ snapshotId: "snap-1", slug: SLUG }]);
-        // The final iteration files `delete` (what it concluded), not the classifier's raw `outdated_test`; the
-        // earlier iteration keeps its raw category on its own row, with the evidence carried onto both.
-        expect(harness.persistCalls.map((call) => call.classification.category)).toEqual(["outdated_test", "delete"]);
+        // ... and the failed rewrite is undone by repointing the assignment at the plan record it replaced, so the
+        // original plan is what promotes (a rewrite optimized to pass can blunt the assertion catching a real bug).
+        expect(harness.revertCalls).toEqual([{ snapshotId: "snap-1", slug: SLUG, planId: ORIGINAL_PLAN_ID }]);
+        // Both iterations file `plan_mismatch` (the terminal is the same value the classifier routed on); the
+        // earlier iteration keeps its own row, with the evidence carried onto both.
+        expect(harness.persistCalls.map((call) => call.classification.category)).toEqual([
+            "plan_mismatch",
+            "plan_mismatch",
+        ]);
         expect(harness.persistCalls[1]?.classification.report).toEqual(expectedReport());
-        // The verdict is recorded before the removal it explains.
-        expect(harness.events).toEqual(["persist:outdated_test", "selfHeal", "persist:delete"]);
+        // The verdict is recorded before the revert it explains.
+        expect(harness.events).toEqual(["persist:plan_mismatch", "selfHeal", "persist:plan_mismatch", "revert"]);
     });
 
-    it("resolves a proposed test to delete without re-running when the classifier proposes no revised plan", async () => {
-        harness.classifyQueue = [classified(verdict("bad_test", { headline: "asserts a removed feature" }))];
+    it("keeps a proposed test as plan_mismatch without re-running when the classifier proposes no revised plan", async () => {
+        harness.classifyQueue = [classified(verdict("plan_mismatch", { headline: "asserts a removed feature" }))];
 
         // A proposed (this-run-authored) test that cannot be established.
         const finding = await runInvestigator("proposed");
 
-        // No suggestedTestUpdate (the feature is gone), so there is nothing to re-run: the correct-app test is
-        // un-fixable and resolves straight to `delete` on the first pass, self-deleting its row.
+        // No suggestedTestUpdate (no viable rewrite), so there is nothing to re-run: the correct-app test resolves
+        // straight to a KEPT `plan_mismatch` on the first pass - not removed, and no rewrite was applied to revert.
         expect(finding).toEqual({
             slug: SLUG,
             testCaseId: TEST_CASE_ID,
             generationId: ORIGINAL_GENERATION,
-            category: "delete",
+            category: "plan_mismatch",
             headline: "asserts a removed feature",
             origin: "proposed",
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);
         expect(harness.selfHealCalls).toHaveLength(0);
-        // The delete is assignment-only whatever the origin - a proposed test's rows carry the record of why it
-        // was removed, so destroying them would erase the finding that explains the removal.
-        expect(harness.deleteCalls).toEqual([{ snapshotId: "snap-1", slug: SLUG }]);
-        // One iteration, filed as the `delete` it resolved to, carrying the run's evidence.
+        expect(harness.revertCalls).toHaveLength(0);
+        // One iteration, filed as the `plan_mismatch` it resolved to, carrying the run's evidence.
         expect(harness.persistCalls).toHaveLength(1);
         expect(harness.persistCalls[0]?.classification).toEqual({
             generationId: ORIGINAL_GENERATION,
-            category: "delete",
+            category: "plan_mismatch",
             headline: "asserts a removed feature",
             report: expectedReport(),
         });
     });
 
-    it("resolves to delete when a self-heal rewrite could not be prepared", async () => {
+    it("keeps as plan_mismatch when a self-heal rewrite could not be prepared", async () => {
         // The classifier proposed a plan, but the self-heal activity could not prepare a generation (e.g. the
-        // slug had no assignment) - so there is nothing to re-run and the test resolves to `delete`.
-        harness.selfHealOutput = { skippedReason: "no assignment for this slug on the snapshot" };
+        // slug had no assignment) - so no rewrite landed and nothing re-ran; the test is kept as plan_mismatch.
+        harness.selfHealOutput = { prepared: false, skippedReason: "no assignment for this slug on the snapshot" };
         harness.classifyQueue = [
-            classified(verdict("outdated_test", { suggestedTestUpdate: REVISED_PLAN, headline: "cannot prepare" })),
+            classified(verdict("plan_mismatch", { suggestedTestUpdate: REVISED_PLAN, headline: "cannot prepare" })),
         ];
 
         const finding = await runInvestigator();
@@ -343,17 +354,18 @@ describe("investigatorWorkflow verdict state machine", () => {
             slug: SLUG,
             testCaseId: TEST_CASE_ID,
             generationId: ORIGINAL_GENERATION,
-            category: "delete",
+            category: "plan_mismatch",
             headline: "cannot prepare",
             origin: "pre_existing",
         });
-        // The rewrite was requested once, but no re-run happened (no HEALED_GENERATION).
+        // The rewrite was requested once, but no re-run happened (no HEALED_GENERATION) ...
         expect(harness.selfHealCalls).toHaveLength(1);
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);
-        expect(harness.deleteCalls).toEqual([{ snapshotId: "snap-1", slug: SLUG }]);
-        // The verdict that motivated the (failed) rewrite is on disk before it is attempted, and the derived
-        // `delete` is filed after - two records of the same run, which is what actually happened.
-        expect(harness.events).toEqual(["persist:outdated_test", "selfHeal", "persist:delete"]);
+        // ... and since no rewrite actually landed, there is nothing to revert.
+        expect(harness.revertCalls).toHaveLength(0);
+        // The verdict is filed ONCE, before the rewrite is attempted: a plan is never edited on the strength of a
+        // verdict that is not on disk, and a rewrite that never landed leaves that one record standing as the terminal.
+        expect(harness.events).toEqual(["persist:plan_mismatch", "selfHeal"]);
     });
 
     it("does not self-heal a client bug - it is terminal on the first run", async () => {
@@ -371,7 +383,6 @@ describe("investigatorWorkflow verdict state machine", () => {
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);
         expect(harness.selfHealCalls).toHaveLength(0);
-        expect(harness.deleteCalls).toHaveLength(0);
         // The Investigator files its own verdict (no cross-test Reconciler write), with the test it is about, the
         // selection provenance, and the classifier's full evidence.
         expect(harness.persistCalls).toHaveLength(1);
@@ -398,7 +409,6 @@ describe("investigatorWorkflow verdict state machine", () => {
             origin: "pre_existing",
         });
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);
-        expect(harness.deleteCalls).toHaveLength(0);
     });
 
     it("contains a classifier fault as engine_artifact rather than throwing", async () => {
@@ -412,7 +422,6 @@ describe("investigatorWorkflow verdict state machine", () => {
         expect(finding.category).toBe("engine_artifact");
         expect(finding.headline).toContain("model exploded during classification");
         expect(harness.webRuns).toEqual([ORIGINAL_GENERATION]);
-        expect(harness.deleteCalls).toHaveLength(0);
         // A fault is still filed - never a silent drop - with its category and headline but no classifier output.
         expect(harness.persistCalls).toHaveLength(1);
         expect(harness.persistCalls[0]?.classification.report).toBeUndefined();

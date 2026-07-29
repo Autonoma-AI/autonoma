@@ -104,8 +104,8 @@ export type {
     InvestigatorActivities,
     SelfHealAnalysisTestInput,
     SelfHealAnalysisTestOutput,
-    DeleteAnalysisTestInput,
-    DeleteAnalysisTestOutput,
+    RevertSelfHealPlanInput,
+    RevertSelfHealPlanOutput,
     PersistAnalysisClassificationInput,
     PersistAnalysisClassificationOutput,
 } from "./analysis-activities";

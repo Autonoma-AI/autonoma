@@ -1,4 +1,4 @@
-import type { AnalysisFindingView } from "@autonoma/types";
+import { ANALYSIS_VERDICT, type AnalysisFindingView } from "@autonoma/types";
 import type { SnapshotChange } from "./diffs-timeline-types";
 import type { EntryCategory, Section, TestEntry } from "./snapshot-entries";
 
@@ -8,8 +8,11 @@ import type { EntryCategory, Section, TestEntry } from "./snapshot-entries";
  * needed - and a selected test the run left alone still appears (as `checked`), which a plan diff cannot show.
  */
 function categoryOf(finding: AnalysisFindingView): EntryCategory {
-    if (finding.category === "delete") return "removed";
     if (finding.origin === "proposed") return "added";
+    // Named by verdict rather than by presentation tier, because what matters here is this verdict's BEHAVIOR: a kept
+    // `plan_mismatch` restores the plan its self-heal replaced, so the run left the test as it found it - checked, not
+    // modified, even though it self-healed. Only a rewrite the run KEPT (a passed re-run) is a real modification.
+    if (finding.category === ANALYSIS_VERDICT.plan_mismatch) return "checked";
     return wasSelfHealed(finding) ? "modified" : "checked";
 }
 

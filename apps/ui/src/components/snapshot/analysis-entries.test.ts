@@ -29,7 +29,7 @@ function classification(number: number): AnalysisClassificationSummary {
         id: `cls-${number}`,
         number,
         generationId: `gen-${number}`,
-        category: "outdated_test",
+        category: "plan_mismatch",
         headline: "The toast copy changed",
         createdAt: new Date("2026-07-27T18:00:00Z"),
     };
@@ -85,10 +85,14 @@ describe("buildAnalysisSections - categorization from the run's own record", () 
         expect(entryIn(sections, "Added")?.category).toBe("added");
     });
 
-    it("categorizes a test the run could not stabilize as removed", () => {
-        const sections = buildAnalysisSections({ findings: [finding({ category: "delete" })], changes: [] });
+    it("categorizes a kept plan_mismatch as checked even though it self-healed (the rewrite was reverted)", () => {
+        const sections = buildAnalysisSections({
+            findings: [finding({ category: "plan_mismatch", classifications: [classification(1), classification(2)] })],
+            changes: [],
+        });
 
-        expect(entryIn(sections, "Removed")?.category).toBe("removed");
+        expect(entryIn(sections, "Checked")?.category).toBe("checked");
+        expect(entryIn(sections, "Modified")).toBeUndefined();
     });
 });
 

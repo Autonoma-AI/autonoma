@@ -11,8 +11,7 @@ export const Category = z.enum([
     "engine_artifact",
     "environment_failure",
     "scenario_issue",
-    "outdated_test",
-    "bad_test",
+    "plan_mismatch",
 ]);
 export type Category = z.infer<typeof Category>;
 
@@ -62,7 +61,7 @@ const verdictBase = z.object({
     keyStepIndex: z.number().int().positive().optional(),
 });
 
-/** Verdicts that describe app behavior carry expected-vs-actual, replacing the old free-form `whatHappened`. */
+/** App-health verdicts (`passed`, `client_bug`) describe app behavior with expected-vs-actual. */
 const behaviorVerdictBase = verdictBase.extend({
     /** What the app SHOULD have done. Always stated; when the correct behavior genuinely cannot be determined
      * the agent says so explicitly here rather than leaving it blank. */
@@ -71,34 +70,55 @@ const behaviorVerdictBase = verdictBase.extend({
     actualBehavior: z.string(),
 });
 
-/** Problem verdicts (a bug or a setup failure) add the explicit false-positive self-check. */
+/** The app-health bug verdict (`client_bug`) adds the explicit false-positive self-check. */
 const problemVerdictBase = behaviorVerdictBase.extend({
     /** The agent's explicit false-positive self-check (could this be an intended change / setup gap, not a defect?). */
     falsePositiveRisk: z.string(),
 });
 
-/** A transient "the test itself is wrong on a healthy app" verdict; carries the complete revised plan to re-run. */
-const testIsWrongVerdictBase = verdictBase.extend({
-    /** The COMPLETE revised test plan the self-heal loop re-runs. */
-    suggestedTestUpdate: z.string(),
-    expectedBehavior: z.string().optional(),
-    actualBehavior: z.string().optional(),
+/** Coverage-plane verdicts describe a NON-app cause in free-form prose instead of app expected/actual. */
+const coverageVerdictBase = verdictBase.extend({
+    /** Free-form account of what happened - the coverage plane's analog of expected/actual. */
+    whatHappened: z.string(),
+});
+
+/** A setup/infra failure (`environment_failure` / `scenario_issue`) adds the false-positive self-check
+ * ("am I sure this is env/data, not a real bug?") on top of the coverage narrative. */
+const setupFailureBase = coverageVerdictBase.extend({
+    falsePositiveRisk: z.string(),
+});
+
+/**
+ * `plan_mismatch`: the app rendered correctly but the test's plan does not match it. Carries the complete revised plan
+ * the self-heal loop re-runs, plus the self-heal post-mortem. No app expected/actual - the app is fine.
+ *
+ * Both fields DEFAULT to empty rather than being strictly required. An empty `suggestedTestUpdate` is a real answer -
+ * "no viable rewrite exists", which the loop reads as "keep this test without re-running it" - and neither field is
+ * worth failing the parse over: a rejected verdict is contained as an `engine_artifact`, which would turn this
+ * pipeline's own flagship case (a kept `plan_mismatch`) into a harness fault and lose the diagnosis entirely.
+ */
+const planMismatchBase = verdictBase.extend({
+    /** The COMPLETE revised test plan the self-heal loop re-runs; empty when no viable rewrite exists. */
+    suggestedTestUpdate: z.string().default(""),
+    /** The self-heal post-mortem: what the test asserted that was wrong, the rewrite attempted, and - on a re-run -
+     * why the prior rewrite still failed. */
+    planMismatchNote: z.string().default(""),
 });
 
 /**
  * The outcome of classifying one run, as a per-category discriminated union: each arm carries exactly the fields
- * that category needs. `passed` and the problem verdicts describe behavior (expected/actual); `engine_artifact`
- * carries only the base account; `outdated_test`/`bad_test` carry the revised plan. The wire schema the model
- * fills is a flat object (see `VerdictForModel`) piped into this union, so the model sees a plain object while
- * consumers get per-category narrowing and no category is forced to emit fields that don't apply to it.
+ * that category needs. The app-health verdicts (`passed`, `client_bug`) describe app behavior (expected/actual); the
+ * coverage faults (`engine_artifact`, `environment_failure`, `scenario_issue`) carry a free-form `whatHappened`;
+ * `plan_mismatch` carries the revised plan + its post-mortem. The wire schema the model fills is a flat object (see
+ * `VerdictForModel`) piped into this union, so the model sees a plain object while consumers get per-category
+ * narrowing and no category is forced to emit fields that don't apply to it.
  */
 export const RunVerdict = z.discriminatedUnion("category", [
     behaviorVerdictBase.extend({ category: z.literal("passed") }),
     problemVerdictBase.extend({ category: z.literal("client_bug"), evidence: z.array(Evidence).min(1) }),
-    problemVerdictBase.extend({ category: z.literal("environment_failure") }),
-    problemVerdictBase.extend({ category: z.literal("scenario_issue") }),
-    verdictBase.extend({ category: z.literal("engine_artifact") }),
-    testIsWrongVerdictBase.extend({ category: z.literal("outdated_test") }),
-    testIsWrongVerdictBase.extend({ category: z.literal("bad_test") }),
+    setupFailureBase.extend({ category: z.literal("environment_failure") }),
+    setupFailureBase.extend({ category: z.literal("scenario_issue") }),
+    coverageVerdictBase.extend({ category: z.literal("engine_artifact") }),
+    planMismatchBase.extend({ category: z.literal("plan_mismatch") }),
 ]);
 export type RunVerdict = z.infer<typeof RunVerdict>;

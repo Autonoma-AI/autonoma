@@ -136,8 +136,8 @@ async function materializeTargets({
 
     const materialized: { generationId: string; reason: string; origin: AnalysisTestOrigin }[] = [];
 
-    // New tests first (AddTest mints test case + plan + assignment + queues a generation). Tagged `proposed` so a
-    // later `delete` on an un-establishable one removes the whole (this-run-only) TestCase, not just the assignment.
+    // New tests first (AddTest mints test case + plan + assignment + queues a generation). Tagged `proposed` because
+    // the TestCase exists only for this run, which is what makes its finding read as an added test.
     for (const test of agentResult.createdTests) {
         const folderId = agentResult.flowFolderId(test.folderName);
         if (folderId == null) throw new Error(`Folder "${test.folderName}" not found for authored test "${test.name}"`);
@@ -154,7 +154,7 @@ async function materializeTargets({
     }
 
     // Affected tests (RegenerateSteps clears the pinned plan's steps + queues a generation to regenerate them).
-    // Tagged `pre_existing` so a later `delete` removes only this run's assignment, never the real suite member.
+    // Tagged `pre_existing` because the TestCase is a real suite member this PR's diff affected.
     for (const affected of agentResult.affectedTests) {
         const testCaseId = agentResult.testCaseIdBySlug.get(affected.slug);
         if (testCaseId == null) {

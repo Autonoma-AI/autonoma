@@ -29,13 +29,7 @@ export { buildClassifierTools } from "./classify/tools";
 export type { ClassifierDeps, CodebaseReader, PreviewAccess, RunArtifacts, RunVideo } from "./classify/dependencies";
 export { withRetry } from "./retry";
 export { summarizeVerdictPlanes } from "./verdict-planes";
-export type {
-    AppHealthVerdict,
-    CoverageCategoryCount,
-    CoverageSummary,
-    TwoPlaneSummary,
-    VerdictPlaneFinding,
-} from "./verdict-planes";
+export type { AppHealthVerdict, CoverageCategoryCount, CoverageSummary, TwoPlaneSummary } from "./verdict-planes";
 
 // The Reporter agent: reconciles a job's findings into de-duped, branch-scoped issues and authors one holistic
 // PR report, on the AgentLoop harness.

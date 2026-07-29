@@ -76,7 +76,7 @@ apiTestSuite({
                     slug: "cart-badge",
                     category: "passed",
                     headline: "Correct after the rewrite",
-                    superseded: [{ category: "outdated_test", headline: "Asserts the old copy" }],
+                    superseded: [{ category: "plan_mismatch", headline: "Asserts the old copy" }],
                 },
             ]);
 
@@ -88,7 +88,7 @@ apiTestSuite({
             expect(finding?.headline).toBe("Correct after the rewrite");
             // Both iterations are readable, oldest first, each pointing at the run it judged.
             expect(finding?.classifications.map((c) => [c.number, c.category])).toEqual([
-                [1, "outdated_test"],
+                [1, "plan_mismatch"],
                 [2, "passed"],
             ]);
             const [superseded, current] = finding?.classifications ?? [];

@@ -39,7 +39,7 @@ const COVERAGE_CATEGORY_NOUN: Record<AnalysisVerdict, string> = {
     engine_artifact: "engine artifact",
     environment_failure: "environment failure",
     scenario_issue: "scenario issue",
-    delete: "removed test",
+    plan_mismatch: "unresolved test",
 };
 
 /** URLs + PR identifiers the comment links to. */
@@ -182,22 +182,14 @@ function buildHeadline(verdict: AppHealthVerdict, bugCount: number): string {
 }
 
 /**
- * One line summarizing the coverage-confidence plane: the delete split (proposed tests that could not be
- * established, pre-existing tests removed as obsolete) plus the per-category counts. `delete` is skipped in the
- * per-category loop because it is already represented by the split. Returns undefined when the plane is empty, so
- * a clean run shows no caveat line.
+ * One line summarizing the coverage-confidence plane: the per-category counts (engine artifacts, environment /
+ * scenario failures, and the unresolved `plan_mismatch` tests the run kept). Returns undefined when the plane is
+ * empty, so a clean run shows no caveat line.
  */
 function buildCoverageLine(coverage: CoverageSummary | undefined): string | undefined {
     if (coverage == null) return undefined;
     const parts: string[] = [];
-    if (coverage.unestablishedProposed > 0) {
-        parts.push(`${countNoun(coverage.unestablishedProposed, "proposed test")} could not be established`);
-    }
-    if (coverage.obsoleteRemoved > 0) {
-        parts.push(`${countNoun(coverage.obsoleteRemoved, "obsolete test")} removed`);
-    }
     for (const entry of coverage.byCategory) {
-        if (entry.category === "delete") continue;
         if (entry.count <= 0) continue;
         parts.push(countNoun(entry.count, COVERAGE_CATEGORY_NOUN[entry.category]));
     }

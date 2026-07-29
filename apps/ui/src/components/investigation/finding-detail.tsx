@@ -127,6 +127,12 @@ function FindingBody({
         </Section>
       )}
 
+      {finding.planMismatchNote != null && finding.planMismatchNote.trim() !== "" && (
+        <Section title="Why it could not be stabilized">
+          <p className="text-sm leading-relaxed text-text-primary">{finding.planMismatchNote}</p>
+        </Section>
+      )}
+
       {finding.remediation != null && (
         <Section title="Remediation">
           <p className="text-sm leading-relaxed text-text-primary">{finding.remediation}</p>

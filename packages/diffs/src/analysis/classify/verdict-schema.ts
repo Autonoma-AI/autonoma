@@ -15,14 +15,22 @@ export const VerdictForModel = z.object({
     confidence: Confidence,
     planFidelity: PlanFidelity,
     headline: z.string(),
-    // What the app SHOULD have done / what it actually did. Null only for engine_artifact (no app behavior to
-    // describe); every other category fills both, including a passed run (the behavior it confirmed correct).
+    // What the app SHOULD have done / what it actually did - the app-health plane's behavior claim. Filled by
+    // `passed` and `client_bug`; null for every coverage verdict (engine_artifact / environment_failure /
+    // scenario_issue / plan_mismatch), which describe a non-app cause instead.
     expectedBehavior: z.string().nullable(),
     actualBehavior: z.string().nullable(),
-    // The false-positive self-check. Set for a bug / setup failure; null for passed / engine_artifact / a wrong test.
+    // Free-form account of what happened - the coverage plane's analog of expected/actual. Filled by the coverage
+    // faults (engine_artifact / environment_failure / scenario_issue); null for the app-health verdicts and plan_mismatch.
+    whatHappened: z.string().nullable(),
+    // The false-positive self-check. Set for client_bug / environment_failure / scenario_issue; null for passed /
+    // engine_artifact / plan_mismatch.
     falsePositiveRisk: z.string().nullable(),
-    // The COMPLETE revised test plan for a bad_test / outdated_test (or a fidelity tightening); null otherwise.
+    // The COMPLETE revised test plan for a plan_mismatch (the plan the self-heal loop re-runs); null otherwise.
     suggestedTestUpdate: z.string().nullable(),
+    // The plan_mismatch self-heal post-mortem: what the test asserted that was wrong, the rewrite attempted, and why
+    // it still failed; null for every other category.
+    planMismatchNote: z.string().nullable(),
     // App problems VISIBLE in the video that are independent of this test's pass/fail (broken images, empty
     // content where data is expected, layout/overlap issues, things not loading). Null when the app looked healthy.
     observedAppIssues: z.string().nullable(),
@@ -60,8 +68,10 @@ export function toRunVerdict(modelVerdict: VerdictForModel): RunVerdict {
         headline: modelVerdict.headline,
         expectedBehavior: modelVerdict.expectedBehavior ?? undefined,
         actualBehavior: modelVerdict.actualBehavior ?? undefined,
+        whatHappened: modelVerdict.whatHappened ?? undefined,
         falsePositiveRisk: modelVerdict.falsePositiveRisk ?? undefined,
         suggestedTestUpdate: modelVerdict.suggestedTestUpdate ?? undefined,
+        planMismatchNote: modelVerdict.planMismatchNote ?? undefined,
         observedAppIssues: modelVerdict.observedAppIssues ?? undefined,
         evidence: modelVerdict.evidence.map((item) => ({
             source: item.source,

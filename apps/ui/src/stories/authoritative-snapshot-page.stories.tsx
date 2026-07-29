@@ -1,9 +1,13 @@
+import type { AnalysisFindingView } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { userEvent, within } from "storybook/test";
 import { withRunSignals } from "./analysis-run-signals";
+
+/** The analysis report as the snapshot page's tRPC output types it - what the fixtures below are checked against. */
+type AnalysisReportFixture = NonNullable<NonNullable<TrpcFixtures["branches"]>["analysisReport"]>;
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
 const RUN_AT = new Date("2026-01-01T11:24:00.000Z");
@@ -88,89 +92,143 @@ const analysisIssues: NonNullable<TrpcFixtures["branches"]>["analysisIssues"] = 
 ];
 
 // The authoritative analysis report: one client bug (the actionable finding), a pair of passed tests, and two
-// non-blocking coverage findings (scenario + engine), plus the report prose and impact-analysis reasoning.
-const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
-  analysisReport: {
-    impactReasoning:
-      "This PR reworks the checkout submit handler and the cart badge counter. I re-ran the two existing " +
-      "checkout tests that exercise those surfaces and authored one new test for the guest add-to-cart path the " +
-      "diff opens up.",
-    reportMarkdown: REPORT_MARKDOWN,
-    summary:
-      "Checkout is broken on this PR: the Place order button never enables even with a valid card and address, so " +
-      "no customer can complete a purchase.",
-    reportEvidence: [{ assetId: "asset_report_1", url: MOCK_SCREENSHOT, kind: "screenshot" }],
-    verdict: "client_bug",
-    clientBugCount: 1,
-    testCount: 5,
-    branchId: BRANCH_ID,
-    findings: [
-      withRunSignals({
-        id: "checkout-place-order",
-        slug: "checkout-place-order",
-        category: "client_bug",
-        headline: "Place order button never enables on the checkout page",
-        confidence: "high",
-        issueId: "issue_place_order",
-        issueTitle: "Place order button never enables on checkout",
-        whatHappened:
-          "With a valid saved card and a complete shipping address, every field validated but the Place order " +
-          "button stayed disabled, so the run could never submit the order.",
-        rootCause:
-          "The submit handler reads a `formValid` flag that is computed once on mount and never recomputed after " +
-          "the async address-validation promise resolves, so the button stays disabled on the happy path.",
-        remediation:
-          "Recompute form validity after the address-validation promise settles, or gate the button on the " +
-          "validated address flag instead of the stale mount-time value.",
-        evidence: [
-          { source: "run", detail: "The Place order button kept aria-disabled after all fields were valid." },
-          {
-            source: "code",
-            detail: "The submit handler never re-reads validity once address validation resolves.",
-            file: "src/checkout/PlaceOrder.tsx",
-            lines: "42-58",
-            snippet: PLACE_ORDER_SNIPPET,
-          },
-        ],
-        finalScreenshotUrl: MOCK_SCREENSHOT,
-        stepCount: 14,
-        runSuccess: false,
-      }),
-      withRunSignals({
-        id: "guest-add-to-cart",
-        slug: "guest-add-to-cart",
-        category: "passed",
-        headline: "A guest can add items to the cart",
-        confidence: "high",
-        evidence: [],
-        stepCount: 8,
-        runSuccess: true,
-      }),
-      withRunSignals({
-        id: "cart-badge-count",
-        slug: "cart-badge-count",
-        category: "passed",
-        headline: "The cart badge reflects the number of items",
-        evidence: [],
-        stepCount: 6,
-        runSuccess: true,
-      }),
-      withRunSignals({
-        id: "coupon-apply",
-        slug: "coupon-apply",
-        category: "scenario_issue",
-        headline: "Coupon test data was not seeded for this run",
-        evidence: [],
-      }),
-      withRunSignals({
-        id: "payment-iframe",
-        slug: "payment-iframe",
-        category: "engine_artifact",
-        headline: "The payment iframe did not load in the harness",
-        evidence: [],
-      }),
-    ],
-  },
+// non-blocking coverage findings (scenario + engine), plus the report prose and impact-analysis reasoning. Named on
+// its own so the needs-review variant below can extend it without restating the prose.
+const analysisReportData: AnalysisReportFixture = {
+  impactReasoning:
+    "This PR reworks the checkout submit handler and the cart badge counter. I re-ran the two existing " +
+    "checkout tests that exercise those surfaces and authored one new test for the guest add-to-cart path the " +
+    "diff opens up.",
+  reportMarkdown: REPORT_MARKDOWN,
+  summary:
+    "Checkout is broken on this PR: the Place order button never enables even with a valid card and address, so " +
+    "no customer can complete a purchase.",
+  reportEvidence: [{ assetId: "asset_report_1", url: MOCK_SCREENSHOT, kind: "screenshot" }],
+  verdict: "client_bug",
+  clientBugCount: 1,
+  testCount: 5,
+  branchId: BRANCH_ID,
+  findings: [
+    withRunSignals({
+      id: "checkout-place-order",
+      slug: "checkout-place-order",
+      category: "client_bug",
+      headline: "Place order button never enables on the checkout page",
+      confidence: "high",
+      issueId: "issue_place_order",
+      issueTitle: "Place order button never enables on checkout",
+      whatHappened:
+        "With a valid saved card and a complete shipping address, every field validated but the Place order " +
+        "button stayed disabled, so the run could never submit the order.",
+      rootCause:
+        "The submit handler reads a `formValid` flag that is computed once on mount and never recomputed after " +
+        "the async address-validation promise resolves, so the button stays disabled on the happy path.",
+      remediation:
+        "Recompute form validity after the address-validation promise settles, or gate the button on the " +
+        "validated address flag instead of the stale mount-time value.",
+      evidence: [
+        { source: "run", detail: "The Place order button kept aria-disabled after all fields were valid." },
+        {
+          source: "code",
+          detail: "The submit handler never re-reads validity once address validation resolves.",
+          file: "src/checkout/PlaceOrder.tsx",
+          lines: "42-58",
+          snippet: PLACE_ORDER_SNIPPET,
+        },
+      ],
+      finalScreenshotUrl: MOCK_SCREENSHOT,
+      stepCount: 14,
+      runSuccess: false,
+    }),
+    withRunSignals({
+      id: "guest-add-to-cart",
+      slug: "guest-add-to-cart",
+      category: "passed",
+      headline: "A guest can add items to the cart",
+      confidence: "high",
+      evidence: [],
+      stepCount: 8,
+      runSuccess: true,
+    }),
+    withRunSignals({
+      id: "cart-badge-count",
+      slug: "cart-badge-count",
+      category: "passed",
+      headline: "The cart badge reflects the number of items",
+      evidence: [],
+      stepCount: 6,
+      runSuccess: true,
+    }),
+    withRunSignals({
+      id: "coupon-apply",
+      slug: "coupon-apply",
+      category: "scenario_issue",
+      headline: "Coupon test data was not seeded for this run",
+      evidence: [],
+    }),
+    withRunSignals({
+      id: "payment-iframe",
+      slug: "payment-iframe",
+      category: "engine_artifact",
+      headline: "The payment iframe did not load in the harness",
+      evidence: [],
+    }),
+  ],
+};
+
+const analysisReport: NonNullable<TrpcFixtures["branches"]> = { analysisReport: analysisReportData };
+
+/**
+ * The same run plus one test the Investigator could not stabilize: it classified the plan as wrong on a healthy app,
+ * rewrote it, re-ran it, and the rewrite failed too - so the loop exhausted, reverted the rewrite and KEPT the test as
+ * a `plan_mismatch`. Its two classifications are that history. Non-blocking, so the run stays at one client bug.
+ */
+const KEPT_PLAN_MISMATCH: AnalysisFindingView = {
+  id: "cart-drawer-subtotal",
+  slug: "cart-drawer-subtotal",
+  category: "plan_mismatch",
+  confidence: "high",
+  planFidelity: "exact",
+  headline: "Cart drawer test asserts a subtotal row the PR moved behind a disclosure",
+  planMismatchNote:
+    'The test asserts the subtotal reads "$48.00" in the drawer, but this PR moved the totals behind a "Show ' +
+    'summary" disclosure, so nothing renders until it is expanded. I rewrote the plan to expand it first and re-ran: ' +
+    "the disclosure only appears once the drawer finishes its open animation, which the plan has no way to await. " +
+    "Keeping the original plan for a later run rather than promoting a rewrite that still fails.",
+  evidence: [
+    {
+      source: "code",
+      detail: "The totals block moved inside a collapsed disclosure in this PR.",
+      file: "components/cart/cart-drawer.tsx",
+      lines: "64-71",
+      snippet:
+        '-  <SubtotalRow value={subtotal} />\n+  <Disclosure label="Show summary">\n+    <SubtotalRow value={subtotal} />',
+    },
+  ],
+  stepCount: 9,
+  runSuccess: false,
+  generationId: "gen_cart_drawer_subtotal_2",
+  testCase: { id: "tc_cart_drawer_subtotal", name: "cart-drawer-subtotal.md", slug: "cart-drawer-subtotal" },
+  origin: "pre_existing",
+  selectionReason: "The diff restructures the cart drawer totals this test asserts on.",
+  classifications: [
+    {
+      id: "cls_cart_drawer_1",
+      number: 1,
+      generationId: "gen_cart_drawer_subtotal_1",
+      category: "plan_mismatch",
+      headline: "The subtotal row is no longer rendered inline",
+      createdAt: FIXTURE_EPOCH,
+    },
+    {
+      id: "cls_cart_drawer_2",
+      number: 2,
+      generationId: "gen_cart_drawer_subtotal_2",
+      category: "plan_mismatch",
+      headline: "Cart drawer test asserts a subtotal row the PR moved behind a disclosure",
+      createdAt: RUN_AT,
+    },
+  ],
 };
 
 // The one bug issue this run opened, as a list summary - shown in the snapshot's per-job "Issues this checkpoint".
@@ -504,6 +562,34 @@ export const Finding: Story = {
 export const Issue: Story = {
   args: {
     path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/issues/issue_place_order`,
+  },
+};
+
+/**
+ * The findings list with a kept `plan_mismatch` in it: it gets its own visible "Needs review" group between the
+ * actionable client bug and the collapsed remainder, because a test the run could not stabilize may be catching a real
+ * defect the classifier misdiagnosed. It is still non-blocking - the run's bug count stays at one.
+ */
+export const ReportNeedsReview: Story = {
+  args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}` },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...pageFixtures,
+        branches: {
+          ...pageFixtures.branches,
+          analysisReport: {
+            ...analysisReportData,
+            // Swapped in for the scenario_issue rather than appended: `plan_mismatch` is also a coverage verdict, so
+            // the run's bug/passed/coverage counts - and the header tallies fixtured separately from the findings -
+            // all stay correct without a second fixture to keep in sync.
+            findings: analysisReportData.findings
+              .filter((finding) => finding.slug !== "coupon-apply")
+              .concat(KEPT_PLAN_MISMATCH),
+          },
+        },
+      }),
+    },
   },
 };
 

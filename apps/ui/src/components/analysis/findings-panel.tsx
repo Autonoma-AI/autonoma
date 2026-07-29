@@ -1,15 +1,23 @@
 import { Badge, Panel, PanelBody, PanelHeader, PanelTitle } from "@autonoma/blacklight";
-import { type AnalysisFindingView, analysisFindingSortKey } from "@autonoma/types";
+import {
+  type AnalysisFindingTier,
+  type AnalysisFindingView,
+  analysisFindingSortKey,
+  analysisFindingTier,
+} from "@autonoma/types";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { analysisVerdictMeta } from "components/analysis/verdict-meta";
 import { useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
 /**
- * The authoritative findings list, rendered in the snapshot page's TESTS RUN slot. Every test the analysis ran
- * yields one finding row; each row - client bug, coverage, or passed alike - opens the finding's evidence detail
- * (there is no split by type and no durable Bug page). Actionable findings (client bugs, the only verdict that
- * counts against the PR) are shown by default; the non-blocking coverage + passed rows collapse behind a toggle.
+ * The authoritative findings list, rendered in the snapshot page's TESTS RUN slot. Every test the analysis ran yields
+ * one finding row; each row - whatever its verdict - opens the finding's evidence detail (there is no split by type and
+ * no durable Bug page).
+ *
+ * The groups are the taxonomy's `AnalysisFindingTier`s, in its order: the actionable `bug` rows first, then
+ * `needs_review` in a visible group (non-blocking, but those tests need a human eye), then `coverage` and `passed`
+ * together behind a toggle. Which verdict lands in which tier is the taxonomy's call, never this component's.
  */
 export function AnalysisFindingsPanel({
   findings,
@@ -22,10 +30,15 @@ export function AnalysisFindingsPanel({
 }) {
   const [showCollapsed, setShowCollapsed] = useState(false);
 
+  // Grouped by the taxonomy's own presentation tier, never by verdict literals here - so the groups this panel shows
+  // are exactly the ones the shared sort key orders by, and cannot drift from the other findings surfaces.
   const sorted = [...findings].sort((a, b) => analysisFindingSortKey(a.category) - analysisFindingSortKey(b.category));
-  const actionable = sorted.filter((f) => analysisVerdictMeta(f.category).actionable);
-  const collapsed = sorted.filter((f) => !analysisVerdictMeta(f.category).actionable);
-  const bugCount = findings.filter((f) => f.category === "client_bug").length;
+  const byTier = (tier: AnalysisFindingTier) =>
+    sorted.filter((finding) => analysisFindingTier(finding.category) === tier);
+  const actionable = byTier("bug");
+  const needsReview = byTier("needs_review");
+  const collapsed = [...byTier("coverage"), ...byTier("passed")];
+  const bugCount = actionable.length;
 
   return (
     <Panel>
@@ -51,6 +64,17 @@ export function AnalysisFindingsPanel({
                   <FindingRow key={finding.id} finding={finding} prNumber={prNumber} snapshotId={snapshotId} />
                 ))}
               </ul>
+            )}
+
+            {needsReview.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <span className="font-mono text-2xs uppercase tracking-widest text-text-secondary">Needs review</span>
+                <ul className="flex flex-col gap-2">
+                  {needsReview.map((finding) => (
+                    <FindingRow key={finding.id} finding={finding} prNumber={prNumber} snapshotId={snapshotId} />
+                  ))}
+                </ul>
+              </div>
             )}
 
             {collapsed.length > 0 && (

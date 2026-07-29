@@ -1,5 +1,4 @@
 import type {
-    AnalysisClassificationCategory,
     AnalysisClassificationReport,
     AnalysisRunOutcome,
     AnalysisTestOrigin,
@@ -53,10 +52,10 @@ export interface AnalysisCandidateClassification {
     /** The generation this iteration ran and judged. */
     generationId: string;
     /**
-     * The verdict this iteration reached: a terminal `AnalysisVerdict`, or the classifier's raw `outdated_test` /
-     * `bad_test` on an iteration that self-healed (which is why a superseded row must never feed a taxonomy read).
+     * The verdict this iteration reached. A self-heal iteration and the terminal it settles on both carry
+     * `plan_mismatch`, so every stored category is a valid `AnalysisVerdict`.
      */
-    category: AnalysisClassificationCategory;
+    category: AnalysisVerdict;
     headline: string;
     /**
      * The classifier's full rich output for this run (narrative, evidence, run-trace frames, media keys). Absent
@@ -75,14 +74,13 @@ export interface AnalysisCandidateFinding {
     testCaseId: string;
     /** The generation whose run produced the terminal verdict - the LAST iteration's. */
     generationId: string;
-    /** The Investigator's terminal verdict (the full two-plane taxonomy). Never `test_is_wrong` - that is a
-     * transient loop-routing signal that resolves to a re-run or, when exhausted, to `delete`. */
+    /** The Investigator's terminal verdict (the full two-plane taxonomy). Never the transient loop-routing signal
+     * that drives self-heal - that resolves to a re-run or, when exhausted, to a kept `plan_mismatch`. */
     category: AnalysisVerdict;
     headline: string;
     /**
-     * Whether the test pre-existed (affected) or was authored this run (proposed). The data tag that lets a
-     * `delete` finding be read apart - an obsolete pre-existing test vs a proposed test that could not be
-     * established - without a separate verdict.
+     * Whether the test pre-existed (affected) or was authored this run (proposed). A narration-only data tag: it
+     * lets the report tell a proposed test the run could not establish apart from a pre-existing one.
      */
     origin: AnalysisTestOrigin;
 }
@@ -154,26 +152,44 @@ export interface SelfHealAnalysisTestInput {
     plan: string;
 }
 
-export interface SelfHealAnalysisTestOutput {
-    /** A fresh pending generation to re-run + re-classify, or undefined when one could not be prepared. */
-    testGenerationId?: string;
-    /** The scenario the rewritten plan pins (preserved from the test's current plan), when it pins one. */
-    scenarioId?: string;
-    /** Why no generation was prepared, when `testGenerationId` is absent (e.g. the slug has no assignment). */
-    skippedReason?: string;
-}
+/**
+ * Either the rewrite landed and is undoable, or nothing was touched. The two arms exist so "a rewrite was applied"
+ * and "we know the plan to restore" cannot come apart: a rewrite is only ever applied when it can be reverted, so
+ * `previousPlanId` is REQUIRED on the prepared arm rather than another optional the caller has to defend against.
+ */
+export type SelfHealAnalysisTestOutput =
+    | {
+          prepared: true;
+          /** A fresh pending generation to re-run + re-classify. */
+          testGenerationId: string;
+          /** The plan record the assignment pointed at BEFORE this rewrite - what `revertSelfHealPlan` restores. */
+          previousPlanId: string;
+          /** The scenario the rewritten plan pins (preserved from the test's current plan), when it pins one. */
+          scenarioId?: string;
+      }
+    | {
+          prepared: false;
+          /** Why nothing was rewritten - no assignment for the slug, or it pinned no plan to restore afterwards. */
+          skippedReason: string;
+      };
 
-export interface DeleteAnalysisTestInput {
-    /** The snapshot the test's assignment lives on. */
+export interface RevertSelfHealPlanInput {
+    /** The snapshot the test's rows live on. */
     snapshotId: string;
-    /** The test whose assignment to remove from the snapshot. */
+    /** The test whose plan to restore (its own (snapshot, testCase) rows). */
     slug: string;
+    /**
+     * The plan record the assignment held before the self-heal rewrite (`previousPlanId` from that same rewrite). The
+     * assignment is repointed at it rather than re-authoring its text, so the snapshot reads as unchanged for this
+     * test. No generation is queued - the loop is over.
+     */
+    planId: string;
 }
 
-export interface DeleteAnalysisTestOutput {
-    /** Whether an assignment was actually removed (false when the slug had no assignment on the snapshot). */
-    deleted: boolean;
-    /** Why nothing was removed, when `deleted` is false. */
+export interface RevertSelfHealPlanOutput {
+    /** Whether the plan was restored (false when the slug has no assignment on the snapshot). */
+    reverted: boolean;
+    /** Why nothing was reverted, when `reverted` is false. */
     reason?: string;
 }
 
@@ -190,14 +206,16 @@ export interface AnalysisActivities {
 
 /**
  * The Investigator's own write activities: its row-local test edits on the snapshot - a self-heal plan rewrite
- * (`UpdateTest`) and the eager `delete` self-delete (`RemoveTest`), both via the canonical `TestSuiteUpdater`
- * update actions - plus `persistAnalysisClassification`, with which it files each iteration's outcome as it
- * happens. A separate contract from `AnalysisActivities` (the parent stages); the parent also proxies it to
- * contain a child that crashed, appending a fault classification rather than overwriting what the child wrote.
+ * (`UpdateTest`) and the revert of that rewrite when a `plan_mismatch` is kept (`RevertPlan`, no re-run so the failed
+ * rewrite is not promoted), both via the canonical `TestSuiteUpdater` update actions - plus
+ * `persistAnalysisClassification`, with which it files each iteration's outcome as it happens. A separate contract
+ * from `AnalysisActivities` (the parent stages); the
+ * parent also proxies it to contain a child that crashed, appending a fault classification rather than overwriting what
+ * the child wrote.
  */
 export interface InvestigatorActivities {
     selfHealAnalysisTest(input: SelfHealAnalysisTestInput): Promise<SelfHealAnalysisTestOutput>;
-    deleteAnalysisTest(input: DeleteAnalysisTestInput): Promise<DeleteAnalysisTestOutput>;
+    revertSelfHealPlan(input: RevertSelfHealPlanInput): Promise<RevertSelfHealPlanOutput>;
     persistAnalysisClassification(
         input: PersistAnalysisClassificationInput,
     ): Promise<PersistAnalysisClassificationOutput>;
