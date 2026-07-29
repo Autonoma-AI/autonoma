@@ -2,6 +2,14 @@ import matter from "gray-matter";
 
 export const VALID_VERBS = new Set(["click", "type", "scroll", "assert", "hover", "drag", "read", "refresh"]);
 
+/**
+ * The criticality levels a generated test may declare, most severe first. The
+ * write_test schema validates against this and the suite index tallies by it, so
+ * both derive from here - a level added or renamed in one place and not the other
+ * silently drops out of the index, or lingers there as a forever-zero row.
+ */
+export const CRITICALITY_LEVELS = ["critical", "high", "mid", "low"] as const;
+
 interface ValidationResult {
     valid: boolean;
     errors: string[];

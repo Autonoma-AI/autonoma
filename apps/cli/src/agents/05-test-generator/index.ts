@@ -149,11 +149,9 @@ export async function runTestGenerator(input: TestGeneratorInput): Promise<Agent
                 summary: finishInput.summary,
             };
 
-            await generateIndex(input.outputDir, state);
-
             return {
                 ...stats,
-                message: "Test generation complete. INDEX.md written.",
+                message: "Test generation complete.",
             };
         },
     });
@@ -312,7 +310,6 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
     logger.summary();
 
     if (!result && state.allTestPaths().length > 0) {
-        await generateIndex(input.outputDir, state);
         const stats = state.summary();
         result = {
             success: true,
@@ -329,8 +326,11 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
 
         // Tests the review cycle removed that neither the fix agent nor the
         // restore could put back - a restore fails on a full disk, or on a
-        // directory the cleanup pass pruned. Tracked by path, not counted, so a
-        // later cycle that does restore one can take it back out again.
+        // directory the cleanup pass pruned. Tracked by path, not counted, both
+        // so a later cycle that does restore one can take it back out again and
+        // so the index below can name them: a test that is absent from disk is
+        // otherwise absent from the index too, and a log line nobody reads is
+        // how these went missing unnoticed in the first place.
         const lostTests = new Set<string>();
 
         // --- Review → Fix cycle (max MAX_REVIEW_CYCLES) ---
@@ -446,10 +446,11 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
             }
         }
 
-        // The index written after generation predates the journey tests, every
-        // deletion the review cycle made, and the quarantine sweep above. Write
-        // it again now that the suite has stopped moving.
-        await generateIndex(input.outputDir, state);
+        // The only index write, once the suite has stopped moving: journey tests
+        // added, review deletions settled, quarantine swept, empty folders pruned.
+        // Writing it earlier only produced a file that disagreed with the suite
+        // beside it until this point overwrote it.
+        await generateIndex(input.outputDir, state, { lost: lostTests });
     }
 
     // Output review happens live in the TUI - the run no longer stops to ask.

@@ -109,7 +109,14 @@ Artifacts are written to `~/.autonoma/<project-slug>/`:
 ├── recipe.json       # scenario recipes (SDK factories); the agent generates + validates it
 ├── integration-prompt.md  # rendered SDK-integration instructions (drives the agent + manual fallback)
 └── qa-tests/         # generated test cases (markdown)
+    ├── INDEX.md      # table of contents for the suite
+    └── _invalid/     # tests that failed structural validation; never uploaded
 ```
+
+`qa-tests/INDEX.md` is written once, at the end, from the files on disk - so it always matches
+the suite beside it. Alongside the totals it names what the run could *not* deliver: features it
+walked without producing a test, and tests the review cycle removed that nothing could put back.
+Both are fixed by re-running the planner.
 
 ## Automatic upload
 

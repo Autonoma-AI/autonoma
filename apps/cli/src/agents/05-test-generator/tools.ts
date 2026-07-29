@@ -10,7 +10,7 @@ import { AI_MAX_RETRIES } from "../../core/model";
 import { TEST_FILE_EXT, TESTS_DIR, normalizeTestFilename } from "../../core/test-files";
 import { buildBashTool, buildGlobTool, buildGrepTool, buildReadFileTool } from "../../tools";
 import { type CoverageState, saveBfsState } from "./graph";
-import { VALID_VERBS } from "./validation";
+import { CRITICALITY_LEVELS, VALID_VERBS } from "./validation";
 
 const testFrontmatterSchema = z.object({
     title: z.string().min(1),
@@ -18,7 +18,7 @@ const testFrontmatterSchema = z.object({
     intent: z
         .string()
         .min(30, "Intent must be at least 30 characters - describe the BEHAVIOR being tested, not the steps"),
-    criticality: z.enum(["critical", "high", "mid", "low"]),
+    criticality: z.enum(CRITICALITY_LEVELS),
     scenario: z.string().min(1),
     flow: z.string().min(1),
     verification: z

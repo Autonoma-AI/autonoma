@@ -1,9 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
-import { glob } from "glob";
+import { join } from "node:path";
 import { debugLog } from "../../core/debug";
-import { INVALID_DIR, isTestFile, TEST_FILE_GLOB, TEST_INDEX_FILE, TESTS_DIR } from "../../core/test-files";
+import { listTestFiles, TEST_INDEX_FILE, TESTS_DIR } from "../../core/test-files";
 import type { CoverageState } from "./graph";
+import { CRITICALITY_LEVELS } from "./validation";
 
 const STEP_VERBS = /^\d+\.\s+(click|type|scroll|assert|hover|drag|read|refresh):/gm;
 const INTERACTION_VERBS = /^\d+\.\s+(click|type|drag):/gm;
@@ -29,22 +29,14 @@ async function scanTest(outputDir: string, path: string): Promise<TestStats> {
     }
 }
 
-/**
- * The suite as it exists on disk, relative to the output dir. Read back rather
- * than taken from the generator's own tally: by the time the index is written
- * the suite has also gained journey tests, lost tests the review cycle deleted,
- * and had invalid ones quarantined - none of which the tally knows about.
- */
-async function listSuiteTests(outputDir: string): Promise<string[]> {
-    const absolute = await glob(join(outputDir, TESTS_DIR, TEST_FILE_GLOB));
-    return absolute
-        .filter((path) => isTestFile(path) && !path.includes(`/${INVALID_DIR}/`))
-        .map((path) => relative(outputDir, path))
-        .sort();
+/** What the run could not deliver, for the index to say out loud. */
+export interface SuiteGaps {
+    /** Tests the review cycle removed that nothing put back. */
+    lost?: ReadonlySet<string>;
 }
 
-export async function generateIndex(outputDir: string, state: CoverageState): Promise<void> {
-    const testPaths = await listSuiteTests(outputDir);
+export async function generateIndex(outputDir: string, state: CoverageState, gaps: SuiteGaps = {}): Promise<void> {
+    const testPaths = await listTestFiles(outputDir);
     const testsByFolder = new Map<string, string[]>();
 
     for (const p of testPaths) {
@@ -63,12 +55,7 @@ export async function generateIndex(outputDir: string, state: CoverageState): Pr
         test_count: tests.length,
     }));
 
-    const critCounts = new Map([
-        ["critical", 0],
-        ["high", 0],
-        ["mid", 0],
-        ["low", 0],
-    ]);
+    const critCounts = new Map<string, number>(CRITICALITY_LEVELS.map((level) => [level, 0]));
     let totalSteps = 0;
     let totalInteractions = 0;
 
@@ -84,6 +71,8 @@ export async function generateIndex(outputDir: string, state: CoverageState): Pr
         totalInteractions += stats.interactions;
     }
 
+    const untested = untestedFeatures(state);
+    const lost = [...(gaps.lost ?? [])].sort();
     const totalTests = testPaths.length;
     const avgSteps = totalTests > 0 ? (totalSteps / totalTests).toFixed(1) : "0";
 
@@ -92,11 +81,10 @@ total_tests: ${totalTests}
 total_folders: ${folders.length}
 avg_steps_per_test: ${avgSteps}
 total_interactions: ${totalInteractions}
+features_without_tests: ${untested.length}
+tests_lost_in_review: ${lost.length}
 criticality:
-  critical: ${critCounts.get("critical") ?? 0}
-  high: ${critCounts.get("high") ?? 0}
-  mid: ${critCounts.get("mid") ?? 0}
-  low: ${critCounts.get("low") ?? 0}
+${CRITICALITY_LEVELS.map((level) => `  ${level}: ${critCounts.get(level) ?? 0}`).join("\n")}
 folders:
 ${folders.map((f) => `  - name: "${f.name}"\n    test_count: ${f.test_count}`).join("\n")}
 ---
@@ -114,7 +102,32 @@ ${folders.map((f) => `| ${f.name} | ${f.test_count} |`).join("\n")}
 ## All Tests
 
 ${[...testsByFolder.entries()].flatMap(([_folder, tests]) => tests.map((t) => `- \`${t}\``)).join("\n")}
-`;
+${renderSection("Features with no tests", "the run walked these and produced no test for them - re-run the planner to cover them", untested)}${renderSection("Tests lost in review", "the review cycle removed these and nothing could put them back - re-run the planner to regenerate them", lost)}`;
 
     await writeFile(join(outputDir, TESTS_DIR, TEST_INDEX_FILE), content, "utf-8");
+}
+
+/**
+ * Features the run walked but produced no test for - skipped outright, or
+ * explored and moved on from. The suite's real coverage gap: unlike a count that
+ * disagrees with disk, each of these names something a re-run can fix.
+ */
+function untestedFeatures(state: CoverageState): string[] {
+    const withTests = new Set(state.testsWritten.keys());
+    return [...state.nodes.values()]
+        .filter((node) => node.status !== "tested" || !withTests.has(node.id))
+        .map((node) => (node.routePath != null ? `${node.name} (${node.routePath})` : node.name))
+        .sort();
+}
+
+/** A gap section, or nothing at all when there is no gap to report. */
+function renderSection(title: string, explanation: string, items: readonly string[]): string {
+    if (items.length === 0) return "";
+    return `
+## ${title}
+
+${items.length} ${items.length === 1 ? "entry" : "entries"} - ${explanation}.
+
+${items.map((item) => `- ${item}`).join("\n")}
+`;
 }

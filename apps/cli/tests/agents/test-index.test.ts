@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { CoverageState, type FeatureNode } from "../../src/agents/05-test-generator/graph";
+import { CRITICALITY_LEVELS } from "../../src/agents/05-test-generator/validation";
 import { generateIndex } from "../../src/agents/05-test-generator/write-index";
 import { INVALID_DIR, TEST_INDEX_FILE, TESTS_DIR } from "../../src/core/test-files";
 
@@ -86,5 +87,80 @@ describe("the test suite index", () => {
         await generateIndex(dir, staleState());
 
         expect(await indexFrontmatter()).toContain("total_tests: 1");
+    });
+});
+
+describe("suite gaps", () => {
+    test("names the features the run produced no test for", async () => {
+        await writeTest("checkout/pay.md");
+
+        const state = new CoverageState();
+        state.enqueue({ ...node("checkout"), routePath: "/checkout" });
+        state.enqueue({ ...node("refunds"), name: "Refunds", routePath: "/refunds" });
+        state.nextNode();
+        state.markTested("checkout", [`${TESTS_DIR}/checkout/pay.md`]);
+        state.nextNode(); // walks refunds
+        state.nextNode(); // moves on without a test - auto-skipped
+
+        await generateIndex(dir, state);
+        const index = await readFile(join(dir, TESTS_DIR, TEST_INDEX_FILE), "utf-8");
+
+        expect(index).toContain("features_without_tests: 1");
+        expect(index).toContain("## Features with no tests");
+        expect(index).toContain("- Refunds (/refunds)");
+        expect(index).not.toContain("- checkout (/checkout)");
+    });
+
+    test("names the tests the review cycle lost", async () => {
+        await writeTest("checkout/pay.md");
+
+        const state = new CoverageState();
+        state.enqueue(node("checkout"));
+        state.nextNode();
+        state.markTested("checkout", [`${TESTS_DIR}/checkout/pay.md`]);
+
+        await generateIndex(dir, state, { lost: new Set([`${TESTS_DIR}/checkout/refund.md`]) });
+        const index = await readFile(join(dir, TESTS_DIR, TEST_INDEX_FILE), "utf-8");
+
+        expect(index).toContain("tests_lost_in_review: 1");
+        expect(index).toContain("## Tests lost in review");
+        expect(index).toContain(`- ${TESTS_DIR}/checkout/refund.md`);
+    });
+
+    test("says nothing when there is no gap to report", async () => {
+        await writeTest("checkout/pay.md");
+
+        const state = new CoverageState();
+        state.enqueue(node("checkout"));
+        state.nextNode();
+        state.markTested("checkout", [`${TESTS_DIR}/checkout/pay.md`]);
+
+        await generateIndex(dir, state);
+        const index = await readFile(join(dir, TESTS_DIR, TEST_INDEX_FILE), "utf-8");
+
+        expect(index).toContain("features_without_tests: 0");
+        expect(index).toContain("tests_lost_in_review: 0");
+        expect(index).not.toContain("## Features with no tests");
+        expect(index).not.toContain("## Tests lost in review");
+    });
+});
+
+describe("criticality tally", () => {
+    test("reports a row per canonical level, in canonical order", async () => {
+        await writeTest("checkout/pay.md");
+
+        const state = new CoverageState();
+        state.enqueue(node("checkout"));
+        state.nextNode();
+        state.markTested("checkout", [`${TESTS_DIR}/checkout/pay.md`]);
+
+        await generateIndex(dir, state);
+        const index = await readFile(join(dir, TESTS_DIR, TEST_INDEX_FILE), "utf-8");
+
+        // Derived from the schema's own levels, so a level added or renamed there
+        // cannot silently vanish from the index.
+        const rows = [...index.matchAll(/^ {2}(\w+): \d+$/gm)].map((m) => m[1]);
+        expect(rows).toEqual([...CRITICALITY_LEVELS]);
+        expect(index).toContain("  high: 1");
     });
 });
