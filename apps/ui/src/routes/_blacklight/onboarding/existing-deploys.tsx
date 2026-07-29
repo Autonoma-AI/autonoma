@@ -1,5 +1,6 @@
 import {
   Badge,
+  BrailleSpinner,
   Button,
   Select,
   SelectContent,
@@ -33,6 +34,15 @@ import { toastManager } from "lib/toast-manager";
 import { type ReactNode, useEffect, useState } from "react";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 
+/** Phases of the redeploy -> build -> commit flow that selects a Vercel deployment. */
+type BuildPhase = "redeploying" | "building" | "committing";
+
+const BUILD_PHASE_BUTTON_LABELS: Record<BuildPhase, string> = {
+  redeploying: "Redeploying...",
+  building: "Building preview...",
+  committing: "Selecting...",
+};
+
 export const Route = createFileRoute("/_blacklight/onboarding/existing-deploys")({
   component: () => <Navigate to="/onboarding" search={buildOnboardingSearch("existing-deploys")} />,
 });
@@ -50,6 +60,10 @@ export function ExistingDeploysPage({
   const vercelProjectsQuery = useAvailableVercelProjects(appId ?? "");
   const confirmSetup = useConfirmExistingDeploysSetup();
   const [selectedProvider, setSelectedProvider] = useState<OnboardingSignalProvider>(initialProvider ?? "vercel");
+  // Reported up by the deployment picker so the preview-status panel below can
+  // show the build in flight instead of contradicting it with "no deployment
+  // selected".
+  const [buildPhase, setBuildPhase] = useState<BuildPhase | undefined>(undefined);
 
   // On the Vercel path, a linked project is required before continuing - without
   // it there's no protection-bypass header, so generated tests can never reach
@@ -60,6 +74,7 @@ export function ExistingDeploysPage({
   // been picked - no CI signal required.
   const previewUrlSet = signalStatusQuery.data?.previewUrl != null;
   const canContinue = selectedProvider === "vercel" ? vercelProjectLinked && previewUrlSet : true;
+  const isBuildingPreview = !previewUrlSet && buildPhase != null;
 
   function goToVerify() {
     void navigate({ to: "/onboarding", search: buildOnboardingSearch("deploy-verify", appId) });
@@ -147,7 +162,7 @@ export function ExistingDeploysPage({
       {selectedProvider === "vercel" ? <VercelConnectSection appId={appId} /> : undefined}
 
       {selectedProvider === "vercel" && vercelProjectLinked ? (
-        <VercelDeploymentPickerSection appId={appId} />
+        <VercelDeploymentPickerSection appId={appId} onPhaseChange={setBuildPhase} />
       ) : undefined}
 
       {selectedProvider === "custom" ? (
@@ -217,6 +232,11 @@ export function ExistingDeploysPage({
           <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Preview status</h2>
           {previewUrlSet ? (
             <Badge variant="success">{selectedProvider === "vercel" ? "deployment selected" : "accepted"}</Badge>
+          ) : isBuildingPreview ? (
+            <Badge variant="status-running" className="gap-1.5">
+              <BrailleSpinner animation="orbit" size="sm" />
+              building preview
+            </Badge>
           ) : (
             <Badge variant="outline">
               {selectedProvider === "vercel" ? "no deployment selected" : "waiting for signal"}
@@ -242,9 +262,11 @@ export function ExistingDeploysPage({
           </div>
         ) : (
           <p className="mt-3 text-sm text-text-secondary">
-            {selectedProvider === "vercel"
-              ? "Select a deployment above to use as the onboarding preview target."
-              : "Waiting for CI to POST a valid signed payload to the deployment signal endpoint."}
+            {isBuildingPreview
+              ? "Waiting for the redeployed preview to finish building."
+              : selectedProvider === "vercel"
+                ? "Select a deployment above to use as the onboarding preview target."
+                : "Waiting for CI to POST a valid signed payload to the deployment signal endpoint."}
           </p>
         )}
       </section>
@@ -254,9 +276,11 @@ export function ExistingDeploysPage({
           {selectedProvider === "vercel"
             ? !vercelProjectLinked
               ? "Link a Vercel project above before continuing."
-              : !previewUrlSet
-                ? "Select a deployment above before continuing."
-                : "Deployment selected - continue to verify the preview is reachable."
+              : isBuildingPreview
+                ? "This unlocks as soon as your preview finishes building."
+                : !previewUrlSet
+                  ? "Select a deployment above before continuing."
+                  : "Deployment selected - continue to verify the preview is reachable."
             : "After CI sends the signal, the next screen will show whether Autonoma has a usable preview URL."}
         </p>
         <Button
@@ -385,7 +409,13 @@ function VercelConnectSection({ appId }: { appId: string }) {
  * polls the NEW deployment until it is ready (redeploys get a new URL), then
  * commits that fresh URL as the preview target.
  */
-function VercelDeploymentPickerSection({ appId }: { appId: string }) {
+function VercelDeploymentPickerSection({
+  appId,
+  onPhaseChange,
+}: {
+  appId: string;
+  onPhaseChange: (phase: BuildPhase | undefined) => void;
+}) {
   const { data: deployments, isLoading } = useVercelDeployments(appId);
   const redeploy = useRedeployVercelDeployment();
   const selectDeployment = useSelectVercelDeployment();
@@ -414,17 +444,17 @@ function VercelDeploymentPickerSection({ appId }: { appId: string }) {
     );
   }
 
-  const isRedeploying = redeploy.isPending;
-  const isBuilding = pendingDeploymentId != null;
-  const isCommitting = selectDeployment.isPending;
-  const isBusy = isRedeploying || isBuilding || isCommitting;
-  const buttonLabel = isRedeploying
-    ? "Redeploying..."
-    : isBuilding
-      ? "Building preview..."
-      : isCommitting
-        ? "Selecting..."
-        : "Use this deployment";
+  const phase = resolveBuildPhase({
+    isRedeploying: redeploy.isPending,
+    isBuilding: pendingDeploymentId != null,
+    isCommitting: selectDeployment.isPending,
+  });
+  const isBusy = phase != null;
+  const buttonLabel = phase != null ? BUILD_PHASE_BUTTON_LABELS[phase] : "Use this deployment";
+
+  useEffect(() => {
+    onPhaseChange(phase);
+  }, [phase, onPhaseChange]);
 
   return (
     <section className="mt-8 border border-border-dim bg-surface-base p-6">
@@ -472,14 +502,32 @@ function VercelDeploymentPickerSection({ appId }: { appId: string }) {
         </div>
       )}
 
-      {isBuilding ? (
-        <p className="mt-3 text-sm text-text-secondary">
-          Redeploying the preview so the shared secret takes effect - this can take a couple of minutes. We&apos;ll pick
-          it up automatically once it&apos;s ready.
-        </p>
+      {phase != null ? (
+        <div className="mt-4 flex items-center gap-3 border-l-2 border-primary-ink bg-surface-raised/40 px-4 py-3">
+          <BrailleSpinner animation="orbit" size="sm" className="shrink-0 text-primary-ink" />
+          <p className="text-sm text-text-secondary">
+            Building your preview - this takes a couple of minutes. Keep this page open, we&apos;ll pick it up
+            automatically once it&apos;s ready.
+          </p>
+        </div>
       ) : undefined}
     </section>
   );
+}
+
+function resolveBuildPhase({
+  isRedeploying,
+  isBuilding,
+  isCommitting,
+}: {
+  isRedeploying: boolean;
+  isBuilding: boolean;
+  isCommitting: boolean;
+}): BuildPhase | undefined {
+  if (isRedeploying) return "redeploying";
+  if (isBuilding) return "building";
+  if (isCommitting) return "committing";
+  return undefined;
 }
 
 function ProviderCard({
