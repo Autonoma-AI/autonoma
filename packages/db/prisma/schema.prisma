@@ -2163,6 +2163,38 @@ model BranchContributor {
   @@map("branch_contributor")
 }
 
+// The per-bug outcome of a merged PR: for every client bug we flagged, did the developer fix it before merging?
+// This is the stickiness "did it help?" measurement, read (never computed) from the branch-scoped AnalysisIssue
+// status at merge time. `resolved` -> fixed_before_merge, `open` -> merged_with_bug.
+enum BugFixOutcomeKind {
+  fixed_before_merge // the bug's AnalysisIssue was resolved by the last run before merge
+  merged_with_bug // the bug's AnalysisIssue was still open at merge time
+  skipped // the PR was skipped (a SkipRecord exists) - not counted as fixed or unfixed
+  unknown // no analysis assessed this PR (never ran, or the last run did not finish)
+
+  @@map("bug_fix_outcome_kind")
+}
+
+// One BugFixOutcome row per client bug the analysis flagged on a merged PR.
+model BugFixOutcome {
+  id             String            @id @default(cuid())
+  organizationId String            @map("organization_id")
+  repoFullName   String            @map("repo_full_name")
+  prNumber       Int               @map("pr_number")
+  branchId       String            @map("branch_id")
+  issueId        String?           @map("issue_id")
+  outcome        BugFixOutcomeKind
+  severity       String?
+  mergedAt       DateTime?         @map("merged_at")
+  mergedByLogin  String?           @map("merged_by_login")
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  @@unique([branchId, issueId])
+  @@index([organizationId, createdAt])
+  @@index([repoFullName, prNumber])
+  @@map("bug_fix_outcome")
+}
+
 // Which channel surfaced a false-positive candidate.
 enum FalsePositiveCandidateSource {
   mcp_client_agent // the client's own coding agent reported it via the debug MCP `report_false_positive` tool

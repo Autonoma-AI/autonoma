@@ -16,3 +16,4 @@ export {
     type MergeGateCheckResult,
 } from "./merge-gate-verdict";
 export { MERGE_GATE_ANALYTICS_GROUP, MERGE_GATE_EVENT } from "./merge-gate-events";
+export { BUG_FIX_OUTCOME_EVENT } from "./bug-fix-outcome-events";

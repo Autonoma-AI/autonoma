@@ -12,6 +12,7 @@ import { previewkitTriggerService } from "../previewkit/previewkit-service";
 import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.service";
 import { BranchesService } from "../routes/branches/branches.service";
 import { BranchContributorService } from "./branch-contributor.service";
+import { BugFixOutcomeService } from "./bug-fix-outcome.service";
 import { FalsePositiveCandidateService } from "./false-positive-candidate.service";
 import { buildGitHubApp } from "./github-app";
 import { GitHubInstallationService } from "./github-installation.service";
@@ -41,6 +42,7 @@ const mergeGateService = new MergeGateService(
     new MergeGateSlackNotifier(env.SLACK_BOT_TOKEN, env.MERGE_GATE_SLACK_CHANNEL),
 );
 const branchContributorService = new BranchContributorService(db, githubService);
+const bugFixOutcomeService = new BugFixOutcomeService(db, analytics, env.MERGE_GATE_ENABLED, branchContributorService);
 
 export const githubHttpRouter = new Hono<GitHubEnv>();
 
@@ -262,6 +264,7 @@ async function dispatchWebhookEvent(
             await startInvestigationMerge(organizationId, payload);
             await mergeGateService.recordMergeFromWebhook(organizationId, payload);
             await branchContributorService.refreshFromWebhook(organizationId, payload);
+            await bugFixOutcomeService.recordFromWebhook(organizationId, payload);
             return;
         case "issue_comment_created":
             await mergeGateService.applySkipFromCommentWebhook(organizationId, payload);

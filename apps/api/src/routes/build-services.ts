@@ -20,6 +20,8 @@ import { ApplicationSetupService } from "../application-setup/application-setup.
 import type { Auth } from "../auth";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
+import { BranchContributorService } from "../github/branch-contributor.service";
+import { BugFixOutcomeService } from "../github/bug-fix-outcome.service";
 import { FalsePositiveCandidateService } from "../github/false-positive-candidate.service";
 import { GitHubInstallationService } from "../github/github-installation.service";
 import { MergeGateSlackNotifier } from "../github/merge-gate-slack-notifier";
@@ -77,6 +79,8 @@ export interface Services {
     github: GitHubInstallationService;
     falsePositiveCandidates: FalsePositiveCandidateService;
     mergeGate: MergeGateService;
+    branchContributor: BranchContributorService;
+    bugFixOutcome: BugFixOutcomeService;
     repoIntrospection: RepoIntrospectionService;
     previewkitDiagnosis: PreviewkitDiagnosisService;
     issues: IssuesService;
@@ -199,6 +203,7 @@ export function buildServices({
     );
     const branchesService = new BranchesService(conn, githubService, storageProvider, prCacheService);
     const falsePositiveCandidatesService = new FalsePositiveCandidateService(conn, branchesService);
+    const branchContributorService = new BranchContributorService(conn, githubService);
 
     return {
         admin: new AdminService(conn, auth, githubApp),
@@ -227,6 +232,8 @@ export function buildServices({
             falsePositiveCandidatesService,
             new MergeGateSlackNotifier(env.SLACK_BOT_TOKEN, env.MERGE_GATE_SLACK_CHANNEL),
         ),
+        branchContributor: branchContributorService,
+        bugFixOutcome: new BugFixOutcomeService(conn, analytics, env.MERGE_GATE_ENABLED, branchContributorService),
         repoIntrospection: repoIntrospectionService,
         previewkitDiagnosis: new PreviewkitDiagnosisService(conn, env.PREVIEWKIT_LOKI_URL, previewkitAiModel),
         issues: new IssuesService(conn, storageProvider),

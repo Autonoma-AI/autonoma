@@ -153,6 +153,23 @@ authoritative analysis verdict).
   parsing and contributor resolution live in `@autonoma/github` (`resolveContributorsFromCommits`,
   `parseCoAuthoredByTrailers`).
 
+- **Bug-fixed-before-merge** (`BugFixOutcomeService`, `src/github/bug-fix-outcome.service.ts`): the stickiness
+  "did it help?" measurement. On `pull_request.closed` for a merged PR of a gate-enabled org (hooked in right
+  after `MergeGateService.recordMergeFromWebhook`), it records - per client bug we flagged - whether it was fixed
+  before merge. It reads persisted state only and never re-runs analysis: the Reporter already resolves the
+  branch-scoped `AnalysisIssue`s each run, so at merge time an issue's `status` already says whether the bug still
+  reproduces. Per branch bug issue (`kind: "bug"`; environment/scenario are ignored): `resolved` ->
+  `fixed_before_merge`, `open` -> `merged_with_bug`. A skipped PR records `skipped` - the `SkipRecord` is matched by
+  the merged head SHA (like the gate's bypass detection), so a skip on a head later superseded by a fixing push does
+  not hide the fix. A PR the analysis never authoritatively assessed (no completed `AnalysisReport` on the branch's
+  latest non-twin run at or before the merge) records a single branch-level `unknown` marker; a clean PR records
+  nothing. Outcomes persist to the FK-less tracking table `BugFixOutcome`, unique per `(branchId, issueId)`. It
+  emits the `bug.fixed` and `bug.merged_open` PostHog events (`@autonoma/github/check` `BUG_FIX_OUTCOME_EVENT`) with
+  an explicit distinctId and the org group; `skipped`/`unknown` emit no event, so a bypass is never double-counted
+  against a per-bug signal. When a `BranchContributorService` is injected it attributes each fix to the authors of
+  the resolving push (via `resolveFixingPushAuthors`, mapped from the issue's `resolvedAt`), riding their logins on
+  `bug.fixed`.
+
 ### Previewkit deploy credits gate
 
 A new preview deploy or per-app redeploy (never teardown) is declined once an org's combined
