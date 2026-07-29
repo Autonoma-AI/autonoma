@@ -1,4 +1,5 @@
 import { ApplicationArchitecture } from "@autonoma/db";
+import { countAnalysisFindingBuckets } from "@autonoma/types";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
@@ -38,14 +39,17 @@ async function attachAnalysisReport(
     await harness.db.analysisJob.create({
         data: { snapshotId, status: "completed", organizationId: harness.organizationId },
     });
+    // The badge reads its counts straight off the report, as the real Reporter writes them: the coverage-plane
+    // total and the test count, plus the issue-derived bug count (not the client_bug finding tally, so a bug
+    // carried across snapshots keeps the PR red even when no test re-ran it).
+    const buckets = countAnalysisFindingBuckets(categories);
     await harness.db.analysisReport.create({
         data: {
             snapshotId,
             verdict,
-            // The badge's bug count is issue-derived, not the client_bug finding tally, so that a bug carried
-            // across snapshots keeps the PR red even when no test re-ran it. Mirror what the Reporter writes.
             clientBugCount: categories.filter((category) => category === "client_bug").length,
             testCount: categories.length,
+            coverage: { total: buckets.coverage, byCategory: [] },
             summary: `Run verdict: ${verdict}.`,
             reportMarkdown: `## Run\n\nVerdict: ${verdict}.`,
             organizationId: harness.organizationId,
@@ -113,6 +117,45 @@ apiTestSuite({
             expect(row?.summary?.analysis?.bugCount).toBe(0);
             expect(row?.bugCount).toBe(0);
             expect(row?.health).toBe("healthy");
+        });
+
+        test("reads a run that confirmed nothing as 'No runs' from the report, even with no surviving findings", async ({
+            harness,
+        }) => {
+            const { branchId } = await createBranch(harness);
+            const snapshotId = await createSnapshot(harness, branchId, "head-blocked");
+            // The report outlives its findings' classifications (discarding a generation cascades its
+            // classification away), so the badge must read 7 tests / 7 coverage off the report - not the empty
+            // finding tally, which would read as a clean, passing run.
+            await harness.db.analysisJob.create({
+                data: { snapshotId, status: "completed", organizationId: harness.organizationId },
+            });
+            await harness.db.analysisReport.create({
+                data: {
+                    snapshotId,
+                    verdict: "passed",
+                    clientBugCount: 0,
+                    testCount: 7,
+                    coverage: { total: 7, byCategory: [{ category: "engine_artifact", count: 7 }] },
+                    summary: "All seven checks were blocked before the app was exercised.",
+                    reportMarkdown: "## Run\n\nBlocked.",
+                    organizationId: harness.organizationId,
+                },
+            });
+
+            const history = await harness.request().branches.snapshotHistory({ branchId });
+            const row = history.find((s) => s.id === snapshotId);
+
+            expect(row?.summary?.tone).toBe("warning");
+            expect(row?.summary?.label).toBe("No runs");
+            expect(row?.summary?.reason).toBe("7 blocked");
+            expect(row?.summary?.analysis).toEqual({
+                jobStatus: "completed",
+                bugCount: 0,
+                passedCount: 0,
+                coverageCount: 7,
+            });
+            expect(row?.health).toBe("unknown");
         });
 
         test("a legacy diffs snapshot carries no authoritative analysis on its summary", async ({ harness }) => {
