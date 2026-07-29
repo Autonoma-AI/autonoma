@@ -26,6 +26,13 @@ export interface AgentConfig {
     maxSteps: number;
     temperature?: number;
     stepTimeoutMs?: number;
+    /**
+     * Attempts at the whole agent before giving up, default `MAX_RETRIES`. A
+     * retry restarts the conversation from the first message, so it only earns
+     * its cost where the result matters. Lower it for agents whose failure the
+     * caller already handles.
+     */
+    maxRetries?: number;
     onStepFinish?: (info: StepInfo) => void;
 }
 
@@ -107,6 +114,7 @@ export async function runAgent<T>(
     extractResult: () => T | undefined,
 ): Promise<T | undefined> {
     const stepTimeout = config.stepTimeoutMs ?? STEP_TIMEOUT_MS;
+    const maxRetries = config.maxRetries ?? MAX_RETRIES;
     const model = config.model;
 
     const modelIdOf = (m: LanguageModel) => (typeof m === "string" ? m : m.modelId);
@@ -126,7 +134,7 @@ export async function runAgent<T>(
     const YELLOW = "\x1b[33m";
     const RESET = "\x1b[0m";
 
-    for (let retry = 0; retry < MAX_RETRIES; retry++) {
+    for (let retry = 0; retry < maxRetries; retry++) {
         const heartbeat = () => {};
         const tools = typeof config.tools === "function" ? await config.tools(heartbeat) : config.tools;
 
@@ -200,8 +208,8 @@ export async function runAgent<T>(
                 },
             );
 
-            if (retry < MAX_RETRIES - 1) {
-                console.log(`  ${YELLOW}[${config.id}] retrying (${retry + 1}/${MAX_RETRIES})...${RESET}`);
+            if (retry < maxRetries - 1) {
+                console.log(`  ${YELLOW}[${config.id}] retrying (${retry + 1}/${maxRetries})...${RESET}`);
                 if (errorClass === "transient") {
                     await sleep(Math.min(2000 * 2 ** retry, 10_000));
                 }

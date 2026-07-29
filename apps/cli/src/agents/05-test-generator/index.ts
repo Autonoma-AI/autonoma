@@ -16,6 +16,18 @@ import { restoreDeletedTest } from "./restore-deleted-test";
 import { runConsolidatedReview, type TestReviewFeedback } from "./review";
 
 const MAX_CONCURRENCY = 8;
+
+/** Review → fix passes over the whole suite, when there is budget for them. */
+const MAX_REVIEW_CYCLES = 4;
+
+/**
+ * Wall clock for the entire review → fix phase, checked between batches as well
+ * as between cycles. Review quality is a nice-to-have on top of a generated
+ * suite; an unbounded review is not - it has run for 5 and 14 hours on real
+ * onboarding runs, and it fails open to "pass" anyway, so the tests it never got
+ * to are no worse off than the ones it timed out on.
+ */
+const REVIEW_BUDGET_MS = 45 * 60 * 1000;
 import { glob } from "glob";
 import { debugLog } from "../../core/debug";
 import { INVALID_DIR, isTestFile, TEST_FILE_GLOB, TESTS_DIR } from "../../core/test-files";
@@ -333,18 +345,47 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
         // how these went missing unnoticed in the first place.
         const lostTests = new Set<string>();
 
-        // --- Review → Fix cycle (max MAX_REVIEW_CYCLES) ---
-        const MAX_REVIEW_CYCLES = 4;
+        // --- Review → Fix cycle (max MAX_REVIEW_CYCLES, inside REVIEW_BUDGET_MS) ---
+        const reviewDeadline = Date.now() + REVIEW_BUDGET_MS;
 
         for (let cycle = 0; cycle < MAX_REVIEW_CYCLES; cycle++) {
+            if (Date.now() > reviewDeadline) {
+                console.log(`  Review budget spent after ${cycle} cycle${cycle === 1 ? "" : "s"} - moving on`);
+                track("cli_review_budget_exhausted", { cycles_completed: cycle });
+                captureLog("warn", `Review budget spent - skipping the remaining review cycles`, {
+                    source: "test-generator",
+                    step: "review",
+                    cycles_completed: cycle,
+                    budget_minutes: REVIEW_BUDGET_MS / 60_000,
+                });
+                break;
+            }
+
             console.log(`  Review cycle ${cycle + 1}/${MAX_REVIEW_CYCLES}`);
 
-            const reviewResult = await runConsolidatedReview(input.outputDir, input.projectRoot, model);
+            const reviewResult = await runConsolidatedReview(input.outputDir, input.projectRoot, model, reviewDeadline);
 
             console.log(`  Review: ${reviewResult.passed} passed, ${reviewResult.failed} failed`);
 
             if (reviewResult.feedback.length === 0) {
                 console.log(`  All tests passed review - done`);
+                break;
+            }
+
+            // Out of time mid-cycle. Stop here rather than falling through: the
+            // deadline has already passed, so the fix phase below would skip every
+            // agent and simply delete each failing test and restore it again -
+            // churn, with a restore that can fail, for no change to the suite. It
+            // also has to be a break, not a fall-through, or the top-of-loop check
+            // reports the same exhaustion a second time on the next iteration.
+            if (reviewResult.ranOutOfTime) {
+                console.log(`  Review budget ran out mid-cycle - moving on`);
+                track("cli_review_budget_exhausted", { cycles_completed: cycle });
+                captureLog("warn", `Review budget ran out mid-cycle - some tests were left unreviewed`, {
+                    source: "test-generator",
+                    step: "review",
+                    cycles_completed: cycle,
+                });
                 break;
             }
 
@@ -366,18 +407,29 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
             const fixBatchSize = MAX_CONCURRENCY;
             for (let i = 0; i < reviewResult.feedback.length; i += fixBatchSize) {
                 const batch = reviewResult.feedback.slice(i, i + fixBatchSize);
+                // Past the deadline every remaining test is restored rather than
+                // fixed, which the loop below already does for free.
+                const outOfTime = Date.now() > reviewDeadline;
                 await Promise.all(
                     batch.map(async (fb) => {
-                        const fixPrompt = buildReviewFixPrompt(fb);
-                        try {
-                            // `result` is already set by the generation phase, so the nudge loop is
-                            // skipped: the fix agent runs one pass and stops on finish instead of
-                            // being force-nudged MAX_NUDGES times after every clean pass.
-                            await runAgent({ ...agentConfig, maxSteps: 30 }, fixPrompt, () => result);
-                        } catch (err) {
-                            console.warn(
-                                `  [fix] Error fixing ${fb.relativePath}: ${err instanceof Error ? err.message : String(err)}`,
-                            );
+                        if (!outOfTime) {
+                            const fixPrompt = buildReviewFixPrompt(fb);
+                            try {
+                                // `result` is already set by the generation phase, so the nudge loop is
+                                // skipped: the fix agent runs one pass and stops on finish instead of
+                                // being force-nudged MAX_NUDGES times after every clean pass.
+                                // One attempt only: a failed fix restores the original below, so a
+                                // retry buys a marginally better test for 3x the wall clock.
+                                await runAgent(
+                                    { ...agentConfig, maxSteps: 30, maxRetries: 1 },
+                                    fixPrompt,
+                                    () => result,
+                                );
+                            } catch (err) {
+                                console.warn(
+                                    `  [fix] Error fixing ${fb.relativePath}: ${err instanceof Error ? err.message : String(err)}`,
+                                );
+                            }
                         }
                         if (await restoreDeletedTest(fb.testPath, fb.content)) {
                             restored++;

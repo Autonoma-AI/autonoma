@@ -117,6 +117,36 @@ describe("runAgent", () => {
         expect(generateCalls).toHaveLength(2);
     });
 
+    test("maxRetries caps the attempts at the whole agent", async () => {
+        vi.useFakeTimers();
+        generateImpl = async () => {
+            throw apiError(429);
+        };
+
+        // Review and fix agents run with one attempt: a retry restarts the
+        // conversation from scratch, and their failure is already handled.
+        const promise = runAgent({ ...makeConfig(), maxRetries: 1 }, "do the task", () => undefined);
+        const assertion = expect(promise).rejects.toThrow("HTTP 429");
+        await vi.runAllTimersAsync();
+        await assertion;
+
+        expect(generateCalls).toHaveLength(1);
+    });
+
+    test("defaults to three attempts when maxRetries is not set", async () => {
+        vi.useFakeTimers();
+        generateImpl = async () => {
+            throw apiError(429);
+        };
+
+        const promise = runAgent(makeConfig(), "do the task", () => undefined);
+        const assertion = expect(promise).rejects.toThrow("HTTP 429");
+        await vi.runAllTimersAsync();
+        await assertion;
+
+        expect(generateCalls).toHaveLength(3);
+    });
+
     test("throws immediately on fatal errors", async () => {
         generateImpl = async () => {
             throw apiError(401);

@@ -3,6 +3,7 @@ import { join, relative, basename } from "node:path";
 import { type LanguageModel } from "ai";
 import { glob } from "glob";
 import { createStepLogger } from "../../core/display";
+import { captureLog } from "../../core/logs";
 import { isTestFile, TEST_FILE_GLOB, TESTS_DIR } from "../../core/test-files";
 import { runReviewPass } from "./review-pass";
 import { ALL_RUBRICS, type DimensionResult } from "./rubrics";
@@ -59,7 +60,8 @@ export async function runConsolidatedReview(
     outputDir: string,
     projectRoot: string,
     model: LanguageModel,
-): Promise<{ passed: number; failed: number; feedback: TestReviewFeedback[] }> {
+    deadline: number,
+): Promise<{ passed: number; failed: number; feedback: TestReviewFeedback[]; ranOutOfTime: boolean }> {
     const testsDir = join(outputDir, TESTS_DIR);
     const logger = createStepLogger("review", 5);
 
@@ -97,9 +99,22 @@ export async function runConsolidatedReview(
 
     let passed = 0;
     let failed = 0;
+    let ranOutOfTime = false;
     const feedback: TestReviewFeedback[] = [];
 
     for (let i = 0; i < tests.length; i += MAX_CONCURRENT_TESTS) {
+        if (Date.now() > deadline) {
+            ranOutOfTime = true;
+            const unreviewed = tests.length - i;
+            console.log(`  [review] Out of time - ${unreviewed} of ${tests.length} tests left unreviewed`);
+            captureLog("warn", `Review out of time - ${unreviewed} of ${tests.length} tests left unreviewed`, {
+                source: "review",
+                unreviewed,
+                total: tests.length,
+            });
+            break;
+        }
+
         const batch = tests.slice(i, i + MAX_CONCURRENT_TESTS);
         const results = await Promise.all(
             batch.map(async (test) => {
@@ -151,5 +166,5 @@ export async function runConsolidatedReview(
     });
 
     logger.summary();
-    return { passed, failed, feedback };
+    return { passed, failed, feedback, ranOutOfTime };
 }

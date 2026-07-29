@@ -5,6 +5,17 @@ import { runAgent, buildDefaultStepLogger } from "../../core/agent";
 import { buildReadFileTool, buildGrepTool, buildGlobTool, buildBashTool } from "../../tools";
 import { reviewResultRecordSchema, type ReviewRubric, type DimensionResult } from "./rubrics";
 
+// Review agents read source to justify each verdict, so a step legitimately runs
+// long - and they run 16-wide, which slows every one of them down further. The
+// 120s default turned that into a timeout storm.
+const REVIEW_STEP_TIMEOUT_MS = 300_000;
+
+// One attempt. A retry restarts the whole review from the first message, and a
+// review that never returns is not a failure the caller propagates - it fails
+// open to "pass" either way. Three attempts bought nothing and cost 3x the wall
+// clock on exactly the agents that were already the slowest.
+const REVIEW_MAX_RETRIES = 1;
+
 export async function runReviewPass(
     testContent: string,
     testPath: string,
@@ -33,6 +44,8 @@ export async function runReviewPass(
         systemPrompt: rubric.systemPrompt,
         model,
         maxSteps: rubric.maxSteps,
+        stepTimeoutMs: REVIEW_STEP_TIMEOUT_MS,
+        maxRetries: REVIEW_MAX_RETRIES,
         tools: (_heartbeat: () => void) => ({
             read_file: buildReadFileTool(projectRoot),
             grep: buildGrepTool(projectRoot),
