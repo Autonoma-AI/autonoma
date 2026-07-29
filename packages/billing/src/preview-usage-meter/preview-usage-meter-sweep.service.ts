@@ -20,6 +20,9 @@ const RECENT_TEARDOWN_LOOKBACK_MS = 2 * 60 * 60 * 1000;
 // whichever bound hits first, so samples much older than a day aren't reliably
 // there. A checkpoint behind this horizon can only ever close empty, degraded
 // windows, so metering resumes from the horizon instead of grinding through them.
+// Nothing alerts when samples stop arriving: such windows close at zero usage
+// and are only visible as `degraded` rows. The previewkit-metering rule group
+// covers this job failing to run, which is a different thing.
 const MAX_BACKFILL_MS = 24 * 60 * 60 * 1000;
 
 // Caps the ready-environments query so a runaway fleet can't OOM the cronjob.
@@ -42,10 +45,8 @@ interface WindowClosure {
     windowEnd: Date;
     vcpuSeconds: number;
     gbSeconds: number;
-    /** This environment had no samples in either series - it alone looks unscraped. */
+    /** No samples in either series, so the zero usage recorded is unmeasured rather than idle. */
     degraded: boolean;
-    /** No environment in the fleet had samples: a hole in the metrics, alerted on per window rather than per environment. */
-    fleetWideGap: boolean;
 }
 
 export interface PreviewUsageMeterSweepResult {
@@ -67,16 +68,6 @@ function ceilToWindowBoundary(date: Date): Date {
 /** Newest window boundary far enough behind wall clock for its samples to have landed. */
 function liveEdge(now: Date): Date {
     return floorToWindowBoundary(new Date(now.getTime() - INGESTION_LAG_MS));
-}
-
-/**
- * Whether a window sits behind the live edge. Such a window can never gain samples
- * (they would have landed long ago), so an empty result is missing history; at the
- * live edge the same emptiness means the scrape pipeline just stopped. Exported for
- * the boundary test - flipping this comparison would silence every live outage.
- */
-export function isBackfilledWindow(windowEnd: Date, now: Date): boolean {
-    return windowEnd < liveEdge(now);
 }
 
 function earliestCeiledCheckpoint(environments: Array<Pick<MeteredEnvironment, "checkpoint">>): Date | undefined {
@@ -143,11 +134,6 @@ export class PreviewUsageMeterSweepService extends Service {
                 break;
             }
 
-            const fleetWideGap = cpuByNamespace.size === 0 && averageGbByNamespace.size === 0;
-            if (fleetWideGap) {
-                this.reportFleetWideGap(currentWindowStart, windowEnd, now);
-            }
-
             const results = await Promise.all(
                 due.map(async (env) => {
                     const succeeded = await this.closeWindow({
@@ -157,7 +143,6 @@ export class PreviewUsageMeterSweepService extends Service {
                         vcpuSeconds: cpuByNamespace.get(env.namespace) ?? 0,
                         gbSeconds: (averageGbByNamespace.get(env.namespace) ?? 0) * WINDOW_SECONDS,
                         degraded: !cpuByNamespace.has(env.namespace) && !averageGbByNamespace.has(env.namespace),
-                        fleetWideGap,
                     });
                     return { env, succeeded };
                 }),
@@ -253,33 +238,10 @@ export class PreviewUsageMeterSweepService extends Service {
     }
 
     /**
-     * A window where no environment at all had samples. Backfilled windows predate
-     * the metrics and are expected to be empty, but the live edge coming back empty
-     * means ~15 minutes with no scrapes landing - the pipeline is down, and nothing
-     * hosted inside Prometheus can report that, since those alerts query the same
-     * empty Prometheus. Alerting here (once per window) rather than per environment
-     * keeps a fleet-wide outage from multiplying by the size of the fleet.
-     */
-    private reportFleetWideGap(windowStart: Date, windowEnd: Date, now: Date): void {
-        if (isBackfilledWindow(windowEnd, now)) {
-            this.logger.warn("No previewkit samples for this backfilled window - closing it as a data gap", {
-                windowStart,
-                windowEnd,
-            });
-            return;
-        }
-
-        this.logger.fatal("No previewkit samples for the current window - scrape agents or Prometheus likely down", {
-            windowStart,
-            windowEnd,
-        });
-    }
-
-    /**
      * Moves a checkpoint that predates the retention horizon up to it, so an
      * environment that went unmetered for days (a stuck cronjob, a fresh
      * Prometheus) resumes from queryable samples instead of closing hundreds of
-     * empty windows and firing the degraded-scraper alert on every one.
+     * empty windows nobody can price.
      */
     private clampToHorizon(checkpoint: Date | null, horizon: Date, environmentId: string): Date | undefined {
         if (checkpoint == null) return undefined;
@@ -308,7 +270,6 @@ export class PreviewUsageMeterSweepService extends Service {
         vcpuSeconds,
         gbSeconds,
         degraded,
-        fleetWideGap,
     }: WindowClosure): Promise<boolean> {
         const window = await this.db.previewkitUsageWindow.upsert({
             where: { environmentId_windowStart: { environmentId: env.id, windowStart } },
@@ -334,12 +295,6 @@ export class PreviewUsageMeterSweepService extends Service {
             degraded,
         });
 
-        // A fleet-wide gap is reported once for the whole window (escalating to fatal at
-        // the live edge), so the per-environment path would only restate it N times.
-        if (degraded && !fleetWideGap) {
-            await this.alertIfConsecutivelyDegraded(env, windowStart);
-        }
-
         try {
             await this.billingService.deductCreditsForPreviewUsage(
                 env.organizationId,
@@ -361,24 +316,5 @@ export class PreviewUsageMeterSweepService extends Service {
         });
 
         return true;
-    }
-
-    private async alertIfConsecutivelyDegraded(env: MeteredEnvironment, windowStart: Date): Promise<void> {
-        const previousWindow = await this.db.previewkitUsageWindow.findFirst({
-            where: { environmentId: env.id, windowStart: { lt: windowStart } },
-            orderBy: { windowStart: "desc" },
-            select: { degraded: true },
-        });
-
-        if (previousWindow?.degraded !== true) return;
-
-        this.logger.fatal(
-            "Previewkit environment degraded for 2+ consecutive usage windows - scraper likely not collecting",
-            {
-                environmentId: env.id,
-                namespace: env.namespace,
-                windowStart,
-            },
-        );
     }
 }

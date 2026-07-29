@@ -2247,8 +2247,9 @@ model PreviewkitUsageWindow {
 
   // True when the sweep found zero samples for this namespace in this window
   // (the scraper wasn't collecting) rather than genuinely zero usage. Written
-  // at zero usage either way; this flag distinguishes the two for alerting
-  // and billing audits.
+  // at zero usage either way; this flag is what tells the two apart afterwards,
+  // so an outage's unpriced windows can be found and re-billed. Nothing alerts
+  // on it - a run of degraded rows is the only trace a metrics gap leaves.
   degraded Boolean @default(false)
 
   createdAt DateTime @default(now()) @map("created_at")

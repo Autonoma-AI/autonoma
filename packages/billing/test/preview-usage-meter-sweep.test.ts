@@ -195,7 +195,7 @@ integrationTestSuite({
             expect(updatedEnv.meteredAt).toBeNull();
         });
 
-        test("marks consecutive zero-sample windows as degraded", async ({ harness }) => {
+        test("marks zero-sample windows as degraded so they can be told apart from idle ones", async ({ harness }) => {
             const orgId = await harness.createOrgWithBalance(100_000);
             const env = await harness.createPreviewkitEnvironment({
                 organizationId: orgId,
@@ -203,7 +203,7 @@ integrationTestSuite({
             });
 
             // No respondAt configured for either window - the fake sender defaults to
-            // an empty result vector, simulating a scraper that isn't collecting.
+            // an empty result vector, the shape a stopped scraper produces.
             const sender = new FakeQuerySender();
             const now = new Date("2026-07-21T13:00:00.000Z");
 
