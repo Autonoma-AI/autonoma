@@ -28,6 +28,14 @@ Store the PR **number** (call it `PR`).
 
 Sanity-check that OpenCode will actually run: the review is **skipped on draft PRs, bot-authored PRs, and fork PRs** (see `opencode-review.yml`). If the PR is a draft, say so - OpenCode won't review it until it's marked ready.
 
+**Check for merge conflicts before launching the watcher.** A PR that conflicts with its base has no computable `refs/pull/N/merge` ref, so `pull_request`-triggered workflows - the CI checks AND the OpenCode review - never run. The watcher would then block until its ~75-min timeout for a run that will never appear. Query the mergeability:
+
+```bash
+gh pr view <PR> --json mergeable,mergeStateStatus,baseRefName
+```
+
+If `mergeable` is `CONFLICTING` (equivalently `mergeStateStatus` is `DIRTY`), **do not launch the watcher**: tell the user the branch has conflicts with its base and that CI/OpenCode cannot run until they are resolved, and **ask whether they want to resolve them** (this skill is read-only and never resolves conflicts itself). `mergeable` is computed asynchronously by GitHub and is briefly `UNKNOWN` right after a push - if you get `UNKNOWN`, wait a few seconds and re-query once before deciding.
+
 ### 2. Launch the watcher in the background
 
 Run the helper **in the background** (`run_in_background: true`) so it survives past a single turn and re-invokes you when OpenCode settles:
