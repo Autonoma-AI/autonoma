@@ -3,6 +3,9 @@ import { dirname, join } from "node:path";
 import { hasToolCall, type LanguageModel, stepCountIs, tool, ToolLoopAgent } from "ai";
 import matter from "gray-matter";
 import { z } from "zod";
+import { track } from "../../core/analytics";
+import { debugLog } from "../../core/debug";
+import { captureLog } from "../../core/logs";
 import { AI_MAX_RETRIES } from "../../core/model";
 import { TEST_FILE_EXT, TESTS_DIR, normalizeTestFilename } from "../../core/test-files";
 import { buildBashTool, buildGlobTool, buildGrepTool, buildReadFileTool } from "../../tools";
@@ -63,7 +66,11 @@ export function buildWriteTestTool(state: CoverageState, outputDir: string) {
                 .string()
                 .describe(`File name ending in ${TEST_FILE_EXT} (e.g. login-valid-credentials${TEST_FILE_EXT})`),
             content: z.string().describe("Full file content including YAML frontmatter"),
-            nodeId: z.string().describe("The FeatureNode ID this test belongs to"),
+            nodeId: z
+                .string()
+                .describe(
+                    "The id next_node returned for this feature, copied verbatim. Not a re-slugged version of it, not a folder path, not the test filename.",
+                ),
         }),
         execute: async (input) => {
             const frontmatter = extractFrontmatter(input.content);
@@ -121,11 +128,46 @@ export function buildWriteTestTool(state: CoverageState, outputDir: string) {
             const relPath = join(TESTS_DIR, input.folder, normalizeTestFilename(input.filename));
             const absPath = join(outputDir, relPath);
 
+            const nodeId = state.resolveNodeId(input.nodeId, relPath);
+            if (nodeId == null) {
+                captureLog("warn", `write_test sent an unknown nodeId for a test no node owns`, {
+                    source: "test-generator",
+                    given: input.nodeId,
+                    path: relPath,
+                });
+                return {
+                    error:
+                        `Unknown nodeId "${input.nodeId}", and no node owns ${relPath} or is being explored. ` +
+                        `Call next_node first and pass back the id it returns, verbatim.`,
+                };
+            }
+
             try {
                 await mkdir(dirname(absPath), { recursive: true });
                 await writeFile(absPath, input.content, "utf-8");
-                state.markTested(input.nodeId, [relPath]);
+                state.markTested(nodeId, [relPath]);
                 await saveBfsState(outputDir, state);
+                if (nodeId !== input.nodeId) {
+                    debugLog("write_test received an unknown nodeId; attributed it to the current node", {
+                        given: input.nodeId,
+                        resolved: nodeId,
+                        path: relPath,
+                    });
+                    track("cli_write_test_node_id_corrected", {});
+                    captureLog("warn", `write_test sent an unknown nodeId - recorded under the node being explored`, {
+                        source: "test-generator",
+                        given: input.nodeId,
+                        resolved: nodeId,
+                        path: relPath,
+                    });
+                    return {
+                        path: relPath,
+                        title: parsed.data.title,
+                        note:
+                            `nodeId "${input.nodeId}" is not a known node - recorded under "${nodeId}". ` +
+                            `Pass the id returned by next_node verbatim.`,
+                    };
+                }
                 return { path: relPath, title: parsed.data.title };
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);

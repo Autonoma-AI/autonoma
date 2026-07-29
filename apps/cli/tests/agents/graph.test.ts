@@ -89,6 +89,101 @@ describe("CoverageState", () => {
         expect(state.allTestPaths()).toEqual(["test1.md", "test2.md", "test3.md"]);
     });
 
+    test("re-writing the same test under one node counts it once", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "a" }));
+        state.markTested("a", ["qa-tests/auth/login.md"]);
+        state.markTested("a", ["qa-tests/auth/login.md"]);
+
+        expect(state.testsWritten.get("a")).toEqual(["qa-tests/auth/login.md"]);
+        expect(state.summary().totalTests).toBe(1);
+    });
+
+    test("the same test recorded under two nodes counts once", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "a" }));
+        state.enqueue(makeNode({ id: "b" }));
+        state.markTested("a", ["qa-tests/auth/login.md"]);
+        state.markTested("b", ["qa-tests/auth/login.md", "qa-tests/auth/logout.md"]);
+
+        expect(state.allTestPaths()).toEqual(["qa-tests/auth/login.md", "qa-tests/auth/logout.md"]);
+        expect(state.summary().totalTests).toBe(2);
+    });
+
+    test("resolveNodeId passes a known id through", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "admin-claims" }));
+        expect(state.resolveNodeId("admin-claims", "qa-tests/admin/claims/create.md")).toBe("admin-claims");
+    });
+
+    test("resolveNodeId maps an invented id onto the node being explored", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "admin-claims" }));
+        state.nextNode();
+
+        // The shapes models actually produce: a re-slug, a path, the filename.
+        const path = "qa-tests/admin/claims/create.md";
+        expect(state.resolveNodeId("admin/claims", path)).toBe("admin-claims");
+        expect(state.resolveNodeId("admin-claims-update", path)).toBe("admin-claims");
+        expect(state.resolveNodeId("qa-tests/admin/claims/create.md", path)).toBe("admin-claims");
+    });
+
+    test("resolveNodeId attributes a rewrite to the node that first wrote it", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "admin-claims" }));
+        state.enqueue(makeNode({ id: "admin-users" }));
+        state.nextNode();
+        state.markTested("admin-claims", ["qa-tests/admin/claims/create.md"]);
+
+        // Generation ends: the queue drains and nextNode clears currentNode. This
+        // is the state the review-fix pass inherits, and its prompt never tells the
+        // agent a nodeId - so without the path lookup every fix write is rejected
+        // and the whole review-fix cycle silently does nothing.
+        state.nextNode();
+        state.nextNode();
+        expect(state.currentNode).toBeUndefined();
+
+        expect(state.resolveNodeId("admin/claims/create.md", "qa-tests/admin/claims/create.md")).toBe("admin-claims");
+    });
+
+    test("resolveNodeId prefers the owning node over the one being explored", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "admin-claims" }));
+        state.enqueue(makeNode({ id: "admin-users" }));
+        state.nextNode();
+        state.markTested("admin-claims", ["qa-tests/admin/claims/create.md"]);
+        const exploring = state.nextNode();
+        expect(exploring?.node.id).toBe("admin-users");
+
+        // A touch-up of a test admin-claims owns must not close admin-users.
+        expect(state.resolveNodeId("whatever", "qa-tests/admin/claims/create.md")).toBe("admin-claims");
+        expect(state.nodes.get("admin-users")?.status).toBe("exploring");
+    });
+
+    test("resolveNodeId gives up when nothing is being explored", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "a" }));
+        expect(state.resolveNodeId("made-up", "qa-tests/admin/new.md")).toBeUndefined();
+    });
+
+    test("an invented id does not strand its node in the queue", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "admin-claims" }));
+        state.enqueue(makeNode({ id: "admin-users" }));
+
+        const first = state.nextNode();
+        expect(first?.node.id).toBe("admin-claims");
+        // The model invents an id; without resolution this would create a phantom
+        // key, leave admin-claims un-tested, and re-issue it from the queue.
+        const resolved = state.resolveNodeId("admin/claims", "qa-tests/admin/claims/create.md");
+        state.markTested(resolved!, ["qa-tests/admin/claims/create.md"]);
+
+        expect(state.nodes.get("admin-claims")?.status).toBe("tested");
+        expect([...state.testsWritten.keys()]).toEqual(["admin-claims"]);
+        expect(state.nextNode()?.node.id).toBe("admin-users");
+        expect(state.summary().totalTests).toBe(1);
+    });
+
     test("summary returns correct counts", () => {
         const state = new CoverageState();
         state.enqueue(makeNode({ id: "a" }));

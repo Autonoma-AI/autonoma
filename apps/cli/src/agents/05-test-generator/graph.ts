@@ -86,19 +86,69 @@ export class CoverageState {
         return undefined;
     }
 
+    /**
+     * Map whatever the model called the node onto a real one. `write_test` takes
+     * the id as free text, and models routinely re-slug it, path-ify it, or pass
+     * the test filename - none of which match a node. Recording under the given
+     * string anyway invents a key that no node owns: the real node never flips to
+     * "tested", `next_node` hands it out again, and the same test is written and
+     * counted twice.
+     *
+     * Resolution order matters. The path comes before the explored node because a
+     * rewrite of an existing test belongs to whichever node first wrote it, not to
+     * whatever happens to be in progress - that is how the review-fix pass, which
+     * runs with no node explored at all, attributes its rewrites, and it keeps a
+     * mid-exploration touch-up of an already-tested file from closing the node
+     * being explored.
+     *
+     * Returns undefined only when there is nothing to attribute to, so the caller
+     * can reject instead of guessing.
+     */
+    resolveNodeId(nodeId: string, testPath: string): string | undefined {
+        if (this.nodes.has(nodeId)) return nodeId;
+
+        const owner = this.nodeOwningTest(testPath);
+        if (owner != null) return owner;
+
+        if (this.currentNode != null && this.nodes.has(this.currentNode)) return this.currentNode;
+        return undefined;
+    }
+
+    /** The node that already recorded this test path, if any. */
+    private nodeOwningTest(testPath: string): string | undefined {
+        for (const [nodeId, paths] of this.testsWritten) {
+            if (paths.includes(testPath) && this.nodes.has(nodeId)) return nodeId;
+        }
+        return undefined;
+    }
+
     markTested(nodeId: string, testPaths: string[]): void {
         const node = this.nodes.get(nodeId);
         if (node) node.status = "tested";
-        this.currentNode = undefined;
         const existing = this.testsWritten.get(nodeId) ?? [];
-        this.testsWritten.set(nodeId, [...existing, ...testPaths]);
+        const merged = [...existing];
+        for (const path of testPaths) {
+            if (!merged.includes(path)) merged.push(path);
+        }
+        this.testsWritten.set(nodeId, merged);
         this.reportProgress();
     }
 
+    /**
+     * Every distinct test file written this run. Deduped across nodes as well as
+     * within one: a test rewritten under a second node (a review fix, a re-visited
+     * node) is still one file on disk, and counting it twice inflates every number
+     * derived from this - the progress estimate, the run summary, and INDEX.md.
+     */
     allTestPaths(): string[] {
         const paths: string[] = [];
+        const seen = new Set<string>();
         for (const tests of this.testsWritten.values()) {
-            paths.push(...tests);
+            for (const path of tests) {
+                if (seen.has(path)) continue;
+                seen.add(path);
+                paths.push(path);
+            }
         }
         return paths;
     }
