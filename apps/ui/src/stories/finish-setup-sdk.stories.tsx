@@ -451,6 +451,29 @@ export const ArtifactsStep: Story = {
   parameters: { msw: { handlers: appShellHandlers(artifactsStepFixtures()) } },
 };
 
+/**
+ * The CLI step once every artifact has landed: the chips fill in and the count
+ * reads 4/4. A complete CLI step means the page opens on the SDK step, so the
+ * story walks back to it.
+ */
+export const ArtifactsStepComplete: Story = {
+  args: { path: PATH },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...sdkStepFixtures(readyTargets),
+        applicationSetups: { artifactStatus, prepareCliSetup: cliSetup },
+      }),
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const cliStep = await canvas.findByRole("button", { name: /Upload test artifacts/ }, { timeout: 10_000 });
+    await userEvent.click(cliStep);
+    await canvas.findByText("4/4", undefined, { timeout: 10_000 });
+  },
+};
+
 export const TargetReady: Story = {
   args: { path: PATH },
   parameters: { msw: { handlers: appShellHandlers(sdkStepFixtures(readyTargets)) } },

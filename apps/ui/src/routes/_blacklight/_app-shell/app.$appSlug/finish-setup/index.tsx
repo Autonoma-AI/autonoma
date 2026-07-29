@@ -1,4 +1,5 @@
 import {
+  Badge,
   Button,
   Input,
   Label,
@@ -12,6 +13,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
+  badgeVariants,
   cn,
 } from "@autonoma/blacklight";
 import { type UploadArtifactsBody, UploadScenarioRecipeVersionsBodySchema } from "@autonoma/types";
@@ -94,7 +96,12 @@ const CLI_FINISH_STEP: FinishStepDefinition = {
   id: "cli",
   stepperLabel: "CLI",
   title: "Upload test artifacts",
-  description: <>Run the Autonoma planner CLI in your repo to upload recipes, test cases, and a knowledge base.</>,
+  description: (
+    <>
+      Run the Autonoma planner CLI in your repo. It generates your test suite and uploads it here - nothing is committed
+      to your repo.
+    </>
+  ),
   render: (props) => <ArtifactsStepBody applicationId={props.applicationId} artifacts={props.artifactStatus} />,
 };
 
@@ -1526,6 +1533,8 @@ function DryRunList({
 
 // ─── Step 1: CLI artifacts (command always shown) ─────────────────────────────
 
+const COPIED_RESET_MS = 2000;
+
 const ARTIFACT_DETAILS: Record<string, { label: string; description: string }> = {
   recipe: {
     label: "recipe.json",
@@ -1564,9 +1573,17 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
   const npxCommand = envPairs != null ? `${envPairs.join(" ")} npx @autonoma-ai/planner@latest` : undefined;
   const uploadCommand = envPairs != null ? `${envPairs.join(" ")} npx @autonoma-ai/planner@latest upload` : undefined;
 
-  const missingArtifacts = artifacts.artifacts
-    .filter((a) => !a.received)
-    .map((a) => ARTIFACT_DETAILS[a.key]?.label ?? a.key);
+  // One derived list feeds the chips, the count and the heading, so none of them can
+  // disagree and no artifact total is hardcoded.
+  const artifactRows = Object.entries(ARTIFACT_DETAILS).map(([key, detail]) => ({
+    key,
+    label: detail.label,
+    description: detail.description,
+    received: artifacts.artifacts.find((a) => a.key === key)?.received === true,
+  }));
+  const receivedCount = artifactRows.filter((row) => row.received).length;
+  const allArtifactsReceived = receivedCount === artifactRows.length;
+  const missingArtifacts = artifactRows.filter((row) => !row.received).map((row) => row.label);
   // The CLI run finished but not everything landed (typically the recipe) - surface
   // it and how to recover, rather than leaving the step silently un-completeable.
   const showIncompleteUploadHint = artifacts.complete && !artifacts.stepComplete;
@@ -1579,12 +1596,9 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
   // https://github.com/Autonoma-AI/agent/pull/1550
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
+        <Label>Run in your terminal</Label>
         <CommandBlock command={npxCommand} />
-        <p className="text-2xs leading-relaxed text-text-secondary">
-          Runs the planner in your repo with Node. It analyzes the code and writes the generated files to{" "}
-          <Code>~/.autonoma/&lt;your-app&gt;/</Code> before uploading them - nothing is committed to your repo.
-        </p>
       </div>
 
       {setup.status === "loading" && (
@@ -1599,25 +1613,17 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
       )}
 
       <div className="flex flex-col gap-2">
-        <p className="font-mono text-3xs uppercase tracking-widest text-text-secondary">What it generates + uploads</p>
-        {Object.entries(ARTIFACT_DETAILS).map(([key, detail]) => {
-          const received = artifacts.artifacts.find((a) => a.key === key)?.received === true;
-          return (
-            <div key={key} className="flex items-start gap-2.5">
-              {received ? (
-                <CheckCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-success" />
-              ) : (
-                <span className="mt-0.5 size-3.5 shrink-0 rounded-full border border-border-dim" />
-              )}
-              <div className="flex min-w-0 flex-col">
-                <span className={cn("font-mono text-2xs", received ? "text-text-primary" : "text-text-secondary")}>
-                  {detail.label}
-                </span>
-                <span className="text-2xs text-text-secondary">{detail.description}</span>
-              </div>
-            </div>
-          );
-        })}
+        <div className="flex items-center gap-2">
+          <Label>{allArtifactsReceived ? "Uploaded" : "Waiting for uploads"}</Label>
+          <Badge variant="outline" className="text-3xs">
+            {receivedCount}/{artifactRows.length}
+          </Badge>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {artifactRows.map((row) => (
+            <ArtifactChip key={row.key} label={row.label} description={row.description} received={row.received} />
+          ))}
+        </div>
         <p className="mt-1 text-2xs text-text-secondary">
           <DocLink href="https://docs.autonoma.app/test-planner/">
             Learn more about the planner and what it generates
@@ -1650,33 +1656,119 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
   );
 }
 
+/**
+ * One artifact the planner is expected to upload, as a chip that fills in once it
+ * lands. What each file is lives in the tooltip rather than a line of its own -
+ * four descriptions stacked under four filenames buried the actual instruction.
+ *
+ * The trigger is a button purely so the description is reachable without a mouse -
+ * it has no click behaviour. A plain span would not take focus, and the tooltip
+ * would never open for keyboard users.
+ */
+function ArtifactChip({ label, description, received }: { label: string; description: string; received: boolean }) {
+  const toneClass = received ? "border-status-success/40 text-status-success" : "text-text-secondary";
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <button
+            type="button"
+            className={cn(
+              badgeVariants({ variant: "outline" }),
+              "cursor-default gap-1.5 font-mono text-2xs",
+              toneClass,
+            )}
+          />
+        }
+      >
+        {received ? (
+          <CheckIcon size={12} weight="bold" className="text-status-success" />
+        ) : (
+          <span className="size-2 rounded-full border border-border-mid" />
+        )}
+        {label}
+      </TooltipTrigger>
+      {/* Opens downward into empty space; the default upward placement covers the copy CTA. */}
+      <TooltipContent side="bottom" align="start" className="max-w-xs">
+        {description}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * A shell command the user has to run themselves.
+ *
+ * The copy affordance is a full accent CTA rather than an icon in the block's
+ * corner: on a page where everything else is grey, a grey corner icon read as
+ * decoration and people moved on without ever running the command. The block
+ * itself stays clickable as a shortcut, but the button is what carries the
+ * action, and the toast is where the "now paste it" instruction lives so the
+ * step body does not have to spend a paragraph on it.
+ */
 function CommandBlock({ command }: { command?: string }) {
   const [copied, setCopied] = useState(false);
 
+  // Drop the confirmation again so the block reads as copyable a second time
+  // instead of being stuck on "Copied".
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), COPIED_RESET_MS);
+    return () => clearTimeout(timer);
+  }, [copied]);
+
   function handleCopy() {
     if (command == null) return;
-    void navigator.clipboard.writeText(command).then(() => {
-      setCopied(true);
-      toastManager.add({ type: "success", title: "Command copied" });
-    });
+    // `navigator.clipboard` is undefined in insecure contexts, and the write can
+    // reject (permissions, unfocused document) - handle both so the failure logs
+    // instead of surfacing as an unhandled rejection.
+    if (navigator.clipboard == null) {
+      console.warn("Clipboard API unavailable; cannot copy CLI command");
+      return;
+    }
+    navigator.clipboard
+      .writeText(command)
+      .then(() => {
+        setCopied(true);
+        toastManager.add({
+          type: "success",
+          title: "Command copied",
+          description: "Paste it into your terminal, from your repo's root directory.",
+        });
+      })
+      .catch((err) => console.warn("Failed to copy CLI command", err));
+  }
+
+  if (command == null) {
+    return (
+      <div className="border border-border-dim bg-surface-raised p-3">
+        <code className="block font-mono text-2xs leading-relaxed text-text-secondary">
+          Preparing your CLI command...
+        </code>
+      </div>
+    );
   }
 
   return (
-    <div className="relative border border-border-dim bg-surface-raised p-3 pr-12">
-      <code className="block whitespace-pre-wrap break-all font-mono text-2xs leading-relaxed text-text-secondary">
-        {command ?? "Preparing your CLI command..."}
-      </code>
-      {command != null && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="absolute right-2 top-2 text-text-secondary hover:text-primary-ink"
-          title={copied ? "Copied" : "Copy command"}
-          onClick={handleCopy}
-        >
-          <CopyIcon size={14} />
-        </Button>
-      )}
+    <div className="flex flex-col gap-2.5">
+      <button
+        type="button"
+        onClick={handleCopy}
+        aria-label="Copy command to clipboard"
+        className="block w-full cursor-pointer border border-border-dim bg-surface-raised p-3 text-left transition-colors hover:border-primary-ink/40"
+      >
+        <code className="block select-text whitespace-pre-wrap break-all font-mono text-2xs leading-relaxed text-text-secondary">
+          <span aria-hidden className="select-none">
+            ${" "}
+          </span>
+          {command}
+        </code>
+      </button>
+      <Button variant="cta" size="sm" className="w-fit gap-1.5" onClick={handleCopy}>
+        {copied ? <CheckIcon size={12} weight="bold" /> : <CopyIcon size={12} />}
+        {copied ? "Copied" : "Copy command"}
+      </Button>
     </div>
   );
 }
