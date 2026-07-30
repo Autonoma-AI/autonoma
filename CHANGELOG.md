@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.260730.1](https://github.com/Autonoma-AI/agent/compare/v1.260729.3...v1.260730.1) (2026-07-30)
+
+
+### Features
+
+* **cli:** record the planner dashboard as a session replay ([#1871](https://github.com/Autonoma-AI/agent/issues/1871)) ([6c581fc](https://github.com/Autonoma-AI/agent/commit/6c581fc6e7722f0c62a89a28c708870f24441ecc))
+* **cli:** say what the tests step is doing after the nodes are done ([#1926](https://github.com/Autonoma-AI/agent/issues/1926)) ([fd032e9](https://github.com/Autonoma-AI/agent/commit/fd032e971385608dfd7448782f59387928ea49b5))
+* **demo:** read-only demo UX - banner + global write-block modal ([#1869](https://github.com/Autonoma-AI/agent/issues/1869)) ([037b40b](https://github.com/Autonoma-AI/agent/commit/037b40b93b867f1b0b48dfb6b54b3102325b2db2))
+* **previewkit:** report preview power/health from the cluster k8s API ([#1867](https://github.com/Autonoma-AI/agent/issues/1867)) ([a114bea](https://github.com/Autonoma-AI/agent/commit/a114bea2852b6b907e428721b1f8d7ad5b7ef4e3))
+* **ui:** declutter preview status onto one runtime badge ([#1928](https://github.com/Autonoma-AI/agent/issues/1928)) ([488da6a](https://github.com/Autonoma-AI/agent/commit/488da6ad6dd3e64341cb93aea639c2a401fcc1fa))
+* **ui:** honest preview runtime badges (Idle/Waking/Live/Crashing) ([#1916](https://github.com/Autonoma-AI/agent/issues/1916)) ([5cb627c](https://github.com/Autonoma-AI/agent/commit/5cb627ca72bb4e6ed53e792bdba0f54c16ccfaad))
+* **ui:** route in-app preview links through the waiting screen ([#1911](https://github.com/Autonoma-AI/agent/issues/1911)) ([81ac2b8](https://github.com/Autonoma-AI/agent/commit/81ac2b864f60f02387bea9b12e8701a9233b7e81))
+
+
+### Bug Fixes
+
+* **cli:** a step that is still running never reads finished ([#1925](https://github.com/Autonoma-AI/agent/issues/1925)) ([0186478](https://github.com/Autonoma-AI/agent/commit/018647849e3764718513e87b916f0257a9a5e1a3))
+* **cli:** bound the review pass so it cannot stall a run for hours ([#1876](https://github.com/Autonoma-AI/agent/issues/1876)) ([f613363](https://github.com/Autonoma-AI/agent/commit/f613363f466f2b06a4fba76de45bb305035130b2))
+* **cli:** build INDEX.md from disk, last ([#1875](https://github.com/Autonoma-AI/agent/issues/1875)) ([6854cd7](https://github.com/Autonoma-AI/agent/commit/6854cd7fd7d2856a3ab77ae0623c41399f7eb822))
+* **cli:** let journey generation write its tests again ([#1913](https://github.com/Autonoma-AI/agent/issues/1913)) ([2c51d53](https://github.com/Autonoma-AI/agent/commit/2c51d5383e1879b24ba7c127617c2fe1ec839972))
+* **cli:** make a refused write_test countable ([#1923](https://github.com/Autonoma-AI/agent/issues/1923)) ([1ef5837](https://github.com/Autonoma-AI/agent/commit/1ef58375f8c2331f86fb5b468fadc0df1321aa3b))
+* **cli:** make starting over actually start over ([#1922](https://github.com/Autonoma-AI/agent/issues/1922)) ([5759b06](https://github.com/Autonoma-AI/agent/commit/5759b0634f858fb45c787f0e23c2aa890402e5b9))
+* **cli:** report the real suite index and re-budget the recipe handoff ([#1883](https://github.com/Autonoma-AI/agent/issues/1883)) ([c2b4c33](https://github.com/Autonoma-AI/agent/commit/c2b4c337943dbb41a8b6a31b267dd3c8d173f675))
+* **cli:** stop invented nodeIds inflating the planner's test count ([#1872](https://github.com/Autonoma-AI/agent/issues/1872)) ([84d2abf](https://github.com/Autonoma-AI/agent/commit/84d2abf90dd17c48208b0a561843695644333ec3))
+* **cli:** stop the journey pass resetting the tests step's progress ([#1924](https://github.com/Autonoma-AI/agent/issues/1924)) ([d5705c0](https://github.com/Autonoma-AI/agent/commit/d5705c04fcee89cfdc45faab4bd3a135809be446))
+* **cli:** stop the review pass losing tests it deleted ([#1873](https://github.com/Autonoma-AI/agent/issues/1873)) ([0c6871b](https://github.com/Autonoma-AI/agent/commit/0c6871b08694f47153b77dabad75ab74e38bd3fc))
+* **cli:** stop uploading quarantined tests ([#1877](https://github.com/Autonoma-AI/agent/issues/1877)) ([d1d44fc](https://github.com/Autonoma-AI/agent/commit/d1d44fce4f75a0d9bb76f362d69e66b0fa4b7667))
+* **demo:** connect-agent buttons raise the sign-up modal in the demo ([#1931](https://github.com/Autonoma-AI/agent/issues/1931)) ([e0d13a3](https://github.com/Autonoma-AI/agent/commit/e0d13a3752c8d9b66807acd70db4b53051605795))
+* **demo:** hide the onboarding GitHub-config link in the demo ([#1910](https://github.com/Autonoma-AI/agent/issues/1910)) ([6fb3137](https://github.com/Autonoma-AI/agent/commit/6fb3137e14e8738cc32588c149a6ebaf3d5922fd))
+* **mcp:** lock the read-only demo org out of the MCP surface ([#1930](https://github.com/Autonoma-AI/agent/issues/1930)) ([252d336](https://github.com/Autonoma-AI/agent/commit/252d336193b2955668538af3cb7782d611c8ae10))
+* **preview-config:** say why the save bar refuses a save ([#1912](https://github.com/Autonoma-AI/agent/issues/1912)) ([c378569](https://github.com/Autonoma-AI/agent/commit/c37856903a4712be572c0b0e1a0ad327786824ea))
+* **scenario:** write recipe edits to main's live snapshot ([#1914](https://github.com/Autonoma-AI/agent/issues/1914)) ([5815421](https://github.com/Autonoma-AI/agent/commit/5815421b2b25d350f307d37c948626b23e31a663))
+* **ui:** stop the stored-secret merge duplicating a key being typed ([#1918](https://github.com/Autonoma-AI/agent/issues/1918)) ([a3844d6](https://github.com/Autonoma-AI/agent/commit/a3844d641ee0e1d521ca5741f5281c1d0ebcf348))
+* vercel response add product and metadata ([#1895](https://github.com/Autonoma-AI/agent/issues/1895)) ([c6700dd](https://github.com/Autonoma-AI/agent/commit/c6700dd64e004696d8a730d5b382c094e813aa08))
+
+
+### Performance Improvements
+
+* de-waterfall the snapshot analysis page load ([#1904](https://github.com/Autonoma-AI/agent/issues/1904)) ([f585b0e](https://github.com/Autonoma-AI/agent/commit/f585b0ea7bf909bffd86a713eb8f8fb6420e7fc1))
+
 ## [1.260729.3](https://github.com/Autonoma-AI/agent/compare/v1.260729.2...v1.260729.3) (2026-07-29)
 
 
