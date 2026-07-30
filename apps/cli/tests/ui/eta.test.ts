@@ -75,6 +75,30 @@ describe("eta model", () => {
         expect(eta.etaMs).toBeGreaterThanOrEqual(30_000);
     });
 
+    test("a step still running never reads complete, whatever its sub-progress says", () => {
+        const store = createStore({ outputDir: "/out", meta: META });
+        for (const name of STEP_ORDER) {
+            if (name !== "testGenerator") store.endStep(name, "done");
+        }
+        store.startStep("testGenerator");
+        // Every node explored - but journey generation and up to 45 minutes of
+        // review cycles still follow.
+        store.setSubProgress("testGenerator", { done: 139, total: 139, unit: "nodes" });
+
+        const eta = computeEta(store.getState());
+        expect(eta.complete).toBe(false);
+        expect(eta.pct).toBeLessThan(100);
+        expect(eta.etaMs).toBeGreaterThan(0);
+        expect(formatEtaLabel(eta)).not.toBe("complete");
+    });
+
+    test("only a finished run reads 100%", () => {
+        const store = createStore({ outputDir: "/out", meta: META });
+        for (const name of STEP_ORDER) store.endStep(name, "done");
+        // Every step done and nothing running: 100% is correct here.
+        expect(computeEta(store.getState()).pct).toBe(100);
+    });
+
     test("a known page count sizes the page-scaled budgets", () => {
         const store = createStore({ outputDir: "/out", meta: META });
         const flat = computeEta(store.getState()).etaMs;

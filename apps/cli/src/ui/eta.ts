@@ -10,8 +10,13 @@ export interface EtaResult {
     complete: boolean;
 }
 
-/** Floors so a user-paced step never collapses the ETA to "0 min left" mid-step. */
-const USER_PACED_MIN_REMAINING_MS = 30_000;
+/**
+ * A running step always has this much budget left, and so can never read as
+ * fully consumed. Sub-progress measures one thing a step does, not everything:
+ * the tests step reports N/N nodes and then runs journey generation and up to 45
+ * minutes of review cycles.
+ */
+const RUNNING_MIN_REMAINING_MS = 30_000;
 /** Trust the running step's own pace once this much of it is observed. */
 const LIVE_RATE_MIN_DONE = 3;
 const LIVE_RATE_MIN_ELAPSED_MS = 60_000;
@@ -123,10 +128,12 @@ export function computeEta(state: RunState): EtaResult {
 
         if (step.status === "running") {
             const frac = runningFraction(step, nowAgent, budget);
-            consumedBudget += budget * frac;
-            let rem = liveRemainingMs(step, nowAgent) ?? budget * (1 - frac);
-            if (step.userPaced) rem = Math.max(rem, USER_PACED_MIN_REMAINING_MS);
-            remaining += rem;
+            // Both sides floor on the same reserve, so the percentage and the
+            // remainder cannot disagree about whether the step is finished.
+            const unspendable = Math.min(budget, RUNNING_MIN_REMAINING_MS);
+            consumedBudget += Math.min(budget * frac, budget - unspendable);
+            const rem = liveRemainingMs(step, nowAgent) ?? budget * (1 - frac);
+            remaining += Math.max(rem, unspendable);
             continue;
         }
 
