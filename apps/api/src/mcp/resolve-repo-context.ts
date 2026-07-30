@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
+import { env } from "../env";
 import type { ListedRepository } from "../github/github-installation.service";
 
 /** The org + linked application an MCP tool call acts in, resolved from the `repoFullName` it names. */
@@ -39,7 +40,13 @@ export async function resolveRepoContext(
     const logger = rootLogger.child({ name: "resolveRepoContext" });
 
     const memberships = await db.member.findMany({ where: { userId }, select: { organizationId: true } });
-    const userOrgIds = memberships.map((membership) => membership.organizationId);
+    // The read-only demo org is never reachable over MCP. The MCP path bypasses `writeProcedure`,
+    // so a demo viewer (who is a member of DEMO_ORG so `orgStatus` resolves to "approved") could
+    // otherwise read secrets/logs/config and mutate them via tools. Dropping it here makes every
+    // tool that names a demo-org repo resolve to `notFound`, identical to a non-member.
+    const userOrgIds = memberships
+        .map((membership) => membership.organizationId)
+        .filter((organizationId) => organizationId !== env.DEMO_ORG);
     if (userOrgIds.length === 0) throw notFound(repoFullName);
 
     // Fast path (no GitHub call): a preview environment already maps repoFullName -> org + numeric repo id.

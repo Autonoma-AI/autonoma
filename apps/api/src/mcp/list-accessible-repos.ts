@@ -1,5 +1,6 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
+import { env } from "../env";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 
 /** Cap the discovery list; an internal user can belong to many orgs. */
@@ -24,7 +25,11 @@ export async function listAccessibleRepos(
     const logger = rootLogger.child({ name: "listAccessibleRepos" });
 
     const memberships = await db.member.findMany({ where: { userId }, select: { organizationId: true } });
-    const orgIds = memberships.map((membership) => membership.organizationId);
+    // Never surface the read-only demo org over MCP - the MCP path is not covered by the demo
+    // write-block, so a demo viewer must not be able to discover or act on it. See resolveRepoContext.
+    const orgIds = memberships
+        .map((membership) => membership.organizationId)
+        .filter((organizationId) => organizationId !== env.DEMO_ORG);
     if (orgIds.length === 0) return { repos: [], truncated: false };
 
     const orgs = await db.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } });

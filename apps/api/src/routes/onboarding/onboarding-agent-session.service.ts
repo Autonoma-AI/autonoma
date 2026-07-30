@@ -10,6 +10,7 @@ import {
     OnboardingAgentPendingRequestSchema,
 } from "@autonoma/types";
 import { z } from "zod";
+import { env } from "../../env";
 import type { RateLimitPolicy, RateLimiterService } from "../../rate-limit/rate-limiter.service";
 
 /**
@@ -169,7 +170,17 @@ export class OnboardingAgentSessionService {
 
         const expiresAt = state?.agentPairingExpiresAt;
         const organizationId = state?.application.organizationId;
-        if (state == null || organizationId == null || expiresAt == null || expiresAt.getTime() < Date.now()) {
+        // The read-only demo org is never reachable over MCP (it bypasses writeProcedure); refuse to
+        // pair an agent to a demo-org app, indistinguishable from an invalid code. Belt-and-suspenders
+        // beside resolveOrgForMember - createPairing is itself a blocked write in the demo, so a code
+        // should never exist, but a pairing must never bind to the demo either way.
+        if (
+            state == null ||
+            organizationId == null ||
+            organizationId === env.DEMO_ORG ||
+            expiresAt == null ||
+            expiresAt.getTime() < Date.now()
+        ) {
             throw new NotFoundError("Pairing code is invalid or expired");
         }
 
@@ -222,7 +233,11 @@ export class OnboardingAgentSessionService {
             where: { id: applicationId, disabled: false, organization: { members: { some: { userId } } } },
             select: { organizationId: true },
         });
-        if (application == null) {
+        // The read-only demo org is never reachable over MCP: the MCP path bypasses `writeProcedure`,
+        // so a demo viewer (a member of DEMO_ORG so `orgStatus` resolves to "approved") could otherwise
+        // mutate config/secrets/recipes via the onboarding tools. Treat it exactly like a non-member -
+        // same NotFoundError, indistinguishable from an unknown app.
+        if (application == null || application.organizationId === env.DEMO_ORG) {
             this.logger.warn("No enabled app the agent user is a member of", { userId, applicationId });
             throw new NotFoundError(`No application found for ${applicationId}`);
         }
