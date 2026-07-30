@@ -1116,9 +1116,6 @@ importers:
       '@autonoma/scenario':
         specifier: workspace:*
         version: link:../../../packages/scenario
-      '@autonoma/storage':
-        specifier: workspace:*
-        version: link:../../../packages/storage
       '@autonoma/test-updates':
         specifier: workspace:*
         version: link:../../../packages/test-updates

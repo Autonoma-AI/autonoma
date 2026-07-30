@@ -19,7 +19,6 @@
         "@autonoma/job-run-completion-notification": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/scenario": "workspace:*",
-        "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/workflow": "workspace:*",
