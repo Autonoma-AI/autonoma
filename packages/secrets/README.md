@@ -33,6 +33,14 @@ AWS Secrets Manager is still the authoritative store. The API's secret services 
 
 Both of those allowances stop being correct the moment reads move to Postgres. At that point the mirror should lose its guard and be allowed to fail the request.
 
+### Earning the read flip
+
+Before any read is served from here, both `list()` methods shadow-read: they return the authoritative AWS response as before and additionally call `SecretValueMirror.audit`, which compares `SecretValues.fingerprints` against what AWS just gave them and warns on any difference. Serving a read from an incomplete mirror would show a user no secrets at all, and an un-backfilled bundle is indistinguishable from an empty one at the API surface - so the mirror has to prove itself first.
+
+It costs one two-column query and no decryption, because the fingerprints are already computed for the response. Every bundle anyone looks at reports whether the mirror agrees, which is continuous verification rather than the single point-in-time check a backfill gives.
+
+Differences are warnings, not errors: while AWS is authoritative, anything the backfill has not reached is expected to differ. What matters is the trend going quiet. When it does - and the backfill's refused and dangling sets are resolved - reads can move, at which point the guard on `SecretValueMirror` comes off and mirror failures should fail the request.
+
 ### Where the tables are going
 
 The current shape is a bundle row (`previewkit_secret`, one per app, holding the AWS ARN) plus a value row per key. That bundle exists only to hold `awsSecretArn`: once reads move to Postgres and the ARN is dropped, all it contains is `(applicationId, appName)`, which the value rows can carry themselves.

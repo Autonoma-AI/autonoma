@@ -176,3 +176,84 @@ secretsSuite({
         });
     },
 });
+
+secretsSuite({
+    name: "SecretValues.compare",
+    cases: (test) => {
+        async function sealed(harness: SecretsHarness, items: { key: string; value: string }[]) {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            await values(harness).put(bundle, items);
+            return bundle;
+        }
+
+        test("reports no difference when the two agree", async ({ harness }) => {
+            const bundle = await sealed(harness, [{ key: "A", value: "one" }]);
+
+            const diff = await values(harness).compare(bundle, new Map([["A", secretFingerprint("one")]]));
+
+            expect(diff).toEqual({ missing: [], extra: [], mismatched: [] });
+        });
+
+        test("reports a key the authoritative store has and Postgres does not", async ({ harness }) => {
+            const bundle = await sealed(harness, [{ key: "A", value: "one" }]);
+
+            const diff = await values(harness).compare(
+                bundle,
+                new Map([
+                    ["A", secretFingerprint("one")],
+                    ["B", secretFingerprint("two")],
+                ]),
+            );
+
+            expect(diff).toEqual({ missing: ["B"], extra: [], mismatched: [] });
+        });
+
+        test("reports a key Postgres has and the authoritative store does not", async ({ harness }) => {
+            const bundle = await sealed(harness, [
+                { key: "A", value: "one" },
+                { key: "B", value: "two" },
+            ]);
+
+            const diff = await values(harness).compare(bundle, new Map([["A", secretFingerprint("one")]]));
+
+            expect(diff).toEqual({ missing: [], extra: ["B"], mismatched: [] });
+        });
+
+        test("reports a key whose value differs", async ({ harness }) => {
+            const bundle = await sealed(harness, [{ key: "A", value: "one" }]);
+
+            const diff = await values(harness).compare(bundle, new Map([["A", secretFingerprint("changed")]]));
+
+            expect(diff).toEqual({ missing: [], extra: [], mismatched: ["A"] });
+        });
+
+        // An un-backfilled bundle is the case that must not be mistaken for an empty one:
+        // serving a read from here would show the user no secrets at all.
+        test("reports every key as missing when nothing has been mirrored", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+
+            const diff = await values(harness).compare(
+                bundle,
+                new Map([
+                    ["A", secretFingerprint("one")],
+                    ["B", secretFingerprint("two")],
+                ]),
+            );
+
+            expect(diff).toEqual({ missing: ["A", "B"], extra: [], mismatched: [] });
+        });
+
+        test("compares org bundles independently of app bundles with the same key", async ({ harness }) => {
+            await mint(harness, "1");
+            const app = await harness.createAppBundle();
+            const org = await harness.createOrgBundle();
+            await values(harness).put(app, [{ key: "token", value: "app-value" }]);
+
+            const diff = await values(harness).compare(org, new Map([["token", secretFingerprint("app-value")]]));
+
+            expect(diff).toEqual({ missing: ["token"], extra: [], mismatched: [] });
+        });
+    },
+});

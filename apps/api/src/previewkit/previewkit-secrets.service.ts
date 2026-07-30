@@ -108,7 +108,7 @@ export class PreviewkitSecretsService {
         const values = await this.fetchSecretValue(record.awsSecretArn);
         const now = new Date();
 
-        return Object.entries(values)
+        const summaries = Object.entries(values)
             .map(([key, value]) => ({
                 key,
                 maskedLength: Math.min(value.length, MAX_MASKED_LENGTH),
@@ -116,6 +116,15 @@ export class PreviewkitSecretsService {
                 fingerprint: secretFingerprint(value),
             }))
             .sort((a, b) => a.key.localeCompare(b.key));
+
+        // Shadow read. The response above is unchanged; this only reports whether the
+        // Postgres mirror could have served it, using fingerprints already computed.
+        await this.mirror.audit(
+            { kind: "app", applicationId: app.id, appName },
+            new Map(summaries.map((summary) => [summary.key, summary.fingerprint])),
+        );
+
+        return summaries;
     }
 
     /**

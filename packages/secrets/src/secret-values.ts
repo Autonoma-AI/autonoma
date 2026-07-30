@@ -16,6 +16,16 @@ export interface SecretItem {
     value: string;
 }
 
+/** How Postgres differs from the authoritative store for one bundle. Empty everywhere means they agree. */
+export interface MirrorComparison {
+    /** Keys the authoritative store has that Postgres does not - usually not backfilled yet. */
+    missing: string[];
+    /** Keys Postgres has that the authoritative store does not - usually deleted before dual-write existed. */
+    extra: string[];
+    /** Keys both have, holding different values. */
+    mismatched: string[];
+}
+
 /**
  * Writes previewkit secret values into Postgres, sealed with the current
  * encryption key.
@@ -81,11 +91,56 @@ export class SecretValues {
                           update: row,
                       }),
             ),
+            {
+                maxWait: 30000, // Time to wait for a database connection (default: 2000ms)
+                timeout: 30000,
+            },
         );
 
         this.logger.info("Secret values sealed", {
             extra: { bundle: describe(bundle), encryptionKeyId: cipher.keyId, count: rows.length },
         });
+    }
+
+    /**
+     * What Postgres holds for `bundle`, as key -> fingerprint. Reads two columns and
+     * decrypts nothing, which is the whole point of storing the fingerprint.
+     */
+    async fingerprints(bundle: SecretBundle): Promise<Map<string, string>> {
+        const rows =
+            bundle.kind === "app"
+                ? await this.db.previewkitSecretValue.findMany({
+                      where: { secret: { applicationId: bundle.applicationId, appName: bundle.appName } },
+                      select: { key: true, fingerprint: true },
+                  })
+                : await this.db.previewkitOrgSecretValue.findMany({
+                      where: { orgSecret: { organizationId: bundle.organizationId, name: bundle.name } },
+                      select: { key: true, fingerprint: true },
+                  });
+
+        return new Map(rows.map((row) => [row.key, row.fingerprint]));
+    }
+
+    /**
+     * How Postgres differs from the authoritative store for `bundle`, given what that
+     * store holds as key -> fingerprint.
+     *
+     * This is what earns the right to serve reads from here. A caller already
+     * computing fingerprints for its own response can compare for free, so every
+     * bundle anyone looks at reports whether the mirror agrees - continuous
+     * verification rather than a one-off backfill check.
+     */
+    async compare(bundle: SecretBundle, authoritative: ReadonlyMap<string, string>): Promise<MirrorComparison> {
+        const mirrored = await this.fingerprints(bundle);
+
+        return {
+            missing: [...authoritative.keys()].filter((key) => !mirrored.has(key)).sort(),
+            extra: [...mirrored.keys()].filter((key) => !authoritative.has(key)).sort(),
+            mismatched: [...authoritative.entries()]
+                .filter(([key, fingerprint]) => mirrored.has(key) && mirrored.get(key) !== fingerprint)
+                .map(([key]) => key)
+                .sort(),
+        };
     }
 
     /** Removes one key from `bundle`. Absent keys are not an error - the caller's authoritative store decides that. */

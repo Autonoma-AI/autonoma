@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger, type Logger } from "@autonoma/logger";
-import { MAX_MASKED_LENGTH } from "@autonoma/secrets";
+import { MAX_MASKED_LENGTH, secretFingerprint } from "@autonoma/secrets";
 import type { OrgSecretItem, SecretSummary } from "@autonoma/types";
 import {
     CreateSecretCommand,
@@ -46,6 +46,14 @@ export class OrgSecretsService {
 
         const values = await this.fetchSecretValue(record.awsSecretArn);
         const now = new Date();
+
+        // Shadow read. Unlike the app-scoped summary this one carries no fingerprint, so
+        // they are computed here for the comparison only - over values already fetched,
+        // so still no extra AWS call and nothing decrypted.
+        await this.mirror.audit(
+            { kind: "org", organizationId, name },
+            new Map(Object.entries(values).map(([key, value]) => [key, secretFingerprint(value)])),
+        );
 
         return Object.entries(values)
             .map(([key, value]) => ({

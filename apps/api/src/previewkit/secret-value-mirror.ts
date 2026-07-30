@@ -28,6 +28,35 @@ export class SecretValueMirror {
         await this.attempt("seal", bundle, (values) => values.put(bundle, items));
     }
 
+    /**
+     * Compares what Postgres holds for `bundle` against the authoritative store and
+     * logs any difference. A shadow read: the response the caller returns is still the
+     * authoritative one, so this cannot change what a user sees - it only reports
+     * whether the mirror could be trusted to serve that read yet.
+     *
+     * Callers that already compute fingerprints for their own response pass them
+     * straight through, so this costs one two-column query and no decryption.
+     */
+    async audit(bundle: SecretBundle, authoritative: ReadonlyMap<string, string>): Promise<void> {
+        await this.attempt("audit", bundle, async (values) => {
+            const diff = await values.compare(bundle, authoritative);
+            const agrees = diff.missing.length + diff.extra.length + diff.mismatched.length === 0;
+            if (agrees) return;
+
+            // Warn, not error: while AWS is authoritative a difference is expected for
+            // anything the backfill has not reached, and it is the trend across bundles
+            // that matters rather than any single one.
+            this.logger.warn("Postgres secret mirror disagrees with AWS Secrets Manager", {
+                extra: {
+                    bundleKind: bundle.kind,
+                    missing: diff.missing,
+                    extra: diff.extra,
+                    mismatched: diff.mismatched,
+                },
+            });
+        });
+    }
+
     async remove(bundle: SecretBundle, key: string): Promise<void> {
         await this.attempt("remove", bundle, (values) => values.remove(bundle, key));
     }
