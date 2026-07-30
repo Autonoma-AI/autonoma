@@ -1031,6 +1031,9 @@ importers:
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../../../packages/logger
+      '@autonoma/secrets':
+        specifier: workspace:*
+        version: link:../../../packages/secrets
       '@autonoma/storage':
         specifier: workspace:*
         version: link:../../../packages/storage
@@ -1189,6 +1192,9 @@ importers:
       '@autonoma/scenario':
         specifier: workspace:*
         version: link:../../../packages/scenario
+      '@autonoma/secrets':
+        specifier: workspace:*
+        version: link:../../../packages/secrets
       '@autonoma/storage':
         specifier: workspace:*
         version: link:../../../packages/storage
@@ -1717,9 +1723,6 @@ importers:
       '@autonoma/workflow':
         specifier: workspace:*
         version: link:../workflow
-      '@aws-sdk/client-secrets-manager':
-        specifier: ^3.1048.0
-        version: 3.1048.0
       '@t3-oss/env-core':
         specifier: 'catalog:'
         version: 0.13.10(typescript@7.0.2)(valibot@1.2.0(typescript@7.0.2))(zod@4.3.6)
@@ -1980,9 +1983,6 @@ importers:
       '@autonoma/utils':
         specifier: workspace:*
         version: link:../utils
-      '@aws-sdk/client-secrets-manager':
-        specifier: ^3.1048.0
-        version: 3.1048.0
       '@t3-oss/env-core':
         specifier: 'catalog:'
         version: 0.13.10(typescript@7.0.2)(valibot@1.2.0(typescript@7.0.2))(zod@4.3.6)
@@ -2146,6 +2146,9 @@ importers:
       '@aws-sdk/client-kms':
         specifier: ^3.1095.0
         version: 3.1095.0
+      '@aws-sdk/client-secrets-manager':
+        specifier: ^3.1048.0
+        version: 3.1048.0
     devDependencies:
       '@autonoma/integration-test':
         specifier: workspace:*

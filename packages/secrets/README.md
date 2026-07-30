@@ -61,6 +61,18 @@ Writing it directly removes the step that could hang. The ESO path has to force 
 
 The fallback is per app, not per namespace: one un-backfilled app leaves that app on ESO and writes the others. A namespace-wide switch would boot pods with no credentials the first time it met a bundle Postgres had nothing for. It also means `CLUSTER_SECRET_STORE_NAME` and the ESO install stay required after a flip.
 
+### Reading a preview's env by repo
+
+`PreviewSecrets` is the fourth and last reader: the investigation and diffs classifiers introspect a preview with it (`get_preview_env` lists the names, `run_script` runs against the live backend with the same credentials).
+
+**It resolves rows, it does not rebuild the name.** The two copies it replaces built `previewkit/<repo>/web` and read that AWS secret directly. That name is a guess in two ways: it misses the bundles predating the three-segment scheme, and it misses any Application whose app is not called `web` - both of which surface as `ResourceNotFoundException` at the classifier, which reads as "this preview has no env" rather than "we looked in the wrong place". Resolving `previewkit_secret` rows fixes both, and survives `awsSecretArn` being dropped. When an Application registers several apps it prefers `web`, so both sources answer with the same values; a sole registration wins whatever it is named.
+
+**The caller names the Application, so the tenant is never inferred.** The obvious signature is by repo full name, since that is what the classifiers pass around - but the repo name does not identify a tenant. Two organizations onboarding the same GitHub repo is representable, so resolving through it would have to pick among the environments sharing that name, and picking wrong means handing back another organization's live credentials. `PreviewTarget` therefore carries the `applicationId` the caller already holds; the repo name comes along only so the AWS fallback can build its secret id.
+
+**Listing names decrypts nothing.** `getEnvVarNames` exists so a classifier can see which keys a preview configures *without* their values - so it reads the stored key columns via `list()` and never unwraps a key. Only the AWS fallback has to fetch values to list their keys, because a Secrets Manager secret is one opaque blob.
+
+Both workers read their own `PREVIEWKIT_SECRETS_READ`, for the same reason the previewkit runner does not read the shared secret's copy: the flag asserts that the database `DATABASE_URL` points at holds the values. Their IRSA roles (`WorkerDiffsRole`, `InvestigationWorkerSecretsRole`) need `kms:Decrypt` on the CMK before `postgres` does anything there - without it every unwrap throws, is logged, and falls back to AWS.
+
 ### Earning the read flip
 
 Before any read is served from here, both `list()` methods shadow-read: they return the authoritative AWS response as before and additionally call `SecretValueMirror.audit`, which compares `SecretValues.fingerprints` against what AWS just gave them and warns on any difference. Serving a read from an incomplete mirror would show a user no secrets at all, and an un-backfilled bundle is indistinguishable from an empty one at the API surface - so the mirror has to prove itself first.

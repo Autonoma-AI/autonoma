@@ -2,7 +2,6 @@ import { db } from "@autonoma/db";
 import {
     LocalCodebaseReader,
     PreviewEnvironment,
-    PreviewSecrets,
     ScenarioRecipe,
     TestCatalog,
     type DryRunSeed,
@@ -20,6 +19,7 @@ import type { ProposeRecipeRepairInput, ProposeRecipeRepairOutput } from "@auton
 import { resolvePrMeta } from "../codebase/pr-meta";
 import { withSnapshotContext } from "../codebase/resolve";
 import { env } from "../env";
+import { previewSecrets } from "../preview-secrets";
 import { createModelSession } from "../services";
 
 /** Cap on the sanitized factory-error length that reaches the model / handoff / client PR comment. */
@@ -58,7 +58,7 @@ export async function proposeRecipeRepair(input: ProposeRecipeRepairInput): Prom
     return withSnapshotContext(snapshotId, `repair-${slug}`, async (context) => {
         const prMeta = await resolvePrMeta(context);
         const reader = new LocalCodebaseReader(context.codebase.root, context.baseSha, context.headSha);
-        const preview = new PreviewEnvironment(PreviewSecrets.create(), context.repoFullName);
+        const preview = new PreviewEnvironment(previewSecrets(), context.repoFullName, context.applicationId);
         const model = createModelSession().getModel({ model: "classifier", tag: "investigation-repair" });
 
         const dryRunSeed = await buildDryRunSeed({ snapshotId, scenarioId, applicationId: context.applicationId });

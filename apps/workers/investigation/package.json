@@ -18,6 +18,7 @@
         "@autonoma/investigation": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/scenario": "workspace:*",
+        "@autonoma/secrets": "workspace:*",
         "@autonoma/storage": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/workflow": "workspace:*",

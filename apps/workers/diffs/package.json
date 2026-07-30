@@ -28,6 +28,7 @@
         "@autonoma/github": "workspace:*",
         "@autonoma/image": "workspace:*",
         "@autonoma/logger": "workspace:*",
+        "@autonoma/secrets": "workspace:*",
         "@autonoma/storage": "workspace:*",
         "@autonoma/test-updates": "workspace:*",
         "@autonoma/types": "workspace:*",

@@ -4,10 +4,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { PreviewAccess } from "../classify/dependencies";
-import type { PreviewSecrets } from "./preview-secrets";
+/**
+ * The preview-secret reads this needs - `PreviewSecrets` from `@autonoma/secrets`
+ * satisfies it. Named structurally rather than imported so this package depends on
+ * the behaviour, not on whichever store the values come out of.
+ */
+interface PreviewSecretSource {
+    getEnvVarNames(target: PreviewTarget): Promise<string[]>;
+    getEnvValues(target: PreviewTarget): Promise<Record<string, string>>;
+}
 
-/** The slice of PreviewSecrets this needs (so it's testable with a fake secret source). */
-type PreviewSecretSource = Pick<PreviewSecrets, "getEnvVarNames" | "getEnvValues">;
+/** Identifies the preview to read: the owning Application, plus the repo its fallback names. */
+interface PreviewTarget {
+    applicationId: string;
+    repoFullName: string;
+}
 
 const SCRIPT_TIMEOUT_MS = 60_000;
 
@@ -26,18 +37,24 @@ export class PreviewEnvironment implements PreviewAccess {
     constructor(
         private readonly secrets: PreviewSecretSource,
         public readonly repoFullName: string,
+        /** The Application that owns this preview, so its secrets are never resolved by repo name alone. */
+        private readonly applicationId: string,
         public readonly namespace?: string,
     ) {}
 
+    private get target(): PreviewTarget {
+        return { applicationId: this.applicationId, repoFullName: this.repoFullName };
+    }
+
     async getEnvVarNames(filter?: string): Promise<string[]> {
-        const names = await this.secrets.getEnvVarNames(this.repoFullName);
+        const names = await this.secrets.getEnvVarNames(this.target);
         if (filter == null || filter === "") return names;
         const needle = filter.toLowerCase();
         return names.filter((name) => name.toLowerCase().includes(needle));
     }
 
     async runScript(input: { script: string; packages?: string[] }): Promise<string> {
-        const previewEnv = await this.secrets.getEnvValues(this.repoFullName);
+        const previewEnv = await this.secrets.getEnvValues(this.target);
         const workDir = await mkdtemp(join(tmpdir(), "investigation-script-"));
         this.logger.info("Running preview script", { extra: { workDir, packages: input.packages ?? [] } });
         try {

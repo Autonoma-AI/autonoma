@@ -3,7 +3,6 @@ import { db } from "@autonoma/db";
 import {
     LocalCodebaseReader,
     PreviewEnvironment,
-    PreviewSecrets,
     PriorRuns,
     type RunArtifacts,
     type RunVideo,
@@ -19,6 +18,7 @@ import { resolvePrMeta } from "../codebase/pr-meta";
 import { withSnapshotContext } from "../codebase/snapshot-context";
 import { env } from "../env";
 import { webmToGif } from "../media/webm-to-gif";
+import { previewSecrets } from "../preview-secrets";
 import { createModelSession, getStorage } from "../services";
 import { uploadConversation } from "../upload-conversation";
 
@@ -120,7 +120,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         const previewIntegrated = previewNamespace != null;
         const appLogsAvailable = previewIntegrated && env.LOKI_URL != null && env.LOKI_URL !== "";
         const preview = previewIntegrated
-            ? new PreviewEnvironment(PreviewSecrets.create(), context.repoFullName)
+            ? new PreviewEnvironment(previewSecrets(), context.repoFullName, context.applicationId)
             : undefined;
         logger.info("Resolved preview introspection availability", {
             extra: { previewIntegrated, appLogsAvailable },

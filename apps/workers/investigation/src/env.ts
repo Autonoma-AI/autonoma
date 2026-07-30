@@ -29,6 +29,13 @@ export const env = createEnv({
         // Gate for posting investigation results as a PR comment. OFF by default so it never touches real PRs
         // until deliberately enabled (safe rollout).
         INVESTIGATION_PR_COMMENT_ENABLED: z.stringbool().default(false),
+        // Where previewkit secret VALUES are read from for the database DATABASE_URL points at,
+        // and the CMK wrapping their encryption keys. The preview-introspection tools read the
+        // env a preview runs with; postgres without a CMK, or an un-migrated repo, falls back to
+        // AWS Secrets Manager per repo.
+        PREVIEWKIT_SECRETS_READ: z.enum(["aws", "postgres"]).default("aws"),
+        PREVIEWKIT_SECRETS_CMK: z.string().min(1).optional(),
+        AWS_REGION: z.string().min(1).default("us-east-1"),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

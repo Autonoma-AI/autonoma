@@ -11,7 +11,6 @@ export { Category, Confidence, Evidence, EvidenceSource, PlanFidelity, RunVerdic
 export { PriorRuns } from "./db/prior-runs";
 export type { PriorRun, PriorRunsHistory } from "./db/prior-runs";
 export { assertSnapshotPending } from "./db/assert-snapshot-pending";
-export { PreviewSecrets } from "./preview/preview-secrets";
 export { PreviewEnvironment } from "./preview/preview-environment";
 export { LocalCodebaseReader } from "./codebase/local-codebase-reader";
 export { openModelSession } from "./ai/model-session";

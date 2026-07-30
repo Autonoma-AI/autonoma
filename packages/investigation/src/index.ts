@@ -7,7 +7,6 @@ export { assertSnapshotPending } from "./db/assert-snapshot-pending";
 export type { TestCaseInfo } from "./db/test-catalog";
 export { ScenarioRecipe } from "./db/scenario-recipe";
 export type { DeployedAgentComparison, DeployedTestResult } from "./db/deployed-comparison";
-export { PreviewSecrets } from "./preview/preview-secrets";
 export { PreviewEnvironment } from "./preview/preview-environment";
 export { LocalCodebaseReader } from "./codebase/local-codebase-reader";
 export { openModelSession } from "./ai/model-session";

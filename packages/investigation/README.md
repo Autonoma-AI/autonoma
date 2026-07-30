@@ -32,8 +32,9 @@ src/
     test-catalog.ts             TestCatalog    - a snapshot's assigned tests + their pinned plans (for the selector)
     scenario-recipe.ts          ScenarioRecipe - a scenario's recipe `create` graph for a snapshot (for the diagnoser)
   preview/
-    preview-secrets.ts          PreviewSecrets     - read a repo's previewkit env (AWS SDK)
     preview-environment.ts      PreviewEnvironment - PreviewAccess impl + the run_script harness (temp dir)
+                                                    reads the env through `PreviewSecrets`
+                                                    (`@autonoma/secrets`), injected by the worker
   logs/loki.ts                  queryLokiLogs  - app logs over the run window (fetch + zod)
   codebase/
     local-codebase-reader.ts    LocalCodebaseReader - CodebaseReader over a clone (git/rg/sed)
@@ -103,9 +104,11 @@ src/
 ## Conventions
 
 - **Classes with constructor injection** for the stateful data modules (`PriorRuns`, `DeployedComparison`,
-  `TestCatalog`, `PreviewSecrets`, `PreviewEnvironment`, `ModelRegistry`).
-- **No CLIs, no raw SQL**: Prisma for the app DB, the AWS SDK for secrets/S3, `fetch` for Loki, and
-  `execFile`(git/rg/sed) for the codebase reader.
+  `TestCatalog`, `PreviewEnvironment`, `ModelRegistry`).
+- **No CLIs, no raw SQL**: Prisma for the app DB, S3 via the AWS SDK, `fetch` for Loki, and
+  `execFile`(git/rg/sed) for the codebase reader. Preview secret VALUES are not read here at all -
+  `PreviewSecrets` (`@autonoma/secrets`) owns that, so this package depends on the behaviour rather
+  than on whichever store the values come out of.
 - **Structured output** via `generateText({ output: Output.object({ schema }) })`.
 - Every DB query has a **Testcontainers parity test**; the agents' tools have unit tests with fakes.
 
