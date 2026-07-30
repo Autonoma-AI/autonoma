@@ -5,6 +5,7 @@
  */
 export interface SecretTargetRecord {
     id: string;
+    applicationId: string;
     appName: string;
     awsSecretArn: string;
 }

@@ -49,7 +49,17 @@ Values are read in two places: the API (listing and revealing them) and the prev
 
 The runner's fallback matters more than the API's, because it is not a display bug. A build arg that resolves to nothing produces an image that boots and then misbehaves, far from the cause - so `BuildSecretSource` fails the build for a `build_secrets:` key the answering store does not have, and names which store answered. What it will not do is treat an empty Postgres bundle as "no secrets".
 
-Runtime secrets are a separate path: the K8s Secret every preview pod mounts is still populated by External Secrets from AWS (`AwsExternalSecretManager`), and moving that is its own step.
+### The runtime K8s Secret
+
+The third read is the K8s Secret every preview pod mounts via `envFrom`, and it is the one that matters most: the values in it are what the running app authenticates with. Under `postgres` the runner writes that Secret itself (`PostgresSecretMaterializer`) instead of stamping an ExternalSecret and waiting for External Secrets to sync it from AWS.
+
+Writing it directly removes the step that could hang. The ESO path has to force a reconcile and then poll until the controller reports one that postdates the request, because `envFrom` is captured at pod start - a pod that rolls out against an unpopulated Secret comes up "ready" with a missing `AUTONOMA_SHARED_SECRET` and 401s every signed SDK call until someone redeploys by hand. A direct write is its own confirmation, so there is nothing to wait for and no controller whose outage fails the deploy.
+
+**Two writers on one Secret is the thing to get right.** An ESO-managed Secret is *owned* by its ExternalSecret, so taking a target over means releasing that ownership first - otherwise ESO reconciles the Secret back from AWS every 5m and whichever writer went last wins. `releaseTargets` deletes the ExternalSecret with `Orphan` propagation, because the default cascade would have the garbage collector delete the Secret it owns and take a live preview's credentials with it. The write then clears `ownerReferences` explicitly rather than waiting for the collector to strip them, so the handoff does not depend on GC timing.
+
+**It has to be reversible in both directions.** Flipping back to `aws` runs into the mirror image of the same ownership rule: ESO will not adopt a Secret it does not own, so a Postgres-written one left in place keeps its ExternalSecret out of Ready until the deploy deadline - the flag would be a one-way door for the runtime path. `reclaimTargets` deletes it first, so ESO creates and owns it fresh. That delete is safe because `envFrom` is read at pod start: running pods keep their env, and the ESO path already waits for the Secret to be repopulated before any rollout. It only ever touches a Secret carrying previewkit's own `app-secret` type label, never an ESO-owned or foreign one.
+
+The fallback is per app, not per namespace: one un-backfilled app leaves that app on ESO and writes the others. A namespace-wide switch would boot pods with no credentials the first time it met a bundle Postgres had nothing for. It also means `CLUSTER_SECRET_STORE_NAME` and the ESO install stay required after a flip.
 
 ### Earning the read flip
 

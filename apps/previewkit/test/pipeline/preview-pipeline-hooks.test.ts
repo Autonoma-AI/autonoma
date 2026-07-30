@@ -39,7 +39,7 @@ function createPipeline() {
     const deployer = {
         deployInfra: vi.fn().mockResolvedValue({
             namespace,
-            awsSecretsByApp: new Map(),
+            secretsByApp: new Map(),
             bypassToken: "bypass-token",
         }),
         deployApps: vi.fn().mockResolvedValue({

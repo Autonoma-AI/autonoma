@@ -106,13 +106,25 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 - `addons/` - third-party resource providers (e.g. Neon) via a provider registry.
 - `recipes/` - infra service recipes (postgres, redis, valkey, mongodb, upstash, api-gateway, docker-image, aws, temporal).
 - `git-provider/` - GitHub provider + the `PullRequestEvent` shape (input to `deploy`).
-- `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, secret reads.
-  `secrets/build-secret-source.ts` is the ONE seam every value read goes through (`build_secrets:`
-  build args and addon `auth_secret:` lookups): it picks Postgres or AWS per bundle, and owns the
-  key-picking so a missing `build_secrets:` key fails the build naming the store that answered.
-  Callers pass a `SecretBundle`, never an ARN alone - one AWS secret can back two bundles, so
-  ARN -> bundle is not a function. `secrets/aws-external-secret-manager.ts` (the runtime K8s Secret
-  bridge via ESO) is a separate path and still AWS-only.
+- `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, secret reads. Two
+  independent read paths, each picking its store per bundle:
+    - **Build-time and addon values** go through `secrets/build-secret-source.ts` (`build_secrets:`
+      build args, addon `auth_secret:` lookups). It owns the key-picking, so a missing
+      `build_secrets:` key fails the build naming the store that answered. Callers pass a
+      `SecretBundle`, never an ARN alone - one AWS secret can back two bundles, so ARN -> bundle is
+      not a function.
+    - **The runtime K8s Secret pods mount** goes through `secrets/runtime-secrets.ts`, which loads
+      the Application's rows, collapses rows folding to one Secret target
+      (`dedupe-secret-targets.ts`), and dispatches to a `RuntimeSecretMaterializer`:
+      `postgres-secret-materializer.ts` writes the Secret directly, `aws-external-secret-manager.ts`
+      stamps an ExternalSecret and waits for ESO. Postgres wins per app when it holds the bundle;
+      anything it does not stays on ESO. The two ownership handoffs are symmetric and both matter:
+      taking a target over calls `releaseTargets`, which deletes the owning ExternalSecret with
+      `Orphan` propagation (the default would garbage-collect the live preview's Secret along with
+      it); handing it back calls `reclaimTargets`, which deletes the Postgres-written Secret so ESO
+      can own a fresh one, since ESO refuses to adopt a target it does not own. Without the second,
+      flipping `PREVIEWKIT_SECRETS_READ` back to `aws` would hang every affected app at the
+      pre-rollout sync wait.
   `diffs/trigger-diffs-after-deploy.ts` also starts the diffs run: once a PR preview is ready, the runner
   starts the `triggerPrDiffsWorkflow` Temporal job directly (guarded on `TEMPORAL_ADDRESS`, PR-only, ready,
   a resolved primary URL, and a `branchId` on the event), so an Autonoma review begins without the customer's
@@ -349,14 +361,16 @@ via `PreviewkitServiceRole`, and a deploy with no secrets never calls KMS at all
 why environments are isolated by their databases rather than by IAM, and the CMK-deletion
 risk are in `packages/secrets/README.md`.
 `PREVIEWKIT_SECRETS_READ` (`aws` | `postgres`, default `aws`) picks which store the runner reads
-secret VALUES from, and `PREVIEWKIT_SECRETS_CMK` is the CMK that wraps the keys (absent -> AWS is
+secret VALUES from - both the build-time reads and the runtime K8s Secret, and `PREVIEWKIT_SECRETS_CMK` is the CMK that wraps the keys (absent -> AWS is
 the only source). Neither is set in the shared `previewkit-env-file` secret: the API's launcher
 injects both per-Job from its OWN env, alongside `DATABASE_URL`, because the flag means "*this*
 database holds the secrets" - a runner writing to beta's DB has to read beta's answer, not
 production's. So one `PREVIEWKIT_SECRETS_READ` per API environment switches that environment's API
 reads AND its runners together. Postgres is not a hard cutover: `BuildSecretSource` falls back to
 AWS for any individual bundle Postgres holds nothing for (which means "not backfilled", not
-"empty"), logging an error each time, so a partially migrated environment still deploys.
+"empty"), logging an error each time, so a partially migrated environment still deploys. The same is
+true per app for the runtime Secret, which is why `CLUSTER_SECRET_STORE_NAME` and the ESO install are
+still required after a flip.
 `PREVIEWKIT_JOB_SPEC` is the per-Job `{mode, event, ...}` payload the API sets on each runner Job.
 `DATABASE_URL` is set on each runner Job by the launcher (PreviewkitJobLauncher, apps/api) to the
 _launching API's own_ DATABASE_URL - an explicit env var that overrides the production DATABASE_URL
@@ -415,11 +429,12 @@ The runner drains the sink's buffer before it exits.
 
 - ConfigMap-derived env/volumes are captured at pod start: changing a ConfigMap (or a `subPath`
   mount) does NOT reach a running pod - restart/redeploy it. The
-  same is true of `envFrom` Secret refs, which is why `AwsExternalSecretManager.applyForNamespace`
-  force-syncs ESO and waits for each target K8s Secret to be populated BEFORE app rollout, and
-  `buildAppDeployment` stamps the Secret's resourceVersion as the `previewkit.dev/secret-version`
-  pod-template annotation so a secret change rolls the pods. Without this, a pod can boot "ready"
-  with a missing/stale `AUTONOMA_SHARED_SECRET` and every signed SDK call 401s until a manual redeploy.
+  same is true of `envFrom` Secret refs, which is why every `RuntimeSecretMaterializer` must return
+  only once its target K8s Secret is actually populated - the ESO path force-syncs and polls for it,
+  the Postgres path writes it - and why `buildAppDeployment` stamps that Secret's resourceVersion as
+  the `previewkit.dev/secret-version` pod-template annotation so a secret change rolls the pods.
+  Without this, a pod can boot "ready" with a missing/stale `AUTONOMA_SHARED_SECRET` and every signed
+  SDK call 401s until a manual redeploy.
 - App-build status enum is `success`, not `ok`.
 - The autonoma API uses `apps/api/src/routes/*.router.ts` + service classes (not the
   `routers/`+`controllers/` layout the root CLAUDE.md describes).

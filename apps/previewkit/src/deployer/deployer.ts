@@ -6,7 +6,8 @@ import { computeDeployWaves } from "../pipeline/deploy-graph";
 import { parsePostgresOptions } from "../recipes/postgres-recipe";
 import type { RecipeResources } from "../recipes/recipe";
 import { RecipeRegistry } from "../recipes/recipe-registry";
-import type { AppSecretInfo, AwsExternalSecretManager } from "../secrets/aws-external-secret-manager";
+import type { AppSecretInfo } from "../secrets/runtime-secret-materializer";
+import type { RuntimeSecrets } from "../secrets/runtime-secrets";
 import { type AddonOutputs, EnvInjector } from "./env-injector";
 import { mirrorDockerHubImage } from "./image-mirror";
 import { isConflict, isNotFound } from "./k8s-errors";
@@ -60,7 +61,7 @@ export interface DeployResult {
  */
 export interface InfraDeployResult {
     namespace: string;
-    awsSecretsByApp: Map<string, AppSecretInfo>;
+    secretsByApp: Map<string, AppSecretInfo>;
     bypassToken: string;
 }
 
@@ -74,7 +75,7 @@ interface AppDeployContext {
     config: PreviewConfig;
     headSha: string;
     imageTags: Record<string, string>;
-    awsSecretsByApp: Map<string, AppSecretInfo>;
+    secretsByApp: Map<string, AppSecretInfo>;
     addonOutputs: AddonOutputs;
 }
 
@@ -105,7 +106,7 @@ export class Deployer {
         private kc: k8s.KubeConfig,
         private domain: string,
         private secret: string,
-        private awsExternalSecretManager?: AwsExternalSecretManager,
+        private runtimeSecrets?: RuntimeSecrets,
         // Shared edge namespace: the Gateway, ingress-nginx, AND the central
         // Gatekeeper live in `system`, which is also the NetworkPolicy ingress
         // source allowed to reach preview pods - so the central Gatekeeper's
@@ -168,16 +169,12 @@ export class Deployer {
         // 2. Apply NetworkPolicies for tenant isolation before any workload runs
         await this.applyNetworkPolicies(namespace, organizationId);
 
-        // 3. Apply ExternalSecrets for this Application's AWS Secrets Manager registrations
+        // 3. Materialize the K8s Secret each app's pods mount, from whichever store
+        //    holds this Application's registered secret values
         const appNames = config.apps.map((a) => a.name);
-        const awsSecretsByApp =
-            this.awsExternalSecretManager != null
-                ? await this.awsExternalSecretManager.applyForNamespace(
-                      organizationId,
-                      githubRepositoryId,
-                      namespace,
-                      appNames,
-                  )
+        const secretsByApp =
+            this.runtimeSecrets != null
+                ? await this.runtimeSecrets.applyForNamespace(organizationId, githubRepositoryId, namespace, appNames)
                 : new Map<string, AppSecretInfo>();
 
         // 4. Deploy service recipes (postgres, redis, etc.)
@@ -259,7 +256,7 @@ export class Deployer {
         //    *when* an app is attempted, but a downstream app is attempted even
         //    if its upstream failed (the user prefers a partial preview over
         //    none — see the per-app independence design discussion).
-        return { namespace, awsSecretsByApp, bypassToken };
+        return { namespace, secretsByApp, bypassToken };
     }
 
     /**
@@ -269,7 +266,7 @@ export class Deployer {
      */
     async deployApps(opts: DeployOptions, infraResult: InfraDeployResult): Promise<DeployResult> {
         const { repoFullName, prNumber, headSha, config, imageTags, addonOutputs = {} } = opts;
-        const { namespace, awsSecretsByApp, bypassToken } = infraResult;
+        const { namespace, secretsByApp, bypassToken } = infraResult;
         const domain = config.domain ?? this.domain;
 
         const owner = repoFullName.split("/")[0]!;
@@ -286,7 +283,7 @@ export class Deployer {
             config,
             headSha,
             imageTags,
-            awsSecretsByApp,
+            secretsByApp,
             addonOutputs,
         };
 
@@ -335,7 +332,7 @@ export class Deployer {
      */
     async deploySingleApp(opts: DeployOptions, infraResult: InfraDeployResult, appName: string): Promise<DeployResult> {
         const { repoFullName, prNumber, headSha, config, imageTags, addonOutputs = {} } = opts;
-        const { namespace, awsSecretsByApp, bypassToken } = infraResult;
+        const { namespace, secretsByApp, bypassToken } = infraResult;
         const domain = config.domain ?? this.domain;
         const owner = repoFullName.split("/")[0]!;
 
@@ -354,7 +351,7 @@ export class Deployer {
             config,
             headSha,
             imageTags,
-            awsSecretsByApp,
+            secretsByApp,
             addonOutputs,
         };
 
@@ -634,7 +631,7 @@ export class Deployer {
             config,
             headSha,
             imageTags,
-            awsSecretsByApp,
+            secretsByApp,
             addonOutputs,
         } = opts;
 
@@ -657,7 +654,7 @@ export class Deployer {
             addonOutputs,
         );
 
-        const secretInfo = awsSecretsByApp.get(app.name);
+        const secretInfo = secretsByApp.get(app.name);
         const deployment = buildAppDeployment({
             app,
             namespace,
@@ -665,7 +662,7 @@ export class Deployer {
             resolvedEnv,
             prNumber,
             publicUrl: url,
-            awsSecretName: secretInfo?.secretName,
+            secretName: secretInfo?.secretName,
             secretVersion: secretInfo?.secretVersion,
             headSha,
         });

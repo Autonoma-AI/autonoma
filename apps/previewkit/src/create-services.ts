@@ -22,6 +22,8 @@ import { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager";
 import { AwsSecretsFetcher } from "./secrets/aws-secrets-fetcher";
 import { BuildSecretSource } from "./secrets/build-secret-source";
+import { PostgresSecretMaterializer } from "./secrets/postgres-secret-materializer";
+import { RuntimeSecrets } from "./secrets/runtime-secrets";
 
 const BUILDKIT_DIAL_BUDGET_MS = 30_000;
 const BUILDKIT_LIFECYCLE_MARGIN_MS = 60_000;
@@ -129,7 +131,11 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     });
 
     // AWS Secrets Manager -> K8s ExternalSecret bridge.
-    const awsExternalSecretManager = new AwsExternalSecretManager(kc, env.CLUSTER_SECRET_STORE_NAME);
+    const awsExternalSecretManager = new AwsExternalSecretManager(
+        kc.makeApiClient(k8s.CustomObjectsApi),
+        kc.makeApiClient(k8s.CoreV1Api),
+        env.CLUSTER_SECRET_STORE_NAME,
+    );
 
     // AWS Secrets Manager direct fetcher for build-time secrets.
     const awsSecretsFetcher = new AwsSecretsFetcher(env.AWS_REGION);
@@ -144,10 +150,20 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
                   new KmsKeyProvider(new KMSClient({ region: env.AWS_REGION }), env.PREVIEWKIT_SECRETS_CMK),
               )
             : undefined;
-    const buildSecrets = new BuildSecretSource(
-        awsSecretsFetcher,
-        env.PREVIEWKIT_SECRETS_READ === "postgres",
-        secretKeys != null ? new SecretValues(db, secretKeys) : undefined,
+    const secretValues = secretKeys != null ? new SecretValues(db, secretKeys) : undefined;
+    const readFromPostgres = env.PREVIEWKIT_SECRETS_READ === "postgres";
+    const buildSecrets = new BuildSecretSource(awsSecretsFetcher, readFromPostgres, secretValues);
+
+    // The runtime K8s Secret each preview pod mounts. Postgres writes it directly
+    // when this environment has flipped; External Secrets remains the per-app
+    // fallback, and hands over ownership of any target Postgres takes on.
+    const runtimeSecrets = new RuntimeSecrets(
+        awsExternalSecretManager,
+        readFromPostgres && secretValues != null
+            ? new PostgresSecretMaterializer(kc.makeApiClient(k8s.CoreV1Api), secretValues, (namespace, secretNames) =>
+                  awsExternalSecretManager.releaseTargets(namespace, secretNames),
+              )
+            : undefined,
     );
 
     // Deployer
@@ -155,7 +171,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         kc,
         previewkitDefaults.defaults.domain,
         env.PREVIEW_URL_SECRET,
-        awsExternalSecretManager,
+        runtimeSecrets,
         env.INGRESS_NAMESPACE,
         env.DEPLOY_TIMEOUT_MS,
         env.GATEKEEPER_IDLE_TIMEOUT,

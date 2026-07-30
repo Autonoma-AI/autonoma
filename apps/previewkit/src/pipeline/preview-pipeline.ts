@@ -529,7 +529,7 @@ export class PreviewPipeline {
             );
             const buildStart = Date.now();
             // Scoped to THIS deploy's Application, mirroring
-            // AwsExternalSecretManager.applyForNamespace. App names are unique
+            // RuntimeSecrets.applyForNamespace. App names are unique
             // within an application's topology but NOT across an org, so a bare
             // org-wide `appName IN (...)` match would pull a foreign app's secret
             // when two applications share an app name (e.g. "web").

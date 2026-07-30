@@ -89,14 +89,14 @@ describe("buildAppDeployment", () => {
     });
 
     it("mounts the app's secret via envFrom and rolls pods on a secret-version change", () => {
-        const v1 = buildAppDeployment({ ...baseOpts, awsSecretName: "web-secrets", secretVersion: "12345" });
+        const v1 = buildAppDeployment({ ...baseOpts, secretName: "web-secrets", secretVersion: "12345" });
         const container = v1.spec!.template.spec!.containers[0]!;
         expect(container.envFrom).toEqual([{ secretRef: { name: "web-secrets" } }]);
         // The pod template carries the secret version, so a changed version
         // produces a different template and forces a rollout onto the new secret.
         expect(v1.spec!.template.metadata?.annotations?.["previewkit.dev/secret-version"]).toBe("12345");
 
-        const v2 = buildAppDeployment({ ...baseOpts, awsSecretName: "web-secrets", secretVersion: "67890" });
+        const v2 = buildAppDeployment({ ...baseOpts, secretName: "web-secrets", secretVersion: "67890" });
         expect(v2.spec!.template.metadata?.annotations?.["previewkit.dev/secret-version"]).toBe("67890");
     });
 

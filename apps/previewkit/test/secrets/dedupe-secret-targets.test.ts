@@ -1,24 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { dedupeSecretRecordsByTarget } from "../../src/secrets/dedupe-secret-targets";
-
-// Mirrors AwsExternalSecretManager.toK8sName closely enough to exercise folding.
-function toSecretName(appName: string): string {
-    return appName
-        .toLowerCase()
-        .replace(/[^a-z0-9-]/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-+|-+$/g, "")
-        .slice(0, 55)
-        .concat("-secrets");
-}
+import { previewSecretName } from "../../src/secrets/preview-secret-name";
 
 describe("dedupeSecretRecordsByTarget", () => {
     it("keeps every row when targets are distinct", () => {
         const records = [
-            { id: "a", appName: "web", awsSecretArn: "arn:web" },
-            { id: "b", appName: "api", awsSecretArn: "arn:api" },
+            { applicationId: "app", id: "a", appName: "web", awsSecretArn: "arn:web" },
+            { applicationId: "app", id: "b", appName: "api", awsSecretArn: "arn:api" },
         ];
-        const { chosen, collisions } = dedupeSecretRecordsByTarget(records, toSecretName);
+        const { chosen, collisions } = dedupeSecretRecordsByTarget(records, previewSecretName);
 
         expect(collisions).toEqual([]);
         expect(chosen.map((c) => c.secretName)).toEqual(["web-secrets", "api-secrets"]);
@@ -28,10 +18,10 @@ describe("dedupeSecretRecordsByTarget", () => {
     it("collapses rows that fold to one target, keeping the oldest and reporting the rest", () => {
         // "boss-roast" and "boss--roast" both normalize to boss-roast-secrets.
         const records = [
-            { id: "cmr2", appName: "boss--roast", awsSecretArn: "arn:same" },
-            { id: "cmr1", appName: "boss-roast", awsSecretArn: "arn:same" },
+            { applicationId: "app", id: "cmr2", appName: "boss--roast", awsSecretArn: "arn:same" },
+            { applicationId: "app", id: "cmr1", appName: "boss-roast", awsSecretArn: "arn:same" },
         ];
-        const { chosen, collisions } = dedupeSecretRecordsByTarget(records, toSecretName);
+        const { chosen, collisions } = dedupeSecretRecordsByTarget(records, previewSecretName);
 
         expect(chosen).toHaveLength(1);
         expect(chosen[0]?.secretName).toBe("boss-roast-secrets");
@@ -44,6 +34,6 @@ describe("dedupeSecretRecordsByTarget", () => {
     });
 
     it("returns nothing for no rows", () => {
-        expect(dedupeSecretRecordsByTarget([], toSecretName)).toEqual({ chosen: [], collisions: [] });
+        expect(dedupeSecretRecordsByTarget([], previewSecretName)).toEqual({ chosen: [], collisions: [] });
     });
 });

@@ -11,9 +11,10 @@ interface AppResourceOptions {
     prNumber: number;
     /** This app's own public preview URL (https://{hash}.{domain}), injected as AUTONOMA_PREVIEWKIT_URL. */
     publicUrl: string;
-    awsSecretName?: string;
+    /** The K8s Secret holding this app's runtime secrets, mounted via `envFrom`. */
+    secretName?: string;
     /**
-     * resourceVersion of the ESO-managed K8s Secret at deploy time. Stamped onto
+     * resourceVersion of that K8s Secret at deploy time. Stamped onto
      * the pod template so a secret change rolls the pods - `envFrom` is captured
      * at pod start, so without this a running pod keeps a stale/missing secret
      * (e.g. AUTONOMA_SHARED_SECRET) until something else restarts it.
@@ -137,7 +138,7 @@ export function buildAppHostname(
 }
 
 export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
-    const { app, namespace, imageTag, resolvedEnv, awsSecretName, secretVersion, headSha } = opts;
+    const { app, namespace, imageTag, resolvedEnv, secretName, secretVersion, headSha } = opts;
     const labels = {
         ...BASE_LABELS,
         app: app.name,
@@ -166,7 +167,7 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
         { name: "AUTONOMA_PREVIEWKIT_URL", value: opts.publicUrl },
     );
 
-    const envFrom: k8s.V1EnvFromSource[] = awsSecretName != null ? [{ secretRef: { name: awsSecretName } }] : [];
+    const envFrom: k8s.V1EnvFromSource[] = secretName != null ? [{ secretRef: { name: secretName } }] : [];
 
     return {
         apiVersion: "apps/v1",

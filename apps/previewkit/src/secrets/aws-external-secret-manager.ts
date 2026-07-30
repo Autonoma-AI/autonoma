@@ -1,15 +1,11 @@
-import { db, type PrismaClient } from "@autonoma/db";
 import { sleep } from "@autonoma/utils/sleep";
-import * as k8s from "@kubernetes/client-node";
+import type * as k8s from "@kubernetes/client-node";
 import { z } from "zod";
 import { isConflict, isNotFound } from "../deployer/k8s-errors";
 import { PreviewPlatformError } from "../errors";
 import { type Logger, logger as rootLogger } from "../logger";
-import { dedupeSecretRecordsByTarget } from "./dedupe-secret-targets";
-
-const LABEL_MANAGED_BY = "previewkit.dev/managed-by";
-const LABEL_TYPE = "previewkit.dev/type";
-const LABEL_ORG = "previewkit.dev/org";
+import type { AppSecretInfo, RuntimeSecretMaterializer, SecretTarget } from "./runtime-secret-materializer";
+import { EXTERNAL_SECRET_TYPE, MANAGED_BY_PREVIEWKIT, POSTGRES_SECRET_TYPE, SECRET_LABEL } from "./secret-labels";
 
 const ESO_GROUP = "external-secrets.io";
 const ESO_VERSION = "v1";
@@ -30,18 +26,6 @@ const SECRET_SYNC_POLL_INTERVAL_MS = 2_000;
 // comparing our force-sync request time against the reported `refreshTime`.
 const SECRET_SYNC_CLOCK_SKEW_MS = 5_000;
 
-/**
- * What the deployer needs to wire an app to its ESO-managed secret: the K8s
- * Secret name (mounted via `envFrom`) and that Secret's resourceVersion at
- * deploy time. The version is stamped onto the app's pod template so a secret
- * change rolls the pods - `envFrom` is captured at pod start, so a running pod
- * never picks up a later secret update on its own.
- */
-export interface AppSecretInfo {
-    secretName: string;
-    secretVersion: string;
-}
-
 const ExternalSecretStatusSchema = z.object({
     status: z
         .object({
@@ -49,6 +33,11 @@ const ExternalSecretStatusSchema = z.object({
             conditions: z.array(z.object({ type: z.string(), status: z.string() })).nullish(),
         })
         .nullish(),
+});
+
+/** Just enough of an existing CR to carry its resourceVersion into a replace. */
+const ExternalSecretMetadataSchema = z.object({
+    metadata: z.object({ resourceVersion: z.string().nullish() }).nullish(),
 });
 
 const ExternalSecretListSchema = z.object({
@@ -82,95 +71,76 @@ interface ExternalSecret {
     };
 }
 
-export class AwsExternalSecretManager {
-    private readonly customApi: k8s.CustomObjectsApi;
-    private readonly coreApi: k8s.CoreV1Api;
+/** The ExternalSecret CR calls this needs; `k8s.CustomObjectsApi` satisfies it. */
+export interface ExternalSecretApi {
+    createNamespacedCustomObject(params: CustomObjectRef & { body: ExternalSecret }): Promise<unknown>;
+    replaceNamespacedCustomObject(params: CustomObjectRef & { name: string; body: object }): Promise<unknown>;
+    getNamespacedCustomObject(params: CustomObjectRef & { name: string }): Promise<unknown>;
+    deleteNamespacedCustomObject(
+        params: CustomObjectRef & { name: string; body?: k8s.V1DeleteOptions },
+    ): Promise<unknown>;
+    listNamespacedCustomObject(params: CustomObjectRef & { labelSelector?: string }): Promise<unknown>;
+}
+
+/** The K8s Secret calls this needs; `k8s.CoreV1Api` satisfies it. */
+export interface SecretApi {
+    readNamespacedSecret(params: { name: string; namespace: string }): Promise<k8s.V1Secret>;
+    deleteNamespacedSecret(params: { name: string; namespace: string }): Promise<unknown>;
+}
+
+interface CustomObjectRef {
+    group: string;
+    version: string;
+    namespace: string;
+    plural: string;
+}
+
+export class AwsExternalSecretManager implements RuntimeSecretMaterializer {
     private readonly logger: Logger;
 
     constructor(
-        kc: k8s.KubeConfig,
+        private readonly customApi: ExternalSecretApi,
+        private readonly coreApi: SecretApi,
         private readonly clusterSecretStoreName: string,
-        private readonly prisma: PrismaClient = db,
     ) {
-        this.customApi = kc.makeApiClient(k8s.CustomObjectsApi);
-        this.coreApi = kc.makeApiClient(k8s.CoreV1Api);
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
     /**
-     * Creates one ExternalSecret CR per (app, AWS-SM-ARN) pair registered for
-     * this Application. Each app's secret is independently IAM-scoped — adding
-     * a new app to the monorepo requires registering its own PreviewkitSecret
-     * row pointing at its own AWS SM ARN.
-     *
-     * Returns appName → {secretName, secretVersion} for the apps that have a
-     * registered secret, so the deployer can wire `envFrom` per Deployment and
-     * stamp the secret version on the pod template. Apps without a registered
-     * secret are simply absent from the map.
+     * Creates one ExternalSecret CR per target, each pointing at its own AWS SM
+     * ARN. Each app's secret is independently IAM-scoped - adding a new app to the
+     * monorepo requires registering its own PreviewkitSecret row pointing at its
+     * own AWS SM ARN.
      *
      * Blocks until ESO has materialised each target K8s Secret from the current
      * AWS value (force-syncing first to skip the 5m refresh) BEFORE returning,
      * so the deployer never rolls out a pod that references a Secret ESO has not
      * populated yet (or has not refreshed after a rotation) - the root cause of
-     * the deterministic "ready pod with a missing/stale AUTONOMA_SHARED_SECRET →
+     * the deterministic "ready pod with a missing/stale AUTONOMA_SHARED_SECRET ->
      * every signed SDK call 401s" failure. Throws on sync timeout so the deploy
      * fails cleanly instead.
      */
-    async applyForNamespace(
-        organizationId: string,
-        githubRepositoryId: number,
+    async materialize(
         namespace: string,
-        appNames: string[],
+        organizationId: string,
+        targets: SecretTarget[],
     ): Promise<Map<string, AppSecretInfo>> {
+        const result = new Map<string, AppSecretInfo>();
+        if (targets.length === 0) return result;
+
         this.logger.info("Applying AWS ExternalSecrets for namespace", {
             organizationId,
-            githubRepositoryId,
             namespace,
-            appNames,
+            extra: { apps: targets.map((target) => target.record.appName) },
         });
 
-        // Scope to THIS deploy's Application, identified by (organizationId,
-        // githubRepositoryId) - not the whole org. App names are unique within an
-        // application's topology but NOT across an org: a bare `appName IN (...)`
-        // match collides when two applications each own an app of the same name
-        // (e.g. "web"), which would apply a foreign application's secret into this
-        // namespace and its ExternalSecret would never go Ready. Dependency-repo
-        // apps ride the primary app's config, so their secrets live
-        // under this same Application.
-        const records = await this.prisma.previewkitSecret.findMany({
-            where: {
-                application: { organizationId, githubRepositoryId },
-                appName: { in: appNames },
-            },
-        });
-
-        const result = new Map<string, AppSecretInfo>();
-
-        if (records.length === 0) {
-            this.logger.info("No AWS ExternalSecrets registered for any of the listed apps", {
-                namespace,
-                appNames,
-            });
-            return result;
-        }
-
-        // Collapse rows that fold to one K8s Secret target (a same-app duplicate).
-        // ESO allows only one Owner per target, so keep one and log the rest.
-        const { chosen, collisions } = dedupeSecretRecordsByTarget(records, (name) => this.toK8sName(name));
-        for (const collision of collisions) {
-            this.logger.fatal(
-                "Multiple PreviewkitSecret rows resolve to one K8s Secret target; keeping one to avoid an ExternalSecret ownership collision",
-                {
-                    namespace,
-                    extra: {
-                        target: collision.secretName,
-                        keptSecretId: collision.kept.id,
-                        droppedSecretIds: collision.dropped.map((r) => r.id),
-                        awsSecretArns: [...new Set([collision.kept, ...collision.dropped].map((r) => r.awsSecretArn))],
-                    },
-                },
-            );
-        }
+        // A Secret a previous deploy wrote from Postgres has no ExternalSecret owner,
+        // and ESO refuses to adopt a target it does not own - so without this, going
+        // back to aws would hang every affected app at the pre-rollout wait.
+        await this.reclaimTargets(
+            namespace,
+            targets.map(({ secretName }) => secretName),
+        );
 
         // Reconcile the namespace to exactly these ExternalSecrets before rolling
         // out. A soft-deleted app generation leaves its Owner ExternalSecret behind
@@ -179,29 +149,35 @@ export class AwsExternalSecretManager {
         // K8s Secret, so the new generation's ExternalSecret can never sync and the
         // deploy times out. Prune any stale ExternalSecret that targets an app we
         // are deploying now, so the current one can own the Secret cleanly.
-        const desiredEsNames = new Set(chosen.map(({ record }) => externalSecretName(record.id)));
-        const desiredTargets = new Set(chosen.map(({ secretName }) => secretName));
+        const desiredEsNames = new Set(targets.map(({ record }) => externalSecretName(record.id)));
+        const desiredTargets = new Set(targets.map(({ secretName }) => secretName));
         await this.pruneCollidingExternalSecrets(namespace, desiredEsNames, desiredTargets);
 
         // Stamp one force-sync token for the batch and remember when we asked,
         // so the readiness wait can require a reconcile that happened after it.
         const syncRequestedAtMs = Date.now();
         const forceSyncToken = new Date(syncRequestedAtMs).toISOString();
-        const pending: Array<{ appName: string; esName: string; secretName: string }> = [];
+        const pending = await Promise.all(
+            targets.map(async ({ record, secretName }) => {
+                const resource = this.buildExternalSecret(
+                    record,
+                    secretName,
+                    namespace,
+                    organizationId,
+                    forceSyncToken,
+                );
+                await this.applyExternalSecret(namespace, resource);
 
-        for (const { record, secretName } of chosen) {
-            const resource = this.buildExternalSecret(record, secretName, namespace, organizationId, forceSyncToken);
-            await this.applyExternalSecret(namespace, resource);
-            pending.push({ appName: record.appName, esName: resource.metadata.name, secretName });
-
-            this.logger.info("Applied AWS ExternalSecret", {
-                appName: record.appName,
-                k8sSecretName: secretName,
-                awsSecretArn: record.awsSecretArn,
-                namespace,
-                extra: { esName: resource.metadata.name },
-            });
-        }
+                this.logger.info("Applied AWS ExternalSecret", {
+                    appName: record.appName,
+                    k8sSecretName: secretName,
+                    awsSecretArn: record.awsSecretArn,
+                    namespace,
+                    extra: { esName: resource.metadata.name },
+                });
+                return { appName: record.appName, esName: resource.metadata.name, secretName };
+            }),
+        );
 
         // The ExternalSecrets are all applied above, so their syncs are
         // independent - wait in parallel under one shared deadline so the total
@@ -225,11 +201,80 @@ export class AwsExternalSecretManager {
 
         this.logger.info("AWS ExternalSecrets applied and synced", {
             appliedCount: result.size,
-            requestedCount: appNames.length,
+            requestedCount: targets.length,
             namespace,
         });
 
         return result;
+    }
+
+    /**
+     * Deletes any target Secret that Postgres wrote, so ESO can create and own it.
+     *
+     * The counterpart of {@link releaseTargets}: it makes flipping
+     * `PREVIEWKIT_SECRETS_READ` back to `aws` a config change rather than a
+     * one-way door. ESO's `creationPolicy: Owner` will not adopt a Secret it does
+     * not own, so a Postgres-written one left in place keeps the ExternalSecret out
+     * of Ready until the deploy deadline.
+     *
+     * Narrow by design - only Secrets carrying previewkit's own `app-secret` type
+     * label are touched, never an ESO-owned or foreign one. Deleting it is safe
+     * here: `envFrom` is read at pod start, so running pods keep their env, and the
+     * caller waits for ESO to repopulate the Secret before any rollout.
+     */
+    async reclaimTargets(namespace: string, secretNames: string[]): Promise<void> {
+        await Promise.all(secretNames.map((secretName) => this.reclaimTarget(namespace, secretName)));
+    }
+
+    private async reclaimTarget(namespace: string, secretName: string): Promise<void> {
+        try {
+            const secret = await this.coreApi.readNamespacedSecret({ name: secretName, namespace });
+            if (secret.metadata?.labels?.[SECRET_LABEL.type] !== POSTGRES_SECRET_TYPE) return;
+
+            this.logger.info("Deleting a postgres-written Secret so ESO can own it again", {
+                namespace,
+                extra: { secretName },
+            });
+            await this.coreApi.deleteNamespacedSecret({ name: secretName, namespace });
+        } catch (err) {
+            if (isNotFound(err)) return;
+            // Left in place, the ExternalSecret cannot adopt it and the sync wait
+            // below times out with a less obvious message, so say it here.
+            this.logger.warn("Could not reclaim a Secret for ESO; its ExternalSecret may not go Ready", {
+                namespace,
+                extra: { secretName, err },
+            });
+        }
+    }
+
+    /**
+     * Gives up ESO's ownership of these K8s Secrets, for targets another store is
+     * taking over. The ExternalSecret is deleted with `Orphan` propagation, so the
+     * Secret it owns survives: the default would have the garbage collector delete
+     * every dependent, taking the live preview's credentials with it.
+     *
+     * Best-effort per target - a leftover ExternalSecret would keep reconciling the
+     * Secret back from AWS every 5m, but the values agree while both stores are
+     * written, so a failure here is not worth failing a deploy over.
+     */
+    async releaseTargets(namespace: string, secretNames: string[]): Promise<void> {
+        if (secretNames.length === 0) return;
+
+        const wanted = new Set(secretNames);
+        const existing = await this.listManagedExternalSecrets(namespace).catch((err: unknown) => {
+            this.logger.warn("Could not list ExternalSecrets to release; continuing", { namespace, extra: { err } });
+            return [];
+        });
+
+        for (const es of existing) {
+            if (!wanted.has(es.target)) continue;
+
+            this.logger.info("Releasing an ExternalSecret's target; that Secret is now written from postgres", {
+                namespace,
+                extra: { esName: es.name, target: es.target },
+            });
+            await this.deleteExternalSecretBestEffort(namespace, es.name, "Orphan");
+        }
     }
 
     /**
@@ -269,7 +314,7 @@ export class AwsExternalSecretManager {
             version: ESO_VERSION,
             namespace,
             plural: ESO_PLURAL,
-            labelSelector: `${LABEL_MANAGED_BY}=previewkit,${LABEL_TYPE}=aws-external-secret`,
+            labelSelector: `${SECRET_LABEL.managedBy}=${MANAGED_BY_PREVIEWKIT},${SECRET_LABEL.type}=${EXTERNAL_SECRET_TYPE}`,
         });
         const parsed = ExternalSecretListSchema.safeParse(list);
         if (!parsed.success) {
@@ -288,7 +333,11 @@ export class AwsExternalSecretManager {
         return managed;
     }
 
-    private async deleteExternalSecretBestEffort(namespace: string, esName: string): Promise<void> {
+    private async deleteExternalSecretBestEffort(
+        namespace: string,
+        esName: string,
+        propagationPolicy: "Background" | "Orphan" = "Background",
+    ): Promise<void> {
         try {
             await this.customApi.deleteNamespacedCustomObject({
                 group: ESO_GROUP,
@@ -296,6 +345,7 @@ export class AwsExternalSecretManager {
                 namespace,
                 plural: ESO_PLURAL,
                 name: esName,
+                body: { propagationPolicy },
             });
             this.logger.info("Pruned orphaned ExternalSecret", { namespace, extra: { esName } });
         } catch (err) {
@@ -410,9 +460,9 @@ export class AwsExternalSecretManager {
                 name: externalSecretName(record.id),
                 namespace,
                 labels: {
-                    [LABEL_MANAGED_BY]: "previewkit",
-                    [LABEL_TYPE]: "aws-external-secret",
-                    [LABEL_ORG]: organizationId,
+                    [SECRET_LABEL.managedBy]: MANAGED_BY_PREVIEWKIT,
+                    [SECRET_LABEL.type]: EXTERNAL_SECRET_TYPE,
+                    [SECRET_LABEL.org]: organizationId,
                 },
                 annotations: {
                     [FORCE_SYNC_ANNOTATION]: forceSyncToken,
@@ -433,24 +483,6 @@ export class AwsExternalSecretManager {
         };
     }
 
-    /**
-     * Derive the K8s Secret name that External Secrets Operator materialises
-     * in the preview namespace from the inner app's name. The per-PR namespace
-     * already provides isolation, so `<appName>-secrets` is unique without any
-     * further scoping. Mirrors the rules `previewkit.dev/managed-by` k8s names
-     * follow: lowercase alnum + hyphens, trimmed, capped under the 63-char
-     * label limit (55 + `-secrets` suffix = 63).
-     */
-    private toK8sName(appName: string): string {
-        return appName
-            .toLowerCase()
-            .replace(/[^a-z0-9-]/g, "-")
-            .replace(/-+/g, "-")
-            .replace(/^-+|-+$/g, "")
-            .slice(0, 55)
-            .concat("-secrets");
-    }
-
     private async applyExternalSecret(namespace: string, resource: ExternalSecret): Promise<void> {
         const name = resource.metadata.name;
         try {
@@ -464,13 +496,15 @@ export class AwsExternalSecretManager {
         } catch (err: unknown) {
             if (!isConflict(err)) throw err;
 
-            const existing = (await this.customApi.getNamespacedCustomObject({
-                group: ESO_GROUP,
-                version: ESO_VERSION,
-                namespace,
-                plural: ESO_PLURAL,
-                name,
-            })) as { metadata?: { resourceVersion?: string } };
+            const existing = ExternalSecretMetadataSchema.parse(
+                await this.customApi.getNamespacedCustomObject({
+                    group: ESO_GROUP,
+                    version: ESO_VERSION,
+                    namespace,
+                    plural: ESO_PLURAL,
+                    name,
+                }),
+            );
 
             await this.customApi.replaceNamespacedCustomObject({
                 group: ESO_GROUP,
@@ -482,7 +516,7 @@ export class AwsExternalSecretManager {
                     ...resource,
                     metadata: {
                         ...resource.metadata,
-                        resourceVersion: existing.metadata?.resourceVersion,
+                        resourceVersion: existing.metadata?.resourceVersion ?? undefined,
                     },
                 },
             });
