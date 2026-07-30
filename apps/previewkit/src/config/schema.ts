@@ -1,8 +1,8 @@
 export {
     STANDARD_RESOURCES,
     previewConfigSchema,
+    declaredSdkAppName,
     resolvePrimaryAppName,
-    resolveSdkAppName,
     trustedPreviewConfigSchema,
     type AddonConfig,
     type AppConfig,

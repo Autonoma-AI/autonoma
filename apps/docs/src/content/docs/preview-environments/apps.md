@@ -84,6 +84,8 @@ A second toggle marks the app that serves your [Environment Factory](/environmen
 
 It's independent of the frontend toggle. A full-stack app (Next.js, Rails, Django) serves the pages the agents browse *and* the handler, so it carries both. A split project marks the browser-facing app as the frontend and the API service as the SDK app.
 
+The handler can live in a [connected repository](/preview-environments/multirepo/) too - a frontend project whose API is a separate repo marks that repo's app as the SDK app, and Autonoma targets it.
+
 Leave it unset and Autonoma falls back to the frontend, which is right for a single-app project - but in a split project it sends every `up` to an app with no handler, and scenario setup fails with a 404.
 
 ### Depends on

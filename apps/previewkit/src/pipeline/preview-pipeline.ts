@@ -920,7 +920,10 @@ export class PreviewPipeline {
         const primaryApps = mergedConfig.apps.filter((a) => primaryAppNames.includes(a.name));
         const previewUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
         const primaryUrl = resolvePrimaryUrl(primaryApps, result.urls);
-        const sdkAppUrl = resolveSdkAppUrl(primaryApps, result.urls);
+        // Scoped to the whole topology, unlike the primary URL: the app serving the
+        // Environment Factory handler can be a connected repo's API, and its
+        // declaration only reaches the merged config.
+        const sdkAppUrl = resolveSdkAppUrl({ all: mergedConfig.apps, primaryRepo: primaryApps }, result.urls);
 
         const output: DeployPreviewEnvironmentOutput = {
             ready: readyCount === totalCount,
