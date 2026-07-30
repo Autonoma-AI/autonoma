@@ -1,5 +1,5 @@
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { NoPrimaryEncryptionKeyError, type SecretValues } from "@autonoma/secrets";
+import { NoPrimaryEncryptionKeyError, type SecretValues, type SecretValueSummary } from "@autonoma/secrets";
 import type { SecretBundle } from "@autonoma/utils";
 
 /**
@@ -57,6 +57,60 @@ export class SecretValueMirror {
         });
     }
 
+    /**
+     * The bundle's keys from Postgres, or undefined when it cannot serve the read.
+     *
+     * Undefined covers two cases and both fall back to the authoritative store: the
+     * mirror is off, or it holds nothing for a bundle that must have values (a bundle
+     * row implies at least one, since a write requires one). Returning an empty list
+     * there would show a user no secrets at all - the one outcome worse than being slow.
+     */
+    async list(bundle: SecretBundle): Promise<SecretValueSummary[] | undefined> {
+        if (this.values == null) return undefined;
+
+        try {
+            const listed = await this.values.list(bundle);
+            if (listed.length > 0) return listed;
+
+            this.logger.error("Postgres holds no values for this bundle; serving AWS instead", {
+                extra: { bundleKind: bundle.kind },
+            });
+            return undefined;
+        } catch (err) {
+            this.logger.error("Failed to list secrets from Postgres; serving AWS instead", asError(err), {
+                extra: { bundleKind: bundle.kind },
+            });
+            return undefined;
+        }
+    }
+
+    /**
+     * One value from Postgres, or undefined to fall back.
+     *
+     * A miss here is not "no such secret". `resolveManagedSigningSecret` reads back an
+     * existing AUTONOMA_SIGNING_SECRET so every app in an application shares one; a
+     * false miss makes it mint a fresh one and breaks signed SDK calls from previews
+     * already deployed. So an unmirrored key falls back rather than answering.
+     */
+    async get(bundle: SecretBundle, key: string): Promise<string | undefined> {
+        if (this.values == null) return undefined;
+
+        try {
+            const value = await this.values.get(bundle, key);
+            if (value != null) return value;
+
+            this.logger.error("Postgres does not hold this secret; serving AWS instead", {
+                extra: { bundleKind: bundle.kind, key },
+            });
+            return undefined;
+        } catch (err) {
+            this.logger.error("Failed to read a secret from Postgres; serving AWS instead", asError(err), {
+                extra: { bundleKind: bundle.kind, key },
+            });
+            return undefined;
+        }
+    }
+
     async remove(bundle: SecretBundle, key: string): Promise<void> {
         await this.attempt("remove", bundle, (values) => values.remove(bundle, key));
     }
@@ -82,9 +136,14 @@ export class SecretValueMirror {
 
             this.logger.error(
                 "Failed to mirror a secret write to Postgres; AWS Secrets Manager remains authoritative",
-                err instanceof Error ? err : new Error(String(err)),
+                asError(err),
                 { extra: { operation, bundleKind: bundle.kind } },
             );
         }
     }
+}
+
+/** Sentry's logger takes an Error; a thrown non-Error still has to be reportable. */
+function asError(err: unknown): Error {
+    return err instanceof Error ? err : new Error(String(err));
 }

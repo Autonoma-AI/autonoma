@@ -16,6 +16,13 @@ export interface SecretItem {
     value: string;
 }
 
+export interface SecretValueSummary {
+    key: string;
+    fingerprint: string;
+    maskedLength: number;
+    updatedAt: Date;
+}
+
 /** How Postgres differs from the authoritative store for one bundle. Empty everywhere means they agree. */
 export interface MirrorComparison {
     /** Keys the authoritative store has that Postgres does not - usually not backfilled yet. */
@@ -119,6 +126,52 @@ export class SecretValues {
                   });
 
         return new Map(rows.map((row) => [row.key, row.fingerprint]));
+    }
+
+    /**
+     * Every key in `bundle` with the fields a listing needs, and nothing decrypted -
+     * `fingerprint` and `maskedLength` were stored precisely so this is possible.
+     *
+     * `updatedAt` is the row's own, so unlike the AWS-backed listing (which has no
+     * per-key timestamp to report and substitutes the current time) this is real.
+     *
+     * An empty result is ambiguous at this level and must not be read as "no secrets":
+     * a bundle row implies at least one value in the authoritative store, since a write
+     * requires one, so empty means not migrated. The caller decides what to do.
+     */
+    async list(bundle: SecretBundle): Promise<SecretValueSummary[]> {
+        const rows =
+            bundle.kind === "app"
+                ? await this.db.previewkitSecretValue.findMany({
+                      where: { secret: { applicationId: bundle.applicationId, appName: bundle.appName } },
+                      select: { key: true, fingerprint: true, maskedLength: true, updatedAt: true },
+                  })
+                : await this.db.previewkitOrgSecretValue.findMany({
+                      where: { orgSecret: { organizationId: bundle.organizationId, name: bundle.name } },
+                      select: { key: true, fingerprint: true, maskedLength: true, updatedAt: true },
+                  });
+
+        return rows.sort((a, b) => a.key.localeCompare(b.key));
+    }
+
+    /** One value in the clear. Undefined when the key is not mirrored, which is not the same as it not existing. */
+    async get(bundle: SecretBundle, key: string): Promise<string | undefined> {
+        const row =
+            bundle.kind === "app"
+                ? await this.db.previewkitSecretValue.findFirst({
+                      where: { key, secret: { applicationId: bundle.applicationId, appName: bundle.appName } },
+                      select: { envelope: true },
+                  })
+                : await this.db.previewkitOrgSecretValue.findFirst({
+                      where: { key, orgSecret: { organizationId: bundle.organizationId, name: bundle.name } },
+                      select: { envelope: true },
+                  });
+
+        if (row == null) return undefined;
+
+        this.logger.info("Opening a secret value", { extra: { bundle: describe(bundle), key } });
+        const cipher = await this.keys.forEnvelope(row.envelope);
+        return cipher.decrypt(row.envelope, scopeIn(bundle, key));
     }
 
     /**

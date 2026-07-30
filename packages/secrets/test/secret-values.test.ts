@@ -257,3 +257,75 @@ secretsSuite({
         });
     },
 });
+
+secretsSuite({
+    name: "SecretValues reads",
+    cases: (test) => {
+        test("lists keys with real timestamps and no decryption", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            await values(harness).put(bundle, [
+                { key: "B", value: "two" },
+                { key: "A", value: "x".repeat(100) },
+            ]);
+
+            const listed = await values(harness).list(bundle);
+
+            expect(listed.map((row) => row.key)).toEqual(["A", "B"]);
+            expect(listed[0]?.fingerprint).toBe(secretFingerprint("x".repeat(100)));
+            expect(listed[0]?.maskedLength).toBe(32);
+            expect(listed[0]?.updatedAt).toBeInstanceOf(Date);
+        });
+
+        // Empty must stay distinguishable from "no secrets" - a caller that served this
+        // as a listing would show a user nothing at all for an un-migrated bundle.
+        test("lists nothing for a bundle that was never mirrored", async ({ harness }) => {
+            await mint(harness, "1");
+
+            expect(await values(harness).list(await harness.createAppBundle())).toEqual([]);
+        });
+
+        test("opens a stored value", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            await values(harness).put(bundle, [{ key: "DATABASE_URL", value: "postgres://secret" }]);
+
+            expect(await values(harness).get(bundle, "DATABASE_URL")).toBe("postgres://secret");
+        });
+
+        test("opens a value sealed by a superseded key", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            await values(harness).put(bundle, [{ key: "A", value: "one" }]);
+            await mint(harness, "2");
+
+            expect(await values(harness).get(bundle, "A")).toBe("one");
+        });
+
+        test("returns undefined for a key it does not hold", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            await values(harness).put(bundle, [{ key: "A", value: "one" }]);
+
+            expect(await values(harness).get(bundle, "MISSING")).toBeUndefined();
+        });
+
+        test("does not read one bundle's value through another", async ({ harness }) => {
+            await mint(harness, "1");
+            const web = await harness.createAppBundle("web");
+            const api = await harness.createAppBundle("api");
+            await values(harness).put(web, [{ key: "A", value: "web-only" }]);
+
+            expect(await values(harness).get(api, "A")).toBeUndefined();
+        });
+
+        test("reads org-scoped values too", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createOrgBundle();
+            await values(harness).put(bundle, [{ key: "token", value: "neon-token" }]);
+
+            expect(await values(harness).get(bundle, "token")).toBe("neon-token");
+            expect((await values(harness).list(bundle)).map((r) => r.key)).toEqual(["token"]);
+        });
+    },
+});

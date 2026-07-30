@@ -33,6 +33,16 @@ AWS Secrets Manager is still the authoritative store. The API's secret services 
 
 Both of those allowances stop being correct the moment reads move to Postgres. At that point the mirror should lose its guard and be allowed to fail the request.
 
+### Serving reads from here
+
+`PREVIEWKIT_SECRETS_READ` selects the source: `aws` (the default) or `postgres`. Defaulting to AWS means deploying the Postgres read path changes nothing until an environment opts in, and reverting is a config change rather than a deploy.
+
+Under `postgres`, a listing is served entirely from stored columns - no key is unwrapped and nothing is decrypted, since `fingerprint` and `maskedLength` are what a listing needs. `updatedAt` becomes the row's own rather than the current time the AWS path has to substitute. Reading a single value does decrypt, and resolves whichever key version sealed it.
+
+**It falls back to AWS per bundle rather than answering wrongly.** Postgres holding nothing for a bundle means not backfilled, not "no secrets" - a bundle row implies at least one value, since a write requires one. Serving an empty listing there would show a user that their secrets had vanished. A missing single value matters even more: `resolveManagedSigningSecret` reads back an existing `AUTONOMA_SIGNING_SECRET` so every app in an application shares one, and a false miss makes it mint a fresh one, breaking signed SDK calls from previews already deployed.
+
+Every fall back is logged at error level. They should be rare once the backfill has run and its refused and dangling sets are resolved; a steady stream means the flip was premature. That is the signal to watch, and it is why the fallback exists rather than a hard cutover.
+
 ### Earning the read flip
 
 Before any read is served from here, both `list()` methods shadow-read: they return the authoritative AWS response as before and additionally call `SecretValueMirror.audit`, which compares `SecretValues.fingerprints` against what AWS just gave them and warns on any difference. Serving a read from an incomplete mirror would show a user no secrets at all, and an un-backfilled bundle is indistinguishable from an empty one at the API surface - so the mirror has to prove itself first.

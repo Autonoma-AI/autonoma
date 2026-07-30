@@ -3,6 +3,7 @@ import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { MAX_MASKED_LENGTH, secretFingerprint } from "@autonoma/secrets";
 import type { SecretItem, SecretSummary } from "@autonoma/types";
+import type { SecretBundle } from "@autonoma/utils";
 import {
     CreateSecretCommand,
     DescribeSecretCommand,
@@ -14,6 +15,7 @@ import {
     SecretsManagerClient,
     UpdateSecretCommand,
 } from "@aws-sdk/client-secrets-manager";
+import { env } from "../env";
 import type { PreviewkitSecretsUpsertResult } from "../routes/onboarding/onboarding-dependencies";
 import {
     collisionMessage,
@@ -105,6 +107,14 @@ export class PreviewkitSecretsService {
 
         if (record == null) return [];
 
+        const bundle: SecretBundle = { kind: "app", applicationId: app.id, appName };
+
+        if (env.PREVIEWKIT_SECRETS_READ === "postgres") {
+            const mirrored = await this.mirror.list(bundle);
+            if (mirrored != null) return mirrored;
+            // Fell back, and the mirror logged why. AWS answers below.
+        }
+
         const values = await this.fetchSecretValue(record.awsSecretArn);
         const now = new Date();
 
@@ -119,10 +129,7 @@ export class PreviewkitSecretsService {
 
         // Shadow read. The response above is unchanged; this only reports whether the
         // Postgres mirror could have served it, using fingerprints already computed.
-        await this.mirror.audit(
-            { kind: "app", applicationId: app.id, appName },
-            new Map(summaries.map((summary) => [summary.key, summary.fingerprint])),
-        );
+        await this.mirror.audit(bundle, new Map(summaries.map((summary) => [summary.key, summary.fingerprint])));
 
         return summaries;
     }
@@ -280,6 +287,11 @@ export class PreviewkitSecretsService {
             where: { applicationId_appName: { applicationId, appName } },
         });
         if (record == null) return undefined;
+
+        if (env.PREVIEWKIT_SECRETS_READ === "postgres") {
+            const mirrored = await this.mirror.get({ kind: "app", applicationId: app.id, appName }, key);
+            if (mirrored != null) return mirrored;
+        }
 
         const values = await this.fetchSecretValue(record.awsSecretArn);
         return values[key];

@@ -148,6 +148,12 @@ export const env = createEnv({
         // ciphertext identifies its own key. One CMK is shared by every environment;
         // see packages/secrets/README.md for why IAM does not isolate them.
         PREVIEWKIT_SECRETS_CMK: z.string().min(1).optional(),
+        // Where previewkit secret READS are served from. Defaults to aws, so deploying
+        // the Postgres read path changes nothing until an environment opts in - and
+        // reverting is a config change rather than a deploy. Postgres still falls back
+        // to AWS per bundle when it holds nothing, which means "not backfilled" rather
+        // than "no secrets"; those fall backs are logged as errors.
+        PREVIEWKIT_SECRETS_READ: z.enum(["aws", "postgres"]).default("aws"),
 
         // Enables preview environments: pull_request webhooks and the
         // /v1/previewkit lifecycle routes launch the preview deploy/teardown

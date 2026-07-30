@@ -3,6 +3,7 @@ import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger, type Logger } from "@autonoma/logger";
 import { MAX_MASKED_LENGTH, secretFingerprint } from "@autonoma/secrets";
 import type { OrgSecretItem, SecretSummary } from "@autonoma/types";
+import type { SecretBundle } from "@autonoma/utils";
 import {
     CreateSecretCommand,
     GetSecretValueCommand,
@@ -10,6 +11,7 @@ import {
     SecretsManagerClient,
     UpdateSecretCommand,
 } from "@aws-sdk/client-secrets-manager";
+import { env } from "../../env";
 import { SecretValueMirror } from "../../previewkit/secret-value-mirror";
 
 /**
@@ -44,6 +46,13 @@ export class OrgSecretsService {
 
         if (record == null) return [];
 
+        const bundle: SecretBundle = { kind: "org", organizationId, name };
+
+        if (env.PREVIEWKIT_SECRETS_READ === "postgres") {
+            const mirrored = await this.mirror.list(bundle);
+            if (mirrored != null) return mirrored;
+        }
+
         const values = await this.fetchSecretValue(record.awsSecretArn);
         const now = new Date();
 
@@ -51,7 +60,7 @@ export class OrgSecretsService {
         // they are computed here for the comparison only - over values already fetched,
         // so still no extra AWS call and nothing decrypted.
         await this.mirror.audit(
-            { kind: "org", organizationId, name },
+            bundle,
             new Map(Object.entries(values).map(([key, value]) => [key, secretFingerprint(value)])),
         );
 
