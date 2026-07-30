@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.260730.3](https://github.com/Autonoma-AI/agent/compare/v1.260730.2...v1.260730.3) (2026-07-30)
+
+
+### Features
+
+* **engine-web:** draw a synthetic cursor into run recordings ([#1968](https://github.com/Autonoma-AI/agent/issues/1968)) ([227ac04](https://github.com/Autonoma-AI/agent/commit/227ac04dc5de4bdeb8f09ddfd5d7004bbea8f8b7))
+* lease gh app label ([#1949](https://github.com/Autonoma-AI/agent/issues/1949)) ([e903fdd](https://github.com/Autonoma-AI/agent/commit/e903fdd091566731a73fe8a61a7878246826f61b))
+* **mcp:** serve a PR's analysis to a coding agent via get_analysis ([#1942](https://github.com/Autonoma-AI/agent/issues/1942)) ([ef23f4d](https://github.com/Autonoma-AI/agent/commit/ef23f4dc1834b38cb16aaedc14194cb3f4c46111))
+* **onboarding:** add a "View demo" button beside the GitHub install ([#1936](https://github.com/Autonoma-AI/agent/issues/1936)) ([60806f8](https://github.com/Autonoma-AI/agent/commit/60806f82b7db2b9ac146e11655d7571c0199b6e9))
+* **previewkit:** read build-time secret values from Postgres ([#1967](https://github.com/Autonoma-AI/agent/issues/1967)) ([c0b1e5b](https://github.com/Autonoma-AI/agent/commit/c0b1e5b388b0e65ce2e1d9da5cf74e866b30f437))
+* **preview:** title preview PR status comments "Preview Environment" ([#1964](https://github.com/Autonoma-AI/agent/issues/1964)) ([ee28721](https://github.com/Autonoma-AI/agent/commit/ee28721adecca1a76498a908488b398d9a655a8e))
+* **skill:** add a client-weekly-report skill ([#1965](https://github.com/Autonoma-AI/agent/issues/1965)) ([b89fae3](https://github.com/Autonoma-AI/agent/commit/b89fae3e6ab128bc7f26fcd865841010eba0f714))
+* **worker-web:** move S3 access to an IRSA service account ([#1960](https://github.com/Autonoma-AI/agent/issues/1960)) ([41d5dd5](https://github.com/Autonoma-AI/agent/commit/41d5dd5b6c862fc62fe2ff4240a32469f0ff9b98))
+* **workers:** move diffs and investigation AWS access to IRSA ([#1961](https://github.com/Autonoma-AI/agent/issues/1961)) ([3d6e30e](https://github.com/Autonoma-AI/agent/commit/3d6e30e9b9b34eb4092cf9f708a486b610ae22da))
+
 ## [1.260730.2](https://github.com/Autonoma-AI/agent/compare/v1.260730.1...v1.260730.2) (2026-07-30)
 
 
