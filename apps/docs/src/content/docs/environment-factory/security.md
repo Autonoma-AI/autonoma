@@ -72,7 +72,7 @@ Every code the endpoint can return, with its fix:
 
 These aren't error codes - they surface as database or validation failures. A dry run reports them to you with the message your own handler produced:
 
-![A failed dry-run card in Autonoma, bordered red. The heading reads "Dry run failed during up" and the body carries the error verbatim: SDK returned HTTP 500 - null value in column organization_id of relation account violates not-null constraint](/img/environment-factory/dry-run-failed.png)
+![A failed dry-run card in Autonoma, bordered red. The heading reads "Dry run failed during up" and the body carries the error verbatim: SDK returned HTTP 500 - null value in column organization_id of relation account violates not-null constraint. Below the message sits a "Fix with coding agent" button, which opens instructions for connecting the Autonoma MCP so an agent can read the recipe and repair the handler](/img/environment-factory/dry-run-failed.png)
 
 The message is passed straight through from your endpoint, so what you debug is your own stack trace, not a translation of it.
 

@@ -44,7 +44,7 @@ import {
 import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { useAuth } from "lib/auth";
 import { type DryRunOutcome, formatDryRunError } from "lib/format-dry-run-error";
-import { FINISH_SETUP_AGENT_INSTRUCTIONS } from "lib/onboarding/finish-setup-agent-instructions";
+import { AGENT_INSTRUCTIONS } from "lib/onboarding/agent-instructions";
 import {
   useAvailableVercelProjects,
   useConfigureAndDiscoverSdkTarget,
@@ -1238,7 +1238,7 @@ function ExternalSdkStepBody({ applicationId, selectedTargetId, onSelectTarget }
         applicationId={applicationId}
         title="Debug with a coding agent"
         description={ONBOARDING_AGENT_DIALOG_DESCRIPTION}
-        instruction={FINISH_SETUP_AGENT_INSTRUCTIONS.sdk}
+        instruction={AGENT_INSTRUCTIONS.sdk(ONBOARDING_MCP_SERVER_NAME)}
         capabilities={
           <>
             <NameTheMcpNote serverName={ONBOARDING_MCP_SERVER_NAME} /> From your repo it validates the endpoint against
@@ -1458,7 +1458,7 @@ function DryRunList({
         applicationId={applicationId}
         title="Debug with a coding agent"
         description={ONBOARDING_AGENT_DIALOG_DESCRIPTION}
-        instruction={FINISH_SETUP_AGENT_INSTRUCTIONS.dryRun}
+        instruction={AGENT_INSTRUCTIONS.dryRun(ONBOARDING_MCP_SERVER_NAME)}
         capabilities={
           <>
             <NameTheMcpNote serverName={ONBOARDING_MCP_SERVER_NAME} /> It can read the recipe, try edits against your

@@ -5,7 +5,7 @@ import {
   ONBOARDING_AGENT_DIALOG_DESCRIPTION,
 } from "components/connect-onboarding-agent-dialog";
 import { NameTheMcpNote } from "components/name-the-mcp-note";
-import { FINISH_SETUP_AGENT_INSTRUCTIONS } from "lib/onboarding/finish-setup-agent-instructions";
+import { AGENT_INSTRUCTIONS } from "lib/onboarding/agent-instructions";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import type { RouterOutputs } from "lib/trpc";
 
@@ -41,7 +41,7 @@ type Story = StoryObj<typeof meta>;
 /** The SDK step's dialog: validate the environment factory against a preview and fix it. */
 export const SdkStep: Story = {
   args: {
-    instruction: FINISH_SETUP_AGENT_INSTRUCTIONS.sdk,
+    instruction: AGENT_INSTRUCTIONS.sdk(ONBOARDING_MCP_SERVER_NAME),
     capabilities: (
       <>
         <NameTheMcpNote serverName={ONBOARDING_MCP_SERVER_NAME} /> From your repo it validates the endpoint against a
@@ -54,7 +54,7 @@ export const SdkStep: Story = {
 /** The dry-run step's dialog: same server, same pairing, a different ask. */
 export const DryRunStep: Story = {
   args: {
-    instruction: FINISH_SETUP_AGENT_INSTRUCTIONS.dryRun,
+    instruction: AGENT_INSTRUCTIONS.dryRun(ONBOARDING_MCP_SERVER_NAME),
     capabilities: (
       <>
         <NameTheMcpNote serverName={ONBOARDING_MCP_SERVER_NAME} /> It can read the recipe, try edits against your

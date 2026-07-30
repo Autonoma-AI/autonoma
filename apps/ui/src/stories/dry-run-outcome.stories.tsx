@@ -1,14 +1,28 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { DryRunOutcomeNote } from "components/scenarios/dry-run-outcome-note";
+import { trpcHandler } from "lib/storybook/trpc-handler";
 
 /**
- * What a dry run leaves behind on the scenarios table. Before this, the page showed a green
- * "Dry run passed" toast whenever the request completed - including on runs that had just
- * failed - and the failure's reason was never rendered anywhere.
+ * What a dry run leaves behind on the scenarios table. A failure's reason is often the only
+ * account of what went wrong - a run that fails before the SDK call leaves no scenario
+ * instance and no preview logs - so it stays on the card rather than in a toast.
  */
 const meta = {
   title: "Components/DryRunOutcomeNote",
   component: DryRunOutcomeNote,
+  parameters: {
+    // The failure card's escape hatch carries a connect-agent dialog, which reads the org to
+    // stay inert in the demo. That query runs even with the dialog closed.
+    msw: {
+      handlers: [
+        trpcHandler({
+          auth: {
+            activeOrg: { id: "org_fixture_01", name: "Acme", slug: "acme", isDemo: false, canReturnToAccount: false },
+          },
+        }),
+      ],
+    },
+  },
   decorators: [
     // Padding lives here so a docs screenshot of this card already has its own
     // margin - see the `ui-screenshots` skill on why the crop must not add it.

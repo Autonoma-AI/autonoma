@@ -28,6 +28,9 @@ import { InfoIcon } from "@phosphor-icons/react/Info";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { UserPlusIcon } from "@phosphor-icons/react/UserPlus";
 import { Link } from "@tanstack/react-router";
+import { DEBUG_MCP_SERVER_NAME } from "components/connect-agent-dialog";
+import { FixWithAgentButton } from "components/fix-with-agent-button";
+import { AGENT_INSTRUCTIONS } from "lib/onboarding/agent-instructions";
 import {
   usePreviewTestUserOptions,
   usePreviewTestUserProvision,
@@ -285,10 +288,19 @@ function ProvisionErrorBanner({ message, previewUrl }: { message: string; previe
       </Alert>
     );
   }
+  // Anything that is not a cold start is the SDK handler or the recipe rejecting the seed
+  // (a unique column with no per-run token is the classic), which is exactly what the agent
+  // repairs - so this branch, and not the waking-up one, carries the escape hatch.
   return (
     <Alert variant="critical">
       <AlertTitle>Couldn't provision</AlertTitle>
-      <AlertDescription className="break-words">{message}</AlertDescription>
+      <AlertDescription className="flex flex-col gap-2 break-words">
+        {message}
+        <FixWithAgentButton
+          instruction={AGENT_INSTRUCTIONS.provision(DEBUG_MCP_SERVER_NAME)}
+          capabilities="From your repo it reads this preview's runtime logs, replays the seed against your deployed SDK, and fixes the handler or the recipe."
+        />
+      </AlertDescription>
     </Alert>
   );
 }

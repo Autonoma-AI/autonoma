@@ -121,7 +121,7 @@ Deliberately thin. This section is mostly backend code the reader writes in thei
 |---|---|---|---|---|---|
 | E1 | `setup.mdx` `## 8. Go live` | Dry-run step **after a run**: per-scenario pass/fail rows with the inline failure reason | zoomed crop | `pages-finishsetupsdk--dry-run-step` shows the step **unrun** - needs a new export driving the run via `play` | [ ] |
 | E2 | `setup.mdx` `## 7. Validate` | The validation row alone: target select, **Validate SDK**, `✓ Discovered 12 models` | tight crop | none - existing fixtures never render the chip | [x] `sdk-validated.png` |
-| E3 | `security.md` `## Other common problems` | One `DryRunOutcomeNote` failure card with a real FK-violation message | component | `components-dryrunoutcomenote--failed-during-up` (exists) | [x] `dry-run-failed.png` |
+| E3 | `security.md` `## Other common problems` | One `DryRunOutcomeNote` failure card with a real FK-violation message, and the **Fix with coding agent** button under it | component | `components-dryrunoutcomenote--failed-during-up` (exists) | [x] `dry-run-failed.png` |
 | E4 | `setup.mdx` `## 8. Go live` | Scenarios → **Webhook calls** tab: DISCOVER/UP/DOWN badges, status codes, durations | zoomed crop, 5-6 rows | none - route is HARD (7+ fixtures) | [ ] |
 | E5 | `index.mdx` `## Get started` | The planner's pre-handoff countdown - same asset as T3, reuse | full terminal | gallery scene `countdown` | [ ] |
 
