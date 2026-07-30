@@ -61,6 +61,16 @@ The interactive dashboard is Ink 7 + React 19, and follows a strict store-first 
   minute (this exact shape OOMed real runs; render it inline in the component that built it).
 - Iterate visually with `pnpm ui:gallery` (fixture-driven scenes, Tab/Shift+Tab). Design
   rationale and constraints: `docs/ui-design-brief.md`.
+- **Session replay (`src/replay/`)** records the dashboard to PostHog as rrweb events, on by default
+  with the other telemetry lanes - `DONT_TRACK` is the single switch that turns off events, logs and
+  replay together, and there is deliberately no replay-only flag. It reads frames by rendering
+  `<App>` off-screen through Ink's `debug` mode - never by
+  scraping the terminal repaint stream, which may be incremental. It taps `Live`'s `useInput` for
+  keystrokes, which is what makes PostHog's inactivity-skipping work at all, and shares the run's
+  `$session_id` with the event and log lanes (`core/session.ts`) so a recording, its events and its
+  logs resolve to one another. **Unlike events and logs, this lane is not metadata-only** - a recording
+  reproduces whatever is on screen, including repository paths and generated file contents. Keep that
+  in mind before widening what the dashboard renders.
 
 ## Tooling
 

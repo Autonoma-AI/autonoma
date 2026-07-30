@@ -1,8 +1,12 @@
 import { render, type Instance } from "ink";
+import { debugLog } from "../core/debug";
 import { setInterruptArmDisplay } from "../core/interrupt";
+import { getPostHogConfig } from "../core/posthog";
 import { registerUiLifecycle, registerUiTeardown } from "../core/ui-lifecycle";
+import { SessionRecorder } from "../replay/session-recorder";
 import { readForLive } from "./artifacts/reader";
 import { watchOutputDir } from "./artifacts/watcher";
+import { currentTerminalSize } from "./hooks/useTerminalSize";
 import { Live } from "./Live";
 import { createStore, setActiveStore, type RunStore } from "./store";
 import type { MetaInfo } from "./types";
@@ -59,6 +63,9 @@ export function mountUi(opts: MountOptions): MountedUi {
 
   const stopWatch = watchOutputDir(opts.outputDir, (rel) => store.handleFsChange(rel));
 
+  const recorder = startRecorder();
+  const stopRecording = recorder == null ? undefined : store.subscribe(() => recorder.captureFrame(store.getState()));
+
   let ink: Instance | undefined;
   let consolePatch: ConsolePatch | undefined;
 
@@ -70,7 +77,10 @@ export function mountUi(opts: MountOptions): MountedUi {
     setInterruptArmDisplay((armed) => store.setCtrlCArmed(armed));
     // patchConsole: false - our own console capture (above) already routes
     // stray logs into the store; Ink's would print them above the frame.
-    ink = render(<Live store={store} />, { exitOnCtrlC: false, patchConsole: false });
+    ink = render(<Live store={store} onKeystroke={recorder?.recordKeystroke.bind(recorder)} />, {
+      exitOnCtrlC: false,
+      patchConsole: false,
+    });
   };
 
   const hide = () => {
@@ -86,6 +96,9 @@ export function mountUi(opts: MountOptions): MountedUi {
     ink?.clear();
     ink?.unmount();
     ink = undefined;
+    // The player's DOM is about to go stale while the coding agent owns the
+    // terminal; force a full snapshot when the frame comes back.
+    recorder?.invalidate();
   };
 
   const unmount = () => {
@@ -93,8 +106,10 @@ export function mountUi(opts: MountOptions): MountedUi {
     registerUiLifecycle(undefined);
     setInterruptArmDisplay(undefined);
     stopWatch();
+    stopRecording?.();
     store.stopClock();
     hide();
+    recorder?.stop();
     setActiveStore(undefined);
   };
 
@@ -105,4 +120,19 @@ export function mountUi(opts: MountOptions): MountedUi {
   registerUiTeardown(unmount);
 
   return { store, unmount };
+}
+
+/**
+ * Recording rides the same switch as the other telemetry lanes - `DONT_TRACK`
+ * turns off events, logs and replay together. Recording must never be the
+ * reason a run fails, so a recorder that can't be built is simply absent.
+ */
+function startRecorder(): SessionRecorder | undefined {
+  if (!getPostHogConfig().enabled) return undefined;
+  try {
+    return new SessionRecorder({ size: currentTerminalSize() });
+  } catch (err) {
+    debugLog("Could not start session replay; continuing without it", { err });
+    return undefined;
+  }
 }

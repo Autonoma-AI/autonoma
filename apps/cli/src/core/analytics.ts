@@ -14,7 +14,9 @@ const pending = new Set<Promise<unknown>>();
 
 /**
  * Fire-and-forget anonymous event capture. Never throws and never blocks the
- * CLI - failures are swallowed. No PII or source code is ever sent.
+ * CLI - failures are swallowed. Events carry metadata only, never the user's
+ * source. (Session replay is the lane that does capture the screen - see
+ * `replay/session-recorder.ts`.)
  */
 export function track(event: string, properties: Record<string, unknown> = {}): void {
     const { enabled, key, host } = getPostHogConfig();

@@ -1,4 +1,4 @@
-import { useInput } from "ink";
+import { useInput, type Key } from "ink";
 import { useCallback, useEffect, useMemo } from "react";
 import { interruptPress } from "../core/interrupt";
 import { App } from "./App";
@@ -12,8 +12,11 @@ import type { RunStore } from "./store";
  * Presses are fed to the shared interrupt policy (double-press to exit); the
  * arm state comes back into the store via setInterruptArmDisplay so the
  * controls bar can show "again to exit".
+ *
+ * This is also the single place every keystroke passes through, so it is where
+ * session replay taps them (see `onKeystroke`).
  */
-export function Live({ store }: { store: RunStore }) {
+export function Live({ store, onKeystroke }: { store: RunStore; onKeystroke?: (label: string) => void }) {
   const state = useStore(store);
 
   useEffect(() => {
@@ -22,6 +25,7 @@ export function Live({ store }: { store: RunStore }) {
   }, [store]);
 
   useInput((input, key) => {
+    onKeystroke?.(describeKey(input, key));
     if (key.ctrl && input === "c") interruptPress();
   });
 
@@ -57,4 +61,35 @@ export function Live({ store }: { store: RunStore }) {
       onExitBrowse={onExitBrowse}
     />
   );
+}
+
+/** Ordered so the first match wins; `ctrl` is checked with the letter it modifies. */
+const NAMED_KEYS: [keyof Key, string][] = [
+  ["upArrow", "up"],
+  ["downArrow", "down"],
+  ["leftArrow", "left"],
+  ["rightArrow", "right"],
+  ["pageUp", "pageup"],
+  ["pageDown", "pagedown"],
+  ["return", "enter"],
+  ["escape", "esc"],
+  ["tab", "tab"],
+  ["backspace", "backspace"],
+  ["delete", "delete"],
+];
+
+/**
+ * Name a keystroke for the replay timeline without reproducing what was typed.
+ *
+ * A printable character collapses to a placeholder on purpose: the prompt panel
+ * accepts free text a user could paste a token into, and while the frame itself
+ * would show it, we are not also going to ship a clean, trivially reassembled
+ * transcript of their keyboard.
+ */
+function describeKey(input: string, key: Key): string {
+  for (const [flag, name] of NAMED_KEYS) {
+    if (key[flag]) return name;
+  }
+  if (key.ctrl) return `ctrl+${input}`;
+  return "char";
 }

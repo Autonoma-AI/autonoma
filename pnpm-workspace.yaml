@@ -96,3 +96,6 @@ minimumReleaseAgeExclude:
   - postcss@8.5.18
   - valibot@1.4.2
   - seroval@1.5.3
+
+patchedDependencies:
+  ink@7.1.1: patches/ink@7.1.1.patch

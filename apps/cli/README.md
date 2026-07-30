@@ -137,23 +137,25 @@ If the upload credentials are not set, the CLI just leaves the artifacts on disk
 | `AUTONOMA_GENERATION_ID` | for upload | The setup id artifacts are uploaded against. Injected by onboarding. |
 | `AUTONOMA_SHARED_SECRET` | no | Per-application secret used to sign SDK/webhook requests. Injected by onboarding. |
 | `AUTONOMA_DISTINCT_ID` | no | PostHog identity so CLI events join the signup funnel. Injected by onboarding. |
-| `DONT_TRACK` | no | Set to `1`/`true` to disable anonymous analytics and log shipping. |
+| `DONT_TRACK` | no | Set to `1`/`true` to disable all telemetry - events, log shipping and session replay. |
 
 `AUTONOMA_API_TOKEN` + `AUTONOMA_GENERATION_ID` together enable automatic upload (the endpoint
 defaults to production unless `AUTONOMA_API_URL` is set).
 
 ## Telemetry
 
-Two lanes, both to PostHog, both off when `DONT_TRACK=1`:
+Three lanes, all to PostHog, all off when `DONT_TRACK=1`:
 
 - **Events** (`core/analytics.ts`) - `cli_run_started`, `cli_step_completed`, `$exception`, and friends,
   posted to the capture endpoint.
 - **Logs** (`core/logs.ts`) - the run's narrative, shipped as OTLP records under the service name
   `autonoma-planner`: run and step lifecycle, every agent tool call, tool errors, retries and nudges,
   and everything the CLI prints to the user.
+- **Session replay** (`src/replay/`) - the dashboard itself, as rrweb events, played back in PostHog's
+  session-replay player.
 
-Both lanes are indexed by the same identifiers (`core/session.ts`), so one run resolves the same way
-from either side:
+All three lanes are indexed by the same identifiers (`core/session.ts`), so one run resolves the same
+way from any of them:
 
 | Attribute | What it identifies |
 |-----------|--------------------|
@@ -170,6 +172,36 @@ durations, and error messages. Model prose and reasoning, prompts, and the conte
 agent read or wrote are never sent; those are what would carry a user's source code off their machine.
 Records are truncated and a single run is capped at 5000 of them, so a stuck agent loop cannot flood
 ingestion - the cap being reached is itself logged.
+
+### Session replay
+
+An interactive run is recorded and plays back in PostHog's normal session-replay player, alongside web
+recordings for the same person. It uses the run id as its `$session_id`, so a recording, its events and
+its logs all resolve to one another.
+
+`DONT_TRACK=1` turns it off along with the other two lanes - one switch, no partial opt-out.
+
+**This lane captures more than the others, and it is worth being explicit about it.** Events and logs
+are deliberately metadata-only - no prompts, no model prose, no file contents. A replay is a verbatim
+copy of the dashboard, and the dashboard renders repository paths and the contents of the files the run
+generates. Anything visible on screen is in the recording. Keystrokes are the one exception: printable
+characters are recorded as a placeholder, never the literal key, so the upload is not a transcript of
+the keyboard.
+
+How it works (`src/replay/`):
+
+- Frames come from an off-screen render of the same `<App>` the user sees, using Ink's `debug`
+  mode, which writes a complete frame with no cursor escapes. Scraping the terminal repaint stream
+  would not work, because Ink can emit either full redraws or per-line incremental updates.
+- Each frame becomes a synthetic DOM: one `<div>` per terminal row, spans for each colour run.
+- Frames are diffed row by row, so a repaint uploads only the rows that changed. A full snapshot of
+  the dashboard is tens of kilobytes; a typical repaint is a few hundred bytes.
+- Keystrokes are emitted as rrweb input events, because PostHog derives the active/inactive split
+  from interaction events alone. Without them a run of pure repaints reads as entirely idle and the
+  player's inactivity-skipping has nothing to skip to. Printable characters are recorded as a
+  placeholder rather than the literal key, so the upload is not a transcript of the keyboard.
+- Capture is rate limited to 2 fps, batched under PostHog's size limit, and capped per run. Any
+  failure is swallowed - a recording is never worth failing a run over.
 
 ## Development
 

@@ -15,14 +15,16 @@ export interface PostHogConfig {
 }
 
 /**
- * Transport settings shared by both telemetry lanes - the event capture in
- * `analytics.ts` and the log shipping in `logs.ts`. Resolved on demand rather
- * than at import: the CLI populates `process.env` at runtime from the project's
- * `.env` and the global `~/.autonoma/.env`, so an import-time snapshot would
- * miss an override that only lands once `loadConfig` has run.
+ * Transport settings shared by every telemetry lane - the event capture in
+ * `analytics.ts`, the log shipping in `logs.ts`, and the session replay in
+ * `replay/`. Resolved on demand rather than at import: the CLI populates
+ * `process.env` at runtime from the project's `.env` and the global
+ * `~/.autonoma/.env`, so an import-time snapshot would miss an override that
+ * only lands once `loadConfig` has run.
  *
  * Tracking is ON by default; users opt out with DONT_TRACK=1 (or =true), which
- * disables events and logs together - one switch, no partial opt-out.
+ * disables events, logs and session replay together - one switch, no partial
+ * opt-out.
  */
 export function getPostHogConfig(): PostHogConfig {
     const env = readEnv();

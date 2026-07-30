@@ -1,0 +1,73 @@
+diff --git a/build/render.d.ts b/build/render.d.ts
+index 867edcaf84fe7229c30fb072227a10c2a97ba1c1..aeb13492455b88333e8762a3856548afd5ba88b1 100644
+--- a/build/render.d.ts
++++ b/build/render.d.ts
+@@ -1,24 +1,58 @@
+ import type { ReactNode } from 'react';
+ import Ink, { type RenderMetrics } from './ink.js';
+ import { type KittyKeyboardOptions } from './kitty-keyboard.js';
++/**
++Minimal shape Ink needs from an output stream.
++
++Typed structurally rather than as `NodeJS.WriteStream` so a capture stream (a
++headless render, a test harness) is accepted without an assertion. Everything
++beyond `write` is optional because Ink guards for its absence at runtime.
++*/
++export type InkOutputStream = {
++    write(data: string, ...rest: any[]): unknown;
++    columns?: number;
++    rows?: number;
++    isTTY?: boolean;
++    destroyed?: boolean;
++    writable?: boolean;
++    writableEnded?: boolean;
++    writableLength?: number;
++    on?(event: any, listener: any): unknown;
++    off?(event: any, listener: any): unknown;
++};
++/**
++Minimal shape Ink needs from an input stream. See `InkOutputStream`.
++*/
++export type InkInputStream = {
++    on(event: any, listener: any): unknown;
++    read(...args: any[]): unknown;
++    isTTY?: boolean;
++    setRawMode?(mode: boolean): unknown;
++    setEncoding?(...args: any[]): unknown;
++    unshift?(...args: any[]): unknown;
++    addListener?(event: any, listener: any): unknown;
++    removeListener?(event: any, listener: any): unknown;
++    ref?(): unknown;
++    unref?(): unknown;
++};
+ export type RenderOptions = {
+     /**
+     Output stream where the app will be rendered.
+ 
+     @default process.stdout
+     */
+-    stdout?: NodeJS.WriteStream;
++    stdout?: InkOutputStream;
+     /**
+     Input stream where app will listen for input.
+ 
+     @default process.stdin
+     */
+-    stdin?: NodeJS.ReadStream;
++    stdin?: InkInputStream;
+     /**
+     Error stream.
+     @default process.stderr
+     */
+-    stderr?: NodeJS.WriteStream;
++    stderr?: InkOutputStream;
+     /**
+     If true, each update will be rendered as separate output, without replacing the previous one.
+ 
+@@ -172,5 +206,5 @@ export type Instance = {
+ /**
+ Mount a component and render the output.
+ */
+-declare const render: (node: ReactNode, options?: NodeJS.WriteStream | RenderOptions) => Instance;
++declare const render: (node: ReactNode, options?: InkOutputStream | RenderOptions) => Instance;
+ export default render;

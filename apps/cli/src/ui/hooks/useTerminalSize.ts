@@ -8,7 +8,8 @@ export interface TermSize {
     rows: number;
 }
 
-function current(): TermSize {
+/** Terminal dimensions right now, for callers outside the React tree. */
+export function currentTerminalSize(): TermSize {
     return {
         columns: process.stdout.columns || FALLBACK_COLUMNS,
         rows: process.stdout.rows || FALLBACK_ROWS,
@@ -17,9 +18,9 @@ function current(): TermSize {
 
 /** Reactive terminal dimensions; re-renders on resize. */
 export function useTerminalSize(): TermSize {
-    const [size, setSize] = useState<TermSize>(current);
+    const [size, setSize] = useState<TermSize>(currentTerminalSize);
     useEffect(() => {
-        const onResize = () => setSize(current());
+        const onResize = () => setSize(currentTerminalSize());
         process.stdout.on("resize", onResize);
         return () => {
             process.stdout.off("resize", onResize);
