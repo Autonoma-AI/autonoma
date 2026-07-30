@@ -10,8 +10,12 @@ import type { StorageProvider } from "../storage-provider";
 export interface S3StorageConfig {
     bucket: string;
     region: string;
-    accessKeyId: string;
-    secretAccessKey: string;
+    /**
+     * Static credentials. Omit both to leave credential resolution to the SDK's default chain,
+     * which in EKS assumes the pod ServiceAccount's role from its projected token (IRSA).
+     */
+    accessKeyId?: string;
+    secretAccessKey?: string;
     /** Custom endpoint URL, e.g. for LocalStack or MinIO. Enables path-style addressing. */
     endpoint?: string;
 }
@@ -47,13 +51,15 @@ export class S3Storage implements StorageProvider {
     }
 
     constructor(private readonly config: S3StorageConfig) {
-        const clientConfig: S3ClientConfig = {
-            region: this.config.region,
-            credentials: {
-                accessKeyId: this.config.accessKeyId,
-                secretAccessKey: this.config.secretAccessKey,
-            },
-        };
+        const clientConfig: S3ClientConfig = { region: this.config.region };
+
+        const accessKeyId = this.config.accessKeyId;
+        const secretAccessKey = this.config.secretAccessKey;
+
+        if (accessKeyId != null && secretAccessKey != null) {
+            clientConfig.credentials = { accessKeyId, secretAccessKey };
+        }
+
         if (this.config.endpoint != null) {
             clientConfig.endpoint = this.config.endpoint;
             clientConfig.forcePathStyle = true;

@@ -33,14 +33,14 @@ Production provider backed by AWS S3. Accepts an explicit config or reads from e
 ```ts
 import { S3Storage } from "@autonoma/storage";
 
-// From environment variables (S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY)
+// From environment variables (S3_BUCKET, S3_REGION, and optionally static credentials)
 const storage = S3Storage.createFromEnv();
 
 // Or with explicit config
 const storage = new S3Storage({
     bucket: "my-bucket",
     region: "us-east-1",
-    accessKeyId: "...",
+    accessKeyId: "...", // optional - omit both to use the SDK's default credential chain
     secretAccessKey: "...",
     endpoint: "http://localhost:4566", // optional - for LocalStack/MinIO
 });
@@ -76,12 +76,20 @@ Creates directories recursively on upload. `getSignedUrl` simply returns a `file
 
 When using `S3Storage.createFromEnv()`, the following variables are required and validated at import time via `@t3-oss/env-core`:
 
-| Variable | Description |
-|---|---|
-| `S3_BUCKET` | S3 bucket name |
-| `S3_REGION` | AWS region |
-| `S3_ACCESS_KEY_ID` | AWS access key ID |
-| `S3_SECRET_ACCESS_KEY` | AWS secret access key |
+| Variable | Required | Description |
+|---|---|---|
+| `S3_BUCKET` | yes | S3 bucket name |
+| `S3_REGION` | yes | AWS region |
+| `S3_ACCESS_KEY_ID` | no | Static access key ID |
+| `S3_SECRET_ACCESS_KEY` | no | Static secret access key |
+
+## Credentials
+
+If both `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` are set, the client uses them. Otherwise it sets no `credentials` at all and the SDK's default chain resolves them - which in EKS means assuming the pod ServiceAccount's role from its projected OIDC token (IRSA), and locally means `~/.aws/credentials` or an instance role.
+
+A host that means to use IRSA must have no static keys in its environment: `fromEnv` sits ahead of `fromTokenFile` in the default chain, so keys silently keep the old identity in use. See [deployment/apps/README.md](../../deployment/apps/README.md) for the API's role and the cutover order.
+
+One consequence of temporary credentials: a presigned URL stops working when the session that signed it expires, whatever TTL the caller asked for. `AssumeRoleWithWebIdentity` sessions are 1h, and the SDK refreshes ~5 minutes ahead of expiry, so a URL signed just before a refresh can outlive its credentials. Keep presign TTLs comfortably short, or re-sign on demand, rather than assuming a long TTL holds.
 
 Import the validated env object directly if needed:
 
