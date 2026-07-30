@@ -12,6 +12,7 @@ export function payloadBuilder(input: PayloadBuilderInput): AutonomaCommentPaylo
 
     return {
         state: input.state,
+        kind: input.kind,
         prNumber: input.prNumber,
         headline: input.message ?? defaultHeadline(input.state, bugs.length, input.tests?.failed),
         stats: buildStats(input.tests),

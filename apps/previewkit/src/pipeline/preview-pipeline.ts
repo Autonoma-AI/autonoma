@@ -242,6 +242,7 @@ export class PreviewPipeline {
                 mode: "repost",
                 payload: payloadBuilder({
                     state: "running",
+                    kind: "preview",
                     prNumber,
                     commitSha: headSha,
                     assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
@@ -1350,6 +1351,7 @@ export class PreviewPipeline {
                 commentId,
                 payload: payloadBuilder({
                     state: "critical",
+                    kind: "preview",
                     prNumber,
                     commitSha: headSha,
                     assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),
@@ -1952,6 +1954,7 @@ export class PreviewPipeline {
         const previewUrl = result.previewUrl;
         return payloadBuilder({
             state: result.ready ? "running" : "critical",
+            kind: "preview",
             prNumber,
             commitSha: headSha,
             assetBaseUrl: resolvePreviewkitCommentAssetBaseUrl(),

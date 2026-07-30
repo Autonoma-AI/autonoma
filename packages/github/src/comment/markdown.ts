@@ -171,6 +171,9 @@ function renderHandoff(handoff: AutonomaCommentHandoff): string {
 }
 
 function renderTitle(payload: AutonomaCommentPayload): string {
+    // The preview status comment (environment building/ready/failed) carries a fixed title; the
+    // state emoji + label already convey the outcome, so it never adopts the test-run titles below.
+    if (payload.kind === "preview") return `Preview Environment #${payload.prNumber}`;
     const counts = countByMarker(payload.bugs);
     const rich = payload.bugs.some(isRichBug);
     // The rich investigation comment highlights the count and uses friendlier warning/healthy titles; the plain

@@ -97,6 +97,9 @@ export type AutonomaCommentHandoff = z.infer<typeof AutonomaCommentHandoffSchema
 
 export const AutonomaCommentPayloadSchema = z.object({
     state: AutonomaCommentStateSchema,
+    // Set on the PreviewKit status comment so it renders a fixed "PreviewKit" title instead of the
+    // generic "Autonoma PR #N" heading. Absent on the test/analysis comments.
+    kind: z.literal("preview").optional(),
     prNumber: z.number().int().positive(),
     headline: z.string(),
     /**
@@ -130,6 +133,7 @@ export type AutonomaCommentPayload = z.infer<typeof AutonomaCommentPayloadSchema
 
 export type PayloadBuilderInput = {
     state: AutonomaCommentState;
+    kind?: "preview";
     prNumber: number;
     commitSha?: string;
     duration?: string;
