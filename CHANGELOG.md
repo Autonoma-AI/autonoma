@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.260730.4](https://github.com/Autonoma-AI/agent/compare/v1.260730.3...v1.260730.4) (2026-07-30)
+
+
+### Features
+
+* **previewkit:** write preview runtime secrets from Postgres ([#1970](https://github.com/Autonoma-AI/agent/issues/1970)) ([92f127b](https://github.com/Autonoma-AI/agent/commit/92f127b68801c788152547d67c12b90344504c45))
+* **secrets:** read a preview's env by repo from Postgres ([#1979](https://github.com/Autonoma-AI/agent/issues/1979)) ([34ce54c](https://github.com/Autonoma-AI/agent/commit/34ce54c3679844df9b1d9e49ccf7e731d4536a3c))
+* **ui:** move the test-user action beside the preview URL ([#1971](https://github.com/Autonoma-AI/agent/issues/1971)) ([5e07590](https://github.com/Autonoma-AI/agent/commit/5e075902442b8e23fd19c63158d7948a4953d990))
+* **ui:** offer the coding agent on every SDK failure, not just finish-setup ([#1977](https://github.com/Autonoma-AI/agent/issues/1977)) ([b95cb46](https://github.com/Autonoma-AI/agent/commit/b95cb4685824b079d075bf973cf561d3e317e9b6))
+
+
+### Bug Fixes
+
+* **agent-core:** stop the run on fatal tool errors and always carry the transcript ([#1966](https://github.com/Autonoma-AI/agent/issues/1966)) ([57bde28](https://github.com/Autonoma-AI/agent/commit/57bde28531d94b916e7a41223807a79d5b8aef5c))
+* **api:** fail a secret write the mirror could not land, once Postgres serves reads ([#1980](https://github.com/Autonoma-AI/agent/issues/1980)) ([01703e3](https://github.com/Autonoma-AI/agent/commit/01703e33b54b513b35131e10bc8e37fd70457bfb))
+* **cli:** reserve budget to act on what the review finds ([#1969](https://github.com/Autonoma-AI/agent/issues/1969)) ([b2ff84d](https://github.com/Autonoma-AI/agent/commit/b2ff84db7f403d8eee3925bbbbef7781c2c75ae8))
+* **cli:** stop capping how much a run may log ([#1978](https://github.com/Autonoma-AI/agent/issues/1978)) ([4ae85aa](https://github.com/Autonoma-AI/agent/commit/4ae85aaab2fee0290bb45ab0d4b7179aede65247))
+* **cli:** tell the journey agent which node its tests belong to ([#1975](https://github.com/Autonoma-AI/agent/issues/1975)) ([0448a27](https://github.com/Autonoma-AI/agent/commit/0448a27df2d46ac670cc3f18a874f174fa57f32b))
+
 ## [1.260730.3](https://github.com/Autonoma-AI/agent/compare/v1.260730.2...v1.260730.3) (2026-07-30)
 
 
