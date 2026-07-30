@@ -6,12 +6,15 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 const reviewed: string[] = [];
 /** Wall clock each mocked review pass burns, so the deadline can be reached. */
 let msPerPass = 0;
+/** Whether the mocked review fails every test, so findings exist to carry. */
+let failEverything = false;
 
 vi.mock("../../src/agents/05-test-generator/review-pass", () => ({
     runReviewPass: async (_content: string, testPath: string) => {
         reviewed.push(testPath);
         if (msPerPass > 0) vi.setSystemTime(Date.now() + msPerPass);
-        return { structuralValidity: { pass: true, evidence: "checked" } };
+        const pass = !failEverything;
+        return { structuralValidity: { pass, evidence: pass ? "checked" : "no assertion" } };
     },
 }));
 
@@ -32,6 +35,7 @@ describe("review budget", () => {
         outputDir = await mkdtemp(join(tmpdir(), "review-budget-"));
         reviewed.length = 0;
         msPerPass = 0;
+        failEverything = false;
         vi.useFakeTimers();
     });
 
@@ -69,5 +73,22 @@ describe("review budget", () => {
         expect(result.ranOutOfTime).toBe(true);
         // Nothing reviewed means nothing to fix - the suite passes through intact.
         expect(result.feedback).toEqual([]);
+    });
+
+    test("a scan cut short still hands back everything it judged", async () => {
+        for (let i = 0; i < 12; i++) await writeTest(`admin/test-${i}.md`);
+        // Reviewed tests fail, then the deadline stops the scan. Those findings
+        // are the whole reason the caller reserves budget to act on them:
+        // discarding them spends the full cost of reviewing for none of the
+        // benefit.
+        failEverything = true;
+        msPerPass = 1_000;
+
+        const result = await runConsolidatedReview(outputDir, "/project", MODEL, Date.now() + 10_000);
+
+        expect(result.ranOutOfTime).toBe(true);
+        expect(new Set(reviewed).size).toBeLessThan(12);
+        expect(result.feedback.length).toBeGreaterThan(0);
+        expect(result.failed).toBe(result.feedback.length);
     });
 });

@@ -28,6 +28,12 @@ const MAX_REVIEW_CYCLES = 4;
  * to are no worse off than the ones it timed out on.
  */
 const REVIEW_BUDGET_MS = 45 * 60 * 1000;
+/**
+ * The share of the remaining budget a review scan may spend, leaving the rest
+ * to act on what it finds. A scan allowed the whole budget hands back findings
+ * there is no time to fix - the full cost of reviewing for none of the benefit.
+ */
+const REVIEW_SCAN_SHARE = 0.6;
 import { glob } from "glob";
 import { debugLog } from "../../core/debug";
 import { INVALID_DIR, isTestFile, TEST_FILE_GLOB, TESTS_DIR } from "../../core/test-files";
@@ -365,7 +371,10 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
             console.log(`  Review cycle ${cycle + 1}/${MAX_REVIEW_CYCLES}`);
             state.setPhase(`review cycle ${cycle + 1}/${MAX_REVIEW_CYCLES}`);
 
-            const reviewResult = await runConsolidatedReview(input.outputDir, input.projectRoot, model, reviewDeadline);
+            // The scan stops early enough that its findings can still be fixed
+            // inside the same budget.
+            const scanDeadline = Date.now() + Math.floor((reviewDeadline - Date.now()) * REVIEW_SCAN_SHARE);
+            const reviewResult = await runConsolidatedReview(input.outputDir, input.projectRoot, model, scanDeadline);
 
             console.log(`  Review: ${reviewResult.passed} passed, ${reviewResult.failed} failed`);
 
@@ -374,21 +383,37 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
                 break;
             }
 
-            // Out of time mid-cycle. Stop here rather than falling through: the
-            // deadline has already passed, so the fix phase below would skip every
-            // agent and simply delete each failing test and restore it again -
-            // churn, with a restore that can fail, for no change to the suite. It
-            // also has to be a break, not a fall-through, or the top-of-loop check
-            // reports the same exhaustion a second time on the next iteration.
-            if (reviewResult.ranOutOfTime) {
-                console.log(`  Review budget ran out mid-cycle - moving on`);
-                track("cli_review_budget_exhausted", { cycles_completed: cycle });
-                captureLog("warn", `Review budget ran out mid-cycle - some tests were left unreviewed`, {
+            // Whether each outcome is reported is decided after it is known: a
+            // spent overall budget discards these findings, a merely short scan
+            // carries them into the fix phase below. Reporting the carry first
+            // would count findings that the next line then throws away.
+            const scanCutShort = reviewResult.ranOutOfTime;
+            if (Date.now() > reviewDeadline) {
+                console.log(`  Review budget spent - moving on`);
+                track("cli_review_budget_exhausted", {
+                    cycles_completed: cycle,
+                    findings_discarded: reviewResult.feedback.length,
+                });
+                captureLog("warn", `Review budget spent - findings from this cycle were not fixed`, {
                     source: "test-generator",
                     step: "review",
                     cycles_completed: cycle,
+                    findings_discarded: reviewResult.feedback.length,
                 });
                 break;
+            }
+            if (scanCutShort) {
+                console.log(`  Review scan cut short - fixing the ${reviewResult.feedback.length} it did judge`);
+                track("cli_review_scan_cut_short", {
+                    cycles_completed: cycle,
+                    findings_carried: reviewResult.feedback.length,
+                });
+                captureLog("warn", `Review scan cut short - some tests were left unreviewed`, {
+                    source: "test-generator",
+                    step: "review",
+                    cycles_completed: cycle,
+                    findings_carried: reviewResult.feedback.length,
+                });
             }
 
             // Delete failing tests before feeding back to planner, so a rewrite
@@ -464,6 +489,10 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
                 });
             }
             console.log(`  Fix pass complete`);
+
+            // A scan that could not cover the suite once will not cover it on a
+            // second pass with less budget left.
+            if (scanCutShort) break;
         }
 
         // --- Final validation sweep: move structurally invalid tests to _invalid/ ---
