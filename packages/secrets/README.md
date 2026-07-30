@@ -50,6 +50,27 @@ Those call sites exist to find the ARN, so they disappear on their own when read
 
 Until then the value tables keep a suffixed name, and it is not worth renaming something scheduled for deletion.
 
+### Migrating what is already in Secrets Manager
+
+Dual-write only covers new writes, so everything already in AWS needs a backfill. A survey of the `previewkit/` prefix (2026-07-30) found 281 secrets against 219 distinct ARNs referenced by a row, which sets the shape of that job:
+
+|                                             |                                   |
+| ------------------------------------------- | --------------------------------- |
+| Referenced by a row and present in AWS      | 216 - the backfill's actual scope |
+| Referenced by a row but **absent** from AWS | 3                                 |
+| Present in AWS with **no row**              | 65                                |
+| One ARN shared by **two** rows              | 5                                 |
+
+Four things follow, and the first is the one most likely to be got wrong:
+
+**Enumerate from `awsSecretArn`, never by rebuilding the name.** Seven bundles predate the current `previewkit/<org>/<application>/<app>` scheme and sit at two segments; `buildSecretName` cannot produce those, so a name-driven sweep silently skips them. It never has to: `upsert` merges into `existing.awsSecretArn` rather than recomputing, so a row's ARN is authoritative and legacy names never migrate. Reads already work this way.
+
+**Report the 3 dangling ARNs rather than skipping them.** `fetchSecretValue` returns `{}` on `ResourceNotFoundException`, so a naive backfill writes zero values for these and looks successful. They are bundles whose AWS secret is gone and which have not been edited since (the self-healing `upsert` would have recreated it).
+
+**The 5 shared ARNs need a human decision before running.** Two bundles on one AWS secret means the backfill writes identical values into both, and they diverge silently once AWS is dropped. This is the only case where the backfill can write _wrong_ data rather than incomplete data, so it should refuse them and list them.
+
+**Verification is per-bundle, not a global count.** The fleet creates secrets continuously - the survey saw 280 become 281 within minutes - so any snapshot-then-compare shows drift that is not a fault. Compare `fingerprint` per (bundle, key) over a fixed input set, which is what that column exists for, and ignore rows that appeared after the snapshot.
+
 ## `SecretKeys`
 
 Resolves the cipher for an operation, unwrapping keys on demand.
@@ -121,5 +142,6 @@ This is deliberately preferred over a dev-only `KeyProvider` that skips wrapping
 - **Environments are isolated by their databases, not by IAM.** Each environment has its own database, so it only ever sees its own encryption keys, and a runner takes its `DATABASE_URL` from the API that launched it. IAM deliberately does _not_ provide this: `PreviewkitServiceRole` is one role shared by production, beta and alpha, and the API authenticates as the single `agent-api` IAM user, so any principal that can unwrap one environment's key can unwrap another's. Per-environment CMKs would look like isolation without adding any, so there is one key until those principals are split - at which point moving to per-environment CMKs is just a rotation per environment, which the key-versioning model already supports.
 - **The key policy is scoped to our encryption context.** `PreviewkitServiceRole` and `user/agent-api` get `kms:GenerateDataKey` and `kms:Decrypt` only under `kms:EncryptionContext:purpose = previewkit-secrets`, so leaked credentials cannot use the key for anything else.
 - **The CMK is a single point of total data loss.** Disable or delete it and every stored secret becomes permanently unreadable. Enable automatic rotation, never schedule deletion, and alarm on `DisableKey` / `ScheduleKeyDeletion`. Use a multi-region key if the DR plan involves another region - KMS ciphertext is bound to the key that produced it.
+- **65 orphaned AWS secrets to delete at decommission.** Secrets whose `previewkit_secret` row was cascade-deleted with its Application, leaving the AWS secret alive with its values intact - the survey above measured 23% of the prefix in that state. They are not migrated (a value row needs a bundle row to attach to), so Phase 4 is where they get scheduled for deletion. Treat it as data retention rather than tidiness: some belong to organizations that were deleted, and their secrets are still readable. The causes are visible in the names: deleted applications, a rename leaving both behind (`some-app-v2` orphaned next to a still-tracked `some-app`), and case-variant duplicates (`SomeApp` and `someapp`). Examples are illustrative - this file syncs to the public mirror, so real application slugs do not belong in it.
 - **CMK rotation is not key rotation.** Rotating the CMK only changes the wrapping of existing keys. Rotating the key that actually seals values is `mintSecretKey`.
 - **The wrapped keys sit in the same database as the ciphertext.** That is a deliberate trade: it removes the key from configuration entirely and makes rotation rollout-free, at the cost of one layer of defence in depth. An attacker needs the database _and_ KMS, where a configuration-held key would have meant the database _and_ the environment _and_ KMS.
