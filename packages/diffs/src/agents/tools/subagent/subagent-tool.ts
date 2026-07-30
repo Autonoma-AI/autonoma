@@ -1,4 +1,4 @@
-import { AgentTool, type LanguageModel, MaxStepsReached, NoAgentResultError } from "@autonoma/ai";
+import { AgentLoopError, AgentTool, type LanguageModel } from "@autonoma/ai";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
 import type { CodebaseLoop } from "../codebase/codebase-loop";
@@ -41,7 +41,7 @@ export class SubagentTool extends AgentTool<SubagentToolInput, SubagentResult, C
             const { result } = await this.subagent.run({ instruction: input.instruction, codebase: loop.codebase });
             return result;
         } catch (error) {
-            if (error instanceof MaxStepsReached || error instanceof NoAgentResultError) {
+            if (error instanceof AgentLoopError) {
                 return this.degradedResult(input.instruction, error);
             }
             throw error;
@@ -49,15 +49,17 @@ export class SubagentTool extends AgentTool<SubagentToolInput, SubagentResult, C
     }
 
     /**
-     * A research subagent that runs out of steps (or otherwise terminates without calling its
-     * report tool) must not abort the parent agent: the parent should continue with whatever was
-     * learned elsewhere. We convert the (fatal) loop error into a normal {@link SubagentResult}
-     * whose findings flag the truncation, salvaging any free-text the subagent had emitted so far.
+     * A research subagent that fails - out of steps, no report tool call, or a dead model call - must not abort
+     * the parent agent: the parent should continue with whatever was learned elsewhere. We convert the loop
+     * error into a normal {@link SubagentResult} whose findings flag the truncation, salvaging any free-text the
+     * subagent had emitted so far.
      *
-     * The truncation is logged at `warn` (not swallowed) so the frequency stays observable - this
-     * failure mode was previously invisible because it killed the whole job.
+     * Keyed on {@link AgentLoopError} rather than the individual subclasses, so the salvage covers every way a
+     * loop can die - including a provider that gives out mid-research.
+     *
+     * The truncation is logged at `warn` (not swallowed) so the frequency stays observable.
      */
-    private degradedResult(instruction: string, error: MaxStepsReached | NoAgentResultError): SubagentResult {
+    private degradedResult(instruction: string, error: AgentLoopError): SubagentResult {
         this.logger.warn("Subagent research truncated before producing findings; continuing with partial results", {
             extra: { instruction, reason: error.message },
         });

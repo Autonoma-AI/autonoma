@@ -1,9 +1,18 @@
+import type { ModelMessage } from "ai";
 import { MockLanguageModelV3 } from "ai/test";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { AgentLoop, MaxStepsReached, MultipleResultCalls } from "../src/agent/agent-loop";
+import {
+    AgentGenerationFailed,
+    AgentLoop,
+    AgentLoopError,
+    MaxStepsReached,
+    MultipleResultCalls,
+    ToolCallFailedFatally,
+} from "../src/agent/agent-loop";
 import { FinishTool, ReportResultTool } from "../src/agent/tools/agent-result";
-import { AgentTool } from "../src/agent/tools/agent-tool";
+import { AgentTool, type AgentToolModelOutputOptions } from "../src/agent/tools/agent-tool";
+import { FatalToolError } from "../src/agent/tools/tool-errors";
 import { type Logger, noopLogger, setDefaultLogger } from "../src/logger";
 
 interface FakeResult {
@@ -180,6 +189,286 @@ describe("AgentLoop forces tool calls and stays bounded", () => {
         expect(result).toEqual({ payload: "done" });
         expect(model.doGenerateCalls.length).toBe(1);
         expect(model.doGenerateCalls[0]?.toolChoice).toEqual({ type: "required" });
+    });
+});
+
+/** A model that drives `noop` for `workingSteps` steps, then fails the way a dead provider connection would. */
+function failsAfterModel(workingSteps: number, failure: string): MockLanguageModelV3 {
+    let step = 0;
+    return new MockLanguageModelV3({
+        doGenerate: async () => {
+            step += 1;
+            if (step > workingSteps) throw new Error(failure);
+            return {
+                content: [
+                    {
+                        type: "tool-call",
+                        toolCallId: `noop-${step}`,
+                        toolName: "noop",
+                        input: JSON.stringify({ note: `step ${step}` }),
+                    },
+                ],
+                finishReason: { unified: "tool-calls", raw: "tool-calls" },
+                usage: FAKE_USAGE,
+                warnings: [],
+            };
+        },
+    });
+}
+
+async function failureOf(loop: AgentLoop<FakeResult>): Promise<AgentLoopError> {
+    try {
+        await loop.runLoop([{ role: "user", content: "go" }]);
+    } catch (error) {
+        if (error instanceof AgentLoopError) return error;
+        throw error;
+    }
+    throw new Error("expected the loop to fail");
+}
+
+describe("a failed run still carries its transcript", () => {
+    it("wraps a model-call failure in AgentGenerationFailed carrying the steps completed so far", async () => {
+        const failure = await failureOf(makeBoundedLoop(failsAfterModel(2, "socket hang up")));
+
+        expect(failure).toBeInstanceOf(AgentGenerationFailed);
+        // Two steps ran, so the transcript holds their assistant turns and tool results.
+        expect(failure.conversation.length).toBeGreaterThan(0);
+        expect(JSON.stringify(failure.conversation)).toContain("noop-2");
+    });
+
+    it("keeps the provider's reason in the message, where string-based categorization reads it", async () => {
+        const failure = await failureOf(makeBoundedLoop(failsAfterModel(1, "socket hang up")));
+
+        expect(failure.message).toContain("socket hang up");
+        expect((failure as AgentGenerationFailed).cause).toBeInstanceOf(Error);
+    });
+
+    it("reports an empty transcript when the very first call fails, rather than throwing", async () => {
+        const failure = await failureOf(makeBoundedLoop(failsAfterModel(0, "429 rate limited")));
+
+        expect(failure).toBeInstanceOf(AgentGenerationFailed);
+        expect(failure.conversation).toEqual([]);
+        expect(failure.message).toContain("429 rate limited");
+    });
+
+    it("still carries the transcript when the run exhausts its step budget", async () => {
+        const failure = await failureOf(makeBoundedLoop(alwaysCallsNoopModel(), 3));
+
+        expect(failure).toBeInstanceOf(MaxStepsReached);
+        expect(JSON.stringify(failure.conversation)).toContain("noop-3");
+    });
+});
+
+/** A loop that shapes its persisted transcript, the way an agent with non-reproducible prompt context does. */
+class PrefixingLoop extends AgentLoop<FakeResult> {
+    protected override buildTranscript(userPrompt: ModelMessage[], modelMessages: ModelMessage[]): ModelMessage[] {
+        return [{ role: "user", content: `prompt:${userPrompt.length}` }, ...modelMessages];
+    }
+}
+
+describe("buildTranscript shapes both outcomes", () => {
+    function prefixingLoop(model: MockLanguageModelV3, maxSteps?: number): PrefixingLoop {
+        return new PrefixingLoop({
+            name: "prefixing-loop",
+            model,
+            systemPrompt: "system",
+            tools: [new NoopTool()],
+            reportTool: new FinishTool({ resultSchema: z.object({ payload: z.string() }) }),
+            maxSteps,
+        });
+    }
+
+    it("applies the override on the failure path, not just the success path", async () => {
+        const failure = await failureOf(prefixingLoop(failsAfterModel(1, "socket hang up")));
+
+        // A subclass wrapping `runLoop` could only shape the value it RETURNS, which would drop its prompt
+        // context from every failed run - hence the hook rather than a wrapper.
+        expect(failure.conversation[0]).toEqual({ role: "user", content: "prompt:1" });
+    });
+
+    it("applies the override on the success path too", async () => {
+        const model = new MockLanguageModelV3({
+            doGenerate: async () => ({
+                content: [
+                    {
+                        type: "tool-call",
+                        toolCallId: "finish-1",
+                        toolName: "finish",
+                        input: JSON.stringify({ payload: "done" }),
+                    },
+                ],
+                finishReason: { unified: "tool-calls", raw: "tool-calls" },
+                usage: FAKE_USAGE,
+                warnings: [],
+            }),
+        });
+
+        const { conversation } = await prefixingLoop(model).runLoop([{ role: "user", content: "go" }]);
+
+        expect(conversation[0]).toEqual({ role: "user", content: "prompt:1" });
+        expect(conversation.length).toBeGreaterThan(1);
+    });
+});
+
+/** A frame-viewing tool: hands the model inline image bytes, the way the screenshot tools do. */
+class ScreenshotTool extends AgentTool<{ note: string }, { base64: string }> {
+    constructor() {
+        super({ name: "noop", description: "Views a frame.", inputSchema: z.object({ note: z.string() }) });
+    }
+    protected async execute(): Promise<{ base64: string }> {
+        return { base64: "AAAABBBBCCCC" };
+    }
+    protected override toModelOutput({ output }: AgentToolModelOutputOptions<{ note: string }, { base64: string }>) {
+        if (!output.success) return { type: "error-json" as const, value: { error: output.error } };
+        return {
+            type: "content" as const,
+            value: [{ type: "media" as const, data: output.result.base64, mediaType: "image/png" }],
+        };
+    }
+}
+
+describe("a transcript never carries inline media", () => {
+    // Screenshots reach a transcript through tool RESULTS, and transcripts get JSON-serialized into storage.
+    // A run inspecting a dozen frames would otherwise write megabytes of base64 per record.
+    function screenshotLoop(model: MockLanguageModelV3): AgentLoop<FakeResult> {
+        return new AgentLoop<FakeResult>({
+            name: "screenshot-loop",
+            model,
+            systemPrompt: "system",
+            tools: [new ScreenshotTool()],
+            reportTool: new FinishTool({ resultSchema: z.object({ payload: z.string() }) }),
+            maxSteps: 5,
+        });
+    }
+
+    it("replaces tool-result media with a placeholder on the success path", async () => {
+        const { conversation } = await screenshotLoop(callsThenFinishesModel()).runLoop([
+            { role: "user", content: "go" },
+        ]);
+
+        const serialized = JSON.stringify(conversation);
+        expect(serialized).not.toContain("AAAABBBBCCCC");
+        expect(serialized).toContain("media omitted");
+    });
+
+    it("replaces it on the failure path too", async () => {
+        // Same tool, but the model call dies after the frame was viewed.
+        let step = 0;
+        const model = new MockLanguageModelV3({
+            doGenerate: async () => {
+                step += 1;
+                if (step > 1) throw new Error("socket hang up");
+                return {
+                    content: [
+                        {
+                            type: "tool-call" as const,
+                            toolCallId: "noop-1",
+                            toolName: "noop",
+                            input: JSON.stringify({ note: "x" }),
+                        },
+                    ],
+                    finishReason: { unified: "tool-calls" as const, raw: "tool-calls" },
+                    usage: FAKE_USAGE,
+                    warnings: [],
+                };
+            },
+        });
+
+        const failure = await failureOf(screenshotLoop(model));
+
+        const serialized = JSON.stringify(failure.conversation);
+        expect(serialized).not.toContain("AAAABBBBCCCC");
+        expect(serialized).toContain("media omitted");
+    });
+});
+
+/** A tool that always throws the "unrecoverable" error class. */
+class FatalTool extends AgentTool<{ note: string }, never> {
+    constructor() {
+        super({ name: "noop", description: "Always fails.", inputSchema: z.object({ note: z.string() }) });
+    }
+    protected async execute(): Promise<never> {
+        throw new FatalToolError("this tool is broken");
+    }
+}
+
+/** Calls `noop` on the first step, then reports a result - so a loop that ignored the failure would finish. */
+function callsThenFinishesModel(): MockLanguageModelV3 {
+    let step = 0;
+    return new MockLanguageModelV3({
+        doGenerate: async () => {
+            step += 1;
+            const call =
+                step === 1
+                    ? { toolCallId: "noop-1", toolName: "noop", input: JSON.stringify({ note: "x" }) }
+                    : { toolCallId: "finish-1", toolName: "finish", input: JSON.stringify({ payload: "done" }) };
+            return {
+                content: [{ type: "tool-call" as const, ...call }],
+                finishReason: { unified: "tool-calls" as const, raw: "tool-calls" },
+                usage: FAKE_USAGE,
+                warnings: [],
+            };
+        },
+    });
+}
+
+describe("a tool's FatalToolError ends the run", () => {
+    // The AI SDK swallows anything a tool throws into a `tool-error` part and carries on, so the throw alone
+    // never reaches the loop; only the tool wrapper reporting it at the throw site stops the run.
+    function fatalToolLoop(model: MockLanguageModelV3): AgentLoop<FakeResult> {
+        return new AgentLoop<FakeResult>({
+            name: "fatal-tool-loop",
+            model,
+            systemPrompt: "system",
+            tools: [new FatalTool()],
+            reportTool: new FinishTool({ resultSchema: z.object({ payload: z.string() }) }),
+            maxSteps: 5,
+        });
+    }
+
+    it("stops the loop and surfaces the tool and its cause to the caller", async () => {
+        const model = callsThenFinishesModel();
+
+        const failure = await failureOf(fatalToolLoop(model));
+
+        expect(failure).toBeInstanceOf(ToolCallFailedFatally);
+        expect((failure as ToolCallFailedFatally).toolName).toBe("noop");
+        expect(failure.message).toContain("this tool is broken");
+        expect((failure as ToolCallFailedFatally).cause).toBeInstanceOf(FatalToolError);
+        // The model never got a second turn: the run ended at the step the tool failed in.
+        expect(model.doGenerateCalls.length).toBe(1);
+    });
+
+    it("carries the transcript, like every other loop failure", async () => {
+        const failure = await failureOf(fatalToolLoop(callsThenFinishesModel()));
+
+        expect(failure.conversation.length).toBeGreaterThan(0);
+        expect(JSON.stringify(failure.conversation)).toContain("noop-1");
+    });
+
+    it("wins over a result reported in the same step", async () => {
+        // A tool that declared itself broken compromises the run, so a verdict the model still managed to
+        // report is not one to trust.
+        const model = new MockLanguageModelV3({
+            doGenerate: async () => ({
+                content: [
+                    { type: "tool-call", toolCallId: "noop-1", toolName: "noop", input: JSON.stringify({ note: "x" }) },
+                    {
+                        type: "tool-call",
+                        toolCallId: "finish-1",
+                        toolName: "finish",
+                        input: JSON.stringify({ payload: "done" }),
+                    },
+                ],
+                finishReason: { unified: "tool-calls", raw: "tool-calls" },
+                usage: FAKE_USAGE,
+                warnings: [],
+            }),
+        });
+
+        await expect(fatalToolLoop(model).runLoop([{ role: "user", content: "go" }])).rejects.toThrow(
+            ToolCallFailedFatally,
+        );
     });
 });
 

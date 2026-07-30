@@ -14,6 +14,7 @@ import { logStepContent } from "./log-step";
 import type { ReportResultTool } from "./tools/agent-result";
 import type { AgentTool } from "./tools/agent-tool";
 import { FatalToolError } from "./tools/tool-errors";
+import { stripMedia } from "./transcript";
 
 type GenericToolSet = Record<string, Tool>;
 type PrepareStepArgs = Parameters<PrepareStepFunction<GenericToolSet>>[0];
@@ -78,21 +79,70 @@ export interface AgentConfig<TResult> {
     };
 }
 
-export class NoAgentResultError extends FatalToolError {
-    constructor(
+/**
+ * Base for every way a run ends without a result.
+ *
+ * Each carries the transcript as it stood when the run died, so the caller can persist it on the failure path.
+ * Catch this rather than the individual subclasses when all you want is the conversation.
+ */
+export abstract class AgentLoopError extends FatalToolError {
+    protected constructor(
+        message: string,
+        /**
+         * The run's transcript, shaped by {@link AgentLoop.buildTranscript}. Empty only when the very first
+         * model call failed before producing anything.
+         */
         public readonly conversation: ModelMessage[],
         public readonly partialResult?: unknown,
+        options?: ErrorOptions,
     ) {
-        super("No result was produced by the agent loop");
+        super(message, options);
     }
 }
 
-export class MaxStepsReached extends FatalToolError {
+export class NoAgentResultError extends AgentLoopError {
+    constructor(conversation: ModelMessage[], partialResult?: unknown) {
+        super("No result was produced by the agent loop", conversation, partialResult);
+    }
+}
+
+export class MaxStepsReached extends AgentLoopError {
+    constructor(conversation: ModelMessage[], partialResult?: unknown) {
+        super(
+            "The agent loop reached the maximum number of steps without producing a result",
+            conversation,
+            partialResult,
+        );
+    }
+}
+
+/**
+ * A tool call failed in a way the agent cannot fix by retrying - a {@link FatalToolError}, or any unclassified
+ * error under the `stop_unless_fixable` policy - so the run ends rather than letting the model work around a
+ * broken capability. Reaches the loop via {@link AgentLoop.recordFatalToolError}, not via the throw itself.
+ */
+export class ToolCallFailedFatally extends AgentLoopError {
     constructor(
-        public readonly conversation: ModelMessage[],
-        public readonly partialResult?: unknown,
+        public readonly toolName: string,
+        cause: Error,
+        conversation: ModelMessage[],
+        partialResult?: unknown,
     ) {
-        super("The agent loop reached the maximum number of steps without producing a result");
+        super(`The \`${toolName}\` tool failed fatally: ${cause.message}`, conversation, partialResult, { cause });
+    }
+}
+
+/**
+ * The model call itself failed, so the loop never got to decide anything: the provider rejected after
+ * {@link MODEL_MAX_RETRIES} attempts, the prompt could not be converted (an unreachable media part), or a
+ * `prepareStep`/`onStepFinish` hook threw. A tool throwing does not land here - see {@link ToolCallFailedFatally}.
+ */
+export class AgentGenerationFailed extends AgentLoopError {
+    constructor(cause: Error, conversation: ModelMessage[], partialResult?: unknown) {
+        // The cause's message is inlined, not merely attached: failures are routinely categorized by string
+        // (Temporal serializes an activity error to its message across the workflow boundary), so a wrapper
+        // that kept the reason only on `.cause` would erase it at exactly the point it gets read.
+        super(`The agent loop's model call failed: ${cause.message}`, conversation, partialResult, { cause });
     }
 }
 
@@ -105,7 +155,10 @@ export class MultipleResultCalls extends FatalToolError {
 /** What {@link AgentLoop.runLoop} (and therefore {@link Agent.run}) returns. */
 export interface AgentRunResult<TResult> {
     result: TResult;
-    /** Every message the model emitted during the run: text, tool calls, tool results. */
+    /**
+     * The run's transcript: every message the model emitted - text, tool calls, tool results - as shaped by
+     * {@link AgentLoop.buildTranscript}. {@link AgentLoopError.conversation} carries the same shape.
+     */
     conversation: ModelMessage[];
 }
 
@@ -120,6 +173,17 @@ export class AgentLoop<TResult = unknown> {
     protected readonly logger: Logger;
 
     protected result: TResult | undefined = undefined;
+
+    /**
+     * Every message the model has produced so far, refreshed after each step.
+     *
+     * Capturing per-step is what lets the transcript survive a model call that throws: `generate()` only hands
+     * back its messages on the resolved path.
+     */
+    private modelMessages: ModelMessage[] = [];
+
+    /** The first fatal tool failure of the run, recorded by {@link recordFatalToolError}. */
+    private fatalToolError: { toolName: string; error: Error } | undefined = undefined;
 
     private readonly name: string;
     private readonly model: LanguageModel;
@@ -164,6 +228,20 @@ export class AgentLoop<TResult = unknown> {
     }
 
     /**
+     * Record a tool failure the agent cannot recover from, ending the run at the end of the current step.
+     *
+     * Called by {@link AgentTool} at the point it decides a failure is fatal, because a thrown error cannot
+     * carry that decision out on its own: the AI SDK turns any tool exception into a `tool-error` content part
+     * and keeps going. Only the FIRST failure is kept - it is the one that ended the run, and later steps are
+     * just the model reacting to it.
+     */
+    public recordFatalToolError(toolName: string, error: Error): void {
+        if (this.fatalToolError != null) return;
+        this.logger.fatal("Tool failed fatally; the agent loop will stop", { extra: { toolName } });
+        this.fatalToolError = { toolName, error };
+    }
+
+    /**
      * Hook invoked before each step. Subclasses can override to inject per-step messages or
      * settings. Default implementation is identity (returns the input args unchanged).
      */
@@ -189,9 +267,32 @@ export class AgentLoop<TResult = unknown> {
     protected snapshotPartial?(): unknown;
 
     /**
+     * Shape the transcript a caller receives on success and finds on {@link AgentLoopError.conversation} on
+     * failure. The default is the model's own messages, unchanged.
+     *
+     * Override to ADD context an agent could not otherwise recover - a prompt built from non-deterministic
+     * pre-loop work, say. Stripping binary content is not this hook's job: {@link stripMedia} runs on the
+     * result either way.
+     */
+    protected buildTranscript(_userPrompt: ModelMessage[], modelMessages: ModelMessage[]): ModelMessage[] {
+        return modelMessages;
+    }
+
+    /**
+     * The transcript as a caller sees it, on every exit path. Media is stripped unconditionally rather than
+     * left to {@link buildTranscript}, so a transcript can never carry inline image bytes into storage.
+     */
+    private transcriptFor(userPrompt: ModelMessage[], modelMessages: ModelMessage[]): ModelMessage[] {
+        return stripMedia(this.buildTranscript(userPrompt, modelMessages));
+    }
+
+    /**
      * Custom stop condition that fires once the report tool has produced a result.
      */
     private readonly hasProducedResult: StopCondition<GenericToolSet> = () => this.result !== undefined;
+
+    /** Stops the loop at the end of the step in which a tool failed fatally. */
+    private readonly hasFatalToolError: StopCondition<GenericToolSet> = () => this.fatalToolError !== undefined;
 
     public async runLoop(userPrompt: ModelMessage[]): Promise<AgentRunResult<TResult>> {
         this.logger.info("Starting agent loop", { tools: this.tools.map((t) => t.name) });
@@ -214,14 +315,29 @@ export class AgentLoop<TResult = unknown> {
             // NoAgentResultError. "required" keeps finishReason at "tool-calls" until the report tool
             // sets the result and trips hasProducedResult.
             toolChoice: "required",
-            stopWhen: [this.hasProducedResult, stepCountIs(this.maxSteps)],
+            stopWhen: [this.hasProducedResult, this.hasFatalToolError, stepCountIs(this.maxSteps)],
             prepareStep: async (args) =>
                 applyCompactor(await this.prepareStep(args), args, this.compactor, this.logger),
-            onStepFinish: (result) => this.onStepFinish(result),
+            onStepFinish: (result) => {
+                // `response.messages` is CUMULATIVE, not per-step: the SDK appends to a single array across the
+                // whole loop and snapshots it onto each step, so the latest copy is the entire conversation.
+                // Capturing it here is what lets a later throw still carry the transcript.
+                this.modelMessages = result.response.messages;
+                return this.onStepFinish(result);
+            },
         });
 
-        const generationResult = await agent.generate({ messages: userPrompt });
-        const conversation = generationResult.response.messages;
+        const generationResult = await this.generateWithTranscript(userPrompt, () =>
+            agent.generate({ messages: userPrompt }),
+        );
+        const conversation = this.transcriptFor(userPrompt, generationResult.response.messages);
+
+        // Checked before the result: a fatal tool failure means the run was compromised, so even a result the
+        // model managed to report in the same step is not one to trust.
+        const fatal = this.fatalToolError;
+        if (fatal != null) {
+            throw new ToolCallFailedFatally(fatal.toolName, fatal.error, conversation, this.snapshotPartial?.());
+        }
 
         if (this.result === undefined) {
             const partialResult = this.snapshotPartial?.();
@@ -236,6 +352,26 @@ export class AgentLoop<TResult = unknown> {
         this.logger.info("Agent loop finished successfully", { result: this.result });
 
         return { result: this.result, conversation };
+    }
+
+    /**
+     * Run the model loop, turning any rejection into an {@link AgentGenerationFailed} that still carries the
+     * transcript captured up to that point.
+     */
+    private async generateWithTranscript<T>(userPrompt: ModelMessage[], generate: () => Promise<T>): Promise<T> {
+        try {
+            return await generate();
+        } catch (error) {
+            const cause = error instanceof Error ? error : new Error(String(error));
+            this.logger.fatal("Agent loop's model call failed", cause, {
+                extra: { messagesSoFar: this.modelMessages.length },
+            });
+            throw new AgentGenerationFailed(
+                cause,
+                this.transcriptFor(userPrompt, this.modelMessages),
+                this.snapshotPartial?.(),
+            );
+        }
     }
 }
 

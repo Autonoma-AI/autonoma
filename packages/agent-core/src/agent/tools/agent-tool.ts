@@ -9,10 +9,9 @@ import { FatalToolError, FixableToolError } from "./tool-errors";
  * {@link FixableToolError} nor {@link FatalToolError}) are treated.
  *
  * - `continue_unless_fatal`: continue the loop unless the error is a {@link FatalToolError}. Any
- *   other thrown error becomes a fixable failure delivered to the model. This is the default and
- *   matches the behavior the AI SDK already provides.
+ *   other thrown error becomes a fixable failure delivered to the model. This is the default.
  * - `stop_unless_fixable`: stop the loop unless the error is a {@link FixableToolError}. Any other
- *   thrown error is treated as fatal and propagates to the loop caller.
+ *   thrown error is treated as fatal and ends the run.
  *
  * In practice, tools should classify their failures explicitly (throwing {@link FixableToolError}
  * with a useful {@link FixableToolError.suggestFix} message, or {@link FatalToolError} for
@@ -124,7 +123,12 @@ export abstract class AgentTool<TInput, TOutput, TLoop extends AgentLoop = Agent
                         error: error instanceof Error ? error.message : String(error),
                     });
 
-                    throw error instanceof Error ? error : new Error(String(error));
+                    // Tell the loop directly rather than relying on the throw to reach it: the AI SDK catches
+                    // whatever a tool throws and turns it into a `tool-error` content part, so this rethrow
+                    // never leaves `generate()`.
+                    const fatal = error instanceof Error ? error : new Error(String(error));
+                    loop.recordFatalToolError(this.name, fatal);
+                    throw fatal;
                 }
             },
             ...(toModelOutput == null ? {} : { toModelOutput }),
