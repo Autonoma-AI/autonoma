@@ -1,5 +1,6 @@
 import { Button, Skeleton } from "@autonoma/blacklight";
 import { useCreateAgentPairing } from "lib/onboarding/onboarding-api";
+import { useActiveOrg } from "lib/query/auth.queries";
 import { useEffect, useRef, type ReactNode } from "react";
 import { agentMcpPrompt } from "./agent-mcp-prompt";
 import { ConnectAgentDialog, ONBOARDING_MCP_DOCS_URL, ONBOARDING_MCP_SERVER_NAME } from "./connect-agent-dialog";
@@ -48,6 +49,9 @@ export function ConnectOnboardingAgentDialog({
   capabilities,
 }: ConnectOnboardingAgentDialogProps) {
   const createPairing = useCreateAgentPairing();
+  // In the demo the base dialog bounces to the sign-up modal (the demo org is locked out of the
+  // MCP), so never mint - the pairing write would just be rejected anyway.
+  const isDemo = useActiveOrg().data?.isDemo === true;
 
   // Mint on open, and only once per opening: codes are single-use and short-lived, so
   // a fresh one per visit is right, but a re-render (or React's dev double-mount) must
@@ -55,14 +59,14 @@ export function ConnectOnboardingAgentDialog({
   const mintedFor = useRef<string | undefined>(undefined);
   const mintPairing = createPairing.mutate;
   useEffect(() => {
-    if (!open) {
+    if (!open || isDemo) {
       mintedFor.current = undefined;
       return;
     }
     if (mintedFor.current === applicationId) return;
     mintedFor.current = applicationId;
     mintPairing({ applicationId });
-  }, [open, applicationId, mintPairing]);
+  }, [open, isDemo, applicationId, mintPairing]);
 
   const code = createPairing.data?.code;
   const prompt = agentMcpPrompt(instruction, code);

@@ -16,7 +16,9 @@ import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { getApiOrigin } from "lib/api-origin";
-import { useState, type ReactNode } from "react";
+import { demoModalStore } from "lib/demo-modal-store";
+import { useActiveOrg } from "lib/query/auth.queries";
+import { useEffect, useState, type ReactNode } from "react";
 
 /** The two Autonoma MCP surfaces, addressed by their `/v1/mcp/<path>` suffix. */
 export type McpEndpoint = "onboarding" | "debug";
@@ -127,6 +129,18 @@ export function ConnectAgentDialog({
   tellAgent,
   pairing,
 }: ConnectAgentDialogProps) {
+  // Connecting a coding agent is an MCP entry point, and the demo org is locked out of the
+  // MCP entirely (see the API-side gates). So in the demo, never open this dialog - bounce to
+  // the "sign up to continue" modal instead, the same conversion moment as any blocked write.
+  const isDemo = useActiveOrg().data?.isDemo === true;
+  useEffect(() => {
+    if (open && isDemo) {
+      demoModalStore.open();
+      onOpenChange(false);
+    }
+  }, [open, isDemo, onOpenChange]);
+  if (isDemo) return null;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogBackdrop />
