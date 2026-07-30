@@ -11,6 +11,7 @@ import type {
     ListPullRequestsResult,
     PullRequest,
     PullRequestCommit,
+    RepoCollaboratorPermission,
     Repository,
     RequiredCheckRulesetParams,
     UpdateCheckRunParams,
@@ -242,5 +243,13 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
             extra: { rulesetName: params.rulesetName },
         });
         return { status: "applied" };
+    }
+
+    async getRepoCollaboratorPermission(repoFullName: string, username: string): Promise<RepoCollaboratorPermission> {
+        this.logger.info("Local-dev collaborator permission: granting write", {
+            repoFullName,
+            extra: { username },
+        });
+        return "write";
     }
 }

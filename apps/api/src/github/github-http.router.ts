@@ -6,11 +6,13 @@ import { logger } from "@autonoma/logger";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { storageProvider } from "../context";
+import { diffsTriggerService } from "../diffs/diffs-service";
 import { env } from "../env";
 import { investigationMergeTriggerService } from "../investigation/investigation-merge-service";
 import { previewkitTriggerService } from "../previewkit/previewkit-service";
 import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.service";
 import { BranchesService } from "../routes/branches/branches.service";
+import { PreviewAnalysisRunTrigger } from "./analysis-run-trigger";
 import { BranchContributorService } from "./branch-contributor.service";
 import { BugFixOutcomeService } from "./bug-fix-outcome.service";
 import { FalsePositiveCandidateService } from "./false-positive-candidate.service";
@@ -33,6 +35,7 @@ const githubService = new GitHubInstallationService(db, githubApp);
 const prCacheService = new PullRequestCacheService(db, githubService);
 const branchesService = new BranchesService(db, githubService, storageProvider, prCacheService);
 const falsePositiveCandidatesService = new FalsePositiveCandidateService(db, branchesService);
+const analysisRunTrigger = new PreviewAnalysisRunTrigger(db, diffsTriggerService);
 const mergeGateService = new MergeGateService(
     db,
     githubApp,
@@ -40,6 +43,7 @@ const mergeGateService = new MergeGateService(
     analytics,
     falsePositiveCandidatesService,
     new MergeGateSlackNotifier(env.SLACK_BOT_TOKEN, env.MERGE_GATE_SLACK_CHANNEL),
+    analysisRunTrigger,
 );
 const branchContributorService = new BranchContributorService(db, githubService);
 const bugFixOutcomeService = new BugFixOutcomeService(db, analytics, env.MERGE_GATE_ENABLED, branchContributorService);
@@ -268,6 +272,7 @@ async function dispatchWebhookEvent(
             return;
         case "issue_comment_created":
             await mergeGateService.applySkipFromCommentWebhook(organizationId, payload);
+            await mergeGateService.requestStartFromCommentWebhook(organizationId, payload);
             return;
         case "push":
             await startMainBranchPushDeploy(organizationId, payload);

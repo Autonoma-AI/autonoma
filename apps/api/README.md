@@ -136,9 +136,25 @@ default and bounded by the global `MERGE_GATE_ENABLED` kill switch; enabled per 
   `@autonoma/github/check`.
 - Fail-open on a job error (conclusion `neutral`); fail-closed if Autonoma is fully unreachable (the required check
   never reaches success, so only a repo admin can override). See `merge-gate-implementation-spec.md`.
+- **Activation** (`OrganizationSettings.activationEnabled`, off by default): an org migrated to activation never
+  starts an automatic PR run on its own. `MergeGateService.requestAnalysisRun` is the single entrypoint every
+  trigger calls - it flips the `Autonoma` check to in-progress FIRST, then fires the analysis run (the run
+  preview-ready used to start automatically); doing the flip before the run, inside the same per-head lock the
+  worker's finalize takes, keeps a late flip from clobbering the finalize's verdict. On a real start it records the
+  activation (`activationSource` + `activatedByLogin` on `GitHubCheckRun`, an `ANALYSIS_RUN_SOURCE` value from
+  `@autonoma/github/check`) and emits `merge_gate.activated`; if no run starts (no preview, or nothing new) the
+  check is restored to the un-requested neutral state and the requester is told why. Only a migrated org honors an
+  explicit request - an un-migrated org still runs automatically, so `/start analysis` there is a no-op. The
+  request comes from a `/start analysis` PR comment (`requestStartFromCommentWebhook`), authorized to write-access
+  commenters the same way skip is. Because a migrated org's un-requested PR has no run, `postPending` posts a COMPLETED
+  `neutral` "No analysis requested - comment `/start analysis` to run." check rather than a hanging `in_progress`
+  one, so a required check never wedges the merge. The automatic PR run is suppressed in the shared
+  `DiffsRunPreparer.prepare` (both the preview-ready and Vercel paths funnel through it) via a `requested` flag;
+  main-branch baseline runs pass `isMainBranchRun` and are never gated (the base snapshot must keep updating), and
+  un-migrated orgs (the fleet default) keep the current automatic behavior and the `in_progress` check.
 - **Requires GitHub App settings** (non-code): the `checks: write` permission, the `issue_comment` webhook
-  subscription (for `/autonoma-skip`), and `administration: write` for programmatic branch protection. Nothing
-  functions until these are applied.
+  subscription (for `/autonoma-skip` and `/start analysis`), and `administration: write` for programmatic branch
+  protection. Nothing functions until these are applied.
 - **Per-developer attribution** (`BranchContributorService`, `src/github/branch-contributor.service.ts`):
   stickiness is an individual habit, so a branch's outcome must attribute to ALL its authors, not just the
   opener. On `pull_request.opened/synchronize/reopened/ready_for_review/closed` it resolves the PR's full

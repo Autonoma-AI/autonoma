@@ -1,9 +1,17 @@
 import type { PostHogAnalytics } from "@autonoma/analytics";
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import type { BranchProtectionResult, GitHubApp, GitHubInstallationClient } from "@autonoma/github";
 import {
+    type BranchProtectionResult,
+    type GitHubApp,
+    type GitHubInstallationClient,
+    isRepoWriteAccess,
+} from "@autonoma/github";
+import {
+    ANALYSIS_RUN_SOURCE,
+    type AnalysisRunSource,
     createGitHubCheckRunStore,
+    isStartAnalysisCommand,
     MERGE_GATE_ANALYTICS_GROUP,
     MERGE_GATE_CHECK_NAME,
     MERGE_GATE_EVENT,
@@ -15,10 +23,22 @@ import { payloadBuilder, renderMarkdown } from "@autonoma/github/comment";
 import { type Logger, logger } from "@autonoma/logger";
 import { ANALYSIS_VERDICT } from "@autonoma/types";
 import { z } from "zod";
+import type { AnalysisRunTrigger, RequestRunOutcome, RunNotStartedReason } from "./analysis-run-trigger";
 import type { FalsePositiveCandidateService } from "./false-positive-candidate.service";
 import type { MergeGateSlackNotifier } from "./merge-gate-slack-notifier";
 
 const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
+
+/** The un-requested check a PR opens with under activation: completed + `neutral`, so a required check never wedges. */
+const UNREQUESTED_CHECK_TITLE = "No analysis requested";
+const UNREQUESTED_CHECK_SUMMARY = "No analysis requested - comment `/start analysis` to run.";
+
+/** The check a requested run flips to while the analysis is in flight, before the worker posts the real verdict. */
+const IN_PROGRESS_CHECK_TITLE = "Analyzing this PR";
+const IN_PROGRESS_CHECK_SUMMARY = "Autonoma is analyzing this PR for client bugs.";
+
+/** Sentinel conclusion stored while a run is in flight - non-`failure`, so skip/bypass treat it as not-yet-blocking. */
+const IN_PROGRESS_CONCLUSION = "in_progress";
 
 /**
  * PROVISIONAL, case-insensitive phrase heuristic for "this skip reason claims the finding was a false positive".
@@ -80,19 +100,27 @@ const issueCommentWebhookSchema = z.object({
     repository: z.object({ id: z.number(), full_name: z.string() }),
 });
 
-export interface PostPendingParams {
+/** The repo + PR identity every merge-gate operation is keyed by. */
+export interface RepoPrRef {
     organizationId: string;
     repoFullName: string;
     githubRepositoryId: number;
     prNumber: number;
+}
+
+export interface PostPendingParams extends RepoPrRef {
     headSha: string;
 }
 
-export interface ApplySkipParams {
-    organizationId: string;
-    repoFullName: string;
-    githubRepositoryId: number;
-    prNumber: number;
+export interface RequestAnalysisRunParams extends RepoPrRef {
+    headSha: string;
+    /** What asked for the run. */
+    source: AnalysisRunSource;
+    /** The requester's login where one exists (a comment/UI actor); absent for a system/auto trigger. */
+    actorLogin?: string;
+}
+
+export interface ApplySkipParams extends RepoPrRef {
     actorLogin: string;
     /**
      * The free-text reason from the `/autonoma-skip <reason>` comment. Required and non-empty: a skip with no
@@ -101,11 +129,7 @@ export interface ApplySkipParams {
     reason: string;
 }
 
-export interface RecordMergeParams {
-    organizationId: string;
-    repoFullName: string;
-    githubRepositoryId: number;
-    prNumber: number;
+export interface RecordMergeParams extends RepoPrRef {
     headSha: string;
     merged: boolean;
     mergeCommitSha?: string;
@@ -140,6 +164,8 @@ export class MergeGateService {
         private readonly analytics: PostHogAnalytics,
         private readonly falsePositiveCandidates: FalsePositiveCandidateService,
         private readonly slackNotifier?: MergeGateSlackNotifier,
+        // Starts the run a merge-gate trigger asked for.
+        private readonly analysisRunTrigger?: AnalysisRunTrigger,
     ) {
         this.logger = logger.child({ name: this.constructor.name });
         this.checkRuns = createGitHubCheckRunStore(db);
@@ -165,14 +191,22 @@ export class MergeGateService {
     }
 
     /**
-     * Post (once per head SHA) the pending `Autonoma` check when a PR opens or is synchronized.
+     * Post (once per head SHA) the `Autonoma` check when a PR opens or is synchronized. The state depends on
+     * whether the org is migrated to activation:
+     *
+     * - migrated: nothing runs on its own, so post a COMPLETED `neutral` "no analysis requested" check. A required
+     *   check must never be left hanging on an un-requested PR (which would wedge the merge), and `neutral`
+     *   satisfies the requirement so the PR stays mergeable until someone comments `/start analysis`.
+     * - not migrated (the fleet default): the run fires automatically, so post the `in_progress` check as before;
+     *   the analysis worker flips it to the real verdict at finalize.
      */
     async postPending(params: PostPendingParams): Promise<void> {
         this.logger.info("Merge gate: postPending", {
             organizationId: params.organizationId,
             extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
         });
-        if (!(await this.isEnabledForOrg(params.organizationId))) {
+        const { enabled, activation } = await this.resolveGateState(params.organizationId);
+        if (!enabled) {
             this.logger.info("Merge gate: postPending skipped (gate not enabled for org)", {
                 organizationId: params.organizationId,
             });
@@ -183,31 +217,302 @@ export class MergeGateService {
         await this.checkRuns.runExclusive(params.repoFullName, params.headSha, async () => {
             const existing = await this.checkRuns.getByHead(params.repoFullName, params.headSha);
             if (existing != null) {
-                this.logger.info("Merge gate: pending check already posted for head", {
+                this.logger.info("Merge gate: check already posted for head", {
                     organizationId: params.organizationId,
                     extra: { repoFullName: params.repoFullName, headSha: params.headSha },
                 });
                 return;
             }
 
-            const checkRunId = await client.createCheckRun({
-                repoFullName: params.repoFullName,
-                headSha: params.headSha,
-                name: MERGE_GATE_CHECK_NAME,
-                status: "in_progress",
-                title: "Analyzing this PR",
-                summary: "Autonoma is analyzing this PR for client bugs.",
-            });
+            const checkRunId = activation
+                ? await client.createCheckRun({
+                      repoFullName: params.repoFullName,
+                      headSha: params.headSha,
+                      name: MERGE_GATE_CHECK_NAME,
+                      status: "completed",
+                      conclusion: "neutral",
+                      title: UNREQUESTED_CHECK_TITLE,
+                      summary: UNREQUESTED_CHECK_SUMMARY,
+                  })
+                : await client.createCheckRun({
+                      repoFullName: params.repoFullName,
+                      headSha: params.headSha,
+                      name: MERGE_GATE_CHECK_NAME,
+                      status: "in_progress",
+                      title: IN_PROGRESS_CHECK_TITLE,
+                      summary: IN_PROGRESS_CHECK_SUMMARY,
+                  });
             await this.checkRuns.upsert({
                 repoFullName: params.repoFullName,
                 prNumber: params.prNumber,
                 headSha: params.headSha,
                 checkRunId,
+                conclusion: activation ? "neutral" : undefined,
             });
-            this.logger.info("Merge gate: pending check posted", {
+            this.logger.info("Merge gate: check posted", {
                 organizationId: params.organizationId,
-                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber, checkRunId },
+                extra: {
+                    repoFullName: params.repoFullName,
+                    prNumber: params.prNumber,
+                    checkRunId,
+                    state: activation ? "unrequested-neutral" : "in-progress",
+                },
             });
+        });
+    }
+
+    /**
+     * The single entrypoint an activation trigger calls to start a run (a `/start analysis` PR comment).
+     * Under the per-head lock it flips the `Autonoma` check to in-progress FIRST, then fires the run.
+     * If no run actually starts (no preview, or nothing new to analyze) the check is restored to the
+     * un-requested neutral state and the requester is told why. On a real start it records the activation (source +
+     * actor) and emits `merge_gate.activated`. No-ops when the gate is off, the org is not migrated to activation,
+     * or no run trigger is wired.
+     */
+    async requestAnalysisRun(params: RequestAnalysisRunParams): Promise<void> {
+        this.logger.info("Merge gate: requestAnalysisRun", {
+            organizationId: params.organizationId,
+            extra: {
+                repoFullName: params.repoFullName,
+                prNumber: params.prNumber,
+                source: params.source,
+                actorLogin: params.actorLogin,
+            },
+        });
+
+        const { enabled, activation } = await this.resolveGateState(params.organizationId);
+        if (!enabled) {
+            this.logger.info("Merge gate: requestAnalysisRun skipped (gate not enabled for org)", {
+                organizationId: params.organizationId,
+            });
+            return;
+        }
+        // Only a migrated org honors an explicit request.
+        if (!activation) {
+            this.logger.info("Merge gate: requestAnalysisRun skipped (org not migrated to activation)", {
+                organizationId: params.organizationId,
+            });
+            return;
+        }
+
+        const trigger = this.analysisRunTrigger;
+        if (trigger == null) {
+            this.logger.error("Merge gate: requestAnalysisRun has no run trigger wired; cannot start a run", {
+                organizationId: params.organizationId,
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
+            });
+            return;
+        }
+
+        const client = await this.getInstallationClient(params.organizationId);
+        await this.checkRuns.runExclusive(params.repoFullName, params.headSha, async () => {
+            const checkRunId = await this.flipCheckToInProgress(client, params);
+
+            const outcome = await this.fireRequestedRun(trigger, params);
+            if (!outcome.started) {
+                await this.restoreUnrequestedCheck(client, checkRunId, params);
+                await this.postCouldNotStartReply(client, params, outcome.reason);
+                this.logger.info("Merge gate: requestAnalysisRun started no run; restored un-requested check", {
+                    organizationId: params.organizationId,
+                    extra: { repoFullName: params.repoFullName, prNumber: params.prNumber, reason: outcome.reason },
+                });
+                return;
+            }
+
+            await this.checkRuns.setActivation(params.repoFullName, params.headSha, {
+                source: params.source,
+                actorLogin: params.actorLogin,
+                activatedAt: new Date(),
+            });
+
+            this.analytics.capture(
+                params.organizationId,
+                MERGE_GATE_EVENT.activated,
+                {
+                    organizationId: params.organizationId,
+                    repoFullName: params.repoFullName,
+                    prNumber: params.prNumber,
+                    headSha: params.headSha,
+                    source: params.source,
+                    actorLogin: params.actorLogin,
+                },
+                { [MERGE_GATE_ANALYTICS_GROUP]: params.organizationId },
+            );
+
+            this.logger.info("Merge gate: analysis run requested and check flipped to in-progress", {
+                organizationId: params.organizationId,
+                extra: {
+                    repoFullName: params.repoFullName,
+                    prNumber: params.prNumber,
+                    checkRunId,
+                    source: params.source,
+                },
+            });
+        });
+    }
+
+    /** Flip (or create) the head's `Autonoma` check to in-progress and persist the sentinel. Returns its id. */
+    private async flipCheckToInProgress(
+        client: GitHubInstallationClient,
+        params: RequestAnalysisRunParams,
+    ): Promise<string> {
+        const existing = await this.checkRuns.getByHead(params.repoFullName, params.headSha);
+        const checkRunId =
+            existing?.checkRunId ??
+            (await client.createCheckRun({
+                repoFullName: params.repoFullName,
+                headSha: params.headSha,
+                name: MERGE_GATE_CHECK_NAME,
+                status: "in_progress",
+                title: IN_PROGRESS_CHECK_TITLE,
+                summary: IN_PROGRESS_CHECK_SUMMARY,
+            }));
+        if (existing != null) {
+            await client.updateCheckRun({
+                repoFullName: params.repoFullName,
+                checkRunId,
+                status: "in_progress",
+                title: IN_PROGRESS_CHECK_TITLE,
+                summary: IN_PROGRESS_CHECK_SUMMARY,
+            });
+        }
+        await this.checkRuns.upsert({
+            repoFullName: params.repoFullName,
+            prNumber: params.prNumber,
+            headSha: params.headSha,
+            checkRunId,
+            conclusion: IN_PROGRESS_CONCLUSION,
+        });
+        return checkRunId;
+    }
+
+    /** Fire the requested run, containing a trigger failure as a non-started outcome so the check can roll back. */
+    private async fireRequestedRun(
+        trigger: AnalysisRunTrigger,
+        params: RequestAnalysisRunParams,
+    ): Promise<RequestRunOutcome> {
+        try {
+            return await trigger.requestRun({
+                organizationId: params.organizationId,
+                repoFullName: params.repoFullName,
+                githubRepositoryId: params.githubRepositoryId,
+                prNumber: params.prNumber,
+            });
+        } catch (err) {
+            this.logger.error("Merge gate: run trigger threw; treating as not started", {
+                organizationId: params.organizationId,
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
+                err,
+            });
+            return { started: false };
+        }
+    }
+
+    /** Roll the check back to the completed neutral un-requested state, so a required check never wedges on it. */
+    private async restoreUnrequestedCheck(
+        client: GitHubInstallationClient,
+        checkRunId: string,
+        params: RequestAnalysisRunParams,
+    ): Promise<void> {
+        await client.updateCheckRun({
+            repoFullName: params.repoFullName,
+            checkRunId,
+            status: "completed",
+            conclusion: "neutral",
+            title: UNREQUESTED_CHECK_TITLE,
+            summary: UNREQUESTED_CHECK_SUMMARY,
+        });
+        await this.checkRuns.upsert({
+            repoFullName: params.repoFullName,
+            prNumber: params.prNumber,
+            headSha: params.headSha,
+            checkRunId,
+            conclusion: "neutral",
+        });
+    }
+
+    /** A PR comment telling the requester why their `/start analysis` did not start a run. */
+    private async postCouldNotStartReply(
+        client: GitHubInstallationClient,
+        params: RequestAnalysisRunParams,
+        reason?: RunNotStartedReason,
+    ): Promise<void> {
+        const mention = params.actorLogin != null ? `@${params.actorLogin} ` : "";
+        const body =
+            reason === "already_analyzed"
+                ? `${mention}this PR's current commit was already analyzed - there is nothing new to run.`
+                : `${mention}could not start the analysis: no live preview was found for this PR. Redeploy the preview and try again.`;
+        try {
+            await client.postComment(params.repoFullName, params.prNumber, body);
+            this.logger.info("Merge gate: posted could-not-start reply", {
+                organizationId: params.organizationId,
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber, reason },
+            });
+        } catch (err) {
+            this.logger.warn("Merge gate: failed to post could-not-start reply", {
+                organizationId: params.organizationId,
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
+                err,
+            });
+        }
+    }
+
+    /**
+     * Webhook entry for `issue_comment.created`: a collaborator requests an analysis run by commenting
+     * `/start analysis` on the PR.
+     */
+    async requestStartFromCommentWebhook(organizationId: string, payload: Record<string, unknown>): Promise<void> {
+        const parsed = issueCommentWebhookSchema.safeParse(payload);
+        if (!parsed.success) {
+            this.logger.warn("Merge gate: could not parse issue_comment payload for /start analysis", {
+                organizationId,
+                extra: { issues: parsed.error.issues },
+            });
+            return;
+        }
+        if (parsed.data.issue.pull_request == null) return; // a plain issue comment, not a PR comment
+        if (!isStartAnalysisCommand(parsed.data.comment.body)) return; // any other PR comment
+
+        const repoFullName = parsed.data.repository.full_name;
+        const githubRepositoryId = parsed.data.repository.id;
+        const prNumber = parsed.data.issue.number;
+        const actorLogin = parsed.data.comment.user.login;
+
+        // Stay silent unless the org is both gated AND migrated to activation - a non-migrated org still runs
+        // automatically, so `/start analysis` is a no-op there.
+        const { enabled, activation } = await this.resolveGateState(organizationId);
+        if (!enabled || !activation) {
+            this.logger.info("Merge gate: ignoring /start analysis (gate off or org not migrated to activation)", {
+                organizationId,
+                extra: { enabled, activation },
+            });
+            return;
+        }
+
+        const client = await this.getInstallationClient(organizationId);
+
+        // Authorize the commenter the same bar as a merge override: write access to the repo.
+        const permission = await client.getRepoCollaboratorPermission(repoFullName, actorLogin);
+        if (!isRepoWriteAccess(permission)) {
+            this.logger.info("Merge gate: /start analysis from a non-write-access commenter; ignoring", {
+                organizationId,
+                extra: { repoFullName, prNumber, actorLogin, permission },
+            });
+            return;
+        }
+
+        // The comment payload identifies the PR but not its head SHA; resolve the current head so the run and the
+        // check we flip target the same commit.
+        const pullRequest = await client.getPullRequest(githubRepositoryId, prNumber);
+
+        await this.requestAnalysisRun({
+            organizationId,
+            repoFullName,
+            githubRepositoryId,
+            prNumber,
+            headSha: pullRequest.headSha,
+            source: ANALYSIS_RUN_SOURCE.comment,
+            actorLogin,
         });
     }
 
@@ -560,6 +865,20 @@ export class MergeGateService {
             select: { mergeGateEnabled: true },
         });
         return settings?.mergeGateEnabled === true;
+    }
+
+    /**
+     * The org's gate state in a single settings read: `enabled` is the effective runtime gate (global switch AND
+     * the org's `mergeGateEnabled`); `activation` is whether the org is migrated to activation.
+     */
+    private async resolveGateState(organizationId: string): Promise<{ enabled: boolean; activation: boolean }> {
+        if (!this.mergeGateEnabled) return { enabled: false, activation: false };
+        const settings = await this.db.organizationSettings.findUnique({
+            where: { organizationId },
+            select: { mergeGateEnabled: true, activationEnabled: true },
+        });
+        const enabled = settings?.mergeGateEnabled === true;
+        return { enabled, activation: settings?.activationEnabled === true };
     }
 
     /**

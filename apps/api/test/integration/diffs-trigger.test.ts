@@ -3,7 +3,23 @@ import { ApplicationArchitecture, TriggerSource } from "@autonoma/db";
 import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
 import { expect } from "vitest";
+import type { DiffsTriggerService } from "../../src/diffs/diffs-trigger.service";
+import { PreviewAnalysisRunTrigger } from "../../src/github/analysis-run-trigger";
 import { apiTestSuite } from "../api-test";
+
+/** Captures the URL each requested run is seeded from, so a test can assert which preview URL was resolved. */
+class CapturingPrDiffsTrigger implements Pick<DiffsTriggerService, "triggerPrDiffs"> {
+    public urls: string[] = [];
+    constructor(private readonly skipped = false) {}
+
+    async triggerPrDiffs(
+        params: Parameters<DiffsTriggerService["triggerPrDiffs"]>[0],
+    ): ReturnType<DiffsTriggerService["triggerPrDiffs"]> {
+        this.urls.push(params.url);
+        if (this.skipped) return { branchId: "branch", skipped: true };
+        return { branchId: "branch", snapshotId: "snapshot", deploymentId: "deployment" };
+    }
+}
 
 async function setActiveSnapshotHeadSha(db: PrismaClient, branchId: string, headSha: string): Promise<void> {
     const branch = await db.branch.findUniqueOrThrow({
@@ -139,6 +155,94 @@ apiTestSuite({
             expect(deployment.webDeployment!.url).toBe("https://preview.example.com");
 
             expect(harness.triggerAnalysis).toHaveBeenCalledWith({ snapshotId: result.snapshotId });
+        });
+
+        test("activation suppresses an automatic run but honors an explicitly requested one", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.githubApp.defaultClient.addPullRequest("org/my-repo", {
+                number: 80,
+                title: "Test PR #80",
+                headRef: "feature/branch-80",
+                baseSha: "initial-sha",
+                commits: ["head-sha-80"],
+            });
+            await harness.db.organizationSettings.upsert({
+                where: { organizationId: harness.organizationId },
+                create: { organizationId: harness.organizationId, activationEnabled: true },
+                update: { activationEnabled: true },
+            });
+
+            // Automatic caller (no `requested`): suppressed under activation - no snapshot, no run.
+            const automatic = await service.triggerPrDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                prNumber: 80,
+                url: "https://preview.example.com",
+            });
+            // Explicitly requested (a merge-gate trigger): bypasses the gate and runs.
+            const requested = await service.triggerPrDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                prNumber: 80,
+                url: "https://preview.example.com",
+                requested: true,
+            });
+
+            // Reset before asserting so a failure can't leak activation to the other shared-org tests.
+            await harness.db.organizationSettings.update({
+                where: { organizationId: harness.organizationId },
+                data: { activationEnabled: false },
+            });
+
+            expect(automatic.skipped).toBe(true);
+            expect(automatic.snapshotId).toBeUndefined();
+            expect(requested.skipped).toBeUndefined();
+            expect(requested.snapshotId).toBeDefined();
+        });
+
+        test("PreviewAnalysisRunTrigger seeds the run from the primary app's preview URL", async ({ harness }) => {
+            const diffsTrigger = new CapturingPrDiffsTrigger();
+            const trigger = new PreviewAnalysisRunTrigger(harness.db, diffsTrigger);
+            await harness.db.previewkitEnvironment.create({
+                data: {
+                    namespace: "preview-org-primary-pr-90",
+                    repoFullName: "org/preview-primary",
+                    prNumber: 90,
+                    headSha: "head-90",
+                    headRef: "feature/primary",
+                    organizationId: harness.organizationId,
+                    status: "ready",
+                    urls: { "app-a": "https://a.example.com", "app-b": "https://b.example.com" },
+                    resolvedConfig: { apps: [{ name: "app-a" }, { name: "app-b", primary: true }] },
+                },
+            });
+
+            const outcome = await trigger.requestRun({
+                organizationId: harness.organizationId,
+                repoFullName: "org/preview-primary",
+                githubRepositoryId: 2090,
+                prNumber: 90,
+            });
+
+            expect(outcome).toEqual({ started: true });
+            expect(diffsTrigger.urls).toEqual(["https://b.example.com"]);
+        });
+
+        test("PreviewAnalysisRunTrigger reports no_preview when the PR has no live preview", async ({ harness }) => {
+            const diffsTrigger = new CapturingPrDiffsTrigger();
+            const trigger = new PreviewAnalysisRunTrigger(harness.db, diffsTrigger);
+
+            const outcome = await trigger.requestRun({
+                organizationId: harness.organizationId,
+                repoFullName: "org/never-deployed",
+                githubRepositoryId: 2091,
+                prNumber: 91,
+            });
+
+            expect(outcome).toEqual({ started: false, reason: "no_preview" });
+            expect(diffsTrigger.urls).toHaveLength(0);
         });
 
         test("triggers diffs for an existing branch", async ({ harness, seedResult: { app, service } }) => {
@@ -418,6 +522,35 @@ apiTestSuite({
             expect(branch.prInfo).toBeNull();
 
             expect(harness.triggerAnalysis).toHaveBeenCalledWith({ snapshotId: result.snapshotId });
+        });
+
+        test("activation does not suppress a main-branch baseline run", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.githubApp.defaultClient.pushCommit("org/my-repo", "main", "main-head-activation");
+            await setActiveSnapshotHeadSha(harness.db, app.mainBranchId!, "previous-main-activation");
+            await harness.db.organizationSettings.upsert({
+                where: { organizationId: harness.organizationId },
+                create: { organizationId: harness.organizationId, activationEnabled: true },
+                update: { activationEnabled: true },
+            });
+
+            const result = await service.triggerMainDiffs({
+                organizationId: harness.organizationId,
+                repoId: 1001,
+                url: "https://preview.example.com",
+            });
+
+            // Reset before asserting so a failure can't leak activation to the other shared-org tests.
+            await harness.db.organizationSettings.update({
+                where: { organizationId: harness.organizationId },
+                data: { activationEnabled: false },
+            });
+
+            // Activation only gates automatic PR runs; the baseline must keep updating on main pushes.
+            expect(result.skipped).toBeUndefined();
+            expect(result.snapshotId).toBeDefined();
         });
 
         test("skips main diffs when the head already matches the active snapshot", async ({

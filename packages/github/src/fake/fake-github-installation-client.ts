@@ -15,6 +15,7 @@ import type {
     PullRequest,
     PullRequestCommit,
     PullRequestState,
+    RepoCollaboratorPermission,
     Repository,
     RequiredCheckRulesetParams,
     UpdateCheckRunParams,
@@ -109,6 +110,8 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
     private readonly rulesets: Map<string, Map<string, string[]>> = new Map();
     // Lets a test simulate a repo where the App lacks admin.
     private branchProtectionBehavior: "protected" | "no_permission" = "protected";
+    // Collaborator permissions keyed by `${repoFullName}:${username}`; a user with no entry has no access.
+    private readonly collaboratorPermissions: Map<string, RepoCollaboratorPermission> = new Map();
 
     addRepository(setup: RepositorySetup): void {
         const metadata: Repository = {
@@ -442,6 +445,16 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         if (this.branchProtectionBehavior === "no_permission") return { status: "no_permission" };
         this.rulesets.get(params.repoFullName)?.delete(params.rulesetName);
         return { status: "applied" };
+    }
+
+    async getRepoCollaboratorPermission(repoFullName: string, username: string): Promise<RepoCollaboratorPermission> {
+        this.requireRepo(repoFullName);
+        return this.collaboratorPermissions.get(`${repoFullName}:${username}`) ?? "none";
+    }
+
+    /** Test helper: set a user's permission on a repo (default when unset is `none`). */
+    setCollaboratorPermission(repoFullName: string, username: string, permission: RepoCollaboratorPermission): void {
+        this.collaboratorPermissions.set(`${repoFullName}:${username}`, permission);
     }
 
     /** Test helper: simulate a repo where the App lacks admin (`no_permission`) on ruleset changes. */

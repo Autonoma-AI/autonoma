@@ -9,6 +9,8 @@ export const MERGE_GATE_EVENT = {
     checkPosted: "merge_gate.check_posted",
     /** A developer skipped a blocking check. Emitted by the API on a `/autonoma-skip` comment. */
     skipped: "merge_gate.skipped",
+    /** An analysis run was requested (activation). Emitted by the API when a trigger fires `requestAnalysisRun`. */
+    activated: "merge_gate.activated",
     /** A PR merged around a blocking check with no skip. Emitted by the API on close. */
     bypassed: "merge_gate.bypassed",
 } as const;

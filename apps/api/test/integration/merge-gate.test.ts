@@ -1,6 +1,7 @@
 import { PostHogAnalytics } from "@autonoma/analytics";
 import { ApplicationArchitecture } from "@autonoma/db";
 import { expect } from "vitest";
+import type { AnalysisRunTrigger, RequestRunOutcome, RequestRunParams } from "../../src/github/analysis-run-trigger";
 import { MergeGateService } from "../../src/github/merge-gate.service";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
@@ -22,6 +23,17 @@ class RecordingAnalytics extends PostHogAnalytics {
         _groups?: Record<string, string>,
     ): void {
         this.captures.push({ event, properties });
+    }
+}
+
+/** Records the runs requested through the trigger so we can assert exactly one run was fired (and with what). */
+class RecordingRunTrigger implements AnalysisRunTrigger {
+    public calls: RequestRunParams[] = [];
+    constructor(private readonly outcome: RequestRunOutcome = { started: true }) {}
+
+    async requestRun(params: RequestRunParams): Promise<RequestRunOutcome> {
+        this.calls.push(params);
+        return this.outcome;
     }
 }
 
@@ -82,6 +94,240 @@ apiTestSuite({
                 where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
             });
             expect(row?.prNumber).toBe(42);
+        });
+
+        test("an activation-migrated org gets a completed neutral 'no analysis requested' check and no run", async ({
+            harness,
+        }) => {
+            const analytics = new RecordingAnalytics();
+            const trigger = new RecordingRunTrigger();
+            await setGate(harness, true, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+                undefined,
+                trigger,
+            );
+            const fixture = await createRepoApp(harness, "gate-unrequested");
+
+            await service.postPending({ ...fixture.postParams });
+
+            // The check is a COMPLETED neutral state (mergeable even when required), not a hanging in_progress.
+            const run = checkRunsFor(fixture)[0];
+            expect(run?.status).toBe("completed");
+            expect(run?.conclusion).toBe("neutral");
+            expect(run?.title).toContain("No analysis requested");
+            expect(run?.summary).toContain("/start analysis");
+            expect(await storedConclusion(harness, fixture)).toBe("neutral");
+
+            // Nothing ran on its own, and no activation was recorded.
+            expect(trigger.calls).toHaveLength(0);
+            const row = await harness.db.gitHubCheckRun.findUnique({
+                where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
+            });
+            expect(row?.activationSource).toBeNull();
+            expect(row?.activatedByLogin).toBeNull();
+        });
+
+        test("a /start analysis comment from a write-access user fires one run, flips the check, and records the activation", async ({
+            harness,
+        }) => {
+            const analytics = new RecordingAnalytics();
+            const trigger = new RecordingRunTrigger();
+            await setGate(harness, true, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+                undefined,
+                trigger,
+            );
+            const fixture = await createRepoApp(harness, "gate-start");
+            fixture.fakeClient.addPullRequest(fixture.repoFullName, {
+                number: 42,
+                title: "Add checkout",
+                headRef: "feature/start",
+                baseSha: "base-1",
+                commits: ["head-1"],
+            });
+            fixture.fakeClient.setCollaboratorPermission(fixture.repoFullName, "dev-writer", "write");
+
+            await service.postPending({ ...fixture.postParams });
+            await service.requestStartFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/start analysis", "dev-writer"),
+            );
+
+            // Exactly one run was requested, for this PR.
+            expect(trigger.calls).toHaveLength(1);
+            expect(trigger.calls[0]).toMatchObject({
+                organizationId: harness.organizationId,
+                repoFullName: fixture.repoFullName,
+                githubRepositoryId: fixture.repoId,
+                prNumber: 42,
+            });
+
+            // The check flipped from the neutral un-requested state to in-progress.
+            expect(checkRunsFor(fixture)[0]?.status).toBe("in_progress");
+            expect(await storedConclusion(harness, fixture)).toBe("in_progress");
+
+            // The activation (source + actor) is recorded on the check row.
+            const row = await harness.db.gitHubCheckRun.findUnique({
+                where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
+            });
+            expect(row?.activationSource).toBe("comment");
+            expect(row?.activatedByLogin).toBe("dev-writer");
+            expect(row?.activatedAt).not.toBeNull();
+
+            const activated = analytics.captures.filter((c) => c.event === "merge_gate.activated");
+            expect(activated).toHaveLength(1);
+            expect(activated[0]?.properties).toMatchObject({
+                organizationId: harness.organizationId,
+                repoFullName: fixture.repoFullName,
+                prNumber: 42,
+                headSha: "head-1",
+                source: "comment",
+                actorLogin: "dev-writer",
+            });
+        });
+
+        test("a /start analysis comment from a non-write-access user fires no run and leaves the check unchanged", async ({
+            harness,
+        }) => {
+            const analytics = new RecordingAnalytics();
+            const trigger = new RecordingRunTrigger();
+            await setGate(harness, true, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+                undefined,
+                trigger,
+            );
+            const fixture = await createRepoApp(harness, "gate-start-unauth");
+            fixture.fakeClient.addPullRequest(fixture.repoFullName, {
+                number: 42,
+                title: "Add checkout",
+                headRef: "feature/unauth",
+                baseSha: "base-1",
+                commits: ["head-1"],
+            });
+            // "read-only-user" has no entry, so the fake reports "none" - not write access.
+
+            await service.postPending({ ...fixture.postParams });
+            await service.requestStartFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/start analysis", "read-only-user"),
+            );
+
+            expect(trigger.calls).toHaveLength(0);
+            // The check stays the un-requested completed neutral state; no activation, no event.
+            expect(checkRunsFor(fixture)[0]?.status).toBe("completed");
+            expect(await storedConclusion(harness, fixture)).toBe("neutral");
+            expect(analytics.captures.filter((c) => c.event === "merge_gate.activated")).toHaveLength(0);
+            const row = await harness.db.gitHubCheckRun.findUnique({
+                where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
+            });
+            expect(row?.activationSource).toBeNull();
+        });
+
+        test("a /start analysis comment on a non-migrated org is ignored (it still runs automatically)", async ({
+            harness,
+        }) => {
+            const analytics = new RecordingAnalytics();
+            const trigger = new RecordingRunTrigger();
+            // Gate enabled but NOT migrated to activation - the automatic run still fires on preview-ready.
+            await setGate(harness, true, false);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+                undefined,
+                trigger,
+            );
+            const fixture = await createRepoApp(harness, "gate-start-nonmigrated");
+            fixture.fakeClient.addPullRequest(fixture.repoFullName, {
+                number: 42,
+                title: "Add checkout",
+                headRef: "feature/nonmigrated",
+                baseSha: "base-1",
+                commits: ["head-1"],
+            });
+            fixture.fakeClient.setCollaboratorPermission(fixture.repoFullName, "dev-writer", "write");
+
+            await service.postPending({ ...fixture.postParams });
+            await service.requestStartFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/start analysis", "dev-writer"),
+            );
+
+            // No manual run: the non-migrated org's automatic run is authoritative, so /start analysis is a no-op.
+            expect(trigger.calls).toHaveLength(0);
+            // The check keeps the non-migrated in-progress state postPending posted; no activation, no event.
+            expect(checkRunsFor(fixture)[0]?.status).toBe("in_progress");
+            expect(analytics.captures.filter((c) => c.event === "merge_gate.activated")).toHaveLength(0);
+            const row = await harness.db.gitHubCheckRun.findUnique({
+                where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
+            });
+            expect(row?.activationSource).toBeNull();
+        });
+
+        test("a /start analysis whose run cannot start restores the un-requested check and replies", async ({
+            harness,
+        }) => {
+            const analytics = new RecordingAnalytics();
+            // The trigger reports it could not start a run (no live preview for the PR).
+            const trigger = new RecordingRunTrigger({ started: false, reason: "no_preview" });
+            await setGate(harness, true, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+                undefined,
+                trigger,
+            );
+            const fixture = await createRepoApp(harness, "gate-start-nopreview");
+            fixture.fakeClient.addPullRequest(fixture.repoFullName, {
+                number: 42,
+                title: "Add checkout",
+                headRef: "feature/nopreview",
+                baseSha: "base-1",
+                commits: ["head-1"],
+            });
+            fixture.fakeClient.setCollaboratorPermission(fixture.repoFullName, "dev-writer", "write");
+
+            await service.postPending({ ...fixture.postParams });
+            await service.requestStartFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/start analysis", "dev-writer"),
+            );
+
+            // The run was attempted, but since none started the check is restored to the un-requested neutral state.
+            expect(trigger.calls).toHaveLength(1);
+            expect(checkRunsFor(fixture)[0]?.status).toBe("completed");
+            expect(await storedConclusion(harness, fixture)).toBe("neutral");
+            expect(analytics.captures.filter((c) => c.event === "merge_gate.activated")).toHaveLength(0);
+            // No activation is recorded when no run started.
+            const row = await harness.db.gitHubCheckRun.findUnique({
+                where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
+            });
+            expect(row?.activationSource).toBeNull();
+            // The requester is told why nothing ran.
+            const replies = fixture.fakeClient.comments.filter(
+                (comment) => comment.repoFullName === fixture.repoFullName && comment.body.includes("no live preview"),
+            );
+            expect(replies).toHaveLength(1);
         });
 
         test("a /autonoma-skip comment records the open bugs + reason and flips the check to neutral", async ({
@@ -667,11 +913,12 @@ function skipCommentPayload(fixture: RepoAppFixture, body: string, login: string
     };
 }
 
-async function setGate(harness: APITestHarness, mergeGateEnabled: boolean): Promise<void> {
+async function setGate(harness: APITestHarness, mergeGateEnabled: boolean, activationEnabled = false): Promise<void> {
+    const data = { mergeGateEnabled, activationEnabled };
     await harness.db.organizationSettings.upsert({
         where: { organizationId: harness.organizationId },
-        create: { organizationId: harness.organizationId, mergeGateEnabled },
-        update: { mergeGateEnabled },
+        create: { organizationId: harness.organizationId, ...data },
+        update: data,
     });
 }
 

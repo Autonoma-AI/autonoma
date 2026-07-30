@@ -23,6 +23,17 @@ export interface PrepareDiffsRunParams {
     url: string;
     webhookUrl?: string;
     webhookHeaders?: Record<string, string>;
+    /**
+     * True when a run was explicitly requested (a merge-gate trigger like `/start analysis`), which bypasses the
+     * activation gate.
+     */
+    requested?: boolean;
+    /**
+     * True when this is a main-branch baseline run, which the activation gate never touches. Activation only
+     * suppresses automatic PR analysis; a migrated org's baseline snapshot must keep updating on main pushes,
+     * otherwise every later PR diff would compute against a stale base. Default false (a PR run).
+     */
+    isMainBranchRun?: boolean;
 }
 
 export type PrepareDiffsRunResult = { skipped: true } | { skipped: false; snapshotId: string; deploymentId: string };
@@ -56,11 +67,25 @@ export class DiffsRunPreparer {
         url,
         webhookUrl,
         webhookHeaders,
+        requested,
+        isMainBranchRun,
     }: PrepareDiffsRunParams): Promise<PrepareDiffsRunResult> {
         // Idempotency: a re-delivered signal for an already-analyzed head has
         // nothing new to diff. Drop it rather than superseding an in-flight run.
         if (headSha === baseSha) {
             this.logger.info("Skipping run: head already analyzed, no new commits", { branchId, headSha });
+            return { skipped: true };
+        }
+
+        // Activation gate: an org that is migrated to activation never starts an automatic PR run on its own. The
+        // automatic PR callers reach here with `requested !== true` and are suppressed; a run begins only when a
+        // merge-gate trigger sets `requested: true`.
+        const isSuppressibleAutomaticPrRun = isMainBranchRun !== true && requested !== true;
+        if (isSuppressibleAutomaticPrRun && (await this.isActivationGated(organizationId))) {
+            this.logger.info("Activation: suppressing automatic run; a run starts only on an explicit request", {
+                branchId,
+                extra: { organizationId, headSha },
+            });
             return { skipped: true };
         }
 
@@ -162,6 +187,17 @@ export class DiffsRunPreparer {
             snapshot: { snapshotId },
         });
         return snapshotId;
+    }
+
+    /**
+     * Whether this org is migrated to activation, in which case an automatic run is suppressed.
+     */
+    private async isActivationGated(organizationId: string): Promise<boolean> {
+        const settings = await this.db.organizationSettings.findUnique({
+            where: { organizationId },
+            select: { activationEnabled: true },
+        });
+        return settings?.activationEnabled === true;
     }
 
     private async createSnapshot(

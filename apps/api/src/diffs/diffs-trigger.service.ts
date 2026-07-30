@@ -20,6 +20,8 @@ interface BaseTriggerDiffsParams {
 
 interface TriggerPrDiffsParams extends BaseTriggerDiffsParams {
     prNumber: number;
+    /** True when a merge-gate trigger (e.g. `/start analysis`) explicitly requested this run, bypassing the org's activation gate. */
+    requested?: boolean;
 }
 
 type TriggerMainDiffsParams = BaseTriggerDiffsParams;
@@ -232,8 +234,9 @@ export class DiffsTriggerService extends Service {
         url,
         webhookUrl,
         webhookHeaders,
+        requested,
     }: TriggerPrDiffsParams): Promise<TriggerDiffsResult> {
-        this.logger.info("Triggering PR diffs analysis", { organizationId, repoId, prNumber });
+        this.logger.info("Triggering PR diffs analysis", { organizationId, repoId, prNumber, extra: { requested } });
 
         const app = await this.db.application.findFirst({
             where: {
@@ -281,6 +284,7 @@ export class DiffsTriggerService extends Service {
             url,
             webhookUrl,
             webhookHeaders,
+            requested,
         });
         if (prepared.skipped) return { branchId: branch.id, skipped: true };
 
@@ -357,6 +361,7 @@ export class DiffsTriggerService extends Service {
             url,
             webhookUrl,
             webhookHeaders,
+            isMainBranchRun: true,
         });
         if (prepared.skipped) return { branchId, skipped: true };
 

@@ -1,10 +1,13 @@
 export {
+    type CheckRunActivation,
     createGitHubCheckRunStore,
     type GitHubCheckRunStore,
     type GitHubCheckRunState,
     type GitHubCheckRunForPr,
     type UpsertGitHubCheckRunParams,
 } from "./check-run-store";
+export { ANALYSIS_RUN_SOURCE, type AnalysisRunSource } from "./analysis-run-source";
+export { isStartAnalysisCommand, MERGE_GATE_START_COMMAND } from "./start-analysis-command";
 export {
     buildMergeGateCheckResult,
     MERGE_GATE_CHECK_NAME,

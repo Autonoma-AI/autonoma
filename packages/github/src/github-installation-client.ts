@@ -19,6 +19,13 @@ const checkRunResponseSchema = z.object({ id: z.number() });
 /** GitHub's repo-ruleset list response, narrowed to the id + name we match our own ruleset by. */
 const rulesetListSchema = z.array(z.object({ id: z.number(), name: z.string() }));
 
+/**
+ * GitHub's collaborator-permission response, narrowed to the collapsed `permission` level. GitHub folds the finer
+ * roles into these four here: `maintain` reads as `write`, `triage` as `read`. `write` and `admin` are the
+ * write-access levels a merge-gate command requires.
+ */
+const collaboratorPermissionSchema = z.object({ permission: z.enum(["admin", "write", "read", "none"]) });
+
 type InstallationOctokit = Awaited<ReturnType<App["getInstallationOctokit"]>>;
 
 export interface Repository {
@@ -140,6 +147,17 @@ export interface RequiredCheckRulesetParams {
 export type BranchProtectionResult = { status: "applied" } | { status: "no_permission" };
 
 /**
+ * A user's permission on a repo, collapsed to GitHub's four levels. `admin` and `write` are write-access;
+ * `read` and `none` are not. Used to authorize a merge-gate slash command from a PR commenter.
+ */
+export type RepoCollaboratorPermission = "admin" | "write" | "read" | "none";
+
+/** Whether a permission level grants write access. */
+export function isRepoWriteAccess(permission: RepoCollaboratorPermission): boolean {
+    return permission === "admin" || permission === "write";
+}
+
+/**
  * Result of a conditional open-PR list request. `unchanged` is returned when GitHub
  * answers `304 Not Modified` (the stored ETag still matches), in which case callers
  * keep their existing cache and spend no primary rate-limit budget.
@@ -203,6 +221,8 @@ export interface GitHubInstallationClient {
     removeRequiredStatusCheckRuleset(
         params: Pick<RequiredCheckRulesetParams, "repoFullName" | "rulesetName">,
     ): Promise<BranchProtectionResult>;
+    /** A user's permission level on the repo (`admin`/`write`/`read`/`none`); `none` when the user is not found. */
+    getRepoCollaboratorPermission(repoFullName: string, username: string): Promise<RepoCollaboratorPermission>;
 }
 
 interface RawPullRequestLike {
@@ -865,6 +885,30 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             repoFullName: params.repoFullName,
             extra: { checkRunId: params.checkRunId },
         });
+    }
+
+    async getRepoCollaboratorPermission(repoFullName: string, username: string): Promise<RepoCollaboratorPermission> {
+        const { owner, repo } = parseRepoFullName(repoFullName);
+        this.logger.info("Reading collaborator permission", { repoFullName, extra: { username } });
+
+        try {
+            const { data } = await this.octokit.request(
+                "GET /repos/{owner}/{repo}/collaborators/{username}/permission",
+                { owner, repo, username },
+            );
+            const { permission } = collaboratorPermissionSchema.parse(data);
+            this.logger.info("Read collaborator permission", { repoFullName, extra: { username, permission } });
+            return permission;
+        } catch (error) {
+            if (this.isNotFound(error)) {
+                this.logger.info("Collaborator not found; treating as no permission", {
+                    repoFullName,
+                    extra: { username },
+                });
+                return "none";
+            }
+            throw error;
+        }
     }
 
     async requireStatusCheckOnAllBranches(params: RequiredCheckRulesetParams): Promise<BranchProtectionResult> {

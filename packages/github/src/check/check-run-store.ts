@@ -22,6 +22,13 @@ export interface UpsertGitHubCheckRunParams {
     conclusion?: string;
 }
 
+/** The activation stamped onto a head's check row when a run is requested: what asked, and who (where known). */
+export interface CheckRunActivation {
+    source: string;
+    actorLogin?: string;
+    activatedAt: Date;
+}
+
 /**
  * Idempotent store for the merge-gate check run, backed by the `github_check_run` table keyed by
  * `(repoFullName, headSha)`. A re-push/re-run for the same head reuses the same GitHub check-run id rather than
@@ -36,6 +43,8 @@ export interface GitHubCheckRunStore {
     getLatestByPr(repoFullName: string, prNumber: number): Promise<GitHubCheckRunForPr | undefined>;
     upsert(params: UpsertGitHubCheckRunParams): Promise<void>;
     setConclusion(repoFullName: string, headSha: string, conclusion: string): Promise<void>;
+    /** Stamp the activation (source + actor) onto a head's check row when a run is requested. */
+    setActivation(repoFullName: string, headSha: string, activation: CheckRunActivation): Promise<void>;
     /**
      * Serialize a read-post-persist section across processes with a Postgres advisory lock keyed by
      * `(repoFullName, headSha)`, so two concurrent webhook deliveries (or the API and the diffs worker) cannot
@@ -80,6 +89,16 @@ export function createGitHubCheckRunStore(db: PrismaClient): GitHubCheckRunStore
             await db.gitHubCheckRun.update({
                 where: { repoFullName_headSha: { repoFullName, headSha } },
                 data: { conclusion },
+            });
+        },
+        async setActivation(repoFullName, headSha, activation) {
+            await db.gitHubCheckRun.update({
+                where: { repoFullName_headSha: { repoFullName, headSha } },
+                data: {
+                    activationSource: activation.source,
+                    activatedByLogin: activation.actorLogin,
+                    activatedAt: activation.activatedAt,
+                },
             });
         },
         runExclusive(repoFullName, headSha, fn) {

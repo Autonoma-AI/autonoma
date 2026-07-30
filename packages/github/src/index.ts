@@ -21,6 +21,8 @@ export {
     type UpdateCheckRunParams,
     type RequiredCheckRulesetParams,
     type BranchProtectionResult,
+    type RepoCollaboratorPermission,
+    isRepoWriteAccess,
 } from "./github-installation-client";
 export { parseCoAuthoredByTrailers, type CoAuthorTrailer } from "./contributors/parse-co-authors";
 export {
