@@ -55,7 +55,7 @@
         "@types/which": "^3.0.4",
         "ink-testing-library": "^4.0.0",
         "jsdom": "^29.1.1",
-        "rrweb-snapshot": "^2.0.0-alpha.4",
+        "rrweb-snapshot": "^2.1.1",
         "tsup": "^8.5.1",
         "tsx": "catalog:",
         "typescript": "catalog:",

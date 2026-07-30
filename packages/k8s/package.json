@@ -20,10 +20,10 @@
         "@autonoma/logger": "workspace:*",
         "@aws-crypto/sha256-js": "^5.2.0",
         "@aws-sdk/client-eks": "^3.1048.0",
-        "@aws-sdk/credential-provider-node": "^3.972.42",
+        "@aws-sdk/credential-provider-node": "^3.972.72",
         "@kubernetes/client-node": "catalog:",
         "@smithy/protocol-http": "^5.3.14",
-        "@smithy/signature-v4": "^5.3.14",
+        "@smithy/signature-v4": "^5.6.10",
         "@t3-oss/env-core": "catalog:",
         "zod": "catalog:"
     },

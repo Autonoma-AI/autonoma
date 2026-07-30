@@ -24,7 +24,7 @@
         "@autonoma/utils": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@aws-sdk/client-ecr": "^3.1048.0",
-        "@aws-sdk/client-kms": "^3.1048.0",
+        "@aws-sdk/client-kms": "^3.1095.0",
         "@aws-sdk/client-s3": "^3.995.0",
         "@aws-sdk/client-secrets-manager": "^3.1048.0",
         "@aws-sdk/credential-providers": "^3.1048.0",
