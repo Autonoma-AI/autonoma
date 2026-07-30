@@ -11,7 +11,8 @@
         "typecheck": "tsc --noEmit",
         "build": "rolldown -c rolldown.config.ts",
         "start:runner": "tsx src/runner/index.ts",
-        "mint-key": "dotenv -e ../../.env -- tsx src/scripts/mint-key.ts"
+        "mint-key": "dotenv -e ../../.env -- tsx src/scripts/mint-key.ts",
+        "backfill-secrets": "dotenv -e ../../.env -- tsx src/scripts/backfill-secrets.ts"
     },
     "dependencies": {
         "@autonoma/db": "workspace:*",
