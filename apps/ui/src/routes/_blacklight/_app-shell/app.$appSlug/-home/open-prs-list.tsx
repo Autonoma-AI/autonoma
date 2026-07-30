@@ -114,7 +114,7 @@ function PrRow({
         </span>
         {pr.previewUrl != null && (
           <>
-            <PreviewLivenessBadge state={livenessState} className="text-[9px]" />
+            <PreviewLivenessBadge state={livenessState} className="relative z-10 text-[9px]" />
             <Link
               to="/preview-waiting"
               search={{ to: pr.previewUrl }}

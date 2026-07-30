@@ -1,5 +1,4 @@
 import {
-  Badge,
   BrailleSpinner,
   Button,
   Dialog,
@@ -25,6 +24,7 @@ import { TimerIcon } from "@phosphor-icons/react/Timer";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import { PreviewLink } from "components/preview-link";
+import { PREVIEW_STATUS_HELP, PreviewStatusBadge } from "components/preview-status-badge";
 import { formatDuration } from "lib/format";
 import { useRedeployPreviewApp } from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
@@ -197,10 +197,16 @@ function PreviewAppDetail({
           <span className="truncate text-sm font-semibold text-text-primary">{service.name}</span>
           <span className="font-mono text-2xs uppercase tracking-wider text-text-secondary">{service.kind}</span>
         </div>
-        <Badge variant={statusMeta.badge} className={cn("gap-1.5", statusMeta.className)}>
-          <StatusDot status={statusMeta.dot} className="rounded-full" />
-          {statusMeta.label}
-        </Badge>
+        {/* "Ready" is redundant with the environment's runtime badge (Live/Idle) in
+            the strip above; only show a per-service status when it's not ready. */}
+        {service.status !== "ready" && (
+          <PreviewStatusBadge
+            label={statusMeta.label}
+            variant={statusMeta.badge}
+            help={PREVIEW_STATUS_HELP[statusMeta.label]}
+            className={statusMeta.className}
+          />
+        )}
         {isAppService(service) && (
           <PreviewAppRedeployControl
             applicationId={applicationId}

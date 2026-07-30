@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   DataTable,
   DataTableBody,
@@ -13,8 +12,11 @@ import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { BrowsersIcon } from "@phosphor-icons/react/Browsers";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { createFileRoute, notFound } from "@tanstack/react-router";
+import { PreviewLivenessBadge } from "components/preview-liveness-badge";
+import { PREVIEW_STATUS_HELP, PreviewStatusBadge } from "components/preview-status-badge";
 import { formatRelativeTime } from "lib/format";
 import { ensureActivePreviewEnvironmentsData, useActivePreviewEnvironments } from "lib/query/deployments.queries";
+import { pickPreviewLiveness, type PreviewLivenessState, usePreviewLiveness } from "lib/query/preview-access.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
@@ -79,6 +81,12 @@ function PreviewEnvironmentsHeader() {
 function EnvironmentsTable() {
   const app = useCurrentApplication();
   const { data: environments } = useActivePreviewEnvironments(app.id);
+  // One batched liveness poll for every preview on the page (read-only, no wake).
+  const { data: liveness } = usePreviewLiveness(
+    environments
+      .flatMap((environment) => environment.apps.map((a) => a.url))
+      .filter((url): url is string => url != null),
+  );
 
   if (environments.length === 0) {
     return (
@@ -106,7 +114,7 @@ function EnvironmentsTable() {
         </DataTableHead>
         <DataTableBody>
           {environments.map((environment) => (
-            <EnvironmentRow key={environment.id} environment={environment} />
+            <EnvironmentRow key={environment.id} environment={environment} liveness={liveness} />
           ))}
         </DataTableBody>
       </DataTable>
@@ -114,9 +122,19 @@ function EnvironmentsTable() {
   );
 }
 
-function EnvironmentRow({ environment }: { environment: PreviewEnvironment }) {
+function EnvironmentRow({
+  environment,
+  liveness,
+}: {
+  environment: PreviewEnvironment;
+  liveness?: Record<string, PreviewLivenessState>;
+}) {
   const healthMeta = HEALTH_META[environment.health];
   const readyCount = environment.apps.filter((app) => app.status === "ready").length;
+  const livenessState = pickPreviewLiveness(
+    liveness,
+    environment.apps.map((app) => app.url),
+  );
 
   return (
     <DataTableRow>
@@ -130,9 +148,19 @@ function EnvironmentRow({ environment }: { environment: PreviewEnvironment }) {
         </div>
       </DataTableCell>
       <DataTableCell>
-        <Badge variant={healthMeta.badge} className="text-3xs" title={environment.phase ?? environment.status}>
-          {healthMeta.label}
-        </Badge>
+        {/* Once deployed, the runtime state (Live/Idle/Crashing) is the honest
+            signal; fall back to the deploy health for building/failed/degraded
+            (and when liveness is unavailable). */}
+        {environment.health === "ready" && livenessState !== "unknown" ? (
+          <PreviewLivenessBadge state={livenessState} className="text-3xs" />
+        ) : (
+          <PreviewStatusBadge
+            label={healthMeta.label}
+            variant={healthMeta.badge}
+            help={PREVIEW_STATUS_HELP[healthMeta.label]}
+            className="text-3xs"
+          />
+        )}
       </DataTableCell>
       <DataTableCell>
         <span className="font-mono text-2xs text-text-secondary">

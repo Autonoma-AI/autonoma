@@ -1,5 +1,4 @@
 import {
-  Badge,
   Button,
   Dialog,
   DialogBackdrop,
@@ -8,13 +7,12 @@ import {
   DialogHeader,
   DialogTitle,
   Skeleton,
-  StatusDot,
-  cn,
 } from "@autonoma/blacklight";
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { PreviewLivenessBadge } from "components/preview-liveness-badge";
+import { PREVIEW_STATUS_HELP, PreviewStatusBadge } from "components/preview-status-badge";
 import { useDeploymentHistory } from "lib/query/deployments.queries";
 import { pickPreviewLiveness, type PreviewLivenessState, usePreviewLiveness } from "lib/query/preview-access.queries";
 import type { RouterOutputs } from "lib/trpc";
@@ -101,7 +99,7 @@ function DeploymentSummary({
       {current == null ? (
         <span className="text-2xs text-text-secondary">No deployments yet.</span>
       ) : (
-        <DeploymentSummaryDetail deployment={current} />
+        <DeploymentSummaryDetail deployment={current} livenessState={livenessState} />
       )}
       {/* The honest "is it up right now" signal, distinct from the deploy status:
           a successful deploy that has since scaled to zero reads "Idle", not "Ready". */}
@@ -133,16 +131,31 @@ function DeploymentSummary({
   );
 }
 
-function DeploymentSummaryDetail({ deployment }: { deployment: DeploymentHistoryRow }) {
+function DeploymentSummaryDetail({
+  deployment,
+  livenessState,
+}: {
+  deployment: DeploymentHistoryRow;
+  livenessState: PreviewLivenessState;
+}) {
   const statusMeta = DEPLOYMENT_STATUS_META[deployment.status];
+  // A green "Success" here would just duplicate the runtime badge (Live/Idle)
+  // beside it - but only when we actually have a runtime signal. If liveness is
+  // unknown the runtime badge renders nothing, so the deploy status is the only
+  // thing we can show and suppressing it would leave the strip with just the sha.
+  const runtimeBadgeCovers = deployment.status === "success" && livenessState !== "unknown";
 
   return (
     <>
-      <StatusDot status={statusMeta.dot} className="shrink-0 rounded-full" />
       <span className="font-mono text-sm text-text-primary">{deployment.headSha.slice(0, 7)}</span>
-      <Badge variant={statusMeta.badge} className={cn("shrink-0 uppercase", statusMeta.className)}>
-        {statusMeta.label}
-      </Badge>
+      {!runtimeBadgeCovers && (
+        <PreviewStatusBadge
+          label={statusMeta.label}
+          variant={statusMeta.badge}
+          help={PREVIEW_STATUS_HELP[statusMeta.label]}
+          className={statusMeta.className}
+        />
+      )}
     </>
   );
 }

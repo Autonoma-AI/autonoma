@@ -88,7 +88,7 @@ export function BuildLogStreamViewer({
           <span className="font-mono text-2xs text-text-secondary">{title}</span>
           <div className="ml-auto flex items-center gap-2">
             {phase != null && <span className="font-mono text-3xs text-text-secondary">{phase}</span>}
-            <StatusBadge connection={connection} buildStatus={buildStatus} error={error} />
+            <StatusBadge buildStatus={buildStatus} error={error} />
           </div>
         </header>
       )}
@@ -112,7 +112,7 @@ export function BuildLogStreamViewer({
 
       {footer && (
         <footer className="flex shrink-0 items-center gap-3 border-t border-border-dim px-4 py-2 font-mono text-3xs text-text-secondary">
-          <StatusBadge connection={connection} buildStatus={buildStatus} error={error} />
+          <StatusBadge buildStatus={buildStatus} error={error} />
           {phase != null && <span>{phase}</span>}
           <span className="ml-auto tabular-nums">
             {visibleEntries.length} / {entries.length} lines
@@ -223,31 +223,16 @@ function formatLogTimestamp(id: string): { time: string; full: string } | undefi
   return { time: `${hh}:${mm}:${ss}.${ms}`, full: date.toLocaleString() };
 }
 
-function StatusBadge({
-  connection,
-  buildStatus,
-  error,
-}: {
-  connection: BuildLogConnection;
-  buildStatus: string | undefined;
-  error: string | undefined;
-}) {
+function StatusBadge({ buildStatus, error }: { buildStatus: string | undefined; error: string | undefined }) {
   if (error != null) return <Badge variant="critical">error</Badge>;
   if (buildStatus === "ready") return <Badge variant="success">ready</Badge>;
   if (buildStatus === "failed") return <Badge variant="destructive">failed</Badge>;
   if (buildStatus != null) return <Badge variant="secondary">{buildStatus}</Badge>;
 
-  if (connection === "open") {
-    return (
-      <Badge variant="status-running" className="gap-1">
-        <CircleNotchIcon className="size-3 animate-spin" />
-        streaming
-      </Badge>
-    );
-  }
-  if (connection === "reconnecting") return <Badge variant="warn">reconnecting</Badge>;
-  if (connection === "connecting") return <Badge variant="secondary">connecting</Badge>;
-  return <Badge variant="secondary">closed</Badge>;
+  // Connection state (streaming / connecting / reconnecting / closed) is noise for
+  // the reader - the log content already shows whether lines are flowing. Only the
+  // error and terminal build states above are worth a badge.
+  return null;
 }
 
 function EmptyState({
