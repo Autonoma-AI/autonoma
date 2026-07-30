@@ -139,6 +139,21 @@ export const Variables: Story = {
 };
 
 /**
+ * A freshly added variable: build-time injection starts on, so a value the build
+ * needs is there without the user knowing to ask, and the copy under the switch
+ * says what turning it off buys. The stored secrets above it keep whatever they
+ * were saved with - the default applies to new rows only.
+ */
+export const NewVariableDefaults: Story = {
+  args: { path: `/app/${baseApplication.slug}/preview-config` },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: /Add variable/ }));
+    await userEvent.type(canvas.getByLabelText("Key"), "SENTRY_DSN");
+  },
+};
+
+/**
  * The same page for an app stored before the framework presets were retired: the
  * document still parses (read schema), but the authoring contract rejects its
  * build block, so the config itself cannot be saved. The story rotates a stored

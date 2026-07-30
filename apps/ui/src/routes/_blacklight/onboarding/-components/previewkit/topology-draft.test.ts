@@ -6,6 +6,7 @@ import {
 } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
 import {
+    NEW_VARIABLE_BUILD_TIME,
     dedupeSecretRows,
     diffAppSecrets,
     documentsFromDraft,
@@ -505,16 +506,24 @@ describe("envRowsFromDotenv", () => {
         });
     });
 
-    it("defaults build-time on for framework client-bundle keys", () => {
-        const rows = envRowsFromDotenv([], [{ key: "NEXT_PUBLIC_API_URL", value: "https://x" }]);
-        expect(rows[0]).toMatchObject({ key: "NEXT_PUBLIC_API_URL", buildTime: true });
+    it("defaults build-time on for an imported key, whatever it is called", () => {
+        const rows = envRowsFromDotenv(
+            [],
+            [
+                { key: "NEXT_PUBLIC_API_URL", value: "https://x" },
+                { key: "STRIPE_KEY", value: "sk_live_1" },
+            ],
+        );
+        expect(rows.map((row) => row.buildTime)).toEqual([NEW_VARIABLE_BUILD_TIME, NEW_VARIABLE_BUILD_TIME]);
     });
 
     it("updates an existing key in place (same id, keeps its build-time choice)", () => {
-        const existing = [envRow("STRIPE_KEY", "old", true, "config", true)];
+        // The import must not re-apply the default over a choice already made -
+        // an off toggle is the only way to keep a value out of the image.
+        const existing = [envRow("STRIPE_KEY", "old", true, "config", false)];
         const rows = envRowsFromDotenv(existing, [{ key: "STRIPE_KEY", value: "new" }]);
         expect(rows).toHaveLength(1);
-        expect(rows[0]).toMatchObject({ id: existing[0]!.id, value: "new", sensitive: true, buildTime: true });
+        expect(rows[0]).toMatchObject({ id: existing[0]!.id, value: "new", sensitive: true, buildTime: false });
     });
 });
 

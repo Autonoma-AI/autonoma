@@ -4,6 +4,7 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { useState } from "react";
 import {
+  NEW_VARIABLE_BUILD_TIME,
   envRow,
   envRowsFromDotenv,
   fieldIssueKey,
@@ -78,7 +79,7 @@ export function EnvVarManager({ app, services, deployableApps, issues, updateApp
   function addVariable() {
     const base =
       isBlank(selectedView) && selectedView != null ? app.env.filter((row) => row.id !== selectedView.row.id) : app.env;
-    const blank = envRow("", "", true, "new", false);
+    const blank = envRow("", "", true, "new", NEW_VARIABLE_BUILD_TIME);
     updateApp(app.id, { env: [...base, blank] });
     setSelected(blank.id);
   }

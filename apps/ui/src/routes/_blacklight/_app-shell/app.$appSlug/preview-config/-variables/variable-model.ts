@@ -7,6 +7,7 @@ import {
     isReservedPreviewkitEnvKey,
 } from "@autonoma/types";
 import {
+    NEW_VARIABLE_BUILD_TIME,
     dedupeSecretRows,
     envRow,
     serviceRecipeSupportsUrlToken,
@@ -112,7 +113,7 @@ export function injectedVars(primaryApp: boolean): InjectedVar[] {
 
 export function formFromView(view: VariableView | undefined): VariableForm {
     if (view == null) {
-        return { key: "", source: "secret", value: "", buildTime: false };
+        return { key: "", source: "secret", value: "", buildTime: NEW_VARIABLE_BUILD_TIME };
     }
     return {
         key: view.key,

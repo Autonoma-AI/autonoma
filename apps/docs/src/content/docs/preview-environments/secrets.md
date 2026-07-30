@@ -34,7 +34,7 @@ Not everything your app reads from `process.env` is a secret. Picking the right 
 | A value baked into a client bundle at build time (`NEXT_PUBLIC_*`, `VITE_*`) | **Secret + `build_secrets`** | Must be present *during* the build, not just at runtime. See [Build-time secrets](#build-time-secrets-build_secrets). |
 | PR / owner / namespace metadata (`{{pr}}`, `AUTONOMA_PREVIEWKIT_PR`) | Injected automatically | Reserved built-ins. See [Built-in environment variables](#built-in-environment-variables). |
 
-When in doubt, if the value is sensitive, make it a **Secret**. You only need `build_secrets` when a value must exist *during* the build (the client-bundle case).
+When in doubt, if the value is sensitive, make it a **Secret**. A secret added in the UI is build-time by default, so the client-bundle case works without you thinking about it - see [Build-time secrets](#build-time-secrets-build_secrets) for when to turn that off.
 
 ## Managing secrets from the API
 
@@ -95,7 +95,9 @@ apps:
 
 Each name must already be a key you've uploaded (via the UI or the API). The build fails fast with a clear error if a listed key isn't there.
 
-Server-only secrets (those your running pod reads via `process.env`) do NOT need to be in `build_secrets` - the runtime mount already covers them. Listing them anyway is harmless but verbose.
+In the config UI you don't list these by hand: a variable you add has **Also inject at build time** on, so the build can see it, and the editor writes the key into `build_secrets` for you. Turn the toggle off for a value the build must not see - a build-time value is written into the image, so anyone who can pull that image can read it. Preview images are private to your organization and thrown away with the preview, which is why the default leans towards builds that work; a value you would not want in an image belongs off the toggle (or in the runtime mount only).
+
+Server-only secrets (those your running pod reads via `process.env`) do not *need* to be in `build_secrets` - the runtime mount already covers them.
 
 ## Config-level overrides
 

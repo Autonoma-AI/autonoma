@@ -333,7 +333,8 @@ export function VariableDrawer({ app, view, targets, onChange, onDelete }: Varia
               Also inject at build time
             </label>
             <p className="mt-1 text-2xs text-text-secondary">
-              Expose during image build too. Leave off unless the build needs it.
+              On by default, so a build that needs the value has it. Turn it off to keep the value out of the built
+              image.
             </p>
           </div>
         </div>

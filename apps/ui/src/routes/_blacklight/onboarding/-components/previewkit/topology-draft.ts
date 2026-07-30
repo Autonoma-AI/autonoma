@@ -1097,8 +1097,15 @@ export function dedupeSecretRows(rows: EnvRowDraft[], keepId?: number): EnvRowDr
     return droppedIds.size === 0 ? rows : rows.filter((row) => !droppedIds.has(row.id));
 }
 
-/** Key prefixes framework toolchains inline at build time (client bundles). */
-const BUILD_TIME_ENV_PREFIXES = ["NEXT_PUBLIC_", "VITE_", "PUBLIC_"];
+/**
+ * Build-time injection a variable the user just added starts on. A value the
+ * build turns out to need is the common case (anything a client bundle inlines,
+ * anything a migration or codegen step reads), and a build that cannot see it
+ * fails in a way that is hard to read back to a missing toggle. The cost of
+ * being wrong the other way is that the value is written into the image, so the
+ * editor says as much next to the switch.
+ */
+export const NEW_VARIABLE_BUILD_TIME = true;
 
 /** One `KEY=VALUE` line: optional `export`, an env-style key, then the rest of the line. */
 const DOTENV_LINE_REGEX = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
@@ -1156,7 +1163,8 @@ export function parseDotenv(text: string): Array<{ key: string; value: string }>
  * Merges parsed `.env` entries into an app's variable list. A value with a
  * `{{name.property}}` token becomes a connection; everything else a secret. An
  * existing key is updated in place (keeping its row id and build-time choice); a
- * new key is appended, defaulting build-time on for framework client-bundle vars.
+ * new key is appended on the {@link NEW_VARIABLE_BUILD_TIME} default, same as
+ * one added by hand.
  */
 export function envRowsFromDotenv(
     existing: EnvRowDraft[],
@@ -1171,8 +1179,7 @@ export function envRowsFromDotenv(
         if (current != null) {
             byKey.set(trimmedKey, { ...current, value, sensitive });
         } else {
-            const buildTime = BUILD_TIME_ENV_PREFIXES.some((prefix) => trimmedKey.startsWith(prefix));
-            byKey.set(trimmedKey, envRow(trimmedKey, value, sensitive, "new", buildTime));
+            byKey.set(trimmedKey, envRow(trimmedKey, value, sensitive, "new", NEW_VARIABLE_BUILD_TIME));
         }
     }
     return [...byKey.values()];
