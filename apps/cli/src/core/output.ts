@@ -20,6 +20,23 @@ export function getOutputDir(projectSlug: string): string {
 }
 
 /**
+ * Empty a run's output directory, leaving the directory itself in place.
+ *
+ * Clears the whole directory rather than the artifacts it can name: steps decide
+ * they are already done by finding their own output, so anything left behind
+ * makes a fresh run continue the previous one, and a cleanup list kept in sync by
+ * hand goes stale as soon as an artifact is added. Only per-app derived state
+ * lives here - credentials and the analytics id are at the AUTONOMA_HOME root and
+ * are not touched.
+ */
+export async function clearOutputDir(projectSlug: string): Promise<void> {
+    const dir = getOutputDir(projectSlug);
+    await rm(dir, { recursive: true, force: true });
+    await mkdir(dir, { recursive: true });
+    debugLog("Cleared the run directory for a fresh start", { dir });
+}
+
+/**
  * An absolute path as a human would write it. Every output path lives under the
  * home directory, so printing it in full spends a third of the line on
  * something the reader already knows.

@@ -18,7 +18,7 @@ import { flushTelemetry } from "./core/flush-telemetry";
 import { installInterruptHandler, installTerminationDiagnostics, restoreTerminal } from "./core/interrupt";
 import { captureLog } from "./core/logs";
 import { DEFAULT_MODEL } from "./core/model";
-import { displayPath, ensureOutputDir } from "./core/output";
+import { clearOutputDir, displayPath, ensureOutputDir } from "./core/output";
 import { initSession } from "./core/session";
 import { teardownUi } from "./core/ui-lifecycle";
 import { readEnv } from "./env";
@@ -779,6 +779,7 @@ async function main() {
 
         const resume = await p.confirm({
             message: `Found a previous run${completedSteps ? ` (completed: ${completedSteps})` : ""}. Resume from where you left off?`,
+            detail: `Answering no clears ${displayPath(outputDir)} and starts from scratch.`,
         });
 
         if (p.isCancel(resume)) {
@@ -791,8 +792,10 @@ async function main() {
         if (resume) {
             isResuming = true;
         } else {
-            // Starting over: drop the old run's step marks, or the fresh run
-            // inherits stale "done" states the moment it saves progress.
+            // An empty directory, not just cleared step marks: a step that
+            // finds its own output on disk skips itself, so anything left here
+            // makes this continue the run the user just declined.
+            await clearOutputDir(config.projectSlug);
             state = initialState();
             await saveState(outputDir, state);
         }
