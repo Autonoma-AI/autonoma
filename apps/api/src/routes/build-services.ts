@@ -263,5 +263,5 @@ function buildSecretValueMirror(conn: PrismaClient): SecretValueMirror {
 
     const kms = new KMSClient({ region: env.AWS_REGION ?? "us-east-1" });
     const keys = new SecretKeys(conn, new KmsKeyProvider(kms, env.PREVIEWKIT_SECRETS_CMK));
-    return new SecretValueMirror(new SecretValues(conn, keys));
+    return new SecretValueMirror(new SecretValues(conn, keys), env.PREVIEWKIT_SECRETS_READ === "postgres");
 }

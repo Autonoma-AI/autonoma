@@ -3,15 +3,20 @@ import { NoPrimaryEncryptionKeyError, type SecretValues, type SecretValueSummary
 import type { SecretBundle } from "@autonoma/utils";
 
 /**
- * Mirrors secret writes into Postgres while AWS Secrets Manager is still the
- * authoritative store.
+ * Mirrors secret writes into Postgres.
  *
- * Deliberately swallows its own failures. During the migration the AWS write has
- * already succeeded by the time we get here, so failing the request would break a
- * working operation to protect a copy nothing reads yet; the mirror is allowed to
- * fall behind and be repaired by the backfill instead. That trade stops holding
- * the moment reads move to Postgres, at which point these calls should lose the
- * guard and be allowed to fail the request.
+ * Whether a failed write fails the request depends on whether this environment
+ * serves its reads from here. While AWS is still the read path the write has
+ * already succeeded by the time we get here, so throwing would break a working
+ * operation to protect a copy nothing reads; the mirror is allowed to fall behind
+ * and be repaired by the backfill.
+ *
+ * Once reads come from Postgres, swallowing is the dangerous option - and not
+ * because reads would fail. They fall back per bundle, but only when the bundle
+ * holds NOTHING: a bundle that already has values keeps serving the STALE one for
+ * a key whose mirror write failed, and no fallback can see that. A build or a
+ * preview would come up with the old secret and nothing would say so. So writes
+ * fail the request there instead.
  *
  * Constructed without a {@link SecretValues} the mirror is simply off, which is
  * what dev, self-host, and any environment that has not minted an encryption key
@@ -20,12 +25,17 @@ import type { SecretBundle } from "@autonoma/utils";
 export class SecretValueMirror {
     private readonly logger: Logger;
 
-    constructor(private readonly values?: SecretValues) {
+    constructor(
+        private readonly values?: SecretValues,
+        /** Whether this environment serves its secret reads from Postgres. */
+        private readonly readsFromPostgres = false,
+    ) {
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
     async put(bundle: SecretBundle, items: readonly { key: string; value: string }[]): Promise<void> {
-        await this.attempt("seal", bundle, (values) => values.put(bundle, items));
+        const failure = await this.attempt("seal", bundle, (values) => values.put(bundle, items));
+        this.failIfServingReads(failure);
     }
 
     /**
@@ -38,6 +48,9 @@ export class SecretValueMirror {
      * straight through, so this costs one two-column query and no decryption.
      */
     async audit(bundle: SecretBundle, authoritative: ReadonlyMap<string, string>): Promise<void> {
+        // Never fatal, unlike the writes: this only runs when Postgres did not serve
+        // the read, and a comparison that fails says nothing about whether the user's
+        // write landed.
         await this.attempt("audit", bundle, async (values) => {
             const diff = await values.compare(bundle, authoritative);
             const agrees = diff.missing.length + diff.extra.length + diff.mismatched.length === 0;
@@ -112,34 +125,53 @@ export class SecretValueMirror {
     }
 
     async remove(bundle: SecretBundle, key: string): Promise<void> {
-        await this.attempt("remove", bundle, (values) => values.remove(bundle, key));
+        const failure = await this.attempt("remove", bundle, (values) => values.remove(bundle, key));
+        this.failIfServingReads(failure);
     }
 
+    /**
+     * Runs `work` and reports rather than throws, so each caller decides what a
+     * failure costs. Undefined covers success, a disabled mirror, and the
+     * not-yet-keyed environment - none of which leaves a stale value behind.
+     */
     private async attempt(
         operation: string,
         bundle: SecretBundle,
         work: (values: SecretValues) => Promise<void>,
-    ): Promise<void> {
-        if (this.values == null) return;
+    ): Promise<Error | undefined> {
+        if (this.values == null) return undefined;
 
         try {
             await work(this.values);
+            return undefined;
         } catch (err) {
-            // Expected until an environment has been given an encryption key, so it
-            // is not worth an alert - the backfill will pick these bundles up.
+            // An environment with no key mirrors nothing at all, so every read falls
+            // back to AWS wholesale and none of them can go stale. That makes this a
+            // provisioning step to finish rather than a request to fail - though it is
+            // worth an alert once reads are supposed to be served from here.
             if (err instanceof NoPrimaryEncryptionKeyError) {
-                this.logger.info("No encryption key yet; not mirroring to Postgres", {
-                    extra: { operation, bundleKind: bundle.kind },
-                });
-                return;
+                const message = "No encryption key yet; not mirroring to Postgres";
+                const context = { extra: { operation, bundleKind: bundle.kind } };
+                if (this.readsFromPostgres) this.logger.error(message, context);
+                else this.logger.info(message, context);
+                return undefined;
             }
 
-            this.logger.error(
-                "Failed to mirror a secret write to Postgres; AWS Secrets Manager remains authoritative",
-                asError(err),
-                { extra: { operation, bundleKind: bundle.kind } },
-            );
+            const failure = asError(err);
+            this.logger.error("Failed to mirror a secret write to Postgres", failure, {
+                extra: { operation, bundleKind: bundle.kind, readsFromPostgres: this.readsFromPostgres },
+            });
+            return failure;
         }
+    }
+
+    /**
+     * Surfaces a mirror failure to the caller once Postgres is what reads are served
+     * from, because the alternative is a bundle that quietly keeps serving the value
+     * this write was meant to replace.
+     */
+    private failIfServingReads(failure?: Error): void {
+        if (failure != null && this.readsFromPostgres) throw failure;
     }
 }
 

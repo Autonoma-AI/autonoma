@@ -93,7 +93,8 @@ export class OrgSecretsService {
             await this.mergeIntoSecret(existing.awsSecretArn, items);
         }
 
-        // Mirror the same values into Postgres, encrypted. Best-effort until reads move there.
+        // Mirror the same values into Postgres, encrypted. Whether a failure here fails
+        // this request depends on which store serves reads (SecretValueMirror).
         await this.mirror.put({ kind: "org", organizationId, name }, items);
     }
 

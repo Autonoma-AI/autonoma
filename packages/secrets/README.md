@@ -29,9 +29,15 @@ Persistence lives here rather than in the API services because those build their
 
 ### Migration status: writes are mirrored, reads are not
 
-AWS Secrets Manager is still the authoritative store. The API's secret services write there first and then mirror the same values here through `SecretValueMirror`, which swallows its own failures on purpose: the authoritative write has already succeeded by then, so failing the request would break a working operation to protect a copy nothing reads yet. A `NoPrimaryEncryptionKeyError` means the environment has not run `mintSecretKey` and is skipped quietly.
+AWS Secrets Manager is still the authoritative store. The API's secret services write there first and then mirror the same values here through `SecretValueMirror`.
 
-Both of those allowances stop being correct the moment reads move to Postgres. At that point the mirror should lose its guard and be allowed to fail the request.
+**Whether a failed mirror write fails the request depends on which store serves this environment's reads.** While AWS serves them the failure is swallowed: the authoritative write has already succeeded by then, so throwing would break a working operation to protect a copy nothing reads, and the backfill repairs the gap.
+
+Once `PREVIEWKIT_SECRETS_READ` is `postgres`, swallowing becomes the dangerous option - and not because reads would fail. They fall back per bundle, but only when the bundle holds **nothing**: a bundle that already has values keeps serving the **stale** one for a key whose mirror write failed, and no fallback can detect that. A build or a preview would come up with the old secret and nothing would say so. So `put` and `remove` rethrow there.
+
+`audit` never rethrows either way. It only runs when Postgres did not serve the read, and a comparison that fails says nothing about whether the user's write landed.
+
+A `NoPrimaryEncryptionKeyError` stays a skip in both modes. An environment with no key mirrors nothing at all, so every read falls back to AWS wholesale and no value can go stale - it is a provisioning step to finish rather than a request to fail, though it logs at error level once reads are supposed to come from here.
 
 ### Serving reads from here
 
