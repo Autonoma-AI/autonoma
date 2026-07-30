@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.260730.2](https://github.com/Autonoma-AI/agent/compare/v1.260730.1...v1.260730.2) (2026-07-30)
+
+
+### Features
+
+* **api:** gate analysis behind activation with a /start analysis trigger ([#1859](https://github.com/Autonoma-AI/agent/issues/1859)) ([d18d4c1](https://github.com/Autonoma-AI/agent/commit/d18d4c11b1fc39a4f6b896fc9c0e1a35baa228d4))
+* **api:** move AWS access to an IRSA service account ([#1848](https://github.com/Autonoma-AI/agent/issues/1848)) ([e0c23d2](https://github.com/Autonoma-AI/agent/commit/e0c23d2710766a2ec80f6fa1ab3fb20d62afeb65))
+* **ci:** delete Slack PR-ready notification on merge ([#1953](https://github.com/Autonoma-AI/agent/issues/1953)) ([b84cf69](https://github.com/Autonoma-AI/agent/commit/b84cf69d57e169471e4145781563c078a176c9ab))
+* cleanup stale gh app assignments on alphas ([#1956](https://github.com/Autonoma-AI/agent/issues/1956)) ([519fd59](https://github.com/Autonoma-AI/agent/commit/519fd59ace919b8355996c10fbc138423cc89c0e))
+* **preview-config:** default a new variable to build-time injection ([#1938](https://github.com/Autonoma-AI/agent/issues/1938)) ([05003aa](https://github.com/Autonoma-AI/agent/commit/05003aa44157a761353a56dac95c4c1a4edd3ec4))
+* **preview-config:** save secret changes without the config ([#1927](https://github.com/Autonoma-AI/agent/issues/1927)) ([acac9d6](https://github.com/Autonoma-AI/agent/commit/acac9d63abef6612769eb22c683261e4b5c6d22e))
+* **previewkit:** add the Secrets Manager backfill and verifier ([#1943](https://github.com/Autonoma-AI/agent/issues/1943)) ([b3223a4](https://github.com/Autonoma-AI/agent/commit/b3223a451a7eb6fbb5c83790fb8ce92146c9165d))
+* **previewkit:** serve previewkit secret reads from Postgres ([#1950](https://github.com/Autonoma-AI/agent/issues/1950)) ([220bc08](https://github.com/Autonoma-AI/agent/commit/220bc0826c7cdce004eda0f3fc31885756043d2d))
+* **previewkit:** shadow-read the Postgres secret mirror against AWS ([#1948](https://github.com/Autonoma-AI/agent/issues/1948)) ([de4ebdc](https://github.com/Autonoma-AI/agent/commit/de4ebdc0c2d6686dd112c89b6c2a6740fbe14cfb))
+* **skill:** resolve cross-fix docking to the PR, not the person ([#1933](https://github.com/Autonoma-AI/agent/issues/1933)) ([96a9d37](https://github.com/Autonoma-AI/agent/commit/96a9d3794682036dd5d9283f37b22799be9bb872))
+
+
+### Bug Fixes
+
+* **billing:** stop writing zero-usage previewkit usage windows ([#1954](https://github.com/Autonoma-AI/agent/issues/1954)) ([f33ead0](https://github.com/Autonoma-AI/agent/commit/f33ead0d63c097f81947d2ba17b17b402ce064fe))
+* **ci:** react instead of delete on the merged-PR Slack notification ([#1957](https://github.com/Autonoma-AI/agent/issues/1957)) ([9021cf2](https://github.com/Autonoma-AI/agent/commit/9021cf255e92e34ba26ae624fb1ad3c34d67b3bb))
+* **previewkit:** send scenario up to the SDK app even in a connected repo ([#1935](https://github.com/Autonoma-AI/agent/issues/1935)) ([6773290](https://github.com/Autonoma-AI/agent/commit/677329066cde06027f88390d3665bef1bf98b9bd))
+
 ## [1.260730.1](https://github.com/Autonoma-AI/agent/compare/v1.260729.3...v1.260730.1) (2026-07-30)
 
 
