@@ -66,6 +66,7 @@ export class CoverageState {
 
     readonly stateFile: string;
     private readonly reportsProgress: boolean;
+    private phase?: string;
 
     constructor(options: CoverageStateOptions = {}) {
         this.stateFile = options.stateFile ?? BFS_STATE_FILE;
@@ -170,15 +171,30 @@ export class CoverageState {
         return paths;
     }
 
-    /** Processed nodes (tested or skipped) over the known graph size, plus a
-     * live estimate of the final test count - which isn't known upfront (each
-     * node's test count is decided as its source is read). */
+    /**
+     * What the step is doing now, for the phases that follow node exploration:
+     * journey generation, the review cycles, the validation sweep. Node
+     * exploration needs no label - its ratio already says so.
+     *
+     * Routed through this state rather than reported separately because
+     * write_test keeps running during those phases, and every write re-emits
+     * progress. A second writer to the same slot would race it and flicker.
+     */
+    setPhase(phase: string | undefined): void {
+        this.phase = phase;
+        this.reportProgress();
+    }
+
+    /** Processed nodes (tested or skipped) over the known graph size, labelled
+     * with the running phase or - while exploring - a live estimate of the final
+     * test count, which isn't known upfront (each node's test count is decided as
+     * its source is read). */
     private reportProgress(): void {
         if (!this.reportsProgress) return;
         const stats = this.summary();
         const processed = stats.tested + stats.skipped;
         const expected = estimateExpectedTests(stats.totalTests, processed, stats.totalNodes);
-        reportSubProgress("testGenerator", processed, stats.totalNodes, "nodes", `~${expected} tests`);
+        reportSubProgress("testGenerator", processed, stats.totalNodes, "nodes", this.phase ?? `~${expected} tests`);
     }
 
     summary(): {

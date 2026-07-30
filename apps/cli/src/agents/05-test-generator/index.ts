@@ -331,6 +331,7 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
     }
 
     if (state.allTestPaths().length > 0) {
+        state.setPhase("writing journey tests");
         const journeyCount = await generateJourneyTests(input.outputDir, model, input.projectRoot);
         if (journeyCount > 0) {
             console.log(`  Generated ${journeyCount} journey tests`);
@@ -362,6 +363,7 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
             }
 
             console.log(`  Review cycle ${cycle + 1}/${MAX_REVIEW_CYCLES}`);
+            state.setPhase(`review cycle ${cycle + 1}/${MAX_REVIEW_CYCLES}`);
 
             const reviewResult = await runConsolidatedReview(input.outputDir, input.projectRoot, model, reviewDeadline);
 
@@ -465,6 +467,7 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
         }
 
         // --- Final validation sweep: move structurally invalid tests to _invalid/ ---
+        state.setPhase("checking every test");
         const allTestFiles = await glob(join(input.outputDir, TESTS_DIR, TEST_FILE_GLOB));
         let markedInvalid = 0;
         for (const testPath of allTestFiles) {

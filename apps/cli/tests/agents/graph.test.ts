@@ -350,4 +350,34 @@ describe("state persistence is per-generator", () => {
             setActiveStore(undefined);
         }
     });
+    test("a phase label replaces the test estimate, and survives writes during it", async () => {
+        const { createStore, setActiveStore } = await import("../../src/ui/store");
+        const store = createStore({ outputDir: "/out", meta: { title: "t", project: "p", version: "0" } });
+        setActiveStore(store);
+        try {
+            store.startStep("testGenerator");
+            const state = new CoverageState();
+            for (const id of ["a", "b"]) state.enqueue(makeNode({ id }));
+            state.nextNode();
+            state.markTested("a", ["qa-tests/a.md"]);
+            // While exploring, the note estimates the final test count.
+            expect(store.getState().steps.testGenerator.sub?.note).toMatch(/tests$/);
+
+            state.setPhase("review cycle 2/4");
+            expect(store.getState().steps.testGenerator.sub).toMatchObject({
+                done: 1,
+                total: 2,
+                unit: "nodes",
+                note: "review cycle 2/4",
+            });
+
+            // The review-fix pass writes through this same state, so every fixed
+            // test re-emits progress. The phase has to survive that.
+            state.nextNode();
+            state.markTested("b", ["qa-tests/b.md"]);
+            expect(store.getState().steps.testGenerator.sub?.note).toBe("review cycle 2/4");
+        } finally {
+            setActiveStore(undefined);
+        }
+    });
 });
