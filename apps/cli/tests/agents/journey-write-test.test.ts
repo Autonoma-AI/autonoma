@@ -32,7 +32,7 @@ beforeAll(() => {
  * only thing that can put a node in progress is the explicit nextNode() call.
  */
 function journeyState(): CoverageState {
-    const state = new CoverageState(JOURNEY_STATE_FILE);
+    const state = new CoverageState({ stateFile: JOURNEY_STATE_FILE });
     state.enqueue({
         id: "journeys",
         name: "Journey Tests",

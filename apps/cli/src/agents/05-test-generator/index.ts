@@ -608,7 +608,7 @@ Each journey test:
 Write 5-8 journey tests using the write_test tool with folder "journeys". Then call finish.`;
 
     const ignorePatterns = await loadGitignorePatterns(projectRoot);
-    const journeyState = new CoverageState(JOURNEY_STATE_FILE);
+    const journeyState = new CoverageState({ stateFile: JOURNEY_STATE_FILE, reportsProgress: false });
     journeyState.enqueue({
         id: "journeys",
         name: "Journey Tests",

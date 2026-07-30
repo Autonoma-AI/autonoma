@@ -310,7 +310,7 @@ describe("state persistence is per-generator", () => {
             // Journey tests run through the same write_test tool with their own
             // state; sharing a file made the first journey write erase the BFS
             // nodes and test paths that --resume depends on.
-            const journey = new CoverageState(JOURNEY_STATE_FILE);
+            const journey = new CoverageState({ stateFile: JOURNEY_STATE_FILE });
             journey.enqueue(makeNode({ id: "journeys" }));
             journey.markTested("journeys", ["qa-tests/journeys/signup-to-purchase.md"]);
             await saveBfsState(dir, journey);
@@ -320,6 +320,34 @@ describe("state persistence is per-generator", () => {
             expect(JOURNEY_STATE_FILE).not.toBe(BFS_STATE_FILE);
         } finally {
             await rm(dir, { recursive: true, force: true });
+        }
+    });
+    test("the journey pass leaves the tests step's node progress alone", async () => {
+        const { createStore, setActiveStore } = await import("../../src/ui/store");
+        const store = createStore({ outputDir: "/out", meta: { title: "t", project: "p", version: "0" } });
+        setActiveStore(store);
+        try {
+            store.startStep("testGenerator");
+            const bfs = new CoverageState();
+            for (const id of ["a", "b"]) bfs.enqueue(makeNode({ id }));
+            bfs.nextNode();
+            bfs.markTested("a", ["qa-tests/a.md"]);
+            bfs.nextNode();
+            bfs.markTested("b", ["qa-tests/b.md"]);
+            const finished = store.getState().steps.testGenerator.sub;
+            expect(finished).toMatchObject({ done: 2, total: 2, unit: "nodes" });
+
+            // Journey generation runs its own state over one synthetic node. Left
+            // reporting, its first mutation rewrites the strip to "0/1 nodes" at
+            // the moment the step reads as finished.
+            const journey = new CoverageState({ stateFile: JOURNEY_STATE_FILE, reportsProgress: false });
+            journey.enqueue(makeNode({ id: "journeys" }));
+            journey.nextNode();
+            journey.markTested("journeys", ["qa-tests/journeys/full.md"]);
+
+            expect(store.getState().steps.testGenerator.sub).toEqual(finished);
+        } finally {
+            setActiveStore(undefined);
         }
     });
 });

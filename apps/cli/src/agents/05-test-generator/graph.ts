@@ -41,19 +41,36 @@ export interface SerializedCoverageState {
     testsWritten: Record<string, string[]>;
 }
 
-export class CoverageState {
-    nodes: Map<string, FeatureNode> = new Map();
-    queue: string[] = [];
-    testsWritten: Map<string, string[]> = new Map();
-    currentNode?: string;
-
+export interface CoverageStateOptions {
     /**
      * Where this state persists. Journey generation runs a second, independent
      * CoverageState through the same write_test tool; without its own file its
      * first write would overwrite the BFS run's file, dropping every node and
      * test path a --resume needs.
      */
-    constructor(readonly stateFile: string = BFS_STATE_FILE) {}
+    stateFile?: string;
+    /**
+     * Whether this state's node progress reaches the dashboard. The journey pass
+     * explores one synthetic node, so reporting it as the tests step's node
+     * progress replaces a finished "139/139 nodes" with "0/1 nodes" at the moment
+     * the run looks done, which reads as the step starting over.
+     */
+    reportsProgress?: boolean;
+}
+
+export class CoverageState {
+    nodes: Map<string, FeatureNode> = new Map();
+    queue: string[] = [];
+    testsWritten: Map<string, string[]> = new Map();
+    currentNode?: string;
+
+    readonly stateFile: string;
+    private readonly reportsProgress: boolean;
+
+    constructor(options: CoverageStateOptions = {}) {
+        this.stateFile = options.stateFile ?? BFS_STATE_FILE;
+        this.reportsProgress = options.reportsProgress ?? true;
+    }
 
     enqueue(node: FeatureNode): boolean {
         if (this.nodes.has(node.id)) return false;
@@ -157,6 +174,7 @@ export class CoverageState {
      * live estimate of the final test count - which isn't known upfront (each
      * node's test count is decided as its source is read). */
     private reportProgress(): void {
+        if (!this.reportsProgress) return;
         const stats = this.summary();
         const processed = stats.tested + stats.skipped;
         const expected = estimateExpectedTests(stats.totalTests, processed, stats.totalNodes);
@@ -196,8 +214,8 @@ export class CoverageState {
         };
     }
 
-    static deserialize(data: SerializedCoverageState, stateFile: string = BFS_STATE_FILE): CoverageState {
-        const state = new CoverageState(stateFile);
+    static deserialize(data: SerializedCoverageState, options: CoverageStateOptions = {}): CoverageState {
+        const state = new CoverageState(options);
         state.nodes = new Map(Object.entries(data.nodes));
         state.queue = data.queue;
         state.currentNode = data.currentNode ?? undefined;
