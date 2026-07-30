@@ -91,6 +91,10 @@ integrationTestSuite({
             });
 
             const sender = new FakeQuerySender();
+            sender.respondAt(new Date("2026-07-21T12:45:00.000Z"), {
+                cpu: [{ namespace: env.namespace, value: 900 }],
+                memory: [{ namespace: env.namespace, value: 1 }],
+            });
             const now = new Date("2026-07-21T13:00:00.000Z");
             const sweep = buildSweep(harness, sender);
 
@@ -194,7 +198,7 @@ integrationTestSuite({
             expect(updatedEnv.meteredAt).toBeNull();
         });
 
-        test("closes windows at zero usage when no samples came back, charging nothing", async ({ harness }) => {
+        test("advances the checkpoint without writing a row when no samples came back", async ({ harness }) => {
             const orgId = await harness.createOrgWithBalance(100_000);
             const env = await harness.createPreviewkitEnvironment({
                 organizationId: orgId,
@@ -207,17 +211,14 @@ integrationTestSuite({
             const now = new Date("2026-07-21T13:00:00.000Z");
 
             const result = await buildSweep(harness, sender).run(now);
-            expect(result.windowsClosed).toBe(2);
+            expect(result).toEqual({ windowsClosed: 2, environmentsMetered: 2 });
 
-            const windows = await harness.db.previewkitUsageWindow.findMany({
-                where: { environmentId: env.id },
-                orderBy: { windowStart: "asc" },
-            });
-            expect(windows).toHaveLength(2);
-            expect(windows.every((w) => w.vcpuSeconds === 0 && w.gbSeconds === 0)).toBe(true);
+            const windowCount = await harness.db.previewkitUsageWindow.count({ where: { environmentId: env.id } });
+            expect(windowCount).toBe(0);
 
-            // These are indistinguishable from windows for an idle environment, which
-            // is why an outage's unpriced windows cannot be found again afterwards.
+            const updatedEnv = await harness.db.previewkitEnvironment.findUniqueOrThrow({ where: { id: env.id } });
+            expect(updatedEnv.meteredAt).toEqual(new Date("2026-07-21T12:45:00.000Z"));
+
             const customer = await harness.db.billingCustomer.findUniqueOrThrow({ where: { organizationId: orgId } });
             expect(customer.creditBalance).toBe(100_000);
         });

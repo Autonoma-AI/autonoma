@@ -258,7 +258,10 @@ export class PreviewUsageMeterSweepService extends Service {
      * `false` only when the deduction itself threw, so a transient billing failure
      * doesn't silently forfeit the charge: the window row exists either way (it's
      * useful usage data on its own), but the checkpoint stays behind until a retry
-     * succeeds.
+     * succeeds. A window with no measured usage at all (no samples came back for
+     * either series) isn't written - it prices to nothing either way, and keeping it
+     * out of the table avoids a row that's indistinguishable from a genuinely idle
+     * environment.
      */
     private async closeWindow({
         env,
@@ -267,41 +270,49 @@ export class PreviewUsageMeterSweepService extends Service {
         vcpuSeconds,
         gbSeconds,
     }: WindowClosure): Promise<boolean> {
-        const window = await this.db.previewkitUsageWindow.upsert({
-            where: { environmentId_windowStart: { environmentId: env.id, windowStart } },
-            create: {
+        if (vcpuSeconds === 0 && gbSeconds === 0) {
+            this.logger.info("Skipping previewkit usage window with no measured usage", {
                 environmentId: env.id,
-                organizationId: env.organizationId,
+                windowStart,
+                windowEnd,
+            });
+        } else {
+            const window = await this.db.previewkitUsageWindow.upsert({
+                where: { environmentId_windowStart: { environmentId: env.id, windowStart } },
+                create: {
+                    environmentId: env.id,
+                    organizationId: env.organizationId,
+                    windowStart,
+                    windowEnd,
+                    vcpuSeconds,
+                    gbSeconds,
+                },
+                update: {},
+            });
+
+            this.logger.info("Closed previewkit usage window", {
+                environmentId: env.id,
+                usageWindowId: window.id,
                 windowStart,
                 windowEnd,
                 vcpuSeconds,
                 gbSeconds,
-            },
-            update: {},
-        });
-
-        this.logger.info("Closed previewkit usage window", {
-            environmentId: env.id,
-            usageWindowId: window.id,
-            windowStart,
-            windowEnd,
-            vcpuSeconds,
-            gbSeconds,
-        });
-
-        try {
-            await this.billingService.deductCreditsForPreviewUsage(
-                env.organizationId,
-                window.id,
-                vcpuSeconds,
-                gbSeconds,
-            );
-        } catch (error) {
-            this.logger.error("Failed to deduct previewkit usage credits for window; retrying next sweep", error, {
-                environmentId: env.id,
-                usageWindowId: window.id,
             });
-            return false;
+
+            try {
+                await this.billingService.deductCreditsForPreviewUsage(
+                    env.organizationId,
+                    window.id,
+                    vcpuSeconds,
+                    gbSeconds,
+                );
+            } catch (error) {
+                this.logger.error("Failed to deduct previewkit usage credits for window; retrying next sweep", error, {
+                    environmentId: env.id,
+                    usageWindowId: window.id,
+                });
+                return false;
+            }
         }
 
         await this.db.previewkitEnvironment.updateMany({
