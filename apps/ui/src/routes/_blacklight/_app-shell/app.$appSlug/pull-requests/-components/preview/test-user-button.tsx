@@ -15,6 +15,9 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@autonoma/blacklight";
 import { ArrowLineDownIcon } from "@phosphor-icons/react/ArrowLineDown";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
@@ -23,7 +26,6 @@ import { CookieIcon } from "@phosphor-icons/react/Cookie";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { InfoIcon } from "@phosphor-icons/react/Info";
 import type { Icon } from "@phosphor-icons/react/lib";
-import { UserFocusIcon } from "@phosphor-icons/react/UserFocus";
 import { UserPlusIcon } from "@phosphor-icons/react/UserPlus";
 import { Link } from "@tanstack/react-router";
 import {
@@ -35,15 +37,15 @@ import type { RouterOutputs } from "lib/trpc";
 import { type ReactNode, useState } from "react";
 
 // A test user is only reachable while the preview is actually serving traffic,
-// so the card is interactive only when the environment is "ready". Every other
-// status renders the card disabled with a status-specific reason.
+// so the button is interactive only when the environment is "ready". Every other
+// status renders it disabled with a status-specific reason.
 const NOT_READY_REASON: Record<string, string> = {
-  building: "The preview is still building. Provision a test user once it's ready.",
-  stale: "This preview is stale. Redeploy it, then provision a test user.",
-  stopped: "This preview is stopped. Start it to provision a test user.",
-  failed: "This preview failed to deploy. Provision a test user once it's ready.",
+  building: "The preview is still building. Create a test user once it's ready.",
+  stale: "This preview is stale. Redeploy it, then create a test user.",
+  stopped: "This preview is stopped. Start it to create a test user.",
+  failed: "This preview failed to deploy. Create a test user once it's ready.",
 };
-const DEFAULT_NOT_READY_REASON = "This preview isn't running yet. Provision a test user once it's ready.";
+const DEFAULT_NOT_READY_REASON = "This preview isn't running yet. Create a test user once it's ready.";
 
 type ProvisionResult = RouterOutputs["deployments"]["testUserProvision"];
 type AuthPayload = ProvisionResult["auth"];
@@ -65,17 +67,7 @@ type ActiveTestUser = {
 // distinct presentation without a type-erasing union `value`.
 type CredentialMode = { key: string; label: string; render: () => ReactNode };
 
-export function TestUserCard({
-  applicationId,
-  environmentId,
-  compact = false,
-}: {
-  applicationId: string;
-  environmentId: string;
-  /** Renders as a single-line strip with a "Provision"/"Credentials" button opening a Dialog for the
-   * full body, instead of an always-expanded card. Defaults to false (today's full-card layout). */
-  compact?: boolean;
-}) {
+export function TestUserButton({ applicationId, environmentId }: { applicationId: string; environmentId: string }) {
   const { data: options } = usePreviewTestUserOptions(applicationId, environmentId);
   const provision = usePreviewTestUserProvision();
   const teardown = usePreviewTestUserTeardown();
@@ -143,33 +135,14 @@ export function TestUserCard({
       />
     );
 
-  if (!compact) {
-    return (
-      <div className="border border-border-dim bg-surface-base shadow-sm">
-        <TestUserHeader />
-        {body}
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-1 items-center gap-3 px-4 py-3">
-      <span className="size-1.5 shrink-0 bg-primary" />
-      <UserFocusIcon size={14} className="shrink-0 text-text-secondary" />
-      <span className="font-mono text-2xs font-bold uppercase tracking-wider text-text-primary">Test user</span>
-      <span className="min-w-0 flex-1 truncate text-2xs text-text-secondary">
-        {compactStatusText({ active, disabledReason: options.disabledReason, provisionPending: provision.isPending })}
-      </span>
-      {options.disabledReason == null && (
-        <Button
-          variant={active != null ? "outline" : "cta"}
-          size="xs"
-          disabled={provision.isPending}
-          onClick={() => setDetailsOpen(true)}
-        >
-          {active != null ? "Credentials" : "Provision"}
-        </Button>
-      )}
+    <>
+      <TestUserTooltipButton
+        label={active != null ? "Test user details" : "Create test user"}
+        hint={testUserHint({ active, disabledReason: options.disabledReason, provisionPending: provision.isPending })}
+        disabled={options.disabledReason != null || provision.isPending}
+        onClick={() => setDetailsOpen(true)}
+      />
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
         <DialogBackdrop />
         <DialogContent>
@@ -179,13 +152,46 @@ export function TestUserCard({
           <DialogBody>{body}</DialogBody>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 }
 
-// One-line status summary for the compact strip. Mirrors the full card's own body-selection order
-// (disabled > active > pending > empty) so the strip's text never contradicts what the Dialog shows.
-function compactStatusText({
+// The button carries the "test user" wording and an inline (i) for the longer
+// explanation, so it needs no label or status sentence beside it. The tooltip
+// trigger is the wrapping span rather than the button itself: a disabled button
+// swallows pointer events, and the disabled state is exactly when the hint
+// (why it can't be used yet) matters most.
+function TestUserTooltipButton({
+  label,
+  hint,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  hint: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span className="inline-flex">
+            <Button variant="outline" size="xs" className="gap-1.5" disabled={disabled} onClick={onClick}>
+              {label}
+              <InfoIcon size={12} className="opacity-60" />
+            </Button>
+          </span>
+        }
+      />
+      <TooltipContent className="max-w-xs">{hint}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+// Tooltip copy. Mirrors the Dialog body's own selection order (disabled > active >
+// pending > empty) so the hint never contradicts what the Dialog shows.
+function testUserHint({
   active,
   disabledReason,
   provisionPending,
@@ -195,19 +201,11 @@ function compactStatusText({
   provisionPending: boolean;
 }): string {
   if (disabledReason != null) return disabledReason;
-  if (active != null) return `Active - instance ${active.instanceId}`;
-  if (provisionPending) return "Provisioning...";
-  return "Not provisioned - sign in as a throwaway user.";
-}
-
-function TestUserHeader() {
-  return (
-    <div className="flex items-center gap-2 border-b border-border-dim px-4 py-2.5 font-mono text-2xs font-bold uppercase tracking-wider text-text-primary">
-      <span className="size-1.5 shrink-0 bg-primary" />
-      <UserFocusIcon size={14} className="text-text-secondary" />
-      Test user
-    </div>
-  );
+  if (active != null) {
+    return `A test user is active on instance ${active.instanceId}. Open the details to copy its credentials or tear it down.`;
+  }
+  if (provisionPending) return "Provisioning a test user…";
+  return "Signs a throwaway user into the preview and hands you its credentials, so you can click through the app without touching real data.";
 }
 
 function EmptyBody({
@@ -306,7 +304,7 @@ function ProvisioningBody() {
     <div className="flex items-center justify-between gap-4 px-4 py-3">
       <div className="flex items-center gap-2 text-2xs text-text-secondary">
         <BrailleSpinner animation="braille" size="sm" />
-        Spinning up an isolated user and minting credentials…
+        Spinning up an isolated user and its credentials…
       </div>
       <Button variant="cta" size="sm" disabled>
         Provisioning…
@@ -610,50 +608,17 @@ function humanize(key: string): string {
 // Shown in place of the interactive card when the preview isn't "ready": the
 // app can't be signed into, so provisioning is gated behind a reason instead of
 // running the options query.
-export function TestUserCardUnavailable({ status, compact = false }: { status: string; compact?: boolean }) {
-  const reason = NOT_READY_REASON[status] ?? DEFAULT_NOT_READY_REASON;
-
-  if (!compact) {
-    return (
-      <div className="border border-border-dim bg-surface-base shadow-sm">
-        <TestUserHeader />
-        <p className="px-4 py-2.5 text-2xs text-text-secondary">{reason}</p>
-      </div>
-    );
-  }
-
+export function TestUserButtonUnavailable({ status }: { status: string }) {
   return (
-    <div className="flex flex-1 items-center gap-3 px-4 py-3">
-      <span className="size-1.5 shrink-0 bg-primary" />
-      <UserFocusIcon size={14} className="shrink-0 text-text-secondary" />
-      <span className="font-mono text-2xs font-bold uppercase tracking-wider text-text-primary">Test user</span>
-      <span className="min-w-0 flex-1 truncate text-2xs text-text-secondary">{reason}</span>
-      <Button variant="outline" size="xs" disabled className="gap-1.5 opacity-50">
-        <UserPlusIcon size={13} />
-        Provision
-      </Button>
-    </div>
+    <TestUserTooltipButton
+      label="Create test user"
+      hint={NOT_READY_REASON[status] ?? DEFAULT_NOT_READY_REASON}
+      disabled
+      onClick={() => undefined}
+    />
   );
 }
 
-export function TestUserCardSkeleton({ compact = false }: { compact?: boolean } = {}) {
-  if (!compact) {
-    return (
-      <div className="border border-border-dim bg-surface-base shadow-sm">
-        <TestUserHeader />
-        <div className="flex items-center justify-between gap-4 px-4 py-3">
-          <Skeleton className="h-8 w-72" />
-          <Skeleton className="h-7 w-32" />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-1 items-center gap-4 px-4 py-3">
-      <Skeleton className="h-4 w-20" />
-      <Skeleton className="h-4 flex-1" />
-      <Skeleton className="h-7 w-24" />
-    </div>
-  );
+export function TestUserButtonSkeleton() {
+  return <Skeleton className="h-7 w-32 shrink-0" />;
 }

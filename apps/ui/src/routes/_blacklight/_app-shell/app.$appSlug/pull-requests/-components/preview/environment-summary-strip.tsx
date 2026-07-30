@@ -18,15 +18,13 @@ import { pickPreviewLiveness, type PreviewLivenessState, usePreviewLiveness } fr
 import type { RouterOutputs } from "lib/trpc";
 import { Component, type ReactNode, Suspense, useState } from "react";
 import { DEPLOYMENT_STATUS_META, DeploymentRow, type DeploymentHistoryRow } from "./deployment-row";
-import { TestUserCard, TestUserCardSkeleton, TestUserCardUnavailable } from "./test-user-card";
 
 type PreviewSummary = RouterOutputs["deployments"]["previewSummaryById"];
 
 /**
- * Environment-level summary strip shown once above the resource rail + logs: the current deployment
- * (sha, status, age, duration, history) and the test user (status + provision action). Both are
- * environment-scoped, not per-app - unlike the legacy explorer body, neither changes when the reader
- * selects a different app/service in the rail.
+ * Environment-level summary strip shown once above the resource rail + logs: the current deployment's
+ * sha, status, age, duration and history. Environment-scoped, not per-app - unlike the explorer body,
+ * it doesn't change when the reader selects a different app/service in the rail.
  */
 export function EnvironmentSummaryStrip({
   applicationId,
@@ -47,7 +45,7 @@ export function EnvironmentSummaryStrip({
   const livenessState = pickPreviewLiveness(liveness, livenessUrls);
 
   return (
-    <div className="flex flex-wrap items-stretch divide-y divide-border-dim border border-border-dim bg-surface-base sm:flex-nowrap sm:divide-x sm:divide-y-0">
+    <div className="flex items-stretch border border-border-dim bg-surface-base">
       <QueryErrorResetBoundary>
         {({ reset }) => (
           <DeploymentSummaryErrorBoundary onRetry={reset}>
@@ -62,13 +60,6 @@ export function EnvironmentSummaryStrip({
           </DeploymentSummaryErrorBoundary>
         )}
       </QueryErrorResetBoundary>
-      {summary.status === "ready" ? (
-        <Suspense fallback={<TestUserCardSkeleton compact />}>
-          <TestUserCard applicationId={applicationId} environmentId={environmentId} compact />
-        </Suspense>
-      ) : (
-        <TestUserCardUnavailable status={summary.status} compact />
-      )}
     </div>
   );
 }
@@ -207,9 +198,8 @@ class DeploymentSummaryErrorBoundary extends Component<
 /** Skeleton mirroring EnvironmentSummaryStrip's layout, for the redesigned Preview tab's initial load. */
 export function EnvironmentSummaryStripSkeleton() {
   return (
-    <div className="flex flex-wrap items-stretch divide-y divide-border-dim border border-border-dim bg-surface-base sm:flex-nowrap sm:divide-x sm:divide-y-0">
+    <div className="flex items-stretch border border-border-dim bg-surface-base">
       <DeploymentSummarySkeleton />
-      <TestUserCardSkeleton compact />
     </div>
   );
 }

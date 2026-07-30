@@ -28,8 +28,9 @@ import { PREVIEW_STATUS_HELP, PreviewStatusBadge } from "components/preview-stat
 import { formatDuration } from "lib/format";
 import { useRedeployPreviewApp } from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, Suspense, useState } from "react";
 import { SERVICE_ICON_BY_KEY, SERVICE_STATUS_META } from "../preview-status-meta";
+import { TestUserButton, TestUserButtonSkeleton, TestUserButtonUnavailable } from "./test-user-button";
 
 type PreviewSummary = RouterOutputs["deployments"]["previewSummaryById"];
 type PreviewService = PreviewSummary["services"][number];
@@ -94,7 +95,12 @@ export function PreviewEnvironmentExplorer({
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {selectedService != null && (
-          <PreviewAppDetail service={selectedService} applicationId={applicationId} environmentId={environmentId} />
+          <PreviewAppDetail
+            service={selectedService}
+            applicationId={applicationId}
+            environmentId={environmentId}
+            summaryStatus={summary.status}
+          />
         )}
         {selectedService?.statusReason != null && (
           <span className="inline-flex items-center gap-1.5 border border-status-critical/30 bg-status-critical/10 px-2.5 py-1 font-mono text-xs text-status-critical">
@@ -181,10 +187,12 @@ function PreviewAppDetail({
   service,
   applicationId,
   environmentId,
+  summaryStatus,
 }: {
   service: PreviewService;
   applicationId: string;
   environmentId: string;
+  summaryStatus: string;
 }) {
   const ServiceIcon = SERVICE_ICON_BY_KEY[service.iconKey] ?? GearSixIcon;
   const statusMeta = SERVICE_STATUS_META[service.status] ?? SERVICE_STATUS_META.unknown;
@@ -232,6 +240,18 @@ function PreviewAppDetail({
             "-"
           )}
         </InlineMeta>
+        {/* Sits with the URL rather than in the environment strip: the test user only means
+            anything paired with the address you open, even though it is environment-scoped.
+            Only the live button needs an endpoint - an app's endpoint is null exactly when
+            there is no running instance, which is when the disabled button's reason matters. */}
+        {isAppService(service) &&
+          (summaryStatus === "ready" && service.endpoint != null ? (
+            <Suspense fallback={<TestUserButtonSkeleton />}>
+              <TestUserButton applicationId={applicationId} environmentId={environmentId} />
+            </Suspense>
+          ) : (
+            <TestUserButtonUnavailable status={summaryStatus} />
+          ))}
         <InlineMeta label="Build time" icon={TimerIcon}>
           {service.buildDurationMs != null ? formatDuration(service.buildDurationMs) : "-"}
         </InlineMeta>

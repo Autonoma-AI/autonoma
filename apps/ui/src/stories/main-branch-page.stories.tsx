@@ -81,8 +81,8 @@ const PREVIEW_SERVICES: PreviewServiceFixture[] = [
 
 /**
  * The main branch's own preview environment (the repository's PR #0) - a failed build, so the
- * environment summary strip's Test User half renders `TestUserCardUnavailable` and no
- * `testUserOptions`/`testUserProvision` fixtures are needed.
+ * selected app's URL row renders `TestUserButtonUnavailable` and no `testUserOptions` /
+ * `testUserProvision` fixtures are needed.
  */
 function previewkitSummary() {
   return {
