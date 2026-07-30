@@ -109,6 +109,7 @@ export class APITestHarness implements IntegrationHarness {
         const services = buildServices({
             conn: db,
             auth,
+            redisClient,
             storageProvider: storage,
             scenarioManager,
             encryptionHelper,

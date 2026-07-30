@@ -56,7 +56,7 @@ const baseTrpcFixtures: TrpcFixtures = {
         // The app shell (route.tsx / useActiveOrg) resolves the active org on
         // every page under it, so the baseline must answer it or those stories
         // render an error.
-        activeOrg: { id: ORG_ID, name: "Acme", slug: "acme", isDemo: false },
+        activeOrg: { id: ORG_ID, name: "Acme", slug: "acme", isDemo: false, canReturnToAccount: false },
     },
     applications: { list: [baseApplication] },
     github: { getInstallation: null },

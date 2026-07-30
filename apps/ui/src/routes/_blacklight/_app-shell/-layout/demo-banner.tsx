@@ -1,4 +1,5 @@
 import { EyeIcon } from "@phosphor-icons/react/Eye";
+import { DemoReturnButton } from "components/demo-return-button";
 import { useActiveOrg } from "lib/query/auth.queries";
 import { DemoSignupButton } from "./demo-signup-button";
 
@@ -15,7 +16,7 @@ export function DemoBanner() {
     <div className="relative z-20 flex shrink-0 items-center justify-center gap-3 border-b border-primary/30 bg-primary/10 px-6 py-2">
       <EyeIcon size={14} className="text-primary" weight="fill" />
       <span className="font-mono text-2xs text-text-primary">You're exploring a live, read-only demo of Autonoma.</span>
-      <DemoSignupButton label="Sign up to build your own" />
+      {activeOrg.canReturnToAccount ? <DemoReturnButton /> : <DemoSignupButton label="Sign up to build your own" />}
     </div>
   );
 }

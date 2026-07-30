@@ -17,6 +17,6 @@ export const authRouter = router({
             throw new TRPCError({ code: "UNAUTHORIZED" });
         }
         if (ctx.session.activeOrganizationId == null) return undefined;
-        return ctx.services.auth.getActiveOrg(ctx.session.activeOrganizationId);
+        return ctx.services.auth.getActiveOrg(ctx.session.activeOrganizationId, ctx.session.token);
     }),
 });

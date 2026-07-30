@@ -11,11 +11,13 @@ import {
   cn,
 } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
+import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { DeleteApplicationDialog } from "components/delete-application-dialog";
+import { getApiOrigin } from "lib/api-origin";
 import { useCompleteGithub } from "lib/onboarding/onboarding-api";
 import { type OnboardingOrigin, buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useCreateMinimalApplication } from "lib/query/applications.queries";
@@ -190,12 +192,25 @@ function InstallStep({
           <GithubLogoIcon size={18} weight="bold" />
           {hasStaleInstallation ? "Configure GitHub App" : "Install GitHub App"}
         </Button>
+        <Button
+          variant="outline"
+          className="gap-3 px-8 py-4 font-mono text-sm font-bold uppercase"
+          render={<a href={`${getApiOrigin()}/v1/demo?source=onboarding`} target="_blank" rel="noopener noreferrer" />}
+          aria-label="onboarding-view-demo"
+        >
+          View demo
+          <ArrowSquareOutIcon size={16} weight="bold" />
+        </Button>
         {hasStaleInstallation && (
           <Button variant="outline" size="sm" onClick={refresh}>
             I've installed it - refresh
           </Button>
         )}
       </div>
+      <p className="max-w-2xl font-mono text-2xs text-text-secondary">
+        The demo opens in a new tab as a read-only guest, which signs this tab out until you come back - your setup is
+        saved, and "Back to your account" in the demo returns you here.
+      </p>
     </div>
   );
 }

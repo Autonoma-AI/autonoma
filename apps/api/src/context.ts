@@ -77,6 +77,7 @@ export async function createContext(c: HonoContext) {
         services: buildServices({
             conn: db,
             auth,
+            redisClient,
             storageProvider,
             scenarioManager,
             encryptionHelper,

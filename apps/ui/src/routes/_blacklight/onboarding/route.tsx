@@ -5,6 +5,7 @@ import { SignOutIcon } from "@phosphor-icons/react/SignOut";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { DemoReturnButton } from "components/demo-return-button";
 import { TalkToSupport } from "components/talk-to-support";
 import { useAuth, useAuthClient } from "lib/auth";
 import { isConfigStepId } from "lib/onboarding/config-steps";
@@ -225,6 +226,7 @@ function OnboardingLayout() {
       <div className="fixed left-0 right-0 top-0 z-50 flex h-14 shrink-0 items-center justify-between border-b border-border-dim bg-surface-void/80 px-6 backdrop-blur">
         <img src="/logo.svg" alt="Autonoma" className="h-5 w-auto" />
         <div className="flex items-center gap-2">
+          <DemoReturnButton />
           <span className="font-mono text-2xs text-text-secondary">{user?.name ?? user?.email ?? ""}</span>
           {isAdmin && (
             <Link

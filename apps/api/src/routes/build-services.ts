@@ -16,8 +16,10 @@ import type {
 } from "@autonoma/types";
 import type { PipelineWorkflows } from "@autonoma/workflow";
 import { KMSClient } from "@aws-sdk/client-kms";
+import type Redis from "ioredis";
 import { ApplicationSetupService } from "../application-setup/application-setup.service";
 import type { Auth } from "../auth";
+import { ParkedSessionStore } from "../demo/parked-session.store";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
 import { BranchContributorService } from "../github/branch-contributor.service";
@@ -100,6 +102,7 @@ export interface Services {
 export interface ServicesParams {
     conn: PrismaClient;
     auth: Auth;
+    redisClient: Redis;
     storageProvider: StorageProvider;
     scenarioManager: ScenarioManager;
     encryptionHelper: EncryptionHelper;
@@ -118,6 +121,7 @@ const PREVIEWKIT_AI_MODEL_ID = "gemini-3-flash-preview";
 export function buildServices({
     conn,
     auth,
+    redisClient,
     storageProvider,
     scenarioManager,
     encryptionHelper,
@@ -203,7 +207,7 @@ export function buildServices({
 
     return {
         admin: new AdminService(conn, auth, githubApp),
-        auth: new AuthService(conn),
+        auth: new AuthService(conn, new ParkedSessionStore(redisClient)),
         apiKeys: apiKeysService,
         branches: branchesService,
         bugs: new BugsService(conn, storageProvider, analytics, env.APP_URL),

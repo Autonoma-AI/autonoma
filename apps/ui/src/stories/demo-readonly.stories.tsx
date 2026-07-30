@@ -14,7 +14,15 @@ import { dashboardFixtures } from "./app-home.stories";
  */
 const demoFixtures: TrpcFixtures = {
   ...dashboardFixtures,
-  auth: { activeOrg: { id: "org_fixture_01", name: "Northwind Bank", slug: "northwind", isDemo: true } },
+  auth: {
+    activeOrg: {
+      id: "org_fixture_01",
+      name: "Northwind Bank",
+      slug: "northwind",
+      isDemo: true,
+      canReturnToAccount: false,
+    },
+  },
 };
 
 const meta = {
@@ -32,6 +40,30 @@ type Story = StoryObj<typeof meta>;
 
 export const Banner: Story = {
   args: { path: `/app/${baseApplication.slug}` },
+};
+
+/**
+ * The banner for a visitor who entered the demo from their own signed-in session: the
+ * conversion CTA gives way to the way back, since they already have an account waiting.
+ */
+export const BannerWithReturn: Story = {
+  args: { path: `/app/${baseApplication.slug}` },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...demoFixtures,
+        auth: {
+          activeOrg: {
+            id: "org_fixture_01",
+            name: "Northwind Bank",
+            slug: "northwind",
+            isDemo: true,
+            canReturnToAccount: true,
+          },
+        },
+      }),
+    },
+  },
 };
 
 export const WriteBlockModal: Story = {
