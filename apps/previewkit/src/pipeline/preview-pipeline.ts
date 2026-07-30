@@ -53,7 +53,7 @@ import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import { enrichDependencyShas } from "../multirepo/enrich-dependency-shas";
 import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
-import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
+import type { BuildSecretSource } from "../secrets/build-secret-source";
 import { computeFinalOutcomes, toAddonResults, toBuildStates, toFinalAppStates } from "./outcomes";
 import { StatusWriter } from "./status-writer";
 
@@ -103,7 +103,7 @@ interface PreviewPipelineOptions {
     provider: GitProvider;
     builder: Builder;
     deployer: Deployer;
-    awsSecretsFetcher: AwsSecretsFetcher;
+    buildSecrets: BuildSecretSource;
     addonManager: AddonManager;
     registryUrl: string;
     /** ECR pull-through cache prefix for Docker Hub; threaded into generated
@@ -131,7 +131,7 @@ export class PreviewPipeline {
     private readonly provider: GitProvider;
     private readonly builder: Builder;
     private readonly deployer: Deployer;
-    private readonly awsSecretsFetcher: AwsSecretsFetcher;
+    private readonly buildSecrets: BuildSecretSource;
     private readonly addonManager: AddonManager;
     private readonly registryUrl: string;
     private readonly dockerHubMirror: string;
@@ -143,7 +143,7 @@ export class PreviewPipeline {
         this.provider = options.provider;
         this.builder = options.builder;
         this.deployer = options.deployer;
-        this.awsSecretsFetcher = options.awsSecretsFetcher;
+        this.buildSecrets = options.buildSecrets;
         this.addonManager = options.addonManager;
         this.registryUrl = options.registryUrl;
         this.dockerHubMirror = options.dockerHubMirror;
@@ -1594,10 +1594,10 @@ export class PreviewPipeline {
             const appArn = ctx.arnByApp.get(app.name);
             const secretBuildArgs =
                 app.build_secrets.length > 0 && appArn != null
-                    ? this.awsSecretsFetcher.pickKeys(
-                          await this.awsSecretsFetcher.fetchJson(appArn),
-                          app.build_secrets,
+                    ? await this.buildSecrets.forKeys(
+                          { kind: "app", applicationId: ctx.applicationId, appName: app.name },
                           appArn,
+                          app.build_secrets,
                       )
                     : {};
 

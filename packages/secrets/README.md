@@ -43,6 +43,14 @@ Under `postgres`, a listing is served entirely from stored columns - no key is u
 
 Every fall back is logged at error level. They should be rare once the backfill has run and its refused and dangling sets are resolved; a steady stream means the flip was premature. That is the signal to watch, and it is why the fallback exists rather than a hard cutover.
 
+### The same flag covers the deploy runner
+
+Values are read in two places: the API (listing and revealing them) and the previewkit runner (`build_secrets:` build args, addon `auth_secret:` lookups). Both are behind `PREVIEWKIT_SECRETS_READ`, and both fall back per bundle, but the runner does not get the flag from its own config. The runner Job's env comes from a shared secret carrying production's values, while `DATABASE_URL` is injected per-Job from the launching API - so a beta deploy runs against beta's database. The flag asserts that _a specific database_ holds the secrets, which makes it meaningless apart from that `DATABASE_URL`: `PreviewkitJobLauncher` therefore injects `PREVIEWKIT_SECRETS_READ` and `PREVIEWKIT_SECRETS_CMK` from the API's own env alongside it. One flag per API environment moves that environment's API reads and its runners together, and nothing has to be edited in the shared secret.
+
+The runner's fallback matters more than the API's, because it is not a display bug. A build arg that resolves to nothing produces an image that boots and then misbehaves, far from the cause - so `BuildSecretSource` fails the build for a `build_secrets:` key the answering store does not have, and names which store answered. What it will not do is treat an empty Postgres bundle as "no secrets".
+
+Runtime secrets are a separate path: the K8s Secret every preview pod mounts is still populated by External Secrets from AWS (`AwsExternalSecretManager`), and moving that is its own step.
+
 ### Earning the read flip
 
 Before any read is served from here, both `list()` methods shadow-read: they return the authoritative AWS response as before and additionally call `SecretValueMirror.audit`, which compares `SecretValues.fingerprints` against what AWS just gave them and warns on any difference. Serving a read from an incomplete mirror would show a user no secrets at all, and an un-backfilled bundle is indistinguishable from an empty one at the API surface - so the mirror has to prove itself first.

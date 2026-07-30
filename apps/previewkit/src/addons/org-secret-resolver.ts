@@ -1,23 +1,25 @@
 import { db, type PrismaClient } from "@autonoma/db";
 import { logger as rootLogger, type Logger } from "../logger";
-import type { AwsSecretsFetcher } from "../secrets/aws-secrets-fetcher";
+import type { BuildSecretSource } from "../secrets/build-secret-source";
 
 /**
  * Resolves an `auth_secret: "name"` reference from the preview config into the
- * actual key-value map stored in AWS Secrets Manager. Per-organization scope: a
- * `PreviewkitOrgSecret` row binds an org-secret name to an AWS SM ARN, and the
- * ARN points at a JSON map whose keys are picked by individual providers
+ * actual key-value map. Per-organization scope: a `PreviewkitOrgSecret` row binds
+ * an org-secret name to a bundle whose keys individual providers pick from
  * (NeonProvider grabs `token`, etc.).
  *
- * This sits parallel to the existing per-app `AwsExternalSecretManager`
- * pipeline — same AWS SM JSON convention, different scope (org vs app) and
- * different consumer (addon provisioning, not runtime K8s mounting).
+ * Values come from `BuildSecretSource`, so this follows the same store the build
+ * path does. The ARN on the row is passed along only as its AWS fallback.
+ *
+ * This sits parallel to the per-app `AwsExternalSecretManager` pipeline - same
+ * JSON convention, different scope (org vs app) and different consumer (addon
+ * provisioning, not runtime K8s mounting).
  */
 export class OrgSecretResolver {
     private readonly logger: Logger;
 
     constructor(
-        private readonly fetcher: AwsSecretsFetcher,
+        private readonly secrets: BuildSecretSource,
         private readonly prisma: PrismaClient = db,
     ) {
         this.logger = rootLogger.child({ name: this.constructor.name });
@@ -43,6 +45,6 @@ export class OrgSecretResolver {
             );
         }
 
-        return this.fetcher.fetchJson(record.awsSecretArn);
+        return this.secrets.forBundle({ kind: "org", organizationId, name }, record.awsSecretArn);
     }
 }

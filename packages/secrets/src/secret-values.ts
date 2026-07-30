@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { type SecretBundle, scopeIn } from "@autonoma/utils";
+import { describeSecretBundle, type SecretBundle, scopeIn } from "@autonoma/utils";
 import { secretFingerprint } from "./secret-fingerprint";
 import type { SecretKeys } from "./secret-keys";
 
@@ -70,7 +70,9 @@ export class SecretValues {
     async put(bundle: SecretBundle, items: readonly SecretItem[]): Promise<void> {
         if (items.length === 0) return;
 
-        this.logger.info("Sealing secret values", { extra: { bundle: describe(bundle), count: items.length } });
+        this.logger.info("Sealing secret values", {
+            extra: { bundle: describeSecretBundle(bundle), count: items.length },
+        });
 
         const parentId = await this.parentId(bundle);
         if (parentId == null) return;
@@ -105,7 +107,7 @@ export class SecretValues {
         );
 
         this.logger.info("Secret values sealed", {
-            extra: { bundle: describe(bundle), encryptionKeyId: cipher.keyId, count: rows.length },
+            extra: { bundle: describeSecretBundle(bundle), encryptionKeyId: cipher.keyId, count: rows.length },
         });
     }
 
@@ -154,6 +156,40 @@ export class SecretValues {
         return rows.sort((a, b) => a.key.localeCompare(b.key));
     }
 
+    /**
+     * Every value in the bundle, in the clear. Undefined when the bundle holds nothing,
+     * which means not migrated rather than empty - a bundle row implies at least one
+     * value, since a write requires one.
+     *
+     * One key unwrap covers the whole bundle: `forEnvelope` caches per key version, so
+     * a bundle sealed under a single version costs one round trip regardless of size.
+     */
+    async getAll(bundle: SecretBundle): Promise<Record<string, string> | undefined> {
+        const rows =
+            bundle.kind === "app"
+                ? await this.db.previewkitSecretValue.findMany({
+                      where: { secret: { applicationId: bundle.applicationId, appName: bundle.appName } },
+                      select: { key: true, envelope: true },
+                  })
+                : await this.db.previewkitOrgSecretValue.findMany({
+                      where: { orgSecret: { organizationId: bundle.organizationId, name: bundle.name } },
+                      select: { key: true, envelope: true },
+                  });
+
+        if (rows.length === 0) return undefined;
+
+        this.logger.info("Opening a secret bundle", {
+            extra: { bundle: describeSecretBundle(bundle), count: rows.length },
+        });
+
+        const opened: Record<string, string> = {};
+        for (const row of rows) {
+            const cipher = await this.keys.forEnvelope(row.envelope);
+            opened[row.key] = cipher.decrypt(row.envelope, scopeIn(bundle, row.key));
+        }
+        return opened;
+    }
+
     /** One value in the clear. Undefined when the key is not mirrored, which is not the same as it not existing. */
     async get(bundle: SecretBundle, key: string): Promise<string | undefined> {
         const row =
@@ -169,7 +205,7 @@ export class SecretValues {
 
         if (row == null) return undefined;
 
-        this.logger.info("Opening a secret value", { extra: { bundle: describe(bundle), key } });
+        this.logger.info("Opening a secret value", { extra: { bundle: describeSecretBundle(bundle), key } });
         const cipher = await this.keys.forEnvelope(row.envelope);
         return cipher.decrypt(row.envelope, scopeIn(bundle, key));
     }
@@ -198,7 +234,7 @@ export class SecretValues {
 
     /** Removes one key from `bundle`. Absent keys are not an error - the caller's authoritative store decides that. */
     async remove(bundle: SecretBundle, key: string): Promise<void> {
-        this.logger.info("Removing a secret value", { extra: { bundle: describe(bundle), key } });
+        this.logger.info("Removing a secret value", { extra: { bundle: describeSecretBundle(bundle), key } });
 
         const parentId = await this.parentId(bundle);
         if (parentId == null) return;
@@ -208,7 +244,9 @@ export class SecretValues {
                 ? await this.db.previewkitSecretValue.deleteMany({ where: { secretId: parentId, key } })
                 : await this.db.previewkitOrgSecretValue.deleteMany({ where: { orgSecretId: parentId, key } });
 
-        this.logger.info("Secret value removed", { extra: { bundle: describe(bundle), key, count: removed.count } });
+        this.logger.info("Secret value removed", {
+            extra: { bundle: describeSecretBundle(bundle), key, count: removed.count },
+        });
     }
 
     /**
@@ -233,16 +271,9 @@ export class SecretValues {
 
         if (row == null) {
             this.logger.warn("No secret bundle row to attach values to; skipping", {
-                extra: { bundle: describe(bundle) },
+                extra: { bundle: describeSecretBundle(bundle) },
             });
         }
         return row?.id;
     }
-}
-
-/** Bundle identity for logs - never a secret key name or value. */
-function describe(bundle: SecretBundle): string {
-    return bundle.kind === "app"
-        ? `app:${bundle.applicationId}/${bundle.appName}`
-        : `org:${bundle.organizationId}/${bundle.name}`;
 }

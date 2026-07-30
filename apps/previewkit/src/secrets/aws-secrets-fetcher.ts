@@ -2,8 +2,11 @@ import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-sec
 import { logger as rootLogger, type Logger } from "../logger";
 
 /**
- * Fetches secret values from AWS Secrets Manager and exposes a lookup helper
- * for the preview config's `build_secrets:` field.
+ * Reads secret values out of AWS Secrets Manager.
+ *
+ * The AWS half of `BuildSecretSource`, which is what callers use - it decides
+ * whether a bundle is answered from here or from Postgres, and picks the keys a
+ * build asked for. This class knows only how to fetch and parse.
  *
  * Each `PreviewkitSecret.awsSecretArn` is expected to point at an AWS SM
  * secret whose `SecretString` is a JSON object — same shape the existing
@@ -59,31 +62,5 @@ export class AwsSecretsFetcher {
         this.cache.set(awsSecretArn, map);
         this.logger.info("AWS secret fetched", { awsSecretArn, keyCount: Object.keys(map).length });
         return map;
-    }
-
-    /**
-     * Pulls the requested keys out of an already-fetched secret map. Returns
-     * a Record suitable for merging into `BuildRequest.buildArgs`. Missing
-     * keys throw — a key listed in `build_secrets:` but absent from the AWS
-     * secret is a config bug and we want the build to fail loudly rather than
-     * produce a bundle with empty values inlined.
-     */
-    pickKeys(secretMap: Record<string, string>, keys: readonly string[], awsSecretArn: string): Record<string, string> {
-        const result: Record<string, string> = {};
-        const missing: string[] = [];
-        for (const key of keys) {
-            const value = secretMap[key];
-            if (value == null) {
-                missing.push(key);
-                continue;
-            }
-            result[key] = value;
-        }
-        if (missing.length > 0) {
-            throw new Error(
-                `AWS secret ${awsSecretArn} is missing keys requested via build_secrets: ${missing.join(", ")}`,
-            );
-        }
-        return result;
     }
 }

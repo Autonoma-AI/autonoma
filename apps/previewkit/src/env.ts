@@ -114,6 +114,16 @@ export const env = createEnv({
         // before they are written to the database. Must match PREVIEWKIT_BYPASS_TOKEN_KEY in the API.
         BYPASS_TOKEN_KEY: z.string().min(64).optional(),
 
+        // Where the runner reads previewkit secret values from. Defaults to aws, so a
+        // deploy changes nothing until an environment opts in, matching the API's flag
+        // of the same name. Postgres still falls back to AWS per bundle when it holds
+        // nothing, since that means not migrated rather than empty.
+        PREVIEWKIT_SECRETS_READ: z.enum(["aws", "postgres"]).default("aws"),
+        // The CMK that wraps the encryption keys. Needed only to construct the KMS
+        // provider; unwrapping names no CMK, because a symmetric KMS ciphertext
+        // identifies its own key. Absent means AWS stays the only secret source.
+        PREVIEWKIT_SECRETS_CMK: z.string().min(1).optional(),
+
         // Temporal, for the post-deploy diffs trigger. Optional so dev/self-host and any environment without
         // a control-plane Temporal simply no-op the trigger (the runner still deploys the preview). When set,
         // @autonoma/workflow's client reads TEMPORAL_ADDRESS/TEMPORAL_NAMESPACE from process.env directly; these

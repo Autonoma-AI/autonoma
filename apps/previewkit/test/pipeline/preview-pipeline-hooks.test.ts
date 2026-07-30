@@ -59,7 +59,7 @@ function createPipeline() {
         provider: {} as never,
         builder: {} as never,
         deployer: deployer as never,
-        awsSecretsFetcher: {} as never,
+        buildSecrets: {} as never,
         addonManager: {} as never,
         registryUrl: "registry.example.com",
         dockerHubMirror: "",

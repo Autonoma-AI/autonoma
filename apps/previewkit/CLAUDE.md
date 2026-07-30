@@ -106,7 +106,13 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 - `addons/` - third-party resource providers (e.g. Neon) via a provider registry.
 - `recipes/` - infra service recipes (postgres, redis, valkey, mongodb, upstash, api-gateway, docker-image, aws, temporal).
 - `git-provider/` - GitHub provider + the `PullRequestEvent` shape (input to `deploy`).
-- `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, AWS Secrets Manager.
+- `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, secret reads.
+  `secrets/build-secret-source.ts` is the ONE seam every value read goes through (`build_secrets:`
+  build args and addon `auth_secret:` lookups): it picks Postgres or AWS per bundle, and owns the
+  key-picking so a missing `build_secrets:` key fails the build naming the store that answered.
+  Callers pass a `SecretBundle`, never an ARN alone - one AWS secret can back two bundles, so
+  ARN -> bundle is not a function. `secrets/aws-external-secret-manager.ts` (the runtime K8s Secret
+  bridge via ESO) is a separate path and still AWS-only.
   `diffs/trigger-diffs-after-deploy.ts` also starts the diffs run: once a PR preview is ready, the runner
   starts the `triggerPrDiffsWorkflow` Temporal job directly (guarded on `TEMPORAL_ADDRESS`, PR-only, ready,
   a resolved primary URL, and a `branchId` on the event), so an Autonoma review begins without the customer's
@@ -342,6 +348,15 @@ There is deliberately NO key env var: the runner needs only `kms:Decrypt` on the
 via `PreviewkitServiceRole`, and a deploy with no secrets never calls KMS at all. Rotation, IAM, the
 why environments are isolated by their databases rather than by IAM, and the CMK-deletion
 risk are in `packages/secrets/README.md`.
+`PREVIEWKIT_SECRETS_READ` (`aws` | `postgres`, default `aws`) picks which store the runner reads
+secret VALUES from, and `PREVIEWKIT_SECRETS_CMK` is the CMK that wraps the keys (absent -> AWS is
+the only source). Neither is set in the shared `previewkit-env-file` secret: the API's launcher
+injects both per-Job from its OWN env, alongside `DATABASE_URL`, because the flag means "*this*
+database holds the secrets" - a runner writing to beta's DB has to read beta's answer, not
+production's. So one `PREVIEWKIT_SECRETS_READ` per API environment switches that environment's API
+reads AND its runners together. Postgres is not a hard cutover: `BuildSecretSource` falls back to
+AWS for any individual bundle Postgres holds nothing for (which means "not backfilled", not
+"empty"), logging an error each time, so a partially migrated environment still deploys.
 `PREVIEWKIT_JOB_SPEC` is the per-Job `{mode, event, ...}` payload the API sets on each runner Job.
 `DATABASE_URL` is set on each runner Job by the launcher (PreviewkitJobLauncher, apps/api) to the
 _launching API's own_ DATABASE_URL - an explicit env var that overrides the production DATABASE_URL

@@ -1,6 +1,9 @@
+import { db } from "@autonoma/db";
 import { EksKubeconfigLoader } from "@autonoma/k8s/eks";
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
 import { LokiBuildLogSink } from "@autonoma/logger/loki-build-log-sink";
+import { KmsKeyProvider, SecretKeys, SecretValues } from "@autonoma/secrets";
+import { KMSClient } from "@aws-sdk/client-kms";
 import * as k8s from "@kubernetes/client-node";
 import { AddonManager } from "./addons/addon-manager";
 import { OrgSecretResolver } from "./addons/org-secret-resolver";
@@ -18,6 +21,7 @@ import { PreviewPipeline } from "./pipeline/preview-pipeline";
 import { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager";
 import { AwsSecretsFetcher } from "./secrets/aws-secrets-fetcher";
+import { BuildSecretSource } from "./secrets/build-secret-source";
 
 const BUILDKIT_DIAL_BUDGET_MS = 30_000;
 const BUILDKIT_LIFECYCLE_MARGIN_MS = 60_000;
@@ -130,6 +134,22 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     // AWS Secrets Manager direct fetcher for build-time secrets.
     const awsSecretsFetcher = new AwsSecretsFetcher(env.AWS_REGION);
 
+    // Secret values the runner reads (build args, addon auth). The runner only ever
+    // unwraps a key, which names no CMK, but KmsKeyProvider takes one for its mint
+    // path; without it Postgres cannot be opened and AWS is the only source.
+    const secretKeys =
+        env.PREVIEWKIT_SECRETS_CMK != null
+            ? new SecretKeys(
+                  db,
+                  new KmsKeyProvider(new KMSClient({ region: env.AWS_REGION }), env.PREVIEWKIT_SECRETS_CMK),
+              )
+            : undefined;
+    const buildSecrets = new BuildSecretSource(
+        awsSecretsFetcher,
+        env.PREVIEWKIT_SECRETS_READ === "postgres",
+        secretKeys != null ? new SecretValues(db, secretKeys) : undefined,
+    );
+
     // Deployer
     const deployer = new Deployer(
         kc,
@@ -145,7 +165,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     // Addon plugin registry + manager.
     const addonProviderRegistry = new AddonProviderRegistry();
     addonProviderRegistry.register(new NeonProvider());
-    const orgSecretResolver = new OrgSecretResolver(awsSecretsFetcher);
+    const orgSecretResolver = new OrgSecretResolver(buildSecrets);
     const addonManager = new AddonManager(addonProviderRegistry, orgSecretResolver);
 
     // Pipelines
@@ -153,7 +173,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         provider: githubProvider,
         builder,
         deployer,
-        awsSecretsFetcher,
+        buildSecrets,
         addonManager,
         registryUrl: previewkitDefaults.defaults.registry,
         dockerHubMirror: env.DOCKER_HUB_MIRROR,

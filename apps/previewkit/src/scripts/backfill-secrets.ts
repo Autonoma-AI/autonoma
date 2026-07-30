@@ -1,6 +1,6 @@
 import { db } from "@autonoma/db";
 import { KmsKeyProvider, SecretKeys, secretFingerprint, SecretValues, type SecretItem } from "@autonoma/secrets";
-import type { SecretBundle } from "@autonoma/utils";
+import { describeSecretBundle, type SecretBundle } from "@autonoma/utils";
 import { KMSClient } from "@aws-sdk/client-kms";
 import {
     GetSecretValueCommand,
@@ -113,17 +113,17 @@ async function loadBundles(): Promise<Bundle[]> {
     ]);
 
     return [
-        ...apps.map((row) => ({
-            bundle: { kind: "app" as const, applicationId: row.applicationId, appName: row.appName },
-            label: `app:${row.applicationId}/${row.appName}`,
-            arn: row.awsSecretArn,
-        })),
-        ...orgs.map((row) => ({
-            bundle: { kind: "org" as const, organizationId: row.organizationId, name: row.name },
-            label: `org:${row.organizationId}/${row.name}`,
-            arn: row.awsSecretArn,
-        })),
+        ...apps.map((row) =>
+            entry({ kind: "app", applicationId: row.applicationId, appName: row.appName }, row.awsSecretArn),
+        ),
+        ...orgs.map((row) =>
+            entry({ kind: "org", organizationId: row.organizationId, name: row.name }, row.awsSecretArn),
+        ),
     ];
+}
+
+function entry(bundle: SecretBundle, arn: string): Bundle {
+    return { bundle, label: describeSecretBundle(bundle), arn };
 }
 
 /** What Postgres already holds for a bundle, as key -> fingerprint, so nothing has to be decrypted to compare. */

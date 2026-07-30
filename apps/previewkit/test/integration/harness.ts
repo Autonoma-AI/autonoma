@@ -25,6 +25,10 @@ export class PreviewkitTestHarness implements IntegrationHarness {
         await this.db.gitHubPrComment.deleteMany({});
         await this.db.gitHubInstallation.deleteMany({});
         await this.db.organization.deleteMany({});
+
+        // Secret values went with their organizations above. The key rows are standalone,
+        // and the values' Restrict FK to them means they can only go afterwards.
+        await this.db.previewkitEncryptionKey.deleteMany({});
     }
 
     async afterEach() {}

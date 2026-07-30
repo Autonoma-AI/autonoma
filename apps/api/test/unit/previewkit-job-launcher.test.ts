@@ -71,6 +71,9 @@ class FakeConfigMaps implements ConfigMapReader {
     }
 }
 
+const SECRETS_READ = "postgres" as const;
+const SECRETS_CMK = "arn:aws:kms:us-east-1:1:key/test";
+
 function launcher(api: FakeJobsApi, cms: ConfigMapReader = new FakeConfigMaps(RUNNER_IMAGE)): PreviewkitJobLauncher {
     return new PreviewkitJobLauncher({
         batchApi: api,
@@ -79,6 +82,8 @@ function launcher(api: FakeJobsApi, cms: ConfigMapReader = new FakeConfigMaps(RU
         imageNamespace: IMAGE_NAMESPACE,
         databaseUrl: DATABASE_URL,
         sentryEnv: SENTRY_ENV,
+        secretsRead: SECRETS_READ,
+        secretsCmk: SECRETS_CMK,
     });
 }
 
@@ -139,6 +144,11 @@ describe("PreviewkitJobLauncher.launchDeploy", () => {
         // SENTRY_ENV is injected from the launching API's own config, replacing the
         // former previewkit-runner-env ConfigMap.
         expect(c.env?.find((e) => e.name === "SENTRY_ENV")?.value).toBe(SENTRY_ENV);
+        // The secret-read flag has to travel with DATABASE_URL: it says "this database
+        // holds the secrets", so a runner pointed at beta's DB must not inherit the
+        // production value from the shared previewkit-env-file secret.
+        expect(c.env?.find((e) => e.name === "PREVIEWKIT_SECRETS_READ")?.value).toBe(SECRETS_READ);
+        expect(c.env?.find((e) => e.name === "PREVIEWKIT_SECRETS_CMK")?.value).toBe(SECRETS_CMK);
     });
 
     it("supersedes an in-flight deploy job (Background delete) before creating the new one", async () => {

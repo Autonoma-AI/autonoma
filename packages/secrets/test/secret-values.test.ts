@@ -329,3 +329,46 @@ secretsSuite({
         });
     },
 });
+
+secretsSuite({
+    name: "SecretValues.getAll",
+    cases: (test) => {
+        test("opens every value in a bundle", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            await values(harness).put(bundle, [
+                { key: "A", value: "one" },
+                { key: "B", value: "two" },
+            ]);
+
+            expect(await values(harness).getAll(bundle)).toEqual({ A: "one", B: "two" });
+        });
+
+        test("opens values spanning two key versions", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            await values(harness).put(bundle, [{ key: "OLD", value: "one" }]);
+            await mint(harness, "2");
+            await values(harness).put(bundle, [{ key: "NEW", value: "two" }]);
+
+            expect(await values(harness).getAll(bundle)).toEqual({ OLD: "one", NEW: "two" });
+        });
+
+        // Undefined rather than {} so a caller can tell "not migrated" from "no secrets"
+        // and fall back, instead of handing a build an empty set of secrets.
+        test("returns undefined for a bundle that was never mirrored", async ({ harness }) => {
+            await mint(harness, "1");
+
+            expect(await values(harness).getAll(await harness.createAppBundle())).toBeUndefined();
+        });
+
+        test("does not leak one bundle's values into another", async ({ harness }) => {
+            await mint(harness, "1");
+            const web = await harness.createAppBundle("web");
+            const api = await harness.createAppBundle("api");
+            await values(harness).put(web, [{ key: "A", value: "web-only" }]);
+
+            expect(await values(harness).getAll(api)).toBeUndefined();
+        });
+    },
+});
