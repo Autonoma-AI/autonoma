@@ -130,6 +130,14 @@ export function buildWriteTestTool(state: CoverageState, outputDir: string) {
 
             const nodeId = state.resolveNodeId(input.nodeId, relPath);
             if (nodeId == null) {
+                const stats = state.summary();
+                // The refusal costs the run a test, so it needs to be countable
+                // and not only readable: the graph shape separates "the node loop
+                // never started" from "it already drained".
+                track("cli_write_test_node_id_rejected", {
+                    total_nodes: stats.totalNodes,
+                    queued: stats.queued,
+                });
                 captureLog("warn", `write_test sent an unknown nodeId for a test no node owns`, {
                     source: "test-generator",
                     given: input.nodeId,
@@ -153,7 +161,13 @@ export function buildWriteTestTool(state: CoverageState, outputDir: string) {
                         resolved: nodeId,
                         path: relPath,
                     });
-                    track("cli_write_test_node_id_corrected", {});
+                    // Same shape as the rejection, so the recovered and refused
+                    // rates are comparable against the same graph state.
+                    const stats = state.summary();
+                    track("cli_write_test_node_id_corrected", {
+                        total_nodes: stats.totalNodes,
+                        queued: stats.queued,
+                    });
                     captureLog("warn", `write_test sent an unknown nodeId - recorded under the node being explored`, {
                         source: "test-generator",
                         given: input.nodeId,
