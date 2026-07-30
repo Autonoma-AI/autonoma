@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@autonoma/db";
+import type { AnalysisTestOrigin } from "@autonoma/types";
 
 /** One test's outcome to seed onto a run: its test slug and the verdict the run stands behind. */
 export interface SeedFinding {
@@ -9,6 +10,10 @@ export interface SeedFinding {
     classification?: Record<string, unknown>;
     /** The verdicts this run superseded before reaching the current one - a self-heal leaves one behind. */
     superseded?: { category: string; headline?: string }[];
+    /** How the test entered the run, as Impact Analysis recorded it. */
+    origin?: AnalysisTestOrigin;
+    /** Impact Analysis's account of why it selected this test for the run. */
+    selectionReason?: string;
 }
 
 /**
@@ -37,7 +42,13 @@ export async function seedAnalysisFindings(
     for (const seed of findings) {
         const testCaseId = await findOrCreateTestCase(db, { applicationId, organizationId, slug: seed.slug });
         const finding = await db.analysisFinding.create({
-            data: { reportSnapshotId: snapshotId, testCaseId, organizationId },
+            data: {
+                reportSnapshotId: snapshotId,
+                testCaseId,
+                organizationId,
+                origin: seed.origin,
+                selectionReason: seed.selectionReason,
+            },
         });
 
         const iterations = [

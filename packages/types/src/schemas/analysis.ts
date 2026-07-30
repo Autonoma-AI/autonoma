@@ -430,6 +430,108 @@ export const analysisIssueDetailSchema = z.object({
 export type AnalysisIssueDetail = z.infer<typeof analysisIssueDetailSchema>;
 
 /**
+ * One test an issue covers, with Impact Analysis's own account of why the run exercised it. The issue is the unit a
+ * reader acts on; this is the "what was actually checked, and why" underneath it, so an agent can tell an issue found
+ * by a test the PR touched apart from one found by a test the run authored for new functionality.
+ */
+export const analysisPrCoveredTestSchema = z.object({
+    slug: z.string(),
+    origin: analysisTestOriginSchema.optional(),
+    /** Impact Analysis's reason for selecting this test for the run. */
+    selectionReason: z.string().optional(),
+    /** The test's terminal verdict in the run that attributed it here. A plain string, so a stored value outside the
+     * current taxonomy still reads as a label instead of failing the payload. */
+    category: z.string(),
+});
+export type AnalysisPrCoveredTest = z.infer<typeof analysisPrCoveredTestSchema>;
+
+/**
+ * One open issue as a coding agent consumes it: the behavior claim, the grounded code-level cause, the media that
+ * proves it, and where to read more. Deliberately NOT the UI's issue shape - `narrativeMarkdown` is omitted because
+ * its `evidence:`/`issue:` tokens only resolve inside the app's renderer, and the cross-snapshot finding timeline is
+ * omitted because it is a browsing affordance, not something a fix depends on.
+ */
+export const analysisPrIssueSchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    /** What kind of failure this is, which decides WHERE the fix lives: a `bug` is fixed in the repo, while
+     * `environment` and `scenario` are fixed in Autonoma (secrets/preview config, and scenario recipes). */
+    kind: analysisIssueKindSchema,
+    severity: analysisIssueSeveritySchema,
+    expectedBehavior: z.string().optional(),
+    actualBehavior: z.string(),
+    /** The grounded diagnosis: how the referenced code produces the symptom, with file:line references and the
+     * verbatim lines that were read. A lead to confirm, never a verdict. */
+    suspectedCause: suspectedCauseSchema.optional(),
+    /** Short-lived signed URL of the issue's hero frame. */
+    screenshotUrl: z.string().optional(),
+    /** Short-lived signed URL of an animated clip of the designated reproduction, when the run captured one. */
+    clipUrl: z.string().optional(),
+    /** Distinct runs this issue has been attributed to - its recurrence across the branch. */
+    runCount: z.number().int().nonnegative(),
+    /** The issue's detail page (login required). */
+    issueUrl: z.string(),
+    /** The run designated as the clearest reproduction (login required). Absent when none was resolved. */
+    replayUrl: z.string().optional(),
+    coveredTests: z.array(analysisPrCoveredTestSchema),
+});
+export type AnalysisPrIssue = z.infer<typeof analysisPrIssueSchema>;
+
+/**
+ * A newer run that started after the run this payload reports, when that newer run has not produced a report yet.
+ * Its presence is a caveat on everything else: `running` means the issue set may shift under the reader, `failed`
+ * means the newest attempt did not land, so what follows describes the previous one.
+ */
+export const analysisPrNewerRunSchema = z.object({
+    status: z.enum(["running", "failed"]),
+    failureReason: z.string().optional(),
+});
+export type AnalysisPrNewerRun = z.infer<typeof analysisPrNewerRunSchema>;
+
+/**
+ * The analysis of one pull request, keyed by PR rather than by snapshot - the shape the MCP `get_analysis` tool
+ * serves to a coding agent.
+ *
+ * The four states exist so an empty issue list is never ambiguous. Collapsing them would let an agent report "nothing
+ * to fix" while a run is still in flight, or while the PR is simply on a pipeline this payload does not describe:
+ *
+ * - `no_analysis`: no analysis run exists for this PR (it may predate the pipeline).
+ * - `in_progress`: a run is going; nothing to read yet, so poll.
+ * - `failed`: the run failed before producing a report. Nothing to fix from analysis.
+ * - `complete`: a report landed. `issues` is the branch's CURRENTLY open set (read live, so it can be more current
+ *   than the PR comment, which renders once per run), and an empty list beside a `passed` verdict is a clean PR.
+ */
+export const analysisForPrSchema = z.discriminatedUnion("status", [
+    z.object({ status: z.literal("no_analysis") }),
+    z.object({ status: z.literal("in_progress") }),
+    z.object({ status: z.literal("failed"), failureReason: z.string().optional() }),
+    z.object({
+        status: z.literal("complete"),
+        /** The app-health verdict: `client_bug` when the branch has an open bug issue, else `passed`. */
+        verdict: analysisVerdictSchema,
+        /** The Reporter's one-paragraph summary of the run. */
+        summary: z.string().optional(),
+        /** The Reporter's holistic report prose. Its `evidence:` image tokens resolve against `reportEvidence`, and
+         * its `issue:` tokens against the `issues` below. */
+        reportMarkdown: z.string().optional(),
+        reportEvidence: z.array(resolvedEvidenceAssetSchema),
+        /** Per-category counts of the run's non-app-health findings. These never block the PR, and a category here
+         * without a matching issue below is one the run could not turn into something actionable. */
+        coverage: coverageSummarySchema.optional(),
+        testCount: z.number().int().nonnegative(),
+        clientBugCount: z.number().int().nonnegative(),
+        /** Impact Analysis's account of why the run selected the tests it did. */
+        impactReasoning: z.string().optional(),
+        /** The PR overview page (login required). */
+        prUrl: z.string(),
+        /** The branch's open issues, every kind, most actionable first. */
+        issues: z.array(analysisPrIssueSchema),
+        newerRun: analysisPrNewerRunSchema.optional(),
+    }),
+]);
+export type AnalysisForPr = z.infer<typeof analysisForPrSchema>;
+
+/**
  * The per-job issue-set changes the snapshot page shows: which branch issues this run opened, carried forward
  * from an earlier run, or resolved. Derived from the run's `AnalysisJob` window and the findings it attributed.
  */

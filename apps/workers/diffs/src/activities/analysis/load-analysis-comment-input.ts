@@ -8,6 +8,7 @@ import {
     compareAnalysisIssues,
     type CoverageSummary,
     coverageSummarySchema,
+    pickDesignatedRun,
     primaryScreenshotSchema,
     type SuspectedCause,
     suspectedCauseSchema,
@@ -53,7 +54,6 @@ const bugIssueSelect = {
 } satisfies Prisma.AnalysisIssueSelect;
 
 type BugIssueRow = Prisma.AnalysisIssueGetPayload<{ select: typeof bugIssueSelect }>;
-type IssueFindingRow = BugIssueRow["findings"][number];
 
 /**
  * Read the persisted run for its PR comment: the app-health verdict, the Reporter's one-paragraph summary, the
@@ -112,7 +112,7 @@ function toBugIssues(rows: BugIssueRow[], snapshotId: string): AnalysisCommentIs
             });
             continue;
         }
-        const instance = designatedInstance(row);
+        const instance = pickDesignatedRun(row.primaryTestCaseId ?? undefined, row.findings);
         sortable.push({
             card: {
                 id: row.id,
@@ -132,23 +132,6 @@ function toBugIssues(rows: BugIssueRow[], snapshotId: string): AnalysisCommentIs
         compareAnalysisIssues({ kind: "bug", severity: a.severity }, { kind: "bug", severity: b.severity }),
     );
     return sortable.map((entry) => entry.card);
-}
-
-/**
- * The run to feature for an issue: the NEWEST finding for the test the Reporter designated as the clearest
- * reproduction. The agent chose the test; picking its latest run is mechanical, and doing it on read is what makes
- * a carried-forward issue's clip and deep-link track the PR's current head with no re-designation.
- *
- * Absent when the issue predates the designation, or when the designated test has no attributed finding - the card
- * then falls back to the issue's own hero frame and shows no replay, rather than featuring a run nobody picked.
- */
-function designatedInstance(row: BugIssueRow): IssueFindingRow | undefined {
-    if (row.primaryTestCaseId == null) return undefined;
-    const matching = row.findings.filter((finding) => finding.testCaseId === row.primaryTestCaseId);
-    return matching.reduce<IssueFindingRow | undefined>((newest, finding) => {
-        if (newest == null) return finding;
-        return finding.job.snapshot.createdAt > newest.job.snapshot.createdAt ? finding : newest;
-    }, undefined);
 }
 
 /** The designated primary screenshot's storage key, when the issue has a well-formed one. */

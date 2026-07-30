@@ -4,6 +4,8 @@ export * from "./schemas/github";
 export * from "./schemas/vercel";
 export * from "./sensitive-detection";
 export * from "./preview-url";
+export * from "./app-links";
+export * from "./designated-run";
 export * from "./constants/index";
 export * from "./types/architecture";
 export * from "./types/step-overlay-points";

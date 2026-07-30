@@ -14,7 +14,10 @@ import {
     type AnalysisVerdict,
     type CoverageSummary,
     type SuspectedCause,
+    buildAnalysisFindingUrl,
+    buildAnalysisIssueUrl,
     buildPreviewFrontDoorUrl,
+    buildPrPageUrl,
 } from "@autonoma/types";
 
 /** The verdict that makes the comment critical - a client bug is the only class that counts against the PR. */
@@ -49,15 +52,11 @@ export interface AnalysisCommentContext {
     /** `owner/repo`, for the handoff prompt's PR reference and the Claude Code deep-link's repository param. */
     repoFullName: string;
     commitSha: string;
-    /** The in-app PR overview page URL; the top-level "Open in Autonoma" CTA lands here. */
-    prUrl: string;
-    /** The in-app issue-detail base URL for this PR; each bug card appends its `issueId`. */
-    issueBaseUrl: string;
-    /** The in-app snapshots base URL for this PR; a card's replay link appends `<snapshotId>/findings/<findingId>`. */
-    findingBaseUrl: string;
+    /** The application's slug, which every in-app deep link is built from. */
+    appSlug: string;
     /** The branch's raw preview environment URL, if deployed. Wrapped in the front door before it reaches a reader. */
     previewUrl?: string;
-    /** Public origin serving the API, used to build the front-door link the visible preview CTAs point at. */
+    /** Public origin the in-app links and the preview front door are built on. */
     appBaseUrl: string;
     /** Base URL the comment's status/CTA image assets are served from. */
     assetBaseUrl: string;
@@ -139,7 +138,7 @@ export async function buildAnalysisCommentPayload(
         input.bugIssues.map((issue) => toBug(issue, context, previewFrontDoorUrl, signScreenshot)),
     );
 
-    const ctas: AutonomaCommentCta[] = [{ label: "Open in Autonoma", href: context.prUrl }];
+    const ctas: AutonomaCommentCta[] = [{ label: "Open in Autonoma", href: buildPrUrl(context) }];
     if (previewFrontDoorUrl != null) {
         ctas.push({ label: "See preview", href: previewFrontDoorUrl });
     }
@@ -231,16 +230,21 @@ function toBug(
     }));
 }
 
+/** The in-app PR overview URL - the "Open in Autonoma" CTA, and the handoff prompt's full-report link. */
+function buildPrUrl(context: AnalysisCommentContext): string {
+    return buildPrPageUrl(context.appBaseUrl, context.appSlug, context.prNumber);
+}
+
 /** The branch-scoped issue-detail URL - the card's title link and the handoff prompt's "Issue details". */
 function buildIssueUrl(issue: AnalysisCommentIssue, context: AnalysisCommentContext): string {
-    return `${context.issueBaseUrl}/${encodeURIComponent(issue.id)}`;
+    return buildAnalysisIssueUrl(context.appBaseUrl, context.appSlug, context.prNumber, issue.id);
 }
 
 /** The designated reproduction's finding-detail URL, when the issue resolved one. */
 function buildReplayUrl(issue: AnalysisCommentIssue, context: AnalysisCommentContext): string | undefined {
     if (issue.replay == null) return undefined;
     const { snapshotId, findingId } = issue.replay;
-    return `${context.findingBaseUrl}/${encodeURIComponent(snapshotId)}/findings/${encodeURIComponent(findingId)}`;
+    return buildAnalysisFindingUrl(context.appBaseUrl, context.appSlug, context.prNumber, snapshotId, findingId);
 }
 
 /**
@@ -251,7 +255,7 @@ function buildReplayUrl(issue: AnalysisCommentIssue, context: AnalysisCommentCon
  * Built from the branch's open BUG issues, matching the cards, so the prompt and the comment always agree.
  */
 function buildHandoff(issues: AnalysisCommentIssue[], context: AnalysisCommentContext): AutonomaCommentHandoff {
-    const prompt = capHandoffPrompt(buildHandoffPrompt(issues, context), context.prUrl);
+    const prompt = capHandoffPrompt(buildHandoffPrompt(issues, context), buildPrUrl(context));
     return { prompt, links: buildAgentHandoffLinks(prompt, context.repoFullName) };
 }
 
@@ -259,13 +263,11 @@ function buildHandoffPrompt(issues: AnalysisCommentIssue[], context: AnalysisCom
     const header = [
         `Fix the following bug(s) Autonoma found in pull request ${context.repoFullName}#${context.prNumber} (commit ${context.commitSha.slice(0, 7)}).`,
         "Each issue gives what the app should have done, what it actually did, a hedged suspected cause with the file:line evidence behind it, and a link to the run that reproduces it. The suspected cause is a lead, not a verdict - confirm it against the code before changing anything. Apply the fixes, then re-run the affected flows to confirm.",
-        // The in-app links below need an Autonoma login; the MCP is the auth-free channel for an agent. `get_analysis`
-        // is not registered on the debug MCP server yet - it must land before ANALYSIS_PR_COMMENT_ENABLED is turned
-        // on for real PRs, or this line points an agent at a tool it cannot call.
+        // The in-app links below need an Autonoma login; the MCP is the auth-free channel for an agent.
         `Live issues via MCP: connect the Autonoma MCP (\`claude mcp add --transport http autonoma https://api.autonoma.app/v1/mcp/debug\`, or your client's MCP config) and call \`get_analysis(repoFullName="${context.repoFullName}", prNumber=${context.prNumber})\` for these issues + evidence live; it also exposes this PR's deploy status and build/app logs.`,
     ].join("\n\n");
     const rendered = issues.map((issue, index) => renderIssueForPrompt(issue, index + 1, context));
-    return [header, ...rendered, `Full report (login required): ${context.prUrl}`].join("\n\n");
+    return [header, ...rendered, `Full report (login required): ${buildPrUrl(context)}`].join("\n\n");
 }
 
 function renderIssueForPrompt(issue: AnalysisCommentIssue, index: number, context: AnalysisCommentContext): string {

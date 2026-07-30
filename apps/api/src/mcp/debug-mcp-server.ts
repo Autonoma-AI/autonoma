@@ -35,11 +35,18 @@ Every tool is keyed by repoFullName ("owner/repo"). You almost never need to ask
 - Only if you are not inside the app's repo, or can't determine the remote, call list_apps to see the repos you can debug and ask the user which one.
 You do NOT need GitHub access - repoFullName is just how Autonoma identifies your app; the org is inferred from it and you must be a member.
 
-Start with the findings: call get_investigation(repoFullName, prNumber) to read what Autonoma flagged on the PR - each finding's what-happened, likely root cause, file:line code evidence, and a suggested fix, plus a screenshot/clip of the failing run. That is usually enough to fix a client bug in this repo. Use the deploy-debug flow below instead when a preview fails to BUILD or DEPLOY (not a test/app bug).
+Start with the analysis: call get_analysis(repoFullName, prNumber) to read what Autonoma found on the PR - the run's summary, which tests it selected and why, and every open issue with what should have happened, what did happen, file:line code evidence, and a screenshot/clip of the failing run. That is usually enough to fix the problem. Use the deploy-debug flow below instead when a preview fails to BUILD or DEPLOY (not a test/app bug).
 
-If while working through the findings you determine one is NOT a real bug (a false positive - e.g. a test-data gap, an environment misconfiguration, or the finding misread correct behavior), call report_false_positive(repoFullName, prNumber, findingId, reason?) with the finding's id from get_investigation. This is a tracking signal for Autonoma to review; it does not change the check, re-run the analysis, unblock the merge, or hide the finding.
+Each issue's kind tells you where its fix lives, so route on it rather than assuming everything is a code change:
+- bug: the app misbehaved. Fix it in this repo and push.
+- environment: the preview could not run properly (a missing secret, a broken service). Fix it with the deploy tools below - get_secret_status / set_secret / edit_previewkit_config - no repo change needed.
+- scenario: the test data was missing or wrong. Fix it with the recipe tools below - list_scenarios / get_recipe / dry_run_scenario - which take effect with no redeploy.
 
-Recommended flow when Autonoma flags a problem on a pull request:
+If get_analysis reports that the PR has no analysis run, it was analyzed by the older investigation pipeline: call get_investigation(repoFullName, prNumber) for that PR's findings. Do not conclude a PR is clean from one tool alone.
+
+If while working through the INVESTIGATION findings you determine one is NOT a real bug (a false positive - e.g. a test-data gap, an environment misconfiguration, or the finding misread correct behavior), call report_false_positive(repoFullName, prNumber, findingId, reason?) with the finding's id from get_investigation. This is a tracking signal for Autonoma to review; it does not change the check, re-run the analysis, unblock the merge, or hide the finding. There is no equivalent for get_analysis issues yet.
+
+Recommended flow when a PREVIEW fails to build or deploy (for a test or app failure, get_analysis above is the entry point):
 1. Call get_deploy_status(repoFullName, prNumber) to see which service is unhealthy and whether it failed at build or at runtime.
 2. If a service failed to BUILD: call get_build_logs (start with from="tail" to see the failure; use from="head" for the start of the build). Missing build inputs often show up as a missing env var.
 3. If a service BUILT but crashes or errors at RUNTIME: call get_app_logs (from="tail" for the crash, from="head" for startup).
@@ -63,7 +70,7 @@ Keys: every tool takes repoFullName ("owner/repo"); the per-PR tools also take p
 /** The snippet the `setup_autonoma` prompt asks the agent to add to AGENTS.md / CLAUDE.md. */
 const AGENTS_MD_SNIPPET = `## Autonoma
 
-After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause - get_investigation for the findings + evidence (what broke and why), and get_deploy_status / diagnose_deploy / get_build_logs / get_app_logs / get_secret_status when a preview fails to build or deploy - fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes, or list_scenarios/get_recipe/dry_run_scenario when a test failed on its seed data rather than on the app), and confirm with wait_for_deploy - before merging. The tools take this repo as "owner/repo" - infer it from the git remote; if unsure, call list_apps.`;
+After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause - get_analysis for the run's issues + evidence (what broke, why, and where the fix lives), and get_deploy_status / diagnose_deploy / get_build_logs / get_app_logs / get_secret_status when a preview fails to build or deploy - fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes, or list_scenarios/get_recipe/dry_run_scenario when a test failed on its seed data rather than on the app), and confirm with wait_for_deploy - before merging. The tools take this repo as "owner/repo" - infer it from the git remote; if unsure, call list_apps.`;
 
 /** Everything a debug MCP tool needs: the service graph and a per-repo org resolver. */
 export interface DebugMcpDeps {
@@ -105,6 +112,20 @@ function noLiveEnvResult(repoFullName: string, prNumber: number) {
 }
 
 /**
+ * The `unavailable` result for a PR with no analysis run at all. It names the legacy pipeline explicitly, because the
+ * two findings tools cover different pipelines rather than different data on the same one: without the pointer an
+ * agent reads "no analysis" as "nothing was found" and tells the developer their PR is clean, when the findings are
+ * simply on the other tool.
+ */
+function noAnalysisResult(repoFullName: string, prNumber: number) {
+    return unavailableResult(
+        `No analysis run for ${repoFullName} PR ${prNumber}. Either Autonoma has not analyzed this PR, or it was ` +
+            `analyzed by the older investigation pipeline - call get_investigation to check before concluding there ` +
+            `is nothing to fix.`,
+    );
+}
+
+/**
  * Builds the "debug" MCP server: the client-facing, previewkit-scoped debug surface an agent uses to
  * fix a broken preview. Every tool resolves its org + application from the `repoFullName` it names via
  * `deps.resolveRepoContext` (which verifies the authenticated user is a member) and then
@@ -114,10 +135,10 @@ function noLiveEnvResult(repoFullName: string, prNumber: number) {
  * unambiguously. Secret VALUES are never returned; `get_secret_status` reports
  * presence + masked length only.
  *
- * `get_investigation` exposes the investigation agent's findings for a PR (read-only, keyed by
- * repo + PR - the same shadow-agent findings the PR comment shows, which can differ from the canonical
- * diffs bugs). Broader per-snapshot test/review/run tools remain absent pending the diffs-vs-investigation
- * reconciliation.
+ * Two read-only findings tools cover the two analysis pipelines a PR may have run on, keyed by repo + PR:
+ * `get_analysis` (current - the run's report plus the branch's open issues, read live) and `get_investigation`
+ * (legacy, for PRs analyzed before it). They are not alternative views of the same run: a PR has data on one or the
+ * other, which is why each one's empty result points at the other rather than reading as "nothing found".
  */
 export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
     const logger = rootLogger.child({ name: "debugMcpServer" });
@@ -303,17 +324,52 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
     );
 
     server.registerTool(
+        "get_analysis",
+        {
+            title: "Get Autonoma's analysis of a PR",
+            description:
+                "Autonoma runs this PR's affected end-to-end tests against its preview and reports what it found. " +
+                "This returns the run's report (a one-paragraph summary, the holistic write-up, and which tests were " +
+                "selected and why) plus every OPEN issue on the PR - each with what should have happened, what did " +
+                "happen, a hedged suspected cause with file:line code evidence, signed screenshot/clip URLs, and the " +
+                "tests it covers. Start here when Autonoma flagged something on a PR. It is read live, so it can be " +
+                "more current than the PR comment. Each issue's `kind` says WHERE the fix lives: `bug` is in this " +
+                "repo (edit the code and push); `environment` is in the preview's config (diagnose_deploy, " +
+                "set_secret, edit_previewkit_config); `scenario` is in the test data (list_scenarios, get_recipe, " +
+                'dry_run_scenario). `status: "in_progress"` means a run is going - call again shortly. ' +
+                '`status: "failed"` means the run never landed (with a `failureReason`, e.g. the preview was ' +
+                'unreachable), so there is nothing to fix from it - do NOT read it as "no problems found". ' +
+                '`status: "complete"` with no issues and a `passed` verdict is a clean PR. A `newerRun` field means a ' +
+                "later run exists whose result is not in yet, so the issue set may still change. When it reports no " +
+                "analysis run, this PR was analyzed by the older pipeline - call get_investigation instead.",
+            inputSchema: repoPrInput,
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        },
+        async ({ repoFullName, prNumber }) =>
+            analytics.track("get_analysis", async () => {
+                logger.info("get_analysis", { extra: { repoFullName, prNumber } });
+                try {
+                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const analysis = await services.branches.getAnalysisForPr(applicationId, prNumber, organizationId);
+                    if (analysis.status === "no_analysis") return noAnalysisResult(repoFullName, prNumber);
+                    return jsonResult(analysis);
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
         "get_investigation",
         {
-            title: "Get Autonoma's investigation findings for a PR",
+            title: "Get Autonoma's investigation findings for a PR (legacy pipeline)",
             description:
-                "Autonoma runs this PR's affected end-to-end tests against the preview and classifies each outcome. " +
-                "This returns those findings for the PR's latest checkpoint: per finding a headline, what happened, " +
-                "the likely root cause, observed app issues, a suggested fix, the file:line code evidence, and signed " +
-                "screenshot/clip URLs - plus any suggested new tests. These are the investigation agent's OWN findings " +
-                "(the same ones shown in the Autonoma PR comment): a second opinion that can legitimately differ from " +
-                'the canonical dashboard bugs. `status: "unavailable"` means no investigation has run for this PR yet. ' +
-                "Start here when Autonoma flagged bugs on a PR and you want the full evidence to fix them.",
+                "LEGACY. Findings from the older investigation pipeline, kept so a PR analyzed before the current " +
+                "one can still be worked on. Call get_analysis first; only fall back here when it reports that the PR " +
+                "has no analysis run. Returns the findings for the PR's latest checkpoint: per finding a headline, " +
+                "what happened, the likely root cause, observed app issues, a suggested fix, the file:line code " +
+                'evidence, and signed screenshot/clip URLs - plus any suggested new tests. `status: "unavailable"` ' +
+                "means no investigation has run for this PR, which is expected for any recently analyzed PR.",
             inputSchema: repoPrInput,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },

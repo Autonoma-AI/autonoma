@@ -24,14 +24,13 @@ const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
 /**
  * Post (or update in place) the authoritative analysis run's PR comment, through the shared comment system - the
  * same renderer the diffs/investigation comments use, and the DB-store updater that keeps exactly one comment per
- * `(repo, pr, analysis)`, so a re-run replaces its previous comment rather than spamming a new one. Flag-gated OFF
- * by default so it never touches real PRs until deliberately enabled. The bug cards deep-link to the branch-scoped
- * issue-detail pages (stable across snapshots), not the per-snapshot findings, and the comment carries a
- * coding-agent handoff: a paste-ready brief plus prefilled "open in <agent>" deep-links. Signed S3 report URLs are
- * never posted (they carry a token) - the comment links the in-app view; only media rides as short-lived signed URLs.
+ * `(repo, pr, analysis)`, so a re-run replaces its previous comment rather than spamming a new one. The bug cards
+ * deep-link to the branch-scoped issue-detail pages (stable across snapshots), not the per-snapshot findings, and the
+ * comment carries a coding-agent handoff: a paste-ready brief, prefilled "open in <agent>" deep-links, and the
+ * `get_analysis` MCP call that serves the same issues live without a login. Signed S3 report URLs are never posted
+ * (they carry a token) - the comment links the in-app view; only media rides as short-lived signed URLs.
  *
- * NOTE: the handoff prompt tells the agent to call the MCP tool `get_analysis`, which is not registered on the debug
- * MCP server yet. It must land before this flag is enabled for real PRs.
+ * `ANALYSIS_PR_COMMENT_ENABLED` is a kill switch, on by default.
  */
 export async function postAnalysisComment({
     db,
@@ -99,9 +98,7 @@ export async function postAnalysisComment({
             prNumber: prMeta.prNumber,
             repoFullName: github.repoFullName,
             commitSha: meta.headSha,
-            prUrl: buildPrUrl(meta.appSlug, prMeta.prNumber),
-            issueBaseUrl: buildIssueBaseUrl(meta.appSlug, prMeta.prNumber),
-            findingBaseUrl: buildFindingBaseUrl(meta.appSlug, prMeta.prNumber),
+            appSlug: meta.appSlug,
             previewUrl,
             appBaseUrl: resolveAppUrl(),
             assetBaseUrl: resolveCommentAssetBaseUrl({ appUrl: resolveAppUrl() }),
@@ -161,32 +158,6 @@ async function resolvePreviewUrl(db: PrismaClient, snapshotId: string): Promise<
         },
     });
     return snapshot?.branch.deployment?.webDeployment?.url;
-}
-
-/** Absolute URL of the in-app PR overview page; the "Open in Autonoma" CTA lands here. */
-function buildPrUrl(appSlug: string, prNumber: number): string {
-    const path = `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}/`;
-    return new URL(path, resolveAppUrl()).toString();
-}
-
-/**
- * Absolute base URL of the in-app issue-detail pages for this PR; each bug card appends its `issueId`. Issues are
- * branch-scoped (they evolve across snapshots), so the route lives at the PR level, above snapshots - fixing the
- * old finding-key path that pointed at a single snapshot's finding.
- */
-function buildIssueBaseUrl(appSlug: string, prNumber: number): string {
-    const path = `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}/issues`;
-    return new URL(path, resolveAppUrl()).toString();
-}
-
-/**
- * Absolute base URL of the in-app per-snapshot finding pages for this PR; a card's replay link appends
- * `<snapshotId>/findings/<findingId>`. An issue's card links here to the ONE run the Reporter designated as its
- * clearest reproduction, while the card's title links to the branch-scoped issue itself.
- */
-function buildFindingBaseUrl(appSlug: string, prNumber: number): string {
-    const path = `/app/${encodeURIComponent(appSlug)}/pull-requests/${prNumber}/snapshots`;
-    return new URL(path, resolveAppUrl()).toString();
 }
 
 /** Resolve the app's base URL from the deployment env, matching how other PR-comment jobs build their links. */

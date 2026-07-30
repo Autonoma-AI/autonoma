@@ -6,7 +6,7 @@ description: Connect your coding agent to Autonoma's debugging MCP server so it 
 import Tabs from "../../../components/Tabs.astro"
 import TabItem from "../../../components/TabItem.astro"
 
-<p class="lead">Autonoma runs an MCP server so your coding agent can read a pull request's investigation findings and live debugging data - what Autonoma flagged and why, deploy status, build and runtime logs, a diagnosis, and which secrets are missing - and fix it from inside your repo, the same way it fixes anything else.</p>
+<p class="lead">Autonoma runs an MCP server so your coding agent can read a pull request's analysis and live debugging data - what Autonoma flagged and why, deploy status, build and runtime logs, a diagnosis, and which secrets are missing - and fix it from inside your repo, the same way it fixes anything else.</p>
 
 When Autonoma flags a problem on your PR, the fix usually lives in your codebase. Instead of copying logs out of a dashboard, point your agent at the MCP server and let it pull exactly what it needs.
 
@@ -146,8 +146,9 @@ The server gives your agent the tools; a short line in your agent's instructions
 
 ```markdown
 After you push a PR, Autonoma reviews its preview deploy. If it flagged a
-problem, use the Autonoma MCP tools to find the cause (get_deploy_status,
-diagnose_deploy, get_build_logs, get_app_logs, get_secret_status), fix it
+problem, use the Autonoma MCP tools to find the cause (get_analysis for the
+issues and evidence; get_deploy_status, diagnose_deploy, get_build_logs,
+get_app_logs, get_secret_status when the preview itself fails), fix it
 (set_secret for a missing value, edit_previewkit_config for build/wiring,
 or dry_run_scenario when a test failed on its seed data), and confirm with
 wait_for_deploy - before merging.
@@ -166,8 +167,9 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | Tool | Input | Returns |
 | --- | --- | --- |
 | `list_apps` | none | The repos you can debug across your organizations - use when the repo isn't obvious |
-| `get_investigation` | repo, PR | Autonoma's findings for the PR's latest checkpoint - each finding's what-happened, root cause, evidence, suggested fix, and signed screenshot/clip URLs, plus suggested tests. Start here when Autonoma flagged bugs |
-| `report_false_positive` | repo, PR, findingId, reason? | Flags a `get_investigation` finding as a likely false positive (not a real bug). A tracking signal for Autonoma to review - it does **not** change the check, re-run the analysis, unblock the merge, or hide the finding |
+| `get_analysis` | repo, PR | **Start here when Autonoma flagged something.** The run's report (a summary, the write-up, and which tests it selected and why) plus every open issue - what should have happened, what did, a suspected cause with `file:line` code evidence, signed screenshot/clip URLs, and the tests it covers. Read live, so it can be more current than the PR comment |
+| `get_investigation` | repo, PR | Legacy. The equivalent findings from the older investigation pipeline, for a PR analyzed before the current one. Only needed when `get_analysis` reports that the PR has no analysis run |
+| `report_false_positive` | repo, PR, findingId, reason? | Flags a `get_investigation` finding as a likely false positive (not a real bug). A tracking signal for Autonoma to review - it does **not** change the check, re-run the analysis, unblock the merge, or hide the finding. No equivalent exists for `get_analysis` issues yet |
 | `get_deploy_status` | repo, PR | Per-service deploy status, endpoints, and the latest build outcome |
 | `diagnose_deploy` | repo, PR | The raw evidence in one call - status, service/addon states, latest build outcome, a rule-based failure classification, the config's env-key surface, and error-shaped logs - plus deterministic findings categorized as a missing env var, setup problem, or platform error. It is not an AI summary; you reason over the signals |
 | `get_build_logs` | repo, PR | Build-log lines, from the `tail` (newest) or `head` (start of the build), optionally for one service |
@@ -177,6 +179,12 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | `get_config` | repo | The full active preview config document (apps, services, addons - no secret values), for read-edit-write of the whole shape via `apply_config` |
 | `list_scenarios` | repo | The app's scenarios - the named test-data states its tests depend on - and whether each has a recipe |
 | `get_recipe` | repo, scenarioId | A scenario's active recipe: the `create` graph your SDK builds those entities from |
+
+Every issue `get_analysis` returns carries a `kind`, and the kind decides where its fix lives - which is what keeps your agent from trying to patch code for a problem that was never in your code:
+
+- **`bug`** - the app misbehaved. Fix it in your repo and push; Autonoma re-runs on the new commit.
+- **`environment`** - the preview could not run properly (a missing secret, a service that never came up). Fix it with the deploy tools below. No repo change.
+- **`scenario`** - the data a test needed was missing or wrong. Fix it with the recipe tools below, which take effect with no redeploy.
 
 ### Fix and confirm
 

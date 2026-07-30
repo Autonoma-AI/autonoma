@@ -28,6 +28,7 @@ import {
     type SnapshotChangeSummary,
 } from "@autonoma/test-updates";
 import {
+    type AnalysisForPr,
     type AnalysisIssueDetail,
     type AnalysisIssueFindingInstance,
     analysisIssueKindSchema,
@@ -36,14 +37,22 @@ import {
     type AnalysisIssueSummary,
     analysisFindingSortKey,
     type AnalysisFindingView,
+    type AnalysisPrCoveredTest,
+    type AnalysisPrIssue,
+    type AnalysisPrNewerRun,
     type AnalysisReportData,
     type AnalysisTestOrigin,
     analysisTestOriginSchema,
     type AnalysisVerdict,
     analysisVerdictSchema,
     type AnalysisSnapshotIssueChanges,
+    buildAnalysisFindingUrl,
+    buildAnalysisIssueUrl,
+    buildPrPageUrl,
     type CheckpointPresentationSummary,
     compareAnalysisIssues,
+    coverageSummarySchema,
+    pickDesignatedRun,
     type EvidenceManifestEntry,
     evidenceManifestEntrySchema,
     extractEvidenceAssetIds,
@@ -61,6 +70,7 @@ import {
 } from "@autonoma/types";
 import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
 import { z } from "zod";
+import { env } from "../../env";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
 import type { PullRequestCacheService } from "../../github/pull-request-cache.service";
 import { Service } from "../service";
@@ -334,6 +344,85 @@ const analysisIssueSummarySelect = {
 } satisfies Prisma.AnalysisIssueSelect;
 
 type AnalysisIssueSummaryRow = Prisma.AnalysisIssueGetPayload<{ select: typeof analysisIssueSummarySelect }>;
+
+/**
+ * Columns one open issue contributes to the by-PR analysis payload. Richer than the list summary, since a reader here
+ * is fixing the issue rather than browsing to it; `analysisPrIssueSchema` documents what it leaves out and why.
+ */
+const analysisPrIssueSelect = {
+    id: true,
+    title: true,
+    kind: true,
+    severity: true,
+    expectedBehavior: true,
+    actualBehavior: true,
+    primaryScreenshot: true,
+    suspectedCause: true,
+    primaryTestCaseId: true,
+    // Every finding attributed to this issue: the covered-test list, and the pool the designated reproduction is
+    // picked from. Matched in code because the test to match on lives on the parent row, which a nested Prisma
+    // filter cannot reference.
+    findings: {
+        select: {
+            id: true,
+            testCaseId: true,
+            reportSnapshotId: true,
+            origin: true,
+            selectionReason: true,
+            testCase: { select: { slug: true } },
+            currentClassification: { select: { category: true, clipKey: true } },
+            // Findings key to the AnalysisJob, so the run's timestamp comes via the job's snapshot.
+            job: { select: { snapshot: { select: { createdAt: true } } } },
+        },
+    },
+} satisfies Prisma.AnalysisIssueSelect;
+
+type AnalysisPrIssueRow = Prisma.AnalysisIssueGetPayload<{ select: typeof analysisPrIssueSelect }>;
+type AnalysisPrIssueFindingRow = AnalysisPrIssueRow["findings"][number];
+
+/**
+ * The distinct tests an issue covers, each carrying the verdict and Impact Analysis reasoning from the most recent
+ * run that attributed it - one finding exists per (run, test), so the newest run's row is the current story for that
+ * test. Slug-ordered so the list is stable across requests.
+ */
+function coveredTestsForIssue(row: AnalysisPrIssueRow): AnalysisPrCoveredTest[] {
+    const newestByTest = new Map<string, AnalysisPrIssueFindingRow>();
+    for (const finding of row.findings) {
+        const seen = newestByTest.get(finding.testCaseId);
+        if (seen == null || finding.job.snapshot.createdAt > seen.job.snapshot.createdAt) {
+            newestByTest.set(finding.testCaseId, finding);
+        }
+    }
+    return [...newestByTest.values()]
+        .map((finding) => ({
+            slug: finding.testCase.slug,
+            origin: parseAnalysisTestOrigin(finding.origin),
+            selectionReason: finding.selectionReason ?? undefined,
+            category: finding.currentClassification?.category ?? "",
+        }))
+        .sort((left, right) => left.slug.localeCompare(right.slug));
+}
+
+/**
+ * The caveat to attach when a run NEWER than the reported one exists but has produced no report of its own: `running`
+ * warns the reader the issue set may shift, `failed` tells them the newest attempt did not land, so what they are
+ * reading describes the previous run. A newer job that completed without a report should not happen (the Reporter
+ * writes one before finalize), so it carries no caveat rather than inventing a failure.
+ *
+ * Newness is compared by snapshot time, so a report whose own snapshot has no job row cannot make an OLDER job read
+ * as a newer run.
+ */
+function newerRunFrom(
+    latestJob: { status: AnalysisJobStatus; failureReason: string | null; snapshot: { createdAt: Date } },
+    reportedRunAt: Date,
+): AnalysisPrNewerRun | undefined {
+    if (latestJob.snapshot.createdAt <= reportedRunAt) return undefined;
+    if (latestJob.status === "running") return { status: "running" };
+    if (latestJob.status === "failed") {
+        return { status: "failed", failureReason: latestJob.failureReason ?? undefined };
+    }
+    return undefined;
+}
 
 /** Parse a stored evidence-manifest JSON blob at the read boundary; a malformed blob degrades to no evidence. */
 function parseEvidenceManifest(json: Prisma.JsonValue | null): EvidenceManifestEntry[] {
@@ -844,6 +933,192 @@ export class BranchesService extends Service {
                 err: error,
             });
             return empty;
+        }
+    }
+
+    /**
+     * The analysis of one pull request, resolved from `applicationId + prNumber` rather than a snapshot id. Backs the
+     * MCP `get_analysis` tool, so a coding agent can read what the run found - and fix it - with no in-app login.
+     *
+     * The two grains it joins are deliberate. The run HEADER (verdict, prose, coverage, counts) comes from the
+     * branch's newest `AnalysisReport`, which is per-snapshot. The ISSUES come from the BRANCH and are read LIVE,
+     * because that is the question a reader actually has ("what is still broken on this PR?") and because an issue is
+     * stable across pushes while a finding is not. A consequence worth knowing: between a new run starting and its
+     * comment being replaced, this is MORE current than the PR comment, which renders once per run.
+     *
+     * Unlike the page-facing reads, a query failure here is NOT degraded to an empty result: reporting "no analysis"
+     * when the truth is "the read failed" would have an agent tell a developer their PR is clean. It logs and
+     * rethrows so the caller surfaces an error instead.
+     */
+    async getAnalysisForPr(applicationId: string, prNumber: number, organizationId: string): Promise<AnalysisForPr> {
+        this.logger.info("Getting analysis for PR", { applicationId, prNumber });
+        try {
+            const branch = await this.db.branch.findFirst({
+                where: { applicationId, prInfo: { prNumber }, application: { organizationId } },
+                select: { id: true, application: { select: { slug: true } } },
+            });
+            if (branch == null) {
+                this.logger.info("No tracked branch for PR; no analysis to report", { applicationId, prNumber });
+                return { status: "no_analysis" };
+            }
+
+            // The newest report, the newest job, and the branch's open issues are independent reads: the job answers
+            // "is a run going" even when a report exists, and the issues are branch-scoped, so none feeds another.
+            const [report, latestJob, issueRows] = await Promise.all([
+                this.db.analysisReport.findFirst({
+                    where: { organizationId, snapshot: { branchId: branch.id } },
+                    orderBy: { snapshot: { createdAt: "desc" } },
+                    select: {
+                        snapshotId: true,
+                        verdict: true,
+                        summary: true,
+                        reportMarkdown: true,
+                        evidenceManifest: true,
+                        coverage: true,
+                        testCount: true,
+                        clientBugCount: true,
+                        impactReasoning: true,
+                        snapshot: { select: { createdAt: true } },
+                    },
+                }),
+                this.db.analysisJob.findFirst({
+                    where: { organizationId, snapshot: { branchId: branch.id } },
+                    orderBy: { snapshot: { createdAt: "desc" } },
+                    select: { status: true, failureReason: true, snapshot: { select: { createdAt: true } } },
+                }),
+                this.db.analysisIssue.findMany({
+                    where: { branchId: branch.id, organizationId, status: "open" },
+                    // The comparator below ranks only kind then severity, and the sort is stable - so without a
+                    // deterministic tiebreaker two equally-severe bugs would come back in whatever order Postgres
+                    // produced and could reshuffle between identical calls.
+                    orderBy: { id: "asc" },
+                    select: analysisPrIssueSelect,
+                }),
+            ]);
+
+            // No job at all means this PR was never analyzed by this pipeline - distinct from a run that produced
+            // nothing, so the caller can point the reader somewhere else instead of claiming the PR is clean.
+            if (latestJob == null) {
+                this.logger.info("No analysis job for PR", { applicationId, prNumber });
+                return { status: "no_analysis" };
+            }
+            if (report == null) {
+                if (latestJob.status === "failed") {
+                    this.logger.info("Analysis run failed before producing a report", { applicationId, prNumber });
+                    return { status: "failed", failureReason: latestJob.failureReason ?? undefined };
+                }
+                this.logger.info("Analysis run has not produced a report yet", { applicationId, prNumber });
+                return { status: "in_progress" };
+            }
+
+            const appSlug = branch.application.slug;
+            const [issues, reportEvidence] = await Promise.all([
+                this.toPrIssues(issueRows, appSlug, prNumber),
+                this.signEvidenceManifest(report.reportMarkdown, parseEvidenceManifest(report.evidenceManifest)),
+            ]);
+            const coverage = coverageSummarySchema.safeParse(report.coverage);
+
+            this.logger.info("Analysis for PR assembled", {
+                applicationId,
+                prNumber,
+                extra: { snapshotId: report.snapshotId, issueCount: issues.length },
+            });
+            return {
+                status: "complete",
+                verdict: this.toAppHealthVerdict(report.verdict, report.snapshotId),
+                // Both prose columns are NOT NULL, but a row predating the Reporter carries "" - treat empty as absent.
+                summary: report.summary !== "" ? report.summary : undefined,
+                reportMarkdown: report.reportMarkdown !== "" ? report.reportMarkdown : undefined,
+                reportEvidence,
+                coverage: coverage.success ? coverage.data : undefined,
+                testCount: report.testCount,
+                clientBugCount: report.clientBugCount,
+                impactReasoning: report.impactReasoning ?? undefined,
+                prUrl: buildPrPageUrl(env.APP_URL, appSlug, prNumber),
+                issues,
+                newerRun: newerRunFrom(latestJob, report.snapshot.createdAt),
+            };
+        } catch (error) {
+            this.logger.warn("Could not load analysis for PR", { applicationId, prNumber, err: error });
+            throw error;
+        }
+    }
+
+    /** Validate + order the open issues (most actionable first, via the shared comparator), mapping each for the API. */
+    private async toPrIssues(
+        rows: AnalysisPrIssueRow[],
+        appSlug: string,
+        prNumber: number,
+    ): Promise<AnalysisPrIssue[]> {
+        const mapped = await Promise.all(rows.map((row) => this.toPrIssue(row, appSlug, prNumber)));
+        return mapped
+            .filter((issue): issue is AnalysisPrIssue => issue != null)
+            .sort((left, right) => compareAnalysisIssues(left, right));
+    }
+
+    /**
+     * One open issue as an API consumer reads it: the behavior claim, the grounded cause, signed media, and the two
+     * links that mean different things - the branch-scoped ISSUE (the cross-snapshot case) and the specific RUN that
+     * reproduces it. A malformed enum column skips the row rather than surfacing it half-parsed.
+     */
+    private async toPrIssue(
+        row: AnalysisPrIssueRow,
+        appSlug: string,
+        prNumber: number,
+    ): Promise<AnalysisPrIssue | undefined> {
+        const kind = analysisIssueKindSchema.safeParse(row.kind);
+        const severity = analysisIssueSeveritySchema.safeParse(row.severity);
+        if (!kind.success || !severity.success) {
+            this.logger.warn("Skipping analysis issue with a malformed enum column", {
+                extra: { issueId: row.id, kind: row.kind, severity: row.severity },
+            });
+            return undefined;
+        }
+
+        const designated = pickDesignatedRun(row.primaryTestCaseId ?? undefined, row.findings);
+        const primary = parsePrimaryScreenshot(row.primaryScreenshot);
+        const clipKey = designated?.currentClassification?.clipKey ?? undefined;
+        const [screenshotUrl, clipUrl] = await Promise.all([
+            primary != null ? this.signMediaUrl(primary.s3Key) : undefined,
+            clipKey != null ? this.signMediaUrl(clipKey) : undefined,
+        ]);
+
+        return {
+            id: row.id,
+            title: row.title,
+            kind: kind.data,
+            severity: severity.data,
+            expectedBehavior: row.expectedBehavior ?? undefined,
+            actualBehavior: row.actualBehavior,
+            suspectedCause: parseSuspectedCause(row.suspectedCause),
+            screenshotUrl,
+            clipUrl,
+            // Distinct snapshots, not finding rows: one run can attribute several findings to the same issue.
+            runCount: new Set(row.findings.map((finding) => finding.reportSnapshotId)).size,
+            issueUrl: buildAnalysisIssueUrl(env.APP_URL, appSlug, prNumber, row.id),
+            // Unlike the PR comment (which only offers a replay when there is a clip to watch), the run link is worth
+            // returning whenever a reproduction was designated - a reader here can inspect the run itself.
+            replayUrl:
+                designated != null
+                    ? buildAnalysisFindingUrl(
+                          env.APP_URL,
+                          appSlug,
+                          prNumber,
+                          designated.reportSnapshotId,
+                          designated.id,
+                      )
+                    : undefined,
+            coveredTests: coveredTestsForIssue(row),
+        };
+    }
+
+    /** Sign one stored media key into a short-lived URL; a signing failure drops the media, never the issue. */
+    private async signMediaUrl(s3Key: string): Promise<string | undefined> {
+        try {
+            return await this.storageProvider.getSignedUrl(s3Key, INVESTIGATION_MEDIA_TTL_SECONDS);
+        } catch (error) {
+            this.logger.warn("Failed to sign analysis media", { extra: { s3Key }, err: error });
+            return undefined;
         }
     }
 
