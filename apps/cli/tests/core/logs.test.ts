@@ -154,13 +154,16 @@ describe("captureLog", () => {
         expect(record?.attributes.some((a) => a.key === "missing")).toBe(false);
     });
 
-    test("truncates an oversized message instead of shipping it whole", async () => {
-        captureLog("info", "x".repeat(5000));
+    test("ships a long message and attribute whole rather than clipping them", async () => {
+        // A record is worth having in full: the ones that run long are stack
+        // traces and failure detail, where the clipped end is the part that says
+        // what happened.
+        captureLog("error", "x".repeat(5000), { detail: "y".repeat(2000) });
         await flushLogs();
 
-        const body = flattened()[0]?.body.stringValue ?? "";
-        expect(body.length).toBeLessThan(5000);
-        expect(body.endsWith("...")).toBe(true);
+        const record = flattened()[0];
+        expect(record?.body.stringValue).toHaveLength(5000);
+        expect(attr(record!, "detail")).toHaveLength(2000);
     });
 
     test("timestamps records so a burst inside one millisecond still orders correctly", async () => {

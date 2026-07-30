@@ -17,13 +17,6 @@ const SERVICE_NAME = "autonoma-planner";
 const MAX_BATCH_RECORDS = 50;
 const FLUSH_INTERVAL_MS = 2000;
 
-// A runaway agent loop can emit tool calls indefinitely. Cap what one run ships
-// so a stuck run cannot flood ingestion; the cap being hit is itself logged.
-const MAX_RECORDS_PER_RUN = 5000;
-
-const MAX_MESSAGE_CHARS = 2000;
-const MAX_ATTRIBUTE_CHARS = 500;
-
 // OpenTelemetry severity numbers (logs data model). PostHog buckets its level
 // filter from these, so they have to be the spec values, not our own ordering.
 const SEVERITY_NUMBERS = {
@@ -72,8 +65,6 @@ function nowUnixNano(): bigint {
 const queue: LogRecord[] = [];
 const inFlight = new Set<Promise<unknown>>();
 
-let recordsThisRun = 0;
-let capReported = false;
 let flushTimer: NodeJS.Timeout | undefined;
 
 /**
@@ -88,18 +79,6 @@ let flushTimer: NodeJS.Timeout | undefined;
  */
 export function captureLog(level: LogLevel, message: string, attributes: LogAttributes = {}): void {
     if (!getPostHogConfig().enabled) return;
-
-    if (recordsThisRun >= MAX_RECORDS_PER_RUN) {
-        if (!capReported) {
-            capReported = true;
-            // Bypasses the cap check above deliberately: the one record explaining
-            // why the stream stops is worth more than the budget it spends.
-            enqueue(buildRecord("warn", "Log budget exhausted for this run; further logs are dropped", {}));
-            flush();
-        }
-        return;
-    }
-    recordsThisRun++;
 
     enqueue(buildRecord(level, message, attributes));
 }
@@ -183,7 +162,7 @@ function buildRecord(level: LogLevel, message: string, attributes: LogAttributes
         timeUnixNano: `${nowUnixNano()}`,
         severityNumber: SEVERITY_NUMBERS[level],
         severityText: level.toUpperCase(),
-        body: { stringValue: truncate(message, MAX_MESSAGE_CHARS) },
+        body: { stringValue: message },
         attributes: toKeyValues(merged),
     };
 }
@@ -214,9 +193,5 @@ function toAnyValue(value: string | number | boolean): AnyValue {
         // OTLP encodes 64-bit ints as strings; anything fractional is a double.
         return Number.isInteger(value) ? { intValue: String(value) } : { doubleValue: value };
     }
-    return { stringValue: truncate(value, MAX_ATTRIBUTE_CHARS) };
-}
-
-function truncate(text: string, max: number): string {
-    return text.length <= max ? text : `${text.slice(0, max)}...`;
+    return { stringValue: value };
 }
