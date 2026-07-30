@@ -121,6 +121,22 @@ Workers that only host activities need no bundle. Start the environment with `cr
 pins the test server version and retries a failed download), and tear a suite down with
 `teardownTestWorkflowEnvironment({ env, workers, runner })` so a half-finished `beforeAll` cannot bury its own error.
 
+Two more fixtures exist because CI runs these suites on a 4-vCPU runner shared with every other package's tests, where
+everything Temporal-related is 30-80x slower than locally:
+
+- **`warmUpWorkflowWorker(execute)`** - end `beforeAll` with it. A new worker only executes its first workflow after it
+  starts polling and evaluates the bundle in a fresh VM context, which measured 50-90s on that runner. Landing that on
+  whichever test runs first blew the 60s `testTimeout` for that one test while every later test finished in ~2s; the
+  hook is where the wait belongs (hence its much larger timeout).
+- **`terminateAbandonedExecutions(env, workflowIds)`** - call it from `afterEach` with the ids that test started. A
+  `testTimeout` fails the test but does not stop the execution, and a leftover run overlapping the next test both
+  interleaves in the mocked activities' script and lets the time-skipping clock jump the live test's activity past its
+  heartbeat timeout. Sweeping between tests keeps one slow test's failure to one test.
+
+Mocked activities should resolve their per-test script through `Context.current().info.workflowExecution.workflowId`
+(see `investigator.workflow.test.ts`) rather than closing over one shared object, so a late activity from an abandoned
+run records into its own harness even if the sweep has not reached it yet.
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |

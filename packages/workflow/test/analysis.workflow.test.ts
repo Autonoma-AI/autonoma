@@ -2,12 +2,14 @@ import type { AnalysisRunOutcome } from "@autonoma/types";
 import { Context } from "@temporalio/activity";
 import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AnalysisActivities } from "../src/activities";
 import { TaskQueue } from "../src/task-queues";
 import { analysisWorkflow } from "../src/workflows/analysis.workflow";
 import { teardownTestWorkflowEnvironment } from "./fixtures/teardown-test-workflow-environment";
+import { terminateAbandonedExecutions } from "./fixtures/terminate-abandoned-executions";
 import { createTimeSkippingTestEnvironment } from "./fixtures/test-workflow-environment";
+import { warmUpWorkflowWorker } from "./fixtures/warm-up-workflow-worker";
 import { workflowBundle } from "./fixtures/workflow-bundle";
 
 const snapshotId = "analysis-snapshot";
@@ -45,6 +47,9 @@ let env: TestWorkflowEnvironment;
 let worker: Worker;
 let runner: Promise<void>;
 
+/** What the current test started, so anything it abandons is stopped before the next test runs. */
+let startedWorkflowIds: string[] = [];
+
 beforeAll(async () => {
     env = await createTimeSkippingTestEnvironment();
     worker = await Worker.create({
@@ -54,6 +59,8 @@ beforeAll(async () => {
         activities,
     });
     runner = worker.run();
+
+    await warmUpWorkflowWorker(() => runWorkflow());
 });
 
 afterAll(async () => {
@@ -69,20 +76,31 @@ beforeEach(() => {
     });
 });
 
-function runWorkflow(): Promise<void> {
+afterEach(async () => {
+    await terminateAbandonedExecutions(env, startedWorkflowIds);
+    startedWorkflowIds = [];
+});
+
+/** Allocates the next execution's id and registers it for the abandoned-execution sweep. */
+function nextWorkflowId(): string {
     sequence += 1;
+    const workflowId = `analysis-workflow-${sequence}`;
+    startedWorkflowIds.push(workflowId);
+    return workflowId;
+}
+
+function runWorkflow(): Promise<void> {
     return env.client.workflow.execute(analysisWorkflow, {
         taskQueue: TaskQueue.DIFFS,
-        workflowId: `analysis-workflow-${sequence}`,
+        workflowId: nextWorkflowId(),
         args: [{ snapshotId }],
     });
 }
 
 async function startWorkflow() {
-    sequence += 1;
     return env.client.workflow.start(analysisWorkflow, {
         taskQueue: TaskQueue.DIFFS,
-        workflowId: `analysis-workflow-${sequence}`,
+        workflowId: nextWorkflowId(),
         args: [{ snapshotId }],
     });
 }

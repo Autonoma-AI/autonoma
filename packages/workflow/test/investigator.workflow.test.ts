@@ -1,8 +1,9 @@
 import { type AnalysisClassificationReport, type AnalysisTestOrigin, analysisVerdictPlane } from "@autonoma/types";
 import type { AnalysisCandidateFinding } from "@autonoma/workflow/activities";
+import { Context } from "@temporalio/activity";
 import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type {
     ClassifyInvestigationRunInput,
     DeleteAnalysisTestInput,
@@ -20,7 +21,9 @@ import type {
 import { TaskQueue } from "../src/task-queues";
 import { type InvestigatorWorkflowInput, investigatorWorkflow } from "../src/workflows/investigator.workflow";
 import { teardownTestWorkflowEnvironment } from "./fixtures/teardown-test-workflow-environment";
+import { terminateAbandonedExecutions } from "./fixtures/terminate-abandoned-executions";
 import { createTimeSkippingTestEnvironment } from "./fixtures/test-workflow-environment";
+import { warmUpWorkflowWorker } from "./fixtures/warm-up-workflow-worker";
 import { workflowBundle } from "./fixtures/workflow-bundle";
 
 /**
@@ -77,22 +80,53 @@ interface Harness {
     markFailedCalls: MarkGenerationFailedInput[];
 }
 
-const harness: Harness = {
-    classifyQueue: [],
-    classifyCalls: [],
-    webRuns: [],
-    selfHealCalls: [],
-    selfHealOutput: { prepared: false, skippedReason: "not scripted" },
-    deleteCalls: [],
-    deleteOutput: { deleted: true },
-    revertCalls: [],
-    persistCalls: [],
-    events: [],
-    markFailedCalls: [],
-};
+function createHarness(): Harness {
+    return {
+        classifyQueue: [],
+        classifyCalls: [],
+        webRuns: [],
+        selfHealCalls: [],
+        selfHealOutput: {
+            prepared: true,
+            testGenerationId: HEALED_GENERATION,
+            previousPlanId: ORIGINAL_PLAN_ID,
+            scenarioId: undefined,
+        },
+        deleteCalls: [],
+        deleteOutput: { deleted: true },
+        revertCalls: [],
+        persistCalls: [],
+        events: [],
+        markFailedCalls: [],
+    };
+}
+
+/**
+ * Each execution's own script, keyed by the workflow id that owns it.
+ *
+ * The activities resolve their harness through this map rather than closing over the current test's, so an execution
+ * that outlives the test which started it (a `testTimeout` abandons the workflow, it does not stop it) records into
+ * its own harness. Without that, a single timeout cascades: the abandoned run consumes the next test's
+ * `classifyQueue`, and a healthy test fails for a reason that has nothing to do with it.
+ */
+const harnesses = new Map<string, Harness>();
+
+/** The script for the execution the current test starts - what the test writes to and asserts on. */
+let harness: Harness = createHarness();
+
+/** The script of the execution whose activity is running now, resolved from the calling workflow. */
+function executionHarness(): Harness {
+    const { workflowId } = Context.current().info.workflowExecution;
+    const scripted = harnesses.get(workflowId);
+    if (scripted == null) throw new Error(`No harness registered for workflow ${workflowId}`);
+    return scripted;
+}
 
 /** Monotonic counter for unique workflow ids across executions (workflow ids must not collide within the run). */
 let executionCounter = 0;
+
+/** What the current test started, so anything it abandons is stopped before the next test runs. */
+let startedWorkflowIds: string[] = [];
 
 function verdict(
     category: string,
@@ -139,56 +173,64 @@ function expectedReport(overrides: Partial<AnalysisClassificationReport> = {}): 
 
 const analysisActivities = {
     async classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult> {
-        harness.classifyCalls.push(input);
-        const next = harness.classifyQueue.shift();
+        const scripted = executionHarness();
+        scripted.classifyCalls.push(input);
+        const next = scripted.classifyQueue.shift();
         if (next == null) throw new Error("classify called more times than the test scripted (runaway loop?)");
         if (next instanceof Error) throw next;
         return next;
     },
     async selfHealAnalysisTest(input: SelfHealAnalysisTestInput): Promise<SelfHealAnalysisTestOutput> {
-        harness.selfHealCalls.push(input);
-        harness.events.push("selfHeal");
-        return harness.selfHealOutput;
+        const scripted = executionHarness();
+        scripted.selfHealCalls.push(input);
+        scripted.events.push("selfHeal");
+        return scripted.selfHealOutput;
     },
     async revertSelfHealPlan(input: RevertSelfHealPlanInput): Promise<RevertSelfHealPlanOutput> {
-        harness.revertCalls.push(input);
-        harness.events.push("revert");
+        const scripted = executionHarness();
+        scripted.revertCalls.push(input);
+        scripted.events.push("revert");
         return { reverted: true };
     },
     async deleteAnalysisTest(input: DeleteAnalysisTestInput): Promise<DeleteAnalysisTestOutput> {
-        harness.deleteCalls.push(input);
-        harness.events.push("delete");
-        return harness.deleteOutput;
+        const scripted = executionHarness();
+        scripted.deleteCalls.push(input);
+        scripted.events.push("delete");
+        return scripted.deleteOutput;
     },
     async persistAnalysisClassification(
         input: PersistAnalysisClassificationInput,
     ): Promise<PersistAnalysisClassificationOutput> {
-        harness.persistCalls.push(input);
-        harness.events.push(`persist:${input.classification.category}`);
+        const scripted = executionHarness();
+        scripted.persistCalls.push(input);
+        scripted.events.push(`persist:${input.classification.category}`);
         return { findingId: "finding-1", number: input.number };
     },
 };
 
 const webActivities = {
     async runWebGeneration(input: { testGenerationId: string }): Promise<void> {
-        harness.webRuns.push(input.testGenerationId);
-        const failure = harness.webRunError;
+        const scripted = executionHarness();
+        scripted.webRuns.push(input.testGenerationId);
+        const failure = scripted.webRunError;
         if (failure != null) throw failure;
     },
 };
 
 const generalActivities = {
     async scenarioUp(input: { entityId: string; scenarioId: string }): Promise<{ scenarioInstanceId: string }> {
-        harness.events.push("scenarioUp");
-        if (harness.scenarioUpError != null) throw harness.scenarioUpError;
+        const scripted = executionHarness();
+        scripted.events.push("scenarioUp");
+        if (scripted.scenarioUpError != null) throw scripted.scenarioUpError;
         return { scenarioInstanceId: `instance-${input.scenarioId}` };
     },
     async scenarioDown(): Promise<void> {
-        harness.events.push("scenarioDown");
+        executionHarness().events.push("scenarioDown");
     },
     async markGenerationFailed(input: MarkGenerationFailedInput): Promise<void> {
-        harness.markFailedCalls.push(input);
-        harness.events.push(`markFailed:${input.failure.kind}`);
+        const scripted = executionHarness();
+        scripted.markFailedCalls.push(input);
+        scripted.events.push(`markFailed:${input.failure.kind}`);
     },
 };
 
@@ -216,6 +258,9 @@ beforeAll(async () => {
     });
     workers = [diffsWorker, webWorker, generalWorker];
     runners = Promise.all(workers.map((worker) => worker.run())).then(() => undefined);
+
+    harness.classifyQueue = [classified(verdict("passed"))];
+    await warmUpWorkflowWorker(() => runInvestigator());
 });
 
 afterAll(async () => {
@@ -223,24 +268,12 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-    harness.classifyQueue = [];
-    harness.classifyCalls = [];
-    harness.webRuns = [];
-    harness.selfHealCalls = [];
-    harness.persistCalls = [];
-    harness.events = [];
-    harness.selfHealOutput = {
-        prepared: true,
-        testGenerationId: HEALED_GENERATION,
-        previousPlanId: ORIGINAL_PLAN_ID,
-        scenarioId: undefined,
-    };
-    harness.deleteCalls = [];
-    harness.deleteOutput = { deleted: true };
-    harness.revertCalls = [];
-    harness.scenarioUpError = undefined;
-    harness.webRunError = undefined;
-    harness.markFailedCalls = [];
+    harness = createHarness();
+});
+
+afterEach(async () => {
+    await terminateAbandonedExecutions(env, startedWorkflowIds);
+    startedWorkflowIds = [];
 });
 
 function runInvestigator(
@@ -257,9 +290,12 @@ function runInvestigator(
         origin,
     };
     executionCounter += 1;
+    const workflowId = `investigator-${SLUG}-${executionCounter}`;
+    harnesses.set(workflowId, harness);
+    startedWorkflowIds.push(workflowId);
     return env.client.workflow.execute(investigatorWorkflow, {
         taskQueue: TaskQueue.DIFFS,
-        workflowId: `investigator-${SLUG}-${executionCounter}`,
+        workflowId,
         args: [input],
     });
 }
