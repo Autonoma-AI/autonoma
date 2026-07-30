@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.1.23](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.22...cli-v0.1.23) (2026-07-30)
+
+
+### Features
+
+* **cli:** end the run with a summary you can act on ([#1866](https://github.com/Autonoma-AI/agent/issues/1866)) ([9fa9e17](https://github.com/Autonoma-AI/agent/commit/9fa9e1736e4dcd0e7ea321307b9b8382ac890547))
+* **cli:** record the planner dashboard as a session replay ([#1871](https://github.com/Autonoma-AI/agent/issues/1871)) ([6c581fc](https://github.com/Autonoma-AI/agent/commit/6c581fc6e7722f0c62a89a28c708870f24441ecc))
+* **cli:** say what the tests step is doing after the nodes are done ([#1926](https://github.com/Autonoma-AI/agent/issues/1926)) ([fd032e9](https://github.com/Autonoma-AI/agent/commit/fd032e971385608dfd7448782f59387928ea49b5))
+* **cli:** ship the run narrative to PostHog logs, indexed by generation id ([#1884](https://github.com/Autonoma-AI/agent/issues/1884)) ([8270863](https://github.com/Autonoma-AI/agent/commit/827086335bd86ca1c32f23c521c077e70c2dacbb))
+
+
+### Bug Fixes
+
+* **analytics:** close the activation-funnel instrumentation gaps ([#1746](https://github.com/Autonoma-AI/agent/issues/1746)) ([865350c](https://github.com/Autonoma-AI/agent/commit/865350c980f0a235ec046b0172a9958320ddcb92))
+* **cli:** a step that is still running never reads finished ([#1925](https://github.com/Autonoma-AI/agent/issues/1925)) ([0186478](https://github.com/Autonoma-AI/agent/commit/018647849e3764718513e87b916f0257a9a5e1a3))
+* **cli:** bound the review pass so it cannot stall a run for hours ([#1876](https://github.com/Autonoma-AI/agent/issues/1876)) ([f613363](https://github.com/Autonoma-AI/agent/commit/f613363f466f2b06a4fba76de45bb305035130b2))
+* **cli:** build INDEX.md from disk, last ([#1875](https://github.com/Autonoma-AI/agent/issues/1875)) ([6854cd7](https://github.com/Autonoma-AI/agent/commit/6854cd7fd7d2856a3ab77ae0623c41399f7eb822))
+* **cli:** let journey generation write its tests again ([#1913](https://github.com/Autonoma-AI/agent/issues/1913)) ([2c51d53](https://github.com/Autonoma-AI/agent/commit/2c51d5383e1879b24ba7c127617c2fe1ec839972))
+* **cli:** make a refused write_test countable ([#1923](https://github.com/Autonoma-AI/agent/issues/1923)) ([1ef5837](https://github.com/Autonoma-AI/agent/commit/1ef58375f8c2331f86fb5b468fadc0df1321aa3b))
+* **cli:** make starting over actually start over ([#1922](https://github.com/Autonoma-AI/agent/issues/1922)) ([5759b06](https://github.com/Autonoma-AI/agent/commit/5759b0634f858fb45c787f0e23c2aa890402e5b9))
+* **cli:** make the generated-test file contract explicit ([#1868](https://github.com/Autonoma-AI/agent/issues/1868)) ([676bc91](https://github.com/Autonoma-AI/agent/commit/676bc91555465653522239efb476382320e2e778))
+* **cli:** report the real suite index and re-budget the recipe handoff ([#1883](https://github.com/Autonoma-AI/agent/issues/1883)) ([c2b4c33](https://github.com/Autonoma-AI/agent/commit/c2b4c337943dbb41a8b6a31b267dd3c8d173f675))
+* **cli:** resolve recipe tokens in the planner's own sdk up ([#1842](https://github.com/Autonoma-AI/agent/issues/1842)) ([7c48e75](https://github.com/Autonoma-AI/agent/commit/7c48e7590d953cd252f3e0b5d5bb398fb0a736f5))
+* **cli:** stop invented nodeIds inflating the planner's test count ([#1872](https://github.com/Autonoma-AI/agent/issues/1872)) ([84d2abf](https://github.com/Autonoma-AI/agent/commit/84d2abf90dd17c48208b0a561843695644333ec3))
+* **cli:** stop the ETA extrapolating a linear per-page cost ([#1858](https://github.com/Autonoma-AI/agent/issues/1858)) ([361cddc](https://github.com/Autonoma-AI/agent/commit/361cddcfac272422df390670f54a6fab7fb602a6))
+* **cli:** stop the journey pass resetting the tests step's progress ([#1924](https://github.com/Autonoma-AI/agent/issues/1924)) ([d5705c0](https://github.com/Autonoma-AI/agent/commit/d5705c04fcee89cfdc45faab4bd3a135809be446))
+* **cli:** stop the review pass losing tests it deleted ([#1873](https://github.com/Autonoma-AI/agent/issues/1873)) ([0c6871b](https://github.com/Autonoma-AI/agent/commit/0c6871b08694f47153b77dabad75ab74e38bd3fc))
+* **cli:** stop uploading quarantined tests ([#1877](https://github.com/Autonoma-AI/agent/issues/1877)) ([d1d44fc](https://github.com/Autonoma-AI/agent/commit/d1d44fce4f75a0d9bb76f362d69e66b0fa4b7667))
+
+
+### Documentation
+
+* screenshot every surface the docs tell you to go operate ([#1851](https://github.com/Autonoma-AI/agent/issues/1851)) ([dc08077](https://github.com/Autonoma-AI/agent/commit/dc08077fb33b0604b8d06c65e3f95f3f8aeb603f))
+
 ## [0.1.22](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.21...cli-v0.1.22) (2026-07-28)
 
 
