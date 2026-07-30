@@ -18,7 +18,8 @@
         "fmt": "oxfmt --write src/",
         "build": "tsc --noCheck",
         "typecheck": "tsc --noEmit",
-        "detect-object": "tsx --env-file=.env scripts/detect-object.ts"
+        "detect-object": "tsx --env-file=.env scripts/detect-object.ts",
+        "cursor-grounding-eval": "tsx --env-file=../../.env scripts/cursor-grounding-eval.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",

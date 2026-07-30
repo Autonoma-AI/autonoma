@@ -24,7 +24,10 @@ async function main(testCasePath: string) {
         viewport: DEFAULT_VIEWPORT,
         recordVideo: { dir: os.tmpdir(), size: DEFAULT_VIEWPORT },
     });
-    const installer = new WebInstaller(browser, browserContext, env.NATIVE_DIALOGS_ENABLED);
+    const installer = new WebInstaller(browser, browserContext, {
+        handleNativeDialogs: env.NATIVE_DIALOGS_ENABLED,
+        drawCursorOverlay: env.CURSOR_OVERLAY_ENABLED,
+    });
 
     const costCollector = new CostCollector();
 

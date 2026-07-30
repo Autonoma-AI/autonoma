@@ -3,6 +3,7 @@ import { getScreenshotConfig } from "@autonoma/image";
 import type { Browser, BrowserContext, Page } from "playwright";
 import z from "zod";
 import { ActivePageManager } from "./active-page-manager";
+import { CursorOverlay } from "./cursor-overlay";
 import { PlaywrightApplicationDriver } from "./drivers/playwright-application.driver";
 import { PlaywrightClipboardDriver } from "./drivers/playwright-clipboard.driver";
 import { PlaywrightKeyboardDriver } from "./drivers/playwright-keyboard.driver";
@@ -14,6 +15,23 @@ import { PlaywrightImageStream } from "./playwright-image-stream";
 import type { WebApplicationData } from "./web-application-data";
 import type { WebContext } from "./web-context";
 import { WebVideoRecorder } from "./web-video-recorder";
+
+export interface WebInstallerOptions {
+    /**
+     * When true, native browser dialogs (alert / confirm / prompt) are auto-accepted and
+     * recorded. Enabled for both generation and replay: auto-accept is a deterministic policy
+     * (no agent decision), so replay resolves dialogs exactly as generation did - keeping a
+     * confirm()-gated delete/save consistent across both. The recorded dialogs are only read
+     * by the generation agent; in replay the observer is simply not drained.
+     */
+    handleNativeDialogs?: boolean;
+
+    /**
+     * When true, a synthetic mouse pointer is drawn into the page so the run recording shows
+     * where the agent acted. Cosmetic only - it never moves the real pointer.
+     */
+    drawCursorOverlay?: boolean;
+}
 
 export class WebInstaller extends Installer<WebApplicationData, WebContext> {
     readonly paramsSchema = z.object({
@@ -38,23 +56,24 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
         headers: z.record(z.string(), z.string()).optional(),
     });
 
+    private readonly handleNativeDialogs: boolean;
+    private readonly drawCursorOverlay: boolean;
+
     constructor(
         private readonly browser: Browser,
         private readonly context: BrowserContext,
-        /**
-         * When true, native browser dialogs (alert / confirm / prompt) are auto-accepted and
-         * recorded. Enabled for both generation and replay: auto-accept is a deterministic policy
-         * (no agent decision), so replay resolves dialogs exactly as generation did - keeping a
-         * confirm()-gated delete/save consistent across both. The recorded dialogs are only read
-         * by the generation agent; in replay the observer is simply not drained.
-         */
-        private readonly handleNativeDialogs: boolean = false,
+        { handleNativeDialogs = false, drawCursorOverlay = true }: WebInstallerOptions = {},
     ) {
         super();
+        this.handleNativeDialogs = handleNativeDialogs;
+        this.drawCursorOverlay = drawCursorOverlay;
     }
 
     protected async buildContext({ url, file, cookies, headers }: WebApplicationData) {
         this.logger.info("Building web context for test case", { url });
+
+        // Must be registered before the first page exists, so the very first document draws it.
+        if (this.drawCursorOverlay) await CursorOverlay.install(this.context);
 
         if (cookies != null && cookies.length > 0) {
             this.logger.info("Applying scenario auth cookies", {
@@ -109,9 +128,11 @@ export class WebInstaller extends Installer<WebApplicationData, WebContext> {
         const { screenResolution } = getScreenshotConfig();
         if (screenResolution == null) throw new Error("Screen resolution not found");
 
+        const cursor = this.drawCursorOverlay ? new CursorOverlay(pageManager) : undefined;
+
         const context = {
-            screen: new PlaywrightScreenDriver(pageManager),
-            mouse: new PlaywrightMouseDriver(pageManager, screenResolution),
+            screen: new PlaywrightScreenDriver(pageManager, cursor),
+            mouse: new PlaywrightMouseDriver(pageManager, screenResolution, cursor),
             keyboard: new PlaywrightKeyboardDriver(pageManager),
             clipboard: new PlaywrightClipboardDriver(pageManager),
             application: new PlaywrightApplicationDriver(pageManager),

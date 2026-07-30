@@ -120,7 +120,10 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
             viewport: DEFAULT_VIEWPORT,
             recordVideo: { dir: os.tmpdir() },
         });
-        const installer = new WebInstaller(browser, browserContext, env.NATIVE_DIALOGS_ENABLED);
+        const installer = new WebInstaller(browser, browserContext, {
+            handleNativeDialogs: env.NATIVE_DIALOGS_ENABLED,
+            drawCursorOverlay: env.CURSOR_OVERLAY_ENABLED,
+        });
 
         let result: ExecutionResult<WebCommandSpec> | undefined;
         let videoPath: string | undefined;

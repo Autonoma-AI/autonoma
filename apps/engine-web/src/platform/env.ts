@@ -19,6 +19,15 @@ export const env = createEnv({
             .enum(["true", "false"])
             .optional()
             .transform((value) => value !== "false"),
+        /**
+         * Draw a synthetic mouse pointer into the page so the run recording shows where the agent
+         * clicked. Defaults to enabled; set to "false" as a kill switch, since this injects DOM
+         * into the application under test.
+         */
+        CURSOR_OVERLAY_ENABLED: z
+            .enum(["true", "false"])
+            .optional()
+            .transform((value) => value !== "false"),
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,

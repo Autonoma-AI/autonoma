@@ -65,13 +65,16 @@ export async function runWebGenerationJob(testGenerationId: string, urlOverride?
             recordVideo: { dir: os.tmpdir(), size: DEFAULT_VIEWPORT },
             extraHTTPHeaders,
         });
-        installer = new WebInstaller(browser, browserContext, env.NATIVE_DIALOGS_ENABLED);
+        installer = new WebInstaller(browser, browserContext, {
+            handleNativeDialogs: env.NATIVE_DIALOGS_ENABLED,
+            drawCursorOverlay: env.CURSOR_OVERLAY_ENABLED,
+        });
 
         const costCollector = new CostCollector();
         const models = createEngineModelRegistry(costCollector);
         runner = new WebGenerationAPIRunner({
             storageProvider,
-            installer: new WebInstaller(browser, browserContext, env.NATIVE_DIALOGS_ENABLED),
+            installer,
             executionAgentFactory: createWebAgentFactory(models),
             videoExtension: VIDEO_EXTENSION,
             generationPersister,
