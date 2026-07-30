@@ -2,18 +2,34 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rmdir, unlink, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { type LanguageModel, tool } from "ai";
+import { glob } from "glob";
 import { z } from "zod";
 import type { AppConfig } from "../../config";
 import { type AgentResult, formatRetryGuidance, runAgent } from "../../core/agent";
 import { track } from "../../core/analytics";
 import { formatContext, type ProjectContext } from "../../core/context";
+import { debugLog } from "../../core/debug";
 import { createStepLogger } from "../../core/display";
 import { formatException } from "../../core/errors";
 import { loadGitignorePatterns } from "../../core/gitignore";
 import { captureLog } from "../../core/logs";
 import { getModel } from "../../core/model";
+import { INVALID_DIR, isTestFile, TEST_FILE_GLOB, TESTS_DIR } from "../../core/test-files";
+import { buildBashTool, buildGlobTool, buildGrepTool, buildListDirectoryTool, buildReadFileTool } from "../../tools";
+import { type DiscoveredFeature, loadFeatures, runFeatureDiscovery } from "../00b-feature-discovery/index";
+import { CoverageState, type FeatureNode, JOURNEY_STATE_FILE, loadBfsState } from "./graph";
+import { SYSTEM_PROMPT } from "./prompt";
 import { restoreDeletedTest } from "./restore-deleted-test";
 import { runConsolidatedReview, type TestReviewFeedback } from "./review";
+import {
+    buildCreateFolderTool,
+    buildGetProgressTool,
+    buildNextNodeTool,
+    buildSpawnResearcherTool,
+    buildWriteTestTool,
+} from "./tools";
+import { validateTestContent } from "./validation";
+import { generateIndex } from "./write-index";
 
 const MAX_CONCURRENCY = 8;
 
@@ -34,22 +50,15 @@ const REVIEW_BUDGET_MS = 45 * 60 * 1000;
  * there is no time to fix - the full cost of reviewing for none of the benefit.
  */
 const REVIEW_SCAN_SHARE = 0.6;
-import { glob } from "glob";
-import { debugLog } from "../../core/debug";
-import { INVALID_DIR, isTestFile, TEST_FILE_GLOB, TESTS_DIR } from "../../core/test-files";
-import { buildBashTool, buildGlobTool, buildGrepTool, buildListDirectoryTool, buildReadFileTool } from "../../tools";
-import { type DiscoveredFeature, loadFeatures, runFeatureDiscovery } from "../00b-feature-discovery/index";
-import { CoverageState, type FeatureNode, JOURNEY_STATE_FILE, loadBfsState } from "./graph";
-import { SYSTEM_PROMPT } from "./prompt";
-import {
-    buildCreateFolderTool,
-    buildGetProgressTool,
-    buildNextNodeTool,
-    buildSpawnResearcherTool,
-    buildWriteTestTool,
-} from "./tools";
-import { validateTestContent } from "./validation";
-import { generateIndex } from "./write-index";
+
+/**
+ * The single node the journey pass explores, and the folder its tests land in.
+ * The prompt has to name the id: this phase has no next_node tool, so an agent
+ * not told the id invents one, and every write then relies on the unrecognized-id
+ * fallback - which makes the correction event fire on healthy runs and stop
+ * meaning anything.
+ */
+const JOURNEY_NODE_ID = "journeys";
 
 export interface TestGeneratorInput {
     projectRoot: string;
@@ -635,14 +644,14 @@ Each journey test:
 - Has scenario: standard
 - Includes an **Intent**: section explaining the cross-feature flow being tested
 - Verifies that the OUTPUT of one feature is correctly consumed by the NEXT feature
-- Goes in the "journeys" folder
+- Goes in the "${JOURNEY_NODE_ID}" folder
 
-Write 5-8 journey tests using the write_test tool with folder "journeys". Then call finish.`;
+Write 5-8 journey tests using the write_test tool with folder "${JOURNEY_NODE_ID}" and nodeId "${JOURNEY_NODE_ID}". Then call finish.`;
 
     const ignorePatterns = await loadGitignorePatterns(projectRoot);
     const journeyState = new CoverageState({ stateFile: JOURNEY_STATE_FILE, reportsProgress: false });
     journeyState.enqueue({
-        id: "journeys",
+        id: JOURNEY_NODE_ID,
         name: "Journey Tests",
         sourceFiles: [],
         parentId: undefined,
@@ -651,10 +660,9 @@ Write 5-8 journey tests using the write_test tool with folder "journeys". Then c
     });
     // Mark the node as being explored before the agent runs. This phase has no
     // next_node tool, so nothing else ever would - and write_test resolves an
-    // unrecognized nodeId against the node in progress. Without this, a journey
-    // test written under anything but the literal id "journeys" (models routinely
-    // send the filename instead) is rejected, and the rejection tells the model to
-    // call a tool it has not been given.
+    // unrecognized nodeId against the node in progress. The prompt names the id,
+    // so this is the safety net for an agent that sends something else (a
+    // filename, usually) rather than the path every write takes.
     journeyState.nextNode();
 
     let journeyResult: AgentResult | undefined;
