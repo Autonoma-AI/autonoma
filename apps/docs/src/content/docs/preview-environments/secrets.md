@@ -18,6 +18,8 @@ Two things in that panel are worth knowing before you start. A saved secret can 
 
 Both routes write to the same encrypted store, so a value set in the UI is visible to the API and vice versa. The value lives in AWS Secrets Manager - never in your config, never in your repo - and is only ever readable by your own organization. Updates take effect on the next preview deploy for that app.
 
+Because a secret lives outside the config, it also saves on its own. When the only thing you have changed is secrets, the save button reads **Save secrets** and writes just those - so a rotation goes through even when the rest of the config is mid-edit or has a problem of its own. Changing a variable's build-time toggle is the exception: that names the key in `build_secrets`, which is part of the config, so it saves with the config like any other setting.
+
 ## Secret, connection, or config value?
 
 Not everything your app reads from `process.env` is a secret. Picking the right home is the thing people get wrong most often, so start here:

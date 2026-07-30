@@ -38,6 +38,12 @@ const savedResponse = {
   dependencyConfigs: [],
 };
 
+/** The app's existing secret bundle - keys only, the way AWS hands it back. */
+const storedSecrets = [
+  { key: "STRIPE_SECRET_KEY", maskedLength: 8, updatedAt: FIXTURE_EPOCH, fingerprint: "aa11" },
+  { key: "RESEND_API_KEY", maskedLength: 8, updatedAt: FIXTURE_EPOCH, fingerprint: "bb22" },
+];
+
 /** A live app: onboarding done, previews on PreviewKit and verified. */
 const completedOnboardingState = {
   id: "onboarding_fixture_01",
@@ -98,14 +104,11 @@ const previewConfigFixtures: TrpcFixtures = {
     getState: completedOnboardingState,
     getPreviewkitConfig: savedResponse,
     savePreviewkitConfig: savedResponse,
+    upsertPreviewkitSecrets: storedSecrets,
+    deletePreviewkitSecret: storedSecrets,
     listDeployBranches: { branches: ["main"], defaultBranch: "main", currentBranch: "main", truncated: false },
   },
-  secrets: {
-    list: [
-      { key: "STRIPE_SECRET_KEY", maskedLength: 8, updatedAt: FIXTURE_EPOCH, fingerprint: "aa11" },
-      { key: "RESEND_API_KEY", maskedLength: 8, updatedAt: FIXTURE_EPOCH, fingerprint: "bb22" },
-    ],
-  },
+  secrets: { list: storedSecrets },
   github: {
     getApplicationRepository: {
       id: 123456,
@@ -138,9 +141,10 @@ export const Variables: Story = {
 /**
  * The same page for an app stored before the framework presets were retired: the
  * document still parses (read schema), but the authoring contract rejects its
- * build block, so every save is blocked - including a secret-only change. The
- * story rotates a stored secret, so the bar shows the state that used to be a
- * dead end: unsaved changes, Save disabled, and now the reason for it.
+ * build block, so the config itself cannot be saved. The story rotates a stored
+ * secret, which is the case that used to be a dead end - the bar names what
+ * blocks the config, and still offers Save secrets, because a secret is written
+ * to its own store rather than through the document.
  */
 export const RetiredBuildPreset: Story = {
   args: { path: `/app/${baseApplication.slug}/preview-config` },

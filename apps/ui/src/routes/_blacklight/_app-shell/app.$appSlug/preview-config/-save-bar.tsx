@@ -7,13 +7,15 @@ import { usePreviewDraft } from "./-draft-context";
  * Shared validation banners + save/cancel bar for the Preview Environments
  * sections. Sits below the section outlet so config problems and the pending
  * save are visible no matter which section (Apps / Secrets / Services) made the
- * draft dirty. Saving writes one new config revision covering all sections.
+ * draft dirty. Saving writes one new config revision covering all sections -
+ * except when only secrets changed, which go straight to their AWS bundles and
+ * so remain saveable while the config itself is blocked.
  */
 export function PreviewSaveBar() {
-  const { draft, issues, hookErrors, isDirty, canSave, isSaving, save, cancel } = usePreviewDraft();
+  const { draft, issues, hookErrors, isDirty, canSave, isSaving, secretsOnly, save, cancel } = usePreviewDraft();
   // Field errors render next to their own field, which may be on another app or
-  // another tab than the one being edited - so a change made anywhere (a secret,
-  // say) would hit a disabled Save with nothing on screen saying why.
+  // another tab than the one being edited - so a config change made anywhere
+  // would hit a disabled Save with nothing on screen saying why.
   const blockers = fieldIssueSummaries(issues.fieldErrors, draft.apps);
 
   return (
@@ -30,7 +32,7 @@ export function PreviewSaveBar() {
       ) : undefined}
       {blockers.length > 0 ? (
         <div className="border-l-2 border-status-critical bg-status-critical/10 px-4 py-3">
-          <p className="font-mono text-2xs uppercase tracking-widest text-status-critical">Fix before saving</p>
+          <p className="font-mono text-2xs uppercase tracking-widest text-status-critical">Blocks saving the config</p>
           {blockers.map((blocker) => (
             <p key={blocker.key} className="mt-2 text-sm text-text-secondary">
               <span className="font-mono text-2xs uppercase tracking-wider text-text-primary">
@@ -39,6 +41,9 @@ export function PreviewSaveBar() {
               {blocker.message}
             </p>
           ))}
+          {secretsOnly ? (
+            <p className="mt-3 text-sm text-text-secondary">Secrets are stored separately and still save.</p>
+          ) : undefined}
         </div>
       ) : undefined}
       {issues.documentWarnings.length > 0 ? (
@@ -59,7 +64,7 @@ export function PreviewSaveBar() {
 
       <div className="sticky bottom-0 z-10 flex items-center justify-between gap-3 border-t border-border-dim bg-surface-void/95 py-3 backdrop-blur">
         <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">
-          {isDirty ? "Unsaved changes" : "All changes saved"}
+          {isDirty ? (secretsOnly ? "Unsaved secrets" : "Unsaved changes") : "All changes saved"}
         </p>
         <div className="flex items-center gap-3">
           <Button variant="ghost" onClick={cancel} disabled={!isDirty || isSaving} aria-label="preview-config-cancel">
@@ -73,7 +78,7 @@ export function PreviewSaveBar() {
             aria-label="preview-config-save"
           >
             <FloppyDiskIcon size={16} weight="bold" />
-            {isSaving ? "Saving..." : "Save config"}
+            {isSaving ? "Saving..." : secretsOnly ? "Save secrets" : "Save config"}
           </Button>
         </div>
       </div>

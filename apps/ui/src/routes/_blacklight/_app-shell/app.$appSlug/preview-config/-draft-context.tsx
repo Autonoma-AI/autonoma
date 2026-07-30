@@ -1,6 +1,11 @@
-import { authoringPreviewConfigSchema, connectionTargets } from "@autonoma/types";
+import { AppNameSchema, authoringPreviewConfigSchema, connectionTargets } from "@autonoma/types";
 import { useQueryClient } from "@tanstack/react-query";
-import { usePreviewkitConfig, useSavePreviewkitConfig } from "lib/onboarding/onboarding-api";
+import {
+  useDeletePreviewkitSecret,
+  usePreviewkitConfig,
+  useSavePreviewkitConfig,
+  useUpsertPreviewkitSecrets,
+} from "lib/onboarding/onboarding-api";
 import { useApplicationRepositoryFromGitHub } from "lib/query/github.queries";
 import { toastManager } from "lib/toast-manager";
 import { trpc } from "lib/trpc";
@@ -65,6 +70,12 @@ interface PreviewDraftValue {
   isDirty: boolean;
   canSave: boolean;
   isSaving: boolean;
+  /**
+   * The pending changes are secrets and nothing else, so the save writes the AWS
+   * bundles alone and leaves the config document as it is. Config validation
+   * doesn't gate it, and the bar says "secrets" rather than "config".
+   */
+  secretsOnly: boolean;
   updateApp: (id: number, patch: Partial<AppDraft>) => void;
   setPrimaryApp: (id: number) => void;
   setSdkApp: (id: number) => void;
@@ -100,11 +111,16 @@ export function usePreviewDraft(): PreviewDraftValue {
  * The Apps / Secrets / Services settings sections all read and write this one
  * draft, and the shared save bar persists it as a single new config revision
  * (dependency configs and secret upserts/deletes ride along on that save).
+ * A draft holding secret changes ALONE takes a narrower path instead: the AWS
+ * bundles are written directly and the document is left alone, so a secret stays
+ * editable while the config document is unsaveable.
  */
 export function PreviewDraftProvider({ appId, children }: { appId: string; children: ReactNode }) {
   const configQuery = usePreviewkitConfig(appId);
   const repositoryQuery = useApplicationRepositoryFromGitHub(appId);
   const saveConfig = useSavePreviewkitConfig();
+  const upsertSecrets = useUpsertPreviewkitSecrets();
+  const deleteSecret = useDeletePreviewkitSecret();
   const queryClient = useQueryClient();
 
   const [draft, setDraft] = useState<TopologyDraft>(() =>
@@ -133,7 +149,9 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
       // Every app of the topology, dependency repos included: a dependency app owns
       // a secret bundle under this same application, so skipping it showed a
       // multirepo backend as having no secrets at all while its values were set.
-      const apps = draft.apps.filter((app) => app.name.trim().length >= 2);
+      // Names the API cannot address a bundle by are skipped, the same way the
+      // save skips them, so loading and saving agree on which apps have one.
+      const apps = draft.apps.filter((app) => AppNameSchema.safeParse(app.name.trim()).success);
       const entries = await Promise.all(
         apps.map(async (app) => {
           const appName = app.name.trim();
@@ -187,12 +205,15 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
   const hookAppNames = draft.apps.map((app) => app.name).filter((name) => name.trim() !== "");
   const hookErrors = hookFieldErrors(draft.hooks, hookAppNames);
   const hasBlockingIssues = issues.fieldErrors.size > 0 || issues.documentErrors.length > 0 || hookErrors.size > 0;
-  const secretsDirty = draft.apps.some((app) => {
-    const diff = diffAppSecrets(app.env, loadedSecretKeys.current.get(app.name.trim()) ?? []);
-    return diff.upserts.length > 0 || diff.deletes.length > 0;
-  });
-  const isDirty = !sameSnapshots(snapshotCompiled(compiled), savedSnapshots) || secretsDirty;
-  const canSave = isDirty && !hasBlockingIssues && !saveConfig.isPending;
+  const secretChanges = pendingSecretChanges(draft, loadedSecretKeys.current);
+  const configDirty = !sameSnapshots(snapshotCompiled(compiled), savedSnapshots);
+  const isDirty = configDirty || secretChanges.length > 0;
+  // Secrets live in AWS, not in the config document, so a secrets-only save
+  // writes them directly and never submits the document - config problems
+  // elsewhere (a legacy build block, another app's bad field) cannot block it.
+  const secretsOnly = !configDirty && secretChanges.length > 0;
+  const isSaving = saveConfig.isPending || upsertSecrets.isPending || deleteSecret.isPending;
+  const canSave = isDirty && !isSaving && (secretsOnly || !hasBlockingIssues);
 
   const repoGroups: RepoGroup[] = [
     { key: PRIMARY_REPO_KEY, label: repositoryQuery.data?.fullName ?? "Primary repo", badge: "primary" },
@@ -318,15 +339,12 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
 
   function save() {
     if (!canSave) return;
-    const submission = documentsFromDraft(draft);
-    const secrets = draft.apps
-      .filter((app) => app.name.trim().length >= 2)
-      .map((app) => {
-        const diff = diffAppSecrets(app.env, loadedSecretKeys.current.get(app.name.trim()) ?? []);
-        return { appName: app.name.trim(), upserts: diff.upserts, deletes: diff.deletes };
-      })
-      .filter((entry) => entry.upserts.length > 0 || entry.deletes.length > 0);
+    if (secretsOnly) {
+      void saveSecrets();
+      return;
+    }
 
+    const submission = documentsFromDraft(draft);
     saveConfig.mutate(
       {
         applicationId: appId,
@@ -335,38 +353,104 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
           repo: dependency.repo,
           document: authoringPreviewConfigSchema.parse(dependency.document),
         })),
-        secrets: secrets.length > 0 ? secrets : undefined,
+        secrets: secretChanges.length > 0 ? secretChanges : undefined,
       },
       {
         onSuccess: () => {
           setSavedSnapshots(snapshotCompiled(submission));
-          // Reflect the now-persisted secrets: clear typed values and mark rows
-          // as existing (masked) secrets so a re-save won't re-upload them.
-          setDraft((current) => {
-            const next: TopologyDraft = {
-              ...current,
-              apps: current.apps.map((app) => ({
-                ...app,
-                env: app.env.map((row) =>
-                  row.sensitive && row.key.trim() !== "" ? { ...row, value: "", origin: "secret" as const } : row,
-                ),
-              })),
-            };
-            const keyMap = new Map<string, string[]>();
-            for (const app of next.apps) {
-              keyMap.set(
-                app.name.trim(),
-                app.env.filter((row) => row.sensitive && row.key.trim() !== "").map((row) => row.key.trim()),
-              );
-            }
-            loadedSecretKeys.current = keyMap;
-            baselineDraft.current = structuredClone(next);
-            return next;
-          });
+          // What was submitted is now what is saved, so Cancel reverts to here.
+          // Each adopt below refines this with its cleared secret values.
+          baselineDraft.current = structuredClone(draft);
+          // The config save carried the secrets too, so every change in it landed.
+          for (const change of secretChanges) {
+            adoptSecretWrites(
+              change.appName,
+              change.upserts.map((item) => item.key),
+              change.deletes,
+            );
+          }
           toastManager.add({ type: "success", title: "Preview config saved" });
         },
       },
     );
+  }
+
+  /**
+   * Persists the secret changes on their own, straight to the AWS bundles. The
+   * config document is untouched and never submitted, so this path stays open
+   * while the document is unsaveable (an app on a retired build preset, say) -
+   * a secret is not the thing that is wrong, so fixing it should not be gated.
+   *
+   * Apps run concurrently, but each app's upserts land before its deletes: both
+   * rewrite the one AWS bundle for that app, and a rename arrives as upsert-new
+   * + delete-old. One app failing must not discard what the others already
+   * wrote, so nothing is awaited as a group - see `writeAppSecrets`.
+   */
+  async function saveSecrets() {
+    const outcomes = await Promise.allSettled(secretChanges.map((change) => writeAppSecrets(change)));
+    const failed = outcomes.filter((outcome) => outcome.status === "rejected");
+    if (failed.length > 0) {
+      // Each mutation raises its own error toast. Whatever landed has already
+      // been adopted, so the draft now holds exactly the writes still to make
+      // and pressing save again retries those alone.
+      console.warn("Failed to save some preview secrets", { appId, failed: failed.length });
+      return;
+    }
+    toastManager.add({ type: "success", title: "Preview secrets saved" });
+  }
+
+  /**
+   * Writes one app's bundle, adopting each write as it lands rather than at the
+   * end. A half-applied app (its upsert stored, a delete still to go) therefore
+   * leaves only the unapplied part pending: a retry never repeats a delete that
+   * already happened, which the API answers with a 404 and would otherwise wedge
+   * the save.
+   */
+  async function writeAppSecrets(change: AppSecretChanges) {
+    if (change.upserts.length > 0) {
+      await upsertSecrets.mutateAsync({ applicationId: appId, appName: change.appName, items: change.upserts });
+      adoptSecretWrites(
+        change.appName,
+        change.upserts.map((item) => item.key),
+        [],
+      );
+    }
+    for (const key of change.deletes) {
+      await deleteSecret.mutateAsync({ applicationId: appId, appName: change.appName, key });
+      adoptSecretWrites(change.appName, [], [key]);
+    }
+  }
+
+  /**
+   * Records what AWS now holds for one app: `stored` keys are the ones just
+   * written (their typed value is cleared and the row becomes a masked, stored
+   * secret) and `removed` keys are gone from the bundle. Both move the baseline
+   * the dirty check diffs against, so an adopted write stops counting as pending
+   * and Cancel reverts to this state rather than to page load.
+   */
+  function adoptSecretWrites(appName: string, stored: string[], removed: string[]) {
+    const storedKeys = new Set(stored);
+    const removedKeys = new Set(removed);
+    setDraft((current) => {
+      const next: TopologyDraft = {
+        ...current,
+        apps: current.apps.map((app) => {
+          if (app.name.trim() !== appName) return app;
+          return {
+            ...app,
+            env: app.env.map((row) =>
+              storedKeys.has(row.key.trim()) ? { ...row, value: "", origin: "secret" as const } : row,
+            ),
+          };
+        }),
+      };
+      const loaded = new Set(loadedSecretKeys.current.get(appName) ?? []);
+      for (const key of storedKeys) loaded.add(key);
+      for (const key of removedKeys) loaded.delete(key);
+      loadedSecretKeys.current = new Map(loadedSecretKeys.current).set(appName, [...loaded]);
+      baselineDraft.current = structuredClone(next);
+      return next;
+    });
   }
 
   function cancel() {
@@ -387,7 +471,8 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
     deployableApps,
     isDirty,
     canSave,
-    isSaving: saveConfig.isPending,
+    isSaving,
+    secretsOnly,
     updateApp,
     setPrimaryApp,
     setSdkApp,
@@ -405,6 +490,33 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
   };
 
   return <PreviewDraftContext.Provider value={value}>{children}</PreviewDraftContext.Provider>;
+}
+
+interface AppSecretChanges {
+  appName: string;
+  upserts: Array<{ key: string; value: string }>;
+  deletes: string[];
+}
+
+/**
+ * The secret writes the draft is holding, per app - one entry per app with
+ * something to persist. The single source for both "are secrets dirty?" and
+ * what a save submits, so the bar can never offer a save that writes nothing.
+ *
+ * Apps whose name cannot address a secret bundle are skipped - the same check
+ * the API applies to the appName it is given, so the editor never offers a
+ * secret it has nowhere to store. Such an app has no bundle to load from
+ * either, so nothing was ever shown for it.
+ */
+function pendingSecretChanges(draft: TopologyDraft, loadedKeys: Map<string, string[]>): AppSecretChanges[] {
+  return draft.apps
+    .filter((app) => AppNameSchema.safeParse(app.name.trim()).success)
+    .map((app) => {
+      const appName = app.name.trim();
+      const diff = diffAppSecrets(app.env, loadedKeys.get(appName) ?? []);
+      return { appName, upserts: diff.upserts, deletes: diff.deletes };
+    })
+    .filter((change) => change.upserts.length > 0 || change.deletes.length > 0);
 }
 
 /** Rewrites hook rows targeting `oldName` to follow the app's rename to `newName`. */
