@@ -5,14 +5,14 @@ description: How to give your preview apps the credentials they need - API keys,
 
 <p class="lead">A secret is any value you wouldn't commit to your repo - a Stripe key, a database URL, a signed token. You set it once, the platform stores it encrypted, and every preview deploy mounts it into your app as an environment variable. Your code just reads <code>process.env.STRIPE_API_KEY</code> and gets the value.</p>
 
-![Set a secret in the config UI or via the API, it is stored encrypted in AWS Secrets Manager, then mounted as an environment variable into every preview of that app](/img/preview-environments/secret-flow.jpg)
+![Three stages left to right: "Set a secret", with Config UI and API chips beneath it, feeds a padlocked shield labelled "Encrypted store - platform database", which feeds a "Preview app" browser window reading the value from process.env](/img/preview-environments/secret-flow.jpg)
 
 ## Two ways to set a secret
 
 - **In the config UI (most common).** The **Variables** step of preview setup holds every variable for an app in one list, with an editor beside it. This is the right place for a one-off, or when you're setting things up by hand for the first time.
 - **From the API (for CI / automation).** Script it when you have many keys, or rotate them from a pipeline. See [Managing secrets from the API](#managing-secrets-from-the-api) below.
 
-![The Variables step of preview setup. On the left a list splits into two groups - Connections, holding DATABASE_URL with an arrow to db and a BUILD chip, and Secrets, holding STRIPE_SECRET_KEY and RESEND_API_KEY, each with a padlock. On the right an "Edit variable" panel shows the selected key, a Source control switching between SECRET and CONNECTION with SECRET active and the note "stored encrypted in AWS, injected at runtime, never shown again after saving", a value field reading "•••••• (set)" with a Replace value button and the note that the stored value can't be read back, and an Injection block reading "injected at runtime - always on for every variable" with an "also inject at build time" toggle beneath it](/img/preview-environments/variables-secret.png)
+![The Variables step of preview setup. On the left a list splits into two groups - Connections, holding DATABASE_URL with an arrow to db and a BUILD chip, and Secrets, holding STRIPE_SECRET_KEY and RESEND_API_KEY, each with a padlock. On the right an "Edit variable" panel shows the selected key, a Source control switching between SECRET and CONNECTION with SECRET active and the note "stored encrypted, injected at runtime, never shown again after saving", a value field reading "•••••• (set)" with a Replace value button and the note that the stored value can't be read back, and an Injection block reading "injected at runtime - always on for every variable" with an "also inject at build time" toggle beneath it](/img/preview-environments/variables-secret.png)
 
 Two things in that panel are worth knowing before you start. A saved secret can only be **replaced**, never read back - the value field shows `•••••• (set)` and nothing else. And the **Source** control is where the secret-versus-connection decision below actually gets made, with the product writing the one-line rationale for each next to it.
 

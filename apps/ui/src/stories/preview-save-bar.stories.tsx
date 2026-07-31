@@ -38,7 +38,7 @@ const savedResponse = {
   dependencyConfigs: [],
 };
 
-/** The app's existing secret bundle - keys only, the way AWS hands it back. */
+/** The app's existing secret bundle - keys only, the way the API hands it back. */
 const storedSecrets = [
   { key: "STRIPE_SECRET_KEY", maskedLength: 8, updatedAt: FIXTURE_EPOCH, fingerprint: "aa11" },
   { key: "RESEND_API_KEY", maskedLength: 8, updatedAt: FIXTURE_EPOCH, fingerprint: "bb22" },

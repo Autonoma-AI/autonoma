@@ -12,8 +12,8 @@ import {
   type DraftIssues,
 } from "../routes/_blacklight/onboarding/-components/previewkit/topology-draft";
 
-// Secrets live in AWS Secrets Manager, so the saved document carries only their
-// keys - the editor merges them in as write-only rows with an empty value.
+// Secrets live outside the config document, so it carries only their keys - the
+// editor merges them in as write-only rows with an empty value.
 const STORED_SECRET_KEYS = ["STRIPE_SECRET_KEY", "RESEND_API_KEY"];
 
 /** A saved config for the ordinary shape: one Next.js web app wired to a Postgres service. */
@@ -42,7 +42,7 @@ const savedConfig = previewConfigSchema.parse({
 
 const baseDraft = draftFromConfig(savedConfig, [], "saved");
 
-/** The saved app plus the masked secret rows the editor merges in from the AWS key list. */
+/** The saved app plus the masked secret rows the editor merges in from the stored key list. */
 const webApp: AppDraft = {
   ...baseDraft.apps[0]!,
   env: withSecretRows(baseDraft.apps[0]!.env, STORED_SECRET_KEYS),
@@ -101,7 +101,7 @@ type Story = StoryObj<typeof meta>;
 /**
  * The list an app ends up with: a `DATABASE_URL` connection wired to the Postgres
  * service (also passed to the image build, hence the Build chip) and two secrets.
- * The drawer holds a stored secret, whose value AWS never returns - it renders as
+ * The drawer holds a stored secret, whose value the store never returns - it renders as
  * `•••••• (set)` with the only edit that exists for it, Replace value.
  */
 export const SecretSelected: Story = {

@@ -71,8 +71,8 @@ interface PreviewDraftValue {
   canSave: boolean;
   isSaving: boolean;
   /**
-   * The pending changes are secrets and nothing else, so the save writes the AWS
-   * bundles alone and leaves the config document as it is. Config validation
+   * The pending changes are secrets and nothing else, so the save writes the
+   * secret bundles alone and leaves the config document as it is. Config validation
    * doesn't gate it, and the bar says "secrets" rather than "config".
    */
   secretsOnly: boolean;
@@ -111,7 +111,7 @@ export function usePreviewDraft(): PreviewDraftValue {
  * The Apps / Secrets / Services settings sections all read and write this one
  * draft, and the shared save bar persists it as a single new config revision
  * (dependency configs and secret upserts/deletes ride along on that save).
- * A draft holding secret changes ALONE takes a narrower path instead: the AWS
+ * A draft holding secret changes ALONE takes a narrower path instead: the secret
  * bundles are written directly and the document is left alone, so a secret stays
  * editable while the config document is unsaveable.
  */
@@ -138,7 +138,7 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
   // app name alone across every repo of the topology: names are unique across the
   // merged topology (the save rejects a collision) and a secret bundle is stored per
   // (application, app name), so a dependency-repo app needs no separate namespace.
-  // Values are never fetched (AWS is write-only) - only key names, shown masked.
+  // Values are never fetched (the store is write-only) - only key names, shown masked.
   const loadedSecretKeys = useRef<Map<string, string[]>>(new Map());
   // Snapshot of the draft to revert to on Cancel; refreshed on load and on save.
   const baselineDraft = useRef<TopologyDraft | undefined>(undefined);
@@ -178,7 +178,7 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
           // Track only the stored keys that ended up represented by a sensitive
           // row. A stored secret shadowed by a plaintext config row is skipped
           // by the merge - counting it would report a phantom "delete" (dirty
-          // on load) and a save would then silently drop the secret from AWS.
+          // on load) and a save would then silently drop the stored secret.
           const sensitiveKeys = new Set(env.filter((row) => row.sensitive).map((row) => row.key.trim()));
           representedKeys.set(
             appName,
@@ -208,7 +208,7 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
   const secretChanges = pendingSecretChanges(draft, loadedSecretKeys.current);
   const configDirty = !sameSnapshots(snapshotCompiled(compiled), savedSnapshots);
   const isDirty = configDirty || secretChanges.length > 0;
-  // Secrets live in AWS, not in the config document, so a secrets-only save
+  // Secrets live in their own store, not in the config document, so a secrets-only save
   // writes them directly and never submits the document - config problems
   // elsewhere (a legacy build block, another app's bad field) cannot block it.
   const secretsOnly = !configDirty && secretChanges.length > 0;
@@ -376,13 +376,13 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
   }
 
   /**
-   * Persists the secret changes on their own, straight to the AWS bundles. The
+   * Persists the secret changes on their own, straight to the secret bundles. The
    * config document is untouched and never submitted, so this path stays open
    * while the document is unsaveable (an app on a retired build preset, say) -
    * a secret is not the thing that is wrong, so fixing it should not be gated.
    *
    * Apps run concurrently, but each app's upserts land before its deletes: both
-   * rewrite the one AWS bundle for that app, and a rename arrives as upsert-new
+   * rewrite the one bundle for that app, and a rename arrives as upsert-new
    * + delete-old. One app failing must not discard what the others already
    * wrote, so nothing is awaited as a group - see `writeAppSecrets`.
    */
@@ -422,7 +422,7 @@ export function PreviewDraftProvider({ appId, children }: { appId: string; child
   }
 
   /**
-   * Records what AWS now holds for one app: `stored` keys are the ones just
+   * Records what the store now holds for one app: `stored` keys are the ones just
    * written (their typed value is cleared and the row becomes a masked, stored
    * secret) and `removed` keys are gone from the bundle. Both move the baseline
    * the dirty check diffs against, so an adopted write stops counting as pending

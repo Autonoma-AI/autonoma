@@ -20,10 +20,10 @@ import {
 /**
  * View + edit model for the app's unified variable list. Every variable is one
  * of two kinds:
- *   - a secret: a user-typed value stored in AWS Secrets Manager (write-only).
+ *   - a secret: a user-typed value held in the encrypted secret store (write-only).
  *   - a connection: a template value that wires to the topology via
  *     `{{name.property}}` tokens (e.g. `mongodb://{{db.host}}:{{db.port}}/x`),
- *     resolved at deploy time. Never sensitive, never in AWS.
+ *     resolved at deploy time. Never sensitive, never in the secret store.
  * A variable can additionally be flagged build-time (mirrored into
  * `build_secrets` for a secret, `connections[].build_time` for a connection).
  */
@@ -50,13 +50,13 @@ export interface VariableView {
     unknownReferences: string[];
     /** Also exposed during the image build (build secret for secrets, build_time for connections). */
     buildTime: boolean;
-    /** Persisted secret whose value AWS never returns - shown as `(set)`, replaceable only. */
+    /** Persisted secret whose value the store never returns - shown as `(set)`, replaceable only. */
     isStoredSecret: boolean;
 }
 
 export interface VariableForm {
     key: string;
-    /** `secret` = user-typed value (AWS); `connection` = template wired to the topology. */
+    /** `secret` = user-typed stored value; `connection` = template wired to the topology. */
     source: "secret" | "connection";
     value: string;
     buildTime: boolean;
@@ -175,7 +175,7 @@ export interface ApplyResult {
 
 /**
  * Applies the drawer form to the app draft: upserts the variable row. A secret
- * is a sensitive (AWS-stored) row; a connection is a non-sensitive templated
+ * is a sensitive (separately stored) row; a connection is a non-sensitive templated
  * row. `buildTime` rides on the row and compiles to `build_secrets` (secret) or
  * `connections[].build_time` (connection).
  *
@@ -195,8 +195,8 @@ export function applyVariable(app: AppDraft, rowId: number | undefined, form: Va
     }
 
     // A stored secret keeps its "secret" origin while it stays sensitive (a blank
-    // value means "unchanged in AWS"); switching it to a connection makes it a
-    // plaintext templated row, so its AWS secret is dropped on the next save.
+    // value means "unchanged in the store"); switching it to a connection makes it
+    // a plaintext templated row, so its stored secret is dropped on the next save.
     const origin = existing.origin === "secret" && !sensitive ? "config" : existing.origin;
     const edited = app.env.map((row) =>
         row.id === existing.id ? { ...row, key, value, sensitive, buildTime: form.buildTime, origin } : row,

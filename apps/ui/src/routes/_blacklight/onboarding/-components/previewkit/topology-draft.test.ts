@@ -529,7 +529,7 @@ describe("envRowsFromDotenv", () => {
 
 describe("dedupeSecretRows", () => {
     it("keeps the row being typed when the stored-secret merge already added that key", () => {
-        // The variable list is editable before the AWS key list arrives, so the merge
+        // The variable list is editable before the stored key list arrives, so the merge
         // can land on a half-typed key it cannot match - and appends its own masked
         // row for the same stored secret.
         const typed = envRow("STRIPE_SECRET_K", "sk_live_new", true, "new", false);

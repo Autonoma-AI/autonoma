@@ -16,7 +16,7 @@ interface VariableListProps {
 
 /**
  * The scannable key list on the left of the variable manager, split into
- * Connections (topology-wired, resolved at deploy) and Secrets (AWS).
+ * Connections (topology-wired, resolved at deploy) and Secrets (stored write-only).
  */
 export function VariableList({ visible, selectedRowId, searching, onSelect, onDelete }: VariableListProps) {
   const connections = visible.filter((variable) => variable.isConnection);

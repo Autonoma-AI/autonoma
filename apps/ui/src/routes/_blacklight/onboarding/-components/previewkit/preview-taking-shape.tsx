@@ -19,7 +19,7 @@ import { usePreviewkitConfig } from "lib/onboarding/onboarding-api";
 import { useState } from "react";
 
 // The value shown for a secret key - the actual value never reaches this UI (it lives
-// only in the user's browser and AWS Secrets Manager), so we show the key and a note.
+// only in the user's browser and the encrypted secret store), so we show the key and a note.
 const SECRET_PLACEHOLDER = "set in the Autonoma UI";
 
 const DRAWER_FOOTER_NOTE = "Configured by your coding agent via MCP. Take over to edit any of this in the setup UI.";

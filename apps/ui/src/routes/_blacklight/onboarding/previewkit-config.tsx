@@ -523,7 +523,7 @@ function PreviewkitConfigContent({
     }
 
     // Secret values (from the Variables step) persist alongside the config in one
-    // call: sensitive rows with a (re-)entered value upsert to AWS, loaded keys no
+    // call: sensitive rows with a (re-)entered value are upserted, loaded keys no
     // longer represented are deleted. Only primary-repo apps have a secret store.
     const secrets = draft.apps
       .filter((app) => app.name.trim().length >= 2)

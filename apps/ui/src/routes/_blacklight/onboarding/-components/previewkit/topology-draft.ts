@@ -89,8 +89,8 @@ export type EnvRowOrigin = "config" | "secret" | "new";
 
 /**
  * One variable of an app. Every variable is either:
- *   - a secret (`sensitive: true`): a user-typed value stored in AWS Secrets
- *     Manager and injected via `envFrom`. Its value is write-only.
+ *   - a secret (`sensitive: true`): a user-typed value held in the encrypted
+ *     secret store and injected via `envFrom`. Its value is write-only.
  *   - a connection (`sensitive: false`): a `{{target.property}}` binding to
  *     another app/service, resolved at deploy time (compiles to `connections`).
  * `buildTime` mirrors the value into the image build (a secret key becomes a
@@ -568,8 +568,8 @@ function appDraftFromConfig(app: PreviewConfig["apps"][number], repoKey: string,
     draft.sdkImplemented = app.sdk_implemented === true;
     draft.dependsOn = app.depends_on ?? [];
     // Connections become non-sensitive binding rows; build-time secret keys seed
-    // sensitive rows (value blank - AWS never returns it), marked build-time. The
-    // remaining secrets are merged in from the AWS key list.
+    // sensitive rows (value blank - the store never returns it), marked build-time.
+    // The remaining secrets are merged in from the stored key list.
     const connectionRows = app.connections.map((connection) =>
         envRow(connection.key, connection.value, false, "config", connection.build_time),
     );
@@ -986,7 +986,7 @@ function compileApp(app: AppDraft): Record<string, unknown> {
     if (app.sdkImplemented) compiled.sdk_implemented = true;
     if (app.dependsOn.length > 0) compiled.depends_on = app.dependsOn;
 
-    // Secrets (sensitive rows) live in AWS; only their build-time subset is named
+    // Secrets (sensitive rows) live in the secret store; only their build-time subset is named
     // here. Connections (non-sensitive binding rows) are the deploy-time wiring.
     const buildSecrets: string[] = [];
     const connections: Array<Record<string, unknown>> = [];
@@ -1037,14 +1037,14 @@ export function sortEnvRows(rows: EnvRowDraft[]): EnvRowDraft[] {
 
 /**
  * Seeds an app's env rows from its existing secret bundle: every secret key
- * becomes a masked, sensitive row (value blank - AWS never returns it). Keys
+ * becomes a masked, sensitive row (value blank - the store never returns it). Keys
  * already present as config env rows are skipped (the config env value wins for
  * display; the user can toggle it sensitive).
  */
 export function withSecretRows(envRows: EnvRowDraft[], secretKeys: string[]): EnvRowDraft[] {
     const existing = new Set(envRows.map((row) => row.key.trim()));
     // Build-time secrets are already seeded from the document (build_secrets); the
-    // rest arrive here from the AWS key list as runtime-only secret rows.
+    // rest arrive here from the stored key list as runtime-only secret rows.
     const secretRows = secretKeys
         .filter((key) => !existing.has(key))
         .map((key) => envRow(key, "", true, "secret", false));
@@ -1052,9 +1052,9 @@ export function withSecretRows(envRows: EnvRowDraft[], secretKeys: string[]): En
 }
 
 /**
- * A row that only mirrors a secret stored in AWS: `origin: "secret"` with no
- * typed value. AWS never returns a value, so such a row carries nothing the user
- * entered and can be dropped without losing anything.
+ * A row that only mirrors an already-stored secret: `origin: "secret"` with no
+ * typed value. The store never returns a value, so such a row carries nothing the
+ * user entered and can be dropped without losing anything.
  */
 function isStoredSecretRow(row: EnvRowDraft): boolean {
     return row.origin === "secret" && row.value === "";
@@ -1062,8 +1062,8 @@ function isStoredSecretRow(row: EnvRowDraft): boolean {
 
 /**
  * Collapses a key held by two rows at once, dropping the ones that merely mirror
- * a stored secret. {@link withSecretRows} seeds those mirror rows from the AWS key
- * list on load, and that merge can land while the user is still typing a key the
+ * a stored secret. {@link withSecretRows} seeds those mirror rows from the stored
+ * key list on load, and that merge can land while the user is still typing a key the
  * list already contains: it sees the half-typed `STRIPE_SECRET_K`, appends its own
  * `STRIPE_SECRET_KEY` row, and the two collide the moment the user finishes the
  * key. `keepId` - the row being edited - therefore wins over a mirror row even

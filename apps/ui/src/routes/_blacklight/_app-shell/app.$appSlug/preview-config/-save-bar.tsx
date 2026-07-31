@@ -8,7 +8,7 @@ import { usePreviewDraft } from "./-draft-context";
  * sections. Sits below the section outlet so config problems and the pending
  * save are visible no matter which section (Apps / Secrets / Services) made the
  * draft dirty. Saving writes one new config revision covering all sections -
- * except when only secrets changed, which go straight to their AWS bundles and
+ * except when only secrets changed, which go straight to their secret bundles and
  * so remain saveable while the config itself is blocked.
  */
 export function PreviewSaveBar() {

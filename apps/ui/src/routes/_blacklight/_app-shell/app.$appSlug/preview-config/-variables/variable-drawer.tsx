@@ -174,7 +174,7 @@ export function VariableDrawer({ app, view, targets, onChange, onDelete }: Varia
         </div>
         <p className="mt-1.5 text-2xs text-text-secondary">
           {form.source === "secret"
-            ? "Stored encrypted in AWS, injected at runtime. Never shown again after saving."
+            ? "Stored encrypted, injected at runtime. Never shown again after saving."
             : targets.length === 0
               ? "Attach a managed service in the Services section to wire a connection."
               : "Wired to a service or app in this preview, resolved at deploy time."}
