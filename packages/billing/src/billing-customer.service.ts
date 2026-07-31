@@ -169,6 +169,7 @@ export class BillingCustomerService extends Service {
             select: {
                 creditBalance: true,
                 subscriptionCreditBalance: true,
+                provider: true,
                 subscriptionStatus: true,
                 currentPeriodEnd: true,
                 cancelAtPeriodEnd: true,
@@ -187,6 +188,7 @@ export class BillingCustomerService extends Service {
                 creditBalance: 0,
                 subscriptionCreditBalance: 0,
                 topupCreditBalance: 0,
+                provider: "stripe",
                 subscriptionStatus: undefined,
                 currentPeriodEnd: undefined,
                 cancelAtPeriodEnd: false,
@@ -211,6 +213,7 @@ export class BillingCustomerService extends Service {
             creditBalance: customer.creditBalance,
             subscriptionCreditBalance: customer.subscriptionCreditBalance,
             topupCreditBalance: Math.max(0, customer.creditBalance - customer.subscriptionCreditBalance),
+            provider: customer.provider,
             subscriptionStatus: customer.subscriptionStatus ?? undefined,
             currentPeriodEnd: customer.currentPeriodEnd ?? undefined,
             cancelAtPeriodEnd: customer.cancelAtPeriodEnd,

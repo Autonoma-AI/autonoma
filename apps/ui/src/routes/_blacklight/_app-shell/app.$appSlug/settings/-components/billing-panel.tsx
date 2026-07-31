@@ -36,6 +36,7 @@ import {
 } from "lib/query/billing.queries";
 import { toastManager } from "lib/toast-manager";
 import { useEffect, useState } from "react";
+import { VercelOveragePanel } from "./vercel-overage-panel";
 
 const SUBSCRIBED_STATUSES = new Set(["active", "trialing"]);
 
@@ -56,6 +57,12 @@ export function BillingPanel() {
   }, [data.autoTopUpEnabled, data.autoTopUpThreshold]);
 
   const isSubscribed = data.subscriptionStatus != null && SUBSCRIBED_STATUSES.has(data.subscriptionStatus);
+  // Vercel-provisioned orgs pay through Vercel's own billing, never Stripe - Upgrade,
+  // Open billing portal, and Buy top-up all create Stripe checkout/portal sessions,
+  // which is the wrong destination (and would fail: these orgs have no
+  // stripeCustomerId). Auto top-up is the Stripe-rail equivalent of the Vercel-native
+  // pay-per-usage overage panel, so the two are swapped in, not stacked.
+  const isVercel = data.provider === "vercel";
 
   const topupBalance = Math.max(0, data.creditBalance - data.subscriptionCreditBalance);
   const thresholdValue = Number.parseInt(autoTopUpThreshold, 10);
@@ -145,15 +152,17 @@ export function BillingPanel() {
           </PanelHeader>
           <PanelBody className="space-y-3">
             <p className="text-3xl font-semibold text-text-primary">{topupBalance.toLocaleString()}</p>
-            <Button
-              variant="outline"
-              onClick={() => handleCreateCheckout(CHECKOUT_TYPE_TOPUP)}
-              disabled={createCheckout.isPending}
-              aria-label="billing-buy-topup"
-            >
-              <LightningIcon size={14} />
-              Buy top-up
-            </Button>
+            {!isVercel && (
+              <Button
+                variant="outline"
+                onClick={() => handleCreateCheckout(CHECKOUT_TYPE_TOPUP)}
+                disabled={createCheckout.isPending}
+                aria-label="billing-buy-topup"
+              >
+                <LightningIcon size={14} />
+                Buy top-up
+              </Button>
+            )}
           </PanelBody>
         </Panel>
 
@@ -189,72 +198,80 @@ export function BillingPanel() {
               </AlertDescription>
             </Alert>
 
-            <div className="flex flex-wrap gap-2">
-              <Tooltip>
-                <TooltipTrigger render={<span />}>
-                  <Button
-                    onClick={() => handleCreateCheckout(CHECKOUT_TYPE_SUBSCRIPTION)}
-                    disabled={isSubscribed || createCheckout.isPending}
-                    aria-label="billing-start-subscription"
-                  >
-                    <CrownSimpleIcon size={14} />
-                    Upgrade
-                  </Button>
-                </TooltipTrigger>
-                {isSubscribed && <TooltipContent>You are already on the Pro plan</TooltipContent>}
-              </Tooltip>
+            {isVercel ? (
+              <p className="text-sm text-text-secondary">Your plan and billing are managed in the Vercel dashboard.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                <Tooltip>
+                  <TooltipTrigger render={<span />}>
+                    <Button
+                      onClick={() => handleCreateCheckout(CHECKOUT_TYPE_SUBSCRIPTION)}
+                      disabled={isSubscribed || createCheckout.isPending}
+                      aria-label="billing-start-subscription"
+                    >
+                      <CrownSimpleIcon size={14} />
+                      Upgrade
+                    </Button>
+                  </TooltipTrigger>
+                  {isSubscribed && <TooltipContent>You are already on the Pro plan</TooltipContent>}
+                </Tooltip>
+                <Button
+                  variant="outline"
+                  onClick={handleOpenPortal}
+                  disabled={createPortal.isPending}
+                  aria-label="billing-open-portal"
+                >
+                  <CreditCardIcon size={14} />
+                  Open billing portal
+                </Button>
+              </div>
+            )}
+          </PanelBody>
+        </Panel>
+
+        {isVercel ? (
+          <VercelOveragePanel />
+        ) : (
+          <Panel>
+            <PanelHeader>
+              <PanelTitle>Auto top-up</PanelTitle>
+            </PanelHeader>
+            <PanelBody className="space-y-4">
+              <label htmlFor="billing-auto-topup-enabled" className="flex items-center gap-3">
+                <Checkbox
+                  id="billing-auto-topup-enabled"
+                  checked={autoTopUpEnabled}
+                  onCheckedChange={(checked) => setAutoTopUpEnabled(checked === true)}
+                />
+                <span className="text-sm text-text-secondary">Enable automatic top-up when credits are low</span>
+              </label>
+
+              <div className="space-y-2">
+                <Label htmlFor="billing-auto-topup-threshold">Threshold</Label>
+                <Input
+                  id="billing-auto-topup-threshold"
+                  type="number"
+                  min={0}
+                  value={autoTopUpThreshold}
+                  onChange={(e) => setAutoTopUpThreshold(e.target.value)}
+                  aria-label="billing-auto-topup-threshold"
+                />
+                <p className="font-mono text-3xs text-text-tertiary">
+                  When balance goes below this value, a top-up payment is attempted automatically.
+                </p>
+              </div>
+
               <Button
                 variant="outline"
-                onClick={handleOpenPortal}
-                disabled={createPortal.isPending}
-                aria-label="billing-open-portal"
+                onClick={handleSaveAutoTopUp}
+                disabled={!canSaveAutoTopUp || updateAutoTopUp.isPending}
+                aria-label="billing-auto-topup-save"
               >
-                <CreditCardIcon size={14} />
-                Open billing portal
+                Save auto top-up
               </Button>
-            </div>
-          </PanelBody>
-        </Panel>
-
-        <Panel>
-          <PanelHeader>
-            <PanelTitle>Auto top-up</PanelTitle>
-          </PanelHeader>
-          <PanelBody className="space-y-4">
-            <label htmlFor="billing-auto-topup-enabled" className="flex items-center gap-3">
-              <Checkbox
-                id="billing-auto-topup-enabled"
-                checked={autoTopUpEnabled}
-                onCheckedChange={(checked) => setAutoTopUpEnabled(checked === true)}
-              />
-              <span className="text-sm text-text-secondary">Enable automatic top-up when credits are low</span>
-            </label>
-
-            <div className="space-y-2">
-              <Label htmlFor="billing-auto-topup-threshold">Threshold</Label>
-              <Input
-                id="billing-auto-topup-threshold"
-                type="number"
-                min={0}
-                value={autoTopUpThreshold}
-                onChange={(e) => setAutoTopUpThreshold(e.target.value)}
-                aria-label="billing-auto-topup-threshold"
-              />
-              <p className="font-mono text-3xs text-text-tertiary">
-                When balance goes below this value, a top-up payment is attempted automatically.
-              </p>
-            </div>
-
-            <Button
-              variant="outline"
-              onClick={handleSaveAutoTopUp}
-              disabled={!canSaveAutoTopUp || updateAutoTopUp.isPending}
-              aria-label="billing-auto-topup-save"
-            >
-              Save auto top-up
-            </Button>
-          </PanelBody>
-        </Panel>
+            </PanelBody>
+          </Panel>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

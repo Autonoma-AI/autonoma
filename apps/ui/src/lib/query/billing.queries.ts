@@ -44,3 +44,19 @@ export function useRedeemPromoCode() {
         successToast: { title: "Promo code redeemed" },
     });
 }
+
+export function useVercelOverageStatus() {
+    return useSuspenseQuery(trpc.billing.getVercelOverageStatus.queryOptions());
+}
+
+export function useUpdateVercelOverageCap() {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.billing.updateVercelOverageCap.mutationOptions({
+            onSuccess: () => {
+                void queryClient.invalidateQueries({ queryKey: trpc.billing.getVercelOverageStatus.queryKey() });
+            },
+        }),
+        successToast: { title: "Usage cap updated" },
+    });
+}

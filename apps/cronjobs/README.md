@@ -6,7 +6,7 @@ Scheduled tasks that run periodically for background maintenance and billing ope
 
 | Script | Purpose | Schedule |
 |--------|---------|----------|
-| `vercel-billing-invoicer` | Creates and submits invoices to Vercel for pending billing periods. Marks periods as active and creates next billing period. | Daily (00:00 UTC) |
+| `vercel-billing-invoicer` | Creates and submits invoices to Vercel for (a) `pending` periods seeded by the legacy installation migration and (b) `active` periods whose cycle ends today, including a pay-per-usage overage line item when the plan has `overagePricePerCredit` set. Rolls (a) into `active`; closes out (b) as `completed` and creates the next period as `active`. | Daily (00:00 UTC) |
 | `vercel-usage-reporter` | Reports daily usage metrics (test runs, test generations) to Vercel billing API for all active installations. | Daily (01:00 UTC) |
 | `preview-usage-meter` | Closes wall-clock-aligned 15-minute previewkit compute-usage windows from the self-hosted Prometheus and deducts the corresponding credits. See `@autonoma/billing`'s `preview-usage-meter/` for the sweep/Prometheus-client implementation. | Every 15 minutes |
 

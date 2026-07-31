@@ -162,6 +162,7 @@ const baseTrpcFixtures: TrpcFixtures = {
             creditBalance: 740,
             subscriptionCreditBalance: 500,
             topupCreditBalance: 240,
+            provider: "stripe",
             subscriptionStatus: "active",
             currentPeriodEnd: new Date("2026-02-01T00:00:00.000Z"),
             cancelAtPeriodEnd: false,

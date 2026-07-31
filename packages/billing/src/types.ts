@@ -1,5 +1,6 @@
 import type { ApplicationArchitecture, BillingCustomer, CreditTransaction } from "@autonoma/db";
 import type { BillingCheckoutType } from "@autonoma/types";
+import type { VercelOverageStatus } from "./vercel-overage.service";
 
 export type RedeemPromoCodeResult = {
     promoCode: string;
@@ -71,6 +72,7 @@ export type BillingStatusResult = {
     creditBalance: number;
     subscriptionCreditBalance: number;
     topupCreditBalance: number;
+    provider: string;
     subscriptionStatus: string | undefined;
     currentPeriodEnd: Date | undefined;
     cancelAtPeriodEnd: boolean;
@@ -110,6 +112,8 @@ export interface BillingService {
     listPromoCodes(input?: ListPromoCodesInput): Promise<ListPromoCodesResult>;
     createPromoCode(input: CreatePromoCodeInput): Promise<BillingPromoCodeItem>;
     setPromoCodeActive(promoCodeId: string, isActive: boolean): Promise<BillingPromoCodeItem>;
+    getVercelOverageStatus(organizationId: string): Promise<VercelOverageStatus>;
+    updateVercelOverageCap(organizationId: string, maxOverageAmountUsd: number | undefined): Promise<void>;
 }
 
 export interface StripeBillingService {

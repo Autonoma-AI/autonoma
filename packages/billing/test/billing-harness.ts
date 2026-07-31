@@ -6,6 +6,7 @@ import { EnabledBillingService } from "../src/billing-enabled.service";
 import { BillingPricingService } from "../src/billing-pricing.service";
 import { CreditsService } from "../src/credits.service";
 import type { BillingService } from "../src/types";
+import { VercelOverageService } from "../src/vercel-overage.service";
 
 const POSTGRES_IMAGE = "postgres:17-alpine";
 
@@ -40,7 +41,12 @@ export class BillingTestHarness implements IntegrationHarness {
     constructor(db: PrismaClient, pgContainer: StartedPostgreSqlContainer) {
         this.db = db;
         this.pgContainer = pgContainer;
-        this.creditsService = new CreditsService(db, new AutoTopUpService(db), new BillingPricingService(db));
+        this.creditsService = new CreditsService(
+            db,
+            new AutoTopUpService(db),
+            new BillingPricingService(db),
+            new VercelOverageService(db),
+        );
         this.billingService = new EnabledBillingService(db);
     }
 

@@ -31,17 +31,17 @@ model User {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  sessions          Session[]
-  accounts          Account[]
-  members           Member[]
-  invitations       Invitation[]       @relation("invitations")
-  apiKeys           ApiKey[]
-  applicationSetups ApplicationSetup[]
-  signupHookStates  SignupHookState[]
+  sessions            Session[]
+  accounts            Account[]
+  members             Member[]
+  invitations         Invitation[]         @relation("invitations")
+  apiKeys             ApiKey[]
+  applicationSetups   ApplicationSetup[]
+  signupHookStates    SignupHookState[]
   vercelInstallations VercelInstallation[]
-  oauthApplications OauthApplication[]
-  oauthAccessTokens OauthAccessToken[]
-  oauthConsents     OauthConsent[]
+  oauthApplications   OauthApplication[]
+  oauthAccessTokens   OauthAccessToken[]
+  oauthConsents       OauthConsent[]
 
   @@map("user")
 }
@@ -107,52 +107,52 @@ model Organization {
   domain    String?            @unique
   status    OrganizationStatus @default(approved)
 
-  members                Member[]
-  invitations            Invitation[]
-  apiKeys                ApiKey[]
-  applications           Application[]
-  branchDeployments      BranchDeployment[]
-  webDeployments         WebDeployment[]
-  mobileDeployments      MobileDeployment[]
-  folders                Folder[]
-  branches               Branch[]
-  testCases              TestCase[]
-  testPlans              TestPlan[]
-  testGenerations        TestGeneration[]
-  stepInputLists         StepInputList[]
-  stepInputs             StepInput[]
-  stepOutputLists        StepOutputList[]
-  stepOutputs            StepOutput[]
-  stepAttempts           StepAttempt[]
-  tags                   Tag[]
-  runs                   Run[]
-  scenarios              Scenario[]
-  scenarioRecipeVersions ScenarioRecipeVersion[]
-  scenarioRecipeEdits ScenarioRecipeEdit[]
-  scenarioInstances      ScenarioInstance[]
-  generationReviews      GenerationReview[]
-  runReviews             RunReview[]
-  issues                 Issue[]
-  bugs                   Bug[]
-  githubInstallation     GitHubInstallation?
-  billingPricing         BillingPricing?
-  settings               OrganizationSettings?
-  promoRedemptions       BillingPromoRedemption[]
-  billingCustomer        BillingCustomer?
-  applicationSetups      ApplicationSetup[]
-  signupHookStates       SignupHookState[]
-  previewkitEnvironments PreviewkitEnvironment[]
-  previewkitOrgSecrets   PreviewkitOrgSecret[]
-  diffsJobs              DiffsJob[]
-  analysisJobs           AnalysisJob[]
-  investigationReports   InvestigationReport[]
-  analysisReports        AnalysisReport[]
-  analysisFindings       AnalysisFinding[]
+  members                 Member[]
+  invitations             Invitation[]
+  apiKeys                 ApiKey[]
+  applications            Application[]
+  branchDeployments       BranchDeployment[]
+  webDeployments          WebDeployment[]
+  mobileDeployments       MobileDeployment[]
+  folders                 Folder[]
+  branches                Branch[]
+  testCases               TestCase[]
+  testPlans               TestPlan[]
+  testGenerations         TestGeneration[]
+  stepInputLists          StepInputList[]
+  stepInputs              StepInput[]
+  stepOutputLists         StepOutputList[]
+  stepOutputs             StepOutput[]
+  stepAttempts            StepAttempt[]
+  tags                    Tag[]
+  runs                    Run[]
+  scenarios               Scenario[]
+  scenarioRecipeVersions  ScenarioRecipeVersion[]
+  scenarioRecipeEdits     ScenarioRecipeEdit[]
+  scenarioInstances       ScenarioInstance[]
+  generationReviews       GenerationReview[]
+  runReviews              RunReview[]
+  issues                  Issue[]
+  bugs                    Bug[]
+  githubInstallation      GitHubInstallation?
+  billingPricing          BillingPricing?
+  settings                OrganizationSettings?
+  promoRedemptions        BillingPromoRedemption[]
+  billingCustomer         BillingCustomer?
+  applicationSetups       ApplicationSetup[]
+  signupHookStates        SignupHookState[]
+  previewkitEnvironments  PreviewkitEnvironment[]
+  previewkitOrgSecrets    PreviewkitOrgSecret[]
+  diffsJobs               DiffsJob[]
+  analysisJobs            AnalysisJob[]
+  investigationReports    InvestigationReport[]
+  analysisReports         AnalysisReport[]
+  analysisFindings        AnalysisFinding[]
   analysisClassifications AnalysisClassification[]
-  analysisIssues         AnalysisIssue[]
-  affectedTests          AffectedTest[]
-  refinementLoops        RefinementLoop[]
-  vercelInstallations    VercelInstallation[]
+  analysisIssues          AnalysisIssue[]
+  affectedTests           AffectedTest[]
+  refinementLoops         RefinementLoop[]
+  vercelInstallations     VercelInstallation[]
 
   @@map("organization")
 }
@@ -229,29 +229,29 @@ model OnboardingState {
   // the agent's first claim is a deliberate human -> agent handoff, and Stop /
   // Take over flips it back. Agent-held => the UI is read-only. Distinct from
   // `agentConnectedAt` (mere presence): this is the soft mutex for who may write.
-  agentHolder               OnboardingAgentHolder               @default(human) @map("agent_holder")
+  agentHolder           OnboardingAgentHolder @default(human) @map("agent_holder")
   // Heartbeat: refreshed on every agent tool call. The UI derives an idle release
   // (control handed back to the human) from `now - agentLastActivityAt` at read
   // time - no Redis, no background reaper.
-  agentLastActivityAt       DateTime?                           @map("agent_last_activity_at")
+  agentLastActivityAt   DateTime?             @map("agent_last_activity_at")
   // A question only the human can answer, raised by the agent and rendered inline
   // in the locked UI (env values to enter, or a choice). Null when the agent is
   // not blocked. Secret VALUES never appear here - only the KEYS asked for.
   /// [OnboardingAgentPendingRequest]
-  agentPendingRequest       Json?                               @map("agent_pending_request")
+  agentPendingRequest   Json?                 @map("agent_pending_request")
   // Short-lived, single-use pairing code shown in the UI so the user can hand the
   // agent this app without a mutable repo name: the agent presents it and we map
   // it to this app + org (already fixed here from the UI's authenticated context).
-  agentPairingCode          String?                             @unique @map("agent_pairing_code")
-  agentPairingExpiresAt     DateTime?                           @map("agent_pairing_expires_at")
+  agentPairingCode      String?               @unique @map("agent_pairing_code")
+  agentPairingExpiresAt DateTime?             @map("agent_pairing_expires_at")
   // Which coding agent is driving, from the MCP `clientInfo` handshake (e.g.
   // "claude-code", "cursor", "codex"). Best-effort - null when the client did not
   // report it - so the UI can name the agent ("Cursor is configuring...") instead
   // of hardcoding one, falling back to a neutral label when unknown.
-  agentClient               String?                             @map("agent_client")
+  agentClient           String?               @map("agent_client")
 
-  createdAt                 DateTime                            @default(now()) @map("created_at")
-  updatedAt                 DateTime                            @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
@@ -379,23 +379,23 @@ model Application {
 
   signingSecretEnc String? @map("signing_secret_enc")
 
-  folders                   Folder[]
-  testCases                 TestCase[]
-  tags                      Tag[]
-  scenarios                 Scenario[]
-  scenarioSchemaSnapshots   ScenarioSchemaSnapshot[]
-  scenarioRecipeVersions    ScenarioRecipeVersion[]
-  scenarioRecipeEdits ScenarioRecipeEdit[]
-  scenarioInstances         ScenarioInstance[]
-  webhookCalls              WebhookCall[]
-  branches                  Branch[]
-  featureBranchInfos        FeatureBranchInfo[]
-  mainBranchInfo            MainBranchInfo?
-  onboardingState           OnboardingState?
-  applicationSetups         ApplicationSetup[]
-  bugs                      Bug[]
-  previewkitSecrets         PreviewkitSecret[]
-  vercelProjectConnections  VercelProjectConnection[]
+  folders                  Folder[]
+  testCases                TestCase[]
+  tags                     Tag[]
+  scenarios                Scenario[]
+  scenarioSchemaSnapshots  ScenarioSchemaSnapshot[]
+  scenarioRecipeVersions   ScenarioRecipeVersion[]
+  scenarioRecipeEdits      ScenarioRecipeEdit[]
+  scenarioInstances        ScenarioInstance[]
+  webhookCalls             WebhookCall[]
+  branches                 Branch[]
+  featureBranchInfos       FeatureBranchInfo[]
+  mainBranchInfo           MainBranchInfo?
+  onboardingState          OnboardingState?
+  applicationSetups        ApplicationSetup[]
+  bugs                     Bug[]
+  previewkitSecrets        PreviewkitSecret[]
+  vercelProjectConnections VercelProjectConnection[]
 
   // The Application's preview config (latest-only; saving overwrites it in
   // place). No row means the Application has no preview config and its
@@ -680,9 +680,9 @@ model FeatureBranchInfo {
 
   // Merge outcome facts, written on `pull_request.closed` with `merged === true`. All nullable: a still-open or
   // closed-unmerged PR leaves them absent.
-  mergedAt      DateTime? @map("merged_at")
-  mergeCommitSha String?  @map("merge_commit_sha")
-  mergedByLogin String?   @map("merged_by_login")
+  mergedAt       DateTime? @map("merged_at")
+  mergeCommitSha String?   @map("merge_commit_sha")
+  mergedByLogin  String?   @map("merged_by_login")
 
   branch      Branch      @relation(fields: [branchId], references: [id], onDelete: Cascade)
   application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
@@ -774,7 +774,7 @@ model BranchSnapshot {
   investigationAiCosts AiCostRecord[]       @relation("InvestigationAiCost")
   issues               Issue[]
   refinementLoop       RefinementLoop?
-  vercelDeployments   VercelDeployment[]
+  vercelDeployments    VercelDeployment[]
 
   @@index([branchId])
   @@map("branch_snapshot")
@@ -1639,14 +1639,14 @@ model ScenarioRecipeVersion {
 ///
 /// Never pruned. Recipes are small and edits are rare, so the log is cheap to keep whole.
 model ScenarioRecipeEdit {
-  id             String  @id @default(cuid())
-  scenarioId     String  @map("scenario_id")
-  applicationId  String  @map("application_id")
-  organizationId String  @map("organization_id")
+  id              String  @id @default(cuid())
+  scenarioId      String  @map("scenario_id")
+  applicationId   String  @map("application_id")
+  organizationId  String  @map("organization_id")
   /// The version row this write landed on. Nullable so history outlives the version
   /// itself - a planner re-upload deletes and recreates every version for its snapshot.
   recipeVersionId String? @map("recipe_version_id")
-  snapshotId     String  @map("snapshot_id")
+  snapshotId      String  @map("snapshot_id")
 
   /// The recipe exactly as written, and its fingerprint - enough to restore or diff it.
   fingerprint String
@@ -1809,6 +1809,7 @@ enum CreditTransactionType {
   RUN_CONSUMPTION
   LLM_PROXY_CONSUMPTION
   PREVIEW_RUNTIME_CONSUMPTION
+  VERCEL_OVERAGE_GRANT
 
   @@map("credit_transaction_type")
 }
@@ -2372,14 +2373,14 @@ model PreviewkitAppInstance {
 // table rather than through its own environment, a rotation needs no coordinated
 // rollout.
 model PreviewkitEncryptionKey {
-  id        String  @id
+  id      String  @id
   /// The sealed key, never the plaintext - see `unwrap` in `@autonoma/secrets`.
-  wrap      Bytes
+  wrap    Bytes
   // Exactly one row should be primary; `mintSecretKey` demotes the others in the
   // same transaction. Reads never trust more than the newest primary. Mapped to
   // `is_primary` because `primary` is a reserved word in Postgres - Prisma quotes
   // identifiers, but hand-written SQL against it would not have to.
-  primary   Boolean @default(false) @map("is_primary")
+  primary Boolean @default(false) @map("is_primary")
 
   values    PreviewkitSecretValue[]
   orgValues PreviewkitOrgSecretValue[]
@@ -2651,7 +2652,7 @@ model InvestigationReport {
   status         InvestigationReportStatus @default(completed) @map("status")
   /// Current workflow stage while running (progress UI); null once terminal or on legacy rows.
   stage          String?                   @map("stage")
-  stageUpdatedAt DateTime?                  @map("stage_updated_at")
+  stageUpdatedAt DateTime?                 @map("stage_updated_at")
 
   /// Report header, denormalized so the read path never re-resolves PR meta (a heavy GitHub round-trip).
   client       String? @map("client")
@@ -2693,19 +2694,19 @@ model InvestigationFinding {
   report           InvestigationReport @relation(fields: [reportSnapshotId], references: [snapshotId], onDelete: Cascade)
 
   /// Stable per-report routing id (the slug, suffixed when a slug appears more than once).
-  findingKey        String  @map("finding_key")
+  findingKey        String   @map("finding_key")
   slug              String
   category          String
   confidence        String?
-  planFidelity      String? @map("plan_fidelity")
-  falsePositiveRisk String? @map("false_positive_risk")
-  headline          String  @db.Text
-  whatHappened      String? @map("what_happened") @db.Text
-  observedAppIssues String? @map("observed_app_issues") @db.Text
-  remediation       String? @db.Text
-  rootCause         String? @map("root_cause") @db.Text
-  suggestedFixDiff  String? @map("suggested_fix_diff") @db.Text
-  plan              String? @db.Text
+  planFidelity      String?  @map("plan_fidelity")
+  falsePositiveRisk String?  @map("false_positive_risk")
+  headline          String   @db.Text
+  whatHappened      String?  @map("what_happened") @db.Text
+  observedAppIssues String?  @map("observed_app_issues") @db.Text
+  remediation       String?  @db.Text
+  rootCause         String?  @map("root_cause") @db.Text
+  suggestedFixDiff  String?  @map("suggested_fix_diff") @db.Text
+  plan              String?  @db.Text
   runSuccess        Boolean? @map("run_success")
   stepCount         Int?     @map("step_count")
 
@@ -2889,7 +2890,7 @@ model AnalysisReport {
 /// that ask "what happened to this test" resolve through it, which is what makes a superseded verdict structurally
 /// uncountable rather than a filter everyone has to remember.
 model AnalysisFinding {
-  id               String @id @default(cuid())
+  id               String      @id @default(cuid())
   /// The run this finding belongs to, keyed to the AnalysisJob's snapshot PK. An Investigator persists its finding
   /// against the job (which exists from the start of the run) during fan-out; the Reporter authors the report later
   /// over these findings. `report_snapshot_id` is that shared snapshot PK.
@@ -2967,24 +2968,24 @@ model AnalysisClassification {
   /// still reads.
   category          String
   confidence        String?
-  headline          String  @db.Text
+  headline          String   @db.Text
   /// What the app SHOULD have done / what it actually did - the classifier's per-category behavior fields that
   /// replace the free-form `whatHappened` (kept for rows written before the expected/actual split).
-  expectedBehavior  String? @map("expected_behavior") @db.Text
-  actualBehavior    String? @map("actual_behavior") @db.Text
-  whatHappened      String? @map("what_happened") @db.Text
+  expectedBehavior  String?  @map("expected_behavior") @db.Text
+  actualBehavior    String?  @map("actual_behavior") @db.Text
+  whatHappened      String?  @map("what_happened") @db.Text
   /// The `plan_mismatch` self-heal post-mortem: what the test asserted that was wrong, the rewrite attempted, and
   /// why it still failed. Set only for a `plan_mismatch` verdict.
-  planMismatchNote  String? @map("plan_mismatch_note") @db.Text
+  planMismatchNote  String?  @map("plan_mismatch_note") @db.Text
   /// The `invalid_test` justification: which impossibility failure mode (nonexistent feature / unexecutable steps /
   /// wrong premise / unrecoverable) and the proof the test cannot be recovered. Set only for an `invalid_test` verdict.
   invalidTestNote   String? @map("invalid_test_note") @db.Text
-  observedAppIssues String? @map("observed_app_issues") @db.Text
-  remediation       String? @db.Text
-  rootCause         String? @map("root_cause") @db.Text
-  falsePositiveRisk String? @map("false_positive_risk") @db.Text
+  observedAppIssues String?  @map("observed_app_issues") @db.Text
+  remediation       String?  @db.Text
+  rootCause         String?  @map("root_cause") @db.Text
+  falsePositiveRisk String?  @map("false_positive_risk") @db.Text
   /// The test's plan AS THIS ITERATION RAN IT - a self-heal rewrites it, so the plan differs between iterations.
-  plan              String? @db.Text
+  plan              String?  @db.Text
   runSuccess        Boolean? @map("run_success")
   stepCount         Int?     @map("step_count")
 
@@ -2997,13 +2998,13 @@ model AnalysisClassification {
   evidence Json?
 
   /// `s3://` keys, signed on read.
-  videoKey      String? @map("video_key")
+  videoKey          String? @map("video_key")
   /// `s3://` key of the dead-time-stripped mp4 recording, signed on read. Backs the finding page's
   /// Optimized/Original toggle; null for runs recorded before the optimizer landed.
   optimizedVideoKey String? @map("optimized_video_key")
-  screenshotKey String? @map("screenshot_key")
+  screenshotKey     String? @map("screenshot_key")
   /// Short GIF clip of the failure (client bugs only).
-  clipKey String? @map("clip_key")
+  clipKey           String? @map("clip_key")
 
   /// `s3://` URL of the classifier's persisted LLM conversation (the reasoning that produced THIS iteration's
   /// verdict), signed on read. Best-effort at write and display-only: absent when the upload failed and on a
@@ -3043,13 +3044,13 @@ model AnalysisIssue {
   branchId String @map("branch_id")
   branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  title String @db.Text
+  title    String @db.Text
   /// The problem's class: "bug" | "environment" | "scenario".
-  kind String
+  kind     String
   /// The Reporter's severity call: "critical" | "high" | "medium" | "low".
   severity String
   /// Lifecycle: "open" | "resolved".
-  status String @default("open")
+  status   String @default("open")
 
   expectedBehavior  String? @map("expected_behavior") @db.Text
   actualBehavior    String  @map("actual_behavior") @db.Text
@@ -3140,6 +3141,11 @@ model VercelBillingPlan {
   preauthorizationAmount Decimal? @map("preauthorization_amount") @db.Decimal(10, 2)
   amountOfRuns           Int      @default(0) @map("amount_of_runs")
   creditsPerCycle        Int      @default(0) @map("credits_per_cycle")
+  /// USD price charged per credit consumed beyond `creditsPerCycle` in a billing
+  /// period. Undefined means this plan has no pay-per-usage overage - consumption
+  /// hard-stops at `creditsPerCycle` same as today, regardless of what an
+  /// installation's `maxOverageAmountUsd` is set to.
+  overagePricePerCredit  Decimal? @map("overage_price_per_credit") @db.Decimal(10, 6)
   paymentMethodRequired  Boolean  @default(true) @map("payment_method_required")
   details                Json
   isDefault              Boolean  @default(false) @map("is_default")
@@ -3168,6 +3174,12 @@ model VercelInstallation {
   /// token has no `env:write` scope, so writing it via the REST env API is not reliable.
   sharedSecretEnc      String?                  @map("shared_secret_enc")
   billingPlanId        String?                  @map("billing_plan_id")
+  /// Customer-configured ceiling, in USD, on pay-per-usage overage charged per
+  /// billing period. Undefined means overage is not opted into - consumption
+  /// hard-stops at the plan's included `creditsPerCycle`, same as before this
+  /// field existed. Only takes effect when the installation's plan also has
+  /// `overagePricePerCredit` set.
+  maxOverageAmountUsd  Decimal?                 @map("max_overage_amount_usd") @db.Decimal(10, 2)
   createdAt            DateTime                 @default(now()) @map("created_at")
   updatedAt            DateTime                 @updatedAt @map("updated_at")
 
@@ -3203,16 +3215,21 @@ model VercelResource {
 }
 
 model VercelBillingPeriod {
-  id             String                    @id @default(cuid())
-  installationId String?                   @map("installation_id")
-  resourceId     String?                   @map("resource_id")
-  planId         String                    @map("plan_id")
-  cycleNumber    Int                       @default(1) @map("cycle_number")
-  startDate      DateTime                  @default(now()) @map("start_date")
-  endDate        DateTime                  @map("end_date")
-  status         VercelBillingPeriodStatus @default(pending)
-  createdAt      DateTime                  @default(now()) @map("created_at")
-  updatedAt      DateTime                  @updatedAt @map("updated_at")
+  id                    String                    @id @default(cuid())
+  installationId        String?                   @map("installation_id")
+  resourceId            String?                   @map("resource_id")
+  planId                String                    @map("plan_id")
+  cycleNumber           Int                       @default(1) @map("cycle_number")
+  startDate             DateTime                  @default(now()) @map("start_date")
+  endDate               DateTime                  @map("end_date")
+  status                VercelBillingPeriodStatus @default(pending)
+  /// Running total of credits proactively granted this period to keep an
+  /// overage-enabled installation running past its plan's included
+  /// `creditsPerCycle`, bounded by the installation's `maxOverageAmountUsd`.
+  /// Read by the invoicer at period-end to bill the actual overage consumed.
+  overageCreditsGranted Int                       @default(0) @map("overage_credits_granted")
+  createdAt             DateTime                  @default(now()) @map("created_at")
+  updatedAt             DateTime                  @updatedAt @map("updated_at")
 
   installation VercelInstallation? @relation(fields: [installationId], references: [id], onDelete: Cascade)
   resource     VercelResource?     @relation(fields: [resourceId], references: [id], onDelete: Cascade)

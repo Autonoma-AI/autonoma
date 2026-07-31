@@ -18,3 +18,4 @@ export type { PrometheusCredentials } from "./preview-usage-meter/http-query-sen
 export { PrometheusClient } from "./preview-usage-meter/prometheus-client";
 export { PreviewUsageMeterSweepService } from "./preview-usage-meter/preview-usage-meter-sweep.service";
 export type { PreviewUsageMeterSweepResult } from "./preview-usage-meter/preview-usage-meter-sweep.service";
+export type { VercelOverageStatus } from "./vercel-overage.service";

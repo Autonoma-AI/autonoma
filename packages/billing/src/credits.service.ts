@@ -14,6 +14,7 @@ import type {
 } from "./billing.types";
 import { Service } from "./service";
 import type { DeductGenerationContext, LlmProxyGateResult, PreviewDeployGateResult } from "./types";
+import type { VercelOverageService } from "./vercel-overage.service";
 
 type TxClient = Prisma.TransactionClient;
 type RawTxClient = TxClient & Pick<PrismaClient, "$queryRaw" | "$executeRaw">;
@@ -23,6 +24,7 @@ export class CreditsService extends Service {
         private readonly db: PrismaClient,
         private readonly autoTopUpService: AutoTopUpService,
         private readonly pricingService: BillingPricingService,
+        private readonly vercelOverageService: VercelOverageService,
     ) {
         super();
     }
@@ -65,6 +67,16 @@ export class CreditsService extends Service {
         }
 
         if (creditBalance < required) {
+            const shortfall = required - creditBalance;
+            const grantedOverage = await this.vercelOverageService.grantOverageIfEligible(organizationId, shortfall);
+            if (grantedOverage) {
+                this.logger.info("Credits gate passed via Vercel pay-per-usage overage", {
+                    organizationId,
+                    shortfall,
+                });
+                return;
+            }
+
             throw new InsufficientCreditsError(
                 `Insufficient credits: ${creditBalance} available, ${required} required for ${runCount} run(s). Please top up your credits.`,
             );

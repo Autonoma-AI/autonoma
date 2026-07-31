@@ -44,6 +44,18 @@ const billingRouterImpl = router({
         .mutation(({ ctx: { services, organizationId }, input }) =>
             services.billing.redeemPromoCode(organizationId, input.code),
         ),
+    getVercelOverageStatus: protectedProcedure.query(({ ctx: { services, organizationId } }) =>
+        services.billing.getVercelOverageStatus(organizationId),
+    ),
+    updateVercelOverageCap: writeProcedure
+        .input(
+            z.object({
+                maxOverageAmountUsd: z.number().positive().max(100_000).optional(),
+            }),
+        )
+        .mutation(({ ctx: { services, organizationId }, input }) =>
+            services.billing.updateVercelOverageCap(organizationId, input.maxOverageAmountUsd),
+        ),
 });
 
 export const billingRouter: typeof billingRouterImpl = billingRouterImpl;

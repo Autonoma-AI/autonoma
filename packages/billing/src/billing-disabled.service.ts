@@ -98,4 +98,18 @@ export class DisabledBillingService implements BillingService {
     setPromoCodeActive(promoCodeId: string, isActive: boolean) {
         return this.billingPromoService.setPromoCodeActive(promoCodeId, isActive);
     }
+
+    getVercelOverageStatus(_organizationId: string) {
+        return Promise.resolve({
+            enabled: false,
+            maxOverageAmountUsd: undefined,
+            overagePricePerCredit: undefined,
+            overageCreditsGrantedThisPeriod: 0,
+            overageAmountUsdThisPeriod: 0,
+        });
+    }
+
+    updateVercelOverageCap(_organizationId: string, _maxOverageAmountUsd: number | undefined) {
+        return Promise.resolve();
+    }
 }
