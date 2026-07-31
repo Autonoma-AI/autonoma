@@ -8,7 +8,7 @@ describe("buildMergeGateCheckResult", () => {
             errored: false,
             coverageGapCount: 0,
             investigatedCount: 2,
-            clientBugHeadlines: ["Login button does nothing", "Checkout throws 500"],
+            clientBugTitles: ["Login button does nothing", "Checkout throws 500"],
         });
 
         expect(result.conclusion).toBe("failure");
@@ -23,7 +23,7 @@ describe("buildMergeGateCheckResult", () => {
             errored: false,
             coverageGapCount: 0,
             investigatedCount: 4,
-            clientBugHeadlines: [],
+            clientBugTitles: [],
         });
 
         expect(result.conclusion).toBe("success");
@@ -35,26 +35,25 @@ describe("buildMergeGateCheckResult", () => {
             errored: false,
             coverageGapCount: 3,
             investigatedCount: 5,
-            clientBugHeadlines: [],
+            clientBugTitles: [],
         });
 
         expect(result.conclusion).toBe("neutral");
     });
 
-    it("blocks a bug carried from an earlier snapshot without titling itself '0 client bugs'", () => {
-        // The verdict is branch-scoped (an open bug issue), so a carried bug no test re-ran here has no headlines.
+    it("still blocks, and never titles itself '0 client bugs', when the bug list came back empty", () => {
         const result = buildMergeGateCheckResult({
             verdict: "client_bug",
             errored: false,
             coverageGapCount: 0,
             investigatedCount: 2,
-            clientBugHeadlines: [],
+            clientBugTitles: [],
         });
 
         expect(result.conclusion).toBe("failure");
         expect(result.title).toBe("Autonoma found 1 client bug");
-        // A blocking check that names no bug reads as a mistake, so it says where the bug came from.
-        expect(result.summary).toContain("found on an earlier commit of this PR");
+        // A blocking check that names no bug reads as a mistake, so it points at where the bugs are listed.
+        expect(result.summary).toContain("See the Autonoma PR comment");
         expect(result.summary).toContain(MERGE_GATE_SKIP_COMMAND);
     });
 
@@ -64,7 +63,7 @@ describe("buildMergeGateCheckResult", () => {
             errored: false,
             coverageGapCount: 0,
             investigatedCount: 0,
-            clientBugHeadlines: [],
+            clientBugTitles: [],
         });
 
         expect(result.conclusion).toBe("neutral");
@@ -77,7 +76,7 @@ describe("buildMergeGateCheckResult", () => {
             errored: true,
             coverageGapCount: 0,
             investigatedCount: 2,
-            clientBugHeadlines: ["ignored while errored"],
+            clientBugTitles: ["ignored while errored"],
         });
 
         expect(result.conclusion).toBe("neutral");
@@ -90,7 +89,7 @@ describe("buildMergeGateCheckResult", () => {
             errored: false,
             coverageGapCount: 0,
             investigatedCount: 13,
-            clientBugHeadlines: headlines,
+            clientBugTitles: headlines,
         });
 
         expect(result.summary).toContain("and 3 more");

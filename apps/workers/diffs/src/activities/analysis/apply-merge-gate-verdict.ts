@@ -9,13 +9,27 @@ import {
 } from "@autonoma/github/check";
 import { isOnboardingComplete } from "@autonoma/github/comment";
 import { logger as rootLogger } from "@autonoma/logger";
-import { ANALYSIS_VERDICT, type AnalysisRunOutcome, coverageSummarySchema } from "@autonoma/types";
+import {
+    ANALYSIS_VERDICT,
+    type AnalysisIssueSeverity,
+    type AnalysisRunOutcome,
+    analysisIssueSeveritySchema,
+    analysisIssueStatusSchema,
+    compareAnalysisIssues,
+    coverageSummarySchema,
+} from "@autonoma/types";
 import { resolvePrMeta } from "../../codebase/pr-meta";
 import type { GitHubAccess, SnapshotMeta } from "../../codebase/snapshot-context";
 import { isMergeGateEnabledForOrg } from "./merge-gate-enabled";
 
 /** The verdict string the app-health plane files a real client bug under. Anything else is the `passed` plane. */
 const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
+
+/** The issue kind that blocks the merge; environment/scenario issues never do. */
+const BUG_KIND = "bug";
+
+/** Where a bug whose stored severity does not parse sorts - listed, but last. */
+const UNPARSED_SEVERITY: AnalysisIssueSeverity = analysisIssueSeveritySchema.enum.low;
 
 /**
  * Merge-gate finalize step: read the persisted `AnalysisReport.verdict` for the run's snapshot, map it to the
@@ -65,7 +79,7 @@ export async function concludeMergeGate({
         errored: outcome.kind === "failed" || report == null,
         coverageGapCount: report?.coverageGapCount ?? 0,
         investigatedCount: report?.investigatedCount ?? 0,
-        clientBugHeadlines: report?.clientBugHeadlines ?? [],
+        clientBugTitles: report?.clientBugTitles ?? [],
     });
 
     const store = createGitHubCheckRunStore(db);
@@ -114,7 +128,7 @@ export async function concludeMergeGate({
             headSha: meta.headSha,
             conclusion: result.conclusion,
             snapshotId: meta.snapshotId,
-            openBugCount: report?.clientBugHeadlines.length ?? 0,
+            openBugCount: report?.clientBugTitles.length ?? 0,
         },
         { [MERGE_GATE_ANALYTICS_GROUP]: meta.organizationId },
     );
@@ -129,24 +143,25 @@ interface LoadedReport {
     verdict: "client_bug" | "passed";
     coverageGapCount: number;
     investigatedCount: number;
-    clientBugHeadlines: string[];
+    clientBugTitles: string[];
 }
 
 /**
- * Read the persisted run's verdict, its coverage-gap count, and the `client_bug` headlines (for the failure summary).
+ * Read the persisted run's verdict and coverage-gap count, plus the branch's open bug titles for the failure summary.
  */
 async function loadReport(db: PrismaClient, meta: SnapshotMeta): Promise<LoadedReport | undefined> {
-    // Both key only on the snapshot and neither consumes the other, so they run concurrently; the findings are
-    // discarded when there is no report. The headlines are the CURRENT classifications': a self-heal iteration this
-    // run superseded is history, never a bug it reports.
-    const [report, clientBugs] = await Promise.all([
+    // The check names the branch's OPEN bug issues - the same rows the verdict counts and the PR comment cards. Read
+    // per-snapshot findings instead and a bug carried from an earlier commit, which no test re-ran here, is missing
+    // from a check that blocks because of it. Both reads key only on ids they already have, so they run concurrently;
+    // the issues are discarded when there is no report.
+    const [report, openBugs] = await Promise.all([
         db.analysisReport.findUnique({
             where: { snapshotId: meta.snapshotId },
             select: { verdict: true, testCount: true, coverage: true },
         }),
-        db.analysisFinding.findMany({
-            where: { reportSnapshotId: meta.snapshotId, currentClassification: { category: CLIENT_BUG } },
-            select: { currentClassification: { select: { headline: true } } },
+        db.analysisIssue.findMany({
+            where: { branchId: meta.branchId, status: analysisIssueStatusSchema.enum.open, kind: BUG_KIND },
+            select: { title: true, severity: true },
         }),
     ]);
     if (report == null) return undefined;
@@ -156,8 +171,23 @@ async function loadReport(db: PrismaClient, meta: SnapshotMeta): Promise<LoadedR
         verdict: report.verdict === CLIENT_BUG ? CLIENT_BUG : ANALYSIS_VERDICT.passed,
         coverageGapCount: coverage.success ? coverage.data.total : 0,
         investigatedCount: report.testCount,
-        clientBugHeadlines: clientBugs.flatMap((finding) =>
-            finding.currentClassification != null ? [finding.currentClassification.headline] : [],
-        ),
+        clientBugTitles: toBugTitles(openBugs),
     };
+}
+
+/**
+ * The open bugs' titles, most severe first, ordered by the shared comparator so the check lists them in the same
+ * order the PR comment cards them. A row whose stored severity does not parse is still listed - a blocking check must
+ * never silently omit a bug - it just sorts last.
+ */
+function toBugTitles(issues: { title: string; severity: string }[]): string[] {
+    return issues
+        .map((issue) => {
+            const severity = analysisIssueSeveritySchema.safeParse(issue.severity);
+            return { title: issue.title, severity: severity.success ? severity.data : UNPARSED_SEVERITY };
+        })
+        .sort((a, b) =>
+            compareAnalysisIssues({ kind: BUG_KIND, severity: a.severity }, { kind: BUG_KIND, severity: b.severity }),
+        )
+        .map((issue) => issue.title);
 }

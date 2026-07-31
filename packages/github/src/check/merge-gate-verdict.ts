@@ -40,7 +40,7 @@ export const MERGE_GATE_RULESET_NAME = "Autonoma merge gate";
  */
 export const MERGE_GATE_SKIP_COMMENT_MARKER = "autonoma:merge-gate-skip:v1";
 
-/** How many client-bug headlines to list in the check summary before collapsing the rest into a "+N more" line. */
+/** How many bug titles to list in the check summary before collapsing the rest into a "+N more" line. */
 const MAX_LISTED_BUGS = 10;
 
 export interface MergeGateVerdictInput {
@@ -52,8 +52,11 @@ export interface MergeGateVerdictInput {
     coverageGapCount: number;
     /** Tests that produced a terminal verdict this run; zero means nothing was exercised (not a clean pass). */
     investigatedCount: number;
-    /** Headlines of the `client_bug` findings, listed in the failure summary. */
-    clientBugHeadlines: string[];
+    /**
+     * Titles of the branch's OPEN bug issues - the same rows the verdict counts and the PR comment cards - listed in
+     * the failure summary, most severe first.
+     */
+    clientBugTitles: string[];
 }
 
 export interface MergeGateCheckResult {
@@ -77,10 +80,10 @@ export function buildMergeGateCheckResult(input: MergeGateVerdictInput): MergeGa
         };
     }
 
-    // A `client_bug` verdict is branch-scoped (an open bug issue), so a bug carried across snapshots that no test
-    // re-ran here still blocks with no headlines of its own. Floor the count at one so the check never blocks under a
-    // "0 client bugs" title.
-    const bugCount = input.verdict === "client_bug" ? Math.max(input.clientBugHeadlines.length, 1) : 0;
+    // The headlines are the branch's open bug issues, the same rows the verdict counts, so they normally agree. Floor
+    // the count at one anyway: a bug resolved between the report being written and this check running would otherwise
+    // block under a "0 client bugs" title.
+    const bugCount = input.verdict === "client_bug" ? Math.max(input.clientBugTitles.length, 1) : 0;
     const state = deriveAnalysisVerdict({
         bugCount,
         coverageGapCount: input.coverageGapCount,
@@ -91,7 +94,7 @@ export function buildMergeGateCheckResult(input: MergeGateVerdictInput): MergeGa
         return {
             conclusion: "failure",
             title: bugTitle(bugCount),
-            summary: buildBugSummary(input.clientBugHeadlines),
+            summary: buildBugSummary(input.clientBugTitles),
         };
     }
 
@@ -130,14 +133,10 @@ function buildBugSummary(headlines: string[]): string {
     const intro =
         `Autonoma found client bugs that block this merge. Fix them, or comment \`${MERGE_GATE_SKIP_COMMAND} <reason>\` ` +
         "on the PR to merge anyway.";
-    // With no headline to list, say where the bug came from rather than blocking under a summary that names nothing.
+    // Nothing to list means the open bugs moved between the report and this check; point at the comment rather than
+    // blocking under a summary that names nothing.
     if (headlines.length === 0) {
-        return [
-            intro,
-            "",
-            "The bug was found on an earlier commit of this PR and is still open - no test re-ran it here. " +
-                "See the Autonoma PR comment for the details.",
-        ].join("\n");
+        return [intro, "", "See the Autonoma PR comment for the bugs that block this merge."].join("\n");
     }
 
     const listed = headlines.slice(0, MAX_LISTED_BUGS).map((headline) => `- ${headline}`);
