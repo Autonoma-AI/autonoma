@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.1.24](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.23...cli-v0.1.24) (2026-07-31)
+
+
+### Features
+
+* **cli:** make the coding agent branch and open a PR for its integration ([#1994](https://github.com/Autonoma-AI/agent/issues/1994)) ([3406c9d](https://github.com/Autonoma-AI/agent/commit/3406c9debe0f8a64ee0f337c29686dda85c48acd))
+* **ui:** offer the coding agent on every SDK failure, not just finish-setup ([#1977](https://github.com/Autonoma-AI/agent/issues/1977)) ([b95cb46](https://github.com/Autonoma-AI/agent/commit/b95cb4685824b079d075bf973cf561d3e317e9b6))
+
+
+### Bug Fixes
+
+* **cli:** let the integration agent finish when it genuinely cannot push ([#1996](https://github.com/Autonoma-AI/agent/issues/1996)) ([f731541](https://github.com/Autonoma-AI/agent/commit/f7315417cc9335d74d0c9491346201a29715e77c))
+* **cli:** make the test-generator step converge, ground its data, and enforce its own rules ([#1998](https://github.com/Autonoma-AI/agent/issues/1998)) ([c8daf82](https://github.com/Autonoma-AI/agent/commit/c8daf8208f1ea678a14feb993f7f0e0048dad849))
+* **cli:** reserve budget to act on what the review finds ([#1969](https://github.com/Autonoma-AI/agent/issues/1969)) ([b2ff84d](https://github.com/Autonoma-AI/agent/commit/b2ff84db7f403d8eee3925bbbbef7781c2c75ae8))
+* **cli:** stop capping how much a run may log ([#1978](https://github.com/Autonoma-AI/agent/issues/1978)) ([4ae85aa](https://github.com/Autonoma-AI/agent/commit/4ae85aaab2fee0290bb45ab0d4b7179aede65247))
+* **cli:** tell the journey agent which node its tests belong to ([#1975](https://github.com/Autonoma-AI/agent/issues/1975)) ([0448a27](https://github.com/Autonoma-AI/agent/commit/0448a27df2d46ac670cc3f18a874f174fa57f32b))
+
+
+### Documentation
+
+* **cli:** drop the onboarding feedback backlog from the repo ([#1984](https://github.com/Autonoma-AI/agent/issues/1984)) ([3d1ba71](https://github.com/Autonoma-AI/agent/commit/3d1ba719511a3015a3b1bb30318b6a37b744d9bc))
+
+
+### Code Refactoring
+
+* **cli:** remove the project-context feature ([#1990](https://github.com/Autonoma-AI/agent/issues/1990)) ([9eb1369](https://github.com/Autonoma-AI/agent/commit/9eb13694b51c88dc37649a68754c7dca9bbbcd3e))
+
 ## [0.1.23](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.22...cli-v0.1.23) (2026-07-30)
 
 
