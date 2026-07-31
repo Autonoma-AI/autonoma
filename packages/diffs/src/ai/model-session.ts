@@ -13,9 +13,10 @@ import { logger as rootLogger } from "@autonoma/logger";
  *
  * A key describes a model's place on the capability/cost/latency spectrum (following the engine's
  * `{fast,smart,genius}-{visual,text}` naming by convention) so call sites can be retargeted to a
- * different vendor model without touching them. Diffs uses a single capability today.
+ * different vendor model without touching them. `smart-video` is the recording-review model, split
+ * out from `smart-visual` so the video reviewer can run a cheaper model than the screenshot/text agents.
  */
-export type DiffsModelName = "smart-visual";
+export type DiffsModelName = "smart-visual" | "smart-video";
 
 /**
  * A per-run, metered facade over the singleton diffs {@link ModelRegistry}.
@@ -61,6 +62,7 @@ function getDiffsModelRegistry(): ModelRegistry<DiffsModelName> {
         registrySingleton = new ModelRegistry<DiffsModelName>({
             models: {
                 "smart-visual": MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW,
+                "smart-video": MODEL_ENTRIES.GEMINI_3_5_FLASH_LITE,
             },
         });
     }

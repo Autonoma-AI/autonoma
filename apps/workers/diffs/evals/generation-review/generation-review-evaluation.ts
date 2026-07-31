@@ -91,7 +91,7 @@ export class GenerationReviewEvaluation extends Evaluation<GenerationReviewCase>
         await this.probeReferencedEvidence(context, evidenceLoader, helpers, testCase.name);
 
         const session = openModelSession();
-        const videoModel = session.getVideoModel({ model: "smart-visual", tag: "generation-review" });
+        const videoModel = session.getVideoModel({ model: "smart-video", tag: "generation-review" });
 
         const reviewer = new GenerationReviewer({ videoModel, evidenceLoader });
 

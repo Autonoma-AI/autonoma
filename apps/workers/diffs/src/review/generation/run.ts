@@ -62,7 +62,7 @@ export async function runGenerationReview(
     }
 
     const session = openModelSession();
-    const videoModel = session.getVideoModel({ model: "smart-visual", tag: "generation-review" });
+    const videoModel = session.getVideoModel({ model: "smart-video", tag: "generation-review" });
 
     const storage = S3Storage.createFromEnv();
     const contextLoader = new DiffJobContextLoader(db, storage);
