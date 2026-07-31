@@ -59,6 +59,18 @@ export const applicationsRouter = router({
             services.applications.createMinimalApplication(input.name, organizationId),
         ),
 
+    suiteHealth: protectedProcedure
+        .input(z.object({ applicationId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.suiteHealth.getForApplication(input.applicationId, organizationId),
+        ),
+
+    suiteHealthFixPlan: protectedProcedure
+        .input(z.object({ applicationId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.suiteHealthFixPlan.getForApplication(input.applicationId, organizationId),
+        ),
+
     getSharedSecret: protectedProcedure
         .input(z.object({ applicationId: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>

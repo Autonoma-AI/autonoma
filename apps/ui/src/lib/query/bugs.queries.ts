@@ -4,7 +4,7 @@ import { ensureAPIQueryData, useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 
-// Lean projection (no evidence/testCase join) for the home page rail and milestones,
+// Lean projection (no evidence/testCase join) for the home page rail,
 // where only id/title/severity/lastSeenAt/occurrences/status are needed.
 export function useBugsSummary(status?: "open" | "resolved" | "regressed") {
     const currentApp = useCurrentApplication();

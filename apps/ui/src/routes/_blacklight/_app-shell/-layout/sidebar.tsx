@@ -22,7 +22,7 @@ import { useCreateCheckoutSession } from "lib/query/billing.queries";
 import { trpc } from "lib/trpc";
 import { useEffect, useState } from "react";
 import { SidebarAppSelector } from "./app-selector";
-import { SidebarMilestones } from "./sidebar-milestones";
+import { SidebarSuiteHealth } from "./sidebar-suite-health";
 
 const SIDEBAR_STORAGE_KEY = "autonoma:sidebar-collapsed";
 
@@ -272,10 +272,10 @@ function Sidebar({ collapsed, onToggleCollapsed, onFeedback }: SidebarProps) {
         {hasAppNav && <SidebarAppSelector collapsed={collapsed} />}
       </div>
 
-      {/* Milestones */}
+      {/* Suite health */}
       {hasAppNav && (
         <div className="border-b border-border-dim">
-          <SidebarMilestones collapsed={collapsed} />
+          <SidebarSuiteHealth collapsed={collapsed} />
         </div>
       )}
 

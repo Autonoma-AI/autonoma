@@ -44,6 +44,8 @@ import { AdminService } from "./admin/admin.service";
 import { ApiKeysService } from "./api-keys/api-keys.service";
 import { ApplicationSetupsService } from "./app-generations/app-generations.service";
 import { ApplicationsService } from "./applications/applications.service";
+import { SuiteHealthFixPlanService } from "./applications/suite-health-fix-plan.service";
+import { SuiteHealthService } from "./applications/suite-health.service";
 import { AuthService } from "./auth/auth.service";
 import { BranchesService } from "./branches/branches.service";
 import { BugsService } from "./bugs/bugs.service";
@@ -66,6 +68,8 @@ export interface Services {
     auth: AuthService;
     apiKeys: ApiKeysService;
     applications: ApplicationsService;
+    suiteHealth: SuiteHealthService;
+    suiteHealthFixPlan: SuiteHealthFixPlanService;
     branches: BranchesService;
     bugs: BugsService;
     deployments: DeploymentsService;
@@ -201,6 +205,7 @@ export function buildServices({
         onboardingManager,
         new ScenarioRecipeStore(conn),
     );
+    const suiteHealthService = new SuiteHealthService(conn);
     const branchesService = new BranchesService(conn, githubService, storageProvider, prCacheService);
     const falsePositiveCandidatesService = new FalsePositiveCandidateService(conn, branchesService);
     const branchContributorService = new BranchContributorService(conn, githubService);
@@ -214,6 +219,8 @@ export function buildServices({
         deployments: new DeploymentsService(conn, previewkitTrigger),
         previewkitEnvFactory: new PreviewkitEnvFactoryService(conn, encryptionHelper),
         applications: applicationsService,
+        suiteHealth: suiteHealthService,
+        suiteHealthFixPlan: new SuiteHealthFixPlanService(conn, githubService, suiteHealthService),
         testGenerations: new TestGenerationsService(conn, storageProvider, billingService),
         tests: new TestsService(conn),
         folders: new FoldersService(conn),

@@ -32,3 +32,5 @@ export * from "./checkpoint-summary";
 export * from "./pr-pipeline-status";
 export * from "./bug-detail";
 export * from "./investigation-report";
+export * from "./suite-health";
+export * from "./suite-health-fix-plan";
