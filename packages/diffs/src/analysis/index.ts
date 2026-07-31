@@ -4,8 +4,7 @@
 // the `@autonoma/diffs/analysis` subpath so it never collides with the diffs package's own model-session exports
 // on the main entrypoint.
 //
-// Selection was intentionally NOT carried over: #1510 replaces Impact Analysis with the DiffsAgent
-// (`runDiffsAnalysis`) and the epic rejects the carry-forward the old selector did.
+// Test selection is not here: the DiffsAgent (`runDiffsAnalysis`) decides which tests a diff affects.
 
 export { Category, Confidence, Evidence, EvidenceSource, PlanFidelity, RunVerdict } from "./schema";
 export { PriorRuns } from "./db/prior-runs";

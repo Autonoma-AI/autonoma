@@ -54,11 +54,9 @@ export class SubagentTool extends AgentTool<SubagentToolInput, SubagentResult, C
      * subagent had emitted so far.
      *
      * Keyed on {@link AgentLoopError} rather than the individual subclasses, so the salvage covers every way a
-     * loop can die - including a provider that gave out mid-research, which used to take the parent's tool call
-     * down with it.
+     * loop can die, including a provider that gives out mid-research.
      *
-     * The truncation is logged at `warn` (not swallowed) so the frequency stays observable - this
-     * failure mode was previously invisible because it killed the whole job.
+     * The truncation is logged at `warn` rather than swallowed, so the frequency stays observable.
      */
     private degradedResult(instruction: string, error: AgentLoopError): SubagentResult {
         this.logger.warn("Subagent research truncated before producing findings; continuing with partial results", {

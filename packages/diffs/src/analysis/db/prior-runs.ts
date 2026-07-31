@@ -39,7 +39,7 @@ function failureKindOf(failure: unknown): string | undefined {
     return undefined;
 }
 
-/** Reads + summarizes a test's run history (the classifier baseline). Replaces the prototype's raw psql join. */
+/** Reads + summarizes a test's run history - the classifier's baseline for whether this test ever worked. */
 export class PriorRuns {
     constructor(private readonly db: PrismaClient) {}
 

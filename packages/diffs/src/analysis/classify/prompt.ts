@@ -137,14 +137,12 @@ Never fabricate a rewrite for a feature that does not exist. Your rewrite WILL B
 - The execution agent's run result (pass/fail/steps/reasoning) is a HINT, not the truth - it optimizes to finish the test, not to audit the app, and is often wrong. The VIDEO + screenshots are the ground truth: form your OWN judgment from them. Always report confirmed app problems in observedAppIssues, independent of the test's outcome.`;
 
 /**
- * The verdict rules, rendered as the closing section of the single user prompt. The classifier used to
- * receive these as a SECOND model call whose only context was the first call's prose; now the loop's own
- * tool results are still in scope when the model fills the finish tool, so the same rules land here.
+ * The verdict rules, rendered as the closing section of the user prompt, so the model fills the finish tool
+ * with every tool result from the loop still in scope.
  *
- * The self-heal rule is deliberately NOT restated here. It used to be, because the verdict call was a separate
- * request that could not see the investigation prompt; in one prompt that copy would just say the same thing
- * twice, and {@link buildPriorPassSection} already renders the fuller version up top - first, so the model
- * judges the re-run against the prior conclusion rather than re-investigating from scratch.
+ * The self-heal rule is deliberately NOT restated here: {@link buildPriorPassSection} renders the fuller
+ * version at the top of the same prompt, and it has to come first so the model judges the re-run against the
+ * prior conclusion rather than re-investigating from scratch. Repeating it here would say the same thing twice.
  */
 function buildVerdictRules(): string {
     return `When your investigation is complete, call \`finish\` to produce the verdict. Default to NOT client_bug: only call it when you OBSERVED the defect (reproduced in the run, visible in the screenshot, or proven in data you queried) AND traced it to the exact changed code AND ruled out that the change was intentional (compare the PR intent against what the test asserts) AND infra+scenario+test were healthy. If you could not reach/reproduce the symptom, do not call client_bug - classify by what you actually saw and say what blocked you; being blocked is a reason to NOT convict, not a license to convict at low confidence. PROVE attribution from the diff: quote the exact changed line whose effect is the symptom (in evidence); if the patch shows the PR did not touch the code path behind the symptom (unrelated files - CI/config/docs/another feature), it is pre-existing, so NOT client_bug (note it in observedAppIssues, classify by what the run actually is). For a persistence/data-integrity symptom (a value that reverts after reload, a create/update/delete that did not stick, an empty list, a wrong count), do NOT call client_bug unless a backend query or the app logs confirmed the mechanism at the data level - if you could not confirm it, prefer environment_failure or scenario_issue (a missing index/migration/env/seed to check) over an unproven bug. Logs and queried backend data OUTRANK code reading: the diff shows what COULD happen, a verbatim log line or queried result shows what DID - so a code/diff mechanism alone (even paired with an on-screen error toast, which proves the failure but not its cause) is a LOW-confidence hypothesis, not a medium/high bug, and if a log or backend-query tool was available and you did not use it, the investigation is incomplete. Weigh the baseline: if prior_runs shows this test never passed, do not assume the PR caused the failure. Remember the engine_artifact bar: it requires a REASONABLE step the harness definitively could not perform (native dialog, missing capability) that BLOCKED the run on a healthy app - a flake the run RECOVERED from (an assertion that failed once then passed as the page settled, data that arrived late then rendered, an overall run that still succeeded) is passed, NOT engine_artifact; and an assertion defeated by the app's own INTENDED behavior (a timer/auto-hide/expiry the diff introduced) is plan_mismatch. Do not narrate a momentary empty/late state you did not actually observe just because the code makes it possible. INTENT is read from the diff + code comments first (the PR description is often stale - written at the first commits and rarely updated). isClientBug must be true iff category==='client_bug'.
@@ -168,9 +166,8 @@ export interface ClassifierPromptInput {
 
 /**
  * The classifier's single user prompt: the static context, the run trace, the four deterministic scans, and
- * the verdict rules the finish tool is filled against. One prompt rather than two calls is the point of the
- * migration - the model's tool results are still in scope when it commits, so evidence no longer has to be
- * restated in prose to survive into the verdict.
+ * the verdict rules the finish tool is filled against. One prompt, so the model's tool results are still in
+ * scope when it commits and evidence does not have to be restated in prose to reach the verdict.
  */
 export function buildClassifierPrompt({ input, scans, evidenceLimits }: ClassifierPromptInput): string {
     const run = input.run;

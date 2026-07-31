@@ -514,7 +514,7 @@ async function resolvePreviewEnvironment(
  *
  * Parsed with the shared `previewConfigSchema` rather than a local shape, so this cannot drift from what
  * previewkit actually deploys. A config that fails to parse yields no keys and says so: the classifier then
- * sees the secret bundle alone, which is the old behaviour, so a parse failure degrades rather than misleads.
+ * sees the secret bundle alone, so a parse failure narrows what it is told rather than misleading it.
  */
 function connectionKeysOf(resolvedConfig: unknown, logger: Logger): string[] {
     if (resolvedConfig == null) return [];

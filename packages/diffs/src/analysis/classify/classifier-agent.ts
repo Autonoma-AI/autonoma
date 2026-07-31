@@ -45,9 +45,7 @@ export interface ClassifierAgentConfig {
  * One loop: the four deterministic vision probes run pre-loop in {@link buildUserPrompt} (in parallel, and
  * only for a run that recorded something - the model gets those four signals wrong when left to its
  * discretion, which is why they are not tools), then the model investigates and commits through `finish` with
- * every tool result still in scope. That last part is the point of the shape: the verdict used to be a
- * SECOND model call whose only context was the first call's prose, so evidence reached the verdict only if
- * the model had thought to restate it before the loop ended.
+ * every tool result still in scope - so evidence reaches the verdict without the model having to restate it.
  *
  * On exhaustion `MaxStepsReached` propagates and the Investigator workflow contains the test as a
  * coverage-plane `engine_artifact` - there is deliberately no fallback verdict path, because a guessed
