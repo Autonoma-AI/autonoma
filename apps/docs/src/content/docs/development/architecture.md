@@ -5,15 +5,15 @@ description: High-level architecture of Autonoma AI - how the monorepo is organi
 
 ## How Autonoma works
 
-Autonoma is an agentic E2E testing platform. Users describe tests in natural language, and an AI agent executes them on real browsers and devices. The core loop is:
+Autonoma is an agentic E2E testing platform. Tests are written in natural language - usually generated from the codebase by the planner rather than written by hand - and an AI agent executes them in a real browser. The core loop is:
 
-1. User writes a test instruction ("Log in, go to settings, verify the avatar is visible")
+1. A test says what to verify ("Log in, go to settings, check the avatar is visible")
 2. The execution agent takes a screenshot of the current screen
 3. An LLM decides which action to perform (click, type, scroll, assert)
-4. Platform drivers execute the action (Playwright for web, Appium for mobile)
+4. A platform driver executes it - Playwright, against the pull request's preview environment
 5. The agent records the step and repeats until the test is done
 
-Everything else - the API, the UI, the jobs - exists to support this loop.
+Around that loop sits the rest of the product: previewkit builds the environment each run needs, the Environment Factory seeds its data, and the API and workers orchestrate the whole thing and report back on the pull request.
 
 ## Monorepo structure
 
@@ -23,39 +23,54 @@ The codebase is split into **apps** (deployable services) and **packages** (shar
 apps/
   api/              Hono + tRPC API server
   ui/               Vite + React 19 SPA
+  previewkit/       Preview environments - builds and deploys a PR's stack to Kubernetes
+  cli/              @autonoma-ai/planner - the published test-planner CLI
   engine-web/       Playwright web test execution
-  engine-mobile/    Appium mobile test execution
+  engine-mobile/    Appium mobile test execution (dormant - see below)
+  workers/          Temporal workers: diffs, general, investigation, web, mobile
+  jobs/             Standalone background jobs
+  cronjobs/         Scheduled tasks
   docs/             Astro Starlight documentation site
-  jobs/             Background jobs (multiple sub-services)
 
 packages/
-  ai/               AI primitives - models, vision, point detection
+  agent-core/       The agent loop, tool plumbing, and compaction
+  ai/               Sharp-free AI core - model registry, structured generation
+  visual-ai/        Screenshot-driven AI - visual checkers, point detection
   analytics/        PostHog server-side event tracking
-  billing/          Subscription and billing logic
+  auth/             Authentication
+  billing/          Credits, top-ups, and Stripe
   blacklight/       Shared UI component library
+  checkpoint/       Run checkpoints
   db/               Prisma schema + generated client
-  diffs/            Test diff computation
-  emulator/         Mobile emulator management
+  diffs/            Change analysis for a pull request
+  emulator/         Mobile emulator management (dormant)
   engine/           Platform-agnostic execution agent core
   errors/           Custom error hierarchy
+  github/           GitHub App and API client
   image/            Image processing utilities
   integration-test/ Test harness with Testcontainers
+  investigation/    The investigation agent
   k8s/              Kubernetes helpers
   logger/           Sentry-based structured logging
-  review/           Post-execution AI review
   scenario/         Environment Factory scenario logic
+  secrets/          Secret storage and retrieval
   storage/          S3 file storage
   test-updates/     Test suite update logic
+  try/              Go-style [value, error] result tuples
   types/            Shared Zod schemas and TypeScript types
   utils/            Shared utilities
   workflow/         Temporal workflow definitions
 ```
 
+:::caution[Mobile is dormant]
+`engine-mobile` and `emulator` are still in the tree and still compile, but they are **not part of what ships today**. Neither has a Dockerfile, and neither has had feature work since June 2026 - changes since have been repo-wide sweeps. The product is web-only: read anything below about Appium, devices, or emulators as describing code that exists, not a capability you can use.
+:::
+
 ### Why apps vs packages?
 
-**Apps** are independently deployable. Each one becomes its own Docker image and runs as its own process. The API, UI, and each engine are separate images - they never share a runtime.
+**Apps** are independently deployable. Each one becomes its own image and runs as its own process - the API, the UI, previewkit, and each engine never share a runtime. `apps/cli` is the exception: it is published to npm as `@autonoma-ai/planner` and runs on the user's machine.
 
-**Packages** are shared code. They're consumed by apps at build time via pnpm workspaces. A package like `@autonoma/ai` is used by both `engine-web` and `engine-mobile`, but it never runs on its own.
+**Packages** are shared code, consumed at build time via pnpm workspaces; none of them runs on its own. A package like `@autonoma/engine` is used by every engine, and `@autonoma/ai` by anything that calls a model.
 
 ## How the apps connect
 
@@ -71,26 +86,31 @@ Browser
  API (Hono + tRPC)
   |
   |--- Prisma ---> PostgreSQL
-  |--- Redis ----> Device locks, caching
+  |--- Redis ----> Caching
   |
-  | (dispatches jobs)
+  | (starts a Temporal workflow)
   v
- Engine Web / Engine Mobile
+ Workers (apps/workers)
+  |
+  |--- previewkit ---> builds and deploys the PR's stack
+  |--- Environment Factory ---> seeds test data for the run
+  v
+ Engine Web
   |
   | Execution Agent (packages/engine)
-  |--- Playwright (web) or Appium (mobile)
-  |--- AI models (packages/ai)
+  |--- Playwright
+  |--- AI models (packages/ai, packages/visual-ai)
   v
- Test results, recordings, artifacts
+ Results, recordings, artifacts -> reviewed -> comment on the PR
 ```
 
 **UI to API**: The React SPA communicates with the API exclusively through tRPC. Types flow end-to-end - the frontend never manually defines API response types. Zod schemas in `packages/types` are the single source of truth for both sides.
 
 **API to Database**: The API uses Prisma as its ORM. The schema lives in `packages/db` and is shared across all backend services.
 
-**API to Engines**: When a test run starts, the API dispatches it to the appropriate engine (web or mobile). Engines execute tests independently and report results back.
+**API to workers**: A pull-request event starts a Temporal workflow rather than calling an engine directly. The workers in `apps/workers` own the long-running pipeline - provisioning the preview, seeding data, running the suite, reviewing the result - so a restart never loses a run in flight.
 
-**Engines to AI**: During execution, engines call into `packages/ai` for element detection, visual assertions, and agent decision-making. AI calls go to external providers (Google Gemini, Groq, OpenRouter).
+**Engines to AI**: During execution, engines call `packages/ai` for structured generation and `packages/visual-ai` for element detection and visual assertions. The two are split because `visual-ai` depends on `sharp`, which some hosts (the API among them) cannot load. Calls go to external providers - Google Gemini, Groq, OpenRouter.
 
 ## Tech stack
 
@@ -102,10 +122,10 @@ Browser
 | API | Hono + tRPC | Hono is fast and lightweight. tRPC gives end-to-end type safety without code generation |
 | Frontend | React 19 + Vite + TanStack Router | Vite for fast dev builds. TanStack Router for type-safe routing with built-in data loading |
 | Database | PostgreSQL + Prisma | PostgreSQL for reliability. Prisma for type-safe queries and migration management |
-| Cache/Locking | Redis | Distributed device locking and caching across engine instances |
+| Cache/Locking | Redis | Caching, and distributed locking where instances share a resource |
 | AI | Gemini, Groq, OpenRouter via Vercel AI SDK | Multiple providers for different tasks. Vercel AI SDK unifies the interface |
 | Web testing | Playwright | Most reliable browser automation library. Supports all major browsers |
-| Mobile testing | Appium | Industry standard for iOS and Android automation on real devices |
+| Mobile testing | Appium | Present in `engine-mobile`, currently dormant - the shipped product is web-only |
 | UI components | Radix UI + Tailwind CSS v4 + CVA | Accessible primitives (Radix), utility-first styling (Tailwind), type-safe variants (CVA) |
 | Observability | Sentry | Error tracking, performance monitoring, and structured logging in one tool |
 | Analytics | PostHog | Product analytics with server-side event tracking |
@@ -117,11 +137,11 @@ This is the most important flow in the system - how a test goes from natural lan
 
 ### 1. Test creation
 
-The user writes a test as a natural language instruction, optionally with a URL and configuration. The API stores it in PostgreSQL.
+Tests are natural-language markdown. Most are generated by the planner (`apps/cli`) reading the customer's codebase and uploaded to Autonoma; they can also be edited by hand. The API stores them in PostgreSQL.
 
 ### 2. Test dispatch
 
-When a test run starts, the API dispatches it to the appropriate engine based on the application type (web or mobile). For mobile, Redis-based device locking ensures exclusive access to physical devices.
+A pull-request event starts a Temporal workflow. It provisions the preview environment for that PR, asks the Environment Factory to seed the data the scenario needs, and then hands the suite to the web engine.
 
 ### 3. Execution agent loop
 

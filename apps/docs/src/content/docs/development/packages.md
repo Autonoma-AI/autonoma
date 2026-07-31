@@ -7,13 +7,27 @@ description: What each package and app does, what it exports, and when you would
 
 Every package in `packages/` is a shared library consumed by one or more apps. Each has exactly one concern.
 
+Internal tooling is deliberately left out - the eval harnesses and their results database exist to measure and improve the agents, and have nothing to do with building or running the product.
+
+:::caution[Mobile is dormant]
+`emulator` and `apps/engine-mobile` are still in the tree and still compile, but they are not part of what ships today - neither has a Dockerfile, and neither has had feature work since June 2026. The product is web-only. They are listed here because the code exists, not because it is a capability you can use.
+:::
+
+### agent-core
+
+The agent loop itself - tool plumbing, the step cycle, retries, and context compaction. Platform-agnostic and model-agnostic; `engine` builds the execution agent on top of it.
+
+**Key exports:** `Agent`, tool base classes, compaction helpers
+
+**When to modify:** Changing how any agent in the codebase loops, calls tools, or compacts its context.
+
 ### ai
 
-AI primitives used by the execution agent. Contains the model registry (manages LLM instances and providers), visual AI (screenshot analysis, assertion checking, element selection), point detection (locating UI elements from natural language descriptions), object detection (bounding box generation), and structured output generation.
+The **sharp-free** AI core: the model registry (LLM instances, providers, per-call cost collection), structured output generation, and text utilities. Everything screenshot-driven lives in `visual-ai` instead, so hosts that cannot load `sharp` - the API among them - can still call a model.
 
-**Key exports:** `ModelRegistry`, `PointDetector`, `ObjectDetector`, `VisualConditionChecker`, `AssertChecker`, `ObjectGenerator`, `AssertionSplitter`
+**Key exports:** `ModelRegistry`, `CostCollector`, `ObjectGenerator`, `AssertionSplitter`, `MODEL_ENTRIES`
 
-**When to modify:** Adding a new AI model or provider, changing how elements are detected, adjusting assertion logic, or adding a new visual AI capability.
+**When to modify:** Adding a model or provider, changing pricing or cost attribution, or adjusting structured generation.
 
 ### analytics
 
@@ -22,6 +36,12 @@ PostHog server-side event tracking. Wraps `posthog-node` with Sentry trace linki
 **Key exports:** `analytics` (singleton)
 
 **When to modify:** Adding new server-side analytics events, changing event properties, or adjusting the PostHog integration.
+
+### auth
+
+Authentication - sessions, organisation membership, and the checks the API applies to every request.
+
+**When to modify:** Changing how users sign in, or how access to an organisation or application is decided.
 
 ### billing
 
@@ -39,6 +59,12 @@ Shared UI component library built on Radix UI + Tailwind CSS v4 + CVA. This is w
 
 **When to modify:** Adding new UI components, updating component styles, or changing the design system. The path alias `@/*` maps to `packages/blacklight/src/*` inside the package.
 
+### checkpoint
+
+Run checkpoints: the record of what a run had established at each point, so a later run can compare against it.
+
+**When to modify:** Changing what a checkpoint captures or how runs are compared over time.
+
 ### db
 
 Prisma schema and generated client for PostgreSQL. This is the single source of truth for the database structure.
@@ -46,6 +72,7 @@ Prisma schema and generated client for PostgreSQL. This is the single source of 
 **Key exports:** `PrismaClient`, generated types for all models
 
 **When to modify:** Adding or changing database tables, columns, relations, or indexes. After editing the schema, run `pnpm db:generate` and `pnpm db:migrate`.
+
 
 ### diffs
 
@@ -81,6 +108,13 @@ Custom error hierarchy for the project. All errors extend `AutonomaError` with s
 
 **When to modify:** Adding new error types or changing how errors are categorized.
 
+
+### github
+
+The GitHub App and API client - installation tokens, repository access, pull-request events, and the comments Autonoma posts back.
+
+**When to modify:** Changing anything that talks to GitHub.
+
 ### image
 
 Image processing utilities. Handles screenshot manipulation, resizing, and format conversion used throughout the execution pipeline.
@@ -96,6 +130,12 @@ Test harness using Testcontainers. Provides `IntegrationHarness` and `integratio
 **Key exports:** `IntegrationHarness`, `integrationTestSuite`
 
 **When to modify:** Changing the test harness setup, adding new test utilities, or supporting new infrastructure in tests.
+
+### investigation
+
+The investigation agent: given a pull request, work out what changed and what it might have broken.
+
+**When to modify:** Changing how investigations are selected, run, or reported.
 
 ### k8s
 
@@ -113,14 +153,6 @@ Sentry-based structured logging. Provides a logger that integrates with Sentry f
 
 **When to modify:** Changing the logging format, adjusting Sentry integration, or adding new logging capabilities.
 
-### review
-
-Post-execution AI review. Analyzes test execution recordings and results to validate whether tests passed correctly.
-
-**Key exports:** Review service classes
-
-**When to modify:** Changing how test results are reviewed, adjusting AI review prompts, or adding new review criteria.
-
 ### scenario
 
 Environment Factory scenario logic. Handles test scenario definitions, data seeding, and teardown for isolated test environments.
@@ -128,6 +160,12 @@ Environment Factory scenario logic. Handles test scenario definitions, data seed
 **Key exports:** Scenario classes and types
 
 **When to modify:** Adding new test scenarios, changing how test data is seeded, or adjusting the Environment Factory protocol.
+
+### secrets
+
+Storage and retrieval of customer secrets - preview environment variables, signing secrets, and third-party tokens.
+
+**When to modify:** Changing how secrets are stored, encrypted, or resolved at deploy time.
 
 ### storage
 
@@ -145,6 +183,14 @@ Test suite update logic. Handles applying changes to test suites - adding, remov
 
 **When to modify:** Changing how test suites are modified, or adding new update operations.
 
+### try
+
+Go-style error handling. Wraps a fallible call into a `[value, error]` tuple so the error path is explicit at the call site instead of hidden in a `try`/`catch`.
+
+**Key exports:** `Try<T>`, `Success<T>`, `Failure`
+
+**When to modify:** Rarely - it is a small, stable utility.
+
 ### types
 
 Shared Zod schemas and TypeScript types. This is the contract layer between the API and frontend. Schemas defined here are used for tRPC input validation and frontend type inference.
@@ -160,6 +206,14 @@ Shared utilities that don't fit into a more specific package.
 **Key exports:** Various utility functions
 
 **When to modify:** Adding general-purpose utilities used across multiple packages.
+
+### visual-ai
+
+The screenshot-driven half of the AI stack: visual condition checking, assertion checking, point detection (locating an element from a natural-language description), and object detection. Depends on `ai` and on `image`, which means `sharp`.
+
+**Key exports:** `PointDetector`, `ObjectDetector`, `VisualConditionChecker`, `AssertChecker`
+
+**When to modify:** Changing how elements are located on screen, or adjusting assertion logic.
 
 ### workflow
 
@@ -195,6 +249,30 @@ Appium-based mobile test execution for iOS and Android. Implements the same driv
 
 **When to modify:** Changing mobile-specific test execution behavior, adjusting Appium configuration, or adding support for new device types.
 
+### previewkit
+
+Preview environments. Builds each app in a pull request, provisions the databases and extra services it needs, deploys the whole stack to its own Kubernetes namespace, and tears it down when the PR closes.
+
+**When to modify:** Changing how previews are built, deployed, configured, or destroyed.
+
+### cli
+
+Published to npm as `@autonoma-ai/planner`. Runs on the user's machine, reads their codebase, and generates the knowledge base, scenarios, test-data recipe, and E2E test suite. Bundled with tsup.
+
+**When to modify:** Changing the planner pipeline, its terminal dashboard, or the coding-agent handoff for test data.
+
+### workers
+
+Temporal workers. Each subdirectory is its own deployable: `diffs`, `general`, `investigation`, `web`, `mobile`. They own the long-running pipeline - provisioning, seeding, running, reviewing - so a restart never loses a run in flight.
+
+**When to modify:** Adding a workflow or activity, or changing how a run is orchestrated.
+
+### cronjobs
+
+Scheduled tasks that run on a timer rather than in response to an event.
+
+**When to modify:** Adding or changing a scheduled task.
+
 ### docs
 
 This documentation site. Built with Astro Starlight and deployed to S3 + CloudFront.
@@ -207,9 +285,7 @@ Background job services, each deployed as a separate Docker image:
 
 | Job | Purpose |
 | --- | --- |
-| **run-completion-notification** | Stripe billing refund on failed generations + the mark-failed reaper |
-| **scenario** | Environment Factory scenario execution |
-| **diffs** | Computes test suite diffs |
+| **run-completion-notification** | Stripe billing refund on failed generations, plus the mark-failed reaper |
 
 ## Dependency graph
 
