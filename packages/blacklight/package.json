@@ -29,7 +29,7 @@
         "diff": "catalog:",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
-        "recharts": "2.15.4",
+        "recharts": "^3.10.1",
         "shadcn": "^4.0.2",
         "tailwind-merge": "^2.6.1",
         "tailwindcss": "^4.2.0",
