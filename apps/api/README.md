@@ -120,7 +120,9 @@ default and bounded by the global `MERGE_GATE_ENABLED` kill switch; enabled per 
 `admin.setMergeGateEnabled` procedure.
 
 - `MergeGateService` (`src/github/merge-gate.service.ts`) owns the API-side lifecycle: post the pending `Autonoma`
-  check on `pull_request.opened/synchronize/reopened/ready_for_review`; honor a `/autonoma-skip <reason>` comment on
+  check on `pull_request.opened/synchronize/reopened/ready_for_review`; start requested analysis runs from the
+  on-demand activation triggers (`/start analysis` comment, `pull_request.labeled`); honor a
+  `/autonoma-skip <reason>` comment on
   an `issue_comment.created` webhook (resolve the PR's current check, write a `SkipRecord` snapshotting the open
   bugs + the reason, flip the check to `neutral`, post a `skipped`-state attribution comment, and fire a best-effort
   Slack alert via `MergeGateSlackNotifier` - the `SLACK_BOT_TOKEN` bot posting to `MERGE_GATE_SLACK_CHANNEL`); a
@@ -144,17 +146,48 @@ default and bounded by the global `MERGE_GATE_ENABLED` kill switch; enabled per 
   activation (`activationSource` + `activatedByLogin` on `GitHubCheckRun`, an `ANALYSIS_RUN_SOURCE` value from
   `@autonoma/github/check`) and emits `merge_gate.activated`; if no run starts (no preview, or nothing new) the
   check is restored to the un-requested neutral state and the requester is told why. Only a migrated org honors an
-  explicit request - an un-migrated org still runs automatically, so `/start analysis` there is a no-op. The
-  request comes from a `/start analysis` PR comment (`requestStartFromCommentWebhook`), authorized to write-access
-  commenters the same way skip is. Because a migrated org's un-requested PR has no run, `postPending` posts a COMPLETED
-  `neutral` "No analysis requested - comment `/start analysis` to run." check rather than a hanging `in_progress`
-  one, so a required check never wedges the merge. The automatic PR run is suppressed in the shared
-  `DiffsRunPreparer.prepare` (both the preview-ready and Vercel paths funnel through it) via a `requested` flag;
-  main-branch baseline runs pass `isMainBranchRun` and are never gated (the base snapshot must keep updating), and
-  un-migrated orgs (the fleet default) keep the current automatic behavior and the `in_progress` check.
+  explicit request - an un-migrated org still runs automatically, so `/start analysis` there is a no-op. Requests
+  come from three on-demand triggers, each flipping the check to in-progress and stamping a distinct
+  `ANALYSIS_RUN_SOURCE`:
+    - `comment` - a `/start analysis` PR comment (`requestStartFromCommentWebhook`), authorized to write-access
+      commenters the same way skip is.
+    - `mcp` - the `start_analysis` debug-MCP tool a coding agent calls from the editor.
+    - `label` - the repo's configured `ApplicationTriggerConfig.analysisTriggerLabel` (default `autonoma:analyze`)
+      being added to a PR (`requestStartFromLabelWebhook`). Labeling a DRAFT is a no-op that replies with guidance
+      to mark the PR ready first (a draft has no preview to run against), rather than bouncing off `no_preview`.
+      `postPending` auto-creates that label on the repo for activation orgs (before it takes the per-head check
+      lock, since the label is repo-level and best-effort) so a developer can find and add it.
+  Unlike `comment`, the `label` trigger does not run an explicit write-access check: GitHub already gates adding a
+  PR label (triage+), so the action itself is the authorization.
+  There is also one **automatic** trigger, `ApplicationTriggerConfig.autoRunOnReadyForReview` (off by default): when
+  a repo opts in, an activation org auto-runs the analysis as soon as a non-draft PR's preview is live. Crucially it
+  fires from the shared `DiffsRunPreparer` (`autoRunsOnReady` lets the automatic preview-ready run through the
+  activation gate), NOT from the `pull_request.ready_for_review` webhook - at webhook time the preview does not
+  exist yet (it is built in response to that event), so triggering there would always find no preview. Because it
+  rides the automatic run path rather than `requestAnalysisRun`, the diffs worker's **`openMergeGate`** step (the
+  analysis pipeline's stage 0) flips the un-requested neutral check to the in-progress "Analyzing" state and stamps
+  `activation_source = ready_for_review` at run start, mirroring the on-demand triggers; the worker's finalize then
+  posts the verdict.
+  Per-repo trigger config lives on `ApplicationTriggerConfig` (1:1 with `Application`); absence means the code
+  defaults apply (see `readActivationTriggerConfig`). Because a migrated org's un-requested PR has no run,
+  `postPending` posts a COMPLETED `neutral` "No analysis requested - comment `/start analysis` to run." check
+  rather than a hanging `in_progress` one, so a required check never wedges the merge. The automatic PR run is
+  suppressed in the shared `DiffsRunPreparer.prepare` (both the preview-ready and Vercel paths funnel through it)
+  via a `requested` flag; main-branch baseline runs pass `isMainBranchRun` and are never gated (the base snapshot
+  must keep updating), and un-migrated orgs (the fleet default) keep the current automatic behavior and the
+  `in_progress` check.
+- **One run per commit (dedupe)**: `requestAnalysisRun` takes a per-head advisory lock, so triggers for the same
+  head serialize. A second trigger whose head already has an in-flight run (in-progress check + activation stamp)
+  no-ops in the trigger handler; for a genuinely concurrent pair the handler pre-check cannot intercept (both
+  read "not in flight" before either takes the lock), `DiffsRunPreparer.prepare` attaches a `requested` run to the
+  existing pending snapshot for that head instead of superseding it, so no duplicate snapshot/run is created. In
+  that race the later trigger still overwrites the recorded `activationSource` and emits a second
+  `merge_gate.activated`; this is accepted, as de-duplicating it would require changing the untouchable
+  `requestAnalysisRun`.
 - **Requires GitHub App settings** (non-code): the `checks: write` permission, the `issue_comment` webhook
-  subscription (for `/autonoma-skip` and `/start analysis`), and `administration: write` for programmatic branch
-  protection. Nothing functions until these are applied.
+  subscription (for `/autonoma-skip` and `/start analysis`), the `pull_request.labeled` webhook subscription (for
+  the activation label trigger - GitHub does not deliver labeled events without it), and `administration: write`
+  for programmatic branch protection. Nothing functions until these are applied.
 - **Per-developer attribution** (`BranchContributorService`, `src/github/branch-contributor.service.ts`):
   stickiness is an individual habit, so a branch's outcome must attribute to ALL its authors, not just the
   opener. On `pull_request.opened/synchronize/reopened/ready_for_review/closed` it resolves the PR's full

@@ -11,6 +11,9 @@ const GITHUB_API = "https://api.github.com";
 /** Branch-listing page size. One page is enough for a deploy-branch picker; repos past this are flagged truncated. */
 const BRANCHES_PER_PAGE = 100;
 
+/** Default color for a label the app auto-creates. */
+const DEFAULT_LABEL_COLOR = "0e8a16";
+
 const installationAuthSchema = z.object({ token: z.string().min(1) });
 
 /** GitHub's create/get check-run response, narrowed to the numeric id we persist for later updates. */
@@ -223,6 +226,13 @@ export interface GitHubInstallationClient {
     ): Promise<BranchProtectionResult>;
     /** A user's permission level on the repo (`admin`/`write`/`read`/`none`); `none` when the user is not found. */
     getRepoCollaboratorPermission(repoFullName: string, username: string): Promise<RepoCollaboratorPermission>;
+    /** Idempotently ensure a repo label named `name` exists, creating it if missing. */
+    ensureLabelExists(repoFullName: string, name: string, options?: EnsureLabelOptions): Promise<void>;
+}
+
+export interface EnsureLabelOptions {
+    color?: string;
+    description?: string;
 }
 
 interface RawPullRequestLike {
@@ -568,10 +578,14 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
      * thrown RequestError with `status === 304`, so we detect it on the error rather than
      * the response. Lets {@link listOpenPullRequests} treat "unchanged" as success.
      */
-    private isNotModified(error: unknown): boolean {
+    private hasHttpStatus(error: unknown, status: number): boolean {
         if (error == null || typeof error !== "object") return false;
         if (!("status" in error)) return false;
-        return error.status === 304;
+        return error.status === status;
+    }
+
+    private isNotModified(error: unknown): boolean {
+        return this.hasHttpStatus(error, 304);
     }
 
     /**
@@ -579,9 +593,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
      * treat "comment already gone" as success, keeping deletes idempotent.
      */
     private isNotFound(error: unknown): boolean {
-        if (error == null || typeof error !== "object") return false;
-        if (!("status" in error)) return false;
-        return error.status === 404;
+        return this.hasHttpStatus(error, 404);
     }
 
     /**
@@ -590,9 +602,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
      * back to manual instructions rather than throwing.
      */
     private isForbidden(error: unknown): boolean {
-        if (error == null || typeof error !== "object") return false;
-        if (!("status" in error)) return false;
-        return error.status === 403;
+        return this.hasHttpStatus(error, 403);
     }
 
     async getAssociatedPullRequests(owner: string, repo: string, sha: string): Promise<PullRequest[]> {
@@ -885,6 +895,43 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             repoFullName: params.repoFullName,
             extra: { checkRunId: params.checkRunId },
         });
+    }
+
+    async ensureLabelExists(repoFullName: string, name: string, options?: EnsureLabelOptions): Promise<void> {
+        const { owner, repo } = parseRepoFullName(repoFullName);
+        this.logger.info("Ensuring repo label exists", { repoFullName, extra: { name } });
+
+        try {
+            await this.octokit.request("GET /repos/{owner}/{repo}/labels/{name}", { owner, repo, name });
+            this.logger.info("Repo label already exists", { repoFullName, extra: { name } });
+            return;
+        } catch (error) {
+            if (!this.isNotFound(error)) throw error;
+        }
+
+        try {
+            await this.octokit.request("POST /repos/{owner}/{repo}/labels", {
+                owner,
+                repo,
+                name,
+                color: options?.color ?? DEFAULT_LABEL_COLOR,
+                description: options?.description ?? "",
+            });
+            this.logger.info("Created repo label", { repoFullName, extra: { name } });
+        } catch (error) {
+            if (this.isUnprocessable(error)) {
+                this.logger.info("Repo label created concurrently (422); treating as success", {
+                    repoFullName,
+                    extra: { name },
+                });
+                return;
+            }
+            throw error;
+        }
+    }
+
+    private isUnprocessable(error: unknown): boolean {
+        return this.hasHttpStatus(error, 422);
     }
 
     async getRepoCollaboratorPermission(repoFullName: string, username: string): Promise<RepoCollaboratorPermission> {

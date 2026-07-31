@@ -19,6 +19,7 @@ export {
     type CheckRunAction,
     type CreateCheckRunParams,
     type UpdateCheckRunParams,
+    type EnsureLabelOptions,
     type RequiredCheckRulesetParams,
     type BranchProtectionResult,
     type RepoCollaboratorPermission,

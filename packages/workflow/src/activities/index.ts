@@ -95,6 +95,8 @@ export type {
     AnalysisInvestigationTarget,
     AnalysisCandidateFinding,
     AnalysisCandidateClassification,
+    OpenMergeGateInput,
+    OpenMergeGateOutput,
     RunImpactAnalysisInput,
     RunImpactAnalysisOutput,
     RunReporterInput,

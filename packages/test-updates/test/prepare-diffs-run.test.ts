@@ -111,6 +111,89 @@ testUpdateSuite({
             expect(workflows.triggerAnalysis).toHaveBeenCalledWith({ snapshotId: fresh.snapshotId });
         });
 
+        // Dedupe: two triggers for the SAME head (e.g. an activation label added while a /start analysis comment
+        // is mid-run) must not start a second run. The second prepare attaches to the pending snapshot the first
+        // created rather than superseding it.
+        test("attaches to the in-flight run for the same head instead of starting a duplicate", async ({ harness }) => {
+            const organizationId = await harness.createOrg();
+            const applicationId = await harness.createApp(organizationId);
+            const branchId = await harness.createBranch(organizationId, applicationId, { prNumber: 13 });
+            const workflows = fakeWorkflows();
+            const preparer = preparerFor(harness.db, workflows);
+
+            const first = await preparer.prepare({
+                branchId,
+                organizationId,
+                headSha: "head-1",
+                baseSha: "base-1",
+                url: "https://preview.example.com",
+                requested: true,
+            });
+            expect(first.skipped).toBe(false);
+            if (first.skipped) return;
+
+            const second = await preparer.prepare({
+                branchId,
+                organizationId,
+                headSha: "head-1",
+                baseSha: "base-1",
+                url: "https://preview.example.com",
+                requested: true,
+            });
+
+            // The second call attaches to the same snapshot - no new snapshot, and the analysis workflow was
+            // triggered exactly once.
+            expect(second.skipped).toBe(false);
+            if (second.skipped) return;
+            expect(second.snapshotId).toBe(first.snapshotId);
+            expect(workflows.triggerAnalysis).toHaveBeenCalledTimes(1);
+            expect(workflows.cancelAnalysis).not.toHaveBeenCalled();
+            const snapshots = await harness.db.branchSnapshot.findMany({ where: { branchId } });
+            expect(snapshots).toHaveLength(1);
+        });
+
+        // Dedupe across trigger kinds: a preview-ready auto-run-on-ready that fires just after a `/start analysis`
+        // created a pending snapshot for the same head must attach to it, not supersede the requested run.
+        test("an auto-run-on-ready attaches to an in-flight requested run for the same head", async ({ harness }) => {
+            const organizationId = await harness.createOrg();
+            await harness.db.organizationSettings.create({ data: { organizationId, activationEnabled: true } });
+            const applicationId = await harness.createApp(organizationId);
+            await harness.db.applicationTriggerConfig.create({
+                data: { applicationId, autoRunOnReadyForReview: true },
+            });
+            const branchId = await harness.createBranch(organizationId, applicationId, { prNumber: 14 });
+            const workflows = fakeWorkflows();
+            const preparer = preparerFor(harness.db, workflows);
+
+            // A `/start analysis` (requested) creates the in-flight snapshot for the head.
+            const requested = await preparer.prepare({
+                branchId,
+                organizationId,
+                headSha: "head-1",
+                baseSha: "base-1",
+                url: "https://preview.example.com",
+                requested: true,
+            });
+            expect(requested.skipped).toBe(false);
+            if (requested.skipped) return;
+
+            // The preview-ready auto-run (NOT requested) for the same head attaches instead of superseding.
+            const autoRun = await preparer.prepare({
+                branchId,
+                organizationId,
+                headSha: "head-1",
+                baseSha: "base-1",
+                url: "https://preview.example.com",
+            });
+
+            expect(autoRun.skipped).toBe(false);
+            if (autoRun.skipped) return;
+            expect(autoRun.snapshotId).toBe(requested.snapshotId);
+            expect(workflows.triggerAnalysis).toHaveBeenCalledTimes(1);
+            expect(workflows.cancelAnalysis).not.toHaveBeenCalled();
+            expect(await harness.db.branchSnapshot.findMany({ where: { branchId } })).toHaveLength(1);
+        });
+
         test("skips a re-delivered signal for an already-analyzed head", async ({ harness }) => {
             const organizationId = await harness.createOrg();
             const applicationId = await harness.createApp(organizationId);
@@ -127,6 +210,48 @@ testUpdateSuite({
 
             expect(result.skipped).toBe(true);
             expect(workflows.triggerAnalysis).not.toHaveBeenCalled();
+        });
+
+        // Activation: an automatic (preview-ready) run is suppressed, UNLESS the repo opted into auto-run-on-ready
+        // - which is how the ready-for-review trigger fires (at the moment the preview is actually live).
+        test("under activation, an automatic run is suppressed unless the repo opted into auto-run-on-ready", async ({
+            harness,
+        }) => {
+            const organizationId = await harness.createOrg();
+            await harness.db.organizationSettings.create({
+                data: { organizationId, activationEnabled: true },
+            });
+
+            // Opted out (no trigger config): the automatic run is suppressed.
+            const suppressedApp = await harness.createApp(organizationId);
+            const suppressedBranch = await harness.createBranch(organizationId, suppressedApp, { prNumber: 20 });
+            const workflows = fakeWorkflows();
+            const suppressed = await preparerFor(harness.db, workflows).prepare({
+                branchId: suppressedBranch,
+                organizationId,
+                headSha: "head-1",
+                baseSha: "base-1",
+                url: "https://preview.example.com",
+            });
+            expect(suppressed.skipped).toBe(true);
+            expect(workflows.triggerAnalysis).not.toHaveBeenCalled();
+
+            // Opted into auto-run-on-ready: the same automatic run proceeds.
+            const autoRunApp = await harness.createApp(organizationId);
+            await harness.db.applicationTriggerConfig.create({
+                data: { applicationId: autoRunApp, autoRunOnReadyForReview: true },
+            });
+            const autoRunBranch = await harness.createBranch(organizationId, autoRunApp, { prNumber: 21 });
+            const proceeded = await preparerFor(harness.db, workflows).prepare({
+                branchId: autoRunBranch,
+                organizationId,
+                headSha: "head-1",
+                baseSha: "base-1",
+                url: "https://preview.example.com",
+            });
+            expect(proceeded.skipped).toBe(false);
+            if (proceeded.skipped) return;
+            expect(workflows.triggerAnalysis).toHaveBeenCalledWith({ snapshotId: proceeded.snapshotId });
         });
     },
 });

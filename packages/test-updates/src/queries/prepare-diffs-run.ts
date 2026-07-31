@@ -79,14 +79,41 @@ export class DiffsRunPreparer {
 
         // Activation gate: an org that is migrated to activation never starts an automatic PR run on its own. The
         // automatic PR callers reach here with `requested !== true` and are suppressed; a run begins only when a
-        // merge-gate trigger sets `requested: true`.
+        // merge-gate trigger sets `requested: true`. The one exception is a repo that opted into the
+        // auto-run-on-ready trigger: for it, this automatic preview-ready run IS the trigger, so it proceeds. This
+        // is why ready-for-review fires here, not from the `pull_request.ready_for_review` webhook - the preview
+        // does not exist yet at webhook time (it is built in response to it); this runs once it is live.
         const isSuppressibleAutomaticPrRun = isMainBranchRun !== true && requested !== true;
+        let isAutoRunOnReady = false;
         if (isSuppressibleAutomaticPrRun && (await this.isActivationGated(organizationId))) {
-            this.logger.info("Activation: suppressing automatic run; a run starts only on an explicit request", {
+            isAutoRunOnReady = await this.autoRunsOnReady(branchId);
+            if (!isAutoRunOnReady) {
+                this.logger.info("Activation: suppressing automatic run; a run starts only on an explicit request", {
+                    branchId,
+                    extra: { organizationId, headSha },
+                });
+                return { skipped: true };
+            }
+            this.logger.info("Activation: repo opted into auto-run-on-ready; proceeding with the automatic run", {
                 branchId,
                 extra: { organizationId, headSha },
             });
-            return { skipped: true };
+        }
+
+        // Dedupe of activation triggers racing on the same head: attach to the pending snapshot an earlier trigger
+        // created instead of superseding it. This covers explicit-vs-explicit (e.g. a label added while a
+        // `/start analysis` comment is mid-run) AND auto-vs-explicit (a preview-ready auto-run firing just after a
+        // `/start analysis` created a pending snapshot).
+        if (requested === true || isAutoRunOnReady) {
+            const inFlight = await this.findInFlightRunForHead(branchId, headSha);
+            if (inFlight != null) {
+                this.logger.info("Attaching to the in-flight run for this head; not starting a duplicate", {
+                    branchId,
+                    snapshot: { snapshotId: inFlight.snapshotId },
+                    extra: { headSha, requested: requested === true, isAutoRunOnReady },
+                });
+                return { skipped: false, snapshotId: inFlight.snapshotId, deploymentId: inFlight.deploymentId };
+            }
         }
 
         // Kept sequential on purpose (not Promise.all): both mutate the branch row - createDeployment updates
@@ -190,6 +217,36 @@ export class DiffsRunPreparer {
     }
 
     /**
+     * The branch's in-flight run for `headSha`, if any: its pending (processing) snapshot whose head matches, plus
+     * the branch's current deployment. Returns undefined when there is no pending snapshot, it is for a different
+     * head (a newer push, which must supersede rather than attach), or the branch has no deployment yet.
+     */
+    private async findInFlightRunForHead(
+        branchId: string,
+        headSha: string,
+    ): Promise<{ snapshotId: string; deploymentId: string } | undefined> {
+        const branch = await this.db.branch.findUnique({
+            where: { id: branchId },
+            select: {
+                deploymentId: true,
+                pendingSnapshot: { select: { id: true, status: true, headSha: true } },
+            },
+        });
+        const pending = branch?.pendingSnapshot;
+        if (pending == null || pending.status !== "processing") return undefined;
+        if (pending.headSha !== headSha) return undefined;
+        if (branch?.deploymentId == null) {
+            this.logger.warn("In-flight snapshot for head has no branch deployment; cannot attach, will supersede", {
+                branchId,
+                snapshot: { snapshotId: pending.id },
+                extra: { headSha },
+            });
+            return undefined;
+        }
+        return { snapshotId: pending.id, deploymentId: branch.deploymentId };
+    }
+
+    /**
      * Whether this org is migrated to activation, in which case an automatic run is suppressed.
      */
     private async isActivationGated(organizationId: string): Promise<boolean> {
@@ -198,6 +255,19 @@ export class DiffsRunPreparer {
             select: { activationEnabled: true },
         });
         return settings?.activationEnabled === true;
+    }
+
+    /**
+     * Whether the branch's app opted into the auto-run-on-ready trigger. Under activation this is what lets an
+     * automatic preview-ready run through the gate - it is the ready-for-review trigger, fired at the only moment
+     * the preview is actually live.
+     */
+    private async autoRunsOnReady(branchId: string): Promise<boolean> {
+        const branch = await this.db.branch.findUnique({
+            where: { id: branchId },
+            select: { application: { select: { triggerConfig: { select: { autoRunOnReadyForReview: true } } } } },
+        });
+        return branch?.application.triggerConfig?.autoRunOnReadyForReview === true;
     }
 
     private async createSnapshot(

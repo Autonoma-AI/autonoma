@@ -142,6 +142,7 @@ const WEBHOOK_EVENT_TYPES = {
     "pull_request.closed": "pull_request_closed",
     "pull_request.reopened": "pull_request_reopened",
     "pull_request.ready_for_review": "pull_request_ready_for_review",
+    "pull_request.labeled": "pull_request_labeled",
     "issue_comment.created": "issue_comment_created",
     // push payloads carry no `action`; the event name alone is the key.
     push: "push",
@@ -256,11 +257,18 @@ async function dispatchWebhookEvent(
         case "pull_request_ready_for_review":
             // A draft marked ready for review is no longer a draft, so the
             // draft gate in deployFromWebhook lets it through and the preview
-            // builds even for orgs that skip draft PRs.
+            // builds even for orgs that skip draft PRs. The activation
+            // auto-run-on-ready trigger is NOT fired here: the preview does not
+            // exist yet at this moment (it is built in response to this event),
+            // so the run would find no preview. It fires later, once the preview
+            // is live, from the shared DiffsRunPreparer (see `autoRunsOnReady`).
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("ready_for_review", organizationId, payload);
             await mergeGateService.postPendingFromWebhook(organizationId, payload);
             await branchContributorService.refreshFromWebhook(organizationId, payload);
+            return;
+        case "pull_request_labeled":
+            await mergeGateService.requestStartFromLabelWebhook(organizationId, payload);
             return;
         case "pull_request_closed":
             await prCacheService.updateFromWebhook(organizationId, payload);

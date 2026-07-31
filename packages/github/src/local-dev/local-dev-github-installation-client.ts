@@ -5,6 +5,7 @@ import type {
     CloneRepositoryParams,
     Commit,
     CreateCheckRunParams,
+    EnsureLabelOptions,
     GitHubInstallationClient,
     GitTree,
     IssueComment,
@@ -251,5 +252,9 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
             extra: { username },
         });
         return "write";
+    }
+
+    async ensureLabelExists(repoFullName: string, name: string, _options?: EnsureLabelOptions): Promise<void> {
+        this.logger.info("Local-dev ensureLabelExists: no-op", { repoFullName, extra: { name } });
     }
 }

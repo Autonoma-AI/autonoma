@@ -1,8 +1,10 @@
 import { NotFoundError } from "@autonoma/errors";
+import { ANALYSIS_RUN_SOURCE } from "@autonoma/github/check";
 import { logger as rootLogger } from "@autonoma/logger";
 import { authoringPreviewConfigSchema, ScenarioRecipeSchema } from "@autonoma/types";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import type { MergeGateService } from "../github/merge-gate.service";
 import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
 import type { Services } from "../routes/build-services";
 import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
@@ -21,6 +23,9 @@ const DEFAULT_LOG_LINES = 200;
 const WAIT_RECENT_LOG_LINES = 20;
 /** Watched statuses whose relevant logs are the BUILD stream; everything else reads the app (runtime) stream. */
 const BUILD_PHASE_STATUSES = new Set(["pending", "building", "build_failed", "failed"]);
+
+/** The activation actor recorded for a `start_analysis` request. */
+const MCP_ACTOR_LOGIN = "autonoma-mcp";
 
 /**
  * Server-level guidance the MCP client reads on connect. It is the portable,
@@ -41,6 +46,8 @@ Each issue's kind tells you where its fix lives, so route on it rather than assu
 - bug: the app misbehaved. Fix it in this repo and push.
 - environment: the preview could not run properly (a missing secret, a broken service). Fix it with the deploy tools below - get_secret_status / set_secret / edit_previewkit_config - no repo change needed.
 - scenario: the test data was missing or wrong. Fix it with the recipe tools below - list_scenarios / get_recipe / dry_run_scenario - which take effect with no redeploy.
+
+When you have fixed the cause and pushed, call start_analysis(repoFullName, prNumber) to ask Autonoma to re-check the PR against its preview - so you can confirm the fix from here without switching to GitHub to comment /start analysis. It no-ops quietly if the gate/activation is not enabled for the org; poll get_analysis afterward for the new verdict.
 
 If get_analysis reports that the PR has no analysis run, it was analyzed by the older investigation pipeline: call get_investigation(repoFullName, prNumber) for that PR's findings. Do not conclude a PR is clean from one tool alone.
 
@@ -70,7 +77,7 @@ Keys: every tool takes repoFullName ("owner/repo"); the per-PR tools also take p
 /** The snippet the `setup_autonoma` prompt asks the agent to add to AGENTS.md / CLAUDE.md. */
 const AGENTS_MD_SNIPPET = `## Autonoma
 
-After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause - get_analysis for the run's issues + evidence (what broke, why, and where the fix lives), and get_deploy_status / diagnose_deploy / get_build_logs / get_app_logs / get_secret_status when a preview fails to build or deploy - fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes, or list_scenarios/get_recipe/dry_run_scenario when a test failed on its seed data rather than on the app), and confirm with wait_for_deploy - before merging. The tools take this repo as "owner/repo" - infer it from the git remote; if unsure, call list_apps.`;
+After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause - get_analysis for the run's issues + evidence (what broke, why, and where the fix lives), and get_deploy_status / diagnose_deploy / get_build_logs / get_app_logs / get_secret_status when a preview fails to build or deploy - fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes, or list_scenarios/get_recipe/dry_run_scenario when a test failed on its seed data rather than on the app), confirm the deploy with wait_for_deploy, then call start_analysis to have Autonoma re-check the PR - before merging. The tools take this repo as "owner/repo" - infer it from the git remote; if unsure, call list_apps.`;
 
 /** Everything a debug MCP tool needs: the service graph and a per-repo org resolver. */
 export interface DebugMcpDeps {
@@ -87,6 +94,12 @@ export interface DebugMcpDeps {
     analytics: McpAnalytics;
     /** The authenticated MCP caller's user id, stored as `reportedBy` on a `report_false_positive` candidate. */
     userId: string;
+    /**
+     * The merge-gate entrypoint `start_analysis` calls to request a run. The single shared instance the service
+     * graph already wires - never a second one - so a run requested from the editor is identical to one requested
+     * by a `/start analysis` comment.
+     */
+    mergeGate: MergeGateService;
 }
 
 /** Shared `(repoFullName, prNumber)` tool input - the previewkit execution key. */
@@ -142,7 +155,7 @@ function noAnalysisResult(repoFullName: string, prNumber: number) {
  */
 export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
     const logger = rootLogger.child({ name: "debugMcpServer" });
-    const { services, resolveRepoContext, listRepos, analytics, userId } = deps;
+    const { services, resolveRepoContext, listRepos, analytics, userId, mergeGate } = deps;
 
     const server = new McpServer({ name: "autonoma-debug", version: "0.1.0" }, { instructions: DEBUG_INSTRUCTIONS });
 
@@ -451,6 +464,59 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                         message:
                             "Recorded as a false-positive candidate for Autonoma to review. Tracking only - the " +
                             "check, the analysis, and the finding are unchanged.",
+                    });
+                } catch (err) {
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "start_analysis",
+        {
+            title: "Start an Autonoma analysis run for a PR",
+            description:
+                "Ask Autonoma to analyze this PR's current commit - the same run a reviewer starts by commenting " +
+                "`/start analysis`. Call this when you have finished fixing and want Autonoma to re-check the PR " +
+                "against its preview; you do not need to switch to GitHub. Autonoma flips the PR's check to " +
+                "in-progress and runs its affected end-to-end tests, then posts the verdict on the PR - use " +
+                "get_investigation afterward to read the new findings. It NO-OPS quietly if the merge gate or " +
+                "activation is not enabled for this org (a run there starts automatically, so nothing is needed), " +
+                "and if the PR's current commit was already analyzed or has no live preview, no run starts and " +
+                "Autonoma comments on the PR why. Takes the repo ('owner/repo') and the PR number.",
+            inputSchema: repoPrInput,
+            annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+        },
+        async ({ repoFullName, prNumber }) =>
+            analytics.track("start_analysis", async () => {
+                logger.info("start_analysis", { extra: { repoFullName, prNumber } });
+                try {
+                    const { organizationId, githubRepositoryId } = await resolveRepoContext(repoFullName);
+                    // The PR is named by number; resolve its current head so the run and the check target the same
+                    // commit, exactly as the /start analysis comment path does.
+                    const pullRequest = await services.github.getPullRequest(
+                        organizationId,
+                        githubRepositoryId,
+                        prNumber,
+                    );
+                    await mergeGate.requestAnalysisRun({
+                        organizationId,
+                        repoFullName,
+                        githubRepositoryId,
+                        prNumber,
+                        headSha: pullRequest.headSha,
+                        source: ANALYSIS_RUN_SOURCE.mcp,
+                        actorLogin: MCP_ACTOR_LOGIN,
+                    });
+                    return jsonResult({
+                        status: "requested",
+                        message:
+                            `Requested an analysis run for ${repoFullName} PR ${prNumber} (commit ` +
+                            `${pullRequest.headSha}). If the merge gate and activation are enabled for this org, ` +
+                            `Autonoma either starts the run and posts the verdict on the PR, or - if this commit was ` +
+                            `already analyzed or has no live preview - comments on the PR why no run started; if the ` +
+                            `gate or activation is not enabled, this was a no-op. Call get_investigation to read the ` +
+                            `result.`,
                     });
                 } catch (err) {
                     return toToolResult(err);

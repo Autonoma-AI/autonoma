@@ -6,6 +6,24 @@ import type { CheckRunConclusion } from "../github-installation-client";
 export const MERGE_GATE_CHECK_NAME = "Autonoma";
 
 /**
+ * The `Autonoma` check state while an analysis run is in flight, before the worker posts the real verdict. Shared
+ * so the API's on-demand triggers and the worker's auto-run-on-ready `openMergeGate` render the identical state.
+ */
+export const MERGE_GATE_IN_PROGRESS_TITLE = "Analyzing this PR";
+export const MERGE_GATE_IN_PROGRESS_SUMMARY = "Autonoma is analyzing this PR for client bugs.";
+/** Sentinel conclusion stored while a run is in flight - non-`failure`, so skip/bypass treat it as not-yet-blocking. */
+export const MERGE_GATE_IN_PROGRESS_CONCLUSION = "in_progress";
+
+/**
+ * The PR comment announcing that a requested analysis run started, so the trigger's effect is visible in the
+ * conversation.`actorLogin` attributes it to whoever asked (absent for the automatic auto-run-on-ready trigger).
+ */
+export function buildAnalyzingCommentBody(actorLogin?: string): string {
+    const requester = actorLogin != null ? ` (requested by @${actorLogin})` : "";
+    return `🔍 Autonoma is analyzing this PR${requester}. This can take a few minutes.`;
+}
+
+/**
  * The slash command a developer comments on the PR to skip a blocking check.
  */
 export const MERGE_GATE_SKIP_COMMAND = "/autonoma-skip";

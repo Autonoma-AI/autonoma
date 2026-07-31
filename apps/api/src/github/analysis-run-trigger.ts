@@ -1,5 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
+import { buildSdkUrl } from "@autonoma/test-updates";
+import { resolvePrimaryAppName, resolveSdkAppName } from "@autonoma/types";
 import { z } from "zod";
 import type { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import type { RepoPrRef } from "./merge-gate.service";
@@ -29,9 +31,15 @@ export interface AnalysisRunTrigger {
     requestRun(params: RequestRunParams): Promise<RequestRunOutcome>;
 }
 
-/** Minimal projection of a preview environment's resolved config: the apps and which one is primary. */
+/** Minimal projection of a preview environment's resolved config: the apps, which is primary, and which hosts the SDK. */
 const resolvedConfigAppsSchema = z.object({
-    apps: z.array(z.object({ name: z.string(), primary: z.boolean().optional() })),
+    apps: z.array(
+        z.object({
+            name: z.string(),
+            primary: z.boolean().nullish(),
+            sdk_implemented: z.boolean().nullish(),
+        }),
+    ),
 });
 
 /** The `urls` JSON column is an appName -> URL map. */
@@ -62,8 +70,8 @@ export class PreviewAnalysisRunTrigger implements AnalysisRunTrigger {
             extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
         });
 
-        const url = await this.resolvePreviewUrl(params);
-        if (url == null) {
+        const targets = await this.resolvePreviewTargets(params);
+        if (targets == null) {
             this.logger.warn("No preview URL for PR; cannot start the requested analysis run", {
                 organizationId: params.organizationId,
                 extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
@@ -75,7 +83,8 @@ export class PreviewAnalysisRunTrigger implements AnalysisRunTrigger {
             organizationId: params.organizationId,
             repoId: params.githubRepositoryId,
             prNumber: params.prNumber,
-            url,
+            url: targets.url,
+            webhookUrl: buildSdkUrl(targets.sdkAppUrl ?? targets.url),
             requested: true,
         });
 
@@ -91,8 +100,15 @@ export class PreviewAnalysisRunTrigger implements AnalysisRunTrigger {
         return { started: false, reason: "already_analyzed" };
     }
 
-    /** The primary app's URL of the PR's live preview environment, or undefined when none is deployed/resolvable. */
-    private async resolvePreviewUrl(params: RequestRunParams): Promise<string | undefined> {
+    /**
+     * The preview origins the requested run needs, or undefined when no live preview environment resolves:
+     * - `url` - the primary app's origin, what the run seeds and tests against.
+     * - `sdkAppUrl` - the origin of the app hosting the Environment Factory handler (the `sdk_implemented` app,
+     *   falling back to the primary), from which the scenario up/down endpoint is derived.
+     */
+    private async resolvePreviewTargets(
+        params: RequestRunParams,
+    ): Promise<{ url: string; sdkAppUrl?: string } | undefined> {
         const logContext = {
             organizationId: params.organizationId,
             extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
@@ -119,19 +135,24 @@ export class PreviewAnalysisRunTrigger implements AnalysisRunTrigger {
             return undefined;
         }
 
-        const primaryName = this.resolvePrimaryAppName(environment.resolvedConfig);
-        const primaryUrl = primaryName != null ? urls.data[primaryName] : undefined;
-        return primaryUrl ?? Object.values(urls.data)[0];
-    }
+        const parsedApps = resolvedConfigAppsSchema.safeParse(environment.resolvedConfig);
+        if (!parsedApps.success) {
+            this.logger.warn(
+                "Preview environment has malformed `resolvedConfig`; falling back to first URL",
+                logContext,
+            );
+        }
+        const apps = parsedApps.success ? parsedApps.data.apps : [];
 
-    /** The name of the primary app (falling back to the first app) from a preview's resolved config, if parseable. */
-    private resolvePrimaryAppName(resolvedConfig: unknown): string | undefined {
-        const apps = resolvedConfigAppsSchema.safeParse(resolvedConfig);
-        if (!apps.success) {
-            this.logger.warn("Preview environment has malformed `resolvedConfig`; falling back to first URL");
+        const primaryName = resolvePrimaryAppName(apps);
+        const url = (primaryName != null ? urls.data[primaryName] : undefined) ?? Object.values(urls.data)[0];
+        if (url == null) {
+            this.logger.warn("Preview environment has no resolvable URL", logContext);
             return undefined;
         }
-        const primary = apps.data.apps.find((app) => app.primary === true);
-        return primary?.name ?? apps.data.apps[0]?.name;
+
+        const sdkAppName = resolveSdkAppName(apps);
+        const sdkAppUrl = sdkAppName != null ? urls.data[sdkAppName] : undefined;
+        return { url, sdkAppUrl };
     }
 }

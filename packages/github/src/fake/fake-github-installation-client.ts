@@ -8,6 +8,7 @@ import type {
     Commit,
     CommitFile,
     CreateCheckRunParams,
+    EnsureLabelOptions,
     GitHubInstallationClient,
     GitTree,
     IssueComment,
@@ -74,6 +75,8 @@ interface InternalRepo {
     treeTruncated: boolean;
     /** File contents returned by getFileContent, keyed by path. Set via setFile. */
     files: Map<string, string>;
+    /** Labels that exist on the repo, by name. */
+    labels: Set<string>;
 }
 
 export class FakeGitHubInstallationClient implements GitHubInstallationClient {
@@ -130,6 +133,7 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             treePaths: [],
             treeTruncated: false,
             files: new Map(),
+            labels: new Set(),
         };
         this.repositories.set(setup.fullName, repo);
         this.repoById.set(setup.id, repo);
@@ -450,6 +454,21 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
     async getRepoCollaboratorPermission(repoFullName: string, username: string): Promise<RepoCollaboratorPermission> {
         this.requireRepo(repoFullName);
         return this.collaboratorPermissions.get(`${repoFullName}:${username}`) ?? "none";
+    }
+
+    async ensureLabelExists(repoFullName: string, name: string, _options?: EnsureLabelOptions): Promise<void> {
+        const repo = this.requireRepo(repoFullName);
+        repo.labels.add(name);
+    }
+
+    /** Test inspection: whether a label of this name exists on the repo. */
+    hasLabel(repoFullName: string, name: string): boolean {
+        return this.requireRepo(repoFullName).labels.has(name);
+    }
+
+    /** Test helper: seed an existing label on a repo. */
+    addLabel(repoFullName: string, name: string): void {
+        this.requireRepo(repoFullName).labels.add(name);
     }
 
     /** Test helper: set a user's permission on a repo (default when unset is `none`). */

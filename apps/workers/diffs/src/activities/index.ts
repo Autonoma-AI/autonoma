@@ -15,6 +15,7 @@ export { reviewGeneration } from "./review/generation";
 export { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 
 import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-test";
+import { openMergeGate as openMergeGateImpl } from "./analysis/open-merge-gate";
 import { persistAnalysisClassification as persistAnalysisClassificationImpl } from "./analysis/persist-classification";
 import { revertSelfHealPlan as revertSelfHealPlanImpl } from "./analysis/revert-self-heal-plan";
 import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impact-analysis";
@@ -59,6 +60,7 @@ function withHeartbeat<A extends unknown[], R>(fn: (...args: A) => Promise<R>): 
 // --- Merged analysis pipeline. runImpactAnalysis clones the repo + runs the DiffsAgent selector, classify runs
 // the reasoning loop, and the Reporter clones the repo + runs an agent loop - all take MINUTES, so all MUST
 // heartbeat; finalize (verdict derivation + promotion plumbing) is fast but heartbeats for consistency.
+export const openMergeGate = withHeartbeat(openMergeGateImpl);
 export const runImpactAnalysis = withHeartbeat(runImpactAnalysisImpl);
 export const runReporter = withHeartbeat(runReporterImpl);
 export const settleAnalysisRun = withHeartbeat(settleAnalysisRunImpl);
@@ -86,6 +88,7 @@ export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassi
 // shared InvestigationActivities contract (the workflow proxy that calls it is typed against it); the diffs
 // worker registers only that one method from it, so `Pick` rather than the full interface.
 ({
+    openMergeGate,
     runImpactAnalysis,
     runReporter,
     settleAnalysisRun,

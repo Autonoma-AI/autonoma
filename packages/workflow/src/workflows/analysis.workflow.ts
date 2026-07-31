@@ -54,6 +54,11 @@ export async function analysisWorkflow(input: AnalysisWorkflowInput): Promise<vo
     let outcome: AnalysisRunOutcome = { kind: "succeeded" };
     let rethrowFailure: (() => never) | undefined;
     try {
+        // Stage 0 - open the merge gate: for the auto-run-on-ready path (which reaches here without the API's
+        // `requestAnalysisRun`), flip the un-requested `Autonoma` check to the in-progress "Analyzing" state and
+        // stamp the activation.
+        await analysis.openMergeGate({ snapshotId });
+
         // Stage 1 - Impact Analysis: select the diff-affected tests to investigate.
         const impact = await analysis.runImpactAnalysis({ snapshotId });
         log.info("Impact Analysis complete", { ...ids, extra: { targetCount: impact.targets.length } });

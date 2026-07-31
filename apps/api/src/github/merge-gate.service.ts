@@ -10,11 +10,15 @@ import {
 import {
     ANALYSIS_RUN_SOURCE,
     type AnalysisRunSource,
+    buildAnalyzingCommentBody,
     createGitHubCheckRunStore,
     isStartAnalysisCommand,
     MERGE_GATE_ANALYTICS_GROUP,
     MERGE_GATE_CHECK_NAME,
     MERGE_GATE_EVENT,
+    MERGE_GATE_IN_PROGRESS_CONCLUSION,
+    MERGE_GATE_IN_PROGRESS_SUMMARY,
+    MERGE_GATE_IN_PROGRESS_TITLE,
     MERGE_GATE_RULESET_NAME,
     MERGE_GATE_SKIP_COMMENT_MARKER,
     parseSkipCommand,
@@ -23,6 +27,7 @@ import { payloadBuilder, renderMarkdown } from "@autonoma/github/comment";
 import { type Logger, logger } from "@autonoma/logger";
 import { ANALYSIS_VERDICT } from "@autonoma/types";
 import { z } from "zod";
+import { readActivationTriggerConfig } from "./activation-trigger-config";
 import type { AnalysisRunTrigger, RequestRunOutcome, RunNotStartedReason } from "./analysis-run-trigger";
 import type { FalsePositiveCandidateService } from "./false-positive-candidate.service";
 import type { MergeGateSlackNotifier } from "./merge-gate-slack-notifier";
@@ -34,11 +39,11 @@ const UNREQUESTED_CHECK_TITLE = "No analysis requested";
 const UNREQUESTED_CHECK_SUMMARY = "No analysis requested - comment `/start analysis` to run.";
 
 /** The check a requested run flips to while the analysis is in flight, before the worker posts the real verdict. */
-const IN_PROGRESS_CHECK_TITLE = "Analyzing this PR";
-const IN_PROGRESS_CHECK_SUMMARY = "Autonoma is analyzing this PR for client bugs.";
+const IN_PROGRESS_CHECK_TITLE = MERGE_GATE_IN_PROGRESS_TITLE;
+const IN_PROGRESS_CHECK_SUMMARY = MERGE_GATE_IN_PROGRESS_SUMMARY;
 
 /** Sentinel conclusion stored while a run is in flight - non-`failure`, so skip/bypass treat it as not-yet-blocking. */
-const IN_PROGRESS_CONCLUSION = "in_progress";
+const IN_PROGRESS_CONCLUSION = MERGE_GATE_IN_PROGRESS_CONCLUSION;
 
 /**
  * PROVISIONAL, case-insensitive phrase heuristic for "this skip reason claims the finding was a false positive".
@@ -85,6 +90,18 @@ const prClosedWebhookSchema = z.object({
         merged_by: z.object({ login: z.string() }).nullish(),
         head: z.object({ sha: z.string() }),
     }),
+    repository: z.object({ id: z.number(), full_name: z.string() }),
+});
+
+/** `pull_request.labeled` payload fields the label trigger reads. */
+const prLabeledWebhookSchema = z.object({
+    pull_request: z.object({
+        number: z.number(),
+        draft: z.boolean().optional(),
+        head: z.object({ sha: z.string() }),
+    }),
+    label: z.object({ name: z.string() }),
+    sender: z.object({ login: z.string() }).nullish(),
     repository: z.object({ id: z.number(), full_name: z.string() }),
 });
 
@@ -214,6 +231,18 @@ export class MergeGateService {
         }
 
         const client = await this.getInstallationClient(params.organizationId);
+
+        // Repo-level and best-effort, so it does NOT need the per-head check-run lock: ensure the analysis-trigger
+        // label exists (under activation) before taking the lock, keeping this GitHub GET/POST out of the
+        // serialized section.
+        if (activation) {
+            await this.ensureAnalysisTriggerLabel(client, {
+                organizationId: params.organizationId,
+                githubRepositoryId: params.githubRepositoryId,
+                repoFullName: params.repoFullName,
+            });
+        }
+
         await this.checkRuns.runExclusive(params.repoFullName, params.headSha, async () => {
             const existing = await this.checkRuns.getByHead(params.repoFullName, params.headSha);
             if (existing != null) {
@@ -339,6 +368,8 @@ export class MergeGateService {
                 { [MERGE_GATE_ANALYTICS_GROUP]: params.organizationId },
             );
 
+            await this.postAnalyzingReply(client, params);
+
             this.logger.info("Merge gate: analysis run requested and check flipped to in-progress", {
                 organizationId: params.organizationId,
                 extra: {
@@ -431,6 +462,48 @@ export class MergeGateService {
         });
     }
 
+    /** Reply to the analysis-trigger label added to a DRAFT PR, guiding the user to mark it ready. */
+    private async postDraftLabelReply(
+        client: GitHubInstallationClient,
+        repoFullName: string,
+        prNumber: number,
+        label: string,
+    ): Promise<void> {
+        const body =
+            `\`${label}\` doesn't run on a draft PR - a draft has no preview to analyze. ` +
+            "Mark this PR ready for review (or re-add the label once it is) and Autonoma will start.";
+        try {
+            await client.postComment(repoFullName, prNumber, body);
+            this.logger.info("Merge gate: posted draft-label guidance reply", { extra: { repoFullName, prNumber } });
+        } catch (err) {
+            this.logger.warn("Merge gate: failed to post draft-label guidance reply", {
+                extra: { repoFullName, prNumber },
+                err,
+            });
+        }
+    }
+
+    /** A PR comment announcing the requested run started, so the trigger's effect is visible in the conversation. */
+    private async postAnalyzingReply(
+        client: GitHubInstallationClient,
+        params: RequestAnalysisRunParams,
+    ): Promise<void> {
+        const body = buildAnalyzingCommentBody(params.actorLogin);
+        try {
+            await client.postComment(params.repoFullName, params.prNumber, body);
+            this.logger.info("Merge gate: posted analyzing reply", {
+                organizationId: params.organizationId,
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
+            });
+        } catch (err) {
+            this.logger.warn("Merge gate: failed to post analyzing reply", {
+                organizationId: params.organizationId,
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
+                err,
+            });
+        }
+    }
+
     /** A PR comment telling the requester why their `/start analysis` did not start a run. */
     private async postCouldNotStartReply(
         client: GitHubInstallationClient,
@@ -514,6 +587,114 @@ export class MergeGateService {
             source: ANALYSIS_RUN_SOURCE.comment,
             actorLogin,
         });
+    }
+
+    /**
+     * Webhook entry for `pull_request.labeled`: adding the repo's configured `analysisTriggerLabel` to a PR starts
+     * an analysis run. A different label does nothing.
+     */
+    async requestStartFromLabelWebhook(organizationId: string, payload: Record<string, unknown>): Promise<void> {
+        this.logger.info("Merge gate: requestStartFromLabelWebhook", { organizationId });
+        const parsed = prLabeledWebhookSchema.safeParse(payload);
+        if (!parsed.success) {
+            this.logger.warn("Merge gate: could not parse pull_request.labeled payload", {
+                organizationId,
+                extra: { issues: parsed.error.issues },
+            });
+            return;
+        }
+
+        const { enabled, activation } = await this.resolveGateState(organizationId);
+        if (!enabled || !activation) {
+            this.logger.info("Merge gate: ignoring labeled (gate off or org not migrated to activation)", {
+                organizationId,
+                extra: { enabled, activation },
+            });
+            return;
+        }
+
+        const repoFullName = parsed.data.repository.full_name;
+        const githubRepositoryId = parsed.data.repository.id;
+        const config = await readActivationTriggerConfig(this.db, { organizationId, githubRepositoryId });
+        const addedLabel = parsed.data.label.name;
+        if (addedLabel !== config.analysisTriggerLabel) {
+            this.logger.info("Merge gate: added label is not the analysis-trigger label; ignoring", {
+                organizationId,
+                extra: { repoFullName, addedLabel, triggerLabel: config.analysisTriggerLabel },
+            });
+            return;
+        }
+
+        // A draft has no preview to run against (previewkit skips draft deploys), so the label cannot start a run.
+        const pr = parsed.data.pull_request;
+        if (pr.draft === true) {
+            this.logger.info("Merge gate: analysis-trigger label added to a draft PR; guiding to mark it ready", {
+                organizationId,
+                extra: { repoFullName, prNumber: pr.number },
+            });
+            const client = await this.getInstallationClient(organizationId);
+            await this.postDraftLabelReply(client, repoFullName, pr.number, config.analysisTriggerLabel);
+            return;
+        }
+
+        const headSha = pr.head.sha;
+        if (await this.isRunInFlightForHead(repoFullName, headSha)) {
+            this.logger.info("Merge gate: run already in flight for head; label trigger is a no-op", {
+                organizationId,
+                extra: { repoFullName, prNumber: pr.number, headSha },
+            });
+            return;
+        }
+
+        await this.requestAnalysisRun({
+            organizationId,
+            repoFullName,
+            githubRepositoryId,
+            prNumber: pr.number,
+            headSha,
+            source: ANALYSIS_RUN_SOURCE.label,
+            actorLogin: parsed.data.sender?.login,
+        });
+    }
+
+    /**
+     * Whether a run is already in flight for this head: the head's `Autonoma` check is in the in-progress sentinel
+     * state and carries an activation stamp. Lets a second concurrent trigger (e.g. a label added while a comment
+     * request is running) no-op instead of racing a duplicate run. The per-head lock and the pipeline's attach
+     * behavior close the remaining window for triggers this check cannot intercept.
+     */
+    private async isRunInFlightForHead(repoFullName: string, headSha: string): Promise<boolean> {
+        const row = await this.db.gitHubCheckRun.findUnique({
+            where: { repoFullName_headSha: { repoFullName, headSha } },
+            select: { conclusion: true, activatedAt: true },
+        });
+        return row?.conclusion === IN_PROGRESS_CONCLUSION && row.activatedAt != null;
+    }
+
+    /** Best-effort: ensure the repo's analysis-trigger label exists so a developer can add it to a PR. */
+    private async ensureAnalysisTriggerLabel(
+        client: GitHubInstallationClient,
+        params: { organizationId: string; githubRepositoryId: number; repoFullName: string },
+    ): Promise<void> {
+        try {
+            const config = await readActivationTriggerConfig(this.db, {
+                organizationId: params.organizationId,
+                githubRepositoryId: params.githubRepositoryId,
+            });
+            await client.ensureLabelExists(params.repoFullName, config.analysisTriggerLabel, {
+                description: "Add to a PR to start an Autonoma analysis run.",
+            });
+            this.logger.info("Merge gate: ensured analysis-trigger label exists", {
+                organizationId: params.organizationId,
+                extra: { repoFullName: params.repoFullName, label: config.analysisTriggerLabel },
+            });
+        } catch (err) {
+            this.logger.warn("Merge gate: failed to ensure analysis-trigger label", {
+                organizationId: params.organizationId,
+                extra: { repoFullName: params.repoFullName },
+                err,
+            });
+        }
     }
 
     /**

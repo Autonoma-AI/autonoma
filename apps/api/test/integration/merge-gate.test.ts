@@ -194,6 +194,14 @@ apiTestSuite({
                 source: "comment",
                 actorLogin: "dev-writer",
             });
+
+            // A PR comment announces the run started, attributing the requester, so it is visible in the conversation.
+            const analyzingComments = fixture.fakeClient.comments.filter(
+                (c) => c.repoFullName === fixture.repoFullName && c.body.includes("Autonoma is analyzing this PR"),
+            );
+            expect(analyzingComments).toHaveLength(1);
+            expect(analyzingComments[0]?.body).toContain("@dev-writer");
+            expect(analyzingComments[0]?.body).toContain("This can take a few minutes");
         });
 
         test("a /start analysis comment from a non-write-access user fires no run and leaves the check unchanged", async ({
@@ -328,6 +336,183 @@ apiTestSuite({
                 (comment) => comment.repoFullName === fixture.repoFullName && comment.body.includes("no live preview"),
             );
             expect(replies).toHaveLength(1);
+        });
+
+        test("adding the configured label fires one label run; a different label does nothing", async ({ harness }) => {
+            const analytics = new RecordingAnalytics();
+            const trigger = new RecordingRunTrigger();
+            await setGate(harness, true, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+                undefined,
+                trigger,
+            );
+            const fixture = await createRepoApp(harness, "label-trigger");
+            await setTriggerConfig(harness, fixture.appId, { analysisTriggerLabel: "autonoma:analyze" });
+
+            // A label that is not the trigger label: nothing runs.
+            await service.requestStartFromLabelWebhook(harness.organizationId, labeledPayload(fixture, "bug"));
+            expect(trigger.calls).toHaveLength(0);
+
+            // The configured label: exactly one run, sourced to label, attributed to the sender.
+            await service.requestStartFromLabelWebhook(
+                harness.organizationId,
+                labeledPayload(fixture, "autonoma:analyze", "dev-labeler"),
+            );
+
+            expect(trigger.calls).toHaveLength(1);
+            expect(trigger.calls[0]).toMatchObject({ repoFullName: fixture.repoFullName, prNumber: 42 });
+            const row = await harness.db.gitHubCheckRun.findUnique({
+                where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
+            });
+            expect(row?.activationSource).toBe("label");
+            expect(row?.activatedByLogin).toBe("dev-labeler");
+            const activated = analytics.captures.filter((c) => c.event === "merge_gate.activated");
+            expect(activated).toHaveLength(1);
+            expect(activated[0]?.properties).toMatchObject({ source: "label", actorLogin: "dev-labeler" });
+        });
+
+        test("labeling a draft PR fires no run and replies with guidance to mark it ready", async ({ harness }) => {
+            const trigger = new RecordingRunTrigger();
+            await setGate(harness, true, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                new RecordingAnalytics(),
+                harness.services.falsePositiveCandidates,
+                undefined,
+                trigger,
+            );
+            const fixture = await createRepoApp(harness, "label-draft");
+            await setTriggerConfig(harness, fixture.appId, { analysisTriggerLabel: "autonoma:analyze" });
+
+            await service.requestStartFromLabelWebhook(
+                harness.organizationId,
+                labeledPayload(fixture, "autonoma:analyze", "dev-labeler", { draft: true }),
+            );
+
+            // No run, and the reply guides the user rather than bouncing off the confusing "no live preview" reply.
+            expect(trigger.calls).toHaveLength(0);
+            const replies = fixture.fakeClient.comments.filter(
+                (c) => c.repoFullName === fixture.repoFullName && c.body.includes("doesn't run on a draft PR"),
+            );
+            expect(replies).toHaveLength(1);
+            expect(replies[0]?.body).toContain("ready for review");
+        });
+
+        test("the default trigger label works when the repo has no explicit config", async ({ harness }) => {
+            const trigger = new RecordingRunTrigger();
+            await setGate(harness, true, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                new RecordingAnalytics(),
+                harness.services.falsePositiveCandidates,
+                undefined,
+                trigger,
+            );
+            const fixture = await createRepoApp(harness, "label-default");
+            // No ApplicationTriggerConfig row: the code default label ("autonoma:analyze") applies.
+
+            await service.requestStartFromLabelWebhook(
+                harness.organizationId,
+                labeledPayload(fixture, "autonoma:analyze"),
+            );
+
+            expect(trigger.calls).toHaveLength(1);
+        });
+
+        test("postPending auto-creates the analysis-trigger label for an activation org", async ({ harness }) => {
+            await setGate(harness, true, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                new RecordingAnalytics(),
+                harness.services.falsePositiveCandidates,
+                undefined,
+                new RecordingRunTrigger(),
+            );
+            const fixture = await createRepoApp(harness, "label-autocreate");
+            await setTriggerConfig(harness, fixture.appId, { analysisTriggerLabel: "autonoma:analyze" });
+
+            expect(fixture.fakeClient.hasLabel(fixture.repoFullName, "autonoma:analyze")).toBe(false);
+            await service.postPending({ ...fixture.postParams });
+            expect(fixture.fakeClient.hasLabel(fixture.repoFullName, "autonoma:analyze")).toBe(true);
+        });
+
+        test("two triggers on the same head result in exactly one run (dedupe)", async ({ harness }) => {
+            const analytics = new RecordingAnalytics();
+            const trigger = new RecordingRunTrigger();
+            await setGate(harness, true, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+                undefined,
+                trigger,
+            );
+            const fixture = await createRepoApp(harness, "dedupe");
+            await setTriggerConfig(harness, fixture.appId, { analysisTriggerLabel: "autonoma:analyze" });
+            fixture.fakeClient.addPullRequest(fixture.repoFullName, {
+                number: 42,
+                title: "Add checkout",
+                headRef: "feature/dedupe",
+                baseSha: "base-1",
+                commits: ["head-1"],
+            });
+            fixture.fakeClient.setCollaboratorPermission(fixture.repoFullName, "dev-writer", "write");
+
+            // First trigger (/start analysis) starts the run and flips the head's check to in-progress.
+            await service.requestStartFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/start analysis", "dev-writer"),
+            );
+            // Second trigger (label) on the same head sees the run already in flight and no-ops.
+            await service.requestStartFromLabelWebhook(
+                harness.organizationId,
+                labeledPayload(fixture, "autonoma:analyze"),
+            );
+
+            expect(trigger.calls).toHaveLength(1);
+            expect(analytics.captures.filter((c) => c.event === "merge_gate.activated")).toHaveLength(1);
+            const row = await harness.db.gitHubCheckRun.findUnique({
+                where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
+            });
+            // The first trigger's activation is the one recorded; the second never overwrote it.
+            expect(row?.activationSource).toBe("comment");
+        });
+
+        test("the label trigger no-ops for a non-migrated org", async ({ harness }) => {
+            const trigger = new RecordingRunTrigger();
+            // Gate enabled but NOT migrated to activation.
+            await setGate(harness, true, false);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                new RecordingAnalytics(),
+                harness.services.falsePositiveCandidates,
+                undefined,
+                trigger,
+            );
+            const fixture = await createRepoApp(harness, "nonmigrated-triggers");
+            await setTriggerConfig(harness, fixture.appId, { analysisTriggerLabel: "autonoma:analyze" });
+
+            await service.requestStartFromLabelWebhook(
+                harness.organizationId,
+                labeledPayload(fixture, "autonoma:analyze"),
+            );
+
+            expect(trigger.calls).toHaveLength(0);
         });
 
         test("a /autonoma-skip comment records the open bugs + reason and flips the check to neutral", async ({
@@ -902,6 +1087,38 @@ async function storedConclusion(
         where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha } },
     });
     return row?.conclusion;
+}
+
+/** A minimal `pull_request.labeled` payload for the given added label. */
+function labeledPayload(
+    fixture: RepoAppFixture,
+    labelName: string,
+    sender = "labeler",
+    options: { draft?: boolean } = {},
+): Record<string, unknown> {
+    return {
+        pull_request: {
+            number: fixture.postParams.prNumber,
+            draft: options.draft ?? false,
+            head: { sha: fixture.postParams.headSha },
+        },
+        label: { name: labelName },
+        sender: { login: sender },
+        repository: { id: fixture.repoId, full_name: fixture.repoFullName },
+    };
+}
+
+/** Upsert the fixture application's activation trigger config. */
+async function setTriggerConfig(
+    harness: APITestHarness,
+    applicationId: string,
+    config: { autoRunOnReadyForReview?: boolean; analysisTriggerLabel?: string },
+): Promise<void> {
+    await harness.db.applicationTriggerConfig.upsert({
+        where: { applicationId },
+        create: { applicationId, ...config },
+        update: config,
+    });
 }
 
 /** A minimal `issue_comment.created` payload for a PR comment (the `pull_request` field marks it as a PR, not an issue). */

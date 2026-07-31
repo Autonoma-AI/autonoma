@@ -403,6 +403,9 @@ model Application {
   // deploy pipeline reads.
   previewkitConfig PreviewkitConfig?
 
+  // Per-repo activation trigger config
+  triggerConfig ApplicationTriggerConfig?
+
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
   organizationId String       @map("organization_id")
@@ -2513,6 +2516,27 @@ model PreviewkitConfig {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("previewkit_config")
+}
+
+// Per-repo (per-application) activation trigger config. One row per Application; absence means the code
+// defaults apply. Under activation an analysis run starts only on
+// an explicit trigger; this row configures the two automatic/labelled triggers a repo opts into.
+model ApplicationTriggerConfig {
+  id            String      @id @default(cuid())
+  applicationId String      @unique @map("application_id")
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  // Whether marking a PR ready-for-review automatically starts an analysis run.
+  // Off by default: under activation nothing runs unless explicitly asked.
+  autoRunOnReadyForReview Boolean @default(false) @map("auto_run_on_ready_for_review")
+
+  // The PR label whose addition triggers an analysis run.
+  analysisTriggerLabel String @default("autonoma:analyze") @map("analysis_trigger_label")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("application_trigger_config")
 }
 
 enum PreviewkitAddonStatus {

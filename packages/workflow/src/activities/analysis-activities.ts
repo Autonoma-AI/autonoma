@@ -30,6 +30,16 @@ export interface AnalysisInvestigationTarget {
     origin: AnalysisTestOrigin;
 }
 
+export interface OpenMergeGateInput {
+    /** The branch's real pending snapshot the run operates on. */
+    snapshotId: string;
+}
+
+export interface OpenMergeGateOutput {
+    /** `opened` when the un-requested check was flipped to in-progress; `skipped` otherwise (best-effort). */
+    status: "opened" | "skipped";
+}
+
 export interface RunImpactAnalysisInput {
     /** The branch's real pending snapshot the pipeline operates on. */
     snapshotId: string;
@@ -213,6 +223,12 @@ export interface DeleteAnalysisTestOutput {
  * incomplete run behind.
  */
 export interface AnalysisActivities {
+    /**
+     * Flip the un-requested `Autonoma` check to the in-progress "Analyzing" state and stamp
+     * the `ready_for_review` activation, for the auto-run-on-ready path that reaches the pipeline without going
+     * through the API's `requestAnalysisRun`.
+     */
+    openMergeGate(input: OpenMergeGateInput): Promise<OpenMergeGateOutput>;
     runImpactAnalysis(input: RunImpactAnalysisInput): Promise<RunImpactAnalysisOutput>;
     runReporter(input: RunReporterInput): Promise<RunReporterOutput>;
     settleAnalysisRun(input: SettleAnalysisRunInput): Promise<SettleAnalysisRunOutput>;

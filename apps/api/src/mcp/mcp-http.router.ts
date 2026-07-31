@@ -82,6 +82,7 @@ mcpHttpRouter.all("/debug", (c) => {
             listRepos: () => listAccessibleRepos(services.github, userId),
             analytics: mcpAnalytics,
             userId,
+            mergeGate: services.mergeGate,
         });
     });
 });

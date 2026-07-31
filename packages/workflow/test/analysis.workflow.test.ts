@@ -22,6 +22,9 @@ let impactStarted: Promise<void>;
 let notifyImpactStarted: () => void;
 
 const activities: AnalysisActivities = {
+    async openMergeGate() {
+        return { status: "skipped" };
+    },
     async runImpactAnalysis() {
         if (impactFailure != null) throw impactFailure;
         if (blockImpact) {
