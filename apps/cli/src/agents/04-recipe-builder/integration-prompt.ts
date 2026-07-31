@@ -17,7 +17,7 @@ import { COMPLETION_MARKER_FILE } from "./completion";
  */
 
 /** Bump when the prompt's contract changes; surfaced in the file header. */
-export const INTEGRATION_PROMPT_VERSION = 8;
+export const INTEGRATION_PROMPT_VERSION = 9;
 
 /** The rendered prompt lives here in the app's planner output dir. */
 export const INTEGRATION_PROMPT_FILE = "integration-prompt.md";
@@ -293,23 +293,28 @@ sitting uncommitted in the working tree:
      teardown is scoped, and anything you documented as a limitation. If no PR tool is
      available or authenticated, the push is still mandatory - then print the compare
      URL the push prints back so the developer can open the PR in one click.
-  5. If a step genuinely cannot be done (no remote, no write access, no auth), say
-     exactly which one failed and why, and leave the work COMMITTED on the branch.
+  5. If pushing or opening the PR genuinely cannot be done (no remote, no write access,
+     no auth, not a git repo), leave the work COMMITTED on the branch and write which
+     step failed and why in IMPLEMENTATION.md. Committing is the one part you can always
+     do - never stop at an uncommitted working tree.
 
 ═══ FINISH - THE LAST THING YOU DO ═══
-Only after every entity, the full-recipe pass, and the two-concurrent-instances proof
-are green (or the blocking constraint is documented in IMPLEMENTATION.md), the work is
-committed and pushed with a pull request open, and
-${params.recipePath} holds the recipe you validated, write the completion marker so the
-CLI knows the session is done and can upload the recipe:
+Write the completion marker once ALL of these hold:
+  • every entity, the full-recipe pass, and the two-concurrent-instances proof are green
+    - or the blocking constraint is documented in IMPLEMENTATION.md
+  • ${params.recipePath} holds the recipe you validated
+  • your work is committed, and pushed with a pull request open - or the reason you could
+    not push / open one is documented in IMPLEMENTATION.md
+A step you documented as genuinely blocked NEVER justifies withholding the marker; a
+checklist item you simply have not finished always does. The marker is how the CLI knows
+the session is done and can upload the recipe:
     ${join(params.outputDir, COMPLETION_MARKER_FILE)}
 Its contents MUST be exactly:
     { "complete": true }
-Do NOT write this marker while any checklist item is unfinished. It is how control
-returns to the CLI - it is not optional. The planner watches for this marker and
-takes the terminal back shortly after it appears. After writing it, end with ONE
-short closing message that names the pull request you opened (or, if you couldn't
-open one, the branch you pushed) and then says:
+Writing it is not optional: the planner watches for this marker and takes the terminal
+back shortly after it appears. After writing it, end with ONE short closing message that
+names the pull request you opened - or, if you couldn't open one, the branch you pushed,
+or the commit you left behind and what blocked the push - and then says:
     "The integration is done. The Autonoma planner takes this terminal back in a
     few seconds to continue the setup - or exit now to continue immediately."
 Nothing after that message - no further questions, summaries, or work.`;
