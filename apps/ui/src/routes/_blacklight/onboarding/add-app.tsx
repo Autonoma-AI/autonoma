@@ -14,7 +14,7 @@ import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { DeleteApplicationDialog } from "components/delete-application-dialog";
 import { getApiOrigin } from "lib/api-origin";
@@ -153,17 +153,11 @@ function InstallStep({
   hasStaleInstallation: boolean;
   appSlug?: string;
 }) {
-  const queryClient = useQueryClient();
   const returnPath = appId != null ? `/onboarding/add-app?appId=${encodeURIComponent(appId)}` : "/onboarding/add-app";
   const { data } = useGithubConfig(returnPath);
   // `returnTo` is what "Back to your account" in the demo comes back to - this step, not
   // the app root, so the visitor picks up at the install button they left.
   const demoUrl = `${getApiOrigin()}/v1/demo?source=onboarding&returnTo=${encodeURIComponent(returnPath)}`;
-
-  function refresh() {
-    void queryClient.invalidateQueries({ queryKey: trpc.github.getInstallation.queryKey() });
-    void queryClient.invalidateQueries({ queryKey: trpc.github.listRepositories.queryKey() });
-  }
 
   return (
     <div className="space-y-6">
@@ -173,7 +167,7 @@ function InstallStep({
             No repositories are visible to the GitHub App{" "}
             {appSlug != null ? <span className="text-primary-ink">{appSlug}</span> : "this environment uses"}. Grant it
             access to every repository your application needs - the frontend plus any backend, API, or worker repos -
-            then refresh.
+            then reload this page.
           </>
         ) : (
           "Install the Autonoma GitHub App and grant it access to every repository your application needs to run - the frontend plus any backend, API, or worker repos. They deploy together into one preview environment, so add them all, not just one."
@@ -204,11 +198,6 @@ function InstallStep({
           View demo
           <ArrowSquareOutIcon size={16} weight="bold" />
         </Button>
-        {hasStaleInstallation && (
-          <Button variant="outline" size="sm" onClick={refresh}>
-            I've installed it - refresh
-          </Button>
-        )}
       </div>
       <p className="max-w-2xl font-mono text-2xs text-text-secondary">
         The demo opens in a new tab as a read-only guest, which signs this tab out until you come back - your setup is
