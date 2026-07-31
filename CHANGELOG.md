@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.260731.1](https://github.com/Autonoma-AI/agent/compare/v1.260730.4...v1.260731.1) (2026-07-31)
+
+
+### Features
+
+* **cli:** make the coding agent branch and open a PR for its integration ([#1994](https://github.com/Autonoma-AI/agent/issues/1994)) ([3406c9d](https://github.com/Autonoma-AI/agent/commit/3406c9debe0f8a64ee0f337c29686dda85c48acd))
+* **diffs:** generation-review video reviewer on Gemini-3.5-flash-lite ([#1995](https://github.com/Autonoma-AI/agent/issues/1995)) ([c9b68d0](https://github.com/Autonoma-AI/agent/commit/c9b68d0edcf7f8c383ba43b00b62ecc9fa8c8877))
+* **engine-web:** Qwen grounding pointer + Flash-lite agent loop ([#1992](https://github.com/Autonoma-AI/agent/issues/1992)) ([ef38ebc](https://github.com/Autonoma-AI/agent/commit/ef38ebc8f3c941bf3f80fdbaf26485b721ac2521))
+
+
+### Bug Fixes
+
+* **cli:** let the integration agent finish when it genuinely cannot push ([#1996](https://github.com/Autonoma-AI/agent/issues/1996)) ([f731541](https://github.com/Autonoma-AI/agent/commit/f7315417cc9335d74d0c9491346201a29715e77c))
+* **cli:** make the test-generator step converge, ground its data, and enforce its own rules ([#1998](https://github.com/Autonoma-AI/agent/issues/1998)) ([c8daf82](https://github.com/Autonoma-AI/agent/commit/c8daf8208f1ea678a14feb993f7f0e0048dad849))
+
 ## [1.260730.4](https://github.com/Autonoma-AI/agent/compare/v1.260730.3...v1.260730.4) (2026-07-30)
 
 
