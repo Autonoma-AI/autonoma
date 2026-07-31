@@ -17,9 +17,17 @@ import { type ReactNode, useState } from "react";
  * back + db) isolated so a scenario's up/down can create and destroy test data
  * without touching anything real. The quiz first asks which host builds their
  * previews (Vercel or a custom/CI webhook today; Netlify and Render soon), then
- * asks small plain-language questions (backend location, then database
- * isolation) and infers the cheapest safe path, routing to one of the two
- * destinations onboarding already has:
+ * asks small plain-language questions and infers the cheapest safe path.
+ *
+ * Question order matters: backend location, then TENANT scoping, and only if
+ * that falls through, database branching. Tenant scoping is what most apps can
+ * answer yes to and needs no infrastructure, so it exits in two questions;
+ * database branching exists on only a handful of managed providers and is worth
+ * asking about only once tenant isolation is ruled out. The reason tenant
+ * isolation failed is carried into the fallback so a user who fails both is told
+ * what actually disqualified them.
+ *
+ * It routes to one of the two destinations onboarding already has:
  *
  *   - Native (Path A) / tenant isolation (Path B) -> the existing "connect your
  *     deploys" webhook UI (previewEnvironmentMode "existing_deploys").
@@ -30,25 +38,66 @@ import { type ReactNode, useState } from "react";
  * live entirely in local state.
  */
 
-type QuestionScreen = "q0" | "provider" | "q1" | "q2a" | "q2b" | "q2c" | "q2d";
+type QuestionScreen = "previews" | "provider" | "backend" | "tenant" | "global" | "database" | "dbBranch";
 type IsolationQuestion = Exclude<QuestionScreen, "provider">;
 type PkReason = "noPreviews" | "backend" | "tenant" | "global";
 type IsolationPath = "A" | "B";
 type Provider = OnboardingSignalProvider;
 type Phase = "previews" | "backend" | "database";
 
-type Target = { screen: QuestionScreen } | { path: IsolationPath } | { pk: PkReason };
+/**
+ * Where an answer sends the user.
+ *
+ * `carry` records the isolation gap that sent them down the database-branching
+ * fallback. The two PreviewKit targets are deliberately distinct: `pk` names its
+ * own reason (used before any carry exists), while `pkCarried` defers to the
+ * carried one, so an answer that ends the fallback reports the ORIGINAL
+ * disqualifier rather than the question they happened to fail last. Spelling
+ * that out in the type keeps a dead reason literal from sitting on the fallback
+ * options, where editing it would silently do nothing.
+ */
+type Target =
+  | { screen: QuestionScreen; carry?: PkReason }
+  | { path: IsolationPath }
+  | { pk: PkReason }
+  | { pkCarried: true };
+
+/** Reason used if a `pkCarried` target is somehow reached with no carry - unreachable today. */
+const FALLBACK_PK_REASON: PkReason = "tenant";
 
 type ViewState =
   | { kind: "question"; screen: QuestionScreen }
   | { kind: "path"; path: IsolationPath }
   | { kind: "pk"; reason: PkReason };
 
+/** One step of the back stack: the screen plus the carried reason at that point. */
+interface HistoryEntry {
+  view: ViewState;
+  carried?: PkReason;
+}
+
+/**
+ * The worked schema shown on an answer that is itself an example of a shape -
+ * the option renders as a card carrying it, so choosing the shape you recognise
+ * IS the answer.
+ *
+ * Deliberately no "this is the good one" styling: neither shape is a better
+ * answer to give, they just route differently, and colouring one pushes people
+ * toward the answer they think we want rather than the one that is true.
+ */
+interface OptionCard {
+  /** Illustrative products, e.g. "like Stripe or Slack". Plural: one name reads as a claim about that schema. */
+  aside: string;
+  lines: string[];
+  consequence: string;
+}
+
 interface QuizOption {
   label: string;
   sub?: string;
   tile?: boolean;
   logo?: string;
+  card?: OptionCard;
   target: Target;
 }
 
@@ -76,8 +125,14 @@ interface ProviderTile {
 }
 
 // Vercel is the reference copy - kept verbatim for users coming from Vercel.
+//
+// Tenant scoping is asked BEFORE database branching, because it is the answer most
+// apps land on and it needs no infrastructure: if every row hangs off a deletable
+// tenant, a run creates one, tests inside it, and deletes it. Database branching is
+// a narrower capability (only the managed providers below offer it) and is only
+// worth asking about when tenant isolation has already fallen through.
 const NODES_VERCEL: Record<IsolationQuestion, QuestionNode> = {
-  q0: {
+  previews: {
     phase: "previews",
     eyebrow: "Preview environments",
     title: "Do you have preview environments deployed per branch?",
@@ -88,14 +143,14 @@ const NODES_VERCEL: Record<IsolationQuestion, QuestionNode> = {
       { label: "No", sub: "We'll build and host an isolated preview stack for you.", target: { pk: "noPreviews" } },
     ],
   },
-  q1: {
+  backend: {
     phase: "backend",
     eyebrow: "Backend",
     title: "Where does your backend and API run?",
     subtitle:
       "Your frontend is already on Vercel. We need to know about everything behind it - API routes, services, jobs.",
     options: [
-      { label: "All on Vercel", sub: "Serverless functions or the same Vercel project.", target: { screen: "q2a" } },
+      { label: "All on Vercel", sub: "Serverless functions or the same Vercel project.", target: { screen: "tenant" } },
       {
         label: "Some or all runs elsewhere",
         sub: "A separate server, another cloud, a managed backend.",
@@ -103,55 +158,77 @@ const NODES_VERCEL: Record<IsolationQuestion, QuestionNode> = {
       },
     ],
   },
-  q2a: {
+  tenant: {
     phase: "database",
-    eyebrow: "Database",
-    title: "Which database does your app use?",
-    subtitle: "Pick the closest match. We use this to check whether your data can be isolated per preview.",
-    picker: true,
+    eyebrow: "Test data",
+    title: "Is all your data owned by a tenant you could delete in one go?",
+    subtitle:
+      "An org, workspace or account that owns every row, so deleting it takes its data with it. If so, each run creates its own throwaway tenant and removes it afterwards - nothing else has to change.",
     options: [
-      { label: "Neon", tile: true, logo: "/db/db-neon.svg", target: { screen: "q2b" } },
-      { label: "Supabase", tile: true, logo: "/db/db-supabase.svg", target: { screen: "q2b" } },
-      { label: "PlanetScale", tile: true, logo: "/db/db-planetscale.svg", target: { screen: "q2b" } },
       {
-        label: "Something else",
-        sub: "Plain Postgres, RDS, MongoDB, MySQL, and the like.",
-        target: { screen: "q2c" },
+        label: "Yes, scoped to a tenant",
+        card: {
+          aside: "like Stripe or Slack",
+          lines: ["account", "└─ customer", "   └─ invoice"],
+          consequence: "Delete the account and every row under it goes with it.",
+        },
+        target: { screen: "global" },
       },
-      { label: "Not sure", target: { screen: "q2c" } },
+      {
+        label: "No, some data is shared",
+        card: {
+          aside: "like Airbnb, Zillow or Instagram",
+          lines: ["user", "listing   → shared by everyone", "review    → shared by everyone"],
+          consequence: "Rows one run creates are visible to every other run, and to your real users.",
+        },
+        target: { screen: "database", carry: "tenant" },
+      },
+      { label: "Not sure", target: { screen: "database", carry: "tenant" } },
     ],
   },
-  q2b: {
+  global: {
     phase: "database",
-    eyebrow: "Database",
-    title: "Is a fresh branch created for every Vercel preview?",
-    subtitle: "Previews inherit production env vars by default - a per-preview branch only happens if it's wired up.",
-    options: [
-      { label: "Yes, it's wired up", target: { path: "A" } },
-      { label: "Not yet - set it up for me", target: { path: "A" } },
-      { label: "No / not sure", target: { screen: "q2c" } },
-    ],
-  },
-  q2c: {
-    phase: "database",
-    eyebrow: "Database",
-    title: "Is all your data scoped to a tenant we can fully create and delete?",
-    subtitle: "An org, workspace or account id that owns every row.",
-    options: [
-      { label: "Yes, everything hangs off a tenant", target: { screen: "q2d" } },
-      { label: "No", target: { pk: "tenant" } },
-      { label: "Not sure", target: { pk: "tenant" } },
-    ],
-  },
-  q2d: {
-    phase: "database",
-    eyebrow: "Database",
+    eyebrow: "Test data",
     title: "Any global or shared tables not tied to a tenant?",
     subtitle: "Feature flags, config, counters, cross-tenant references - anything a teardown couldn't safely delete.",
     options: [
       { label: "No, everything's tenant-scoped", target: { path: "B" } },
-      { label: "Yes, some global tables", target: { pk: "global" } },
-      { label: "Not sure", target: { pk: "global" } },
+      { label: "Yes, some global tables", target: { screen: "database", carry: "global" } },
+      { label: "Not sure", target: { screen: "database", carry: "global" } },
+    ],
+  },
+  database: {
+    phase: "database",
+    eyebrow: "Database",
+    title: "Which database does your app use?",
+    subtitle:
+      "Since test data can't be isolated by tenant, the other way is a separate copy of the database per preview. Only some providers can do that - pick the closest match.",
+    picker: true,
+    options: [
+      { label: "Neon", tile: true, logo: "/db/db-neon.svg", target: { screen: "dbBranch" } },
+      { label: "Supabase", tile: true, logo: "/db/db-supabase.svg", target: { screen: "dbBranch" } },
+      { label: "PlanetScale", tile: true, logo: "/db/db-planetscale.svg", target: { screen: "dbBranch" } },
+      {
+        label: "Something else",
+        sub: "Plain Postgres, RDS, MongoDB, MySQL, and the like.",
+        target: { pkCarried: true },
+      },
+      { label: "Not sure", target: { pkCarried: true } },
+    ],
+  },
+  // Host-neutral on purpose: this asks about the database, not about who builds
+  // the preview, so naming the host adds nothing - and keeping it neutral means
+  // the custom path needs no override of its own.
+  dbBranch: {
+    phase: "database",
+    eyebrow: "Database",
+    title: "Does every preview get its own database branch?",
+    subtitle:
+      "A database branch, not a git one - Neon, Supabase and PlanetScale can fork the whole database per preview. Previews point at the production database by default, so this only happens if it has been wired up.",
+    options: [
+      { label: "Yes, it's wired up", target: { path: "A" } },
+      { label: "Not yet - set it up for me", target: { path: "A" } },
+      { label: "No / not sure", target: { pkCarried: true } },
     ],
   },
 };
@@ -159,7 +236,7 @@ const NODES_VERCEL: Record<IsolationQuestion, QuestionNode> = {
 // Custom (non-Vercel) path: same isolation logic, provider-neutral wording. Only
 // the questions whose copy names Vercel are overridden; the rest reuse Vercel's.
 const NODES_CUSTOM_OVERRIDES: Partial<Record<IsolationQuestion, QuestionNode>> = {
-  q1: {
+  backend: {
     phase: "backend",
     eyebrow: "Backend",
     title: "Where does your backend and API run?",
@@ -168,7 +245,7 @@ const NODES_CUSTOM_OVERRIDES: Partial<Record<IsolationQuestion, QuestionNode>> =
       {
         label: "All in one deployable unit",
         sub: "Frontend and backend ship together in each preview.",
-        target: { screen: "q2a" },
+        target: { screen: "tenant" },
       },
       {
         label: "Some or all runs elsewhere",
@@ -177,24 +254,18 @@ const NODES_CUSTOM_OVERRIDES: Partial<Record<IsolationQuestion, QuestionNode>> =
       },
     ],
   },
-  q2b: {
-    phase: "database",
-    eyebrow: "Database",
-    title: "Is a fresh branch created for every preview?",
-    subtitle: "Each preview needs its own database branch - otherwise it reads and writes production data.",
-    options: [
-      { label: "Yes, it's wired up", target: { path: "A" } },
-      { label: "Not yet - set it up for me", target: { path: "A" } },
-      { label: "No / not sure", target: { screen: "q2c" } },
-    ],
-  },
 };
 
+// The tenant / global reasons are only reachable after the database-branching
+// fallback has ALSO been ruled out, so they say so - otherwise someone who just
+// answered a database question gets told only about tenants.
 const PK_REASONS: Record<PkReason, string> = {
   noPreviews: "We'll build and host an isolated stack for you.",
   backend: "Backend or services run outside your preview host, so the whole stack can't be isolated.",
-  tenant: "Data isn't cleanly tenant-scoped, so a teardown can't safely delete test data.",
-  global: "Global / shared tables exist that a tenant teardown would leak into.",
+  tenant:
+    "Data isn't cleanly tenant-scoped, and there's no per-preview database branch to fall back on, so a teardown can't safely delete test data.",
+  global:
+    "Global / shared tables exist that a tenant teardown would leak into, and there's no per-preview database branch to fall back on.",
 };
 
 const PATH_COPY_VERCEL: Record<IsolationPath, PathCopy> = {
@@ -228,13 +299,13 @@ const PATH_COPY_CUSTOM: Record<IsolationPath, PathCopy> = {
 };
 
 const PHASE_OF: Record<QuestionScreen, Phase> = {
-  q0: "previews",
+  previews: "previews",
   provider: "previews",
-  q1: "backend",
-  q2a: "database",
-  q2b: "database",
-  q2c: "database",
-  q2d: "database",
+  backend: "backend",
+  tenant: "database",
+  global: "database",
+  database: "database",
+  dbBranch: "database",
 };
 
 type PhaseStep = { num: string; label: string; phase: Phase };
@@ -289,23 +360,32 @@ export interface PreviewRouterQuizProps {
 
 export function PreviewRouterQuiz({ appId, onChoose, onBack, startProvider }: PreviewRouterQuizProps) {
   const skipIntro = startProvider != null;
-  const initialView: ViewState = skipIntro ? { kind: "question", screen: "q1" } : { kind: "question", screen: "q0" };
+  const initialView: ViewState = skipIntro
+    ? { kind: "question", screen: "backend" }
+    : { kind: "question", screen: "previews" };
   const initialProvider: Provider = startProvider ?? DEFAULT_PROVIDER;
   const phases = skipIntro ? PHASES_WITHOUT_PROVIDER : PHASES_WITH_PROVIDER;
   const [view, setView] = useState<ViewState>(initialView);
-  const [history, setHistory] = useState<ViewState[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [provider, setProvider] = useState<Provider>(initialProvider);
+  const [carried, setCarried] = useState<PkReason | undefined>(undefined);
 
   function go(target: Target) {
-    setHistory((h) => [...h, view]);
-    if ("screen" in target) return setView({ kind: "question", screen: target.screen });
+    setHistory((h) => [...h, { view, carried }]);
+    if ("screen" in target) {
+      if (target.carry != null) setCarried(target.carry);
+      return setView({ kind: "question", screen: target.screen });
+    }
     if ("path" in target) return setView({ kind: "path", path: target.path });
+    // Ending the database fallback reports what actually disqualified them (the
+    // carry), not that branching wasn't set up either.
+    if ("pkCarried" in target) return setView({ kind: "pk", reason: carried ?? FALLBACK_PK_REASON });
     return setView({ kind: "pk", reason: target.pk });
   }
 
   function pickProvider(next: Provider) {
     setProvider(next);
-    go({ screen: "q1" });
+    go({ screen: "backend" });
   }
 
   function back() {
@@ -313,12 +393,14 @@ export function PreviewRouterQuiz({ appId, onChoose, onBack, startProvider }: Pr
     const previous = history[history.length - 1];
     if (previous == null) return onBack();
     setHistory((h) => h.slice(0, -1));
-    setView(previous);
+    setView(previous.view);
+    setCarried(previous.carried);
   }
 
   function restart() {
     setHistory([]);
     setProvider(initialProvider);
+    setCarried(undefined);
     setView(initialView);
   }
 
@@ -476,7 +558,12 @@ function ProviderTileButton({ tile, onPick }: { tile: ProviderTile; onPick: (pro
 
 function QuestionView({ node, onSelect }: { node: QuestionNode; onSelect: (target: Target) => void }) {
   const tiles = node.options.filter((o) => o.tile);
-  const rows = node.options.filter((o) => !o.tile);
+  const cards = node.options.filter((o) => o.card != null);
+  const rows = node.options.filter((o) => !o.tile && o.card == null);
+  // Both the tile picker and the example cards lay their options out in a grid,
+  // with the leftovers ("Something else", "Not sure") as wide rows tucked under
+  // it - so the gap above those rows tightens the same way either way.
+  const hasGrid = node.picker === true || cards.length > 0;
 
   return (
     <div className="max-w-lg">
@@ -502,12 +589,54 @@ function QuestionView({ node, onSelect }: { node: QuestionNode; onSelect: (targe
         </div>
       ) : undefined}
 
-      <div className={cn("flex flex-col gap-2.5", node.picker ? "mt-2.5" : "mt-6")}>
+      {cards.length > 0 ? (
+        <div className="mt-6 grid gap-2.5 sm:grid-cols-2">
+          {cards.map((option) => (
+            <ExampleOptionCard key={option.label} option={option} onSelect={() => onSelect(option.target)} />
+          ))}
+        </div>
+      ) : undefined}
+
+      <div className={cn("flex flex-col gap-2.5", hasGrid ? "mt-2.5" : "mt-6")}>
         {rows.map((option) => (
           <OptionRow key={option.label} option={option} onSelect={() => onSelect(option.target)} />
         ))}
       </div>
     </div>
+  );
+}
+
+/**
+ * An answer that is itself an example of a data shape: the schema, who it looks
+ * like, and what it costs a test run. "Is your data tenant-scoped?" is abstract
+ * enough that people answer it wrong about their own schema, so the answer is
+ * the shape you recognise rather than a yes/no you have to translate first.
+ *
+ * Both cards are styled identically. These are answers, not recommendations, and
+ * any colour that singles one out reads either as "already selected" or as the
+ * answer we are hoping for - both of which bias a question whose only value is a
+ * truthful answer about the user's own schema.
+ */
+function ExampleOptionCard({ option, onSelect }: { option: QuizOption; onSelect: () => void }) {
+  const card = option.card;
+  if (card == null) return undefined;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="flex flex-col border border-border-mid bg-surface-void p-3 text-left transition-all hover:-translate-y-0.5 hover:border-border-highlight hover:bg-surface-raised"
+    >
+      {/* Label and aside stack rather than sharing a baseline: side by side, a
+          label that wraps shifts its card's body out of line with its neighbour. */}
+      <span className="flex w-full flex-col gap-0.5">
+        <span className="text-2xs font-semibold leading-tight text-text-primary">{option.label}</span>
+        <span className="text-3xs italic leading-tight text-text-secondary">{card.aside}</span>
+      </span>
+      <pre className="mt-2.5 w-full overflow-x-auto font-mono text-3xs leading-relaxed text-text-primary">
+        {card.lines.join("\n")}
+      </pre>
+      <span className="mt-2.5 text-3xs leading-snug text-text-secondary">{card.consequence}</span>
+    </button>
   );
 }
 
