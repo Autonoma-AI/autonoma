@@ -1,6 +1,6 @@
 import os from "node:os";
 import { CostCollector } from "@autonoma/ai";
-import { LocalRunner, createEngineModelRegistry } from "@autonoma/engine";
+import { LocalRunner, createWebEngineModelRegistry } from "@autonoma/engine";
 import { setScreenshotConfig } from "@autonoma/image";
 import { logger as rootLogger } from "@autonoma/logger";
 import { chromium } from "playwright";
@@ -34,7 +34,7 @@ async function main(testCasePath: string) {
     try {
         const runner = new LocalRunner<WebCommandSpec, WebApplicationData, WebContext>({
             installer,
-            executionAgentFactory: createWebAgentFactory(createEngineModelRegistry(costCollector)),
+            executionAgentFactory: createWebAgentFactory(createWebEngineModelRegistry(costCollector)),
             eventHandlers: {
                 beforeStep: async () => {},
                 attempt: async () => {},

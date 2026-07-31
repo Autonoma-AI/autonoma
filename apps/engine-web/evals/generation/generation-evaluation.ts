@@ -6,7 +6,7 @@ import {
     ExecutionAgentRunner,
     type ExecutionResult,
     buildExecutionPrompt,
-    createEngineModelRegistry,
+    createWebEngineModelRegistry,
     toLeanStep,
 } from "@autonoma/engine";
 import { Evaluation, type LoadedCase, type RunCaseHelpers } from "@autonoma/evals";
@@ -157,7 +157,7 @@ export class GenerationEvaluation extends Evaluation<GenerationEvalCase> {
             );
             runner = new EvalAgentRunner({
                 installer,
-                executionAgentFactory: createWebAgentFactory(createEngineModelRegistry(costCollector)),
+                executionAgentFactory: createWebAgentFactory(createWebEngineModelRegistry(costCollector)),
                 eventHandlers: {
                     frame: async () => {},
                     beforeStep: async () => {},

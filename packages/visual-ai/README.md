@@ -78,7 +78,8 @@ Detects bounding boxes with optional labels from a natural language prompt.
 
 | Implementation | Strategy |
 |----------------|----------|
-| `GeminiObjectDetector` | Gemini structured output returning normalized 0-1000 bounding boxes |
+| `GeminiObjectDetector` | Gemini structured output returning normalized 0-1000 bounding boxes (`box_2d`, ymin-first) |
+| `QwenObjectDetector` | Qwen3-VL grounding returning a single normalized 0-1000 bounding box (`bbox_2d`, xmin-first) |
 
 Both `PointDetector` and `ObjectDetector` are abstract base classes; resolution normalization is handled by the base class via `resolveResolution`.
 

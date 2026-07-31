@@ -28,9 +28,16 @@ export interface ModelEntry {
  * OpenRouter's default load balancing. Re-probe before widening this list.
  */
 const MINIMAX_M3_ROUTING = { provider: { only: ["deepinfra", "morph"], allow_fallbacks: false } };
+// Only route Qwen to providers that support the structured-output param the object detector sends.
+const QWEN3_VL_32B_ROUTING = { provider: { require_parameters: true } };
 
 export const MODEL_ENTRIES: Record<
-    "GEMINI_3_FLASH_PREVIEW" | "MINISTRAL_8B" | "GPT_OSS_120B" | "MINIMAX_M3",
+    | "GEMINI_3_FLASH_PREVIEW"
+    | "GEMINI_3_5_FLASH_LITE"
+    | "QWEN3_VL_32B"
+    | "MINISTRAL_8B"
+    | "GPT_OSS_120B"
+    | "MINIMAX_M3",
     ModelEntry
 > = {
     GEMINI_3_FLASH_PREVIEW: {
@@ -41,6 +48,23 @@ export const MODEL_ENTRIES: Record<
             outputCostPerM: 3,
         }),
         createUploader: () => new VideoProcessor(new GoogleGenAI({ apiKey: env.GEMINI_API_KEY })),
+    },
+    GEMINI_3_5_FLASH_LITE: {
+        createModel: () => googleProvider.getModel("gemini-3.5-flash-lite"),
+        pricing: inputCacheCostFunction({
+            inputCostPerM: 0.3,
+            cachedInputCostPerM: 0.03,
+            outputCostPerM: 2.5,
+        }),
+        createUploader: () => new VideoProcessor(new GoogleGenAI({ apiKey: env.GEMINI_API_KEY })),
+    },
+    QWEN3_VL_32B: {
+        createModel: () =>
+            openRouterProvider.getModel("qwen/qwen3-vl-32b-instruct", { extraBody: QWEN3_VL_32B_ROUTING }),
+        pricing: simpleCostFunction({
+            inputCostPerM: 0.104,
+            outputCostPerM: 0.416,
+        }),
     },
     MINISTRAL_8B: {
         createModel: () => openRouterProvider.getModel("mistralai/ministral-8b-2512"),

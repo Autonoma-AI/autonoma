@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { CostCollector } from "@autonoma/ai";
 import { db } from "@autonoma/db";
-import { GenerationPersister, createEngineModelRegistry } from "@autonoma/engine";
+import { GenerationPersister, createWebEngineModelRegistry } from "@autonoma/engine";
 import { setScreenshotConfig } from "@autonoma/image";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
@@ -71,7 +71,7 @@ export async function runWebGenerationJob(testGenerationId: string, urlOverride?
         });
 
         const costCollector = new CostCollector();
-        const models = createEngineModelRegistry(costCollector);
+        const models = createWebEngineModelRegistry(costCollector);
         runner = new WebGenerationAPIRunner({
             storageProvider,
             installer,

@@ -16,7 +16,7 @@ import {
     ClickTool,
     type CommandTool,
     DragTool,
-    type EngineModelRegistry,
+    type WebEngineModelRegistry,
     ExecutionAgentFactory,
     HoverTool,
     NavigateTool,
@@ -28,7 +28,7 @@ import {
 } from "@autonoma/engine";
 import {
     AssertChecker,
-    GeminiObjectDetector,
+    QwenObjectDetector,
     ObjectPointDetector,
     TextExtractor,
     VisualConditionChecker,
@@ -42,9 +42,9 @@ import type { WebContext } from "../../platform";
  * The return type cast is intentional: each tool carries its own specific TSpec/TContext,
  * but at runtime WebContext satisfies every specific command context, so the cast is safe.
  */
-function createTools(models: EngineModelRegistry): CommandTool<WebCommandSpec, WebContext>[] {
+function createTools(models: WebEngineModelRegistry): CommandTool<WebCommandSpec, WebContext>[] {
     const pointDetector = new ObjectPointDetector(
-        new GeminiObjectDetector(models.getModel({ model: "smart-visual", tag: "point-detection" })),
+        new QwenObjectDetector(models.getModel({ model: "pointer", tag: "point-detection" })),
     );
     const assertChecker = new AssertChecker(models.getModel({ model: "smart-visual", tag: "assert" }));
     const assertionSplitter = new AssertionSplitter(models.getModel({ model: "fast-text", tag: "assertion-splitter" }));
@@ -67,7 +67,9 @@ function createTools(models: EngineModelRegistry): CommandTool<WebCommandSpec, W
     ] as unknown as CommandTool<WebCommandSpec, WebContext>[];
 }
 
-export function createWebAgentFactory(models: EngineModelRegistry): ExecutionAgentFactory<WebCommandSpec, WebContext> {
+export function createWebAgentFactory(
+    models: WebEngineModelRegistry,
+): ExecutionAgentFactory<WebCommandSpec, WebContext> {
     return new ExecutionAgentFactory({
         model: models.getModel({ model: "smart-visual", tag: "agent-loop" }),
         commandTools: createTools(models),

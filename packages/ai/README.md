@@ -32,6 +32,8 @@ The agent abstraction (`agent/`) and compaction strategies (`compaction/`) moved
 Available models:
 
 - `GEMINI_3_FLASH_PREVIEW` - Google Gemini (default for tests and scripts); video-capable
+- `GEMINI_3_5_FLASH_LITE` - Google Gemini Flash-Lite; cheaper/faster, web agent-loop model; video-capable
+- `QWEN3_VL_32B` - Qwen3-VL via OpenRouter; grounding/pointer model (provider pinned to structured-output-capable providers)
 - `MINISTRAL_8B` - Mistral via OpenRouter
 - `GPT_OSS_120B` - OpenAI OSS via Groq or OpenRouter
 - `MINIMAX_M3` - MiniMax via OpenRouter; video-capable
