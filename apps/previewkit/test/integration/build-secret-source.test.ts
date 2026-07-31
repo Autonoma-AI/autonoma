@@ -3,25 +3,8 @@ import { mintSecretKey, SecretKeys, SecretValues } from "@autonoma/secrets";
 import { FakeKeyProvider } from "@autonoma/secrets/fake-key-provider";
 import type { SecretBundle } from "@autonoma/utils";
 import { expect } from "vitest";
-import { BuildSecretSource, type SecretJsonFetcher } from "../../src/secrets/build-secret-source";
+import { BuildSecretSource } from "../../src/secrets/build-secret-source";
 import { PreviewkitTestHarness } from "./harness";
-
-const AWS_ARN = "arn:aws:secretsmanager:us-east-1:1:secret:previewkit/test";
-
-/**
- * Stands in for AWS Secrets Manager. Counts reads, because "did this bundle come
- * out of Postgres" is only answered by AWS not being touched.
- */
-class ScriptedFetcher implements SecretJsonFetcher {
-    reads = 0;
-
-    constructor(private readonly values: Record<string, string>) {}
-
-    async fetchJson(): Promise<Record<string, string>> {
-        this.reads++;
-        return this.values;
-    }
-}
 
 integrationTestSuite<PreviewkitTestHarness, undefined>({
     name: "BuildSecretSource",
@@ -43,7 +26,7 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
                 },
             });
             await harness.db.previewkitSecret.create({
-                data: { applicationId: application.id, appName: "web", awsSecretArn: AWS_ARN },
+                data: { applicationId: application.id, appName: "web" },
             });
 
             const bundle: SecretBundle = { kind: "app", applicationId: application.id, appName: "web" };
@@ -58,60 +41,52 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
             return bundle;
         }
 
-        function source(harness: PreviewkitTestHarness, fetcher: SecretJsonFetcher, readFromPostgres: boolean) {
+        function source(harness: PreviewkitTestHarness): BuildSecretSource {
             return new BuildSecretSource(
-                fetcher,
-                readFromPostgres,
                 new SecretValues(harness.db, new SecretKeys(harness.db, new FakeKeyProvider())),
             );
         }
 
-        test("reads the sealed values out of Postgres without touching AWS", async ({ harness }) => {
-            const bundle = await bundleWith(harness, { DATABASE_URL: "postgres://sealed" });
-            const fetcher = new ScriptedFetcher({ DATABASE_URL: "postgres://aws" });
+        test("reads the sealed values out of Postgres", async ({ harness }) => {
+            const bundle = await bundleWith(harness, {
+                DATABASE_URL: "postgres://sealed",
+                API_KEY: "sk_live",
+            });
 
-            const values = await source(harness, fetcher, true).forBundle(bundle, AWS_ARN);
-
-            expect(values).toEqual({ DATABASE_URL: "postgres://sealed" });
-            expect(fetcher.reads).toBe(0);
-        });
-
-        test("falls back to AWS for a bundle Postgres holds nothing for", async ({ harness }) => {
-            const bundle = await bundleWith(harness, {});
-            const fetcher = new ScriptedFetcher({ DATABASE_URL: "postgres://aws" });
-
-            const values = await source(harness, fetcher, true).forBundle(bundle, AWS_ARN);
-
-            expect(values).toEqual({ DATABASE_URL: "postgres://aws" });
-            expect(fetcher.reads).toBe(1);
-        });
-
-        test("reads AWS while the flag is off, even with the values already sealed", async ({ harness }) => {
-            const bundle = await bundleWith(harness, { DATABASE_URL: "postgres://sealed" });
-            const fetcher = new ScriptedFetcher({ DATABASE_URL: "postgres://aws" });
-
-            const values = await source(harness, fetcher, false).forBundle(bundle, AWS_ARN);
-
-            expect(values).toEqual({ DATABASE_URL: "postgres://aws" });
-            expect(fetcher.reads).toBe(1);
+            expect(await source(harness).forBundle(bundle)).toEqual({
+                DATABASE_URL: "postgres://sealed",
+                API_KEY: "sk_live",
+            });
         });
 
         test("picks only the requested build_secrets keys", async ({ harness }) => {
             const bundle = await bundleWith(harness, { WANTED: "yes", OTHER: "no" });
 
-            const picked = await source(harness, new ScriptedFetcher({}), true).forKeys(bundle, AWS_ARN, ["WANTED"]);
-
-            expect(picked).toEqual({ WANTED: "yes" });
+            expect(await source(harness).forKeys(bundle, ["WANTED"])).toEqual({ WANTED: "yes" });
         });
 
-        test("fails the build for a requested key the bundle does not have, naming the store that answered", async ({
-            harness,
-        }) => {
+        test("fails the build for a requested key the bundle does not have", async ({ harness }) => {
             const bundle = await bundleWith(harness, { PRESENT: "yes" });
 
-            await expect(
-                source(harness, new ScriptedFetcher({}), true).forKeys(bundle, AWS_ARN, ["PRESENT", "ABSENT"]),
-            ).rejects.toThrow(/postgres.*ABSENT/s);
+            // An empty build arg would bake an image that boots and then misbehaves, so
+            // this fails at the read instead of reaching buildctl.
+            await expect(source(harness).forKeys(bundle, ["PRESENT", "ABSENT"])).rejects.toThrow(/ABSENT/);
+        });
+
+        test("fails rather than answering empty for a registered bundle holding nothing", async ({ harness }) => {
+            // Reachable two ways: values that never landed, or a bundle whose every key
+            // was deleted (DELETE removes value rows and leaves the bundle row). There is
+            // no second store to ask either way, and a build that succeeds against no
+            // credentials is worse than one that stops.
+            const bundle = await bundleWith(harness, {});
+
+            await expect(source(harness).forBundle(bundle)).rejects.toThrow(/No secret values are stored/);
+        });
+
+        test("fails clearly when the environment has no encryption key configured", async ({ harness }) => {
+            const bundle = await bundleWith(harness, { API_KEY: "sk_live" });
+
+            await expect(new BuildSecretSource().forBundle(bundle)).rejects.toThrow(/PREVIEWKIT_SECRETS_CMK/);
         });
     },
 });

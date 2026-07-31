@@ -16,7 +16,7 @@ description: How to give your preview apps the credentials they need - API keys,
 
 Two things in that panel are worth knowing before you start. A saved secret can only be **replaced**, never read back - the value field shows `•••••• (set)` and nothing else. And the **Source** control is where the secret-versus-connection decision below actually gets made, with the product writing the one-line rationale for each next to it.
 
-Both routes write to the same encrypted store, so a value set in the UI is visible to the API and vice versa. The value lives in AWS Secrets Manager - never in your config, never in your repo - and is only ever readable by your own organization. Updates take effect on the next preview deploy for that app.
+Both routes write to the same encrypted store, so a value set in the UI is visible to the API and vice versa. The value lives encrypted in the platform's database - never in your config, never in your repo - and is only ever readable by your own organization. Updates take effect on the next preview deploy for that app.
 
 Because a secret lives outside the config, it also saves on its own. When the only thing you have changed is secrets, the save button reads **Save secrets** and writes just those - so a rotation goes through even when the rest of the config is mid-edit or has a problem of its own. Changing a variable's build-time toggle is the exception: that names the key in `build_secrets`, which is part of the config, so it saves with the config like any other setting.
 

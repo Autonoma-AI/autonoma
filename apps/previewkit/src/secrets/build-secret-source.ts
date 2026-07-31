@@ -3,64 +3,44 @@ import { describeSecretBundle, type SecretBundle } from "@autonoma/utils";
 import { type Logger, logger as rootLogger } from "../logger";
 
 /**
- * The AWS read this needs - `AwsSecretsFetcher` satisfies it. Narrow on purpose:
- * the fallback is one call, and naming it means a test can supply the JSON without
- * an AWS client.
- */
-export interface SecretJsonFetcher {
-    fetchJson(awsSecretArn: string): Promise<Record<string, string>>;
-}
-
-/** Which store answered, so a failure names the place an operator should go look. */
-type Origin = "postgres" | "AWS Secrets Manager";
-
-/**
- * Where the runner reads secret values from - Postgres when this environment has
- * been switched over, AWS Secrets Manager otherwise.
+ * The values a build and its addons read, from Postgres.
  *
- * Keyed by bundle rather than by ARN, which is what the underlying store actually
- * needs and what survives the planned drop of `awsSecretArn`. It also has to be:
- * one AWS secret can be referenced by two bundles, so ARN to bundle is not a
- * function and a reverse lookup could resolve to the wrong owner.
+ * Keyed by bundle rather than by any external identifier: that is what the store
+ * needs, and it is the only key that cannot resolve to the wrong owner. It also
+ * owns the key-picking, so a `build_secrets:` key the bundle does not have fails
+ * here rather than reaching buildctl as an empty build arg.
+ *
+ * There is no second store. A bundle Postgres cannot serve is an error, not a
+ * reason to look elsewhere - handing a build an empty map bakes an image against
+ * absent credentials, which fails far from the cause or, worse, ships.
  */
 export class BuildSecretSource {
     private readonly logger: Logger;
 
     constructor(
-        private readonly aws: SecretJsonFetcher,
-        private readonly readFromPostgres: boolean,
-        /** Absent when this environment has no CMK, in which case AWS is the only source. */
+        /**
+         * Absent when this environment has no CMK to unwrap an encryption key with.
+         * A deploy that needs no secrets is unaffected; one that does fails saying so.
+         */
         private readonly values?: SecretValues,
     ) {
         this.logger = rootLogger.child({ name: this.constructor.name });
-
-        // Asked to read Postgres with no way to open it. Deploys keep working off AWS,
-        // which is still authoritative, so this logs rather than refusing to boot - but
-        // it is silent otherwise, and an environment that believes it has cut over while
-        // every deploy quietly reads AWS is exactly what nobody notices.
-        if (readFromPostgres && values == null) {
-            this.logger.error("PREVIEWKIT_SECRETS_READ is postgres but no CMK is configured; reading AWS instead");
-        }
     }
 
     /** Every key and value in `bundle`. */
-    async forBundle(bundle: SecretBundle, awsSecretArn?: string): Promise<Record<string, string>> {
-        return (await this.load(bundle, awsSecretArn)).values;
+    async forBundle(bundle: SecretBundle): Promise<Record<string, string>> {
+        return this.open(bundle);
     }
 
     /**
      * Just the requested keys, for the config's `build_secrets:`.
      *
-     * A requested key the bundle does not have fails the build rather than
-     * inlining an empty value, because a build arg that silently resolves to
-     * nothing produces an image that boots and then misbehaves.
+     * A requested key the bundle does not have fails the build rather than inlining
+     * an empty value, because a build arg that silently resolves to nothing produces
+     * an image that boots and then misbehaves.
      */
-    async forKeys(
-        bundle: SecretBundle,
-        awsSecretArn: string | undefined,
-        keys: readonly string[],
-    ): Promise<Record<string, string>> {
-        const { values, origin } = await this.load(bundle, awsSecretArn);
+    async forKeys(bundle: SecretBundle, keys: readonly string[]): Promise<Record<string, string>> {
+        const values = await this.open(bundle);
 
         const picked: Record<string, string> = {};
         const missing: string[] = [];
@@ -75,62 +55,36 @@ export class BuildSecretSource {
 
         if (missing.length > 0) {
             throw new Error(
-                `Secrets for ${describeSecretBundle(bundle)} in ${origin} are missing keys requested via ` +
-                    `build_secrets: ${missing.join(", ")}`,
+                `Secrets for ${describeSecretBundle(bundle)} are missing keys requested via build_secrets: ` +
+                    missing.join(", "),
             );
         }
         return picked;
     }
 
-    /**
-     * Postgres holding nothing for a bundle means not migrated rather than empty, so
-     * answering from it there would hand a build no secrets - which fails it far from
-     * the cause, or worse, ships an image built without them. `awsSecretArn` is the
-     * fallback for that case, and is absent for any bundle registered after Postgres
-     * became the store.
-     */
-    private async load(
-        bundle: SecretBundle,
-        awsSecretArn: string | undefined,
-    ): Promise<{ values: Record<string, string>; origin: Origin }> {
-        if (this.readFromPostgres && this.values != null) {
-            const opened = await this.fromPostgres(bundle);
-            if (opened != null) return { values: opened, origin: "postgres" };
-        }
+    private async open(bundle: SecretBundle): Promise<Record<string, string>> {
+        const label = describeSecretBundle(bundle);
 
-        // A bundle registered after Postgres became the store has no AWS secret, so
-        // there is nothing to fall back to. Failing here beats handing the build an
-        // empty map, which would bake an image against absent credentials.
-        if (awsSecretArn == null) {
+        if (this.values == null) {
             throw new Error(
-                `Secrets for ${describeSecretBundle(bundle)} could not be read from postgres, and the bundle has ` +
-                    `no AWS secret to fall back to.`,
+                `Cannot read secrets for ${label}: this environment has no PREVIEWKIT_SECRETS_CMK configured, ` +
+                    `so no encryption key can be unwrapped.`,
             );
         }
-        return { values: await this.aws.fetchJson(awsSecretArn), origin: "AWS Secrets Manager" };
-    }
 
-    private async fromPostgres(bundle: SecretBundle): Promise<Record<string, string> | undefined> {
-        const label = describeSecretBundle(bundle);
-        try {
-            const opened = await this.values?.getAll(bundle);
-            if (opened != null) {
-                this.logger.info("Read secrets from postgres", {
-                    extra: { bundle: label, keyCount: Object.keys(opened).length },
-                });
-                return opened;
-            }
-
-            this.logger.error("Postgres holds no values for this bundle; reading AWS instead", {
-                extra: { bundle: label },
-            });
-            return undefined;
-        } catch (err) {
-            this.logger.error("Failed to read secrets from postgres; reading AWS instead", {
-                extra: { bundle: label },
-                err,
-            });
-            return undefined;
+        // Undefined means the bundle holds no values. That is either values that never
+        // landed, or a bundle whose every key was deleted - `DELETE` removes value rows
+        // without removing the bundle row, so an empty bundle is a legitimate state, not
+        // just a broken one. Either way nothing can serve the build, and failing beats a
+        // build that succeeds against no credentials.
+        const opened = await this.values.getAll(bundle);
+        if (opened == null) {
+            throw new Error(`No secret values are stored for ${label}, which has a registered secret bundle.`);
         }
+
+        this.logger.info("Read secrets from postgres", {
+            extra: { bundle: label, keyCount: Object.keys(opened).length },
+        });
+        return opened;
     }
 }

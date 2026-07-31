@@ -47,11 +47,13 @@ Under `postgres` a listing is served entirely from stored columns - no key is un
 
 ### The same flag covers the deploy runner
 
-Values are read in two places on the runner side: `build_secrets:` build args and addon `auth_secret:` lookups (`BuildSecretSource`), and the runtime K8s Secret a preview's pods mount (`RuntimeSecrets`). Both fall back per bundle to AWS, and both are the remaining reason `awsSecretArn`, `CLUSTER_SECRET_STORE_NAME` and the ESO install still exist.
+Values are read in two places on the runner side: `build_secrets:` build args and addon `auth_secret:` lookups (`BuildSecretSource`), and the runtime K8s Secret a preview's pods mount (`RuntimeSecrets`).
+
+**The build path no longer falls back.** It reads Postgres and nothing else, so a registered bundle it cannot serve fails the deploy. That is the safe direction: a registered bundle always holds at least one value, because a write requires one, so nothing there means the values never landed - and a build that succeeds against no credentials produces an image that boots and then misbehaves, or ships. The runtime Secret still falls back per app to ESO, which is the remaining reason `awsSecretArn`, `CLUSTER_SECRET_STORE_NAME` and the ESO install exist.
 
 The runner does not read the flag from its own config. Its Job env comes from a shared secret carrying production's values, while `DATABASE_URL` is injected per-Job from the launching API - so a beta deploy runs against beta's database. The flag asserts that _a specific database_ holds the secrets, which makes it meaningless apart from that `DATABASE_URL`: `PreviewkitJobLauncher` injects `PREVIEWKIT_SECRETS_READ` and `PREVIEWKIT_SECRETS_CMK` from the API's own env alongside it.
 
-A build arg that resolves to nothing produces an image that boots and then misbehaves, far from the cause - so `BuildSecretSource` fails the build for a `build_secrets:` key the answering store does not have, and names which store answered. For a bundle with no AWS secret at all it fails outright rather than handing the build an empty map. `AwsExternalSecretManager` likewise skips a bundle it cannot serve: stamping an `ExternalSecret` with nothing to extract would sit un-Ready and burn the pre-rollout sync wait instead of failing fast.
+A build arg that resolves to nothing produces an image that boots and then misbehaves, far from the cause - so `BuildSecretSource` fails the build for any `build_secrets:` key the bundle does not have, and fails outright for a bundle it cannot open at all, rather than handing the build an empty map. `AwsExternalSecretManager` skips a bundle it cannot serve for the same reason: stamping an `ExternalSecret` with nothing to extract would sit un-Ready and burn the pre-rollout sync wait instead of failing fast.
 
 ### The runtime K8s Secret
 
@@ -90,7 +92,7 @@ PreviewkitSecret { applicationId, appName, key, envelope, encryptionKeyId, finge
 
 `PreviewkitSecret` then means one secret, which is what the word means everywhere else - in the API contract (`SecretItem`), in the UI, and in how people talk about them.
 
-The API's ARN lookups are gone, which was most of what blocked this. What remains is the previewkit runner's two fallback readers and the `listApps` / registration checks, which want "does this bundle exist" rather than an ARN. Once the runner stops reading AWS, the collapse is close to free: stop writing the bundle, repoint the foreign key, drop the table. Expand and contract, with no data fan-out, because the value rows already exist.
+The API's ARN lookups are gone, which was most of what blocked this. What remains is the runtime K8s Secret's fallback to ESO, and the `listApps` / registration checks, which want "does this bundle exist" rather than an ARN. Once the runner stops reading AWS, the collapse is close to free: stop writing the bundle, repoint the foreign key, drop the table. Expand and contract, with no data fan-out, because the value rows already exist.
 
 Until then the value tables keep a suffixed name, and it is not worth renaming something scheduled for deletion.
 

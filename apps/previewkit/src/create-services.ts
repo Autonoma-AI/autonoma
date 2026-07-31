@@ -20,7 +20,6 @@ import { logger } from "./logger";
 import { PreviewPipeline } from "./pipeline/preview-pipeline";
 import { TeardownPipeline } from "./pipeline/teardown-pipeline";
 import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager";
-import { AwsSecretsFetcher } from "./secrets/aws-secrets-fetcher";
 import { BuildSecretSource } from "./secrets/build-secret-source";
 import { PostgresSecretMaterializer } from "./secrets/postgres-secret-materializer";
 import { RuntimeSecrets } from "./secrets/runtime-secrets";
@@ -137,12 +136,9 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         env.CLUSTER_SECRET_STORE_NAME,
     );
 
-    // AWS Secrets Manager direct fetcher for build-time secrets.
-    const awsSecretsFetcher = new AwsSecretsFetcher(env.AWS_REGION);
-
-    // Secret values the runner reads (build args, addon auth). The runner only ever
-    // unwraps a key, which names no CMK, but KmsKeyProvider takes one for its mint
-    // path; without it Postgres cannot be opened and AWS is the only source.
+    // Secret values the runner reads. The runner only ever unwraps a key, which names
+    // no CMK, but KmsKeyProvider takes one for its mint path; without it nothing can be
+    // opened, and a deploy that needs secrets fails saying so.
     const secretKeys =
         env.PREVIEWKIT_SECRETS_CMK != null
             ? new SecretKeys(
@@ -152,7 +148,7 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
             : undefined;
     const secretValues = secretKeys != null ? new SecretValues(db, secretKeys) : undefined;
     const readFromPostgres = env.PREVIEWKIT_SECRETS_READ === "postgres";
-    const buildSecrets = new BuildSecretSource(awsSecretsFetcher, readFromPostgres, secretValues);
+    const buildSecrets = new BuildSecretSource(secretValues);
 
     // The runtime K8s Secret each preview pod mounts. Postgres writes it directly
     // when this environment has flipped; External Secrets remains the per-app

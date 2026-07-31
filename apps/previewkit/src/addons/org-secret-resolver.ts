@@ -9,7 +9,8 @@ import type { BuildSecretSource } from "../secrets/build-secret-source";
  * (NeonProvider grabs `token`, etc.).
  *
  * Values come from `BuildSecretSource`, so this follows the same store the build
- * path does. The ARN on the row is passed along only as its AWS fallback.
+ * path does. The row is only checked for existence - it carries nothing the read
+ * needs.
  *
  * This sits parallel to the per-app `AwsExternalSecretManager` pipeline - same
  * JSON convention, different scope (org vs app) and different consumer (addon
@@ -36,7 +37,7 @@ export class OrgSecretResolver {
 
         const record = await this.prisma.previewkitOrgSecret.findUnique({
             where: { organizationId_name: { organizationId, name } },
-            select: { awsSecretArn: true },
+            select: { id: true },
         });
         if (record == null) {
             throw new Error(
@@ -45,6 +46,6 @@ export class OrgSecretResolver {
             );
         }
 
-        return this.secrets.forBundle({ kind: "org", organizationId, name }, record.awsSecretArn ?? undefined);
+        return this.secrets.forBundle({ kind: "org", organizationId, name });
     }
 }

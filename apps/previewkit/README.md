@@ -233,7 +233,7 @@ The reserved key set lives in `@autonoma/types` (`PREVIEWKIT_BUILTIN_ENV_VARS` /
 
 ## Secrets Management
 
-Every user-typed variable is a secret. Secrets are stored in AWS Secrets Manager, one bundle per (application, app) under the name `previewkit/{org-slug}/{application}/{app}`, and are never committed to your repository. At deploy time the External Secrets Operator mirrors each bundle into a Kubernetes Secret (`{app}-secrets`) in the preview namespace, which the app Deployment mounts via `envFrom`. Build-time secrets (the keys listed in `build_secrets`) are fetched straight from AWS Secrets Manager and passed as Docker build args.
+Every user-typed variable is a secret. Secrets are stored encrypted in the platform's database, one bundle per (application, app), and are never committed to your repository. At deploy time each bundle is written into a Kubernetes Secret (`{app}-secrets`) in the preview namespace, which the app Deployment mounts via `envFrom`. Build-time secrets (the keys listed in `build_secrets`) are read from the same store and passed as Docker build args.
 
 At deploy time, connections are resolved and injected as pod env, layered on top of the secret bundle. A connection wins over a stored secret of the same key, so it is the override channel for preview-infrastructure wiring while API keys stay in the secret store:
 

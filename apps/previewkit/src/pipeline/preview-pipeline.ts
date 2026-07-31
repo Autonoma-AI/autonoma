@@ -71,7 +71,7 @@ const HOOK_WARNING_MAX_CHARS = 300;
 interface AppBuildContext {
     config: PreviewConfig;
     appRepoDirs: Map<string, string>;
-    arnByApp: Map<string, string | undefined>;
+    secretApps: Set<string>;
     applicationId: string;
     envInjector: EnvInjector;
     namespace: string;
@@ -539,20 +539,19 @@ export class PreviewPipeline {
                     applicationId: application.id,
                     appName: { in: mergedConfig.apps.map((app) => app.name) },
                 },
-                select: { appName: true, awsSecretArn: true },
+                select: { appName: true },
             });
-            // Presence means "this app has a registered secret bundle"; the value is the
-            // legacy AWS ARN, absent for anything registered since Postgres became the
-            // store, and only ever used as a fallback.
-            const arnByApp = new Map<string, string | undefined>();
-            for (const s of secretRecords) arnByApp.set(s.appName, s.awsSecretArn ?? undefined);
+            // Which of this deploy's apps have a registered secret bundle. Only presence
+            // matters now: the values come from the bundle itself, not from anything on
+            // the row.
+            const secretApps = new Set(secretRecords.map((record) => record.appName));
             logger.info("Build step 6/7 building images for all apps", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
                 applicationId: application.id,
                 apps: mergedConfig.apps.map((a) => a.name),
-                registeredSecretApps: [...arnByApp.keys()].sort(),
+                registeredSecretApps: [...secretApps].sort(),
             });
             const appBuilds = await this.buildAllApps(
                 mergedConfig,
@@ -560,7 +559,7 @@ export class PreviewPipeline {
                 repoFullName,
                 prNumber,
                 shortSha,
-                arnByApp,
+                secretApps,
                 application.id,
                 addonOutputs,
                 signal,
@@ -1445,7 +1444,7 @@ export class PreviewPipeline {
         repoFullName: string,
         prNumber: number,
         shortSha: string,
-        arnByApp: Map<string, string | undefined>,
+        secretApps: Set<string>,
         applicationId: string,
         addonOutputs: AddonOutputs,
         signal?: AbortSignal,
@@ -1487,7 +1486,7 @@ export class PreviewPipeline {
                 const outcome = await this.buildOneApp(app, {
                     config,
                     appRepoDirs,
-                    arnByApp,
+                    secretApps,
                     applicationId,
                     envInjector,
                     namespace,
@@ -1569,8 +1568,8 @@ export class PreviewPipeline {
     private async buildOneApp(app: PreviewConfig["apps"][number], ctx: AppBuildContext): Promise<AppBuildOutcome> {
         const start = Date.now();
         try {
-            if (app.build_secrets.length > 0 && !ctx.arnByApp.has(app.name)) {
-                const registered = [...ctx.arnByApp.keys()].sort();
+            if (app.build_secrets.length > 0 && !ctx.secretApps.has(app.name)) {
+                const registered = [...ctx.secretApps].sort();
                 const registeredList = registered.length > 0 ? registered.join(", ") : "(none)";
                 throw new Error(
                     `App "${app.name}" declares build_secrets but no PreviewkitSecret row exists for it in this organization. ` +
@@ -1598,7 +1597,6 @@ export class PreviewPipeline {
                 app.build_secrets.length > 0
                     ? await this.buildSecrets.forKeys(
                           { kind: "app", applicationId: ctx.applicationId, appName: app.name },
-                          ctx.arnByApp.get(app.name),
                           app.build_secrets,
                       )
                     : {};
