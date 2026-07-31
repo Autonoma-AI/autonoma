@@ -275,7 +275,7 @@ const result = await generator.generate({
 });
 ```
 
-Video input is supported for models that handle it (checked via `modelSupportsVideo`). Videos are uploaded through the Google GenAI Files API via `VideoProcessor`.
+Video capability is declared by the registry entry: one that can take video declares a `createUploader`, and `ModelRegistry.getVideoModel` returns the model paired with it. Google entries upload through the GenAI Files API (`VideoProcessor`); OpenRouter-routed entries inline the recording as base64 mp4 (`InlineMp4VideoUploader`). Either way the caller passes the resulting `UploadedVideo` as `video` and never handles transport itself.
 
 If generation fails after all retries, an `ObjectGenerationFailedError` is thrown wrapping the original error.
 

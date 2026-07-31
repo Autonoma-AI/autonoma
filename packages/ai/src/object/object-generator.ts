@@ -5,7 +5,6 @@ import type z from "zod";
 import { AI_REQUEST_TIMEOUT_MS } from "../constants";
 import type { LanguageModel } from "../registry/model-registry";
 import { type ObjectGenerationParams, buildMessages } from "./build-messages";
-import { InvalidVideoInputError, modelSupportsVideo } from "./video/video-input";
 
 export interface ObjectGeneratorConfig<TResult> {
     model: LanguageModel;
@@ -32,8 +31,6 @@ export class ObjectGenerator<TResult> {
 
     async generate(params: ObjectGenerationParams): Promise<TResult> {
         const { model, systemPrompt, schema, tools } = this.config;
-
-        if (params.video != null && !modelSupportsVideo(model)) throw new InvalidVideoInputError();
 
         const operation = async () => {
             const generationResult = await generateText({

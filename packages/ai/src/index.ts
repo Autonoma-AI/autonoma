@@ -21,7 +21,7 @@ export {
     VideoUploadFailedError,
     MalformedVideoUploadResultError,
 } from "./object/video/video-processor";
-export { type VideoInput, InvalidVideoInputError } from "./object/video/video-input";
+export { type VideoInput } from "./object/video/video-input";
 export { InlineMp4VideoUploader } from "./object/video/inline-mp4-video-uploader";
 export { AssertionSplitter } from "./text/assertion-splitter";
 
