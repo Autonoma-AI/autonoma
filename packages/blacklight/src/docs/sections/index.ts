@@ -8,7 +8,6 @@ import { BordersSection } from "./borders";
 import { BrailleSpinnerSection } from "./braille-spinner";
 import { ButtonSection } from "./button";
 import { CardSection } from "./card";
-import { ChartsSection } from "./charts";
 import { CheckboxSection } from "./checkbox";
 import { ColorsSection } from "./colors";
 import { DataTableSection } from "./data-table";
@@ -49,7 +48,6 @@ export const PAGE_COMPONENTS: Record<PageId, () => React.JSX.Element> = {
     badge: BadgeSection,
     button: ButtonSection,
     card: CardSection,
-    charts: ChartsSection,
     checkbox: CheckboxSection,
     "data-table": DataTableSection,
     dialog: DialogSection,

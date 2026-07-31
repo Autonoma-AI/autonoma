@@ -17,7 +17,7 @@ function readApiPort(): string {
 
 // Framework core that loads on every route. Isolating it into stable, long-cached
 // vendor chunks means an app-code deploy doesn't force browsers to re-download it.
-// Route-specific libs (recharts, react-markdown, ...) are intentionally left out so
+// Route-specific libs (react-markdown, ...) are intentionally left out so
 // TanStack Router's autoCodeSplitting can keep them in their per-route chunks.
 //
 // The substring checks assume the resolved module path contains "node_modules/<pkg>/".

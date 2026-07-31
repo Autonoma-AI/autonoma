@@ -36,15 +36,6 @@ export {
     cardVariants,
 } from "./components/ui/card";
 export {
-    ChartContainer,
-    ChartTooltip,
-    ChartTooltipContent,
-    ChartLegend,
-    ChartLegendContent,
-    ChartStyle,
-    type ChartConfig,
-} from "./components/ui/chart";
-export {
     DataTable,
     DataTableHead,
     DataTableBody,

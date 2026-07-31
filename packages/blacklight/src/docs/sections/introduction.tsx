@@ -61,7 +61,6 @@ export function IntroductionSection() {
           { label: "Primitives", value: "Base UI (Radix)" },
           { label: "Variants", value: "CVA" },
           { label: "Icons", value: "Phosphor Icons" },
-          { label: "Charts", value: "Recharts" },
           { label: "Fonts", value: "DM Sans + Geist Mono" },
           { label: "Module", value: "ESM-only" },
           { label: "TypeScript", value: "Strict mode" },
@@ -75,7 +74,7 @@ export function IntroductionSection() {
 
       <SubTitle>Component Inventory</SubTitle>
       <Paragraph>
-        Blacklight ships 17 production-ready components. Every component uses CVA for variant management and CSS custom
+        Blacklight ships 16 production-ready components. Every component uses CVA for variant management and CSS custom
         properties for theme-aware styling.
       </Paragraph>
       <div className="my-4 flex flex-wrap gap-2">
@@ -96,7 +95,6 @@ export function IntroductionSection() {
           "Metric Card",
           "Sparkline",
           "Status Dot",
-          "Chart",
         ].map((c) => (
           <span
             key={c}

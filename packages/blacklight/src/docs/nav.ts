@@ -27,7 +27,6 @@ export type PageId =
     | "tooltip"
     | "data-table"
     | "diff"
-    | "charts"
     | "dialog"
     | "dropdown-menu"
     | "drawer"
@@ -56,7 +55,6 @@ export const NAV_SECTIONS: { label: string; items: { id: PageId; label: string }
             { id: "badge", label: "Badge" },
             { id: "button", label: "Button" },
             { id: "card", label: "Card" },
-            { id: "charts", label: "Charts" },
             { id: "checkbox", label: "Checkbox" },
             { id: "data-table", label: "Data Table" },
             { id: "dialog", label: "Dialog" },

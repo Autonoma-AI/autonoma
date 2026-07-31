@@ -20,26 +20,12 @@ import { Shield } from "@phosphor-icons/react/Shield";
 import { Terminal } from "@phosphor-icons/react/Terminal";
 import { Timer } from "@phosphor-icons/react/Timer";
 import { Warning } from "@phosphor-icons/react/Warning";
-import { Area, AreaChart, Bar, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts";
 import { Logo } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardLabel, CardMeta, CardValue } from "@/components/ui/card";
-import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import {
-  DataTable,
-  DataTableBody,
-  DataTableCell,
-  DataTableHead,
-  DataTableHeaderCell,
-  DataTableRow,
-} from "@/components/ui/data-table";
-import { MetricCard, MetricLabel, MetricTrend, MetricUnit, MetricValue } from "@/components/ui/metric-card";
-import { Panel, PanelBody, PanelHeader, PanelTitle } from "@/components/ui/panel";
 import { Progress, ProgressLabel, ProgressValue } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import { Sparkline } from "@/components/ui/sparkline";
-import { StatusDot } from "@/components/ui/status-dot";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
@@ -109,7 +95,7 @@ function SlideCover() {
         </div>
         <div className="flex flex-col gap-1 text-right">
           <span>FILE: BL_ID_SYS_v2.4.obj</span>
-          <span>SLIDE_01/09</span>
+          <span>SLIDE_01/07</span>
         </div>
       </header>
       <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center">
@@ -174,7 +160,7 @@ function SlideLogoShowcase() {
     <section className="relative flex h-screen w-full snap-start snap-always flex-col overflow-hidden bg-background p-8">
       <GridOverlay />
       <CornerMarks />
-      <SlideHeader title="1.0 // LOGO SYSTEM" slideNum={2} total={8} />
+      <SlideHeader title="1.0 // LOGO SYSTEM" slideNum={2} total={7} />
       <div className="relative z-10 my-auto flex w-full flex-col gap-10">
         {/* Top row - primary variants */}
         <div className="flex items-start justify-center gap-5">
@@ -275,7 +261,7 @@ function SlideColorSystem() {
     <section className="relative flex h-screen w-full snap-start snap-always flex-col overflow-hiddenbg-background p-8">
       <GridOverlay />
       <CornerMarks />
-      <SlideHeader title="2.0 // COLOR SYSTEM" slideNum={3} total={8} />
+      <SlideHeader title="2.0 // COLOR SYSTEM" slideNum={3} total={7} />
       <div className="relative z-10 flex w-full flex-1 flex-col gap-4">
         <div className="grid h-3/4 grid-cols-5 gap-4">
           <ColorSwatch
@@ -366,7 +352,7 @@ function SlideTypography() {
     <section className="relative flex h-screen w-full snap-start snap-always flex-col overflow-hiddenbg-surface-raised p-8">
       <GridOverlay opacity="opacity-30" />
       <CornerMarks />
-      <SlideHeader title="3.0 // TYPOGRAPHY SYSTEM" slideNum={4} total={8} />
+      <SlideHeader title="3.0 // TYPOGRAPHY SYSTEM" slideNum={4} total={7} />
       <div className="relative z-10 grid w-full flex-1 grid-cols-2 gap-8">
         {/* DM Sans */}
         <Card className="flex flex-col p-8">
@@ -499,7 +485,7 @@ function SlideLogoUsage() {
     <section className="relative flex h-screen w-full snap-start snap-always flex-col overflow-hiddenbg-background p-8">
       <GridOverlay />
       <CornerMarks />
-      <SlideHeader title="4.0 // LOGO USAGE & INTEGRITY" slideNum={5} total={8} />
+      <SlideHeader title="4.0 // LOGO USAGE & INTEGRITY" slideNum={5} total={7} />
       <div className="relative z-10 flex w-full flex-1 flex-col gap-6 overflow-hidden">
         {/* Clear space demo */}
         <div className="flex h-1/2 w-full border border-border-mid bg-background">
@@ -644,7 +630,7 @@ function SlideIcons() {
     <section className="relative flex h-screen w-full snap-start snap-always flex-col overflow-hidden bg-background p-8">
       <GridOverlay />
       <CornerMarks />
-      <SlideHeader title="5.0 // ICONS & ICONOGRAPHY" slideNum={6} total={8} />
+      <SlideHeader title="5.0 // ICONS & ICONOGRAPHY" slideNum={6} total={7} />
       <div className="relative z-10 flex w-full flex-1 flex-col gap-8 overflow-hidden">
         {/* Icon catalog grid */}
         <div className="flex flex-col gap-4">
@@ -767,291 +753,6 @@ function SlideIcons() {
 }
 
 /* ═══════════════════════════════════════════
-   SLIDE 8 - Data Components
-   ═══════════════════════════════════════════ */
-
-const NODE_DATA = [
-  { id: "EU-WEST-01", status: "success" as const, cpu: 42.5, spark: [15, 12, 16, 8, 10, 4, 6] },
-  { id: "US-EAST-04", status: "warn" as const, cpu: 78.2, spark: [20, 18, 10, 12, 5, 2, 4] },
-  { id: "AP-SOUTH-02", status: "success" as const, cpu: 31.0, spark: [10, 12, 11, 9, 10, 11, 10] },
-  { id: "US-WEST-01", status: "critical" as const, cpu: 94.8, spark: [15, 8, 10, 4, 2, 0, 1] },
-  { id: "EU-CENT-03", status: "success" as const, cpu: 55.1, spark: [10, 15, 8, 12, 6, 8, 5] },
-];
-
-function cpuColor(cpu: number): string | undefined {
-  if (cpu >= 90) return "var(--status-critical)";
-  if (cpu >= 70) return "var(--status-warn)";
-  return undefined;
-}
-
-function sparkColor(status: "success" | "warn" | "critical" | "neutral"): string {
-  if (status === "critical") return "var(--status-critical)";
-  if (status === "warn") return "var(--status-warn)";
-  return "var(--text-secondary)";
-}
-
-/* ═══════════════════════════════════════════
-   Chart data & config (used in combined slide)
-   ═══════════════════════════════════════════ */
-
-const CHART_TRAFFIC = [
-  { time: "00:00", ingress: 120, egress: 150 },
-  { time: "06:00", ingress: 110, egress: 160 },
-  { time: "12:00", ingress: 160, egress: 130 },
-  { time: "18:00", ingress: 140, egress: 140 },
-  { time: "24:00", ingress: 170, egress: 120 },
-];
-
-const CHART_ERRORS = [
-  { time: "T-8H", requests: 80, errors: 5 },
-  { time: "T-6H", requests: 130, errors: 18 },
-  { time: "T-4H", requests: 110, errors: 14 },
-  { time: "T-2H", requests: 140, errors: 30 },
-  { time: "NOW", requests: 125, errors: 40 },
-];
-
-const trafficConfig = {
-  ingress: { label: "Ingress", color: "var(--chart-1)" },
-  egress: { label: "Egress", color: "var(--chart-2)" },
-} satisfies ChartConfig;
-
-const errorConfig = {
-  requests: { label: "Requests", color: "var(--border-mid)" },
-  errors: { label: "Errors", color: "var(--chart-3)" },
-} satisfies ChartConfig;
-
-const AXIS_TICK = {
-  fill: "var(--text-tertiary)",
-  fontFamily: "var(--font-mono)",
-  fontSize: 9,
-};
-
-function SlideDataAndCharts() {
-  return (
-    <section className="relative flex h-screen w-full snap-start snap-always flex-col overflow-hidden bg-background p-8">
-      <GridOverlay />
-      <CornerMarks />
-      <SlideHeader title="6.0 // DATA & CHARTS" slideNum={7} total={8} />
-      <div className="relative z-10 flex w-full flex-1 flex-col gap-4 overflow-hidden">
-        {/* Metric cards row */}
-        <div className="grid grid-cols-4 gap-4">
-          <MetricCard>
-            <MetricLabel>
-              <span>Total Throughput</span>
-              <MetricTrend direction="up" value="14.2%" />
-            </MetricLabel>
-            <MetricValue>
-              842,091
-              <MetricUnit>REQ</MetricUnit>
-            </MetricValue>
-          </MetricCard>
-          <MetricCard>
-            <MetricLabel>
-              <span>Avg Latency (P99)</span>
-              <MetricTrend direction="down" value="2.1%" />
-            </MetricLabel>
-            <MetricValue className="text-status-critical">
-              124
-              <MetricUnit>MS</MetricUnit>
-            </MetricValue>
-          </MetricCard>
-          <MetricCard>
-            <MetricLabel>
-              <span>Active Nodes</span>
-              <MetricTrend direction="neutral" value="0.0%" />
-            </MetricLabel>
-            <MetricValue>
-              48
-              <MetricUnit>/50</MetricUnit>
-            </MetricValue>
-          </MetricCard>
-          <MetricCard>
-            <MetricLabel>
-              <span>Error Rate</span>
-              <MetricTrend direction="up" value="3.8%" />
-            </MetricLabel>
-            <MetricValue className="text-status-warn">
-              2.4
-              <MetricUnit>%</MetricUnit>
-            </MetricValue>
-          </MetricCard>
-        </div>
-
-        {/* Middle row: Area chart + DataTable */}
-        <div className="grid flex-1 grid-cols-12 gap-4">
-          <Panel className="col-span-7">
-            <PanelHeader>
-              <PanelTitle>Network Ingress/Egress</PanelTitle>
-              <Tabs defaultValue="24h">
-                <TabsList variant="line">
-                  <TabsTrigger value="1h">1H</TabsTrigger>
-                  <TabsTrigger value="24h">24H</TabsTrigger>
-                  <TabsTrigger value="7d">7D</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </PanelHeader>
-            <PanelBody>
-              <ChartContainer config={trafficConfig} className="aspect-auto h-40 w-full">
-                <AreaChart data={CHART_TRAFFIC} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                  <defs>
-                    <linearGradient id="pres-grad-ingress" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--color-ingress)" stopOpacity={0.3} />
-                      <stop offset="100%" stopColor="var(--color-ingress)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="2 4" stroke="var(--border-dim)" vertical={false} />
-                  <XAxis dataKey="time" tick={AXIS_TICK} axisLine={false} tickLine={false} />
-                  <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} width={32} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Area
-                    type="monotone"
-                    dataKey="ingress"
-                    stroke="var(--color-ingress)"
-                    strokeWidth={2}
-                    fill="url(#pres-grad-ingress)"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="egress"
-                    stroke="var(--color-egress)"
-                    strokeWidth={1.5}
-                    strokeDasharray="4 4"
-                    fill="none"
-                  />
-                </AreaChart>
-              </ChartContainer>
-            </PanelBody>
-          </Panel>
-
-          <Panel className="col-span-5">
-            <PanelHeader>
-              <PanelTitle>Node Status</PanelTitle>
-              <span className="font-mono text-4xs uppercase tracking-widest text-text-tertiary">TOP 5 BY LOAD</span>
-            </PanelHeader>
-            <PanelBody className="pt-0">
-              <DataTable>
-                <DataTableHead>
-                  <tr>
-                    <DataTableHeaderCell>Status</DataTableHeaderCell>
-                    <DataTableHeaderCell>Node_ID</DataTableHeaderCell>
-                    <DataTableHeaderCell>CPU_%</DataTableHeaderCell>
-                    <DataTableHeaderCell align="right">Trend</DataTableHeaderCell>
-                  </tr>
-                </DataTableHead>
-                <DataTableBody>
-                  {NODE_DATA.map((node) => (
-                    <DataTableRow key={node.id}>
-                      <DataTableCell>
-                        <StatusDot status={node.status} />
-                      </DataTableCell>
-                      <DataTableCell>{node.id}</DataTableCell>
-                      <DataTableCell style={cpuColor(node.cpu) != null ? { color: cpuColor(node.cpu) } : undefined}>
-                        {node.cpu.toFixed(1)}
-                      </DataTableCell>
-                      <DataTableCell align="right">
-                        <Sparkline data={node.spark} color={sparkColor(node.status)} />
-                      </DataTableCell>
-                    </DataTableRow>
-                  ))}
-                </DataTableBody>
-              </DataTable>
-            </PanelBody>
-          </Panel>
-        </div>
-
-        {/* Bottom row: Composed chart + chart tokens + component inventory */}
-        <div className="grid grid-cols-12 gap-4">
-          <Panel className="col-span-6">
-            <PanelHeader>
-              <PanelTitle>Errors vs Requests</PanelTitle>
-              <div className="flex items-center gap-4 font-mono text-3xs uppercase text-text-secondary">
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block h-2 w-1 bg-border-mid" />
-                  Req
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="inline-block h-0.5 w-2 bg-status-high" />
-                  Err
-                </span>
-              </div>
-            </PanelHeader>
-            <PanelBody>
-              <ChartContainer config={errorConfig} className="aspect-auto h-32 w-full">
-                <ComposedChart data={CHART_ERRORS} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                  <CartesianGrid strokeDasharray="2 4" stroke="var(--border-dim)" vertical={false} />
-                  <XAxis dataKey="time" tick={AXIS_TICK} axisLine={false} tickLine={false} />
-                  <YAxis tick={AXIS_TICK} axisLine={false} tickLine={false} width={32} />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Bar
-                    dataKey="requests"
-                    fill="var(--color-requests)"
-                    opacity={0.5}
-                    activeBar={{ opacity: 0.8 }}
-                    radius={0}
-                    barSize={10}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="errors"
-                    stroke="var(--color-errors)"
-                    strokeWidth={2}
-                    dot={false}
-                    activeDot={{ r: 3, stroke: "var(--color-errors)", fill: "var(--surface-void)" }}
-                  />
-                </ComposedChart>
-              </ChartContainer>
-            </PanelBody>
-          </Panel>
-
-          <div className="col-span-3 flex flex-col gap-4">
-            <Card className="flex-1 p-4">
-              <h4 className="mb-3 font-mono text-3xs font-bold uppercase tracking-widest text-text-tertiary">
-                Chart Color Tokens
-              </h4>
-              <div className="flex flex-col gap-2">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <div key={n} className="flex items-center gap-2">
-                    <div className="size-3" style={{ backgroundColor: `var(--chart-${n})` }} />
-                    <span className="font-mono text-3xs text-text-secondary">--chart-{n}</span>
-                  </div>
-                ))}
-              </div>
-            </Card>
-          </div>
-
-          <div className="col-span-3 flex flex-col gap-4">
-            <Card className="flex-1 p-4">
-              <h4 className="mb-3 font-mono text-3xs font-bold uppercase tracking-widest text-text-tertiary">
-                Components Used
-              </h4>
-              <div className="flex flex-col gap-1.5 font-mono text-3xs text-text-secondary">
-                <div className="flex items-center gap-2">
-                  <StatusDot status="success" />
-                  <span>StatusDot + Sparkline</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StatusDot status="warn" />
-                  <span>MetricCard + Panel</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <StatusDot status="neutral" />
-                  <span>DataTable + Chart</span>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center gap-3">
-                <Sparkline data={[4, 7, 3, 8, 5, 9, 6]} color="var(--primary)" filled className="h-4 w-12" />
-                <Sparkline data={[8, 6, 4, 3, 2, 1, 0]} color="var(--status-critical)" className="h-4 w-12" />
-              </div>
-            </Card>
-          </div>
-        </div>
-      </div>
-      <SlideFooter left="DATA_STACK: RECHARTS + SHADCN/UI + BLACKLIGHT" />
-    </section>
-  );
-}
-
-/* ═══════════════════════════════════════════
    SLIDE 10 - UI in the Wild
    ═══════════════════════════════════════════ */
 
@@ -1060,7 +761,7 @@ function SlideUIFragments() {
     <section className="relative flex h-screen w-full snap-start snap-always flex-col overflow-hiddenbg-background p-8">
       <GridOverlay />
       <CornerMarks />
-      <SlideHeader title="7.0 // SYSTEM IN THE WILD - UI FRAGMENTS" slideNum={8} total={8} />
+      <SlideHeader title="6.0 // SYSTEM IN THE WILD - UI FRAGMENTS" slideNum={7} total={7} />
       <div className="relative z-10 grid w-full flex-1 grid-cols-12 grid-rows-5 gap-3 overflow-hidden">
         {/* NAV SIDEBAR */}
         <div className="col-span-2 row-span-5 flex flex-col overflow-hidden border border-border-mid bg-surface-base">
@@ -1328,7 +1029,6 @@ export function Presentation() {
       <SlideTypography />
       <SlideLogoUsage />
       <SlideIcons />
-      <SlideDataAndCharts />
       <SlideUIFragments />
     </main>
   );

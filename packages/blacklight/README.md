@@ -42,7 +42,7 @@ function Example() {
 
 ### UI Primitives
 
-Button, Card, Dialog, Diff, Drawer, DropdownMenu, Popover, Select, Tabs, DataTable, SortableTable, Toast, Tooltip, Input, Textarea, Checkbox, Switch, Label, Badge, Alert, Progress, Separator, Skeleton, ScrollArea, MetricCard, Panel, Sparkline, StatusDot, AgentCube, ChartContainer, ScreenshotWithOverlay, VideoPlayer
+Button, Card, Dialog, Diff, Drawer, DropdownMenu, Popover, Select, Tabs, DataTable, SortableTable, Toast, Tooltip, Input, Textarea, Checkbox, Switch, Label, Badge, Alert, Progress, Separator, Skeleton, ScrollArea, MetricCard, Panel, Sparkline, StatusDot, AgentCube, ScreenshotWithOverlay, VideoPlayer
 
 `VideoPlayer` is the shared run-recording player: native controls plus a playback-speed selector, and - when an `optimizedSrc` (dead-time-stripped recording) is passed - an Optimized/Original toggle that defaults to the optimized recording.
 
