@@ -45,10 +45,4 @@ export {
     type ClassifierInputRow,
     type PinnedSourceForClassifier,
 } from "./queries/build-merge-classifier-inputs";
-export {
-    applyMergePlanImports,
-    type ApplyMergePlanImportsParams,
-    type AppliedMergePlanImport,
-    type MergePlanImport,
-} from "./queries/apply-merge-plan-imports";
 export { PLAN_AUTHORING_GUIDE } from "./plan-authoring/plan-authoring-guide";

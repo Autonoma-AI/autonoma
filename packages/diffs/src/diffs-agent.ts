@@ -39,9 +39,9 @@ export interface PreClassifiedConflictVersion {
  * agent ran. The agent receives these pre-marked as affected with
  * `affectedReason: "merge_conflict"` and only fills in the reasoning via the
  * `explain_merge_conflict` tool, using the provided legs for context. Tests
- * handled outside the agent (unilateral_update / new_test) are dispatched to
- * replay directly with `merge_plan_imported` and are intentionally not
- * included in `existingTests` for the agent-visible list.
+ * handled outside the agent (unilateral_update / new_test) have their winning
+ * plan imported into the run's snapshot, which queues their generation, and are
+ * intentionally not included in `existingTests` for the agent-visible list.
  */
 export interface PreClassifiedConflictInfo {
     slug: string;

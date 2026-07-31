@@ -23,17 +23,16 @@ export interface DiffsAnalysisResult {
 }
 
 /**
- * Analysis runner: runs the merge flow + DiffsAgent against the provided
- * codebase clone, then applies the result - mints the tests the agent authored
- * and queues a pending generation for each affected test. Both feed the
- * refinement loop's iteration 1 (which generates + heals them; there is no
- * replay step). Returns the reasoning + conversation URL for the activity to
- * record on the DiffsJob.
+ * Analysis runner: runs the DiffsAgent against the provided codebase clone, then
+ * applies the result - mints the tests the agent authored and queues a pending
+ * generation for each affected test. Both feed the refinement loop's iteration 1
+ * (which generates + heals them; there is no replay step). Returns the reasoning
+ * + conversation URL for the activity to record on the DiffsJob.
  */
 export async function runDiffsAnalysis({ snapshotId, codebase }: RunDiffsAnalysisParams): Promise<DiffsAnalysisResult> {
     logger.info("Starting diffs analysis");
 
-    const { agentInput, importedAffectedTests, branchData } = await assembleDiffsAgentInput({ snapshotId, codebase });
+    const { agentInput, branchData } = await assembleDiffsAgentInput({ snapshotId });
 
     const { result: agentResult, conversation } = await runDiffsAgent({ input: agentInput, codebase });
 
@@ -45,13 +44,9 @@ export async function runDiffsAnalysis({ snapshotId, codebase }: RunDiffsAnalysi
         logger: logger.child({ name: "uploadConversation" }),
     });
 
-    const combinedAffectedTests = combineAffectedTests(importedAffectedTests, agentResult.affectedTests);
-
     logger.info("Agent analysis complete, applying results", {
         extra: {
-            agentAffectedTests: agentResult.affectedTests.length,
-            importedAffectedTests: importedAffectedTests.length,
-            combined: combinedAffectedTests.length,
+            affectedTests: agentResult.affectedTests.length,
             createdTests: agentResult.createdTests.length,
         },
     });
@@ -71,7 +66,7 @@ export async function runDiffsAnalysis({ snapshotId, codebase }: RunDiffsAnalysi
         snapshotId,
         applicationId: branchData.applicationId,
         organizationId: branchData.organizationId,
-        affectedTests: combinedAffectedTests,
+        affectedTests: agentResult.affectedTests,
     });
 
     logger.info("Diffs analysis complete", {
@@ -79,15 +74,6 @@ export async function runDiffsAnalysis({ snapshotId, codebase }: RunDiffsAnalysi
     });
 
     return { reasoning: agentResult.reasoning, conversationUrl };
-}
-
-/** Merge the deterministically-imported affected tests with the agent's, deduping by slug (imports win). */
-function combineAffectedTests(imported: AffectedTest[], fromAgent: AffectedTest[]): AffectedTest[] {
-    const bySlug = new Map(imported.map((t) => [t.slug, t] as const));
-    for (const t of fromAgent) {
-        if (!bySlug.has(t.slug)) bySlug.set(t.slug, t);
-    }
-    return Array.from(bySlug.values());
 }
 
 interface CreateAuthoredTestsParams {

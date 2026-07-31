@@ -75,7 +75,9 @@ export {
 } from "./merge-classification";
 export {
     detectRelevantMerges,
+    isBaseAncestorOfHead,
     listCommitsInRange,
+    type AssociatedPullRequestsReader,
     type DetectMergesParams,
     type RelevantMerge,
 } from "./merge-detection";

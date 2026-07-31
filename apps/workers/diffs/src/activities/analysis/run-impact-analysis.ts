@@ -8,9 +8,9 @@ import { withCodebaseForSnapshot } from "../../codebase/resolve";
 /**
  * Impact Analysis stage. Fails fast unless the snapshot is `processing` (later stages read its frozen baseline
  * and stage edits onto it via SnapshotDraft, which requires `processing`) - the branch's real pending snapshot.
- * Then reuses the DiffsAgent to select the tests the PR's diff affects and author brand-new ones, materializing
- * each through the canonical update actions (see `selectImpactTargets`). Hands the resulting targets to the
- * Investigator fan-out and returns the agent's selection reasoning for the report.
+ * Then absorbs the merge flow on a main-branch run and reuses the DiffsAgent to select the tests the diff affects
+ * and author brand-new ones, materializing each through the canonical update actions (see `selectImpactTargets`).
+ * Hands the resulting targets to the Investigator fan-out and returns the agent's selection reasoning for the report.
  */
 export async function runImpactAnalysis(input: RunImpactAnalysisInput): Promise<RunImpactAnalysisOutput> {
     const { snapshotId } = input;

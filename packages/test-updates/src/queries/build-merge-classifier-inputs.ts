@@ -22,6 +22,8 @@ export interface ClassifierInputAssignment {
 
 export interface ClassifierInputRow {
     slug: string;
+    /** The application-scoped test case behind the slug - what the update actions the caller applies key on. */
+    testCaseId: string;
     testName: string;
     target: ClassifierInputAssignment | null;
     sources: Array<{
@@ -81,13 +83,10 @@ export async function buildMergeClassifierInputs({
     logger.info("Loaded assignments", { count: assignments.length });
 
     const bySnapshotAndSlug = new Map<string, Map<string, (typeof assignments)[number]>>();
-    const slugToName = new Map<string, string>();
     const sourceSnapshotIds = new Set(sources.map((s) => s.snapshotId));
-    const allSlugs = new Set<string>();
+    const classifiableTestCases = new Map<string, { id: string; name: string }>();
 
     for (const a of assignments) {
-        slugToName.set(a.testCase.slug, a.testCase.name);
-
         let perSnapshot = bySnapshotAndSlug.get(a.snapshotId);
         if (perSnapshot == null) {
             perSnapshot = new Map();
@@ -97,12 +96,12 @@ export async function buildMergeClassifierInputs({
 
         // Slugs that exist only in a base snapshot (not in target or any source) are not classifiable.
         if (a.snapshotId === targetSnapshotId || sourceSnapshotIds.has(a.snapshotId)) {
-            allSlugs.add(a.testCase.slug);
+            classifiableTestCases.set(a.testCase.slug, { id: a.testCase.id, name: a.testCase.name });
         }
     }
 
     const rows: ClassifierInputRow[] = [];
-    for (const slug of allSlugs) {
+    for (const [slug, testCase] of classifiableTestCases) {
         const targetAssignment = bySnapshotAndSlug.get(targetSnapshotId)?.get(slug);
         const target: ClassifierInputAssignment | null =
             targetAssignment != null ? { assignmentId: targetAssignment.id, planId: targetAssignment.planId } : null;
@@ -122,7 +121,8 @@ export async function buildMergeClassifierInputs({
 
         rows.push({
             slug,
-            testName: slugToName.get(slug) ?? slug,
+            testCaseId: testCase.id,
+            testName: testCase.name,
             target,
             sources: sourceLegs,
         });

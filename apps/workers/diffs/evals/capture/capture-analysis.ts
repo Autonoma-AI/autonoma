@@ -46,16 +46,16 @@ export async function captureAnalysis(params: CaptureAnalysisParams): Promise<st
     const githubApp = createGithubApp();
     const coords = await resolveSnapshotCoords(snapshotId, githubApp);
 
-    // Rehydrate through the same cache path the eval uses. This both validates
+    // Rehydrate through the same cache path the eval uses, which validates
     // SHA-fetchability (throws UnfetchableShaError on a dead SHA, so we never
-    // write an unrunnable case) and gives the merge flow a real working tree.
-    const codebase = await ensureCachedCheckout(coords, { githubApp });
+    // write an unrunnable case).
+    await ensureCachedCheckout(coords, { githubApp });
 
     // Use the *previous* snapshot's suite as the baseline: by capture time the
     // pipeline has already rewritten this snapshot's own assignments, so reading
     // them would not reflect what analysis actually saw. The previous snapshot
     // holds the unmutated baseline the production run started from.
-    const { agentInput } = await assembleDiffsAgentInput({ snapshotId, codebase, testSuiteSource: "previous" });
+    const { agentInput } = await assembleDiffsAgentInput({ snapshotId, testSuiteSource: "previous" });
     const frozenInput = serializeAnalysisInput(coords, agentInput);
 
     await mkdir(caseDir, { recursive: true });

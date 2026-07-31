@@ -110,7 +110,20 @@ describe("classifyTestsForMerge", () => {
             });
         });
 
-        it("case C: source lacks the test, main modified (absent_vs_edit collapsed in Phase 1)", () => {
+        it("removes the test when the source deleted it and main is untouched since base", () => {
+            const result = classifyOne({
+                slug: "a",
+                target: ref("t1", "plan-v1"),
+                sources: [source("feat", 1, null, ref("b1", "plan-v1"))],
+            });
+            expect(result).toEqual({
+                slug: "a",
+                kind: "unilateral_delete",
+                removedBy: { sourceName: "feat", prNumber: 1 },
+            });
+        });
+
+        it("case C: source deleted the test, main modified it - modify wins, so no delete", () => {
             const result = classifyOne({
                 slug: "a",
                 target: ref("t1", "plan-main2"),
@@ -258,6 +271,46 @@ describe("classifyTestsForMerge", () => {
             expect(result?.kind).toBe("conflict");
             if (result?.kind !== "conflict") throw new Error("not conflict");
             expect(result.involvedPrNumbers.sort()).toEqual([1, 2]);
+        });
+
+        it("removes the test when every source deleted it from the same base and main is untouched", () => {
+            const result = classifyOne({
+                slug: "a",
+                target: ref("t1", "plan-v1"),
+                sources: [
+                    source("feat-a", 1, null, ref("b1", "plan-v1")),
+                    source("feat-b", 2, null, ref("b2", "plan-v1")),
+                ],
+            });
+            expect(result).toEqual({
+                slug: "a",
+                kind: "unilateral_delete",
+                removedBy: { sourceName: "feat-a", prNumber: 1 },
+            });
+        });
+
+        it("does not remove the test when one source deleted it and another still assigns it plan-less", () => {
+            const result = classifyOne({
+                slug: "a",
+                target: ref("t1", "plan-v1"),
+                sources: [
+                    source("feat-a", 1, null, ref("b1", "plan-v1")),
+                    source("feat-b", 2, ref("s2", null), ref("b2", "plan-v1")),
+                ],
+            });
+            expect(result?.kind).toBe("conflict");
+        });
+
+        it("case C: one source deleted the test while another modified it", () => {
+            const result = classifyOne({
+                slug: "a",
+                target: ref("t1", "plan-v1"),
+                sources: [
+                    source("feat-a", 1, null, ref("b1", "plan-v1")),
+                    source("feat-b", 2, ref("s2", "plan-b"), ref("b2", "plan-v1")),
+                ],
+            });
+            expect(result?.kind).toBe("conflict");
         });
 
         it("case B: two sources agree on a new test with the same plan", () => {

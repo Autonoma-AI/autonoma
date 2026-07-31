@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
-import type { PrismaClient, TriggerSource } from "@autonoma/db";
+import type { Prisma, PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
-import type { AddTestParams, UpdateTestParams } from "./changes";
+import type { AddTestParams, ImportTestParams, UpdateTestParams } from "./changes";
 import { createBranchSnapshot } from "./queries/create-branch-snapshot";
 import { getChangesForSnapshot, type SnapshotChange } from "./queries/snapshot-changes";
 
@@ -325,16 +325,7 @@ export class SnapshotDraft {
         this.logger.info("Updating plan for test case", { testCaseId, scenarioId });
 
         const { planId } = await this.db.$transaction(async (tx) => {
-            this.logger.info("Creating plan record");
-
-            const { id: planId } = await tx.testPlan.create({
-                data: {
-                    testCaseId,
-                    prompt: plan,
-                    scenarioId,
-                    organizationId: this.organizationId,
-                },
-            });
+            const planId = await this.mintPlan(tx, { testCaseId, plan, scenarioId });
 
             this.logger.info("Updating test case assignment", { testCaseId });
             await tx.testCaseAssignment.update({
@@ -348,6 +339,47 @@ export class SnapshotDraft {
         this.logger.info("Plan updated for test case", { testCaseId });
 
         return { planId };
+    }
+
+    /**
+     * Assigns an existing test case to this snapshot with a freshly minted plan.
+     *
+     * Where `updatePlan` requires the snapshot to already assign the test, this creates that assignment - the
+     * merge-import case, where a test authored on a merged feature branch joins the target branch's suite for the
+     * first time. The plan is minted here rather than repointing at the source branch's plan record, so the two
+     * snapshots never share one mutable plan row.
+     */
+    public async importTestCase({ testCaseId, plan, scenarioId }: ImportTestParams) {
+        this.logger.info("Importing test case into snapshot", { testCaseId, scenarioId });
+
+        const { planId } = await this.db.$transaction(async (tx) => {
+            const planId = await this.mintPlan(tx, { testCaseId, plan, scenarioId });
+
+            this.logger.info("Creating test case assignment", { testCaseId });
+            await tx.testCaseAssignment.create({ data: { snapshotId: this.snapshotId, testCaseId, planId } });
+
+            return { planId };
+        });
+
+        this.logger.info("Test case imported into snapshot", { testCaseId, planId });
+
+        return { planId };
+    }
+
+    /** Creates a new plan record for a test case, owned by this draft's organization. */
+    private async mintPlan(tx: Prisma.TransactionClient, { testCaseId, plan, scenarioId }: UpdateTestParams) {
+        this.logger.info("Creating plan record", { testCaseId });
+
+        const { id: planId } = await tx.testPlan.create({
+            data: {
+                testCaseId,
+                prompt: plan,
+                scenarioId,
+                organizationId: this.organizationId,
+            },
+        });
+
+        return planId;
     }
 
     /**

@@ -23,6 +23,9 @@ export interface RelevantMerge {
     mergedAt?: string;
 }
 
+/** The single GitHub read merge detection needs, so callers (and tests) need not hold a full client. */
+export type AssociatedPullRequestsReader = Pick<GitHubInstallationClient, "getAssociatedPullRequests">;
+
 export interface DetectMergesParams {
     /**
      * Commit SHAs in the range `baseSha..headSha`, ordered newest-first (the
@@ -30,7 +33,7 @@ export interface DetectMergesParams {
      * via `listCommitsInRange`.
      */
     commits: string[];
-    githubClient: GitHubInstallationClient;
+    githubClient: AssociatedPullRequestsReader;
     owner: string;
     repo: string;
     /**
@@ -105,4 +108,27 @@ export async function listCommitsInRange(repoDir: string, baseSha: string, headS
         .trim()
         .split("\n")
         .filter((line) => line.length > 0);
+}
+
+/**
+ * Whether git can prove `baseSha` is an ancestor of `headSha` in this clone.
+ *
+ * The exact detector for a truncated {@link listCommitsInRange}: the clone is shallow with the base fetched as a
+ * separate graft, so once the base falls outside the graft `git log base..head` silently under-reports (returns
+ * some commits, not all) and merges in the missing span go undetected. Whenever that happens git also cannot
+ * connect the two commits, so a false answer here means the range is incomplete. Any git failure (a bad object,
+ * a missing SHA) answers false - the caller is deciding whether to trust the range, and an unverifiable range is
+ * exactly as untrustworthy as a disproven one.
+ */
+export async function isBaseAncestorOfHead(repoDir: string, baseSha: string, headSha: string): Promise<boolean> {
+    const logger = rootLogger.child({ name: "isBaseAncestorOfHead" });
+    try {
+        await execFileAsync("git", ["merge-base", "--is-ancestor", baseSha, headSha], { cwd: repoDir });
+        return true;
+    } catch (err) {
+        logger.debug("Base is not a provable ancestor of head in this clone", {
+            extra: { repoDir, baseSha, headSha, err },
+        });
+        return false;
+    }
 }

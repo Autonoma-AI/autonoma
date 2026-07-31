@@ -53,8 +53,14 @@ export type ConflictVersion =
  *   be adopted without re-planning.
  * - `new_test`: the test exists only on a source leg with no counterpart on
  *   the target. Adopt the source plan as a brand-new assignment on the target.
+ * - `unilateral_delete`: the test existed at the merge base, the source removed
+ *   it, and the target has not touched it since. The removal is the only edit,
+ *   so it propagates to the target.
  * - `conflict`: multiple sides modified the test in incompatible ways. Needs
- *   re-planning; the agent will receive every leg to produce a reasoning.
+ *   re-planning; the agent will receive every leg to produce a reasoning. A
+ *   removal on one side and an edit on the target lands here, which is what
+ *   makes delete-vs-modify resolve modify-wins: the target keeps its plan and
+ *   the removal is dropped.
  * - `no_change`: nothing to do - either nobody modified the test or every side
  *   converged on the same plan.
  */
@@ -70,6 +76,11 @@ export type Classification =
           kind: "new_test";
           newAssignment: AssignmentRef;
           winningFrom: { sourceName: string; prNumber: number };
+      }
+    | {
+          slug: string;
+          kind: "unilateral_delete";
+          removedBy: { sourceName: string; prNumber: number };
       }
     | {
           slug: string;
@@ -157,7 +168,11 @@ function classifyOneModifyingSource(slug: string, target: AssignmentRef, only: C
     }
     if (planIdsEqual(target.planId, basePlan(only))) {
         if (only.leg == null) {
-            return buildConflict(slug, target, [only]);
+            return {
+                slug,
+                kind: "unilateral_delete",
+                removedBy: { sourceName: only.sourceName, prNumber: only.prNumber },
+            };
         }
         return {
             slug,
@@ -187,6 +202,17 @@ function classifyManyModifyingSources(
         const targetEqualsBase = planIdsEqual(target.planId, modifyingSources[0]!.base?.planId ?? null);
         if (allSameBase && targetEqualsBase) {
             const first = modifyingSources[0]!;
+            // `allLegsAgree` compares plan ids, and an absent leg reads the same `null` as a leg that is still
+            // assigned with no active plan. Only "every source removed it" is a removal; a mix - where one source
+            // deleted the test and another still assigns it - is ambiguous and goes to the agent rather than
+            // dropping a test the merge still carries.
+            if (modifyingSources.every((source) => source.leg == null)) {
+                return {
+                    slug,
+                    kind: "unilateral_delete",
+                    removedBy: { sourceName: first.sourceName, prNumber: first.prNumber },
+                };
+            }
             if (first.leg == null) {
                 return buildConflict(slug, target, modifyingSources);
             }
@@ -254,6 +280,7 @@ function tallyByKind(results: Classification[]): Record<string, number> {
     const counts: Record<string, number> = {
         unilateral_update: 0,
         new_test: 0,
+        unilateral_delete: 0,
         conflict: 0,
         no_change: 0,
     };

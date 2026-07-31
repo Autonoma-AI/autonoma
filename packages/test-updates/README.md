@@ -30,6 +30,7 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 |-------------|-------------|
 | `AddTest` | Adds a test case with a plan and schedules generation |
 | `UpdateTest` | Updates the plan for an existing test case and queues regeneration |
+| `ImportTest` | Adopts an existing test case into the snapshot with a given plan and queues generation. The merge flow's counterpart to `UpdateTest`, for a test the snapshot does not assign yet (authored on a branch that merged in). Deliberately not `AddTest`: the `TestCase` already exists application-wide, and minting a second one would fork the test's identity |
 | `RemoveTest` | Removes a test case from the snapshot |
 | `RegenerateSteps` | Queues a new generation for a test case's existing plan |
 | `DiscardChange` | Reverts a test case to its previous snapshot state |

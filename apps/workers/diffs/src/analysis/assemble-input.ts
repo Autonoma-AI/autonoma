@@ -1,16 +1,9 @@
 import { db } from "@autonoma/db";
-import {
-    type AffectedTest,
-    type Codebase,
-    type DiffsAgentInput,
-    resolveScenarioRecipesForSnapshot,
-} from "@autonoma/diffs";
-import type { GitHubInstallationClient } from "@autonoma/github";
+import { type DiffsAgentInput, resolveScenarioRecipesForSnapshot } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
 import { type TestSuiteInfo, fetchTestSuiteInfo } from "@autonoma/test-updates";
 import { createGithubApp } from "../create-services";
 import { type BranchData, loadBranchData, loadDiffsContext } from "./load-context";
-import { runMergeFlow } from "./merge-flow";
 
 /**
  * Which snapshot's test suite to treat as the analysis baseline.
@@ -30,20 +23,12 @@ export type DiffsAgentInputWithoutCodebase = Omit<DiffsAgentInput, "codebase">;
 export interface AssembledDiffsAgentInput {
     /** Everything the {@link DiffsAgent} needs except the codebase clone. */
     agentInput: DiffsAgentInputWithoutCodebase;
-    /**
-     * Affected tests deterministically imported from the merge flow (empty for
-     * non-merge runs). The runner combines these with the agent's output before
-     * preparing replays; capture ignores them.
-     */
-    importedAffectedTests: AffectedTest[];
     /** Branch/application/org context, needed downstream for persistence and replay preparation. */
     branchData: BranchData;
 }
 
 export interface AssembleDiffsAgentInputParams {
     snapshotId: string;
-    /** The on-disk clone (at base + head SHAs). The merge flow operates on this tree. */
-    codebase: Codebase;
     /**
      * Which snapshot's suite to use as the analysis baseline. Defaults to
      * "current" (correct + cheap at production analysis time). Capture passes
@@ -55,20 +40,20 @@ export interface AssembleDiffsAgentInputParams {
 
 /**
  * Loads and assembles the full {@link DiffsAgentInput} (minus the codebase) for
- * a snapshot: branch data, suite/flow context, and the optional merge flow.
+ * a snapshot: branch data plus suite/flow context.
  *
- * This is the shared, DB-backed side-input loader used by both the production
- * analysis runner and the eval-capture utility - capture freezes the assembled
- * input to disk, the runner feeds it straight to the agent. Keeping it in one
- * place guarantees the captured fixture matches what production actually runs.
+ * This is the DB-backed side-input loader behind the retired diffs analysis
+ * runner and the eval-capture utility - capture freezes the assembled input to
+ * disk, the runner feeds it straight to the agent.
  *
  * It reads the snapshot directly and never opens a `TestSuiteUpdater`: the
  * updater only loads *pending* snapshots, but capture targets finalized (active)
  * ones, and analysis here only needs to read the snapshot's data, not mutate it.
+ * The merge flow is therefore not run here - it writes to the suite, and its home
+ * is the Impact Analysis stage (`selectImpactTargets`).
  */
 export async function assembleDiffsAgentInput({
     snapshotId,
-    codebase,
     testSuiteSource = "current",
 }: AssembleDiffsAgentInputParams): Promise<AssembledDiffsAgentInput> {
     logger.info("Assembling diffs agent input", { extra: { snapshotId, testSuiteSource } });
@@ -85,28 +70,12 @@ export async function assembleDiffsAgentInput({
         );
     }
 
-    const githubApp = createGithubApp();
-
-    const branchData = await loadBranchData(branchId, githubApp);
+    const branchData = await loadBranchData(branchId, createGithubApp());
     logger.info("Loaded branch data", { extra: { fullName: branchData.fullName } });
-
-    const githubClient = await githubApp.getInstallationClient(Number(branchData.installationId));
 
     const suiteInfo = await loadBaselineSuiteInfo(snapshotId, prevSnapshotId, testSuiteSource);
     const { metadata } = await loadDiffsContext(branchData.applicationId, suiteInfo, headSha, baseSha);
     logger.info("Loaded diffs context", { extra: { existingTests: metadata.existingTests.length } });
-
-    const mergeResult = await runOptionalMergeFlow({
-        branchData,
-        githubClient,
-        repoDir: codebase.root,
-        baseSha,
-        headSha,
-        snapshotId,
-    });
-
-    const importedSlugs = new Set(mergeResult.importedAffectedTests.map((t) => t.slug));
-    const existingTests = metadata.existingTests.filter((t) => !importedSlugs.has(t.slug));
 
     // Recipe templates for the scenarios the in-scope tests reference, sourced
     // from each scenario's point-in-time recipe version for the *same* snapshot
@@ -116,18 +85,12 @@ export async function assembleDiffsAgentInput({
     const scenarioRecipes = await resolveScenarioRecipesForSnapshot(
         db,
         baselineSnapshotId,
-        collectInScopeScenarioIds(suiteInfo, existingTests),
+        collectInScopeScenarioIds(suiteInfo, metadata.existingTests),
     );
 
-    const agentInput: DiffsAgentInputWithoutCodebase = {
-        ...metadata,
-        existingTests,
-        merges: mergeResult.merges,
-        preClassifiedConflicts: mergeResult.preClassifiedConflicts,
-        scenarioRecipes,
-    };
+    const agentInput: DiffsAgentInputWithoutCodebase = { ...metadata, scenarioRecipes };
 
-    return { agentInput, importedAffectedTests: mergeResult.importedAffectedTests, branchData };
+    return { agentInput, branchData };
 }
 
 /**
@@ -175,7 +138,7 @@ function resolveBaselineSnapshotId(snapshotId: string, prevSnapshotId: string | 
  * Distinct scenario ids referenced by the tests actually in the agent's scope.
  * Reads the slug -> scenario mapping off the raw suite (which carries the plan's
  * `scenarioId`, dropped by `mapTestSuiteToContext`), restricted to the in-scope
- * slugs so merge-imported tests don't drag in extra recipes.
+ * slugs.
  */
 function collectInScopeScenarioIds(suiteInfo: TestSuiteInfo, inScopeTests: ReadonlyArray<{ slug: string }>): string[] {
     const inScopeSlugs = new Set(inScopeTests.map((test) => test.slug));
@@ -186,48 +149,4 @@ function collectInScopeScenarioIds(suiteInfo: TestSuiteInfo, inScopeTests: Reado
         if (scenarioId != null) scenarioIds.add(scenarioId);
     }
     return [...scenarioIds];
-}
-
-interface OptionalMergeFlowParams {
-    branchData: BranchData;
-    githubClient: GitHubInstallationClient;
-    repoDir: string;
-    baseSha: string;
-    headSha: string;
-    snapshotId: string;
-}
-
-async function runOptionalMergeFlow({
-    branchData,
-    githubClient,
-    repoDir,
-    baseSha,
-    headSha,
-    snapshotId,
-}: OptionalMergeFlowParams) {
-    if (!branchData.isMainBranch) {
-        logger.info(
-            "Branch is not the application main branch; skipping merge flow (Phase 1 only handles feat/x -> main)",
-        );
-        return { merges: [], preClassifiedConflicts: [], importedAffectedTests: [] };
-    }
-
-    const [owner, repo] = branchData.fullName.split("/");
-    if (owner == null || repo == null) {
-        logger.warn("Unexpected fullName format; skipping merge flow", { fullName: branchData.fullName });
-        return { merges: [], preClassifiedConflicts: [], importedAffectedTests: [] };
-    }
-
-    return await runMergeFlow({
-        db,
-        githubClient,
-        owner,
-        repo,
-        targetBranchRef: branchData.defaultBranch,
-        baseSha,
-        headSha,
-        repoDir,
-        targetSnapshotId: snapshotId,
-        applicationId: branchData.applicationId,
-    });
 }

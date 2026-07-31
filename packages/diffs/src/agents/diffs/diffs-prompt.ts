@@ -97,7 +97,7 @@ Identify which existing tests MIGHT be affected by the code changes. Use \`list_
 
 Tests listed under "Pre-classified merge conflicts" are already recorded with \`affectedReason: merge_conflict\`; for each of them call \`explain_merge_conflict\` with a reasoning that explains how the plans diverge. Do NOT call \`mark_affected_test\` for those slugs.
 
-Tests whose plans were imported from a merge source (\`merge_plan_imported\`) are handled deterministically outside the agent and are intentionally excluded from the Existing Tests list. Do not try to rediscover them.
+Tests whose plans were imported from a merge source are handled deterministically outside the agent and are intentionally excluded from the Existing Tests list. Do not try to rediscover them.
 
 Consider a test affected if the diff:
 - Changes UI elements or flows the test exercises

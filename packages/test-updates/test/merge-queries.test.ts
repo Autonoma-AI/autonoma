@@ -1,6 +1,5 @@
 import type { PrismaClient } from "@autonoma/db";
 import { expect } from "vitest";
-import { applyMergePlanImports } from "../src/queries/apply-merge-plan-imports";
 import { buildMergeClassifierInputs } from "../src/queries/build-merge-classifier-inputs";
 import { findMergeSourceSnapshot } from "../src/queries/find-merge-source-snapshot";
 import { testUpdateSuite } from "./harness";
@@ -338,118 +337,6 @@ testUpdateSuite({
             expect(rows).toHaveLength(1);
             expect(rows[0]!.sources[0]!.base).toBeNull();
             expect(rows[0]!.sources[0]!.leg?.planId).toBe(featPlan);
-        });
-    },
-});
-
-testUpdateSuite({
-    name: "applyMergePlanImports",
-    cases: (test) => {
-        test("updates an existing target assignment in place", async ({
-            harness,
-            seedResult: { organizationId, applicationId, folderId },
-        }) => {
-            const mainBranchId = await harness.createBranch(organizationId, applicationId);
-            const featBranchId = await harness.createBranch(organizationId, applicationId, { prNumber: 10 });
-
-            const tc = await createTestCase(harness.db, {
-                applicationId,
-                organizationId,
-                folderId,
-                slug: "checkout",
-                name: "Checkout",
-            });
-
-            const mainPlan = await createPlan(harness.db, { testCaseId: tc, organizationId, prompt: "main" });
-            const featPlan = await createPlan(harness.db, { testCaseId: tc, organizationId, prompt: "feat" });
-
-            const targetSnapshot = await createSnapshot(harness.db, mainBranchId, { status: "processing" });
-            const existingTargetAssignmentId = await createAssignment(harness.db, {
-                snapshotId: targetSnapshot,
-                testCaseId: tc,
-                planId: mainPlan,
-            });
-
-            const sourceSnapshot = await createSnapshot(harness.db, featBranchId, { status: "active" });
-            const sourceAssignmentId = await createAssignment(harness.db, {
-                snapshotId: sourceSnapshot,
-                testCaseId: tc,
-                planId: featPlan,
-            });
-
-            const result = await applyMergePlanImports({
-                db: harness.db,
-                targetSnapshotId: targetSnapshot,
-                imports: [{ sourceAssignmentId }],
-            });
-
-            expect(result).toHaveLength(1);
-            expect(result[0]!.operation).toBe("updated");
-            expect(result[0]!.targetAssignmentId).toBe(existingTargetAssignmentId);
-            expect(result[0]!.planId).toBe(featPlan);
-
-            const reloaded = await harness.db.testCaseAssignment.findUniqueOrThrow({
-                where: { id: existingTargetAssignmentId },
-                select: { planId: true },
-            });
-            expect(reloaded.planId).toBe(featPlan);
-        });
-
-        test("creates a new target assignment when none exists", async ({
-            harness,
-            seedResult: { organizationId, applicationId, folderId },
-        }) => {
-            const mainBranchId = await harness.createBranch(organizationId, applicationId);
-            const featBranchId = await harness.createBranch(organizationId, applicationId, { prNumber: 11 });
-
-            const tc = await createTestCase(harness.db, {
-                applicationId,
-                organizationId,
-                folderId,
-                slug: "new-flow",
-                name: "New flow",
-            });
-            const featPlan = await createPlan(harness.db, { testCaseId: tc, organizationId, prompt: "new" });
-
-            const targetSnapshot = await createSnapshot(harness.db, mainBranchId, { status: "processing" });
-            const sourceSnapshot = await createSnapshot(harness.db, featBranchId, { status: "active" });
-            const sourceAssignmentId = await createAssignment(harness.db, {
-                snapshotId: sourceSnapshot,
-                testCaseId: tc,
-                planId: featPlan,
-            });
-
-            const result = await applyMergePlanImports({
-                db: harness.db,
-                targetSnapshotId: targetSnapshot,
-                imports: [{ sourceAssignmentId }],
-            });
-
-            expect(result).toHaveLength(1);
-            expect(result[0]!.operation).toBe("created");
-            expect(result[0]!.planId).toBe(featPlan);
-
-            const created = await harness.db.testCaseAssignment.findUniqueOrThrow({
-                where: { snapshotId_testCaseId: { snapshotId: targetSnapshot, testCaseId: tc } },
-                select: { id: true, planId: true },
-            });
-            expect(created.id).toBe(result[0]!.targetAssignmentId);
-            expect(created.planId).toBe(featPlan);
-        });
-
-        test("skips imports whose source assignment cannot be resolved", async ({
-            harness,
-            seedResult: { organizationId, applicationId },
-        }) => {
-            const mainBranchId = await harness.createBranch(organizationId, applicationId);
-            const targetSnapshot = await createSnapshot(harness.db, mainBranchId, { status: "processing" });
-
-            const result = await applyMergePlanImports({
-                db: harness.db,
-                targetSnapshotId: targetSnapshot,
-                imports: [{ sourceAssignmentId: "does-not-exist" }],
-            });
-            expect(result).toEqual([]);
         });
     },
 });

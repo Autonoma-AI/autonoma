@@ -1,11 +1,19 @@
 import { db } from "@autonoma/db";
 import { type Codebase, resolveScenarioRecipesForSnapshot } from "@autonoma/diffs";
+import type { GitHubApp } from "@autonoma/github";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { AddTest, RegenerateSteps, TestSuiteUpdater, fetchTestSuiteInfo } from "@autonoma/test-updates";
+import {
+    AddTest,
+    RegenerateSteps,
+    type TestSuiteInfo,
+    TestSuiteUpdater,
+    fetchTestSuiteInfo,
+} from "@autonoma/test-updates";
 import type { AnalysisTestOrigin } from "@autonoma/types";
 import type { AnalysisInvestigationTarget } from "@autonoma/workflow/activities";
 import { createGithubApp } from "../create-services";
-import { loadBranchData, loadDiffsContext } from "./load-context";
+import { type BranchData, loadBranchData, loadDiffsContext } from "./load-context";
+import { EMPTY_MERGE_FLOW_RESULT, type MergeFlowResult, runMergeFlow } from "./merge-flow";
 import { runDiffsAgent } from "./run-diffs-agent";
 
 /**
@@ -16,22 +24,25 @@ const NEW_TEST_REASON =
     "New test authored by Impact Analysis for functionality this PR adds - run it to confirm the app supports the scenario it covers.";
 
 export interface SelectImpactTargetsParams {
-    /** The job's own detached snapshot the pipeline operates on. */
+    /** The run's own snapshot the pipeline operates on. */
     snapshotId: string;
     /** The on-disk clone at base + head SHAs, owned by the activity. */
     codebase: Codebase;
 }
 
 /**
- * The Impact Analysis stage of the merged pipeline: reuse the DiffsAgent (the same stateless selection the diffs
- * job runs - diff + current suite, no prior-run history, no carry-forward) to mark affected tests and author
- * brand-new ones, then materialize every target through the canonical update actions on the job's OWN detached
- * snapshot - `AddTest` for a new test (test case + plan + assignment), `RegenerateSteps` for an affected test.
- * Each action queues one pending generation; new and affected tests then enter the Investigator fan-out
- * identically (both are assignments the Investigator cannot tell apart). The generations are NOT batch-fired -
- * each Investigator fires its own by id (epic invariant 2) - and the snapshot is never promoted (it is hidden by
- * being detached, not by leaving rows unassigned). The merge flow (main-branch import + deletion propagation) is
- * a separate slice (#1515) and is deliberately not run here.
+ * The Impact Analysis stage of the merged pipeline.
+ *
+ * On a main-branch run it first absorbs the merge flow (see {@link runMergeFlow}): the plan edits of the PRs that
+ * merged in since the last main run are imported and their deletions propagated, so main grades the diff against
+ * the suite those PRs actually left behind rather than re-deriving a pre-fix plan and failing it.
+ *
+ * Then it reuses the DiffsAgent (the same stateless selection the diffs job ran - diff + current suite, no prior-run
+ * history, no carry-forward) to mark affected tests and author brand-new ones, materializing every target through
+ * the canonical update actions on the run's OWN snapshot - `AddTest` for a new test (test case + plan + assignment),
+ * `RegenerateSteps` for an affected test. Each action queues one pending generation; merge-imported, new and
+ * affected tests then enter the Investigator fan-out identically (all three are assignments the Investigator cannot
+ * tell apart). The generations are NOT batch-fired - each Investigator fires its own by id (epic invariant 2).
  */
 export async function selectImpactTargets({
     snapshotId,
@@ -40,8 +51,34 @@ export async function selectImpactTargets({
     const logger = rootLogger.child({ name: "selectImpactTargets", extra: { snapshotId } });
     logger.info("Impact Analysis selection started");
 
-    const agentResult = await runSelection({ snapshotId, codebase, logger });
-    const targets = await materializeTargets({ snapshotId, agentResult, logger });
+    const githubApp = createGithubApp();
+    const snapshot = await loadSnapshotCoordinates(snapshotId);
+    const branchData = await loadBranchData(snapshot.branchId, githubApp);
+
+    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
+        db,
+        snapshotId,
+        organizationId: branchData.organizationId,
+    });
+
+    const merge = await absorbMergedBranchWork({ updater, branchData, githubApp, snapshot, codebase, logger });
+
+    const agentResult = await runSelection({ updater, branchData, snapshot, codebase, merge, logger });
+
+    const materialized = [
+        ...merge.imports.map((imported) => ({
+            generationId: imported.generationId,
+            reason: imported.reason,
+            // The TestCase is a real suite member, authored and already run on the branch that merged it.
+            origin: "pre_existing" as const,
+        })),
+        ...(await materializeSelection({ updater, agentResult, logger })),
+    ];
+
+    const targets = await resolveTargets(materialized, logger);
+    logger.info("Impact Analysis selection complete", {
+        extra: { materialized: materialized.length, targets: targets.length },
+    });
     return { targets, reasoning: agentResult.reasoning };
 }
 
@@ -51,23 +88,14 @@ export interface ImpactSelection {
     reasoning: string;
 }
 
-interface AgentSelection {
-    organizationId: string;
-    /** The DiffsAgent's overall summary of what the diff affects and why - the selection reasoning. */
-    reasoning: string;
-    affectedTests: { slug: string; reasoning: string }[];
-    createdTests: { name: string; description: string; plan: string; folderName: string; scenarioId?: string }[];
-    flowFolderId(folderName: string): string | undefined;
-    /** slug -> testCaseId for the tests assigned to the baseline snapshot (affected tests are among these). */
-    testCaseIdBySlug: Map<string, string>;
+/** The run's git coordinates: what the diff is taken between, and whose branch it belongs to. */
+interface SnapshotCoordinates {
+    branchId: string;
+    headSha: string;
+    baseSha: string;
 }
 
-/** Build the DiffsAgent input from the snapshot's own (copied baseline) suite and run the agent. */
-async function runSelection({
-    snapshotId,
-    codebase,
-    logger,
-}: SelectImpactTargetsParams & { logger: Logger }): Promise<AgentSelection> {
+async function loadSnapshotCoordinates(snapshotId: string): Promise<SnapshotCoordinates> {
     const snapshot = await db.branchSnapshot.findUniqueOrThrow({
         where: { id: snapshotId },
         select: { branchId: true, headSha: true, baseSha: true },
@@ -77,21 +105,121 @@ async function runSelection({
             `Snapshot ${snapshotId} is missing SHAs (head: ${snapshot.headSha}, base: ${snapshot.baseSha})`,
         );
     }
+    return { branchId: snapshot.branchId, headSha: snapshot.headSha, baseSha: snapshot.baseSha };
+}
 
-    const branchData = await loadBranchData(snapshot.branchId, createGithubApp());
-    const suiteInfo = await fetchTestSuiteInfo(db, snapshotId);
+/**
+ * Run the merge flow when this run is the application's main branch, where merges land. Phase 1 only handles the
+ * `feat/x -> main` direction, so a PR-branch run has no merged work to absorb.
+ */
+async function absorbMergedBranchWork({
+    updater,
+    branchData,
+    githubApp,
+    snapshot,
+    codebase,
+    logger,
+}: {
+    updater: TestSuiteUpdater;
+    branchData: BranchData;
+    githubApp: GitHubApp;
+    snapshot: SnapshotCoordinates;
+    codebase: Codebase;
+    logger: Logger;
+}): Promise<MergeFlowResult> {
+    if (!branchData.isMainBranch) {
+        logger.info("Not a main-branch run; skipping the merge flow");
+        return EMPTY_MERGE_FLOW_RESULT;
+    }
+
+    const [owner, repo] = branchData.fullName.split("/");
+    if (owner == null || repo == null) {
+        logger.warn("Unexpected repository fullName; skipping the merge flow", {
+            extra: { fullName: branchData.fullName },
+        });
+        return EMPTY_MERGE_FLOW_RESULT;
+    }
+
+    const githubClient = await githubApp.getInstallationClient(Number(branchData.installationId));
+    const result = await runMergeFlow({
+        db,
+        updater,
+        githubClient,
+        owner,
+        repo,
+        targetBranchRef: branchData.defaultBranch,
+        baseSha: snapshot.baseSha,
+        headSha: snapshot.headSha,
+        repoDir: codebase.root,
+    });
+
+    logger.info("Merge flow absorbed", {
+        extra: {
+            merges: result.merges.length,
+            imports: result.imports.length,
+            removed: result.removedSlugs.length,
+            conflicts: result.preClassifiedConflicts.length,
+        },
+    });
+    return result;
+}
+
+interface AgentSelection {
+    /** The DiffsAgent's overall summary of what the diff affects and why - the selection reasoning. */
+    reasoning: string;
+    affectedTests: { slug: string; reasoning: string }[];
+    createdTests: { name: string; description: string; plan: string; folderName: string; scenarioId?: string }[];
+    flowFolderId(folderName: string): string | undefined;
+    /** slug -> testCaseId for the tests this snapshot assigns (affected tests are among these). */
+    testCaseIdBySlug: Map<string, string>;
+}
+
+/**
+ * Build the DiffsAgent input from the snapshot's suite - read AFTER the merge flow applied, so it already carries
+ * the imported plans and no longer carries the propagated deletions - and run the agent.
+ */
+async function runSelection({
+    updater,
+    branchData,
+    snapshot,
+    codebase,
+    merge,
+    logger,
+}: {
+    updater: TestSuiteUpdater;
+    branchData: BranchData;
+    snapshot: SnapshotCoordinates;
+    codebase: Codebase;
+    merge: MergeFlowResult;
+    logger: Logger;
+}): Promise<AgentSelection> {
+    const suiteInfo = await fetchTestSuiteInfo(db, updater.snapshotId);
     const { metadata } = await loadDiffsContext(
         branchData.applicationId,
         suiteInfo,
         snapshot.headSha,
         snapshot.baseSha,
     );
-    const scenarioRecipes = await resolveScenarioRecipesForSnapshot(db, snapshotId, collectScenarioIds(suiteInfo));
+    const scenarioRecipes = await resolveScenarioRecipesForSnapshot(
+        db,
+        updater.snapshotId,
+        collectScenarioIds(suiteInfo),
+    );
 
-    // No merge flow here (that is #1515): empty merges / pre-classified conflicts, so the agent only marks tests
-    // it identifies from the diff itself and authors net-new ones.
+    // An imported test is already in the run set with its plan settled, so it is withheld from the agent's list -
+    // marking it affected would only queue a second generation for the same test. Conflicts stay listed: the agent
+    // reads their current plans to explain how the legs diverge.
+    const importedSlugs = new Set(merge.imports.map((imported) => imported.slug));
+    const existingTests = metadata.existingTests.filter((test) => !importedSlugs.has(test.slug));
+
     const { result } = await runDiffsAgent({
-        input: { ...metadata, merges: [], preClassifiedConflicts: [], scenarioRecipes },
+        input: {
+            ...metadata,
+            existingTests,
+            merges: merge.merges,
+            preClassifiedConflicts: merge.preClassifiedConflicts,
+            scenarioRecipes,
+        },
         codebase,
     });
     logger.info("DiffsAgent selection complete", {
@@ -99,7 +227,6 @@ async function runSelection({
     });
 
     return {
-        organizationId: branchData.organizationId,
         reasoning: result.reasoning,
         affectedTests: result.affectedTests.map((test) => ({ slug: test.slug, reasoning: test.reasoning })),
         createdTests: result.createdTests.map((test) => ({
@@ -114,27 +241,24 @@ async function runSelection({
     };
 }
 
-/**
- * Materialize the agent's selection on the job's own detached snapshot via the update actions, then resolve each
- * queued generation to its Investigator target (slug + scenario + reason). Non-web targets are dropped - the
- * Investigator runs web generations only.
- */
-async function materializeTargets({
-    snapshotId,
+/** One queued generation the stage is responsible for, before it is resolved to an Investigator target. */
+interface MaterializedTarget {
+    generationId: string;
+    reason: string;
+    origin: AnalysisTestOrigin;
+}
+
+/** Materialize the agent's selection on the run's own snapshot via the update actions. */
+async function materializeSelection({
+    updater,
     agentResult,
     logger,
 }: {
-    snapshotId: string;
+    updater: TestSuiteUpdater;
     agentResult: AgentSelection;
     logger: Logger;
-}): Promise<AnalysisInvestigationTarget[]> {
-    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-        db,
-        snapshotId,
-        organizationId: agentResult.organizationId,
-    });
-
-    const materialized: { generationId: string; reason: string; origin: AnalysisTestOrigin }[] = [];
+}): Promise<MaterializedTarget[]> {
+    const materialized: MaterializedTarget[] = [];
 
     // New tests first (AddTest mints test case + plan + assignment + queues a generation). Tagged `proposed` because
     // the TestCase exists only for this run, which is what makes its finding read as an added test.
@@ -158,30 +282,26 @@ async function materializeTargets({
     for (const affected of agentResult.affectedTests) {
         const testCaseId = agentResult.testCaseIdBySlug.get(affected.slug);
         if (testCaseId == null) {
-            logger.warn("Affected test is not in the baseline suite; skipping", { extra: { slug: affected.slug } });
+            logger.warn("Affected test is not in the snapshot's suite; skipping", { extra: { slug: affected.slug } });
             continue;
         }
         const generationId = await updater.apply(new RegenerateSteps({ testCaseId }));
         materialized.push({ generationId, reason: affected.reasoning, origin: "pre_existing" });
     }
 
+    return materialized;
+}
+
+/** Resolve each materialized generation to its test + scenario + architecture (one read), keeping web targets. */
+async function resolveTargets(
+    materialized: MaterializedTarget[],
+    logger: Logger,
+): Promise<AnalysisInvestigationTarget[]> {
     if (materialized.length === 0) {
         logger.info("Impact Analysis materialized no targets");
         return [];
     }
 
-    const targets = await resolveTargets(materialized, logger);
-    logger.info("Impact Analysis materialized targets", {
-        extra: { materialized: materialized.length, targets: targets.length },
-    });
-    return targets;
-}
-
-/** Resolve each materialized generation to its test + scenario + architecture (one read), keeping web targets. */
-async function resolveTargets(
-    materialized: { generationId: string; reason: string; origin: AnalysisTestOrigin }[],
-    logger: Logger,
-): Promise<AnalysisInvestigationTarget[]> {
     const rows = await db.testGeneration.findMany({
         where: { id: { in: materialized.map((entry) => entry.generationId) } },
         select: {
@@ -218,8 +338,8 @@ async function resolveTargets(
     return targets;
 }
 
-/** The distinct scenario ids the baseline suite's plans reference (for point-in-time recipe resolution). */
-function collectScenarioIds(suiteInfo: Awaited<ReturnType<typeof fetchTestSuiteInfo>>): string[] {
+/** The distinct scenario ids the suite's plans reference (for point-in-time recipe resolution). */
+function collectScenarioIds(suiteInfo: TestSuiteInfo): string[] {
     const ids = new Set<string>();
     for (const testCase of suiteInfo.testCases) {
         const scenarioId = testCase.plan?.scenarioId;
