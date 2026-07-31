@@ -417,6 +417,93 @@ export const Running: Story = {
   },
 };
 
+// A run with NO client bug but open coverage gaps: the app held up on what the run reached, but the change was not
+// fully confirmed. The verdict headline must read amber "Not confirmed", never green - "no bug" is not "verified".
+const NOT_CONFIRMED_SUMMARY =
+  "No client bugs, but Autonoma couldn't fully confirm this change: the coupon scenario wasn't seeded and the " +
+  "payment iframe never loaded in the harness, so the reworked checkout submit path went partly unverified.";
+
+const NOT_CONFIRMED_REPORT_MARKDOWN = [
+  "## Checkout rework",
+  "",
+  "The app held up on the flows the run reached - cart, add-to-cart and the badge counter all behaved. But the run " +
+    "could not confirm the change end to end: the [coupon scenario was not seeded](issue:issue_coupon), and the " +
+    "[payment iframe never loaded in the harness](issue:issue_payment). Neither is a client bug and neither blocks " +
+    "the PR, but the checkout submit path this diff reworks was not fully exercised.",
+].join("\n");
+
+const notConfirmedIssues: NonNullable<TrpcFixtures["branches"]>["analysisIssues"] = [
+  {
+    id: "issue_coupon",
+    title: "Coupon scenario is not seeded",
+    kind: "scenario",
+    severity: "medium",
+    status: "open",
+    runCount: 1,
+  },
+  {
+    id: "issue_payment",
+    title: "Payment iframe never loaded in the harness",
+    kind: "scenario",
+    severity: "low",
+    status: "open",
+    runCount: 1,
+  },
+];
+
+const notConfirmedReport: NonNullable<TrpcFixtures["branches"]> = {
+  analysisReport: {
+    impactReasoning:
+      "This PR reworks the checkout submit handler. I re-ran the two checkout tests that exercise it plus the cart " +
+      "and add-to-cart flows.",
+    reportMarkdown: NOT_CONFIRMED_REPORT_MARKDOWN,
+    summary: NOT_CONFIRMED_SUMMARY,
+    reportEvidence: [],
+    verdict: "passed",
+    clientBugCount: 0,
+    testCount: 5,
+    branchId: BRANCH_ID,
+    // The PR overview renders the prose + open-issues list, not the per-snapshot findings, so this stays empty.
+    findings: [],
+  },
+};
+
+// The latest checkpoint, amber: no bug, but coverage gaps left the change unconfirmed. Health is `unknown`, never
+// green, so the rail and header agree with the verdict headline.
+const notConfirmedLatest: (typeof snapshotHistory)[number] = {
+  ...snapshotHistory[0]!,
+  bugCount: 0,
+  health: "unknown",
+  summary: {
+    ...snapshotHistory[0]!.summary!,
+    tone: "warning",
+    label: "Not confirmed",
+    reason: "2 couldn't confirm",
+    executionState: "not_started",
+    openBugCount: 0,
+    analysis: { jobStatus: "completed", bugCount: 0, passedCount: 3, coverageCount: 2 },
+  },
+};
+
+/** No client bug, but coverage gaps: the verdict headline reads amber "Not confirmed", not green. */
+export const NotConfirmed: Story = {
+  args: { path: OVERVIEW_PATH },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...chromeFixtures,
+        branches: {
+          ...chromeFixtures.branches,
+          snapshotHistory: [notConfirmedLatest, snapshotHistory[1]!],
+          ...notConfirmedReport,
+          analysisIssues: notConfirmedIssues,
+          analysisJob: { status: "completed", startedAt: STARTED_AT, completedAt: COMPLETED_AT },
+        },
+      }),
+    },
+  },
+};
+
 /**
  * A run that died before producing a report. The header pill, the history rail and the body must all say the run
  * failed - before `analysis_failed` existed the header fell through to the previous commit's green summary.

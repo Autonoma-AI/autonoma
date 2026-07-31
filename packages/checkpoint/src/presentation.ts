@@ -5,6 +5,7 @@ import {
     type CheckpointPresentationSummary,
     type CheckpointTone,
     PIPELINE_LABEL,
+    deriveAnalysisVerdict,
 } from "@autonoma/types";
 import type { SnapshotHealthCounts } from "./health";
 
@@ -157,29 +158,35 @@ function deriveAuthoritativePresentation(
         return { tone: "neutral", label: PIPELINE_LABEL.analyzing, executionState: "running" };
     }
 
-    // Completed with a report. Only open bugs count against the PR (the app-health plane); coverage findings are
-    // non-blocking and never make the checkpoint red.
-    if (bugCount > 0) {
+    // Completed with a report. The shared verdict predicate decides green/amber/red, so this badge, the PR comment
+    // and the merge-gate check-run cannot disagree. Only open bugs make it red; a coverage gap of any kind -
+    // whether the client must fix it or it is on us - downgrades it to a non-green "Not confirmed".
+    const investigated = buckets.bug + buckets.passed + buckets.coverage;
+    const state = deriveAnalysisVerdict({
+        bugCount,
+        coverageGapCount: buckets.coverage,
+        investigatedCount: investigated,
+    });
+
+    if (state === "bug_found") {
         return { tone: "critical", label: `${bugCount} ${plural(bugCount, "bug")}`, executionState: "failed" };
     }
 
     // Nothing was selected: Impact Analysis found no test worth running against this diff. A quiet outcome, but not
     // a passing one - there is no evidence either way, so it must not read as a suite that went green.
-    const investigated = buckets.bug + buckets.passed + buckets.coverage;
-    if (investigated === 0) {
+    if (state === "no_tests_affected") {
         return { tone: "neutral", label: "No tests affected", executionState: "not_started" };
     }
 
-    // Tests were selected and not one of them produced app-level evidence: every run was blocked, crashed, or could
-    // not be stabilized. `warning`, not `critical` - the PR is not proven broken, our harness failed to exercise it,
-    // and colouring that the same as a real client bug would train the reader to stop trusting red.
-    if (buckets.passed === 0) {
-        const reason = buckets.coverage > 0 ? `${buckets.coverage} blocked` : undefined;
-        return { tone: "warning", label: "No runs", reason, executionState: "not_started" };
+    // A coverage gap means the change was not fully confirmed - whether nothing ran (blocked) or some tests passed
+    // but others could not be assessed. `warning`, not `critical` (the PR is not proven broken), and `not_started`
+    // so the derived health reads `unknown`, never `healthy` - the app was not fully checked this run.
+    if (state === "not_confirmed") {
+        const reason = buckets.passed === 0 ? `${buckets.coverage} blocked` : `${buckets.coverage} couldn't confirm`;
+        return { tone: "warning", label: "Not confirmed", reason, executionState: "not_started" };
     }
 
-    const reason = buckets.coverage > 0 ? `${buckets.coverage} couldn't confirm` : undefined;
-    return { tone: "success", label: "Passing", reason, executionState: "passed" };
+    return { tone: "success", label: "Passing", executionState: "passed" };
 }
 
 function deriveExecutionState(snapshotStatus: string, counts: SnapshotHealthCounts): CheckpointExecutionState {

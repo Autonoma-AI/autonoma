@@ -23,6 +23,7 @@ import type { RouterOutputs } from "lib/trpc";
 import { Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
+import { CheckpointSummaryBadge } from "./-components/checkpoint-summary-badge";
 import { CheckpointTestsRun } from "./-components/checkpoint-tests-run";
 import { formatCheckpointMetrics } from "./-components/format-checkpoint-metrics";
 import { PrStatusBadge } from "./-components/pr-status-badge";
@@ -234,6 +235,10 @@ function MainCheckpointRow({ snapshot, isLatest }: { snapshot: Snapshot; isLates
           <Badge variant="outline" className="font-mono uppercase tracking-wider text-text-secondary">
             Latest
           </Badge>
+        ) : // Prefer the derived summary: a coverage gap makes a run amber "Not confirmed", whose raw `health` is
+        // `unknown`, which would drop this row's badge to the bug counts below.
+        snapshot.summary != null ? (
+          <CheckpointSummaryBadge summary={snapshot.summary} className="font-mono uppercase tracking-wider" />
         ) : isHealthy ? (
           <Badge variant="success" className="font-mono uppercase tracking-wider">
             Healthy

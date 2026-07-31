@@ -1,53 +1,83 @@
-import { Badge, StatusDot } from "@autonoma/blacklight";
-import type { AnalysisIssueSummary } from "@autonoma/types";
+import { Badge } from "@autonoma/blacklight";
+import { type AnalysisIssueSummary, type AnalysisVerdictState, deriveAnalysisVerdict } from "@autonoma/types";
+import { RUN_VERDICT_COPY, VerdictHeadline } from "components/analysis/verdict-headline";
 
 /**
- * The PR verdict headline in the issues-first model: the app-health signal is the count of OPEN bug issues (the
- * only class that counts against the PR); environment/scenario issues are a quiet, non-blocking sub-count. Driven
- * by the branch's open-issues list, so the headline reflects the cumulative PR state, not just one snapshot.
+ * The verdict headline for the PR as a whole, driven by the branch's OPEN issues rather than one run's findings - so it
+ * reflects the cumulative state across every snapshot (a bug found two commits ago and still open keeps the PR red).
+ * The per-run counterpart is `PrVerdictHeadline` on the snapshot page.
  *
- * The subtitle prefers the Reporter's authored summary of the run - what actually happened on THIS PR - and falls
- * back to the generic policy sentence only for a run old enough to have no summary.
+ * The prose prefers the Reporter's authored summary - what actually happened on THIS PR - and falls back to the
+ * generic policy sentence only for a run old enough to have no summary.
  */
 export function AnalysisPrIssuesHeadline({
   issues,
+  testCount,
   summary,
 }: {
   issues: AnalysisIssueSummary[];
+  /** Tests the run reached a verdict on. Zero means nothing was exercised, which is never a clean pass. */
+  testCount: number;
   /** The Reporter's one-paragraph account of the run. Absent on a run that predates it. */
   summary?: string;
 }) {
   const bugCount = issues.filter((issue) => issue.kind === "bug").length;
   const otherCount = issues.length - bugCount;
-  const hasBugs = bugCount > 0;
-  const fallback = hasBugs
-    ? "Only bug issues count against this PR - review each one below."
-    : "Everything the agent checked passed or was non-blocking.";
+  const state = deriveAnalysisVerdict({
+    bugCount,
+    coverageGapCount: otherCount,
+    investigatedCount: testCount,
+  });
+  const copy = headlineCopy(state, bugCount);
 
   return (
-    <div className="flex flex-col gap-3 border border-border-dim bg-surface-base px-5 py-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={hasBugs ? "critical" : "success"} className="gap-1 font-mono uppercase tracking-wider">
-          <StatusDot status={hasBugs ? "critical" : "success"} />
-          {hasBugs ? `${bugCount} open ${bugCount === 1 ? "bug" : "bugs"}` : "No open bugs"}
-        </Badge>
-        {otherCount > 0 && (
+    <VerdictHeadline
+      state={state}
+      badge={copy.badge}
+      title={copy.title}
+      pills={
+        otherCount > 0 && (
           <Badge variant="outline" className="font-mono text-3xs">
             {otherCount} environment/scenario {otherCount === 1 ? "issue" : "issues"}
           </Badge>
-        )}
-      </div>
-
-      <div className="min-w-0">
-        <h2 className="text-lg font-semibold tracking-tight text-text-primary">
-          {hasBugs ? "This PR has open bugs to fix" : "No open bugs on this PR"}
-        </h2>
-        <p className="mt-1 text-sm text-text-secondary">
-          {summary ?? fallback}
-          {otherCount > 0 &&
-            ` ${otherCount} environment/scenario ${otherCount === 1 ? "issue" : "issues"} could not confirm app health and don't block the PR.`}
-        </p>
-      </div>
-    </div>
+        )
+      }
+    >
+      {summary ?? copy.prose}
+      {otherCount > 0 &&
+        ` ${otherCount} environment/scenario ${otherCount === 1 ? "issue" : "issues"} could not confirm app health and don't block the PR.`}
+    </VerdictHeadline>
   );
+}
+
+interface HeadlineCopy {
+  badge: string;
+  title: string;
+  prose: string;
+}
+
+/** The PR's wording: the badge counts the branch's OPEN issues, which outlive any single run. */
+function headlineCopy(state: AnalysisVerdictState, bugCount: number): HeadlineCopy {
+  switch (state) {
+    case "bug_found":
+      return {
+        badge: `${bugCount} open ${bugCount === 1 ? "bug" : "bugs"}`,
+        title: "This PR has open bugs to fix",
+        prose: "Only bug issues count against this PR - review each one below.",
+      };
+    case "not_confirmed":
+      return {
+        badge: RUN_VERDICT_COPY.not_confirmed.badge,
+        title: RUN_VERDICT_COPY.not_confirmed.title,
+        prose: "Environment/scenario issues couldn't confirm app health; they don't block the PR.",
+      };
+    case "no_tests_affected":
+      return RUN_VERDICT_COPY.no_tests_affected;
+    case "healthy":
+      return {
+        badge: "No open bugs",
+        title: "No open bugs on this PR",
+        prose: "Everything the agent checked passed or was non-blocking.",
+      };
+  }
 }

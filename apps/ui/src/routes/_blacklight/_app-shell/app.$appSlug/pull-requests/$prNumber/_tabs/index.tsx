@@ -215,7 +215,7 @@ function AuthoritativeReportColumn({
 
   return (
     <>
-      <AnalysisPrIssuesHeadline issues={openIssues} summary={report.summary} />
+      <AnalysisPrIssuesHeadline issues={openIssues} testCount={report.testCount} summary={report.summary} />
       {report.reportMarkdown != null && (
         <AnalysisReportProse
           markdown={report.reportMarkdown}

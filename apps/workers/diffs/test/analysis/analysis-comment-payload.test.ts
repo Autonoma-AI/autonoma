@@ -39,7 +39,7 @@ describe("buildAnalysisCommentPayload", () => {
         const signed: string[] = [];
         const payload = await buildAnalysisCommentPayload(
             {
-                verdict: "client_bug",
+                testCount: 6,
                 bugIssues: [bugIssue()],
                 coverage: {
                     byCategory: [
@@ -58,6 +58,7 @@ describe("buildAnalysisCommentPayload", () => {
         );
 
         expect(payload.state).toBe("critical");
+        expect(payload.stateLabel).toBe("BUG FOUND");
         expect(payload.headline).toBe("Autonoma found 1 bug in this PR.");
         expect(payload.summary).toBe("The app misbehaved on one flow; two runs were engine flakes.");
         expect(payload.commitRef).toBe("e5d627a");
@@ -85,7 +86,7 @@ describe("buildAnalysisCommentPayload", () => {
 
     it("falls back to the issue's hero frame and drops the replay button when the designated run has no clip", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { verdict: "client_bug", bugIssues: [bugIssue({ clipKey: undefined })] },
+            { testCount: 3, bugIssues: [bugIssue({ clipKey: undefined })] },
             context,
             sign,
         );
@@ -96,7 +97,7 @@ describe("buildAnalysisCommentPayload", () => {
 
     it("drops the replay link when no reproduction run was resolved, even with a clip", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { verdict: "client_bug", bugIssues: [bugIssue({ replay: undefined })] },
+            { testCount: 3, bugIssues: [bugIssue({ replay: undefined })] },
             context,
             sign,
         );
@@ -107,7 +108,10 @@ describe("buildAnalysisCommentPayload", () => {
 
     it("hands off to a coding agent: a grounded brief plus prefilled agent deep-links", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { verdict: "client_bug", bugIssues: [bugIssue({ expectedBehavior: "The export should download a CSV." })] },
+            {
+                testCount: 3,
+                bugIssues: [bugIssue({ expectedBehavior: "The export should download a CSV." })],
+            },
             context,
             sign,
         );
@@ -147,14 +151,14 @@ describe("buildAnalysisCommentPayload", () => {
     });
 
     it("offers no handoff on a clean pass - there is nothing to hand off", async () => {
-        const payload = await buildAnalysisCommentPayload({ verdict: "passed", bugIssues: [] }, context, sign);
+        const payload = await buildAnalysisCommentPayload({ testCount: 3, bugIssues: [] }, context, sign);
 
         expect(payload.handoff).toBeUndefined();
     });
 
     it("carries no suspected cause or evidence when the issue grounded none", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { verdict: "client_bug", bugIssues: [bugIssue({ suspectedCause: undefined })] },
+            { testCount: 3, bugIssues: [bugIssue({ suspectedCause: undefined })] },
             context,
             sign,
         );
@@ -166,7 +170,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("summarizes the coverage plane on one line, per category", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                verdict: "client_bug",
+                testCount: 7,
                 bugIssues: [bugIssue()],
                 coverage: {
                     byCategory: [
@@ -184,20 +188,21 @@ describe("buildAnalysisCommentPayload", () => {
         expect(payload.warnings).toEqual(["2 engine artifacts · 1 environment failure · 3 unresolved tests"]);
     });
 
-    it("is healthy with no cards, summary, or coverage line on a clean pass", async () => {
-        const payload = await buildAnalysisCommentPayload({ verdict: "passed", bugIssues: [] }, context, sign);
+    it("is HEALTHY with no cards, summary, or coverage line on a clean pass", async () => {
+        const payload = await buildAnalysisCommentPayload({ testCount: 3, bugIssues: [] }, context, sign);
 
         expect(payload.state).toBe("healthy");
-        expect(payload.headline).toBe("Autonoma found no issues in this PR.");
+        expect(payload.stateLabel).toBe("HEALTHY");
+        expect(payload.headline).toBe("Autonoma verified this change - the app held up.");
         expect(payload.summary).toBeUndefined();
         expect(payload.bugs).toEqual([]);
         expect(payload.warnings).toEqual([]);
     });
 
-    it("passes the app but still surfaces a coverage line when the plane is not empty", async () => {
+    it("is NOT CONFIRMED when the app passed but a coverage gap left the change unverified", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                verdict: "passed",
+                testCount: 4,
                 bugIssues: [],
                 coverage: {
                     byCategory: [{ category: "scenario_issue", count: 1 }],
@@ -208,14 +213,25 @@ describe("buildAnalysisCommentPayload", () => {
             sign,
         );
 
-        expect(payload.state).toBe("healthy");
+        // A pass with a coverage gap must NOT read as green: "no bug" is not "verified".
+        expect(payload.state).toBe("warning");
+        expect(payload.stateLabel).toBe("NOT CONFIRMED");
+        expect(payload.headline).toBe("Autonoma couldn't confirm this change - 1 check didn't complete.");
         expect(payload.warnings).toEqual(["1 scenario issue"]);
+    });
+
+    it("is NO TESTS AFFECTED when nothing was selected to run against the diff", async () => {
+        const payload = await buildAnalysisCommentPayload({ testCount: 0, bugIssues: [] }, context, sign);
+
+        expect(payload.state).toBe("incomplete");
+        expect(payload.stateLabel).toBe("NO TESTS AFFECTED");
+        expect(payload.headline).toBe("No tests were affected by this change.");
     });
 
     it("omits the card media entirely when the issue has neither a clip nor a hero frame", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                verdict: "client_bug",
+                testCount: 3,
                 bugIssues: [bugIssue({ screenshotKey: undefined, clipKey: undefined })],
             },
             context,
@@ -228,7 +244,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("appends the /autonoma-skip callout under the summary when the gate is blocking", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                verdict: "client_bug",
+                testCount: 3,
                 bugIssues: [bugIssue()],
                 summary: "The app misbehaved.",
                 mergeGateBlocking: true,
@@ -246,7 +262,7 @@ describe("buildAnalysisCommentPayload", () => {
 
     it("shows the skip callout as the whole summary when the gate blocks but there is no summary", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { verdict: "client_bug", bugIssues: [bugIssue()], mergeGateBlocking: true },
+            { testCount: 3, bugIssues: [bugIssue()], mergeGateBlocking: true },
             context,
             sign,
         );
@@ -256,7 +272,7 @@ describe("buildAnalysisCommentPayload", () => {
 
     it("omits the skip callout when the gate is not blocking (default)", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { verdict: "client_bug", bugIssues: [bugIssue()], summary: "The app misbehaved." },
+            { testCount: 3, bugIssues: [bugIssue()], summary: "The app misbehaved." },
             context,
             sign,
         );
@@ -267,7 +283,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("renders the summary and coverage line into the shared markdown", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                verdict: "passed",
+                testCount: 5,
                 bugIssues: [],
                 coverage: {
                     byCategory: [{ category: "plan_mismatch", count: 3 }],
@@ -285,11 +301,7 @@ describe("buildAnalysisCommentPayload", () => {
     });
 
     it("points the visible preview CTA at the front door and keeps the raw URL for machines", async () => {
-        const payload = await buildAnalysisCommentPayload(
-            { verdict: "client_bug", bugIssues: [bugIssue()] },
-            context,
-            sign,
-        );
+        const payload = await buildAnalysisCommentPayload({ testCount: 3, bugIssues: [bugIssue()] }, context, sign);
 
         const seePreview = payload.ctas.find((cta) => cta.label === "See preview");
         expect(seePreview?.href).toBe(

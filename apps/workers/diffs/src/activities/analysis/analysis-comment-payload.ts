@@ -1,4 +1,3 @@
-import type { AppHealthVerdict } from "@autonoma/diffs/analysis";
 import { MERGE_GATE_SKIP_COMMAND } from "@autonoma/github/check";
 import { buildAgentHandoffLinks, capHandoffPrompt } from "@autonoma/github/comment";
 import type {
@@ -10,18 +9,26 @@ import type {
     AutonomaCommentState,
 } from "@autonoma/github/comment";
 import {
-    ANALYSIS_VERDICT,
     type AnalysisVerdict,
+    type AnalysisVerdictState,
     type CoverageSummary,
     type SuspectedCause,
+    analysisVerdictHeadline,
+    analysisVerdictLabel,
     buildAnalysisFindingUrl,
     buildAnalysisIssueUrl,
     buildPreviewFrontDoorUrl,
     buildPrPageUrl,
+    deriveAnalysisVerdict,
 } from "@autonoma/types";
 
-/** The verdict that makes the comment critical - a client bug is the only class that counts against the PR. */
-const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
+/** The comment state each PR verdict renders as: amber `warning` for a run we could not confirm, red for a bug. */
+const COMMENT_STATE: Record<AnalysisVerdictState, AutonomaCommentState> = {
+    bug_found: "critical",
+    not_confirmed: "warning",
+    no_tests_affected: "incomplete",
+    healthy: "healthy",
+};
 
 /**
  * The skip-instruction callout appended under the headline when the merge gate is blocking this PR. States that a
@@ -96,8 +103,8 @@ export interface AnalysisCommentIssue {
 
 /** The finalized run the comment summarizes - read from the persisted `AnalysisReport` + open bug `AnalysisIssue`s. */
 export interface AnalysisCommentInput {
-    /** The app-health verdict driving the headline: `client_bug` or `passed`. */
-    verdict: AppHealthVerdict;
+    /** Tests that produced a terminal verdict this run; zero means nothing was exercised (no tests affected). */
+    testCount: number;
     /** The branch's open bug issues, each a rich card deep-linking to its issue-detail page. */
     bugIssues: AnalysisCommentIssue[];
     /** The coverage-confidence plane summary, rendered as one caveat line. Absent when unavailable/malformed. */
@@ -121,8 +128,15 @@ export async function buildAnalysisCommentPayload(
     context: AnalysisCommentContext,
     signScreenshot: (s3Key: string) => Promise<string | undefined>,
 ): Promise<AutonomaCommentPayload> {
-    // Only bug issues count against the PR; the coverage plane never degrades the headline (two-plane invariant).
-    const state: AutonomaCommentState = input.verdict === CLIENT_BUG ? "critical" : "healthy";
+    // The verdict every surface shares, computed from counts alone - never from the Reporter's prose, which cannot be
+    // allowed to talk an unconfirmed run into reading green.
+    const verdictCounts = {
+        bugCount: input.bugIssues.length,
+        coverageGapCount: input.coverage?.total ?? 0,
+        investigatedCount: input.testCount,
+    };
+    const verdictState = deriveAnalysisVerdict(verdictCounts);
+    const state: AutonomaCommentState = COMMENT_STATE[verdictState];
 
     // The visible preview links (the top CTA and each bug's "Open preview") point at
     // the front door, which forks a browser to the waiting page from an agent to the
@@ -146,8 +160,9 @@ export async function buildAnalysisCommentPayload(
     const coverageLine = buildCoverageLine(input.coverage);
     return {
         state,
+        stateLabel: analysisVerdictLabel(verdictState),
         prNumber: context.prNumber,
-        headline: buildHeadline(input.verdict, input.bugIssues.length),
+        headline: analysisVerdictHeadline(verdictCounts),
         summary: buildSummary(input.summary, input.mergeGateBlocking),
         handoff: input.bugIssues.length > 0 ? buildHandoff(input.bugIssues, context) : undefined,
         commitRef: context.commitSha.slice(0, 7),
@@ -171,14 +186,6 @@ function buildSummary(summary: string | undefined, mergeGateBlocking: boolean | 
     if (summary != null && summary !== "") parts.push(summary);
     if (mergeGateBlocking === true) parts.push(MERGE_GATE_SKIP_CALLOUT);
     return parts.length > 0 ? parts.join("\n\n") : undefined;
-}
-
-/** App-health headline: the open-bug count when the app misbehaved, else a clean pass. */
-function buildHeadline(verdict: AppHealthVerdict, bugCount: number): string {
-    if (verdict === CLIENT_BUG) {
-        return `Autonoma found ${bugCount} ${bugCount === 1 ? "bug" : "bugs"} in this PR.`;
-    }
-    return "Autonoma found no issues in this PR.";
 }
 
 /**

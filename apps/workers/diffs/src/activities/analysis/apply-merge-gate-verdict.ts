@@ -64,6 +64,7 @@ export async function concludeMergeGate({
         // No persisted report means the pipeline never reached a verdict - fail open to neutral.
         errored: outcome.kind === "failed" || report == null,
         coverageGapCount: report?.coverageGapCount ?? 0,
+        investigatedCount: report?.investigatedCount ?? 0,
         clientBugHeadlines: report?.clientBugHeadlines ?? [],
     });
 
@@ -127,6 +128,7 @@ export async function concludeMergeGate({
 interface LoadedReport {
     verdict: "client_bug" | "passed";
     coverageGapCount: number;
+    investigatedCount: number;
     clientBugHeadlines: string[];
 }
 
@@ -134,23 +136,26 @@ interface LoadedReport {
  * Read the persisted run's verdict, its coverage-gap count, and the `client_bug` headlines (for the failure summary).
  */
 async function loadReport(db: PrismaClient, meta: SnapshotMeta): Promise<LoadedReport | undefined> {
-    const report = await db.analysisReport.findUnique({
-        where: { snapshotId: meta.snapshotId },
-        select: { verdict: true, coverage: true },
-    });
+    // Both key only on the snapshot and neither consumes the other, so they run concurrently; the findings are
+    // discarded when there is no report. The headlines are the CURRENT classifications': a self-heal iteration this
+    // run superseded is history, never a bug it reports.
+    const [report, clientBugs] = await Promise.all([
+        db.analysisReport.findUnique({
+            where: { snapshotId: meta.snapshotId },
+            select: { verdict: true, testCount: true, coverage: true },
+        }),
+        db.analysisFinding.findMany({
+            where: { reportSnapshotId: meta.snapshotId, currentClassification: { category: CLIENT_BUG } },
+            select: { currentClassification: { select: { headline: true } } },
+        }),
+    ]);
     if (report == null) return undefined;
-
-    // Findings are keyed to the job; read the `client_bug` headlines directly by the snapshot PK. The verdict read
-    // is the CURRENT classification's: a self-heal iteration this run superseded is history, never a bug it reports.
-    const clientBugs = await db.analysisFinding.findMany({
-        where: { reportSnapshotId: meta.snapshotId, currentClassification: { category: CLIENT_BUG } },
-        select: { currentClassification: { select: { headline: true } } },
-    });
 
     const coverage = coverageSummarySchema.safeParse(report.coverage);
     return {
         verdict: report.verdict === CLIENT_BUG ? CLIENT_BUG : ANALYSIS_VERDICT.passed,
         coverageGapCount: coverage.success ? coverage.data.total : 0,
+        investigatedCount: report.testCount,
         clientBugHeadlines: clientBugs.flatMap((finding) =>
             finding.currentClassification != null ? [finding.currentClassification.headline] : [],
         ),

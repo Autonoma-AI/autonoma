@@ -1,3 +1,4 @@
+import { deriveAnalysisVerdict } from "@autonoma/types";
 import type { CheckRunConclusion } from "../github-installation-client";
 
 /**
@@ -49,6 +50,8 @@ export interface MergeGateVerdictInput {
     errored: boolean;
     /** Count of coverage-plane findings (gaps). On a `passed` verdict, >0 downgrades success to a neutral warning. */
     coverageGapCount: number;
+    /** Tests that produced a terminal verdict this run; zero means nothing was exercised (not a clean pass). */
+    investigatedCount: number;
     /** Headlines of the `client_bug` findings, listed in the failure summary. */
     clientBugHeadlines: string[];
 }
@@ -74,28 +77,48 @@ export function buildMergeGateCheckResult(input: MergeGateVerdictInput): MergeGa
         };
     }
 
-    if (input.verdict === "client_bug") {
+    // A `client_bug` verdict is branch-scoped (an open bug issue), so a bug carried across snapshots that no test
+    // re-ran here still blocks with no headlines of its own. Floor the count at one so the check never blocks under a
+    // "0 client bugs" title.
+    const bugCount = input.verdict === "client_bug" ? Math.max(input.clientBugHeadlines.length, 1) : 0;
+    const state = deriveAnalysisVerdict({
+        bugCount,
+        coverageGapCount: input.coverageGapCount,
+        investigatedCount: input.investigatedCount,
+    });
+
+    if (state === "bug_found") {
         return {
             conclusion: "failure",
-            title: bugTitle(input.clientBugHeadlines.length),
+            title: bugTitle(bugCount),
             summary: buildBugSummary(input.clientBugHeadlines),
         };
     }
 
-    if (input.coverageGapCount > 0) {
+    if (state === "no_tests_affected") {
         return {
             conclusion: "neutral",
-            title: "No blocking issues found (with coverage gaps)",
+            title: "No tests were affected by this change",
             summary:
-                `Autonoma found no client bugs. ${input.coverageGapCount} finding(s) fall on the coverage plane ` +
-                "(not blocking); some flows could not be fully assessed.",
+                "Autonoma selected no tests for this diff, so the change was not verified. " +
+                "This check does not block the merge.",
+        };
+    }
+
+    if (state === "not_confirmed") {
+        return {
+            conclusion: "neutral",
+            title: "Could not confirm this change",
+            summary:
+                `Autonoma found no client bugs, but ${input.coverageGapCount} check(s) did not complete, so the ` +
+                "change was not fully verified. These fall on the coverage plane and do not block the merge.",
         };
     }
 
     return {
         conclusion: "success",
         title: "No blocking issues found",
-        summary: "Autonoma ran and found no client bugs in this PR.",
+        summary: "Autonoma verified this change and found no client bugs in this PR.",
     };
 }
 
@@ -104,14 +127,22 @@ function bugTitle(count: number): string {
 }
 
 function buildBugSummary(headlines: string[]): string {
+    const intro =
+        `Autonoma found client bugs that block this merge. Fix them, or comment \`${MERGE_GATE_SKIP_COMMAND} <reason>\` ` +
+        "on the PR to merge anyway.";
+    // With no headline to list, say where the bug came from rather than blocking under a summary that names nothing.
+    if (headlines.length === 0) {
+        return [
+            intro,
+            "",
+            "The bug was found on an earlier commit of this PR and is still open - no test re-ran it here. " +
+                "See the Autonoma PR comment for the details.",
+        ].join("\n");
+    }
+
     const listed = headlines.slice(0, MAX_LISTED_BUGS).map((headline) => `- ${headline}`);
     const overflow = headlines.length - MAX_LISTED_BUGS;
-    const lines = [
-        `Autonoma found client bugs that block this merge. Fix them, or comment \`${MERGE_GATE_SKIP_COMMAND} <reason>\` ` +
-            "on the PR to merge anyway.",
-        "",
-        ...listed,
-    ];
+    const lines = [intro, "", ...listed];
     if (overflow > 0) lines.push(`- ...and ${overflow} more`);
     return lines.join("\n");
 }

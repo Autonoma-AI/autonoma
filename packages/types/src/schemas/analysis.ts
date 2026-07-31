@@ -126,6 +126,71 @@ export function analysisFindingBucket(category: string): AnalysisFindingBucket {
 }
 
 /**
+ * The PR-level verdict a completed analysis run resolves to - the ONE deterministic classification every surface
+ * (the GitHub comment, the merge-gate check-run, and the UI checkpoint badge) renders, so they can never disagree.
+ * Computed purely from counts, never by a model.
+ *
+ * - `bug_found`: at least one open bug issue - the only class that counts against the PR.
+ * - `not_confirmed`: no bug, but at least one coverage-plane gap. "No bug" is not "verified": a gap is a gap
+ *   regardless of fault (a scenario the client must fix, or a harness flake that is on us), so it downgrades the
+ *   headline either way - ownership is a body concern, not a colour one.
+ * - `no_tests_affected`: nothing was selected to run against this diff, so there is no evidence either way; it must
+ *   not read as a clean pass.
+ * - `healthy`: tests ran and every one confirmed the app, with zero coverage gaps.
+ */
+export type AnalysisVerdictState = "bug_found" | "not_confirmed" | "no_tests_affected" | "healthy";
+
+/** The three counts the PR verdict is a pure function of. */
+export interface AnalysisVerdictCounts {
+    /** Open bug-kind issues on the branch - the app-health signal that blocks the PR. */
+    bugCount: number;
+    /** Coverage-plane findings, `invalid_test` included. */
+    coverageGapCount: number;
+    /** Tests that produced a terminal verdict this run; zero means nothing was exercised against the change. */
+    investigatedCount: number;
+}
+
+/** Classify a completed run's counts into the single PR verdict every surface renders. */
+export function deriveAnalysisVerdict(counts: AnalysisVerdictCounts): AnalysisVerdictState {
+    if (counts.bugCount > 0) return "bug_found";
+    if (counts.investigatedCount === 0) return "no_tests_affected";
+    if (counts.coverageGapCount > 0) return "not_confirmed";
+    return "healthy";
+}
+
+/** The short badge word for a verdict: the GitHub comment's state label and the check-run/UI badge copy. */
+export function analysisVerdictLabel(state: AnalysisVerdictState): string {
+    switch (state) {
+        case "bug_found":
+            return "BUG FOUND";
+        case "not_confirmed":
+            return "NOT CONFIRMED";
+        case "no_tests_affected":
+            return "NO TESTS AFFECTED";
+        case "healthy":
+            return "HEALTHY";
+    }
+}
+
+/**
+ * The deterministic one-sentence headline a run leads with - the copy the GitHub comment renders under the state
+ * label and the UI verdict subtitle can reuse, so the wording never drifts between surfaces. It states what we
+ * learned about the change.
+ */
+export function analysisVerdictHeadline(counts: AnalysisVerdictCounts): string {
+    switch (deriveAnalysisVerdict(counts)) {
+        case "bug_found":
+            return `Autonoma found ${counts.bugCount} ${counts.bugCount === 1 ? "bug" : "bugs"} in this PR.`;
+        case "not_confirmed":
+            return `Autonoma couldn't confirm this change - ${counts.coverageGapCount} ${counts.coverageGapCount === 1 ? "check" : "checks"} didn't complete.`;
+        case "no_tests_affected":
+            return "No tests were affected by this change.";
+        case "healthy":
+            return "Autonoma verified this change - the app held up.";
+    }
+}
+
+/**
  * Sort key for a finding, by the presentation tier of its terminal verdict `category`. THE ordering for every
  * findings list - the report page, the snapshot's suite-changes sections, and the Reporter's own prompt - so a
  * reader never meets the same findings in two different orders. It is a pure function of the verdict, which is why

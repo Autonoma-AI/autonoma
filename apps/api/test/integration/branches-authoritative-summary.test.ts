@@ -100,26 +100,27 @@ apiTestSuite({
             expect(row?.health).toBe("critical");
         });
 
-        test("a passing authoritative checkpoint reads 'Passing' (green), coverage findings do not block", async ({
+        test("an authoritative checkpoint with a coverage gap reads 'Not confirmed' (amber), non-blocking", async ({
             harness,
         }) => {
             const { branchId } = await createBranch(harness);
             const snapshotId = await createSnapshot(harness, branchId, "head-pass");
-            // No client bugs; a coverage finding must not turn it red or awaiting-triage.
+            // No client bugs, but a coverage gap means the change was not fully confirmed: amber, not green, and not
+            // red - "no bug" is not "verified". It still does not block (health is `unknown`, never `critical`).
             await attachAnalysisReport(harness, snapshotId, "passed", ["passed", "passed", "scenario_issue"]);
 
             const history = await harness.request().branches.snapshotHistory({ branchId });
             const row = history.find((s) => s.id === snapshotId);
 
-            expect(row?.summary?.tone).toBe("success");
-            expect(row?.summary?.label).toBe("Passing");
+            expect(row?.summary?.tone).toBe("warning");
+            expect(row?.summary?.label).toBe("Not confirmed");
             expect(row?.summary?.reason).toBe("1 couldn't confirm");
             expect(row?.summary?.analysis?.bugCount).toBe(0);
             expect(row?.bugCount).toBe(0);
-            expect(row?.health).toBe("healthy");
+            expect(row?.health).toBe("unknown");
         });
 
-        test("reads a run that confirmed nothing as 'No runs' from the report, even with no surviving findings", async ({
+        test("reads a run that confirmed nothing as 'Not confirmed' from the report, even with no surviving findings", async ({
             harness,
         }) => {
             const { branchId } = await createBranch(harness);
@@ -147,7 +148,7 @@ apiTestSuite({
             const row = history.find((s) => s.id === snapshotId);
 
             expect(row?.summary?.tone).toBe("warning");
-            expect(row?.summary?.label).toBe("No runs");
+            expect(row?.summary?.label).toBe("Not confirmed");
             expect(row?.summary?.reason).toBe("7 blocked");
             expect(row?.summary?.analysis).toEqual({
                 jobStatus: "completed",

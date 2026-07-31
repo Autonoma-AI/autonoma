@@ -24,6 +24,8 @@ const BUG_KIND = "bug";
 /** Everything the analysis PR comment needs from the database, already validated and ordered. */
 export interface LoadedAnalysisComment {
     verdict: AppHealthVerdict;
+    /** Tests that produced a terminal verdict this run; zero means nothing was exercised (no tests affected). */
+    testCount: number;
     bugIssues: AnalysisCommentIssue[];
     coverage?: CoverageSummary;
     summary?: string;
@@ -71,6 +73,7 @@ export async function loadAnalysisCommentInput(snapshotId: string): Promise<Load
         where: { snapshotId },
         select: {
             verdict: true,
+            testCount: true,
             summary: true,
             coverage: true,
             snapshot: { select: { branchId: true } },
@@ -91,6 +94,7 @@ export async function loadAnalysisCommentInput(snapshotId: string): Promise<Load
     const coverage = coverageSummarySchema.safeParse(report.coverage);
     const input = {
         verdict,
+        testCount: report.testCount,
         // Rows written before the Reporter authored a summary were backfilled to "" - treat empty as absent.
         summary: report.summary !== "" ? report.summary : undefined,
         coverage: coverage.success ? coverage.data : undefined,

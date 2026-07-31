@@ -1,52 +1,82 @@
-import { Badge, StatusDot } from "@autonoma/blacklight";
-import type { InvestigationFinding } from "@autonoma/types";
+import { Badge } from "@autonoma/blacklight";
+import { type AnalysisVerdictState, type InvestigationFinding, deriveAnalysisVerdict } from "@autonoma/types";
+import { RUN_VERDICT_COPY, VerdictHeadline } from "components/analysis/verdict-headline";
 import { analysisVerdictMeta } from "components/analysis/verdict-meta";
 
 /**
- * The two-plane verdict headline for an authoritative PR, shown above the findings list. The app-health plane
- * (`client_bug` is the only verdict that counts against the PR) is the headline; the coverage plane (checks that
- * could not confirm app health) is a quiet, non-blocking sub-line. Every count is derived from the findings via
- * the verdict SSOT (`analysisVerdictMeta`), never hand-listed, so the split can never drift from the taxonomy.
+ * The verdict headline for ONE analysis run, shown above that snapshot's findings list. Its counts come from the run's
+ * own findings, so it speaks in the present tense about what this commit's tests found; the PR-level headline
+ * (`AnalysisPrIssuesHeadline`) speaks about the branch's cumulative open issues instead.
+ *
+ * Every count is derived from the verdict SSOT (`analysisVerdictMeta` + `deriveAnalysisVerdict`), never hand-listed,
+ * so the split can never drift from the taxonomy.
  */
 export function PrVerdictHeadline({ findings }: { findings: InvestigationFinding[] }) {
-  // Derived from the verdict SSOT, never hand-listed: `actionable` is exactly the client-bug plane, `coverage` is
-  // the non-blocking plane, and passed is the app-health remainder (an unknown category falls back to coverage).
+  // `actionable` is exactly the client-bug plane, `coverage` is the non-blocking plane, and passed is the app-health
+  // remainder (an unknown category falls back to coverage).
   const bugCount = findings.filter((f) => analysisVerdictMeta(f.category).actionable).length;
   const coverageCount = findings.filter((f) => analysisVerdictMeta(f.category).plane === "coverage").length;
   const passedCount = findings.length - bugCount - coverageCount;
-  const hasBugs = bugCount > 0;
+  const state = deriveAnalysisVerdict({
+    bugCount,
+    coverageGapCount: coverageCount,
+    investigatedCount: findings.length,
+  });
+  const copy = headlineCopy(state, bugCount, coverageCount);
 
   return (
-    <div className="flex flex-col gap-3 border border-border-dim bg-surface-base px-5 py-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={hasBugs ? "critical" : "success"} className="gap-1 font-mono uppercase tracking-wider">
-          <StatusDot status={hasBugs ? "critical" : "success"} />
-          {hasBugs ? `${bugCount} client ${bugCount === 1 ? "bug" : "bugs"}` : "No client bugs"}
-        </Badge>
-        {passedCount > 0 && (
-          <Badge variant="status-passed" className="font-mono text-3xs">
-            {passedCount} passed
-          </Badge>
-        )}
-        {coverageCount > 0 && (
-          <Badge variant="outline" className="font-mono text-3xs">
-            {coverageCount} couldn&apos;t confirm
-          </Badge>
-        )}
-      </div>
-
-      <div className="min-w-0">
-        <h2 className="text-lg font-semibold tracking-tight text-text-primary">
-          {hasBugs ? "This PR has app-level bugs to fix" : "The app held up on the paths we tested"}
-        </h2>
-        <p className="mt-1 text-sm text-text-secondary">
-          {hasBugs
-            ? "Only client bugs count against this PR - review each one below."
-            : "Everything the agent checked passed or was non-blocking."}
-          {coverageCount > 0 &&
-            ` ${coverageCount} ${coverageCount === 1 ? "check" : "checks"} couldn't confirm app health this run and don't block the PR.`}
-        </p>
-      </div>
-    </div>
+    <VerdictHeadline
+      state={state}
+      badge={copy.badge}
+      title={copy.title}
+      pills={
+        <>
+          {passedCount > 0 && (
+            <Badge variant="status-passed" className="font-mono text-3xs">
+              {passedCount} passed
+            </Badge>
+          )}
+          {coverageCount > 0 && (
+            <Badge variant="outline" className="font-mono text-3xs">
+              {coverageCount} couldn&apos;t confirm
+            </Badge>
+          )}
+        </>
+      }
+    >
+      {copy.prose}
+    </VerdictHeadline>
   );
+}
+
+interface HeadlineCopy {
+  badge: string;
+  title: string;
+  prose: string;
+}
+
+/** This run's wording: the badge counts the findings this snapshot produced, not the PR's open issues. */
+function headlineCopy(state: AnalysisVerdictState, bugCount: number, coverageCount: number): HeadlineCopy {
+  switch (state) {
+    case "bug_found":
+      return {
+        badge: `${bugCount} client ${bugCount === 1 ? "bug" : "bugs"}`,
+        title: "This PR has app-level bugs to fix",
+        prose: "Only client bugs count against this PR - review each one below.",
+      };
+    case "not_confirmed":
+      return {
+        badge: RUN_VERDICT_COPY.not_confirmed.badge,
+        title: RUN_VERDICT_COPY.not_confirmed.title,
+        prose: `Autonoma ran, but ${coverageCount} ${coverageCount === 1 ? "check" : "checks"} couldn't confirm app health this run, so the change isn't fully verified. These don't block the PR.`,
+      };
+    case "no_tests_affected":
+      return RUN_VERDICT_COPY.no_tests_affected;
+    case "healthy":
+      return {
+        badge: "No client bugs",
+        title: "The app held up on the paths we tested",
+        prose: "Everything the agent checked passed.",
+      };
+  }
 }

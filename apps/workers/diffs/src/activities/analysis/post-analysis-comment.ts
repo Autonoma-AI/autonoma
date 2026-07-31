@@ -88,7 +88,7 @@ export async function postAnalysisComment({
 
     const payload = await buildAnalysisCommentPayload(
         {
-            verdict: report.verdict,
+            testCount: report.testCount,
             bugIssues: report.bugIssues,
             coverage: report.coverage,
             mergeGateBlocking,

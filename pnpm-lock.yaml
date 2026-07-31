@@ -1884,6 +1884,9 @@ importers:
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../logger
+      '@autonoma/types':
+        specifier: workspace:*
+        version: link:../types
       '@octokit/app':
         specifier: 'catalog:'
         version: 16.1.2

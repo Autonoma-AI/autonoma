@@ -67,7 +67,7 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
     // status-pill image, so a markdown-only renderer still shows the state. The bug/warning count in the title
     // is wrapped in a `code` span to stand out, which escaping would otherwise neutralize.
     sections.push("", `## ${STATE_ICONS[payload.state]} ${renderTitle(payload)}`, "");
-    sections.push(`**${STATE_LABELS[payload.state]}** - ${escapeMarkdown(payload.headline)}`);
+    sections.push(`**${payload.stateLabel ?? STATE_LABELS[payload.state]}** - ${escapeMarkdown(payload.headline)}`);
 
     // The run-level narration (analysis comment) sits right under the headline as a prose paragraph. It is
     // LLM-authored, so it is sanitized the same way rich bug prose is.

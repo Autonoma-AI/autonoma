@@ -7,6 +7,7 @@ describe("buildMergeGateCheckResult", () => {
             verdict: "client_bug",
             errored: false,
             coverageGapCount: 0,
+            investigatedCount: 2,
             clientBugHeadlines: ["Login button does nothing", "Checkout throws 500"],
         });
 
@@ -21,6 +22,7 @@ describe("buildMergeGateCheckResult", () => {
             verdict: "passed",
             errored: false,
             coverageGapCount: 0,
+            investigatedCount: 4,
             clientBugHeadlines: [],
         });
 
@@ -32,10 +34,41 @@ describe("buildMergeGateCheckResult", () => {
             verdict: "passed",
             errored: false,
             coverageGapCount: 3,
+            investigatedCount: 5,
             clientBugHeadlines: [],
         });
 
         expect(result.conclusion).toBe("neutral");
+    });
+
+    it("blocks a bug carried from an earlier snapshot without titling itself '0 client bugs'", () => {
+        // The verdict is branch-scoped (an open bug issue), so a carried bug no test re-ran here has no headlines.
+        const result = buildMergeGateCheckResult({
+            verdict: "client_bug",
+            errored: false,
+            coverageGapCount: 0,
+            investigatedCount: 2,
+            clientBugHeadlines: [],
+        });
+
+        expect(result.conclusion).toBe("failure");
+        expect(result.title).toBe("Autonoma found 1 client bug");
+        // A blocking check that names no bug reads as a mistake, so it says where the bug came from.
+        expect(result.summary).toContain("found on an earlier commit of this PR");
+        expect(result.summary).toContain(MERGE_GATE_SKIP_COMMAND);
+    });
+
+    it("maps a run that exercised nothing to a non-blocking neutral, not a green success", () => {
+        const result = buildMergeGateCheckResult({
+            verdict: "passed",
+            errored: false,
+            coverageGapCount: 0,
+            investigatedCount: 0,
+            clientBugHeadlines: [],
+        });
+
+        expect(result.conclusion).toBe("neutral");
+        expect(result.title).toContain("No tests were affected");
     });
 
     it("fails open to neutral when the analysis job errored, regardless of the stale verdict", () => {
@@ -43,6 +76,7 @@ describe("buildMergeGateCheckResult", () => {
             verdict: "client_bug",
             errored: true,
             coverageGapCount: 0,
+            investigatedCount: 2,
             clientBugHeadlines: ["ignored while errored"],
         });
 
@@ -55,6 +89,7 @@ describe("buildMergeGateCheckResult", () => {
             verdict: "client_bug",
             errored: false,
             coverageGapCount: 0,
+            investigatedCount: 13,
             clientBugHeadlines: headlines,
         });
 

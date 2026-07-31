@@ -101,6 +101,12 @@ export const AutonomaCommentPayloadSchema = z.object({
     // generic "Autonoma PR #N" heading. Absent on the test/analysis comments.
     kind: z.literal("preview").optional(),
     prNumber: z.number().int().positive(),
+    /**
+     * Overrides the default badge word for `state` (e.g. the analysis comment renders "NOT CONFIRMED" over the amber
+     * `warning` state, "BUG FOUND" over `critical`). Absent means the renderer's generic per-state label, so other
+     * comment kinds that share these states (preview, investigation) keep their own wording.
+     */
+    stateLabel: z.string().optional(),
     headline: z.string(),
     /**
      * An optional prose paragraph rendered right under the headline - the analysis comment's constrained
