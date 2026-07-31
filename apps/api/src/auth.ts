@@ -115,6 +115,13 @@ export interface Auth {
         internalAdapter: {
             listSessions(userId: string): Promise<AuthSession[]>;
             createSession(userId: string): Promise<AuthSession>;
+            /**
+             * Resolves a session token wherever better-auth actually keeps it. With
+             * `secondaryStorage` configured (below), sessions live in Redis and are never
+             * written to the `session` table, so a Prisma lookup on `token` finds nothing -
+             * this is the only way to answer "is this token still a live session?".
+             */
+            findSession(token: string): Promise<{ session: AuthSession } | null>;
         };
         // Cookie metadata (name + serialization attributes) for the session-token
         // cookie, as configured by the `secondaryStorage`/cookie-cache options

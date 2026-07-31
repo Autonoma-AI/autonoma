@@ -156,6 +156,9 @@ function InstallStep({
   const queryClient = useQueryClient();
   const returnPath = appId != null ? `/onboarding/add-app?appId=${encodeURIComponent(appId)}` : "/onboarding/add-app";
   const { data } = useGithubConfig(returnPath);
+  // `returnTo` is what "Back to your account" in the demo comes back to - this step, not
+  // the app root, so the visitor picks up at the install button they left.
+  const demoUrl = `${getApiOrigin()}/v1/demo?source=onboarding&returnTo=${encodeURIComponent(returnPath)}`;
 
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: trpc.github.getInstallation.queryKey() });
@@ -195,7 +198,7 @@ function InstallStep({
         <Button
           variant="outline"
           className="gap-3 px-8 py-4 font-mono text-sm font-bold uppercase"
-          render={<a href={`${getApiOrigin()}/v1/demo?source=onboarding`} target="_blank" rel="noopener noreferrer" />}
+          render={<a href={demoUrl} target="_blank" rel="noopener noreferrer" />}
           aria-label="onboarding-view-demo"
         >
           View demo

@@ -4,12 +4,13 @@ import { TooManyRequestsError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { Context } from "hono";
 import { Hono } from "hono";
-import { setSignedCookie } from "hono/cookie";
+import { deleteCookie, setSignedCookie } from "hono/cookie";
 import { auth, redisClient } from "../context";
 import { env } from "../env";
 import { RateLimiterService } from "../rate-limit/rate-limiter.service";
 import { setSessionActiveOrg } from "../routes/auth/set-session-active-org";
 import { ParkedSessionStore } from "./parked-session.store";
+import { resolveReturnPath } from "./resolve-return-path";
 
 const logger = rootLogger.child({ name: "DemoRouter" });
 
@@ -57,7 +58,8 @@ export const demoHttpRouter = new Hono();
  *
  * That is the browser's only session cookie, so a visitor who is already signed in (the
  * in-app "View demo" entry) would be signed out of their own account just by looking at
- * the demo. Their session is parked first, and `/exit` hands it back.
+ * the demo. Their session is parked first, along with the `?returnTo=` path they left,
+ * and `/exit` hands both back.
  */
 demoHttpRouter.get("/", async (c) => {
     const demoOrgId = env.DEMO_ORG;
@@ -96,12 +98,17 @@ demoHttpRouter.get("/", async (c) => {
         return c.redirect(env.APP_URL);
     }
 
-    const sessionToken = await mintDemoSession(demoUserId, demoOrgId);
+    const demoSession = await mintDemoSession(demoUserId, demoOrgId);
     const priorSession = resolveParkableSession(currentSession);
     if (priorSession != null) {
-        await parkedSessions.park(sessionToken, priorSession.token, priorSession.expiresAt);
+        const returnTo = resolveReturnPath(c.req.query("returnTo"), env.APP_URL);
+        await parkedSessions.park(
+            demoSession.token,
+            { token: priorSession.token, userId: priorSession.userId, returnTo },
+            priorSession.expiresAt,
+        );
     }
-    await setSessionCookie(c, sessionToken);
+    await setSessionCookie(c, demoSession.token, demoSession.expiresAt);
 
     logger.info("Demo session minted", {
         userId: demoUserId,
@@ -119,10 +126,11 @@ demoHttpRouter.get("/", async (c) => {
 });
 
 /**
- * GET /v1/demo/exit - leaves the demo and restores the session the visitor arrived with.
- * Reached from the demo banner's "Back to your account", which only renders when a session
- * is parked. A no-op redirect for anyone who reached the demo without one (the landing-page
- * CTA), so the route is safe to hit at any time.
+ * GET /v1/demo/exit - leaves the demo and restores the session the visitor arrived with,
+ * landing them back on the page they left from. Reached from the demo banner's "Back to
+ * your account", which only renders when a session is parked. A no-op redirect for anyone
+ * who reached the demo without one (the landing-page CTA), so the route is safe to hit at
+ * any time.
  */
 demoHttpRouter.get("/exit", async (c) => {
     const currentSession = await auth.api.getSession({ headers: c.req.raw.headers });
@@ -131,25 +139,31 @@ demoHttpRouter.get("/exit", async (c) => {
         return c.redirect(env.APP_URL);
     }
 
-    const priorSessionToken = await parkedSessions.take(currentSession.session.token);
-    if (priorSessionToken == null) return c.redirect(env.APP_URL);
+    const parked = await parkedSessions.take(currentSession.session.token);
+    if (parked == null) {
+        logger.info("Demo exit hit with nothing parked to restore");
+        return c.redirect(env.APP_URL);
+    }
 
     // The parked session can have expired or been revoked (signed out elsewhere) while the
     // visitor was in the demo; send them to log in rather than restoring a dead cookie.
-    const priorSession = await db.session.findUnique({
-        where: { token: priorSessionToken },
-        select: { userId: true, expiresAt: true },
-    });
-    if (priorSession == null || priorSession.expiresAt <= new Date()) {
-        logger.info("Parked session is no longer valid");
-        analytics.capture(priorSession?.userId ?? currentSession.user.id, "demo.exited", { outcome: "expired" });
+    const priorSession = await findLiveSession(parked.token);
+    if (priorSession == null) {
+        logger.info("Parked session is no longer valid", { userId: parked.userId });
+        analytics.capture(parked.userId, "demo.exited", { outcome: "expired" });
+        // Drop the demo cookie too, or /login sees a live session and bounces straight
+        // back into the demo the visitor just asked to leave.
+        await clearSessionCookie(c);
         return c.redirect(`${env.APP_URL}/login`);
     }
 
-    await setSessionCookie(c, priorSessionToken);
+    await setSessionCookie(c, parked.token, priorSession.expiresAt);
     logger.info("Restored the visitor's session on demo exit", { userId: priorSession.userId });
-    analytics.capture(priorSession.userId, "demo.exited", { outcome: "restored" });
-    return c.redirect(env.APP_URL);
+    analytics.capture(priorSession.userId, "demo.exited", {
+        outcome: "restored",
+        returnedToEntryPoint: parked.returnTo != null,
+    });
+    return c.redirect(`${env.APP_URL}${parked.returnTo ?? ""}`);
 });
 
 interface ParkableSession {
@@ -199,18 +213,30 @@ async function ensureDemoUser(demoOrgId: string): Promise<string> {
     return user.id;
 }
 
-async function mintDemoSession(userId: string, demoOrgId: string): Promise<string> {
+async function mintDemoSession(userId: string, demoOrgId: string): Promise<{ token: string; expiresAt: Date }> {
     const ctx = await auth.$context;
     const session = await ctx.internalAdapter.createSession(userId);
     // The session-create hook already resolves the active org from the demo user's sole
     // membership, but pin DEMO_ORG explicitly so a stray membership can never land a
     // visitor in the wrong org.
     await setSessionActiveOrg(auth, session.token, demoOrgId);
-    return session.token;
+    return { token: session.token, expiresAt: session.expiresAt };
+}
+
+/**
+ * The session behind a token, or undefined once it has expired or been revoked. Goes
+ * through better-auth's internal adapter rather than the `session` table: `secondaryStorage`
+ * is configured, so live sessions are only ever written to Redis.
+ */
+async function findLiveSession(token: string): Promise<ParkableSession | undefined> {
+    const ctx = await auth.$context;
+    const found = await ctx.internalAdapter.findSession(token);
+    if (found == null || found.session.expiresAt <= new Date()) return undefined;
+    return { userId: found.session.userId, token: found.session.token, expiresAt: found.session.expiresAt };
 }
 
 /** Sets better-auth's signed session cookie, matching how the Vercel SSO flow does it. */
-async function setSessionCookie(c: Context, token: string): Promise<void> {
+async function setSessionCookie(c: Context, token: string, expiresAt: Date): Promise<void> {
     const ctx = await auth.$context;
     const { name, attributes } = ctx.authCookies.sessionToken;
     await setSignedCookie(c, name, token, ctx.secret, {
@@ -218,6 +244,20 @@ async function setSessionCookie(c: Context, token: string): Promise<void> {
         sameSite: "Lax",
         secure: attributes.secure,
         path: "/",
+        domain: attributes.domain ?? undefined,
+        // Without this the restored cookie would outlive its session only until the browser
+        // closes, silently signing the visitor out of an account they never left.
+        expires: expiresAt,
+    });
+}
+
+/** Removes the session cookie, leaving the browser signed out of every account. */
+async function clearSessionCookie(c: Context): Promise<void> {
+    const ctx = await auth.$context;
+    const { name, attributes } = ctx.authCookies.sessionToken;
+    deleteCookie(c, name, {
+        path: "/",
+        secure: attributes.secure,
         domain: attributes.domain ?? undefined,
     });
 }
