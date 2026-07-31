@@ -125,6 +125,12 @@ export interface ReporterScenarioLoader {
 export interface ReporterInput {
     appSlug: string;
     pr: ReporterPrMeta;
+    /**
+     * The PR's commit range. The Reporter is told to read the diff to ground a bug's `suspectedCause` in an
+     * exact `file:line`, so it needs the range that read is against - the clone has no ref for the base, and a
+     * guessed range yields a real-looking citation for the wrong commits.
+     */
+    range: { baseSha: string; headSha: string };
     /** The Impact Analysis stage's account of why it selected the tests it did (provenance/context). */
     impactReasoning?: string;
     findings: ReporterFinding[];

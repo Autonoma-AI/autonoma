@@ -106,10 +106,10 @@ coverage justification soundly explains why those tests do not already cover it)
 
 The diffs agent authors tests directly via `create_test`, and nothing culls a
 passing-but-redundant test once it is created, so the analysis eval is the primary
-automated guardrail against suite bloat. `createdTests` bounds the *shape* of what
+automated guardrail against suite bloat. `createdTests` bounds the _shape_ of what
 was authored (how many, into which folders), and every created test is checked for a
-non-blank coverage justification; whether each test is *genuinely* non-redundant and
-its justification *sound* is graded by the judge.
+non-blank coverage justification; whether each test is _genuinely_ non-redundant and
+its justification _sound_ is graded by the judge.
 
 ### Reviewer frontmatter (generation)
 
@@ -147,8 +147,8 @@ channels:
   `report_engine_limitation`, a suspected-but-ungroundable issue is
   `report_unknown_issue`, and a true scenario-data gap is `report_scenario_unsupported`.
 - `provenance` grades the **remove-vs-keep rule**. It is keyed by failing test
-  case and is semantic rather than kind-exact: `removed` means an invalid test authored *this*
-  snapshot must be `remove_test`-ed, and `kept` means a *pre-existing* failing
+  case and is semantic rather than kind-exact: `removed` means an invalid test authored _this_
+  snapshot must be `remove_test`-ed, and `kept` means a _pre-existing_ failing
   test must be kept under any keep action and never deleted. Note `report_scenario_unsupported`
   also removes the test from the suite, so it does **not** satisfy a `kept` disposition.
 

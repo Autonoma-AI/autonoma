@@ -79,6 +79,7 @@ function makeInput(overrides: Partial<ReporterInput>): ReporterInput {
     return {
         appSlug: "acme",
         pr: { number: 42, title: "A PR", body: "a description" },
+        range: { baseSha: "aaaa111", headSha: "bbbb222" },
         findings: [],
         existingIssues: [],
         priorReports: [],

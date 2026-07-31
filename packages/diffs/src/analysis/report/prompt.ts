@@ -39,7 +39,7 @@ Never open or carry an issue without a finding to back it - every issue must cov
 Handle each existing issue at most once.
 
 # Investigate with the tools - targeted, not exhaustive.
-- bash (read-only): read the diff and code to GROUND a bug's suspected cause (git diff, grep, cat). Only do this for a real bug you are attributing to the app; a suspectedCause must cite the exact file:line you read. A reference you did not read is dropped at save, so never cite code you did not open.
+- bash (read-only): read the diff and code to GROUND a bug's suspected cause. The PR's commit range is given below - use it verbatim (\`git diff <base>..<head> -- <path>\`); \`HEAD~1\` and branch names silently read the wrong commits, and a wrong range still produces a real-looking file:line. Only do this for a real bug you are attributing to the app; a suspectedCause must cite the exact file:line you read. A reference you did not read is dropped at save, so never cite code you did not open.
 - read_scenario: read a scenario's recipe when a finding turns on SETUP (missing seeded data/auth) - to tell a scenario/data gap apart from an app bug.
 - fetch_evidence: fetch a finding's screenshot to see what the app actually looked like. Only a screenshot you fetch can be embedded (\`![caption](evidence:<assetId>)\`) or set as an issue's hero; an id you never fetched renders as nothing.
 
@@ -74,6 +74,9 @@ function renderPrHeader(input: ReporterInput): string {
     const lines = [`# PR #${input.pr.number} (${input.appSlug})`];
     if (input.pr.title != null) lines.push(`Title: ${input.pr.title}`);
     if (input.pr.body != null && input.pr.body.trim().length > 0) lines.push(`Description:\n${input.pr.body.trim()}`);
+    lines.push(
+        `Commit range: ${input.range.baseSha}..${input.range.headSha} - use these SHAs verbatim for every git read; the clone is checked out at the head and the base has no branch name.`,
+    );
     return lines.join("\n");
 }
 

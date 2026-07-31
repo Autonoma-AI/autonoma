@@ -113,6 +113,7 @@ async function buildReporterInput(
     return {
         appSlug: context.appSlug,
         pr: { number: prMeta.prNumber, title: prMeta.prTitle, body: prMeta.prBody },
+        range: { baseSha: context.baseSha, headSha: context.headSha },
         impactReasoning,
         findings,
         existingIssues,

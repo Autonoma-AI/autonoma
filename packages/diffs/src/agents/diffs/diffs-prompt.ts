@@ -3,8 +3,18 @@ import type { FlowIndex } from "../../flow-index";
 import { buildPlanAuthoringContext } from "../../healing/plan-authoring";
 import { type ScenarioRecipeData, summarizeScenarioRecipes } from "../../scenario-recipe";
 
+/**
+ * How many changed paths to name before eliding. Orientation, not an inventory: the agent is told the range and
+ * can read the rest itself, and a generated-client or lockfile churn PR would otherwise paste thousands of
+ * lines in before it has done anything.
+ */
+const MAX_LISTED_FILES = 50;
+
 export interface DiffsPromptInput {
     analysis: DiffAnalysis;
+    /** The PR's commit range. Rendered so the agent can read the patch itself; without it the only range it can
+     * guess is `HEAD~1`, which on a multi-commit PR is silently a fraction of the change. */
+    range: { baseSha: string; headSha: string };
     flowIndex: FlowIndex;
     merges: MergeContextInfo[];
     preClassifiedConflicts: PreClassifiedConflictInfo[];
@@ -19,7 +29,7 @@ export interface DiffsPromptInput {
  * authoring context) goes through here.
  */
 export function buildDiffsUserPrompt(input: DiffsPromptInput): string {
-    const { analysis, flowIndex, merges, preClassifiedConflicts, testScopeGuidelines, scenarioRecipes } = input;
+    const { analysis, range, flowIndex, merges, preClassifiedConflicts, testScopeGuidelines, scenarioRecipes } = input;
 
     const planAuthoringContext = buildPlanAuthoringContext({
         flows: flowIndex.listFlows().map((f) => ({
@@ -39,9 +49,15 @@ Analyze the following code changes.
 ${analysis.summary}
 
 ## Affected Files
-${analysis.affectedFiles.join("\n")}
+${listAffectedFiles(analysis.affectedFiles)}
 
-Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`, etc.) to explore the actual patch and understand the changes in detail.`;
+## Reading the change
+This PR's commit range is \`${range.baseSha}..${range.headSha}\`. Use these SHAs verbatim - the clone is checked out at the head and the base has NO branch name, so \`HEAD~1\`, \`origin/main\` and a merge-base all silently give you a fraction of a multi-commit PR.
+
+Explore the patch yourself with \`bash\`, scoping to what you need rather than pulling it whole:
+- \`git diff ${range.baseSha}..${range.headSha} --stat\` for the full file list with change magnitude
+- \`git diff ${range.baseSha}..${range.headSha} -- <path>\` for one file or directory
+- \`git log ${range.baseSha}..${range.headSha} --name-only\` for which commit touched what`;
 
     if (merges.length > 0) {
         prompt += "\n\n## Merges in this range\n";
@@ -143,9 +159,21 @@ You are the sole author of new tests in this flow. Each \`create_test\` mints a 
 - \`finish\`: call when done with your analysis
 
 ## Workflow
-1. Use \`bash\` with git commands (\`git diff HEAD~1\`, \`git show HEAD -- <file>\`, \`git log --oneline -5\`) to explore the actual diff and understand what changed
+1. Use \`bash\` with git commands to explore the actual diff and understand what changed - the task gives you the PR's commit range; use it verbatim rather than guessing one from \`HEAD~1\` or a branch name
 2. Read relevant source files to understand the changes in context - \`cat\` the paths you need (pass several at once) or \`sed -n '<start>,<end>p'\` for slices
 3. Browse the test flows using \`list_tests\` to understand what tests exist
 4. Identify potentially affected tests by passing every candidate slug to \`read_tests\` in one call, then \`mark_affected_test\` for each affected one
 5. Identify test gaps and author new tests with \`create_test\` - browse the suite first to ground the coverage justification, and bind a \`scenarioId\` when the test needs seeded data
 6. Call \`finish\` with your overall reasoning - even if no actions were needed (e.g. pure refactors), explain why`;
+
+/**
+ * The changed paths, capped. The full list is one `git diff --stat` away and the agent is told the range, so
+ * the prompt carries enough to orient a reader and no more - an uncapped join put every path of a
+ * lockfile-regen or generated-client PR into the context before the agent had done anything.
+ */
+function listAffectedFiles(files: string[]): string {
+    if (files.length === 0) return "(no files changed in this range)";
+    const listed = files.slice(0, MAX_LISTED_FILES).join("\n");
+    if (files.length <= MAX_LISTED_FILES) return listed;
+    return `${listed}\n... and ${files.length - MAX_LISTED_FILES} more (${files.length} changed in total - use \`git diff --stat\` below for the rest)`;
+}

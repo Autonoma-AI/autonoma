@@ -114,6 +114,7 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
 
         const prompt = buildDiffsUserPrompt({
             analysis,
+            range: { baseSha: input.baseSha, headSha: input.headSha },
             flowIndex: input.flowIndex,
             merges: input.merges ?? [],
             preClassifiedConflicts: input.preClassifiedConflicts ?? [],
