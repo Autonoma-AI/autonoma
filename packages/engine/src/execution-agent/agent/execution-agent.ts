@@ -204,6 +204,7 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
                 });
             },
             onFinish: async ({ steps }) => this.params.onFinish?.(await this.buildExecutionResult(steps)),
+            toolChoice: "required",
             stopWhen: [stepCountIs(this.params.maxSteps), hasToolCall("execution-finished")],
             tools: this.buildTools(),
         });
