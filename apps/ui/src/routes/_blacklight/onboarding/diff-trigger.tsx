@@ -77,12 +77,18 @@ function DiffTriggerContent({ appId }: { appId: string }) {
           {isByo ? (
             <>
               <p>
-                The <span className="font-mono text-primary-ink">deployment_status</span> workflow you added already
-                powers per-PR reviews - it's the same single workflow, no extra file and no extra secret. When a PR's
-                preview deploys, Autonoma reviews the change against it.
+                Autonoma reviews a pull request against the preview your pipeline built for it. It knows which pull
+                request a preview belongs to from the signal itself - so the call your pipeline makes has to carry{" "}
+                <span className="font-mono text-primary-ink">branch</span> and{" "}
+                <span className="font-mono text-primary-ink">prNumber</span> alongside the preview URL.
               </p>
               <p className="text-text-secondary">
-                We mark you live now and confirm automatically on your first PR deploy. Open a PR to see a review.
+                A signal without them is treated as a deploy of your main branch: the preview URL is recorded, but no
+                per-PR review runs. No extra secret is needed either way - it is the same signed call.
+              </p>
+              <p className="text-text-secondary">
+                We mark you live now and confirm automatically on the first PR signal we receive. Open a PR to see a
+                review.
               </p>
             </>
           ) : (

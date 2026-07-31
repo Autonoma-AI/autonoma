@@ -22,11 +22,14 @@ interface FlowNode {
   detail: string;
 }
 
+// Describes the contract, not the sample workflow: the YAML below is one way to
+// reach step 04, so naming `deployment_status` here would contradict the copy
+// telling people to trigger it however their pipeline works.
 const FLOW_NODES: FlowNode[] = [
   { label: "You push", detail: "A commit or pull request" },
   { label: "Your CI deploys", detail: "Your own pipeline, unchanged" },
-  { label: "GitHub fires", detail: "A deployment_status event" },
-  { label: "The workflow signs", detail: "HMAC over the payload" },
+  { label: "A preview goes live", detail: "Wherever you host it" },
+  { label: "Your pipeline signals", detail: "A signed POST to Autonoma" },
   { label: "Autonoma tests", detail: "Against that preview URL" },
 ];
 
@@ -52,14 +55,14 @@ const SETUP_STEPS: SetupStep[] = [
   {
     index: "02",
     icon: GitPullRequestIcon,
-    title: `Commit ${WORKFLOW_PATH}`,
-    body: "Copy the workflow on the right into that path on a branch, and open a pull request for it.",
+    title: "Make the signed call from your pipeline",
+    body: `Copy the template on the right - it commits as ${WORKFLOW_PATH} if your host reports deployments to GitHub. If it doesn't, make the same signed call from whatever step knows a preview is live.`,
   },
   {
     index: "03",
     icon: RocketLaunchIcon,
     title: "Push, and let your preview deploy",
-    body: "The workflow only runs once GitHub reports a successful deployment, so your normal deploy has to finish first.",
+    body: "Autonoma is only signalled after a preview is actually live, so your normal deploy has to finish first.",
   },
   {
     index: "04",
@@ -88,12 +91,18 @@ export interface DeploymentSignalSetupProps {
  */
 export function DeploymentSignalSetup({ applicationId, sharedSecret }: DeploymentSignalSetupProps) {
   const endpoint = `${getApiOrigin()}/v1/onboarding/deployment-signal`;
-  const workflow = buildWorkflowSnippet({ applicationId: applicationId ?? APPLICATION_ID_PLACEHOLDER, endpoint });
+  const resolvedApplicationId = applicationId ?? APPLICATION_ID_PLACEHOLDER;
+  const workflow = buildWorkflowSnippet({ applicationId: resolvedApplicationId, endpoint });
   const secret = sharedSecret ?? SHARED_SECRET_PLACEHOLDER;
 
+  // The clipboard carries the brief as well as the YAML: the workflow is a
+  // starting point for one common setup, and the person pasting it is usually
+  // pasting into a coding agent. Handing over only the file invites it to be
+  // committed verbatim into a pipeline that never emits `deployment_status`.
   function copyWorkflow() {
-    void navigator.clipboard.writeText(workflow).then(() => {
-      toastManager.add({ type: "success", title: "Workflow copied" });
+    const payload = `${buildTemplateBrief({ applicationId: resolvedApplicationId, endpoint })}\n${workflow}`;
+    void navigator.clipboard.writeText(payload).then(() => {
+      toastManager.add({ type: "success", title: "Workflow copied", description: "Includes notes for your agent" });
     });
   }
 
@@ -113,9 +122,14 @@ export function DeploymentSignalSetup({ applicationId, sharedSecret }: Deploymen
         </div>
         <div className="p-6">
           <p className="max-w-3xl text-sm text-text-secondary">
-            You keep deploying exactly as you do today. The workflow listens for GitHub's{" "}
-            <span className="font-mono text-primary-ink">deployment_status</span> event, and when one reports success it
-            signs the preview URL and posts it to Autonoma. That URL is what generated tests run against.
+            You keep deploying exactly as you do today. Autonoma needs one signed HTTP call whenever a preview goes
+            live, telling it which URL to open - that URL is what generated tests run against.
+          </p>
+          <p className="mt-3 max-w-3xl text-sm text-text-secondary">
+            The workflow on the right is <span className="text-text-primary">one way</span> to make that call: it hangs
+            off GitHub's <span className="font-mono text-primary-ink">deployment_status</span> event, which suits hosts
+            that report deployments back to GitHub. If yours doesn't, make the same call from whatever step in your
+            pipeline knows a preview is live.
           </p>
           <SignalFlow />
         </div>
@@ -144,12 +158,23 @@ export function DeploymentSignalSetup({ applicationId, sharedSecret }: Deploymen
 
         <section className="border border-border-dim bg-surface-base">
           <div className="flex items-center justify-between border-b border-border-dim bg-surface-raised px-5 py-4">
-            <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">{WORKFLOW_PATH}</h2>
+            <div className="flex items-center gap-2.5">
+              <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">
+                {WORKFLOW_PATH}
+              </h2>
+              <span className="border border-border-mid px-1.5 py-0.5 font-mono text-4xs uppercase tracking-widest text-text-secondary">
+                Template
+              </span>
+            </div>
             <Button variant="outline" size="xs" className="gap-2" onClick={copyWorkflow}>
               <CopyIcon size={13} />
               Copy
             </Button>
           </div>
+          <p className="border-b border-border-dim px-5 py-3 text-2xs leading-snug text-text-secondary">
+            Copying also puts a short brief on your clipboard - the signed call Autonoma needs and what to adapt - so
+            you can hand the whole thing to a coding agent and let it fit this to your pipeline.
+          </p>
           <pre className="max-h-[34rem] overflow-auto p-6 font-mono text-2xs leading-relaxed text-text-primary">
             {workflow}
           </pre>
@@ -195,6 +220,47 @@ function SetupStepRow({ step, children }: { step: SetupStep; children?: ReactNod
       </div>
     </div>
   );
+}
+
+/**
+ * The comment block prepended to the copied workflow. It is written to be read by
+ * a coding agent as much as by a person: it states the contract Autonoma actually
+ * needs (a signed POST) and the fact that `deployment_status` is one way to reach
+ * it, not the requirement - so an agent adapts it to the pipeline in front of it
+ * instead of committing a workflow that will never fire.
+ */
+function buildTemplateBrief({ applicationId, endpoint }: { applicationId: string; endpoint: string }) {
+  return `# ---------------------------------------------------------------------------
+# Autonoma preview signal - TEMPLATE. Adapt it; do not assume it drops in.
+#
+# The only thing Autonoma actually requires is ONE HTTP call, made whenever a
+# preview finishes deploying:
+#
+#   POST ${endpoint}
+#   x-signature: <hex HMAC-SHA256 of the exact raw body, keyed with AUTONOMA_SHARED_SECRET>
+#   body: {
+#     "applicationId": "${applicationId}",   // required
+#     "previewUrl":    "<url Autonoma should open>",  // required
+#     "branch":        "<branch>",   // send WITH prNumber to get per-PR reviews
+#     "prNumber":      <number>,     // send WITH branch; omit both for a main-branch deploy
+#     "sdkUrl":        "<url>",      // only if the Autonoma SDK is on another origin
+#     "sha":           "<commit>",   // optional
+#     "provider":      "custom"      // optional
+#   }
+#
+# The workflow below is one way to make that call - it hangs off GitHub's
+# deployment_status event, which suits hosts that report deployments to GitHub.
+# If your pipeline does not emit deployment_status, do NOT bend it to fit: make
+# the same signed call from whatever step in your pipeline knows a preview is
+# live (a deploy job, your host's webhook, a post-deploy script).
+#
+# Two things to get right whichever way you trigger it:
+#   1. Sign the EXACT bytes you send. Re-serializing the JSON changes the digest.
+#   2. If one pull request deploys several services (frontend, API, database),
+#      signal only the one Autonoma should browse. Every signal overwrites the
+#      previous preview URL, so signalling all of them means the last deploy to
+#      finish wins - and that may be your API rather than your frontend.
+# ---------------------------------------------------------------------------`;
 }
 
 function buildWorkflowSnippet({ applicationId, endpoint }: { applicationId: string; endpoint: string }) {
