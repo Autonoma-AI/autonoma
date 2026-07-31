@@ -14,6 +14,7 @@ This package provides a structured way to catch, wrap, and log errors from exter
 | `ExternalErrorConfig` | Type | Options for `external` / `externalSync` - suppressing logs, custom messages, and error wrappers. |
 | `external` | Function | Wraps an async function, catching and normalizing any thrown error. |
 | `externalSync` | Function | Wraps a sync function, catching and normalizing any thrown error. |
+| `causeMessage` | Function | The message of a thrown value, stringifying non-`Error` throws instead of dropping them. Prefer it over an inline `err instanceof Error ? err.message : String(err)`. |
 
 ## Usage
 

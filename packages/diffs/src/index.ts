@@ -37,12 +37,12 @@ export {
     ReadScenarioRecipeEntitiesTool,
     ReadScenarioTool,
     ReadTestsTool,
-    type ReviewStepScreenshots,
+    type InspectableStep,
     ReviewerLoop,
     type ScenarioDataLoop,
     type ScenarioLookupLoop,
     type ScenarioRecipeLoop,
-    type ScreenshotInspectionLoop,
+    type StepInspectionLoop,
     type ScreenshotLoader,
     Subagent,
     SubagentLoop,
@@ -54,7 +54,7 @@ export {
     MIN_DESCRIPTION_LENGTH,
     type TestLookupLoop,
     ViewFinalScreenshotTool,
-    ViewStepScreenshotTool,
+    ViewStepDetailsTool,
     createTestSchema,
     validateCommand,
 } from "./agents";
@@ -85,6 +85,9 @@ export { mapTestSuiteToContext } from "./loaders/map-suite-to-context";
 export { loadFlows } from "./loaders/load-flows";
 
 export { Codebase } from "./codebase";
+
+// PR-range git reads: the one implementation Impact Analysis and the classifier share.
+export { readPrChangedFiles, readPrCommitSubjects, readPrDiffStat, type PrRange } from "./pr-range";
 
 export type { FailureRecord, SnapshotInfo, PlanAuthoringInput } from "./healing/types";
 export {

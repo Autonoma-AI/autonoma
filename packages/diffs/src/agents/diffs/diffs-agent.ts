@@ -1,11 +1,10 @@
-import { Agent, type AgentTool, type LanguageModel } from "@autonoma/ai";
+import { Agent, type AgentTool, type LanguageModel, type ModelMessage } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import type { ModelMessage } from "ai";
 import type { Codebase } from "../../codebase";
-import { buildDiffAnalysis } from "../../diff-analysis";
-import type { ExistingTestInfo, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
+import type { DiffAnalysis, ExistingTestInfo, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
 import { PLAN_AUTHORING_GUIDE } from "../../healing";
+import { readPrChangedFiles, readPrCommitSubjects } from "../../pr-range";
 import type { ScenarioIndex } from "../../scenario-index";
 import type { ScenarioRecipeData } from "../../scenario-recipe";
 import {
@@ -106,7 +105,13 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
     }
 
     protected async buildUserPrompt(input: DiffsAgentInput): Promise<ModelMessage[]> {
-        const analysis = await buildDiffAnalysis(input.codebase.root, input.headSha, input.baseSha, this.logger);
+        const range = { root: input.codebase.root, baseSha: input.baseSha, headSha: input.headSha };
+        const [affectedFiles, summary] = await Promise.all([readPrChangedFiles(range), readPrCommitSubjects(range)]);
+        const analysis: DiffAnalysis = { affectedFiles, summary };
+        this.logger.info("Built diff analysis", {
+            extra: { affectedFiles: affectedFiles.length, summary: summary.slice(0, 200) },
+        });
+
         const prompt = buildDiffsUserPrompt({
             analysis,
             flowIndex: input.flowIndex,

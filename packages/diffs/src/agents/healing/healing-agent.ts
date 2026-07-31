@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { Agent, type LanguageModel, RedactOldToolResults } from "@autonoma/ai";
+import { Agent, type LanguageModel, type ModelMessage } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import type { ModelMessage } from "ai";
 import type { Codebase } from "../../codebase";
 import type { ExistingTestInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
@@ -12,6 +11,7 @@ import { buildHealingPrompt } from "../../healing/prompt-builder";
 import type { FailureRecord, PlanAuthoringInput, SnapshotInfo } from "../../healing/types";
 import type { RenderableReviewStep } from "../../review/kernel";
 import type { SnapshotChangeContext } from "../../review/snapshot";
+import { sharedCompactor } from "../compaction";
 import {
     buildCodebaseTools,
     ListFlowsTool,
@@ -21,7 +21,7 @@ import {
     ReadTestsTool,
     SubagentTool,
 } from "../tools";
-import type { ScreenshotLoader } from "../tools/screenshot/screenshot-types";
+import type { ScreenshotLoader } from "../tools/run-evidence/run-evidence-types";
 import { HealingAgentLoop } from "./healing-agent-loop";
 import { HealingResultTool } from "./healing-result-tool";
 import { FetchStepEvidenceTool } from "./tools/fetch-step-evidence-tool";
@@ -34,15 +34,6 @@ import { UpdatePlanTool } from "./tools/update-plan-tool";
 
 const SYSTEM_PROMPT_BASE = readFileSync(join(import.meta.dirname, "../../healing/system-prompt.md"), "utf-8");
 const SYSTEM_PROMPT = `${SYSTEM_PROMPT_BASE}\n\n${PLAN_AUTHORING_GUIDE}`;
-
-/**
- * Token budget for the previous step's input before compaction trims. Sized to leave headroom
- * for the next step's request - a typical tool round-trip adds ~100-200k tokens on top - so we
- * stay well under Gemini's 1M ceiling.
- */
-const COMPACTION_TOKEN_THRESHOLD = 700_000;
-/** Number of most recent tool round-trips to keep in full when compaction fires. */
-const COMPACTION_KEEP_RECENT_TOOL_RESULTS = 2;
 
 export interface HealingAgentConfig {
     model: LanguageModel;
@@ -183,10 +174,7 @@ export class HealingAgent extends Agent<HealingInput, HealingResult, HealingAgen
                 ...retryTools,
             ],
             reportTool: this.resultTool,
-            compactor: {
-                strategy: new RedactOldToolResults(COMPACTION_KEEP_RECENT_TOOL_RESULTS),
-                threshold: COMPACTION_TOKEN_THRESHOLD,
-            },
+            compactor: sharedCompactor(),
             codebase: input.codebase,
             flowIndex: input.flowIndex,
             existingTests: input.existingTests,

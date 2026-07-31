@@ -2,7 +2,7 @@ import type { ContentPart, ToolSet } from "ai";
 import { ToolLoopAgent, stepCountIs, tool, type ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { buildMessages, extractMessages } from "../src/object/build-messages";
+import { buildMessages, extractMessages } from "../src/build-messages";
 import { MODEL_ENTRIES } from "../src/registry/model-entries";
 import { ModelRegistry } from "../src/registry/model-registry";
 

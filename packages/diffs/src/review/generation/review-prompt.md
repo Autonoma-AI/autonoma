@@ -34,7 +34,7 @@ Decide which of the six verdicts applies, then submit it via `submit_verdict`:
 
 ## Available Tools
 
-- `view_step_screenshot` - the before/after screenshot of a specific step.
+- `view_step_details` - both screenshots of a specific step plus everything the engine recorded about it (parameters, structured output, error), untruncated.
 - `view_final_screenshot` - the screenshot when the agent stopped.
 - `bash` - read-only shell access to **the application's source code**, when available. Search with `rg`, read files with `cat` or `sed -n '<start>,<end>p'`, and list with `ls`/`find` to confirm whether something the test plan describes actually exists in the app, or to ground a `plan_mismatch` vs `application_bug` distinction in code. When a code change is provided, use `git diff <baseSha>..<headSha>` to see exactly what changed - a failure in a flow the change directly touched is strong signal for `application_bug` or `plan_mismatch` over `agent_limitation`. See the tool description for the allowed verbs and grammar.
 - `read_scenario_entities` (when scenario data is present) - the full records the generation's scenario created for one entity type. Use it to verify whether a specific user, item, or value the plan references was actually seeded. Reads in-memory scenario data only - no database or network access.

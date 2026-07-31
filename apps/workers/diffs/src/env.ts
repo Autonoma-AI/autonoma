@@ -23,8 +23,6 @@ export const env = createEnv({
         // The `analyze_video` model, overridable so a bad video model can be reverted (e.g. to
         // google/gemini-3-flash-preview) without a deploy. Must be one of the model session's VIDEO_MODELS.
         INVESTIGATION_VIDEO_MODEL: z.string().default("minimax/minimax-m3"),
-        // The classifier tool-loop step budget.
-        INVESTIGATION_CLASSIFY_MAX_STEPS: z.coerce.number().default(60),
         // Optional Loki base URL for the classifier's get_app_logs tool (e.g. http://loki.autonoma.app:3100).
         LOKI_URL: z.string().optional(),
         // Master switch for the authoritative analysis PR comment. ON by default, matching the pipeline it reports

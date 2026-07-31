@@ -1,5 +1,4 @@
-import type { UploadedVideo } from "@autonoma/ai";
-import type { FilePart, ModelMessage, TextPart } from "ai";
+import type { FilePart, ModelMessage, TextPart, UploadedVideo } from "@autonoma/ai";
 
 type Part = TextPart | FilePart;
 

@@ -5,7 +5,7 @@ import type { DiffsAgentResult } from "../src/agents/diffs/diffs-agent";
 import { DiffsAgentLoop } from "../src/agents/diffs/diffs-agent-loop";
 import { HealingAgentLoop } from "../src/agents/healing/healing-agent-loop";
 import { ReviewerLoop } from "../src/agents/reviewers/reviewer-loop";
-import type { ReviewStepScreenshots, ScreenshotLoader } from "../src/agents/tools/screenshot/screenshot-types";
+import type { InspectableStep, ScreenshotLoader } from "../src/agents/tools/run-evidence/run-evidence-types";
 import { Codebase } from "../src/codebase";
 import type { ExistingTestInfo } from "../src/diffs-agent";
 import { FlowIndex } from "../src/flow-index";
@@ -61,7 +61,7 @@ export function makeDiffsLoop(overrides: DiffsLoopOverrides = {}): DiffsAgentLoo
 export interface ReviewerLoopOverrides {
     workingDirectory?: string;
     scenarioData?: ScenarioData;
-    steps?: ReviewStepScreenshots[];
+    steps?: InspectableStep[];
     screenshotLoader?: ScreenshotLoader;
     architecture?: ApplicationArchitecture;
 }

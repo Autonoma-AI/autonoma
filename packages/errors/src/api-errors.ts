@@ -1,3 +1,5 @@
+import { causeMessage } from "./cause-message";
+
 export class APIError extends Error {}
 
 /**
@@ -87,8 +89,7 @@ export class ThirdPartyError extends APIError {
         cause: unknown,
         message?: string,
     ) {
-        const causeMessage = cause instanceof Error ? cause.message : String(cause);
-        super(message ?? `${provider} request failed: ${causeMessage}`);
+        super(message ?? `${provider} request failed: ${causeMessage(cause)}`);
         this.cause = cause;
     }
 }

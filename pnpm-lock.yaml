@@ -1693,6 +1693,9 @@ importers:
       '@autonoma/db':
         specifier: workspace:*
         version: link:../db
+      '@autonoma/errors':
+        specifier: workspace:*
+        version: link:../errors
       '@autonoma/github':
         specifier: workspace:*
         version: link:../github
@@ -1723,9 +1726,6 @@ importers:
       '@t3-oss/env-core':
         specifier: 'catalog:'
         version: 0.13.10(typescript@7.0.2)(valibot@1.2.0(typescript@7.0.2))(zod@4.3.6)
-      ai:
-        specifier: 'catalog:'
-        version: 6.0.94(zod@4.3.6)
       rimraf:
         specifier: ^6.1.3
         version: 6.1.3
@@ -1748,6 +1748,9 @@ importers:
       '@types/shell-quote':
         specifier: ^1.7.5
         version: 1.7.5
+      ai:
+        specifier: 'catalog:'
+        version: 6.0.94(zod@4.3.6)
       dotenv:
         specifier: 'catalog:'
         version: 17.3.1

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { HealingReportBugTool } from "../src/agents/healing/tools/report-bug-tool";
-import type { ScreenshotLoader } from "../src/agents/tools/screenshot/screenshot-types";
+import type { ScreenshotLoader } from "../src/agents/tools/run-evidence/run-evidence-types";
 import type { HealingAction } from "../src/healing/actions";
 import type { RenderableReviewStep } from "../src/review/kernel";
 import { type ToolEnvelope, executeTool } from "./execute-tool";

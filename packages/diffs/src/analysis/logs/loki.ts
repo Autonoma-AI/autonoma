@@ -1,3 +1,4 @@
+import { causeMessage } from "@autonoma/errors";
 import { z } from "zod";
 
 /** A query for an app's logs over the run window, used to confirm whether an error blocked the failing step. */
@@ -16,33 +17,73 @@ export interface LokiLogQuery {
     limit?: number;
 }
 
+/**
+ * Restrict the stream to the RUNNING app.
+ *
+ * A preview namespace carries the build pipeline's output under the same `namespace` label, and the default
+ * filter (`error|exception|...|unauthorized|...`) matches it readily: BuildKit step lines, turbo cache
+ * output, and a `db-setup` shell one-liner whose `rejectUnauthorized` matches `unauthorized`. Measured on a
+ * live preview over 24h, the unrestricted query returned 151 matching lines of which 68 - 45% - were build
+ * output, handed to the model under the heading "App logs" as the running application's server-side errors.
+ *
+ * `kind!="start"` drops the empty deployment-marker rows; it keeps every real line, since a `!=` matcher also
+ * matches streams that carry no `kind` label at all.
+ */
+const SOURCE_MATCHERS = ['source="app"', 'kind!="start"'];
+
 const DEFAULT_LIMIT = 150;
 const WINDOW_PADDING_SECONDS = 90;
 const REQUEST_TIMEOUT_MS = 25_000;
 const NANOS_PER_SECOND = 1_000_000_000;
 
+/**
+ * Loki's `query_range` envelope, pinned rather than made optional.
+ *
+ * `status` and `resultType` are asserted for a reason: with them optional, a partial-error or
+ * otherwise-unexpected payload parses cleanly to `undefined`, falls through to an empty result, and the
+ * caller states it as the fact "the app emitted no matching error". A shape we do not recognise has to fail
+ * loudly instead. Mirrors `LokiLogStore`'s schema in @autonoma/logger, which pins the same two fields.
+ */
 const LokiResponseSchema = z.object({
-    data: z
-        .object({
-            result: z.array(z.object({ values: z.array(z.tuple([z.string(), z.string()])) })).optional(),
-        })
-        .optional(),
+    status: z.literal("success"),
+    data: z.object({
+        resultType: z.literal("streams"),
+        result: z.array(z.object({ values: z.array(z.tuple([z.string(), z.string()])) })),
+    }),
 });
 
+/** One matched log line, with the nanosecond timestamp Loki returned alongside it. */
+export interface LokiLogLine {
+    /** Nanoseconds since the epoch, as a decimal string - it exceeds `Number.MAX_SAFE_INTEGER`. */
+    timestampNs: string;
+    line: string;
+}
+
+export interface LokiLogPage {
+    lines: LokiLogLine[];
+    /** The page filled the limit, so older matching lines exist that this query did not return. */
+    truncated: boolean;
+}
+
 /**
- * Query an app's Loki logs over the run window. Replaces the prototype's `curl` shell-out with `fetch`
- * (wrapped in try/catch because a network failure throws), and validates the response shape with zod at
- * the boundary instead of trusting `JSON.parse`. Throws on a network/HTTP failure; the caller decides how
- * to surface that to the model.
+ * Query an app's Loki logs over the run window, newest-first at the source and returned in ascending time
+ * order.
+ *
+ * `direction` is sent explicitly rather than left to Loki's default. It decides which lines survive the
+ * limit, and `backward` is deliberate: a truncated page should keep the lines CLOSEST to the failure, and a
+ * run ends at or near the step that failed. The result is then sorted, because Loki groups its response per
+ * label-stream - a namespace with more than one pod returns pod A's lines followed by pod B's, which is not
+ * a timeline under any direction. Timestamps are kept so the caller can place each line against the run.
  */
-export async function queryLokiLogs(query: LokiLogQuery): Promise<string[]> {
+export async function queryLokiLogs(query: LokiLogQuery): Promise<LokiLogPage> {
     const limit = query.limit ?? DEFAULT_LIMIT;
     const startNanos = (query.startEpoch - WINDOW_PADDING_SECONDS) * NANOS_PER_SECOND;
     const endNanos = (query.endEpoch + WINDOW_PADDING_SECONDS) * NANOS_PER_SECOND;
     const params = new URLSearchParams({
-        query: `{namespace="${query.namespace}"} |~ \`${query.regex}\``,
+        query: `{${SOURCE_MATCHERS.join(", ")}, namespace="${query.namespace}"} |~ ${lineFilter(query.regex)}`,
         start: String(startNanos),
         end: String(endNanos),
+        direction: "backward",
         limit: String(limit),
     });
     const url = `${query.lokiBaseUrl}/loki/api/v1/query_range?${params.toString()}`;
@@ -51,13 +92,42 @@ export async function queryLokiLogs(query: LokiLogQuery): Promise<string[]> {
     try {
         response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     } catch (error) {
-        throw new Error(`Loki request failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Loki request failed: ${causeMessage(error)}`);
     }
     if (!response.ok) {
         throw new Error(`Loki returned HTTP ${response.status} for namespace ${query.namespace}`);
     }
 
     const body = LokiResponseSchema.parse(await response.json());
-    const streams = body.data?.result ?? [];
-    return streams.flatMap((stream) => stream.values.map(([, line]) => line)).slice(0, limit);
+    const matched = body.data.result
+        .flatMap((stream) => stream.values.map(([timestampNs, line]) => ({ timestampNs, line })))
+        .sort(byTimestamp);
+    // Trim from the FRONT, keeping the newest: the query asked for `backward`, so dropping the tail here
+    // would discard exactly the lines nearest the failure that the direction was chosen to keep.
+    return { lines: matched.slice(-limit), truncated: matched.length >= limit };
+}
+
+/**
+ * The model's regex as a LogQL line filter it cannot break out of.
+ *
+ * A backtick string is RAW - a backtick cannot be escaped inside one - so a regex containing one either
+ * fails the query outright or, worse, closes the literal and has its remainder parsed as more query: a stray
+ * `` foo` |~ `bar `` becomes a VALID chain that silently ANDs two filters and returns fewer lines, which the
+ * caller then states as "the app emitted no matching error". Loki's double-quoted form uses Go-style
+ * escaping, a superset of JSON's, so `JSON.stringify` produces a literal in which quotes, backslashes and
+ * backticks are all inert.
+ *
+ * Metacharacters are deliberately NOT escaped - unlike the search-term filter in @autonoma/logger, the input
+ * here IS a regex and has to stay one. Verified against live Loki: identical results for a plain pattern,
+ * `\s` still matches as a class, and an embedded backtick becomes a literal instead of a 400.
+ */
+function lineFilter(regex: string): string {
+    return JSON.stringify(regex);
+}
+
+/** Ascending by nanosecond timestamp. BigInt because a nanosecond epoch overflows a JS number. */
+function byTimestamp(a: LokiLogLine, b: LokiLogLine): number {
+    const diff = BigInt(a.timestampNs) - BigInt(b.timestampNs);
+    if (diff < 0n) return -1;
+    return diff > 0n ? 1 : 0;
 }

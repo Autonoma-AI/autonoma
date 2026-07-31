@@ -1,6 +1,6 @@
-import { Agent, type LanguageModel, RedactOldToolResults } from "@autonoma/ai";
+import { Agent, type LanguageModel, type ModelMessage } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import type { ModelMessage } from "ai";
+import { sharedCompactor } from "../../agents/compaction";
 import { buildCodebaseTools } from "../../agents/tools/codebase/build-codebase-tools";
 import { REPORTER_SYSTEM_PROMPT, buildReporterPrompt } from "./prompt";
 import { ReporterAgentLoop } from "./reporter-agent-loop";
@@ -12,23 +12,14 @@ import { ReadScenarioTool } from "./tools/read-scenario-tool";
 import { ResolveIssueTool } from "./tools/resolve-issue-tool";
 import type { ReporterInput, ReporterResult } from "./types";
 
-/**
- * Token budget for the previous step's input before compaction trims. Sized like the healing agent to leave
- * headroom for the next step on top of a vision-heavy history.
- */
-const COMPACTION_TOKEN_THRESHOLD = 700_000;
-/** Number of most recent tool round-trips to keep in full when compaction fires. */
-const COMPACTION_KEEP_RECENT_TOOL_RESULTS = 2;
-
 export interface ReporterAgentConfig {
     model: LanguageModel;
 }
 
 /**
  * Reconciles a job's findings into de-duped, branch-scoped issues and authors one holistic PR report, on the
- * AgentLoop harness. Unlike the classifier (which bypasses this harness), the Reporter uses it correctly:
- * a per-run loop holds the minted-evidence allow-list, and the terminal tool enforces the coverage guarantees and
- * grounds every authored surface before the result is returned.
+ * AgentLoop harness: a per-run loop holds the minted-evidence allow-list, and the terminal tool enforces the
+ * coverage guarantees and grounds every authored surface before the result is returned.
  */
 export class ReporterAgent extends Agent<ReporterInput, ReporterResult, ReporterAgentLoop> {
     private readonly logger: Logger;
@@ -81,10 +72,7 @@ export class ReporterAgent extends Agent<ReporterInput, ReporterResult, Reporter
                 this.resolveIssueTool,
             ],
             reportTool: this.resultTool,
-            compactor: {
-                strategy: new RedactOldToolResults(COMPACTION_KEEP_RECENT_TOOL_RESULTS),
-                threshold: COMPACTION_TOKEN_THRESHOLD,
-            },
+            compactor: sharedCompactor(),
             codebase: input.codebase,
             screenshotLoader: input.screenshotLoader,
             scenarioLoader: input.scenarioLoader,

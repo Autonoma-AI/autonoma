@@ -34,8 +34,13 @@ export class InlineMp4VideoUploader implements VideoUploader {
             videoInput.data.type === "buffer"
                 ? Buffer.from(videoInput.data.buffer)
                 : await readFile(videoInput.data.path);
-        const mp4 = await this.transcodeToMp4(inBytes);
-        this.logger.info("Inlined recording as mp4 for non-Google model", { extra: { mp4Bytes: mp4.length } });
+
+        // Already mp4: base64 it as-is. Re-encoding would cost CPU and a generation of quality to arrive at the
+        // same format, and callers that hold an optimizer's mp4 output would pay it on every single call.
+        const mp4 = videoInput.mimeType === "video/mp4" ? inBytes : await this.transcodeToMp4(inBytes);
+        this.logger.info("Inlined recording as mp4 for non-Google model", {
+            extra: { mp4Bytes: mp4.length, transcoded: videoInput.mimeType !== "video/mp4" },
+        });
         return { uri: mp4.toString("base64"), mimeType: "video/mp4" };
     }
 

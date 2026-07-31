@@ -1,4 +1,4 @@
-import type { ModelMessage } from "ai";
+import type { ModelMessage } from "@autonoma/ai";
 import { describe, expect, it } from "vitest";
 import { MessageBuilder, sanitizeConversation } from "../src/review/kernel/message-builder";
 

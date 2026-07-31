@@ -1,7 +1,7 @@
 export type { CodebaseLoop } from "./tools/codebase/codebase-loop";
 export type { TestLookupLoop } from "./tools/lookup/test-lookup-loop";
 export type { ScenarioLookupLoop } from "./tools/lookup/scenario-lookup-loop";
-export type { ScreenshotInspectionLoop } from "./tools/screenshot/screenshot-inspection-loop";
+export type { StepInspectionLoop } from "./tools/run-evidence/step-inspection-loop";
 export type { ScenarioDataLoop } from "./tools/scenario/scenario-data-loop";
 export type { ScenarioRecipeLoop } from "./tools/scenario/scenario-recipe-loop";
 
@@ -40,8 +40,8 @@ export {
     SubagentLoop,
     SubagentTool,
     ViewFinalScreenshotTool,
-    ViewStepScreenshotTool,
-    type ReviewStepScreenshots,
+    ViewStepDetailsTool,
+    type InspectableStep,
     type ScreenshotLoader,
     type SubagentConfig,
     type SubagentInput,

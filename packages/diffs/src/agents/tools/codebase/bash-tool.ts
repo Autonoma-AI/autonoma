@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { AgentTool } from "@autonoma/ai";
 import { parse, type ParseEntry } from "shell-quote";
 import { z } from "zod";
+import { truncateOutput } from "../truncate-output";
 import type { CodebaseLoop } from "./codebase-loop";
 
 const execFileAsync = promisify(execFile);
@@ -54,6 +55,10 @@ const MAX_STDOUT_CHARS = 60_000;
 
 /** Display budget for stderr. Smaller than stdout - stderr is rarely the payload. */
 const MAX_STDERR_CHARS = 8_000;
+
+/** Appended to a truncation marker: the shell verbs that narrow a command down to what the model needs. */
+const NARROW_HINT =
+    "Narrow the command (rg with a pattern, sed -n '<start>,<end>p' for slices, or head/tail) to see less.";
 
 const bashInputSchema = z.object({
     command: z
@@ -174,22 +179,6 @@ export function buildSafeEnv(source: NodeJS.ProcessEnv): Record<string, string> 
     return env;
 }
 
-/**
- * Cap `text` to `budget` characters, keeping the head and tail and replacing the
- * elided middle with an explanatory marker. Returns the input unchanged when it
- * already fits. Exported so the unit tests can exercise it directly.
- */
-export function truncateOutput(text: string, budget: number, label: string): string {
-    if (text.length <= budget) return text;
-    const headChars = Math.floor(budget * 0.7);
-    const tailChars = budget - headChars;
-    const head = text.slice(0, headChars);
-    const tail = text.slice(text.length - tailChars);
-    const elided = text.length - headChars - tailChars;
-    const marker = `\n\n[...${label} truncated: ${elided} chars elided of ${text.length} total. Showing the first ${headChars} and last ${tailChars} characters. Narrow the command (rg with a pattern, sed -n '<start>,<end>p' for slices, or head/tail) to see less.]\n\n`;
-    return `${head}${marker}${tail}`;
-}
-
 interface ExecFailure {
     code?: number | string;
     signal?: string;
@@ -260,8 +249,8 @@ export class BashTool extends AgentTool<BashInput, BashOutput, CodebaseLoop> {
             });
             return {
                 exitCode: 0,
-                stdout: truncateOutput(stdout.trimEnd(), MAX_STDOUT_CHARS, "stdout"),
-                stderr: truncateOutput(stderr.trimEnd(), MAX_STDERR_CHARS, "stderr"),
+                stdout: truncateOutput(stdout.trimEnd(), MAX_STDOUT_CHARS, "stdout", NARROW_HINT),
+                stderr: truncateOutput(stderr.trimEnd(), MAX_STDERR_CHARS, "stderr", NARROW_HINT),
             };
         } catch (error) {
             return this.handleExecError(error);
@@ -275,12 +264,12 @@ export class BashTool extends AgentTool<BashInput, BashOutput, CodebaseLoop> {
             this.logger.warn("Command output exceeded the capture buffer; returning truncated output", {
                 extra: { maxBufferBytes: MAX_BUFFER_BYTES },
             });
-            const head = truncateOutput(failure.stdout?.trimEnd() ?? "", MAX_STDOUT_CHARS, "stdout");
+            const head = truncateOutput(failure.stdout?.trimEnd() ?? "", MAX_STDOUT_CHARS, "stdout", NARROW_HINT);
             const note = `\n\n[...output exceeded the ${MAX_BUFFER_BYTES}-byte capture buffer and was cut off. Narrow the command to see the rest.]`;
             return {
                 exitCode: 0,
                 stdout: `${head}${note}`,
-                stderr: truncateOutput(failure.stderr?.trimEnd() ?? "", MAX_STDERR_CHARS, "stderr"),
+                stderr: truncateOutput(failure.stderr?.trimEnd() ?? "", MAX_STDERR_CHARS, "stderr", NARROW_HINT),
             };
         }
 
@@ -291,8 +280,8 @@ export class BashTool extends AgentTool<BashInput, BashOutput, CodebaseLoop> {
 
         return {
             exitCode: typeof failure.code === "number" ? failure.code : 1,
-            stdout: truncateOutput(failure.stdout?.trimEnd() ?? "", MAX_STDOUT_CHARS, "stdout"),
-            stderr: truncateOutput(failure.stderr?.trimEnd() ?? "", MAX_STDERR_CHARS, "stderr"),
+            stdout: truncateOutput(failure.stdout?.trimEnd() ?? "", MAX_STDOUT_CHARS, "stdout", NARROW_HINT),
+            stderr: truncateOutput(failure.stderr?.trimEnd() ?? "", MAX_STDERR_CHARS, "stderr", NARROW_HINT),
         };
     }
 }

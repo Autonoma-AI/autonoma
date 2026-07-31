@@ -252,10 +252,9 @@ Uses Gemini's structured output to return bounding boxes as normalized 0-1000 co
 The core structured output engine used by almost every AI primitive in the package. It wraps the AI SDK's `generateText` with:
 
 - **Zod schema validation** for structured JSON output
-- **Automatic retry** with exponential backoff (default: 5 retries, 100ms initial delay, 2x backoff factor)
-- **Multimodal input** via `ObjectGenerationParams` - supports text, images, and video
+- **Automatic retry** with exponential backoff (default: 10 retries, 1s initial delay, 2x backoff factor, capped at 30s)
+- **Multimodal input** via `GenerationParams` - supports text, images, and video
 - **Null byte stripping** from responses for PostgreSQL compatibility
-- **Tool support** for agentic generation workflows (stops after 5 tool steps)
 
 ```ts
 const generator = new ObjectGenerator({

@@ -12,7 +12,7 @@ import {
     type PrimaryScreenshot,
     type SuspectedCause,
 } from "@autonoma/types";
-import type { ScreenshotLoader } from "../../agents/tools/screenshot/screenshot-types";
+import type { ScreenshotLoader } from "../../agents/tools/run-evidence/run-evidence-types";
 import type { Codebase } from "../../codebase";
 
 /**

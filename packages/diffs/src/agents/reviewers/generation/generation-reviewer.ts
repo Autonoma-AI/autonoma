@@ -2,16 +2,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
     Agent,
+    FinishTool,
     type AgentRunResult,
     type AgentTool,
-    FinishTool,
     type LanguageModel,
+    type ModelMessage,
     type VideoModel,
     type VideoUploader,
 } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { type GenerationVerdict, generationVerdictSchema } from "@autonoma/types";
-import type { ModelMessage } from "ai";
 import type { Codebase } from "../../../codebase";
 import { buildGenerationReviewMessages } from "../../../review/generation/message-builder";
 import type { GenerationContext } from "../../../review/generation/types";
@@ -21,7 +21,7 @@ import {
     buildCodebaseTools,
     ReadScenarioEntitiesTool,
     ViewFinalScreenshotTool,
-    ViewStepScreenshotTool,
+    ViewStepDetailsTool,
 } from "../../tools";
 import { ReviewerLoop } from "../reviewer-loop";
 
@@ -55,7 +55,7 @@ export class GenerationReviewer extends Agent<
     private readonly evidenceLoader: EvidenceLoader;
     private readonly videoUploader: VideoUploader;
 
-    private readonly viewStepScreenshotTool = new ViewStepScreenshotTool();
+    private readonly viewStepDetailsTool = new ViewStepDetailsTool();
     private readonly viewFinalScreenshotTool = new ViewFinalScreenshotTool();
     private readonly codebaseTools = buildCodebaseTools();
     private readonly readScenarioEntitiesTool = new ReadScenarioEntitiesTool();
@@ -130,7 +130,7 @@ export class GenerationReviewer extends Agent<
         // resolved - advertising a tool with no data to read just wastes a
         // turn. The summary section in the prompt is gated the same way.
         const tools: AgentTool<unknown, unknown>[] = [
-            this.viewStepScreenshotTool,
+            this.viewStepDetailsTool,
             this.viewFinalScreenshotTool,
             ...this.codebaseTools,
         ];

@@ -13,7 +13,16 @@ export { CostCollector, type CostRecord } from "./registry/cost-collector";
 
 export { AI_REQUEST_TIMEOUT_MS } from "./constants";
 export { ObjectGenerator, ObjectGenerationFailedError, type ObjectGeneratorConfig } from "./object/object-generator";
-export { extractMessages, buildMessages, type ObjectGenerationParams, type Base64Image } from "./object/build-messages";
+export { TextGenerator, TextGenerationFailedError, type TextGeneratorConfig } from "./text/text-generator";
+export { type GeneratorConfig } from "./run-generation";
+export { extractMessages, buildMessages, type GenerationParams, type Base64Image } from "./build-messages";
+
+/**
+ * The AI SDK message types this package's own API speaks in. Re-exported so a consumer that builds a prompt or
+ * reads a conversation back needs only `@autonoma/ai`, instead of declaring the SDK itself as a dependency -
+ * which is what keeps the model layer swappable in one place rather than in every caller.
+ */
+export type { FilePart, ModelMessage, TextPart } from "ai";
 export {
     type UploadedVideo,
     type VideoUploader,
@@ -64,4 +73,6 @@ export {
     type CompactionResult,
     type MessageCompactor,
     RedactOldToolResults,
+    type RetryConfig,
+    DEFAULT_RETRY_CONFIG,
 } from "@autonoma/agent-core";

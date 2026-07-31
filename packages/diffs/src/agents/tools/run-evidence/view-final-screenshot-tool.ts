@@ -1,6 +1,6 @@
 import { AgentTool, type AgentToolModelOutput, type AgentToolModelOutputOptions } from "@autonoma/ai";
 import { z } from "zod";
-import type { ScreenshotInspectionLoop } from "./screenshot-inspection-loop";
+import type { StepInspectionLoop } from "./step-inspection-loop";
 
 type ViewFinalScreenshotInput = Record<string, never>;
 
@@ -11,13 +11,13 @@ const DESCRIPTION =
 
 /**
  * View the final screenshot of an execution. Same multipart-output strategy as
- * {@link ViewStepScreenshotTool}: customises model output so the image bytes can be
+ * {@link ViewStepDetailsTool}: customises model output so the image bytes can be
  * inlined without bypassing {@link AgentTool}'s execution/error handling.
  */
 export class ViewFinalScreenshotTool extends AgentTool<
     ViewFinalScreenshotInput,
     ViewFinalScreenshotOutput,
-    ScreenshotInspectionLoop
+    StepInspectionLoop
 > {
     constructor() {
         super({
@@ -29,7 +29,7 @@ export class ViewFinalScreenshotTool extends AgentTool<
 
     protected async execute(
         _input: ViewFinalScreenshotInput,
-        loop: ScreenshotInspectionLoop,
+        loop: StepInspectionLoop,
     ): Promise<ViewFinalScreenshotOutput> {
         if (loop.finalScreenshotKey == null) return { found: false };
         const buffer = await loop.screenshotLoader.loadScreenshot(loop.finalScreenshotKey);

@@ -1,6 +1,6 @@
+import type { ModelMessage } from "@autonoma/ai";
 import type { ApplicationArchitecture } from "@autonoma/db";
 import type { OverlayPoint } from "@autonoma/types";
-import type { ModelMessage } from "ai";
 import type { ScenarioData } from "../../scenario-data";
 import type { ChangeContext, IterationLineage, ReviewStep } from "../kernel";
 

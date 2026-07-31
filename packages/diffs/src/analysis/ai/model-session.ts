@@ -9,22 +9,21 @@ import {
     type ModelOptions,
     ModelRegistry,
     OPENROUTER_MODEL_ENTRIES,
+    type VideoModel,
 } from "@autonoma/ai";
 
 /**
  * Capability-named registry keys (following the engine's `{fast,smart,genius}-{visual,text}` convention).
- * - `smart-visual`: the cheap/fast vision model behind the deterministic probes and the screenshot tools
- *   (Gemini Flash via OpenRouter), like diffs.
- * - `smart-video`: the vision model behind the `analyze_video` tool (MiniMax M3 via OpenRouter). Deliberately a
- *   DIFFERENT model from `smart-visual`: it reads literal on-screen values (a `-$350` sign, a card colour) far
- *   more reliably, but it also invents error states - so the screenshot reads stay on `smart-visual` and a video
- *   hallucination can still be caught by an independent cross-model read.
+ * - `smart-video`: the vision model behind the deterministic probes and the `analyze_video` tool (MiniMax M3
+ *   via OpenRouter). It reads literal on-screen values (a `-$350` sign, a card colour) far more reliably than a
+ *   general vision model, which is what the probes need; it also invents error states, so the prompt treats its
+ *   scans as findings to verify rather than as verdicts.
  * - `classifier`: the higher-quality final classifier (native OpenAI gpt-5.6-luna - it needs the native
  *   provider because it fails structured output through OpenRouter).
- * - `reporter`: the Reporter agent's model - strictly above `smart-visual` because it must BOTH read
- *   screenshots (vision) AND reason across findings/issues/time (a stronger native OpenAI gpt-5.6 tier).
+ * - `reporter`: the Reporter agent's model - it must BOTH read screenshots (vision) AND reason across
+ *   findings/issues/time, so it sits at a stronger native OpenAI gpt-5.6 tier.
  */
-export type InvestigationModelName = "smart-visual" | "smart-video" | "classifier" | "reporter";
+export type InvestigationModelName = "smart-video" | "classifier" | "reporter";
 
 export interface InvestigationModelConfig {
     openaiApiKey: string;
@@ -39,6 +38,11 @@ export interface InvestigationModelConfig {
 /** A per-run, metered facade over the @autonoma/ai model registry (mirrors the diffs ModelSession). */
 export interface ModelSession {
     getModel(options: ModelOptions<InvestigationModelName>): LanguageModel;
+    /**
+     * The model paired with the {@link VideoUploader} its registry entry declares. Acquiring a video model this
+     * way IS the capability check - an entry with no uploader throws rather than failing later at the provider.
+     */
+    getVideoModel(options: ModelOptions<InvestigationModelName>): VideoModel;
     readonly costCollector: CostCollector;
 }
 
@@ -105,7 +109,6 @@ export function openModelSession(config: InvestigationModelConfig): ModelSession
 
     const registry = new ModelRegistry<InvestigationModelName>({
         models: {
-            "smart-visual": OPENROUTER_MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW,
             "smart-video": resolveVideoEntry(config.videoModelId ?? DEFAULT_VIDEO_MODEL),
             classifier: classifierEntry,
             reporter: reporterEntry,
@@ -115,6 +118,7 @@ export function openModelSession(config: InvestigationModelConfig): ModelSession
 
     return {
         getModel: (options) => registry.getModel(options, costCollector),
+        getVideoModel: (options) => registry.getVideoModel(options, costCollector),
         costCollector,
     };
 }

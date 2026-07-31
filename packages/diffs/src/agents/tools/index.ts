@@ -1,6 +1,7 @@
 export { BashTool, validateCommand } from "./codebase/bash-tool";
 export { buildCodebaseTools } from "./codebase/build-codebase-tools";
 export type { CodebaseLoop } from "./codebase/codebase-loop";
+export { truncateOutput } from "./truncate-output";
 
 export { Subagent, type SubagentInput, type SubagentConfig } from "./subagent/subagent";
 export { SubagentLoop, type SubagentResult } from "./subagent/subagent-loop";
@@ -14,10 +15,10 @@ export { ReadScenarioTool } from "./lookup/read-scenario-tool";
 export type { ScenarioLookupLoop } from "./lookup/scenario-lookup-loop";
 export type { TestLookupLoop } from "./lookup/test-lookup-loop";
 
-export { ViewStepScreenshotTool } from "./screenshot/view-step-screenshot-tool";
-export { ViewFinalScreenshotTool } from "./screenshot/view-final-screenshot-tool";
-export type { ScreenshotInspectionLoop } from "./screenshot/screenshot-inspection-loop";
-export { type ScreenshotLoader, type ReviewStepScreenshots } from "./screenshot/screenshot-types";
+export { ViewStepDetailsTool } from "./run-evidence/view-step-details-tool";
+export { ViewFinalScreenshotTool } from "./run-evidence/view-final-screenshot-tool";
+export type { StepInspectionLoop } from "./run-evidence/step-inspection-loop";
+export { type ScreenshotLoader, type InspectableStep } from "./run-evidence/run-evidence-types";
 
 export { ReadScenarioEntitiesTool } from "./scenario/read-scenario-entities-tool";
 export type { ScenarioDataLoop } from "./scenario/scenario-data-loop";

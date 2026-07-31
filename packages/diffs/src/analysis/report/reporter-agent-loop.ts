@@ -6,7 +6,7 @@ import {
     type SuspectedCause,
 } from "@autonoma/types";
 import type { CodebaseLoop } from "../../agents/tools/codebase/codebase-loop";
-import type { ScreenshotLoader } from "../../agents/tools/screenshot/screenshot-types";
+import type { ScreenshotLoader } from "../../agents/tools/run-evidence/run-evidence-types";
 import type { Codebase } from "../../codebase";
 import { type CoverageViolations, computeCoverageViolations } from "./coverage";
 import { groundNarrative, resolvePrimaryScreenshot, validateSuspectedCause } from "./evidence";

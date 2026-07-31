@@ -13,7 +13,7 @@ import type { ScenarioIndex } from "../../scenario-index";
 import type { CodebaseLoop } from "../tools/codebase/codebase-loop";
 import type { ScenarioLookupLoop } from "../tools/lookup/scenario-lookup-loop";
 import type { TestLookupLoop } from "../tools/lookup/test-lookup-loop";
-import type { ScreenshotLoader } from "../tools/screenshot/screenshot-types";
+import type { ScreenshotLoader } from "../tools/run-evidence/run-evidence-types";
 import type { HealingResult } from "./healing-agent";
 
 interface HealingAgentLoopParams extends AgentConfig<HealingResult> {

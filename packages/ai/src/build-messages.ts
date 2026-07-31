@@ -1,5 +1,5 @@
 import type { GenerateTextResult, ModelMessage, ToolSet } from "ai";
-import type { UploadedVideo } from "./video/video-processor";
+import type { UploadedVideo } from "./object/video/video-processor";
 
 type NonEmptyArray<T> = [T, ...T[]];
 
@@ -13,7 +13,7 @@ export interface Base64Image {
     base64: string;
 }
 
-type RequiredObjectGenerationParams =
+type RequiredGenerationParams =
     | {
           userPrompt: string;
           images?: NonEmptyArray<Base64Image>;
@@ -33,9 +33,9 @@ type RequiredObjectGenerationParams =
           rawMessages: NonEmptyArray<ModelMessage>;
       };
 
-export type ObjectGenerationParams = RequiredObjectGenerationParams & { video?: UploadedVideo };
+export type GenerationParams = RequiredGenerationParams & { video?: UploadedVideo };
 
-export function buildMessages({ userPrompt, images, rawMessages, video }: ObjectGenerationParams): ModelMessage[] {
+export function buildMessages({ userPrompt, images, rawMessages, video }: GenerationParams): ModelMessage[] {
     return [
         ...(rawMessages ?? []),
         ...(userPrompt != null

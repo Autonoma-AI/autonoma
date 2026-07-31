@@ -8,19 +8,21 @@ The tool-loop agent abstraction (`AgentLoop`, `Agent`, `AgentTool`, `ReportResul
 
 ## Package Exports
 
-| Export Path | Description |
-|-------------|-------------|
-| `@autonoma/ai` | Core primitives: registry, `ObjectGenerator`, video, text utilities, plus re-exported agent + compaction from `@autonoma/agent-core`. No `sharp`. |
-| `@autonoma/ai/env` | Validated environment config (`GROQ_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`) |
-| `@autonoma/ai/evaluation` | Generic AI evaluation framework for benchmarking accuracy |
+| Export Path               | Description                                                                                                                                                                                                    |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@autonoma/ai`            | Core primitives: registry, `ObjectGenerator`, `TextGenerator`, video, text utilities, the AI SDK message types the API speaks in, plus re-exported agent + compaction from `@autonoma/agent-core`. No `sharp`. |
+| `@autonoma/ai/env`        | Validated environment config (`GROQ_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`)                                                                                                                              |
+| `@autonoma/ai/evaluation` | Generic AI evaluation framework for benchmarking accuracy                                                                                                                                                      |
 
 ## Directory Structure
 
 ```
 src/
-├── registry/       # Model registry, entries, providers, cost tracking
-├── object/         # Structured JSON output generation (+ video support)
-└── text/           # Text utilities (assertion splitting)
+├── build-messages.ts  # Shared prompt/image/video/raw-message assembly for both generators
+├── run-generation.ts  # Shared generation policy: retry, timeout, telemetry, video guard, error wrapping
+├── registry/          # Model registry, entries, providers, cost tracking
+├── object/            # Structured JSON output generation (+ video support)
+└── text/              # Free-text generation + text utilities (assertion splitting)
 ```
 
 The agent abstraction (`agent/`) and compaction strategies (`compaction/`) moved to [`@autonoma/agent-core`](../agent-core) and are re-exported from this package's barrel for backward compatibility.
@@ -42,14 +44,14 @@ Available models:
 import { ModelRegistry, MODEL_ENTRIES } from "@autonoma/ai";
 
 const registry = new ModelRegistry({
-  models: MODEL_ENTRIES,
-  defaultSettings: { temperature: 0 },
+    models: MODEL_ENTRIES,
+    defaultSettings: { temperature: 0 },
 });
 
 const model = registry.getModel({
-  model: "GEMINI_3_FLASH_PREVIEW",
-  tag: "my-feature",
-  reasoning: "low",
+    model: "GEMINI_3_FLASH_PREVIEW",
+    tag: "my-feature",
+    reasoning: "low",
 });
 ```
 
@@ -70,8 +72,8 @@ import { CostCollector } from "@autonoma/ai";
 
 const costCollector = new CostCollector();
 const registry = new ModelRegistry({
-  models: MODEL_ENTRIES,
-  monitoring: costCollector.createMonitoringCallbacks(),
+    models: MODEL_ENTRIES,
+    monitoring: costCollector.createMonitoringCallbacks(),
 });
 
 // ... run AI calls ...
@@ -95,18 +97,20 @@ const records = costCollector.getRecords();
 
 ## ObjectGenerator
 
-Core structured output engine used by nearly every primitive in this package. Takes a Zod schema and returns validated JSON from an LLM. Supports multimodal input (text, images, video), automatic retries with capped exponential backoff (10 retries by default, only retrying transient/retryable provider errors), and tool-based agentic workflows.
+Core structured output engine used by nearly every primitive in this package. Takes a Zod schema and returns validated JSON from an LLM. Supports multimodal input (text, images, video) and automatic retries with capped exponential backoff (10 retries by default, only retrying transient/retryable provider errors).
 
 ```ts
 import { ObjectGenerator } from "@autonoma/ai";
 import z from "zod";
 
 const generator = new ObjectGenerator({
-  model,
-  schema: z.object({ sentiment: z.enum(["positive", "negative", "neutral"]) }),
-  systemPrompt: "Classify the sentiment of the text.",
-  // Optional; defaults to 10 retries with capped exponential backoff.
-  retry: { maxRetries: 10, initialDelayInMs: 1000, backoffFactor: 2, maxDelayInMs: 30_000 },
+    model,
+    schema: z.object({ sentiment: z.enum(["positive", "negative", "neutral"]) }),
+    systemPrompt: "Classify the sentiment of the text.",
+    // Optional; per-attempt ceiling, defaults to AI_REQUEST_TIMEOUT_MS.
+    timeoutMs: 2 * 60_000,
+    // Optional; defaults to 10 retries with capped exponential backoff.
+    retry: { maxRetries: 10, initialDelayInMs: 1000, backoffFactor: 2, maxDelayInMs: 30_000 },
 });
 
 const result = await generator.generate({ userPrompt: "I love this product!" });
@@ -114,6 +118,29 @@ const result = await generator.generate({ userPrompt: "I love this product!" });
 ```
 
 Image input is typed as `Base64Image` (`{ base64: string }`) rather than a concrete `Screenshot`, which is what keeps this package free of `@autonoma/image`. `@autonoma/image`'s `Screenshot` satisfies the shape structurally, so callers pass `Screenshot` instances directly.
+
+## TextGenerator
+
+The free-text counterpart to `ObjectGenerator`, for the calls whose answer is prose rather than a schema - asking a vision model what an error toast said, describing a recording. **No caller needs to import the AI SDK to ask a model a plain question.**
+
+Both generators are thin policy over one shared `runGeneration`, which owns everything that is not "what shape of answer did you ask for": prompt assembly, the video-capability guard, the per-attempt timeout, telemetry, retry ownership (`maxRetries: 0` on the SDK call, so the two retry layers cannot multiply), and wrapping whatever failed in one typed error. Adding a third kind of generation means writing its `generateText` call and its error class, nothing else - and a fix to the shared policy lands in both rather than in whichever one someone remembered.
+
+```ts
+import { TextGenerator } from "@autonoma/ai";
+
+const generator = new TextGenerator({
+    model: visionModel,
+    // Per-attempt ceiling; defaults to AI_REQUEST_TIMEOUT_MS. A full-video read costs minutes
+    // where a single frame answers in seconds, so set it per use case.
+    timeoutMs: 3 * 60_000,
+    // Optional; defaults to 10 retries with capped exponential backoff.
+    retry: { maxRetries: 3, initialDelayInMs: 1000, backoffFactor: 2, maxDelayInMs: 10_000 },
+});
+
+const answer = await generator.generate({ userPrompt: "What error is on screen?", images: [screenshot] });
+```
+
+Two things to get right when choosing `retry` alongside `timeoutMs`: `buildRetry` treats a **timeout** as transient (it is not an `APICallError`), so `maxRetries` multiplies `timeoutMs` into the worst-case wall clock - pass a tighter policy when the caller sits under a deadline of its own, such as a Temporal `startToCloseTimeout`. Inline media - a recording sent as bytes rather than as an uploaded Files-API URI - goes through `rawMessages`, since the `video` param is for the uploaded-URI path.
 
 ## Text Primitives
 
@@ -126,7 +153,7 @@ import { AssertionSplitter } from "@autonoma/ai";
 
 const splitter = new AssertionSplitter(model);
 const result = await splitter.splitAssertions(
-  "Check that the title is visible, the subtitle as well, but the button is not"
+    "Check that the title is visible, the subtitle as well, but the button is not",
 );
 // { assertions: ["validate that the title is visible", ...] }
 ```
@@ -146,7 +173,10 @@ A video-capable model and the uploader its provider requires are declared togeth
 const registry = new ModelRegistry({ models: MODEL_ENTRIES });
 
 // { model, uploader } - the uploader matches the model's provider automatically.
-const { model, uploader } = registry.getVideoModel({ model: "GEMINI_3_FLASH_PREVIEW", tag: "my-feature" }, costCollector);
+const { model, uploader } = registry.getVideoModel(
+    { model: "GEMINI_3_FLASH_PREVIEW", tag: "my-feature" },
+    costCollector,
+);
 ```
 
 `getVideoModel` wraps the model exactly like `getModel` (same monitoring/cost middleware) and throws `NotAVideoModelError` if the selected entry declares no `createUploader`.
@@ -155,11 +185,11 @@ const { model, uploader } = registry.getVideoModel({ model: "GEMINI_3_FLASH_PREV
 
 Defined in `src/env.ts` using `@t3-oss/env-core`:
 
-| Variable | Description |
-|----------|-------------|
-| `GROQ_KEY` | API key for Groq provider |
-| `GEMINI_API_KEY` | API key for Google Gemini |
-| `OPENROUTER_API_KEY` | API key for OpenRouter |
+| Variable             | Description               |
+| -------------------- | ------------------------- |
+| `GROQ_KEY`           | API key for Groq provider |
+| `GEMINI_API_KEY`     | API key for Google Gemini |
+| `OPENROUTER_API_KEY` | API key for OpenRouter    |
 
 ## Architecture Notes
 

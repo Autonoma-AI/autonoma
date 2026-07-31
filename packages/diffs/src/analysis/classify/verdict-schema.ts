@@ -52,9 +52,12 @@ export const VerdictForModel = z.object({
             }),
         )
         .min(1),
-    // The 1-indexed trace step whose screenshot most clearly shows this finding to a human (the frame to feature
-    // in the report). NOT necessarily the failed step - pick the most descriptive image. Null -> use the final
-    // screenshot.
+    // The step NUMBER as the trace renders it (`N. +M:SS [interaction] ...`) whose frame most clearly shows this
+    // finding to a human - NOT a position in the list, since `resolveKeyScreenshot` matches it against the
+    // attempt's own `order`. Not necessarily the failed step: pick the most descriptive image. Null means NO
+    // screenshot is shown; there is deliberately no fallback to the final frame, which is often a blank or setup
+    // screen that reads as a misleading "failure". This comment is for the next reader - the wording the MODEL
+    // sees lives in the prompt, since this schema declares no `.describe()`.
     keyStepIndex: z.number().int().nullable(),
 });
 export type VerdictForModel = z.infer<typeof VerdictForModel>;

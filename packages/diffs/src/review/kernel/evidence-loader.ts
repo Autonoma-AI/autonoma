@@ -1,6 +1,6 @@
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
-import type { ScreenshotLoader } from "../../agents/tools/screenshot/screenshot-types";
+import type { ScreenshotLoader } from "../../agents/tools/run-evidence/run-evidence-types";
 import type { VideoDownloader } from "./video-upload";
 
 /**

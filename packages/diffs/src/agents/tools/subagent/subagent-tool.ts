@@ -1,5 +1,4 @@
-import { AgentLoopError, AgentTool, type LanguageModel } from "@autonoma/ai";
-import type { ModelMessage } from "ai";
+import { AgentLoopError, AgentTool, type LanguageModel, type ModelMessage } from "@autonoma/ai";
 import { z } from "zod";
 import type { CodebaseLoop } from "../codebase/codebase-loop";
 import { Subagent, type SubagentResult } from "./subagent";
@@ -55,9 +54,11 @@ export class SubagentTool extends AgentTool<SubagentToolInput, SubagentResult, C
      * subagent had emitted so far.
      *
      * Keyed on {@link AgentLoopError} rather than the individual subclasses, so the salvage covers every way a
-     * loop can die - including a provider that gives out mid-research.
+     * loop can die - including a provider that gave out mid-research, which used to take the parent's tool call
+     * down with it.
      *
-     * The truncation is logged at `warn` (not swallowed) so the frequency stays observable.
+     * The truncation is logged at `warn` (not swallowed) so the frequency stays observable - this
+     * failure mode was previously invisible because it killed the whole job.
      */
     private degradedResult(instruction: string, error: AgentLoopError): SubagentResult {
         this.logger.warn("Subagent research truncated before producing findings; continuing with partial results", {

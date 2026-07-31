@@ -3,7 +3,7 @@ import type { ReviewStep } from "./review-step";
 /**
  * A {@link ReviewStep} enriched with the presentation metadata the summary needs
  * but the command-aware core does not: its position in the attempt timeline
- * (used both for the heading and as the `view_step_screenshot` key) and the
+ * (used both for the heading and as the `view_step_details` key) and the
  * screenshot keys that decide whether to advertise the screenshot tool. Both
  * reviewers' step shapes structurally satisfy this.
  */
@@ -50,7 +50,7 @@ function renderStep(step: RenderableReviewStep): string {
     }
 
     if (step.screenshotBeforeKey != null || step.screenshotAfterKey != null) {
-        lines.push("- Screenshots available (use view_step_screenshot tool to inspect)");
+        lines.push("- Screenshots available (use view_step_details tool to inspect)");
     }
 
     return lines.join("\n");

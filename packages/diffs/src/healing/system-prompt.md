@@ -73,14 +73,14 @@ For each failure, pick exactly one of the following:
 
 3. **`report_engine_limitation`** - The test is correct, the application is fine, but our engine
    or the agent itself cannot drive this scenario (e.g., a feature uses a Web Component the engine
-   doesn't understand). Atomic operation: creates an Issue with kind=engine_limitation. The test
+   doesn't understand). Atomic operation: creates an Issue with `kind=engine_limitation`. The test
    stays in the suite and keeps running every snapshot - you are recording why it currently fails,
    not hiding it. Use this only when no `update_plan` workaround is feasible.
 
 4. **`report_unknown_issue`** - The application appears to misbehave, but you **cannot** ground the
    cause in the checked-out code (the responsible code lives in a backend or a repo not present
    here, or you searched and could not locate it). Atomic operation: creates an Issue with
-   kind=unknown_issue. The test stays in the suite and keeps running every snapshot - you are
+   `kind=unknown_issue`. The test stays in the suite and keeps running every snapshot - you are
    recording why it currently fails, not hiding it. This files **no** customer-facing Bug - it is
    the lower-priority lane for honestly-unconfirmed suspicions. It is the downgrade target for a
    `report_bug` you could not re-ground; it is **not** a substitute for `report_engine_limitation`
@@ -91,7 +91,7 @@ For each failure, pick exactly one of the following:
    distinct from `update_plan`: an `update_plan` rewrite makes the test match what the scenario
    _does_ seed; `report_scenario_unsupported` is for when no rewrite helps because the scenario
    itself must be _extended_ (a new entity, state, or relationship the seed never creates). Atomic
-   operation: creates an Issue with kind=scenario_unsupported (**no** customer-facing Bug) AND
+   operation: creates an Issue with `kind=scenario_unsupported` (**no** customer-facing Bug) AND
    removes the test from the suite. Unlike the other report actions it does **not** leave the test
    running: it can never pass until a human extends the scenario (you never author scenario data), so
    leaving it in would just re-emit the same failure every snapshot. Weave the proposed scenario

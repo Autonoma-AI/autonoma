@@ -1,17 +1,21 @@
-import { InlineMp4VideoUploader } from "@autonoma/ai";
-import { db } from "@autonoma/db";
+import { InlineMp4VideoUploader, type UploadedVideo, type VideoUploader } from "@autonoma/ai";
+import { type ApplicationArchitecture, db } from "@autonoma/db";
+import { readPrDiffStat, type InspectableStep, StorageEvidenceLoader } from "@autonoma/diffs";
 import {
-    LocalCodebaseReader,
+    ClassifierAgent,
     PreviewEnvironment,
     PriorRuns,
     type RunArtifacts,
-    type RunVideo,
-    classifyRun,
     loadPreviewAppLogs,
     persistInvestigationCosts,
 } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { type InvestigationRunStep, stepOutputDataSchema } from "@autonoma/types";
+import {
+    getStepOverlayPoints,
+    type InvestigationRunStep,
+    previewConfigSchema,
+    stepOutputDataSchema,
+} from "@autonoma/types";
 import type { ClassifyInvestigationRunInput, InvestigationTestResult } from "@autonoma/workflow/activities";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import { resolvePrMeta } from "../codebase/pr-meta";
@@ -21,6 +25,19 @@ import { webmToGif } from "../media/webm-to-gif";
 import { previewSecrets } from "../preview-secrets";
 import { createModelSession, getStorage } from "../services";
 import { uploadConversation } from "../upload-conversation";
+import { buildStepTrace } from "./step-trace";
+
+/** The preview facts the classifier's backend tools need: where to read logs, and what the pod's env holds. */
+interface ResolvedPreview {
+    namespace: string;
+    /** Env keys the topology wires in, which override the secret bundle on collision. */
+    connectionKeys: string[];
+}
+
+/** How many of a run's step attempts reach the classifier at all. */
+const MAX_TRACE_STEPS = 120;
+/** Per-step error budget in the structured run trace the finding page renders. */
+const MAX_STEP_CHARS = 300;
 
 type AttemptRow = {
     order: number;
@@ -29,7 +46,9 @@ type AttemptRow = {
     error: string | null;
     screenshotBefore: string | null;
     screenshotAfter: string | null;
+    params: object | null;
     output: object | null;
+    createdAt: Date;
 };
 
 type ScenarioInstanceRow = {
@@ -55,6 +74,7 @@ export type GenerationRow = {
     createdAt: Date;
     updatedAt: Date;
     testPlan: { prompt: string };
+    snapshot: { branch: { application: { architecture: ApplicationArchitecture } } };
     scenarioInstance: ScenarioInstanceRow | null;
     attempts: AttemptRow[];
 };
@@ -62,9 +82,8 @@ export type GenerationRow = {
 /**
  * Classify one shadow run: load its generation row + media, clone the codebase, wire the classifier's
  * dependencies against real infra (Prisma / S3 / preview secrets / the cloned repo / the models / Loki), and
- * run the classifier. get_app_logs is wired to the preview's Loki stream (namespace resolved from the PR's
- * previewkit environment); get_deployment_health (cross-cluster k8s) is not wired yet - it returns a clear
- * "unavailable" note and the classifier degrades gracefully.
+ * run the classifier. get_app_logs is wired to the preview's Loki stream, when the namespace resolves from
+ * the PR's previewkit environment and this worker has LOKI configured; otherwise the tool is omitted.
  */
 export async function classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult> {
     const { snapshotId, slug, reason, testGenerationId, priorPass } = input;
@@ -85,6 +104,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             createdAt: true,
             updatedAt: true,
             testPlan: { select: { prompt: true } },
+            snapshot: { select: { branch: { select: { application: { select: { architecture: true } } } } } },
             scenarioInstance: {
                 select: { status: true, auth: true, refs: true, lastError: true, upAt: true, downAt: true },
             },
@@ -96,71 +116,89 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
                     error: true,
                     screenshotBefore: true,
                     screenshotAfter: true,
+                    params: true,
                     output: true,
+                    createdAt: true,
                 },
                 orderBy: { order: "asc" },
             },
         },
     });
 
-    const runArtifacts = await buildRunArtifacts(generation);
-
     return withSnapshotContext(snapshotId, `classify-${testGenerationId}`, async (context) => {
         const prMeta = await resolvePrMeta(context);
-        const previewNamespace = await resolvePreviewNamespace(context.repoFullName, prMeta.prNumber, logger);
-        const reader = new LocalCodebaseReader(context.codebase.root, context.baseSha, context.headSha);
+        const resolvedPreview = await resolvePreviewEnvironment(context.repoFullName, prMeta.prNumber, logger);
         const session = createModelSession();
         const priorRuns = new PriorRuns(db);
+
+        // getVideoModel rather than getModel: acquiring it IS the video-capability check, so a model whose entry
+        // declares no uploader fails here rather than at the provider. The uploader itself is built with THIS
+        // host's ffmpeg - the image ships none on PATH, and which binary exists is a fact the shared registry
+        // cannot know - so the entry's own factory would silently fail to transcode a pre-optimizer webm.
+        const recordingModel = session.getVideoModel({ model: "smart-video", tag: "investigation-vision-video" });
+        const uploader = new InlineMp4VideoUploader(ffmpeg.path);
+        const { run: runArtifacts, recordingBytes } = await buildRunArtifacts(generation, uploader);
 
         // Gate the previewkit-dependent tools on whether this PR's preview is actually managed by previewkit. The
         // namespace only resolves for a previewkit-deployed preview; when it does not (a self-hosted / non-integrated
         // client), there is no Loki stream and the backend script harness cannot authenticate - so we omit
         // get_app_logs / run_script / get_preview_env rather than let them fail with confusing errors the classifier
         // mistakes for signal. App logs additionally need LOKI configured on this worker.
-        const previewIntegrated = previewNamespace != null;
-        const appLogsAvailable = previewIntegrated && env.LOKI_URL != null && env.LOKI_URL !== "";
+        const previewIntegrated = resolvedPreview != null;
+        // Bind the two values the log loader REQUIRES, rather than a boolean: it now throws instead of
+        // returning prose, so it must never be constructed without an endpoint and a namespace to reach.
+        const lokiUrl = env.LOKI_URL != null && env.LOKI_URL !== "" ? env.LOKI_URL : undefined;
+        const loadAppLogs =
+            resolvedPreview != null && lokiUrl != null
+                ? (regex: string) =>
+                      loadPreviewAppLogs({
+                          regex,
+                          lokiUrl,
+                          namespace: resolvedPreview.namespace,
+                          startEpoch: runArtifacts.startEpoch,
+                          endEpoch: runArtifacts.endEpoch,
+                          logger,
+                      })
+                : undefined;
         const preview = previewIntegrated
-            ? new PreviewEnvironment(previewSecrets(), context.repoFullName, context.applicationId)
+            ? new PreviewEnvironment(
+                  previewSecrets(),
+                  context.repoFullName,
+                  context.applicationId,
+                  resolvedPreview.connectionKeys,
+                  resolvedPreview.namespace,
+              )
             : undefined;
         logger.info("Resolved preview introspection availability", {
-            extra: { previewIntegrated, appLogsAvailable },
+            extra: { previewIntegrated, appLogsAvailable: loadAppLogs != null },
         });
 
-        const { verdict, conversation } = await classifyRun(
-            {
-                appSlug: context.appSlug,
-                prNumber: prMeta.prNumber,
-                test: { slug, plan: generation.testPlan.prompt, affectedReason: reason },
-                provision: describeProvision(generation),
-                diffSummary: await reader.diffStat(),
-                prTitle: prMeta.prTitle,
-                prBody: prMeta.prBody,
-                priorPass,
-            },
-            {
-                codebase: reader,
-                run: runArtifacts,
-                preview,
-                loadBaseline: async () => PriorRuns.formatBaseline(await priorRuns.getHistory(context.appSlug, slug)),
-                loadAppLogs: appLogsAvailable
-                    ? (regex) =>
-                          loadPreviewAppLogs({
-                              regex,
-                              lokiUrl: env.LOKI_URL,
-                              namespace: previewNamespace,
-                              startEpoch: runArtifacts.startEpoch,
-                              endEpoch: runArtifacts.endEpoch,
-                              logger,
-                          })
-                    : undefined,
-                loadDeploymentHealth: async () =>
-                    "Deployment health is not wired in investigation v1 (no cross-cluster k8s read configured) - infer service health from the run + app logs instead.",
-                reasoningModel: session.getModel({ model: "classifier", tag: "investigation-classify" }),
-                visionModel: session.getModel({ model: "smart-visual", tag: "investigation-vision" }),
-                videoModel: session.getModel({ model: "smart-video", tag: "investigation-vision-video" }),
-                maxSteps: env.INVESTIGATION_CLASSIFY_MAX_STEPS,
-            },
-        );
+        const classifier = new ClassifierAgent({
+            model: session.getModel({ model: "classifier", tag: "investigation-classify" }),
+            videoModel: recordingModel.model,
+        });
+        const { result: verdict, conversation } = await classifier.run({
+            appSlug: context.appSlug,
+            prNumber: prMeta.prNumber,
+            test: { slug, plan: generation.testPlan.prompt, affectedReason: reason },
+            provision: describeProvision(generation),
+            diffSummary: await readPrDiffStat({
+                root: context.codebase.root,
+                baseSha: context.baseSha,
+                headSha: context.headSha,
+            }),
+            prTitle: prMeta.prTitle,
+            prBody: prMeta.prBody,
+            priorPass,
+            codebase: context.codebase,
+            baseSha: context.baseSha,
+            headSha: context.headSha,
+            run: runArtifacts,
+            screenshotLoader: new StorageEvidenceLoader(getStorage()),
+            preview,
+            loadBaseline: async () => PriorRuns.formatBaseline(await priorRuns.getHistory(context.applicationId, slug)),
+            loadAppLogs,
+        });
 
         // Persist the classifier's reasoning (best-effort) so a wrong verdict can be debugged, alongside the cost
         // ledger - both are independent auxiliary writes and a failure of either must not sink the classification.
@@ -180,7 +218,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         // mechanically the last/failed one. When it named no step we show no screenshot rather than falling back
         // to the run's final frame, which is often a setup/blank/home screen and reads as a misleading "failure".
         const keyScreenshot = resolveKeyScreenshot(generation.attempts, verdict.keyStepIndex);
-        const clipUrl = await maybeGenerateClip(verdict.category, runArtifacts.video?.data, testGenerationId, logger);
+        const clipUrl = await maybeGenerateClip(verdict.category, recordingBytes, testGenerationId, logger);
         logger.info("Shadow run classified", {
             extra: { category: verdict.category, confidence: verdict.confidence, keyStepIndex: verdict.keyStepIndex },
         });
@@ -301,20 +339,40 @@ function upDurationSeconds(instance: ScenarioInstanceRow): number | undefined {
     return Math.round((instance.downAt.getTime() - instance.upAt.getTime()) / 1000);
 }
 
+/**
+ * The run's artifacts, plus the recording's raw bytes.
+ *
+ * The bytes are returned alongside rather than carried on {@link RunArtifacts} because they exist for a
+ * non-model purpose - rendering the failure GIF - while the model path takes the uploaded form only.
+ */
+export interface BuiltRunArtifacts {
+    run: RunArtifacts;
+    recordingBytes?: Uint8Array;
+}
+
 /** Build the in-memory run artifacts: derive the step trace from the attempts, fetch media from S3. */
-export async function buildRunArtifacts(generation: GenerationRow): Promise<RunArtifacts> {
-    const steps = deriveSteps(generation.attempts);
+export async function buildRunArtifacts(
+    generation: GenerationRow,
+    uploader: VideoUploader,
+): Promise<BuiltRunArtifacts> {
+    const traced = generation.attempts.slice(0, MAX_TRACE_STEPS);
+    const steps = buildStepTrace(traced, generation.createdAt);
     const storage = getStorage();
 
     // Prefer the dead-time-stripped mp4 the vision model bills fewer frames for; fall back to the original webm.
     const videoKey = generation.optimizedVideoUrl ?? generation.videoUrl;
-    const videoBytes = videoKey != null ? await downloadMedia(videoKey) : undefined;
-    const video =
-        videoBytes != null ? await resolveRunVideo(videoBytes, generation.optimizedVideoUrl != null) : undefined;
-    const finalScreenshot =
-        generation.finalScreenshot != null ? await downloadMedia(generation.finalScreenshot) : undefined;
+    // Two independent reads against the same bucket: fetched together so neither pays the other's latency.
+    // The upload has to wait for its own bytes, so it stays sequential behind them.
+    const [recordingBytes, finalScreenshot] = await Promise.all([
+        videoKey != null ? downloadMedia(videoKey) : undefined,
+        generation.finalScreenshot != null ? downloadMedia(generation.finalScreenshot) : undefined,
+    ]);
+    const recording =
+        recordingBytes != null
+            ? await uploadRecording(recordingBytes, generation.optimizedVideoUrl != null, uploader)
+            : undefined;
 
-    return {
+    const run: RunArtifacts = {
         success: generation.status === "success",
         finishReason: generation.status,
         stepCount: steps.length,
@@ -322,10 +380,12 @@ export async function buildRunArtifacts(generation: GenerationRow): Promise<RunA
         reasoning: generation.reasoning ?? undefined,
         startEpoch: Math.floor(generation.createdAt.getTime() / 1000),
         endEpoch: Math.floor(generation.updatedAt.getTime() / 1000),
-        video,
+        recording,
         finalScreenshot,
-        stepScreenshots: [],
+        inspectableSteps: deriveInspectableSteps(traced),
+        architecture: generation.snapshot.branch.application.architecture,
     };
+    return { run, recordingBytes };
 
     async function downloadMedia(urlOrKey: string): Promise<Uint8Array | undefined> {
         try {
@@ -338,41 +398,62 @@ export async function buildRunArtifacts(generation: GenerationRow): Promise<RunA
 }
 
 /**
- * Hand the classifier an mp4 recording. Both vision models route through OpenRouter, which accepts mp4 and
- * rejects webm - the optimizer's output already is mp4, but a pre-optimizer run only has the original webm, so
- * transcode it. A failed transcode still hands over the webm: the vision calls will likely be rejected and
- * degrade to their own "could not analyze" note, which is strictly better than dropping the recording.
+ * Hand the classifier the recording in whatever form its vision models take, via the uploader the model's
+ * registry entry declares - so this never has to know that the OpenRouter-routed models want inline base64 mp4
+ * and a Google one wants a Files-API URI. The optimizer's output is already mp4; a pre-optimizer run is webm,
+ * which the uploader transcodes.
+ *
+ * A failed upload drops the recording rather than the run: the probes and `analyze_video` degrade to their own
+ * "no recording" notes, which beats failing a classification over a video.
  */
-async function resolveRunVideo(video: Uint8Array, isOptimizedMp4: boolean): Promise<RunVideo> {
-    if (isOptimizedMp4) return { data: video, mediaType: "video/mp4" };
-    const logger = rootLogger.child({ name: "resolveRunVideo" });
+async function uploadRecording(
+    bytes: Uint8Array,
+    isOptimizedMp4: boolean,
+    uploader: VideoUploader,
+): Promise<UploadedVideo | undefined> {
+    const logger = rootLogger.child({ name: "uploadRecording" });
     try {
-        const mp4 = await new InlineMp4VideoUploader(ffmpeg.path).transcodeToMp4(video);
-        logger.info("Transcoded a pre-optimizer webm recording to mp4", {
-            extra: { webmBytes: video.length, mp4Bytes: mp4.length },
+        return await uploader.uploadVideo({
+            data: { type: "buffer", buffer: Buffer.from(bytes).buffer },
+            mimeType: isOptimizedMp4 ? "video/mp4" : "video/webm",
         });
-        return { data: new Uint8Array(mp4), mediaType: "video/mp4" };
     } catch (error) {
-        logger.warn("Could not transcode the webm recording to mp4; sending it as-is", {
-            extra: { webmBytes: video.length },
+        logger.warn("Could not prepare the recording for the vision models; classifying without it", {
+            extra: { bytes: bytes.length },
             err: error,
         });
-        return { data: video, mediaType: "video/webm" };
+        return undefined;
     }
 }
 
-const MAX_TRACE_STEPS = 120;
-const MAX_STEP_CHARS = 300;
-
 /**
- * Build the step-by-step trace from the run's StepAttempt rows. Each line carries the step's interaction,
- * status, and - crucially - the engine's per-step error, so the classifier sees exactly which steps failed
- * and why (the conversation field doesn't hold this; that's why earlier runs showed stepCount 0).
+ * What `view_step_details` discloses when the model drills into a step: the frame KEYS plus the engine's own
+ * record of the step, untouched.
+ *
+ * Keyed by the attempt's `order` - the number the trace line renders - NOT by array position, which would
+ * silently resolve to the wrong step whenever orders are not a contiguous 1..N. Keys rather than bytes: a run
+ * has up to 120 steps and a classification drills into two or three.
+ *
+ * Every traced step appears, including one that captured no frame: the tool discloses the step's params,
+ * output and error too, so a frameless step still has something to answer with. That also keeps the set the
+ * tool offers identical to the set the trace lists.
  */
-function deriveSteps(attempts: AttemptRow[]): string[] {
-    return attempts.slice(0, MAX_TRACE_STEPS).map((attempt) => {
-        const failure = attempt.error != null ? ` - ERROR: ${attempt.error.slice(0, MAX_STEP_CHARS)}` : "";
-        return `${attempt.order}. [${attempt.interaction}] ${attempt.status}${failure}`;
+function deriveInspectableSteps(attempts: AttemptRow[]): InspectableStep[] {
+    return attempts.map((attempt) => {
+        // The same points the finding page draws, from the one shared extractor - so the marker the classifier
+        // sees on a before-frame is in the same place a human later sees it on the report.
+        const overlayPoints = getStepOverlayPoints(attempt.output);
+        return {
+            order: attempt.order,
+            screenshotBeforeKey: attempt.screenshotBefore ?? undefined,
+            screenshotAfterKey: attempt.screenshotAfter ?? undefined,
+            overlayPoints: overlayPoints.length > 0 ? overlayPoints : undefined,
+            interaction: attempt.interaction,
+            status: attempt.status,
+            params: attempt.params ?? undefined,
+            output: attempt.output ?? undefined,
+            error: attempt.error ?? undefined,
+        };
     });
 }
 
@@ -404,15 +485,15 @@ function deriveRunTrace(attempts: AttemptRow[]): InvestigationRunStep[] {
  * namespace on (repoFullName, prNumber); a preview that was never deployed or has been torn down returns
  * undefined and app-log querying degrades gracefully (prNumber 0 means resolvePrMeta found no feature branch).
  */
-async function resolvePreviewNamespace(
+async function resolvePreviewEnvironment(
     repoFullName: string,
     prNumber: number,
     logger: Logger,
-): Promise<string | undefined> {
+): Promise<ResolvedPreview | undefined> {
     if (prNumber === 0) return undefined;
     const previewEnv = await db.previewkitEnvironment.findUnique({
         where: { repoFullName_prNumber: { repoFullName, prNumber } },
-        select: { namespace: true },
+        select: { namespace: true, resolvedConfig: true },
     });
     if (previewEnv == null) {
         logger.info("No previewkit environment for PR - app logs unavailable", {
@@ -420,6 +501,29 @@ async function resolvePreviewNamespace(
         });
         return undefined;
     }
-    logger.info("Resolved preview namespace for app logs", { extra: { repoFullName, prNumber } });
-    return previewEnv.namespace;
+    const connectionKeys = connectionKeysOf(previewEnv.resolvedConfig, logger);
+    logger.info("Resolved preview environment", {
+        extra: { repoFullName, prNumber, connectionKeys: connectionKeys.length },
+    });
+    return { namespace: previewEnv.namespace, connectionKeys };
+}
+
+/**
+ * The env-var keys this PR's deployed config wires from the topology - the half of the pod's environment that
+ * does NOT live in the secret bundle `get_preview_env` reads.
+ *
+ * Parsed with the shared `previewConfigSchema` rather than a local shape, so this cannot drift from what
+ * previewkit actually deploys. A config that fails to parse yields no keys and says so: the classifier then
+ * sees the secret bundle alone, which is the old behaviour, so a parse failure degrades rather than misleads.
+ */
+function connectionKeysOf(resolvedConfig: unknown, logger: Logger): string[] {
+    if (resolvedConfig == null) return [];
+    const parsed = previewConfigSchema.safeParse(resolvedConfig);
+    if (!parsed.success) {
+        logger.warn("Could not parse the preview's resolved config; env-var names will omit connections", {
+            extra: { issue: parsed.error.issues[0]?.message },
+        });
+        return [];
+    }
+    return [...new Set(parsed.data.apps.flatMap((app) => app.connections.map((connection) => connection.key)))];
 }

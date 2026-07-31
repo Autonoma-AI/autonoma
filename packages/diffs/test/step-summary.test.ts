@@ -116,8 +116,8 @@ describe("buildStepSummary", () => {
         ]);
 
         const [first, second] = summary.split("\n\n");
-        expect(first).toContain("view_step_screenshot");
-        expect(second).not.toContain("view_step_screenshot");
+        expect(first).toContain("view_step_details");
+        expect(second).not.toContain("view_step_details");
     });
 
     it("falls back to the raw structured output for commands without a curated projection", () => {

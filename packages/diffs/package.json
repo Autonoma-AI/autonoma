@@ -22,6 +22,7 @@
         "@autonoma/ai": "workspace:*",
         "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
+        "@autonoma/errors": "workspace:*",
         "@autonoma/github": "workspace:*",
         "@autonoma/image": "workspace:*",
         "@autonoma/logger": "workspace:*",
@@ -32,7 +33,6 @@
         "@autonoma/utils": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@t3-oss/env-core": "catalog:",
-        "ai": "catalog:",
         "rimraf": "^6.1.3",
         "shell-quote": "catalog:",
         "zod": "catalog:"
@@ -42,6 +42,7 @@
         "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
         "@types/shell-quote": "^1.7.5",
+        "ai": "catalog:",
         "dotenv": "catalog:",
         "sharp": "catalog:",
         "tsx": "catalog:",

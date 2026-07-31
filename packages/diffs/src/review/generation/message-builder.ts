@@ -1,5 +1,4 @@
-import type { UploadedVideo } from "@autonoma/ai";
-import type { ModelMessage } from "ai";
+import type { ModelMessage, UploadedVideo } from "@autonoma/ai";
 import { summarizeScenarioData } from "../../scenario-data";
 import {
     MessageBuilder,

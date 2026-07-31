@@ -3,7 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { logger as rootLogger } from "@autonoma/logger";
-import type { PreviewAccess } from "../classify/dependencies";
+import type { PreviewAccess } from "../classify/types";
+
 /**
  * The preview-secret reads this needs - `PreviewSecrets` from `@autonoma/secrets`
  * satisfies it. Named structurally rather than imported so this package depends on
@@ -39,6 +40,13 @@ export class PreviewEnvironment implements PreviewAccess {
         public readonly repoFullName: string,
         /** The Application that owns this preview, so its secrets are never resolved by repo name alone. */
         private readonly applicationId: string,
+        /**
+         * The connection keys this PR's deployed config declares. A preview pod's environment is the app's
+         * secret bundle PLUS these, and on a collision the connection WINS (previewkit mounts secrets via
+         * `envFrom` and connections via `env:`). They are listed here so an absent name is a real absence
+         * rather than an artifact of only reading half the environment.
+         */
+        private readonly connectionKeys: readonly string[] = [],
         public readonly namespace?: string,
     ) {}
 
@@ -47,7 +55,8 @@ export class PreviewEnvironment implements PreviewAccess {
     }
 
     async getEnvVarNames(filter?: string): Promise<string[]> {
-        const names = await this.secrets.getEnvVarNames(this.target);
+        const secretNames = await this.secrets.getEnvVarNames(this.target);
+        const names = [...new Set([...secretNames, ...this.connectionKeys])].sort();
         if (filter == null || filter === "") return names;
         const needle = filter.toLowerCase();
         return names.filter((name) => name.toLowerCase().includes(needle));
@@ -59,18 +68,54 @@ export class PreviewEnvironment implements PreviewAccess {
         this.logger.info("Running preview script", { extra: { workDir, packages: input.packages ?? [] } });
         try {
             await writeFile(join(workDir, "index.mjs"), input.script, "utf8");
+            // The worker's own env is NEVER handed to npm: `packages` is model-chosen, and an install runs the
+            // package's own lifecycle scripts - which would inherit this pod's GitHub key, model keys, database
+            // URL and IRSA role. `--ignore-scripts` blocks that hook, and `--` stops a "package" that starts
+            // with a dash from being parsed as an npm flag.
             if (input.packages != null && input.packages.length > 0) {
-                await this.runProcess("npm", ["install", "--no-save", ...input.packages], workDir, process.env);
+                const installEnv = { PATH: process.env.PATH, HOME: process.env.HOME };
+                const args = ["install", "--no-save", "--ignore-scripts", "--", ...input.packages];
+                await this.runProcess("npm", args, workDir, installEnv);
             }
             // Inject the PREVIEW's env (so the script hits the same backend the test did); keep only PATH/HOME
             // from the worker so node resolves - do NOT leak the worker's own credentials into the script.
             const scriptEnv = { PATH: process.env.PATH, HOME: process.env.HOME, ...previewEnv };
-            return await this.runProcess("node", ["index.mjs"], workDir, scriptEnv);
+            const output = await this.runProcess("node", ["index.mjs"], workDir, scriptEnv);
+            return this.noteConnectionGaps(previewEnv) + output;
         } finally {
             await rm(workDir, { recursive: true, force: true }).catch((error) =>
                 this.logger.warn("Failed to clean up script dir", { extra: { workDir }, err: error }),
             );
         }
+    }
+
+    /**
+     * A header naming the vars whose value here is NOT the value the preview pod ran with.
+     *
+     * The script is given the app's secret bundle; the pod also received this PR's connections, which win on
+     * collision and are templated per-PR (an ephemeral database host, a sibling service URL). So a colliding
+     * key points the script at a DIFFERENT backend than the test used, and a connection-only key is simply
+     * absent here. Either turns "the record is missing" into a fabricated fact, which is exactly the claim
+     * this tool exists to make - so it is stated up front rather than left for the model to discover.
+     */
+    private noteConnectionGaps(previewEnv: Record<string, string>): string {
+        const overridden = this.connectionKeys.filter((key) => key in previewEnv);
+        const absent = this.connectionKeys.filter((key) => !(key in previewEnv));
+        if (overridden.length === 0 && absent.length === 0) return "";
+
+        const lines = ["[Environment caveat for this script - read before trusting a negative result:"];
+        if (overridden.length > 0) {
+            lines.push(
+                `  ${overridden.join(", ")} - the preview pod OVERRODE these with per-PR connection values, so the value this script received points somewhere else. A "not found" here is NOT evidence the app's data is missing.`,
+            );
+        }
+        if (absent.length > 0) {
+            lines.push(
+                `  ${absent.join(", ")} - supplied to the pod by a per-PR connection and NOT available here, so anything depending on them will fail to connect.`,
+            );
+        }
+        lines.push("]");
+        return `${lines.join("\n")}\n\n`;
     }
 
     private runProcess(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<string> {

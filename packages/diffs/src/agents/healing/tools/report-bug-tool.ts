@@ -4,7 +4,7 @@ import { getStepOverlayPoints, type IssueReport, type PrimaryScreenshot, type Sc
 import type { z } from "zod";
 import { reportBugInputSchema } from "../../../healing/actions";
 import type { RenderableReviewStep } from "../../../review/kernel";
-import type { ScreenshotLoader } from "../../tools/screenshot/screenshot-types";
+import type { ScreenshotLoader } from "../../tools/run-evidence/run-evidence-types";
 import type { HealingAgentLoop } from "../healing-agent-loop";
 import { recordHealingAction, resolveReviewLink } from "./record-action";
 

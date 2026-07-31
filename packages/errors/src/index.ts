@@ -1,4 +1,5 @@
 export { ExternalError, type ExternalErrorConfig, externalSync, external } from "./external-error";
+export { causeMessage } from "./cause-message";
 export {
     APIError,
     NotFoundError,

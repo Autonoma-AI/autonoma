@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildSafeEnv, truncateOutput, validateCommand } from "../src/agents/tools/codebase/bash-tool";
+import { buildSafeEnv, validateCommand } from "../src/agents/tools/codebase/bash-tool";
+import { truncateOutput } from "../src/agents/tools/truncate-output";
 
 // These tests cover only our own code - the validator grammar, the env-scrub, and
 // the output truncation. The shell, coreutils, and git are maintained elsewhere,
