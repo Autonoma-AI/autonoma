@@ -13,11 +13,11 @@ import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
-import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { LinkIcon } from "@phosphor-icons/react/Link";
 import { PlugsIcon } from "@phosphor-icons/react/Plugs";
 import { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { formatDate } from "lib/format";
 import {
   useAvailableVercelProjects,
   useConfirmExistingDeploysSetup,
@@ -30,8 +30,8 @@ import {
 } from "lib/onboarding/onboarding-api";
 import { type OnboardingSignalProvider, buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplicationSharedSecret } from "lib/query/applications.queries";
-import { toastManager } from "lib/toast-manager";
 import { type ReactNode, useEffect, useState } from "react";
+import { DeploymentSignalSetup } from "./-components/deployment-signal-setup";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 
 /** Phases of the redeploy -> build -> commit flow that selects a Vercel deployment. */
@@ -73,7 +73,11 @@ export function ExistingDeploysPage({
   // `useSelectVercelDeployment`), so this is true for Vercel the moment one has
   // been picked - no CI signal required.
   const previewUrlSet = signalStatusQuery.data?.previewUrl != null;
-  const canContinue = selectedProvider === "vercel" ? vercelProjectLinked && previewUrlSet : true;
+  // Both paths need a preview URL before there is anything to verify. On the
+  // custom path that URL only exists once CI has POSTed a signed signal, so
+  // Continue stays locked until one lands - users otherwise click straight past
+  // the wait, having never set the secret or committed the workflow.
+  const canContinue = selectedProvider === "vercel" ? vercelProjectLinked && previewUrlSet : previewUrlSet;
   const isBuildingPreview = !previewUrlSet && buildPhase != null;
 
   function goToVerify() {
@@ -94,25 +98,8 @@ export function ExistingDeploysPage({
     confirmSetup.mutate({ applicationId: appId }, { onSettled: goToVerify });
   }
 
-  const endpoint = `${window.location.origin}/v1/onboarding/deployment-signal`;
-  const sharedSecret = sharedSecretQuery.data?.sharedSecret ?? "AUTONOMA_SHARED_SECRET";
-  const workflow = buildWorkflowSnippet({ applicationId: appId ?? "APPLICATION_ID", endpoint });
-  const payloadPreview = buildPayloadPreview(appId ?? "APPLICATION_ID");
-
   function backToPreviewOptions() {
     void navigate({ to: "/onboarding", search: buildOnboardingSearch("preview-environment", appId) });
-  }
-
-  function copyWorkflow() {
-    void navigator.clipboard.writeText(workflow).then(() => {
-      toastManager.add({ type: "success", title: "Workflow copied" });
-    });
-  }
-
-  function copySecret() {
-    void navigator.clipboard.writeText(`AUTONOMA_SHARED_SECRET=${sharedSecret}`).then(() => {
-      toastManager.add({ type: "success", title: "Secret copied" });
-    });
   }
 
   if (appId == null) {
@@ -166,65 +153,7 @@ export function ExistingDeploysPage({
       ) : undefined}
 
       {selectedProvider === "custom" ? (
-        <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(28rem,1fr)]">
-          <section className="border border-border-dim bg-surface-base">
-            <div className="border-b border-border-dim bg-surface-raised px-5 py-4">
-              <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">
-                How the signal works
-              </h2>
-            </div>
-            <div className="space-y-5 p-6">
-              <SignalStep
-                index="01"
-                title="Your provider builds a preview"
-                text="Use the URL your CI or hosting provider exposes."
-              />
-              <SignalStep
-                index="02"
-                title="CI signs the payload"
-                text="The body is signed with AUTONOMA_SHARED_SECRET."
-              />
-              <SignalStep
-                index="03"
-                title="Autonoma stores the URL"
-                text="The URL becomes the preview target for onboarding."
-              />
-              <div className="border-l-2 border-status-warn bg-status-warn/10 px-4 py-3">
-                <p className="font-mono text-2xs uppercase tracking-widest text-status-warn">Secret</p>
-                <p className="mt-2 text-sm text-text-secondary">
-                  Add <span className="font-mono text-primary-ink">AUTONOMA_SHARED_SECRET</span> to your CI secrets.
-                </p>
-                <Button variant="outline" size="xs" className="mt-3 gap-2" onClick={copySecret}>
-                  <CopyIcon size={13} />
-                  Copy secret
-                </Button>
-              </div>
-              <div className="border border-border-dim bg-surface-raised/40 p-4">
-                <p className="font-mono text-2xs uppercase tracking-widest text-text-secondary">Signal payload</p>
-                <pre className="mt-3 overflow-auto font-mono text-2xs text-text-primary">{payloadPreview}</pre>
-                <p className="mt-3 text-sm text-text-secondary">
-                  Sign the exact raw JSON body with HMAC SHA256 and send the hex digest in{" "}
-                  <span className="font-mono text-text-primary">x-signature</span>.
-                </p>
-              </div>
-            </div>
-          </section>
-
-          <section className="border border-border-dim bg-surface-base">
-            <div className="flex items-center justify-between border-b border-border-dim bg-surface-raised px-5 py-4">
-              <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">
-                Autonoma preview signal
-              </h2>
-              <Button variant="outline" size="xs" className="gap-2" onClick={copyWorkflow}>
-                <CopyIcon size={13} />
-                Copy
-              </Button>
-            </div>
-            <pre className="max-h-[34rem] overflow-auto p-6 font-mono text-2xs leading-relaxed text-text-primary">
-              {workflow}
-            </pre>
-          </section>
-        </div>
+        <DeploymentSignalSetup applicationId={appId} sharedSecret={sharedSecretQuery.data?.sharedSecret} />
       ) : undefined}
 
       <section className="mt-6 border border-border-dim bg-surface-base p-5">
@@ -257,16 +186,25 @@ export function ExistingDeploysPage({
               </a>
             </p>
             {signalStatusQuery.data.acceptedAt != null ? (
-              <p>Accepted at {signalStatusQuery.data.acceptedAt}</p>
+              <p>Accepted {formatDate(new Date(signalStatusQuery.data.acceptedAt))}</p>
             ) : undefined}
+          </div>
+        ) : selectedProvider === "custom" ? (
+          <div className="mt-4 flex items-start gap-3 border-l-2 border-primary-ink bg-surface-raised/40 px-4 py-3">
+            <BrailleSpinner animation="orbit" size="sm" className="mt-0.5 shrink-0 text-primary-ink" />
+            <div>
+              <p className="text-sm text-text-primary">Waiting for your first signed signal.</p>
+              <p className="mt-1 text-sm text-text-secondary">
+                Nothing has reached the deployment signal endpoint yet. Work through the four steps above - this panel
+                picks the signal up on its own, and unlocks Continue.
+              </p>
+            </div>
           </div>
         ) : (
           <p className="mt-3 text-sm text-text-secondary">
             {isBuildingPreview
               ? "Waiting for the redeployed preview to finish building."
-              : selectedProvider === "vercel"
-                ? "Select a deployment above to use as the onboarding preview target."
-                : "Waiting for CI to POST a valid signed payload to the deployment signal endpoint."}
+              : "Select a deployment above to use as the onboarding preview target."}
           </p>
         )}
       </section>
@@ -281,10 +219,16 @@ export function ExistingDeploysPage({
                 : !previewUrlSet
                   ? "Select a deployment above before continuing."
                   : "Deployment selected - continue to verify the preview is reachable."
-            : "After CI sends the signal, the next screen will show whether Autonoma has a usable preview URL."}
+            : previewUrlSet
+              ? "Signal received - continue to verify the preview is reachable."
+              : "This unlocks when your first signed signal arrives. Until then there is no preview URL to verify."}
         </p>
         <Button
-          variant="accent"
+          // A dimmed accent button still reads as "the yellow thing you click",
+          // which is how people got past this step without ever wiring the
+          // signal. While locked it drops to outline so it stops looking like
+          // the action to take.
+          variant={canContinue ? "accent" : "outline"}
           className="gap-2 px-6 py-3"
           disabled={confirmSetup.isPending || !canContinue}
           onClick={continueToVerify}
@@ -578,64 +522,4 @@ function VercelIcon() {
       <path d="M12 4 22 20H2L12 4Z" />
     </svg>
   );
-}
-
-function SignalStep({ index, title, text }: { index: string; title: string; text: string }) {
-  return (
-    <div className="flex gap-4">
-      <span className="font-mono text-sm text-primary-ink">{index}</span>
-      <div>
-        <p className="font-medium text-text-primary">{title}</p>
-        <p className="mt-1 text-sm text-text-secondary">{text}</p>
-      </div>
-    </div>
-  );
-}
-
-function buildPayloadPreview(applicationId: string) {
-  return JSON.stringify(
-    {
-      applicationId,
-      previewUrl: "https://your-preview.example.com",
-      branch: "feature/example",
-      sha: "abc1234",
-      provider: "vercel",
-    },
-    undefined,
-    2,
-  );
-}
-
-function buildWorkflowSnippet({ applicationId, endpoint }: { applicationId: string; endpoint: string }) {
-  return `# .github/workflows/autonoma-preview.yml
-name: Autonoma preview signal
-
-on:
-  deployment_status:
-
-jobs:
-  notify:
-    if: github.event.deployment_status.state == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Autonoma
-        env:
-          AUTONOMA_SHARED_SECRET: \${{ secrets.AUTONOMA_SHARED_SECRET }}
-          AUTONOMA_ENDPOINT: ${endpoint}
-          AUTONOMA_APPLICATION_ID: ${applicationId}
-          PREVIEW_URL: \${{ github.event.deployment_status.target_url }}
-          PREVIEW_SHA: \${{ github.event.deployment.sha || github.sha }}
-        run: |
-          BODY=$(jq -nc \\
-            --arg applicationId "$AUTONOMA_APPLICATION_ID" \\
-            --arg previewUrl "$PREVIEW_URL" \\
-            --arg sha "$PREVIEW_SHA" \\
-            --arg provider "vercel" \\
-            '{applicationId:$applicationId,previewUrl:$previewUrl,provider:$provider}
-              + (if $sha == "" then {} else {sha:$sha} end)')
-          SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$AUTONOMA_SHARED_SECRET" -hex | sed 's/^.* //')
-          curl -sS -X POST "$AUTONOMA_ENDPOINT" \\
-            -H "content-type: application/json" \\
-            -H "x-signature: $SIG" \\
-            --data "$BODY"`;
 }

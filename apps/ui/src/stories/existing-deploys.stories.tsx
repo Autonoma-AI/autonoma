@@ -14,6 +14,14 @@ const linkedProjects: RouterOutputs["onboarding"]["listAvailableVercelProjects"]
   linkedProject: { id: "prj_fixture_01", name: "acme-web" },
 };
 
+/** No project linked - what the Vercel tab looks like for someone on the custom path. */
+const unlinkedProjects: RouterOutputs["onboarding"]["listAvailableVercelProjects"] = {
+  connected: true,
+  projects: [],
+  connectUrl: "https://vercel.com/integrations/autonoma/new",
+  linkedProject: undefined,
+};
+
 const deployments: RouterOutputs["onboarding"]["listVercelDeployments"] = [
   {
     id: "dpl_fixture_preview",
@@ -59,6 +67,36 @@ function buildingFixtures(): TrpcFixtures {
   };
 }
 
+/**
+ * The custom (bring-your-own-deploys) path before anything has been wired up:
+ * the setup guide is showing and no signed signal has arrived, so Continue is
+ * locked.
+ */
+function customWaitingFixtures(): TrpcFixtures {
+  return {
+    onboarding: {
+      // The page loads the Vercel projects regardless of the active tab.
+      listAvailableVercelProjects: unlinkedProjects,
+      getDeploymentSignalStatus: {},
+    },
+    applications: { getSharedSecret: { sharedSecret: "shs_fixture_0123456789abcdef" } },
+  };
+}
+
+/** The same path once CI has POSTed a valid signed payload - Continue unlocks. */
+function customSignalReceivedFixtures(): TrpcFixtures {
+  return {
+    onboarding: {
+      listAvailableVercelProjects: unlinkedProjects,
+      getDeploymentSignalStatus: {
+        previewUrl: "https://acme-web-git-feat-checkout.example.app",
+        acceptedAt: FIXTURE_EPOCH,
+      },
+    },
+    applications: { getSharedSecret: { sharedSecret: "shs_fixture_0123456789abcdef" } },
+  };
+}
+
 const meta = {
   title: "Onboarding/ExistingDeploys",
   component: ExistingDeploysPage,
@@ -92,4 +130,19 @@ export const BuildingPreview: Story = {
     await userEvent.click(await canvas.findByRole("button", { name: /Use this deployment/ }));
     await canvas.findByText(/Building your preview/, undefined, { timeout: 10_000 });
   },
+};
+
+/**
+ * The custom path with nothing wired up yet: the flow diagram, the four ordered
+ * setup steps, the workflow to commit, and the locked Continue button.
+ */
+export const CustomSetupGuide: Story = {
+  args: { appId: APP_ID, initialProvider: "custom" },
+  parameters: { msw: { handlers: [trpcHandler(customWaitingFixtures())] } },
+};
+
+/** The custom path after the first signed signal lands - Continue is enabled. */
+export const CustomSignalReceived: Story = {
+  args: { appId: APP_ID, initialProvider: "custom" },
+  parameters: { msw: { handlers: [trpcHandler(customSignalReceivedFixtures())] } },
 };
