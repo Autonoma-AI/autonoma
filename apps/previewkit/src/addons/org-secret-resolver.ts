@@ -45,6 +45,6 @@ export class OrgSecretResolver {
             );
         }
 
-        return this.secrets.forBundle({ kind: "org", organizationId, name }, record.awsSecretArn);
+        return this.secrets.forBundle({ kind: "org", organizationId, name }, record.awsSecretArn ?? undefined);
     }
 }

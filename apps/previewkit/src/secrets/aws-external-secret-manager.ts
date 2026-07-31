@@ -126,12 +126,31 @@ export class AwsExternalSecretManager implements RuntimeSecretMaterializer {
         targets: SecretTarget[],
     ): Promise<Map<string, AppSecretInfo>> {
         const result = new Map<string, AppSecretInfo>();
-        if (targets.length === 0) return result;
+
+        // A bundle registered after Postgres became the store has no AWS secret, so
+        // there is nothing for ESO to extract from. Skipping beats stamping an
+        // ExternalSecret that can never go Ready and instead times out the pre-rollout
+        // wait; the caller sees the app absent from the returned map, which is how it
+        // learns no store could serve it.
+        const servable: Array<{ target: SecretTarget; awsSecretArn: string }> = [];
+        for (const target of targets) {
+            const awsSecretArn = target.record.awsSecretArn;
+            if (awsSecretArn == null) {
+                this.logger.error("No AWS secret backs this bundle, so ESO cannot serve it", {
+                    namespace,
+                    appName: target.record.appName,
+                    extra: { secretName: target.secretName },
+                });
+                continue;
+            }
+            servable.push({ target, awsSecretArn });
+        }
+        if (servable.length === 0) return result;
 
         this.logger.info("Applying AWS ExternalSecrets for namespace", {
             organizationId,
             namespace,
-            extra: { apps: targets.map((target) => target.record.appName) },
+            extra: { apps: servable.map(({ target }) => target.record.appName) },
         });
 
         // A Secret a previous deploy wrote from Postgres has no ExternalSecret owner,
@@ -139,7 +158,7 @@ export class AwsExternalSecretManager implements RuntimeSecretMaterializer {
         // back to aws would hang every affected app at the pre-rollout wait.
         await this.reclaimTargets(
             namespace,
-            targets.map(({ secretName }) => secretName),
+            servable.map(({ target }) => target.secretName),
         );
 
         // Reconcile the namespace to exactly these ExternalSecrets before rolling
@@ -149,8 +168,8 @@ export class AwsExternalSecretManager implements RuntimeSecretMaterializer {
         // K8s Secret, so the new generation's ExternalSecret can never sync and the
         // deploy times out. Prune any stale ExternalSecret that targets an app we
         // are deploying now, so the current one can own the Secret cleanly.
-        const desiredEsNames = new Set(targets.map(({ record }) => externalSecretName(record.id)));
-        const desiredTargets = new Set(targets.map(({ secretName }) => secretName));
+        const desiredEsNames = new Set(servable.map(({ target }) => externalSecretName(target.record.id)));
+        const desiredTargets = new Set(servable.map(({ target }) => target.secretName));
         await this.pruneCollidingExternalSecrets(namespace, desiredEsNames, desiredTargets);
 
         // Stamp one force-sync token for the batch and remember when we asked,
@@ -158,9 +177,10 @@ export class AwsExternalSecretManager implements RuntimeSecretMaterializer {
         const syncRequestedAtMs = Date.now();
         const forceSyncToken = new Date(syncRequestedAtMs).toISOString();
         const pending = await Promise.all(
-            targets.map(async ({ record, secretName }) => {
+            servable.map(async ({ target, awsSecretArn }) => {
+                const { record, secretName } = target;
                 const resource = this.buildExternalSecret(
-                    record,
+                    { id: record.id, awsSecretArn },
                     secretName,
                     namespace,
                     organizationId,
@@ -171,7 +191,7 @@ export class AwsExternalSecretManager implements RuntimeSecretMaterializer {
                 this.logger.info("Applied AWS ExternalSecret", {
                     appName: record.appName,
                     k8sSecretName: secretName,
-                    awsSecretArn: record.awsSecretArn,
+                    awsSecretArn,
                     namespace,
                     extra: { esName: resource.metadata.name },
                 });
@@ -201,7 +221,7 @@ export class AwsExternalSecretManager implements RuntimeSecretMaterializer {
 
         this.logger.info("AWS ExternalSecrets applied and synced", {
             appliedCount: result.size,
-            requestedCount: targets.length,
+            requestedCount: servable.length,
             namespace,
         });
 

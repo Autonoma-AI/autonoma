@@ -71,7 +71,7 @@ const HOOK_WARNING_MAX_CHARS = 300;
 interface AppBuildContext {
     config: PreviewConfig;
     appRepoDirs: Map<string, string>;
-    arnByApp: Map<string, string>;
+    arnByApp: Map<string, string | undefined>;
     applicationId: string;
     envInjector: EnvInjector;
     namespace: string;
@@ -541,8 +541,11 @@ export class PreviewPipeline {
                 },
                 select: { appName: true, awsSecretArn: true },
             });
-            const arnByApp = new Map<string, string>();
-            for (const s of secretRecords) arnByApp.set(s.appName, s.awsSecretArn);
+            // Presence means "this app has a registered secret bundle"; the value is the
+            // legacy AWS ARN, absent for anything registered since Postgres became the
+            // store, and only ever used as a fallback.
+            const arnByApp = new Map<string, string | undefined>();
+            for (const s of secretRecords) arnByApp.set(s.appName, s.awsSecretArn ?? undefined);
             logger.info("Build step 6/7 building images for all apps", {
                 repo: repoFullName,
                 pr: prNumber,
@@ -1442,7 +1445,7 @@ export class PreviewPipeline {
         repoFullName: string,
         prNumber: number,
         shortSha: string,
-        arnByApp: Map<string, string>,
+        arnByApp: Map<string, string | undefined>,
         applicationId: string,
         addonOutputs: AddonOutputs,
         signal?: AbortSignal,
@@ -1591,12 +1594,11 @@ export class PreviewPipeline {
             });
             const dir = ctx.appRepoDirs.get(app.name);
             if (dir == null) throw new Error(`No repo directory found for app "${app.name}"`);
-            const appArn = ctx.arnByApp.get(app.name);
             const secretBuildArgs =
-                app.build_secrets.length > 0 && appArn != null
+                app.build_secrets.length > 0
                     ? await this.buildSecrets.forKeys(
                           { kind: "app", applicationId: ctx.applicationId, appName: app.name },
-                          appArn,
+                          ctx.arnByApp.get(app.name),
                           app.build_secrets,
                       )
                     : {};

@@ -16,12 +16,13 @@ import { openApiSpec } from "./openapi-spec";
 import { PreviewkitEnvironmentsService } from "./previewkit-environments.service";
 import { PreviewkitSecretsService } from "./previewkit-secrets.service";
 import { previewkitTriggerService } from "./previewkit-service";
+import { buildSecretValues } from "./secret-store";
 
 const logger = rootLogger.child({ name: "previewkitHttpRouter" });
 
-// Native services - these run in the API process (DB + AWS Secrets Manager only,
-// no Kubernetes), so they need no forwarding.
-const secretsService = new PreviewkitSecretsService(env.S3_REGION);
+// Native services - these run in the API process (DB only, no Kubernetes), so they
+// need no forwarding.
+const secretsService = new PreviewkitSecretsService(db, buildSecretValues(db));
 const environmentsService = new PreviewkitEnvironmentsService(db);
 
 // Log relay. Both sources live in Grafana Loki: build logs are pushed by the

@@ -232,12 +232,16 @@ export class SecretValues {
         };
     }
 
-    /** Removes one key from `bundle`. Absent keys are not an error - the caller's authoritative store decides that. */
-    async remove(bundle: SecretBundle, key: string): Promise<void> {
+    /**
+     * Removes one key from `bundle`, reporting whether it was there. An absent key
+     * is not an error - it is how a caller answers "did this delete anything?", which
+     * it can no longer ask another store.
+     */
+    async remove(bundle: SecretBundle, key: string): Promise<boolean> {
         this.logger.info("Removing a secret value", { extra: { bundle: describeSecretBundle(bundle), key } });
 
         const parentId = await this.parentId(bundle);
-        if (parentId == null) return;
+        if (parentId == null) return false;
 
         const removed =
             bundle.kind === "app"
@@ -247,6 +251,7 @@ export class SecretValues {
         this.logger.info("Secret value removed", {
             extra: { bundle: describeSecretBundle(bundle), key, count: removed.count },
         });
+        return removed.count > 0;
     }
 
     /**

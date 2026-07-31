@@ -281,12 +281,11 @@ export class OnboardingManager {
 
         await this.ensureApplicationHasRepository(applicationId, organizationId);
         await this.ensureStateAtOrAfter(applicationId, "previewkit_configuring", "save PreviewKit config");
-        await this.assertSecretPathsAvailable(applicationId, organizationId, document, dependencyDocuments);
 
-        // AWS-first: upsert secrets before committing the config. If a
-        // secret write throws, the config never saves, so the two stores stay
-        // consistent (the rare residual - secrets written, config not - is the
-        // safe direction: extra secret values are harmless until referenced).
+        // Secrets before the config commit. If a secret write throws, the config never
+        // saves, so the two stay consistent (the rare residual - secrets written,
+        // config not - is the safe direction: extra secret values are harmless until
+        // referenced).
         await this.upsertConfigSecrets(applicationId, organizationId, document, dependencyDocuments, secrets);
 
         const saved = await this.previewkitConfig.save(applicationId, organizationId, document, dependencyDocuments);
@@ -302,34 +301,7 @@ export class OnboardingManager {
     }
 
     /**
-     * Save-time collision preflight: every app name in the primary + dependency
-     * documents must map to a secret path that is unowned or ours. Names are
-     * lossy-sanitized into `previewkit/<org>/<application>/<app>`, so a foreign
-     * collision would otherwise only surface mid-deploy as an adoption refusal
-     * ("Refusing to adopt AWS secret ..."). Documents that fail shape-parsing are
-     * skipped here - the config save right after rejects them with the real error.
-     */
-    private async assertSecretPathsAvailable(
-        applicationId: string,
-        organizationId: string,
-        document: unknown,
-        dependencyDocuments: PreviewkitDependencyDocument[],
-    ): Promise<void> {
-        const secretsService = this.options.previewkitSecretsService;
-        if (secretsService?.assertSecretPathsAvailable == null) return;
-
-        const documents = [document, ...dependencyDocuments.map((dependency) => dependency.document)];
-        const appNames = documents.flatMap((entry) => {
-            const parsed = previewConfigSchema.safeParse(entry);
-            return parsed.success ? parsed.data.apps.map((app) => app.name) : [];
-        });
-        if (appNames.length === 0) return;
-
-        await secretsService.assertSecretPathsAvailable(applicationId, [...new Set(appNames)], organizationId);
-    }
-
-    /**
-     * Validate secret app names against the documents being saved, then upsert (AWS)
+     * Validate secret app names against the documents being saved, then upsert them
      * before the DB commit. Checked against the whole topology, primary plus every
      * dependency document: a dependency-repo app owns a secret bundle under this same
      * Application (the deploy resolves secrets over the merged config), so matching

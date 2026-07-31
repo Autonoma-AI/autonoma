@@ -96,11 +96,18 @@ export class RuntimeSecrets {
         });
         if (records.length === 0) return [];
 
+        const targets = records.map((record) => ({
+            id: record.id,
+            applicationId: record.applicationId,
+            appName: record.appName,
+            awsSecretArn: record.awsSecretArn ?? undefined,
+        }));
+
         // Collapse rows that fold to one K8s Secret target (a same-app duplicate).
         // Only one writer per target is possible either way: ESO allows a single
         // Owner, and two Postgres bundles writing one Secret would just overwrite
         // each other. Keep one and log the rest.
-        const { chosen, collisions } = dedupeSecretRecordsByTarget(records, previewSecretName);
+        const { chosen, collisions } = dedupeSecretRecordsByTarget(targets, previewSecretName);
         for (const collision of collisions) {
             this.logger.fatal(
                 "Multiple PreviewkitSecret rows resolve to one K8s Secret target; keeping one to avoid an ownership collision",

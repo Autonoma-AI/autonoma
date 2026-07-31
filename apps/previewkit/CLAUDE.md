@@ -140,7 +140,7 @@ per-caller org-scoping). Previewkit itself serves nothing over HTTP.
 - **Reads:** environment status (`PreviewkitEnvironmentsService` - DB), live log stream
   (SSE relay reading Grafana Loki via `LokiLogStore` behind the shared `LogStore` seam;
   `?source=build` for build output, `?source=app` for runtime stdout/stderr), secrets CRUD
-  (`PreviewkitSecretsService` - AWS Secrets Manager + DB), and `openapi.json`. Secret values are
+  (`PreviewkitSecretsService` - Postgres only; see `packages/secrets/README.md`), and `openapi.json`. Secret values are
   kept out of the API request log via a body-log blocklist
   prefix on `/v1/previewkit/secrets`. Loki is a VPC-internal EC2 instance (`PREVIEWKIT_LOKI_URL`
   in the API env; unset -> the stream route 503s): build logs are pushed by the runner's
@@ -289,7 +289,10 @@ app lines in a recent window.
   Application, overwritten in place on save). This is what the deploy pipeline reads. There is no
   revision history: saving overwrites the row, and every deploy/redeploy resolves the current
   document.
-- `PreviewkitSecret` / `PreviewkitOrgSecret` - AWS Secrets Manager ARNs per app / per org.
+- `PreviewkitSecret` / `PreviewkitOrgSecret` - one bundle row per app / per org, with a
+  `PreviewkitSecretValue` / `PreviewkitOrgSecretValue` row per key holding the sealed value.
+  `awsSecretArn` is retired and nullable: no AWS secret backs a bundle registered since Postgres
+  became the store, and the runner reads the column only as a per-bundle fallback for older ones.
 - `PreviewkitAddon` - provisioned addon state/outputs.
 
 ## Access proxy (`gatekeeper`, cluster mode)

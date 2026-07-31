@@ -2391,7 +2391,10 @@ model PreviewkitSecret {
   id            String @id @default(cuid())
   applicationId String @map("application_id")
   appName       String @map("app_name")
-  awsSecretArn  String @map("aws_secret_arn")
+  /// Retired. No AWS secret is created for a new bundle, so this is null on
+  /// anything registered after Postgres became the store; the column drops once
+  /// the previewkit runner stops reading it as a fallback.
+  awsSecretArn  String? @map("aws_secret_arn")
 
   application Application               @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   values      PreviewkitSecretValue[]
@@ -2444,7 +2447,8 @@ model PreviewkitOrgSecret {
   id             String @id @default(cuid())
   organizationId String @map("organization_id")
   name           String
-  awsSecretArn   String @map("aws_secret_arn")
+  /// Retired - see PreviewkitSecret.awsSecretArn.
+  awsSecretArn   String? @map("aws_secret_arn")
 
   organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   values       PreviewkitOrgSecretValue[]

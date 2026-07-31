@@ -110,16 +110,28 @@ secretsSuite({
                 { key: "B", value: "two" },
             ]);
 
-            await store.remove(bundle, "A");
+            // Reports that it removed something: the API's delete answers 404-or-not from
+            // this, having no second store left to ask.
+            expect(await store.remove(bundle, "A")).toBe(true);
 
             expect((await harness.db.previewkitSecretValue.findMany()).map((row) => row.key)).toEqual(["B"]);
         });
 
-        test("treats removing an absent key as a no-op", async ({ harness }) => {
+        test("reports removing an absent key rather than failing", async ({ harness }) => {
             await mint(harness, "1");
             const bundle = await harness.createAppBundle();
 
-            await expect(values(harness).remove(bundle, "NOT_THERE")).resolves.toBeUndefined();
+            expect(await values(harness).remove(bundle, "NOT_THERE")).toBe(false);
+        });
+
+        test("reports a removal against a bundle that was never registered", async ({ harness }) => {
+            await mint(harness, "1");
+
+            // No parent row at all, which is a different miss from a registered bundle
+            // that simply lacks the key.
+            expect(
+                await values(harness).remove({ kind: "app", applicationId: "app_missing", appName: "web" }, "ANY"),
+            ).toBe(false);
         });
 
         test("seals and removes org-scoped values too", async ({ harness }) => {

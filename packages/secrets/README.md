@@ -27,69 +27,59 @@ The `encryptionKeyId` foreign key is `RESTRICT`, not `CASCADE`. Deleting an encr
 
 Persistence lives here rather than in the API services because those build their AWS client internally and cannot run without an AWS account; keeping it here makes it coverable against a real Postgres.
 
-### Migration status: writes are mirrored, reads are not
+### Postgres is the store
 
-AWS Secrets Manager is still the authoritative store. The API's secret services write there first and then mirror the same values here through `SecretValueMirror`.
+The API writes and reads secret values here and nowhere else. There is no mirror, no dual-write, and no AWS fallback on this side: `PreviewkitSecretsService` and `OrgSecretsService` hold a `SecretValues` and nothing else.
 
-**Whether a failed mirror write fails the request depends on which store serves this environment's reads.** While AWS serves them the failure is swallowed: the authoritative write has already succeeded by then, so throwing would break a working operation to protect a copy nothing reads, and the backfill repairs the gap.
+**A bundle registered from now on has no `awsSecretArn`.** No AWS secret is created for it, so the column is nullable and drops once the previewkit runner stops reading it as a per-bundle fallback. Rows that predate the cutover keep theirs.
 
-Once `PREVIEWKIT_SECRETS_READ` is `postgres`, swallowing becomes the dangerous option - and not because reads would fail. They fall back per bundle, but only when the bundle holds **nothing**: a bundle that already has values keeps serving the **stale** one for a key whose mirror write failed, and no fallback can detect that. A build or a preview would come up with the old secret and nothing would say so. So `put` and `remove` rethrow there.
+**What went away with the AWS write, and why it could.** The service used to carry an ownership-tag system and a self-heal path: adopt an existing secret, refuse a foreign one, recreate when AWS had lost it, restore one scheduled for deletion, and sanitize punctuation AWS rejects in tag values. Every one of those was a consequence of Secrets Manager _names_ being a single flat space shared by every tenant, reached through lossy sanitization of user-controlled segments - so two applications could collide on one name and tags were the only proof of who owned it. A bundle is now identified by a foreign key into the Application that owns it, which no transform can alias, so none of those states are reachable and all of that code is gone.
 
-`audit` never rethrows either way. It only runs when Postgres did not serve the read, and a comparison that fails says nothing about whether the user's write landed.
+The same reasoning retired the save-time preflight (`assertSecretPathsAvailable`): it existed to catch a name collision before a deploy hit it, and there is no shared name space left to collide in.
 
-A `NoPrimaryEncryptionKeyError` stays a skip in both modes. An environment with no key mirrors nothing at all, so every read falls back to AWS wholesale and no value can go stale - it is a provisioning step to finish rather than a request to fail, though it logs at error level once reads are supposed to come from here.
+**An environment with no CMK refuses rather than answering emptily.** Dev and self-host have no key to unwrap, and returning `[]` there would read as "you have no secrets" when the truth is "cannot tell".
 
 ### Serving reads from here
 
-`PREVIEWKIT_SECRETS_READ` selects the source: `aws` (the default) or `postgres`. Defaulting to AWS means deploying the Postgres read path changes nothing until an environment opts in, and reverting is a config change rather than a deploy.
+Under `postgres` a listing is served entirely from stored columns - no key is unwrapped and nothing is decrypted, since `fingerprint` and `maskedLength` are what a listing needs. `updatedAt` is the row's own. Reading a single value does decrypt, and resolves whichever key version sealed it.
 
-Under `postgres`, a listing is served entirely from stored columns - no key is unwrapped and nothing is decrypted, since `fingerprint` and `maskedLength` are what a listing needs. `updatedAt` becomes the row's own rather than the current time the AWS path has to substitute. Reading a single value does decrypt, and resolves whichever key version sealed it.
-
-**It falls back to AWS per bundle rather than answering wrongly.** Postgres holding nothing for a bundle means not backfilled, not "no secrets" - a bundle row implies at least one value, since a write requires one. Serving an empty listing there would show a user that their secrets had vanished. A missing single value matters even more: `resolveManagedSigningSecret` reads back an existing `AUTONOMA_SIGNING_SECRET` so every app in an application shares one, and a false miss makes it mint a fresh one, breaking signed SDK calls from previews already deployed.
-
-Every fall back is logged at error level. They should be rare once the backfill has run and its refused and dangling sets are resolved; a steady stream means the flip was premature. That is the signal to watch, and it is why the fallback exists rather than a hard cutover.
+`PREVIEWKIT_SECRETS_READ` remains, because the previewkit runner still has AWS fallbacks of its own for bundles that predate the cutover. It no longer affects the API, which has no second store to choose between.
 
 ### The same flag covers the deploy runner
 
-Values are read in two places: the API (listing and revealing them) and the previewkit runner (`build_secrets:` build args, addon `auth_secret:` lookups). Both are behind `PREVIEWKIT_SECRETS_READ`, and both fall back per bundle, but the runner does not get the flag from its own config. The runner Job's env comes from a shared secret carrying production's values, while `DATABASE_URL` is injected per-Job from the launching API - so a beta deploy runs against beta's database. The flag asserts that _a specific database_ holds the secrets, which makes it meaningless apart from that `DATABASE_URL`: `PreviewkitJobLauncher` therefore injects `PREVIEWKIT_SECRETS_READ` and `PREVIEWKIT_SECRETS_CMK` from the API's own env alongside it. One flag per API environment moves that environment's API reads and its runners together, and nothing has to be edited in the shared secret.
+Values are read in two places on the runner side: `build_secrets:` build args and addon `auth_secret:` lookups (`BuildSecretSource`), and the runtime K8s Secret a preview's pods mount (`RuntimeSecrets`). Both fall back per bundle to AWS, and both are the remaining reason `awsSecretArn`, `CLUSTER_SECRET_STORE_NAME` and the ESO install still exist.
 
-The runner's fallback matters more than the API's, because it is not a display bug. A build arg that resolves to nothing produces an image that boots and then misbehaves, far from the cause - so `BuildSecretSource` fails the build for a `build_secrets:` key the answering store does not have, and names which store answered. What it will not do is treat an empty Postgres bundle as "no secrets".
+The runner does not read the flag from its own config. Its Job env comes from a shared secret carrying production's values, while `DATABASE_URL` is injected per-Job from the launching API - so a beta deploy runs against beta's database. The flag asserts that _a specific database_ holds the secrets, which makes it meaningless apart from that `DATABASE_URL`: `PreviewkitJobLauncher` injects `PREVIEWKIT_SECRETS_READ` and `PREVIEWKIT_SECRETS_CMK` from the API's own env alongside it.
+
+A build arg that resolves to nothing produces an image that boots and then misbehaves, far from the cause - so `BuildSecretSource` fails the build for a `build_secrets:` key the answering store does not have, and names which store answered. For a bundle with no AWS secret at all it fails outright rather than handing the build an empty map. `AwsExternalSecretManager` likewise skips a bundle it cannot serve: stamping an `ExternalSecret` with nothing to extract would sit un-Ready and burn the pre-rollout sync wait instead of failing fast.
 
 ### The runtime K8s Secret
 
-The third read is the K8s Secret every preview pod mounts via `envFrom`, and it is the one that matters most: the values in it are what the running app authenticates with. Under `postgres` the runner writes that Secret itself (`PostgresSecretMaterializer`) instead of stamping an ExternalSecret and waiting for External Secrets to sync it from AWS.
+The K8s Secret every preview pod mounts via `envFrom` is the one whose values the running app authenticates with. Under `postgres` the runner writes it directly (`PostgresSecretMaterializer`) instead of stamping an ExternalSecret and waiting for External Secrets to sync it.
 
-Writing it directly removes the step that could hang. The ESO path has to force a reconcile and then poll until the controller reports one that postdates the request, because `envFrom` is captured at pod start - a pod that rolls out against an unpopulated Secret comes up "ready" with a missing `AUTONOMA_SHARED_SECRET` and 401s every signed SDK call until someone redeploys by hand. A direct write is its own confirmation, so there is nothing to wait for and no controller whose outage fails the deploy.
+Writing it directly removes the step that could hang. The ESO path has to force a reconcile and then poll until the controller reports one that postdates the request, because `envFrom` is captured at pod start - a pod that rolls out against an unpopulated Secret comes up "ready" with a missing `AUTONOMA_SHARED_SECRET` and 401s every signed SDK call until someone redeploys by hand. A direct write is its own confirmation.
 
-**Two writers on one Secret is the thing to get right.** An ESO-managed Secret is *owned* by its ExternalSecret, so taking a target over means releasing that ownership first - otherwise ESO reconciles the Secret back from AWS every 5m and whichever writer went last wins. `releaseTargets` deletes the ExternalSecret with `Orphan` propagation, because the default cascade would have the garbage collector delete the Secret it owns and take a live preview's credentials with it. The write then clears `ownerReferences` explicitly rather than waiting for the collector to strip them, so the handoff does not depend on GC timing.
+**Two writers on one Secret is the thing to get right.** An ESO-managed Secret is _owned_ by its ExternalSecret, so taking a target over means releasing that ownership first - otherwise ESO reconciles the Secret back from AWS and whichever writer went last wins. `releaseTargets` deletes the ExternalSecret with `Orphan` propagation, because the default cascade would have the garbage collector delete the Secret it owns and take a live preview's credentials with it. The write then clears `ownerReferences` explicitly rather than waiting for the collector to strip them, so the handoff does not depend on GC timing.
 
-**It has to be reversible in both directions.** Flipping back to `aws` runs into the mirror image of the same ownership rule: ESO will not adopt a Secret it does not own, so a Postgres-written one left in place keeps its ExternalSecret out of Ready until the deploy deadline - the flag would be a one-way door for the runtime path. `reclaimTargets` deletes it first, so ESO creates and owns it fresh. That delete is safe because `envFrom` is read at pod start: running pods keep their env, and the ESO path already waits for the Secret to be repopulated before any rollout. It only ever touches a Secret carrying previewkit's own `app-secret` type label, never an ESO-owned or foreign one.
+**It has to be reversible in both directions.** Flipping back to `aws` runs into the mirror image of the same rule: ESO will not adopt a Secret it does not own, so a Postgres-written one left in place keeps its ExternalSecret out of Ready until the deploy deadline. `reclaimTargets` deletes it first, so ESO creates and owns it fresh. That delete is safe because `envFrom` is read at pod start: running pods keep their env, and the ESO path already waits for the Secret to be repopulated before any rollout. It only ever touches a Secret carrying previewkit's own `app-secret` type label.
 
-The fallback is per app, not per namespace: one un-backfilled app leaves that app on ESO and writes the others. A namespace-wide switch would boot pods with no credentials the first time it met a bundle Postgres had nothing for. It also means `CLUSTER_SECRET_STORE_NAME` and the ESO install stay required after a flip.
+The fallback is per app, not per namespace: one un-backfilled app leaves that app on ESO and writes the others.
 
 ### Reading a preview's env by repo
 
-`PreviewSecrets` is the fourth and last reader: the investigation and diffs classifiers introspect a preview with it (`get_preview_env` lists the names, `run_script` runs against the live backend with the same credentials).
+`PreviewSecrets` is what the investigation and diffs classifiers introspect a preview with (`get_preview_env` lists the names, `run_script` runs against the live backend with the same credentials).
 
-**It resolves rows, it does not rebuild the name.** The two copies it replaces built `previewkit/<repo>/web` and read that AWS secret directly. That name is a guess in two ways: it misses the bundles predating the three-segment scheme, and it misses any Application whose app is not called `web` - both of which surface as `ResourceNotFoundException` at the classifier, which reads as "this preview has no env" rather than "we looked in the wrong place". Resolving `previewkit_secret` rows fixes both, and survives `awsSecretArn` being dropped. When an Application registers several apps it prefers `web`, so both sources answer with the same values; a sole registration wins whatever it is named.
+**It resolves rows, it does not rebuild a name.** The two copies it replaces built `previewkit/<repo>/web` and read that AWS secret directly - a guess that misses the bundles predating the three-segment scheme and any Application whose app is not called `web`, both surfacing as `ResourceNotFoundException` at the classifier. When an Application registers several apps it prefers `web`; a sole registration wins whatever it is named.
 
-**The caller names the Application, so the tenant is never inferred.** The obvious signature is by repo full name, since that is what the classifiers pass around - but the repo name does not identify a tenant. Two organizations onboarding the same GitHub repo is representable, so resolving through it would have to pick among the environments sharing that name, and picking wrong means handing back another organization's live credentials. `PreviewTarget` therefore carries the `applicationId` the caller already holds; the repo name comes along only so the AWS fallback can build its secret id.
+**The caller names the Application, so the tenant is never inferred.** The obvious signature is by repo full name, since that is what the classifiers pass around - but a repo name does not identify a tenant. Two organizations onboarding the same GitHub repo is representable, so resolving through it would have to pick among the environments sharing that name, and picking wrong means handing back another organization's live credentials. `PreviewTarget` carries the `applicationId` the caller already holds.
 
-**Listing names decrypts nothing.** `getEnvVarNames` exists so a classifier can see which keys a preview configures *without* their values - so it reads the stored key columns via `list()` and never unwraps a key. Only the AWS fallback has to fetch values to list their keys, because a Secrets Manager secret is one opaque blob.
+**Listing names decrypts nothing.** `getEnvVarNames` exists so a classifier can see which keys a preview configures _without_ their values, so it reads the stored key columns and never unwraps a key.
 
-Both workers read their own `PREVIEWKIT_SECRETS_READ`, for the same reason the previewkit runner does not read the shared secret's copy: the flag asserts that the database `DATABASE_URL` points at holds the values. Their IRSA roles (`WorkerDiffsRole`, `InvestigationWorkerSecretsRole`) need `kms:Decrypt` on the CMK before `postgres` does anything there - without it every unwrap throws, is logged, and falls back to AWS.
-
-### Earning the read flip
-
-Before any read is served from here, both `list()` methods shadow-read: they return the authoritative AWS response as before and additionally call `SecretValueMirror.audit`, which compares `SecretValues.fingerprints` against what AWS just gave them and warns on any difference. Serving a read from an incomplete mirror would show a user no secrets at all, and an un-backfilled bundle is indistinguishable from an empty one at the API surface - so the mirror has to prove itself first.
-
-It costs one two-column query and no decryption, because the fingerprints are already computed for the response. Every bundle anyone looks at reports whether the mirror agrees, which is continuous verification rather than the single point-in-time check a backfill gives.
-
-Differences are warnings, not errors: while AWS is authoritative, anything the backfill has not reached is expected to differ. What matters is the trend going quiet. When it does - and the backfill's refused and dangling sets are resolved - reads can move, at which point the guard on `SecretValueMirror` comes off and mirror failures should fail the request.
+Both workers read their own `PREVIEWKIT_SECRETS_READ`. Their IRSA roles (`WorkerDiffsRole`, `InvestigationWorkerSecretsRole`) need `kms:Decrypt` on the CMK before `postgres` does anything there.
 
 ### Where the tables are going
 
-The current shape is a bundle row (`previewkit_secret`, one per app, holding the AWS ARN) plus a value row per key. That bundle exists only to hold `awsSecretArn`: once reads move to Postgres and the ARN is dropped, all it contains is `(applicationId, appName)`, which the value rows can carry themselves.
+The current shape is a bundle row (`previewkit_secret`, one per app) plus a value row per key. That bundle exists only to hold `awsSecretArn` and to answer "is this registered": once the ARN is dropped, all it contains is `(applicationId, appName)`, which the value rows can carry themselves.
 
 So the end state is one table, and it can take the name that fits it:
 
@@ -98,32 +88,27 @@ PreviewkitSecret { applicationId, appName, key, envelope, encryptionKeyId, finge
 @@unique([applicationId, appName, key])
 ```
 
-`PreviewkitSecret` then means one secret, which is what the word means everywhere else - in the API contract (`SecretItem`), in the UI, and in how people talk about them. It is deliberately _not_ done yet, because today `previewkit_secret` is one row per bundle and roughly a dozen call sites do `findUnique` on `(applicationId, appName)` to fetch the ARN. Changing the grain now would need a transitional table holding both shapes, told apart by `key IS NULL`.
+`PreviewkitSecret` then means one secret, which is what the word means everywhere else - in the API contract (`SecretItem`), in the UI, and in how people talk about them.
 
-Those call sites exist to find the ARN, so they disappear on their own when reads move. That makes the collapse close to free at that point: stop writing the bundle, repoint the foreign key, drop the table. Expand and contract, with no data fan-out, because the value rows already exist from dual-write.
+The API's ARN lookups are gone, which was most of what blocked this. What remains is the previewkit runner's two fallback readers and the `listApps` / registration checks, which want "does this bundle exist" rather than an ARN. Once the runner stops reading AWS, the collapse is close to free: stop writing the bundle, repoint the foreign key, drop the table. Expand and contract, with no data fan-out, because the value rows already exist.
 
 Until then the value tables keep a suffixed name, and it is not worth renaming something scheduled for deletion.
 
-### Migrating what is already in Secrets Manager
+### The backfill, and what it left
 
-Dual-write only covers new writes, so everything already in AWS needs a backfill. A survey of the `previewkit/` prefix (2026-07-30) found 281 secrets against 219 distinct ARNs referenced by a row, which sets the shape of that job:
+Dual-write only covered writes made while it was on, so everything untouched since then lived only in AWS. `pnpm --filter @autonoma/previewkit backfill-secrets` closed that gap and doubles as the verifier: it compares `fingerprint` per (bundle, key), so a converged run reports nothing to do. Production converged on 2026-07-31 at 223 bundles / 2185 values.
 
-|                                             |                                   |
-| ------------------------------------------- | --------------------------------- |
-| Referenced by a row and present in AWS      | 216 - the backfill's actual scope |
-| Referenced by a row but **absent** from AWS | 3                                 |
-| Present in AWS with **no row**              | 65                                |
-| One ARN shared by **two** rows              | 5                                 |
+Four things it got right that a simpler sweep would not, and they still apply to any environment yet to run it:
 
-Four things follow, and the first is the one most likely to be got wrong:
+**Enumerate from `awsSecretArn`, never by rebuilding the name.** Some bundles predate the current `previewkit/<org>/<application>/<app>` scheme and sit at two segments, so a name-driven sweep silently skips them. It never has to: `upsert` merged into the existing ARN rather than recomputing, so a row's ARN was authoritative and legacy names never migrated.
 
-**Enumerate from `awsSecretArn`, never by rebuilding the name.** Seven bundles predate the current `previewkit/<org>/<application>/<app>` scheme and sit at two segments; `buildSecretName` cannot produce those, so a name-driven sweep silently skips them. It never has to: `upsert` merges into `existing.awsSecretArn` rather than recomputing, so a row's ARN is authoritative and legacy names never migrate. Reads already work this way.
+**Report dangling ARNs rather than skipping them.** A read that returns `{}` on `ResourceNotFoundException` writes zero values for these and looks successful.
 
-**Report the 3 dangling ARNs rather than skipping them.** `fetchSecretValue` returns `{}` on `ResourceNotFoundException`, so a naive backfill writes zero values for these and looks successful. They are bundles whose AWS secret is gone and which have not been edited since (the self-healing `upsert` would have recreated it).
+**Refuse an ARN shared by two bundles.** Writing it into both makes them diverge once AWS is dropped - the only case where the backfill could write _wrong_ data rather than incomplete data, so it lists them for a human instead.
 
-**The 5 shared ARNs need a human decision before running.** Two bundles on one AWS secret means the backfill writes identical values into both, and they diverge silently once AWS is dropped. This is the only case where the backfill can write _wrong_ data rather than incomplete data, so it should refuse them and list them.
+**Verify per bundle, not by a global count.** The fleet creates secrets continuously, so a snapshot-then-compare shows drift that is not a fault.
 
-**Verification is per-bundle, not a global count.** The fleet creates secrets continuously - the survey saw 280 become 281 within minutes - so any snapshot-then-compare shows drift that is not a fault. Compare `fingerprint` per (bundle, key) over a fixed input set, which is what that column exists for, and ignore rows that appeared after the snapshot.
+A bundle registered after the cutover has no ARN and nothing to compare; the script counts those separately rather than dropping them silently.
 
 ## `SecretKeys`
 

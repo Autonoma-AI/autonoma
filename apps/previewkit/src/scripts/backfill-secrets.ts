@@ -67,6 +67,9 @@ interface Outcome {
     pruned: number;
 }
 
+/** Bundles with no AWS secret at all: born in Postgres, nothing to back-fill. */
+let postgresOnly = 0;
+
 const sm = new SecretsManagerClient({ region: env.AWS_REGION });
 const keys = new SecretKeys(
     db,
@@ -112,14 +115,26 @@ async function loadBundles(): Promise<Bundle[]> {
         db.previewkitOrgSecret.findMany({ select: { organizationId: true, name: true, awsSecretArn: true } }),
     ]);
 
-    return [
-        ...apps.map((row) =>
-            entry({ kind: "app", applicationId: row.applicationId, appName: row.appName }, row.awsSecretArn),
-        ),
-        ...orgs.map((row) =>
-            entry({ kind: "org", organizationId: row.organizationId, name: row.name }, row.awsSecretArn),
-        ),
+    // A bundle registered after Postgres became the store has no AWS secret, so there
+    // is nothing to copy from and nothing to compare against - it is already whole.
+    // Counted rather than silently dropped, so the summary stays a full account.
+    const rows: Array<{ bundle: SecretBundle; arn: string | null }> = [
+        ...apps.map((row) => ({
+            bundle: { kind: "app" as const, applicationId: row.applicationId, appName: row.appName },
+            arn: row.awsSecretArn,
+        })),
+        ...orgs.map((row) => ({
+            bundle: { kind: "org" as const, organizationId: row.organizationId, name: row.name },
+            arn: row.awsSecretArn,
+        })),
     ];
+    postgresOnly = rows.filter(({ arn }) => arn == null).length;
+
+    const backed: Bundle[] = [];
+    for (const { bundle, arn } of rows) {
+        if (arn != null) backed.push(entry(bundle, arn));
+    }
+    return backed;
 }
 
 function entry(bundle: SecretBundle, arn: string): Bundle {
@@ -209,6 +224,7 @@ for (let start = 0; start < migratable.length; start += CONCURRENCY) {
 
 console.log(`\n${APPLY ? "APPLIED" : "DRY RUN - nothing written, re-run with --apply"}`);
 console.log(`  bundles                : ${bundles.length}`);
+if (postgresOnly > 0) console.log(`  postgres-only (skipped): ${postgresOnly}`);
 console.log(`  values ${APPLY ? "sealed         " : "to seal        "}: ${totals.sealed}`);
 console.log(`  values already current : ${totals.alreadyCurrent}`);
 console.log(`  stale values ${APPLY ? "pruned    " : "to prune  "}: ${totals.pruned}`);

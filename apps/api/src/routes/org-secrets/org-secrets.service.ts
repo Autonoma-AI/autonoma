@@ -1,76 +1,43 @@
-import type { PrismaClient } from "@autonoma/db";
+import { Prisma, type PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger, type Logger } from "@autonoma/logger";
-import { MAX_MASKED_LENGTH, secretFingerprint } from "@autonoma/secrets";
+import type { SecretValues } from "@autonoma/secrets";
 import type { OrgSecretItem, SecretSummary } from "@autonoma/types";
 import type { SecretBundle } from "@autonoma/utils";
-import {
-    CreateSecretCommand,
-    GetSecretValueCommand,
-    ResourceNotFoundException,
-    SecretsManagerClient,
-    UpdateSecretCommand,
-} from "@aws-sdk/client-secrets-manager";
-import { env } from "../../env";
-import { SecretValueMirror } from "../../previewkit/secret-value-mirror";
 
 /**
  * Org-scoped secret bundles referenced by preview config addons via the
- * `auth_secret:` field. One PreviewkitOrgSecret row per (org, name); the
- * row holds an AWS Secrets Manager ARN whose SecretString is a JSON map.
+ * `auth_secret:` field. One `PreviewkitOrgSecret` row per (org, name), plus a
+ * value row per key, each sealed under the environment's encryption key.
  *
- * Mirrors `PreviewkitSecretsService` (per-app secrets) but scoped to the organization.
- * Same AWS SM JSON-map convention so the same UI patterns and item shapes
- * (`{ key, value }`) can be reused on the frontend.
+ * Mirrors `PreviewkitSecretsService` (per-app secrets) but scoped to the
+ * organization, and with the same `{ key, value }` item shape so the frontend
+ * patterns are shared.
  */
 export class OrgSecretsService {
-    private readonly client: SecretsManagerClient;
     private readonly logger: Logger;
 
     constructor(
         private readonly conn: PrismaClient,
-        private readonly awsRegion: string,
-        /** Off by default, so every existing construction site keeps AWS-only behaviour. */
-        private readonly mirror: SecretValueMirror = new SecretValueMirror(),
+        /**
+         * Absent when this environment has no CMK to unwrap an encryption key with.
+         * Org secrets cannot be served at all then, so the operations refuse rather
+         * than quietly doing nothing.
+         */
+        private readonly values?: SecretValues,
     ) {
-        this.client = new SecretsManagerClient({ region: awsRegion });
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
     async list(organizationId: string, name: string): Promise<SecretSummary[]> {
         this.logger.info("Listing org secret items", { organizationId, name });
 
-        const record = await this.conn.previewkitOrgSecret.findUnique({
-            where: { organizationId_name: { organizationId, name } },
-        });
+        const registered = await this.isRegistered(organizationId, name);
+        if (!registered) return [];
 
-        if (record == null) return [];
-
-        const bundle: SecretBundle = { kind: "org", organizationId, name };
-
-        if (env.PREVIEWKIT_SECRETS_READ === "postgres") {
-            const mirrored = await this.mirror.list(bundle);
-            if (mirrored != null) return mirrored;
-        }
-
-        const values = await this.fetchSecretValue(record.awsSecretArn);
-        const now = new Date();
-
-        // Shadow read. Unlike the app-scoped summary this one carries no fingerprint, so
-        // they are computed here for the comparison only - over values already fetched,
-        // so still no extra AWS call and nothing decrypted.
-        await this.mirror.audit(
-            bundle,
-            new Map(Object.entries(values).map(([key, value]) => [key, secretFingerprint(value)])),
-        );
-
-        return Object.entries(values)
-            .map(([key, value]) => ({
-                key,
-                maskedLength: Math.min(value.length, MAX_MASKED_LENGTH),
-                updatedAt: now,
-            }))
-            .sort((a, b) => a.key.localeCompare(b.key));
+        // Served from the stored key columns, so nothing is decrypted and no key is
+        // unwrapped to answer a listing.
+        return this.store().list(this.bundleFor(organizationId, name));
     }
 
     async upsert(organizationId: string, name: string, items: OrgSecretItem[]): Promise<void> {
@@ -78,122 +45,68 @@ export class OrgSecretsService {
 
         const org = await this.conn.organization.findUnique({
             where: { id: organizationId },
-            select: { slug: true },
+            select: { id: true },
         });
-
         if (org == null) throw new NotFoundError("Organization not found");
 
-        const existing = await this.conn.previewkitOrgSecret.findUnique({
-            where: { organizationId_name: { organizationId, name } },
-        });
+        await this.register(organizationId, name);
 
-        if (existing == null) {
-            await this.createOrgSecret(organizationId, org.slug, name, items);
-        } else {
-            await this.mergeIntoSecret(existing.awsSecretArn, items);
-        }
-
-        // Mirror the same values into Postgres, encrypted. Whether a failure here fails
-        // this request depends on which store serves reads (SecretValueMirror).
-        await this.mirror.put({ kind: "org", organizationId, name }, items);
+        await this.store().put(this.bundleFor(organizationId, name), items);
     }
 
     async delete(organizationId: string, name: string, key: string): Promise<void> {
         this.logger.info("Deleting org secret key", { organizationId, name, key });
 
-        const record = await this.conn.previewkitOrgSecret.findUnique({
-            where: { organizationId_name: { organizationId, name } },
-        });
+        if (!(await this.isRegistered(organizationId, name))) {
+            throw new NotFoundError(`Org secret '${name}' not found`);
+        }
 
-        if (record == null) throw new NotFoundError(`Org secret '${name}' not found`);
-
-        const values = await this.fetchSecretValue(record.awsSecretArn);
-
-        if (!(key in values)) throw new NotFoundError(`Secret '${key}' not found in org secret '${name}'`);
-
-        delete values[key];
-
-        await this.client.send(
-            new UpdateSecretCommand({
-                SecretId: record.awsSecretArn,
-                SecretString: JSON.stringify(values),
-            }),
-        );
-
-        await this.mirror.remove({ kind: "org", organizationId, name }, key);
+        const removed = await this.store().remove(this.bundleFor(organizationId, name), key);
+        if (!removed) throw new NotFoundError(`Secret '${key}' not found in org secret '${name}'`);
 
         this.logger.info("Org secret key deleted", { organizationId, name, key });
     }
 
     /**
-     * Creates a new AWS Secrets Manager secret scoped to one (org, name)
-     * pair and registers a PreviewkitOrgSecret row. The naming convention
-     * `previewkit/<orgSlug>/org-secrets/<name>` mirrors the per-app scheme
-     * `previewkit/<orgSlug>/<application>/<appName>` so IAM scoping stays
-     * tidy on the operator side.
+     * Registers the bundle if it is not already.
+     *
+     * The unique constraint arbitrates. Checking and then creating lets two concurrent
+     * upserts for a new bundle both decide to create it, and the loser surfaces a
+     * unique violation as a 500. `prisma.upsert` is not a safe substitute either - it
+     * is not guaranteed to compile to a single conflict-handling statement, so it can
+     * raise the same violation under concurrency. Catching it is unambiguous, and
+     * matches `PreviewkitSecretsService.register`.
      */
-    private async createOrgSecret(
-        organizationId: string,
-        orgSlug: string,
-        name: string,
-        items: OrgSecretItem[],
-    ): Promise<void> {
-        const secretName = `previewkit/${orgSlug}/org-secrets/${name}`;
-        const secretValue = Object.fromEntries(items.map((i) => [i.key, i.value]));
-
-        this.logger.info("Creating AWS secret for org-secret", { organizationId, name, secretName });
-
-        const result = await this.client.send(
-            new CreateSecretCommand({
-                Name: secretName,
-                SecretString: JSON.stringify(secretValue),
-                Tags: [
-                    { Key: "previewkit:type", Value: "org-secret" },
-                    { Key: "previewkit:org", Value: orgSlug },
-                    { Key: "previewkit:name", Value: name },
-                ],
-            }),
-        );
-
-        const arn = result.ARN;
-        if (arn == null)
-            throw new Error(`AWS secret created but no ARN returned for org-secret ${organizationId}/${name}`);
-
-        await this.conn.previewkitOrgSecret.create({
-            data: { organizationId, name, awsSecretArn: arn },
-        });
-
-        this.logger.info("Org secret created and registered", { organizationId, name, arn });
-    }
-
-    private async mergeIntoSecret(awsSecretArn: string, items: OrgSecretItem[]): Promise<void> {
-        const values = await this.fetchSecretValue(awsSecretArn);
-
-        for (const item of items) {
-            values[item.key] = item.value;
-        }
-
-        await this.client.send(
-            new UpdateSecretCommand({
-                SecretId: awsSecretArn,
-                SecretString: JSON.stringify(values),
-            }),
-        );
-    }
-
-    private async fetchSecretValue(secretArn: string): Promise<Record<string, string>> {
+    private async register(organizationId: string, name: string): Promise<void> {
         try {
-            const result = await this.client.send(new GetSecretValueCommand({ SecretId: secretArn }));
-
-            if (result.SecretString == null) return {};
-
-            const parsed = JSON.parse(result.SecretString) as unknown;
-            if (typeof parsed !== "object" || parsed == null || Array.isArray(parsed)) return {};
-
-            return parsed as Record<string, string>;
-        } catch (err: unknown) {
-            if (err instanceof ResourceNotFoundException) return {};
+            // No AWS secret backs a bundle any more, so there is no ARN to record.
+            await this.conn.previewkitOrgSecret.create({ data: { organizationId, name } });
+        } catch (err) {
+            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return;
             throw err;
         }
+    }
+
+    private async isRegistered(organizationId: string, name: string): Promise<boolean> {
+        const record = await this.conn.previewkitOrgSecret.findUnique({
+            where: { organizationId_name: { organizationId, name } },
+            select: { id: true },
+        });
+        return record != null;
+    }
+
+    private bundleFor(organizationId: string, name: string): SecretBundle {
+        return { kind: "org", organizationId, name };
+    }
+
+    /** The value store, or a clear refusal - see `PreviewkitSecretsService.store`. */
+    private store(): SecretValues {
+        if (this.values == null) {
+            throw new Error(
+                "Org secrets are unavailable: this environment has no PREVIEWKIT_SECRETS_CMK configured, " +
+                    "so no encryption key can be unwrapped.",
+            );
+        }
+        return this.values;
     }
 }

@@ -44,7 +44,7 @@ export class BuildSecretSource {
     }
 
     /** Every key and value in `bundle`. */
-    async forBundle(bundle: SecretBundle, awsSecretArn: string): Promise<Record<string, string>> {
+    async forBundle(bundle: SecretBundle, awsSecretArn?: string): Promise<Record<string, string>> {
         return (await this.load(bundle, awsSecretArn)).values;
     }
 
@@ -57,7 +57,7 @@ export class BuildSecretSource {
      */
     async forKeys(
         bundle: SecretBundle,
-        awsSecretArn: string,
+        awsSecretArn: string | undefined,
         keys: readonly string[],
     ): Promise<Record<string, string>> {
         const { values, origin } = await this.load(bundle, awsSecretArn);
@@ -83,19 +83,29 @@ export class BuildSecretSource {
     }
 
     /**
-     * `awsSecretArn` is still required because it is the fallback, and the fallback is
-     * not optional while the backfill has bundles it refuses to touch. Postgres holding
-     * nothing means not migrated rather than empty, so answering from it there would
-     * hand a build no secrets - which fails it far from the cause, or worse, ships an
-     * image built without them.
+     * Postgres holding nothing for a bundle means not migrated rather than empty, so
+     * answering from it there would hand a build no secrets - which fails it far from
+     * the cause, or worse, ships an image built without them. `awsSecretArn` is the
+     * fallback for that case, and is absent for any bundle registered after Postgres
+     * became the store.
      */
     private async load(
         bundle: SecretBundle,
-        awsSecretArn: string,
+        awsSecretArn: string | undefined,
     ): Promise<{ values: Record<string, string>; origin: Origin }> {
         if (this.readFromPostgres && this.values != null) {
             const opened = await this.fromPostgres(bundle);
             if (opened != null) return { values: opened, origin: "postgres" };
+        }
+
+        // A bundle registered after Postgres became the store has no AWS secret, so
+        // there is nothing to fall back to. Failing here beats handing the build an
+        // empty map, which would bake an image against absent credentials.
+        if (awsSecretArn == null) {
+            throw new Error(
+                `Secrets for ${describeSecretBundle(bundle)} could not be read from postgres, and the bundle has ` +
+                    `no AWS secret to fall back to.`,
+            );
         }
         return { values: await this.aws.fetchJson(awsSecretArn), origin: "AWS Secrets Manager" };
     }

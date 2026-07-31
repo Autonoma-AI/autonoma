@@ -7,7 +7,8 @@ export interface SecretTargetRecord {
     id: string;
     applicationId: string;
     appName: string;
-    awsSecretArn: string;
+    /** Absent for a bundle registered after Postgres became the store. */
+    awsSecretArn?: string;
 }
 
 export interface SecretTargetCollision {
