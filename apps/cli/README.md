@@ -79,7 +79,9 @@ validate each entity itself: for every entity it runs `up`, checks your database
 runs `down`, and checks they're gone. It finishes by seeding two instances at once, proving your
 recipe survives concurrent test runs. It drives the endpoint through the CLI's own signed client
 (`autonoma-planner sdk discover|up|down`), so its checks use the exact request signing and the exact
-recipe-token substitution the platform uses. When it reports the session complete, the CLI uploads
+recipe-token substitution the platform uses. All of that happens on a branch it cuts from your
+repo's default branch, and it pushes the finished integration as a pull request rather than leaving
+the changes loose in your working tree. When it reports the session complete, the CLI uploads
 the recipe it produced and continues to test generation.
 
 - `--agent <name>` - preselect the agent to hand off to (`claude` or `codex`). Omit to auto-detect;

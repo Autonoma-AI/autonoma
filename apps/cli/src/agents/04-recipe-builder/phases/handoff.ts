@@ -189,7 +189,8 @@ async function launchAgent(
                 `Your terminal is about to switch to ${launcher.label}. It will implement the ` +
                     `Autonoma SDK integration inside your repo: install the SDK, wire the endpoint, ` +
                     `and write a real factory for every entity in the audit, validating each one ` +
-                    `against your locally running app.`,
+                    `against your locally running app. It works on its own branch and opens a pull ` +
+                    `request with the result.`,
                 `This dashboard disappears while it works - that's expected. Watch and steer it ` +
                     `like any ${launcher.label} session; this usually takes a while.`,
                 `When it finishes and exits, you come straight back here and the planner continues ` +

@@ -11,18 +11,22 @@ import { COMPLETION_MARKER_FILE } from "./completion";
  * lets it DISCOVER the stack - including how to run the app - with its own tools.
  *
  * The agent does ALL validation itself, per entity, driving the endpoint through
- * the CLI's own `sdk` commands and inspecting the database directly, then reports
- * the whole session done by writing a completion marker.
+ * the CLI's own `sdk` commands and inspecting the database directly. It works on a
+ * branch cut from the repo's default branch and ships the result as a pull request,
+ * then reports the whole session done by writing a completion marker.
  */
 
 /** Bump when the prompt's contract changes; surfaced in the file header. */
-export const INTEGRATION_PROMPT_VERSION = 7;
+export const INTEGRATION_PROMPT_VERSION = 8;
 
 /** The rendered prompt lives here in the app's planner output dir. */
 export const INTEGRATION_PROMPT_FILE = "integration-prompt.md";
 
 /** Preferred endpoint path unless the repo has a clearly better convention. */
 const DEFAULT_ENDPOINT_PATH = "/api/autonoma";
+
+/** Branch the agent cuts off the repo's default branch for the integration. */
+const INTEGRATION_BRANCH = "autonoma-integration";
 
 export interface IntegrationPromptParams {
     /** The planner output dir holding the frozen artifacts (KB, audit, scenarios). */
@@ -63,6 +67,22 @@ ${priorFailureSection}
 Work without asking questions. Make reasonable, codebase-grounded decisions. Only
 stop for missing secrets, credentials, or external services that genuinely cannot
 be mocked or run locally - and when you do, say exactly what you need and why.
+
+═══ BRANCH FIRST - BEFORE YOU CHANGE A SINGLE FILE ═══
+Your work ships to the developer as a pull request, so cut the branch before your
+first edit - never commit onto the default branch. Do not assume it is called "main":
+read it from the remote (\`git symbolic-ref refs/remotes/origin/HEAD\`, or
+\`git remote show origin\`), then:
+    git fetch origin
+    git switch --create ${INTEGRATION_BRANCH} origin/<default-branch>
+Two cases to handle before you run that:
+  • The working tree already has uncommitted changes: they are the developer's, so do
+    NOT stash, discard, or commit them. Branch off the CURRENT HEAD instead, and keep
+    them out of your commit later.
+  • A branch from a prior session already exists (or you are already on one): stay on
+    it and continue there rather than cutting a second one.
+If this checkout is not a git repository at all, skip the branch and say so at the end -
+everything else in this prompt still applies.
 
 ═══ DISCOVER FIRST (never assume) ═══
 Before writing anything, investigate this specific app with your tools. Determine,
@@ -195,8 +215,8 @@ Before implementing, write a checklist file inside the app (e.g. IMPLEMENTATION.
 and keep it updated. It must enumerate, as explicit checkboxes: EVERY entity the
 entity audit says needs a factory (by name, copied from the audit), plus the
 endpoint, teardown, the auth callback, the maintenance note, the full-recipe pass,
-and the two-concurrent-instances proof. Check items off only when actually done and
-verified. The single most common failure is stopping with entities left uncovered.
+the two-concurrent-instances proof, and the pushed branch + opened pull request.
+Check items off only when actually done and verified. The single most common failure is stopping with entities left uncovered.
 
 ═══ VALIDATE - ENTITY BY ENTITY, THEN THE WHOLE RECIPE ═══
 You validate your own work by driving the endpoint through THIS CLI's signed client
@@ -256,9 +276,30 @@ concurrently because the app's own schema forces a global singleton, write that 
 IMPLEMENTATION.md - name the table, the constraint, and why it cannot be made per-run -
 and then proceed. Never leave this step silently unfinished.
 
+═══ SHIP IT - COMMIT, PUSH, OPEN A PULL REQUEST ═══
+Everything green means nothing until the developer can review it. Once the full recipe
+and the concurrency proof pass, put the work up as a pull request - do not leave it
+sitting uncommitted in the working tree:
+  1. Read \`git status\` and \`git diff\` and stage ONLY your integration: the endpoint,
+     the factories, the SDK dependency and its lockfile change, and the maintenance
+     note. Leave the developer's pre-existing uncommitted changes out of it, and NEVER
+     commit secrets, .env files, credentials, or local scratch output.
+  2. Commit in the style the repo already uses (read \`git log\`) - one commit is fine.
+  3. Push the branch and set its upstream:
+        git push --set-upstream origin ${INTEGRATION_BRANCH}
+  4. Open a pull request against the DEFAULT branch you cut from, using the repo's own
+     tooling if it is installed and authenticated (e.g. \`gh pr create --base <default>\`).
+     Describe what you added: the endpoint path, which entities got factories, how
+     teardown is scoped, and anything you documented as a limitation. If no PR tool is
+     available or authenticated, the push is still mandatory - then print the compare
+     URL the push prints back so the developer can open the PR in one click.
+  5. If a step genuinely cannot be done (no remote, no write access, no auth), say
+     exactly which one failed and why, and leave the work COMMITTED on the branch.
+
 ═══ FINISH - THE LAST THING YOU DO ═══
 Only after every entity, the full-recipe pass, and the two-concurrent-instances proof
-are green (or the blocking constraint is documented in IMPLEMENTATION.md), and
+are green (or the blocking constraint is documented in IMPLEMENTATION.md), the work is
+committed and pushed with a pull request open, and
 ${params.recipePath} holds the recipe you validated, write the completion marker so the
 CLI knows the session is done and can upload the recipe:
     ${join(params.outputDir, COMPLETION_MARKER_FILE)}
@@ -267,7 +308,8 @@ Its contents MUST be exactly:
 Do NOT write this marker while any checklist item is unfinished. It is how control
 returns to the CLI - it is not optional. The planner watches for this marker and
 takes the terminal back shortly after it appears. After writing it, end with ONE
-short closing message telling the developer:
+short closing message that names the pull request you opened (or, if you couldn't
+open one, the branch you pushed) and then says:
     "The integration is done. The Autonoma planner takes this terminal back in a
     few seconds to continue the setup - or exit now to continue immediately."
 Nothing after that message - no further questions, summaries, or work.`;
