@@ -5,7 +5,6 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { AppConfig } from "../../config";
 import { runAgent, buildDefaultStepLogger, formatRetryGuidance, type AgentResult } from "../../core/agent";
-import { type ProjectContext, formatContext } from "../../core/context";
 import { debugLog } from "../../core/debug";
 import { getModel } from "../../core/model";
 import { parseEntityNames } from "../../core/parse-entity-audit";
@@ -19,7 +18,6 @@ export interface ScenarioRecipeInput {
     outputDir: string;
     modelId?: string;
     config: AppConfig;
-    projectContext?: ProjectContext;
     nonInteractive?: boolean;
     retryGuidance?: string;
     /** Optional backend/data-layer scope hint from the project map (appended to the prompt). */
@@ -91,10 +89,7 @@ export async function runScenarioRecipe(input: ScenarioRecipeInput): Promise<Age
     const { logger, onStepFinish } = buildDefaultStepLogger("scenario", 40);
 
     const scopeBlock = input.scopeHint != null ? `\n${input.scopeHint}\n` : "";
-    const contextBlock =
-        (input.projectContext ? "\n" + formatContext(input.projectContext) + "\n" : "") +
-        scopeBlock +
-        formatRetryGuidance(input.retryGuidance);
+    const contextBlock = scopeBlock + formatRetryGuidance(input.retryGuidance);
 
     const requiredEntities = await parseEntityNames(input.outputDir);
 

@@ -4,7 +4,6 @@ import { tool } from "ai";
 import { glob } from "glob";
 import { z } from "zod";
 import { runAgent, buildDefaultStepLogger, formatRetryGuidance, type AgentResult } from "../../core/agent";
-import { type ProjectContext, formatContext } from "../../core/context";
 import { debugLog } from "../../core/debug";
 import { formatException } from "../../core/errors";
 import { getModel } from "../../core/model";
@@ -22,7 +21,6 @@ export interface EntityAuditInput {
     projectRoot: string;
     outputDir: string;
     modelId?: string;
-    projectContext?: ProjectContext;
     nonInteractive?: boolean;
     retryGuidance?: string;
     /**
@@ -362,10 +360,7 @@ export async function runEntityAudit(input: EntityAuditInput): Promise<AgentResu
     const { logger, onStepFinish } = buildDefaultStepLogger("entity-audit", MAX_STEPS);
 
     const scopeBlock = input.scopeHint != null ? `\n${input.scopeHint}\n` : "";
-    const contextBlock =
-        (input.projectContext ? "\n" + formatContext(input.projectContext) + "\n" : "") +
-        scopeBlock +
-        formatRetryGuidance(input.retryGuidance);
+    const contextBlock = scopeBlock + formatRetryGuidance(input.retryGuidance);
 
     const preRegBlock =
         preRegisteredCount > 0

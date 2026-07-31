@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { AppConfig } from "../../config";
 import type { AgentResult } from "../../core/agent";
-import type { ProjectContext } from "../../core/context";
 import * as p from "../../ui/prompts";
 import { parseEntityAudit, resolveEntityOrder } from "./entity-order";
 import { buildAllLaunchers, type AgentLauncher, type PermissionMode } from "./launcher";
@@ -16,7 +15,6 @@ export interface RecipeBuilderInput {
     outputDir: string;
     modelId?: string;
     config: AppConfig;
-    projectContext?: ProjectContext;
     nonInteractive?: boolean;
     /** User guidance from a pipeline-level retry. Step-04 has its own recovery, so
      *  this is accepted but currently unused. */

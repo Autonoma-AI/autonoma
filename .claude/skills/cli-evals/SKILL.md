@@ -41,7 +41,7 @@ apps/cli/evals/
 | `strip.patch` | `git diff` sha->clean: the client's integration removed (manually), so the tree still boots | Layer 2 |
 | `context-strips/<contextRepo>.patch` | multi-repo only: the same sha->clean strip for a context repo, so no staged tree references autonoma (see below). Omit when the pinned context sha predates the integration | both (multi-repo) |
 | `artifacts/` | frozen planner spec: `project-map.json`, `pages.json`, `AUTONOMA.md`, `entity-audit.md`, `scenarios.md` (no `recipe.json` - the SDK agent generates that at eval time) | both |
-| `context.json` | `{ description, testingGoal, criticalFlows }` - the planner's project context | Layer 1 / bootstrap |
+| `context.json` | `{ description, testingGoal, criticalFlows }` - written record of the app; nothing reads it since the planner's opening Q&A was removed | none |
 | `rubrics/<step>.md` | findings rubric per gradable step | Layer 1 |
 | `agent-notes.md` | optional per-case instructions appended verbatim to the driven agent's drive prompt (repo-specific seeding conventions); most cases have none | Layer 2 |
 | `ENV.md` | dev-only, advisory local-boot notes (read by NO harness code) | humans |
@@ -98,8 +98,8 @@ through a proxy otherwise.
    sites* (route registration, config/env refs) so the stripped tree still builds, then
    `git add -A && git diff --cached > cases/<repo>/strip.patch`; reset the repo. Verify it applies to
    the remote `sha` (`eval:sdk --no-drive` does this).
-3. **Write `input.json`** (coords + real `installationId`) and **`context.json`** (derive the three
-   fields from the repo README if you don't know them - the planner needs them non-interactively).
+3. **Write `input.json`** (coords + real `installationId`). A `context.json` is optional and read by
+   nothing - write one only as a record of what the app is and which flows matter.
    For a **multi-repo** case, list the siblings in `contextRepos`, then for each one confirm the
    staged tree is autonoma-free: `git grep -i autonoma <contextSha>`. If it has any hit, capture a
    `context-strips/<contextRepo>.patch` the same way as step 2; if it is already clean, add nothing.

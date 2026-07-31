@@ -3,7 +3,6 @@ import { join, resolve } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { type AgentResult, buildDefaultStepLogger, formatRetryGuidance, runAgent } from "../../core/agent";
-import { formatContext, type ProjectContext } from "../../core/context";
 import { debugLog } from "../../core/debug";
 import { getModel } from "../../core/model";
 import { pickString } from "../../core/pick-string";
@@ -16,7 +15,6 @@ export interface KBGeneratorInput {
     projectRoot: string;
     outputDir: string;
     modelId?: string;
-    projectContext?: ProjectContext;
     nonInteractive?: boolean;
     retryGuidance?: string;
 }
@@ -188,31 +186,11 @@ export async function runKBGenerator(input: KBGeneratorInput): Promise<AgentResu
 
     const { logger, onStepFinish } = buildDefaultStepLogger("kb", 150);
 
-    const contextBlock =
-        (input.projectContext ? "\n" + formatContext(input.projectContext) + "\n" : "") +
-        formatRetryGuidance(input.retryGuidance);
-
-    const pages = input.projectContext?.pages;
+    const contextBlock = formatRetryGuidance(input.retryGuidance);
 
     const tracker = new PageTracker(input.projectRoot);
-    if (pages?.length) {
-        tracker.register(pages.map((p) => p.path));
-    }
 
-    const prompt = pages?.length
-        ? `Analyze the codebase at the working directory and generate a complete knowledge base.
-${contextBlock}
-MANDATORY PROCESS:
-Pages have already been discovered (${pages.length} routes pre-registered). You do NOT need to glob for them.
-1. Use list_directory at root to understand the project structure
-2. Read EVERY registered page file with read_file - the system tracks this
-3. Write AUTONOMA.md progressively as you go (update it after each major area)
-4. Call page_coverage to verify you've read all pages
-5. Call finish - it will REJECT if you have not read enough of the registered routes
-
-Output files:
-1. AUTONOMA.md - with YAML frontmatter (app_name, app_description, core_flows, feature_count)`
-        : `Analyze the codebase at the working directory and generate a complete knowledge base.
+    const prompt = `Analyze the codebase at the working directory and generate a complete knowledge base.
 ${contextBlock}
 MANDATORY PROCESS:
 1. Use list_directory at root to understand the project structure
@@ -248,41 +226,6 @@ Output files:
             artifacts: ["AUTONOMA.md"],
             summary: "Knowledge base generated.",
         };
-    }
-
-    // Config for the finalization passes (self-review + user review). AUTONOMA.md is
-    // already written by now, so register every route as read - the coverage gate must
-    // not block these passes from re-calling finish after edits.
-    const finalTracker = new PageTracker(input.projectRoot);
-    if (pages?.length) {
-        const paths = pages.map((p) => p.path);
-        finalTracker.register(paths);
-        for (const path of paths) finalTracker.markRead(path);
-    }
-    const finalConfig = buildKbAgentConfig(finalTracker, model, input, onStepFinish, setResult);
-
-    // Self-review pass: before involving the user, make the agent verify that the
-    // flows the user explicitly declared critical actually landed in core_flows as
-    // core: true - and fix the file if not. Targets "a starting input was ignored".
-    const declaredCriticalFlows = input.projectContext?.criticalFlows?.trim();
-    if (result?.success && declaredCriticalFlows) {
-        const beforeSelfReview = result;
-        result = undefined;
-        const selfReviewPrompt = `Before this knowledge base is shown to the user, verify it honors the critical flows they explicitly declared.
-
-The user said these flows are critical and cannot break:
-"${declaredCriticalFlows}"
-
-Read your AUTONOMA.md output. For EACH critical flow the user named:
-- Confirm it appears as a feature in core_flows (map the user's wording to the matching feature).
-- Confirm that feature is marked core: true with a coreReason.
-
-If any declared critical flow is missing, mismatched, or left core: false, FIX AUTONOMA.md now - add the feature if it is genuinely absent, or flip core to true with a coreReason. Do not downgrade or drop anything the user declared critical.
-
-When AUTONOMA.md correctly reflects every declared critical flow, call finish.`;
-        await runAgent(finalConfig, selfReviewPrompt, () => result);
-        // If the agent didn't re-call finish (e.g. no changes needed), keep the prior result.
-        if (!result) result = beforeSelfReview;
     }
 
     // Output review happens live in the TUI - the run no longer stops to ask.

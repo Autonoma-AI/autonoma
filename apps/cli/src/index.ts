@@ -12,7 +12,6 @@ import { loadConfig } from "./config";
 import type { AgentResult } from "./core/agent";
 import { track, trackError } from "./core/analytics";
 import { BOLD, DIM, PRIMARY, RESET } from "./core/colors";
-import { type ProjectContext, loadContext } from "./core/context";
 import { formatException, describeKnownError, supportReference, isUserCancellation } from "./core/errors";
 import { flushTelemetry } from "./core/flush-telemetry";
 import { installInterruptHandler, installTerminationDiagnostics, restoreTerminal } from "./core/interrupt";
@@ -218,7 +217,6 @@ async function runStep(
     outputDir: string,
     state: PipelineState,
     config: ReturnType<typeof loadConfig>,
-    projectContext?: ProjectContext,
     nonInteractive?: boolean,
     retryGuidance?: string,
 ): Promise<PipelineState> {
@@ -235,16 +233,6 @@ async function runStep(
 
     state = await markStep(outputDir, state, step, "running");
     getActiveStore()?.startStep(step);
-
-    if (step !== "pagesFinder" && projectContext && !projectContext.pages) {
-        const pages = await loadPages(outputDir);
-        if (pages.size > 0) {
-            projectContext = { ...projectContext, pages: [...pages.values()] };
-        }
-    }
-    // Page count sizes the page-scaled ETA budgets (kb, test generation).
-    const knownPages = projectContext?.pages?.length ?? 0;
-    if (knownPages > 0) getActiveStore()?.setSizes({ pages: knownPages });
 
     // Size signals for the analytics event - the measured-duration data shows
     // repo size dominates step time, so future ETA heuristics need these.
@@ -321,12 +309,10 @@ async function runStep(
             }
             case "kb": {
                 const { runKBGenerator } = await import("./agents/01-kb-generator/index");
-                stepMetrics = { page_count: projectContext?.pages?.length ?? 0 };
                 result = await runKBGenerator({
                     projectRoot: config.projectRoot,
                     outputDir,
                     modelId: config.modelId,
-                    projectContext,
                     nonInteractive,
                     retryGuidance,
                 });
@@ -339,7 +325,6 @@ async function runStep(
                     projectRoot: config.projectRoot,
                     outputDir,
                     modelId: config.modelId,
-                    projectContext,
                     nonInteractive,
                     retryGuidance,
                     scopeHint: auditMap != null ? formatBackendScope(auditMap) : undefined,
@@ -354,7 +339,6 @@ async function runStep(
                     outputDir,
                     modelId: config.modelId,
                     config,
-                    projectContext,
                     nonInteractive,
                     retryGuidance,
                     scopeHint: recipeMap != null ? formatBackendScope(recipeMap) : undefined,
@@ -369,7 +353,6 @@ async function runStep(
                     outputDir,
                     modelId: config.modelId,
                     config,
-                    projectContext,
                     nonInteractive,
                     retryGuidance,
                     agent: config.agent,
@@ -386,7 +369,6 @@ async function runStep(
                     outputDir,
                     modelId: config.modelId,
                     config,
-                    projectContext,
                     nonInteractive,
                     pages,
                     retryGuidance,
@@ -504,13 +486,12 @@ async function runStepWithRecovery(
     outputDir: string,
     state: PipelineState,
     config: ReturnType<typeof loadConfig>,
-    projectContext?: ProjectContext,
     nonInteractive?: boolean,
 ): Promise<PipelineState> {
     let guidance: string | undefined;
 
     while (true) {
-        state = await runStep(step, outputDir, state, config, projectContext, nonInteractive, guidance);
+        state = await runStep(step, outputDir, state, config, nonInteractive, guidance);
 
         if (state.steps[step] !== "failed" || nonInteractive) return state;
 
@@ -751,7 +732,6 @@ async function main() {
     if (!nonInteractive) mountedUi = await mountDashboard(outputDir, config.projectSlug);
 
     let isResuming = !!(args.resume || args.step);
-    let projectContext: ProjectContext | undefined;
 
     const hasProgress = Object.values(state.steps).some((s) => s === "done" || s === "running");
 
@@ -803,15 +783,6 @@ async function main() {
 
     if (isResuming) seedDashboard(mountedUi, state);
 
-    // Project context is optional: the agents discover the codebase themselves.
-    // A .project-context.json (from an older run, or hand-written to steer the
-    // agents) is still honored when present.
-    const saved = await loadContext(outputDir);
-    if (saved) {
-        projectContext = saved;
-        p.log.info(`Loaded project context from previous run`);
-    }
-
     p.note(
         `${outputDir}\n\n` +
             `All generated files (knowledge base, scenarios, recipe, tests) live here.\n` +
@@ -836,7 +807,7 @@ async function main() {
             p.log.error("Cannot run test generation yet - the scenario recipe step must complete first.");
             return;
         }
-        state = await runStepWithRecovery(targetStep, outputDir, state, config, projectContext, nonInteractive);
+        state = await runStepWithRecovery(targetStep, outputDir, state, config, nonInteractive);
         mountedUi?.unmount();
         mountedUi = undefined;
         if (state.steps[targetStep] === "failed") {
@@ -866,7 +837,7 @@ async function main() {
     try {
         for (let i = startIdx; i < steps.length; i++) {
             const step = steps[i]!;
-            state = await runStepWithRecovery(step, outputDir, state, config, projectContext, nonInteractive);
+            state = await runStepWithRecovery(step, outputDir, state, config, nonInteractive);
 
             if (state.steps[step] === "paused") {
                 break;

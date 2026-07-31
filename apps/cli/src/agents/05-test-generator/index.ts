@@ -7,7 +7,6 @@ import { z } from "zod";
 import type { AppConfig } from "../../config";
 import { type AgentResult, formatRetryGuidance, runAgent } from "../../core/agent";
 import { track } from "../../core/analytics";
-import { formatContext, type ProjectContext } from "../../core/context";
 import { debugLog } from "../../core/debug";
 import { createStepLogger } from "../../core/display";
 import { formatException } from "../../core/errors";
@@ -65,7 +64,6 @@ export interface TestGeneratorInput {
     outputDir: string;
     modelId?: string;
     config?: AppConfig;
-    projectContext?: ProjectContext;
     nonInteractive?: boolean;
     pages: Map<string, { route: string; path: string; description: string }>;
     retryGuidance?: string;
@@ -223,9 +221,7 @@ export async function runTestGenerator(input: TestGeneratorInput): Promise<Agent
         ? `\nYou are RESUMING a previous run. ${existingState.summary().tested} nodes tested, ${existingState.summary().totalTests} tests written. Call next_node to continue.`
         : "";
 
-    const contextBlock =
-        (input.projectContext ? "\n" + formatContext(input.projectContext) + "\n" : "") +
-        formatRetryGuidance(input.retryGuidance);
+    const contextBlock = formatRetryGuidance(input.retryGuidance);
 
     let prompt = `Generate E2E test cases by processing every node in the queue.
 ${contextBlock}${kbContext}${resumeContext}${preseedContext}

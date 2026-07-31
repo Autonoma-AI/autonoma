@@ -1,3 +1,0 @@
-# Clone-once client repo cache and per-run outputs (sandboxes, transcripts, verdicts).
-.cache/
-.runs/
