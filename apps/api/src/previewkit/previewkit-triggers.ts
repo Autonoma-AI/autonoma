@@ -56,7 +56,6 @@ function getLauncher(): PreviewkitJobLauncher {
         temporalAddress: env.TEMPORAL_ADDRESS,
         temporalNamespace: env.TEMPORAL_NAMESPACE,
         sentryEnv: env.SENTRY_ENV,
-        secretsRead: env.PREVIEWKIT_SECRETS_READ,
         secretsCmk: env.PREVIEWKIT_SECRETS_CMK,
     });
     logger.info("Previewkit launcher initialized", {

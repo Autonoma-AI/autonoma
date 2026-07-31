@@ -99,14 +99,11 @@ export interface PreviewkitJobLauncherOptions {
     temporalAddress?: string;
     temporalNamespace?: string;
     /**
-     * Where the runner reads previewkit secret values from, injected per-Job for the
-     * same reason as `databaseUrl` - and it has to travel WITH it. The flag says
-     * "this database holds the secrets", so a runner pointed at beta's DB must read
-     * beta's answer, not the production value the shared `previewkit-env-file`
-     * secret carries. `secretsCmk` rides along because a runner that reads Postgres
-     * cannot unwrap a key without it.
+     * The CMK a runner unwraps its encryption key with, injected per-Job for the same
+     * reason as `databaseUrl`: the key it names lives in the database that URL points
+     * at, so a runner writing to beta's DB must be given beta's CMK rather than the
+     * production value the shared `previewkit-env-file` secret carries.
      */
-    secretsRead: "aws" | "postgres";
     secretsCmk?: string;
     /**
      * Sentry environment tag for the runner. Injected as an explicit (non-secret)
@@ -331,7 +328,6 @@ export class PreviewkitJobLauncher {
             { name: "PREVIEWKIT_JOB_SPEC", value: JSON.stringify(spec) },
             { name: "DATABASE_URL", value: this.options.databaseUrl },
             { name: "SENTRY_ENV", value: this.options.sentryEnv },
-            { name: "PREVIEWKIT_SECRETS_READ", value: this.options.secretsRead },
         ];
         if (this.options.secretsCmk != null) {
             runnerEnv.push({ name: "PREVIEWKIT_SECRETS_CMK", value: this.options.secretsCmk });

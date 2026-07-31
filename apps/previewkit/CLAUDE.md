@@ -115,16 +115,18 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
       `SecretBundle` and nothing else.
     - **The runtime K8s Secret pods mount** goes through `secrets/runtime-secrets.ts`, which loads
       the Application's rows, collapses rows folding to one Secret target
-      (`dedupe-secret-targets.ts`), and dispatches to a `RuntimeSecretMaterializer`:
-      `postgres-secret-materializer.ts` writes the Secret directly, `aws-external-secret-manager.ts`
-      stamps an ExternalSecret and waits for ESO. Postgres wins per app when it holds the bundle;
-      anything it does not stays on ESO. The two ownership handoffs are symmetric and both matter:
-      taking a target over calls `releaseTargets`, which deletes the owning ExternalSecret with
-      `Orphan` propagation (the default would garbage-collect the live preview's Secret along with
-      it); handing it back calls `reclaimTargets`, which deletes the Postgres-written Secret so ESO
-      can own a fresh one, since ESO refuses to adopt a target it does not own. Without the second,
-      flipping `PREVIEWKIT_SECRETS_READ` back to `aws` would hang every affected app at the
-      pre-rollout sync wait.
+      (`dedupe-secret-targets.ts`), and hands them to `postgres-secret-materializer.ts`, which
+      writes each Secret directly. No ExternalSecret is created for anything: a registered app whose
+      Secret cannot be written fails the deploy, because `envFrom` is captured at pod start and an
+      unpopulated Secret brings the pod up "ready" against missing credentials.
+      `secrets/external-secret-release.ts` is all that survives of the ESO path and it is
+      decommissioning, not deploy logic: a namespace deployed before the cutover still has an
+      ExternalSecret *owning* its Secret, and ESO would keep reconciling that from a store nobody
+      writes, so taking the target over deletes it with `Orphan` propagation (the default cascade
+      would garbage-collect the live preview's Secret with it). For namespaces that will not
+      redeploy soon - mainly the long-lived `-pr-0` environments -
+      `deployment/previewkit/cluster/release-external-secrets.sh` sweeps them (dry-run by default,
+      needs kubectl on the PREVIEW cluster). This is one-way: nothing hands a Secret back to ESO.
   `diffs/trigger-diffs-after-deploy.ts` also starts the diffs run: once a PR preview is ready, the runner
   starts the `triggerPrDiffsWorkflow` Temporal job directly (guarded on `TEMPORAL_ADDRESS`, PR-only, ready,
   a resolved primary URL, and a `branchId` on the event), so an Autonoma review begins without the customer's
@@ -291,8 +293,8 @@ app lines in a recent window.
   document.
 - `PreviewkitSecret` / `PreviewkitOrgSecret` - one bundle row per app / per org, with a
   `PreviewkitSecretValue` / `PreviewkitOrgSecretValue` row per key holding the sealed value.
-  `awsSecretArn` is retired and nullable: no AWS secret backs a bundle registered since Postgres
-  became the store, and the runner reads the column only as a per-bundle fallback for older ones.
+  `awsSecretArn` is retired, nullable, and read by nothing - it drops along with the bundle table
+  once the value rows carry `(applicationId, appName)` themselves.
 - `PreviewkitAddon` - provisioned addon state/outputs.
 
 ## Access proxy (`gatekeeper`, cluster mode)
@@ -364,13 +366,13 @@ via `PreviewkitServiceRole`, and a deploy with no secrets never calls KMS at all
 why environments are isolated by their databases rather than by IAM, and the CMK-deletion
 risk are in `packages/secrets/README.md`.
 `PREVIEWKIT_SECRETS_CMK` is the CMK that wraps the encryption keys; without it nothing can be
-unwrapped, and a deploy that needs secrets fails saying so. `PREVIEWKIT_SECRETS_READ`
-(`aws` | `postgres`, default `aws`) now gates only the **runtime K8s Secret**: the build-time and
-addon reads are Postgres-only and ignore it. Neither is set in the shared `previewkit-env-file`
-secret: the API's launcher injects both per-Job from its OWN env, alongside `DATABASE_URL`, because
-the flag means "*this* database holds the secrets" - a runner writing to beta's DB has to read beta's
-answer, not production's. The runtime Secret is still not a hard cutover, falling back per app to
-ESO, which is why `CLUSTER_SECRET_STORE_NAME` and the ESO install remain required.
+unwrapped, and a deploy that needs secrets fails saying so while one that needs none is unaffected.
+It is the only secrets knob the runner has - `PREVIEWKIT_SECRETS_READ` and
+`CLUSTER_SECRET_STORE_NAME` are gone, because every read is from the database now. It is not set in
+the shared `previewkit-env-file` secret: the API's launcher injects it per-Job from its OWN env
+alongside `DATABASE_URL`, because the key it names lives in the database that URL points at - a
+runner writing to beta's DB needs beta's CMK, not production's. The platform still installs External
+Secrets for its own env-file secrets (`deployment/secrets-manager/`); previewkit no longer uses it.
 `PREVIEWKIT_JOB_SPEC` is the per-Job `{mode, event, ...}` payload the API sets on each runner Job.
 `DATABASE_URL` is set on each runner Job by the launcher (PreviewkitJobLauncher, apps/api) to the
 _launching API's own_ DATABASE_URL - an explicit env var that overrides the production DATABASE_URL
@@ -429,10 +431,10 @@ The runner drains the sink's buffer before it exits.
 
 - ConfigMap-derived env/volumes are captured at pod start: changing a ConfigMap (or a `subPath`
   mount) does NOT reach a running pod - restart/redeploy it. The
-  same is true of `envFrom` Secret refs, which is why every `RuntimeSecretMaterializer` must return
-  only once its target K8s Secret is actually populated - the ESO path force-syncs and polls for it,
-  the Postgres path writes it - and why `buildAppDeployment` stamps that Secret's resourceVersion as
-  the `previewkit.dev/secret-version` pod-template annotation so a secret change rolls the pods.
+  same is true of `envFrom` Secret refs, which is why `RuntimeSecrets` returns only once every
+  registered app's Secret is actually written - and fails the deploy when one cannot be - and why
+  `buildAppDeployment` stamps that Secret's resourceVersion as the `previewkit.dev/secret-version`
+  pod-template annotation so a secret change rolls the pods.
   Without this, a pod can boot "ready" with a missing/stale `AUTONOMA_SHARED_SECRET` and every signed
   SDK call 401s until a manual redeploy.
 - App-build status enum is `success`, not `ok`.

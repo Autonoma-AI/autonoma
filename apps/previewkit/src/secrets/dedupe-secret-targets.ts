@@ -1,14 +1,13 @@
 /**
- * The subset of a PreviewkitSecret row that determines its K8s ExternalSecret:
- * the row id (→ ExternalSecret name), the app it belongs to (→ target Secret
- * name), and the AWS SM ARN it syncs from.
+ * The subset of a PreviewkitSecret row that determines which K8s Secret it writes:
+ * the app it belongs to (→ target Secret name), the Application that owns it
+ * (→ the bundle its values are read from), and the row id, which only appears in
+ * the collision log.
  */
 export interface SecretTargetRecord {
     id: string;
     applicationId: string;
     appName: string;
-    /** Absent for a bundle registered after Postgres became the store. */
-    awsSecretArn?: string;
 }
 
 export interface SecretTargetCollision {
@@ -25,19 +24,15 @@ export interface SecretTargetDedupe {
 /**
  * Collapse secret rows to one per K8s Secret target.
  *
- * `deriveSecretName` (the manager's `toK8sName`) is a lossy, many-to-one
- * derivation of `appName` - lowercase, hyphen-collapse, 55-char truncation -
- * while the DB uniqueness key is the RAW appName. So two distinct rows (e.g.
- * "boss-roast" and "boss--roast", or a legacy duplicate registration) can map
- * to the same target Secret. External Secrets Operator allows only one Owner
- * per target Secret, so emitting an ExternalSecret for each makes all but one
- * error permanently ("target is owned by another ExternalSecret"); the rejected
- * one never goes Ready and times out the pre-rollout sync wait, failing the
- * whole deploy.
+ * `deriveSecretName` (`previewSecretName`) is a lossy, many-to-one derivation of
+ * `appName` - lowercase, hyphen-collapse, 55-char truncation - while the DB
+ * uniqueness key is the RAW appName. So two distinct rows (e.g. "boss-roast" and
+ * "boss--roast", or a legacy duplicate registration) can map to the same target
+ * Secret. Writing both would leave whichever went last in place, with no record of
+ * the other having been overwritten.
  *
  * Keep the oldest row per target (stable cuid order - the original registration)
- * and report the rest as collisions so the caller can prune their ExternalSecret
- * CRs and alert on the data problem.
+ * and report the rest as collisions so the caller can alert on the data problem.
  */
 export function dedupeSecretRecordsByTarget(
     records: SecretTargetRecord[],

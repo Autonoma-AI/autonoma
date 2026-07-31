@@ -143,17 +143,13 @@ export const env = createEnv({
         // KMS key that wraps the previewkit encryption keys in
         // previewkit_encryption_key (a key id, ARN, or `alias/...`). Not a secret: the
         // wrapped keys live in the database and only `kms:Decrypt` on this CMK can
-        // open them. Needed only to MINT a key (mintSecretKey,
-        // @autonoma/secrets) - unwrapping names no CMK, since a symmetric KMS
-        // ciphertext identifies its own key. One CMK is shared by every environment;
-        // see packages/secrets/README.md for why IAM does not isolate them.
+        // open them. Its presence marks an environment as provisioned for
+        // database-stored secrets: without it no key can be unwrapped and the secret
+        // routes refuse rather than answer emptily. Naming it is needed only to MINT
+        // (mintSecretKey, @autonoma/secrets) - unwrapping names no CMK, since a
+        // symmetric KMS ciphertext identifies its own key. One CMK is shared by every
+        // environment; see packages/secrets/README.md for why IAM does not isolate them.
         PREVIEWKIT_SECRETS_CMK: z.string().min(1).optional(),
-        // Where previewkit secret READS are served from. Defaults to aws, so deploying
-        // the Postgres read path changes nothing until an environment opts in - and
-        // reverting is a config change rather than a deploy. Postgres still falls back
-        // to AWS per bundle when it holds nothing, which means "not backfilled" rather
-        // than "no secrets"; those fall backs are logged as errors.
-        PREVIEWKIT_SECRETS_READ: z.enum(["aws", "postgres"]).default("aws"),
 
         // Enables preview environments: pull_request webhooks and the
         // /v1/previewkit lifecycle routes launch the preview deploy/teardown

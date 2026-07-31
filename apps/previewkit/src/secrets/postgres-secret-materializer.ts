@@ -4,7 +4,7 @@ import type * as k8s from "@kubernetes/client-node";
 import { isConflict, isNotFound } from "../deployer/k8s-errors";
 import { PreviewPlatformError } from "../errors";
 import { type Logger, logger as rootLogger } from "../logger";
-import type { AppSecretInfo, RuntimeSecretMaterializer, SecretTarget } from "./runtime-secret-materializer";
+import type { AppSecretInfo, SecretTarget } from "./runtime-secret-types";
 import { MANAGED_BY_PREVIEWKIT, POSTGRES_SECRET_TYPE, SECRET_LABEL } from "./secret-labels";
 
 /**
@@ -25,12 +25,11 @@ export interface SecretWriter {
  * out immediately. The ESO path has to force a reconcile and then poll for it,
  * and a stuck controller there costs the whole deploy.
  *
- * Apps whose bundle Postgres holds nothing for are left out of the returned map
- * rather than written empty - that means not backfilled, not "no secrets", and an
- * empty Secret would boot pods with no credentials. The caller falls those back to
- * the ESO path.
+ * Apps whose bundle holds nothing are left out of the returned map rather than
+ * written empty - an empty Secret would boot pods with no credentials. There is
+ * nothing to fall back to, so the caller fails the deploy on the difference.
  */
-export class PostgresSecretMaterializer implements RuntimeSecretMaterializer {
+export class PostgresSecretMaterializer {
     private readonly logger: Logger;
 
     constructor(
@@ -60,9 +59,11 @@ export class PostgresSecretMaterializer implements RuntimeSecretMaterializer {
             extra: { apps: targets.map((target) => target.record.appName) },
         });
 
-        // Opening every bundle first means a namespace is never left half handed
-        // over: if one bundle cannot be read, the whole set stays on ESO, where it
-        // already works. Independent reads, so they go together.
+        // Every bundle is opened before any Secret is written, so a namespace whose
+        // values are incomplete is never left half converted: the caller fails the
+        // deploy on the difference, and it does so before a single Secret has been
+        // released from its ExternalSecret or overwritten. Independent reads, so they
+        // go together.
         const opened = await Promise.all(targets.map((target) => this.open(target)));
         const readable: Array<{ target: SecretTarget; values: Record<string, string> }> = [];
         for (const entry of opened) {
@@ -109,14 +110,14 @@ export class PostgresSecretMaterializer implements RuntimeSecretMaterializer {
         try {
             const values = await this.values.getAll(bundle);
             if (values == null) {
-                this.logger.error("Postgres holds no values for this bundle; leaving it on External Secrets", {
+                this.logger.error("No secret values are stored for this bundle; it cannot be written", {
                     extra: { bundle: label },
                 });
                 return { target };
             }
             return { target, values };
         } catch (err) {
-            this.logger.error("Failed to open a secret bundle; leaving it on External Secrets", {
+            this.logger.error("Failed to open a secret bundle; it cannot be written", {
                 extra: { bundle: label },
                 err,
             });

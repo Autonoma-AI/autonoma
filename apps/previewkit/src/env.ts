@@ -97,10 +97,6 @@ export const env = createEnv({
         EKS_CLUSTER_ENDPOINT: z.string().url().optional(),
         EKS_CLUSTER_CA: z.string().optional(),
 
-        // External Secrets Operator: name of the ClusterSecretStore that points to AWS Secrets Manager.
-        // Required only when AWS secret registrations are present for any organization.
-        CLUSTER_SECRET_STORE_NAME: z.string().default("aws-secretsmanager"),
-
         // How long a preview environment may sit with no requests before the
         // central Gatekeeper (deployment/previewkit/cluster/gatekeeper/) scales
         // its workloads to zero. Written per namespace as the
@@ -114,14 +110,11 @@ export const env = createEnv({
         // before they are written to the database. Must match PREVIEWKIT_BYPASS_TOKEN_KEY in the API.
         BYPASS_TOKEN_KEY: z.string().min(64).optional(),
 
-        // Where the runner reads previewkit secret values from. Defaults to aws, so a
-        // deploy changes nothing until an environment opts in, matching the API's flag
-        // of the same name. Postgres still falls back to AWS per bundle when it holds
-        // nothing, since that means not migrated rather than empty.
-        PREVIEWKIT_SECRETS_READ: z.enum(["aws", "postgres"]).default("aws"),
-        // The CMK that wraps the encryption keys. Needed only to construct the KMS
-        // provider; unwrapping names no CMK, because a symmetric KMS ciphertext
-        // identifies its own key. Absent means AWS stays the only secret source.
+        // The CMK that wraps the encryption keys the runner unwraps to read secret
+        // values. Needed only to construct the KMS provider; unwrapping names no CMK,
+        // because a symmetric KMS ciphertext identifies its own key. Absent means this
+        // environment cannot read secrets at all - a deploy that needs them fails saying
+        // so, and one that needs none is unaffected.
         PREVIEWKIT_SECRETS_CMK: z.string().min(1).optional(),
 
         // Temporal, for the post-deploy diffs trigger. Optional so dev/self-host and any environment without

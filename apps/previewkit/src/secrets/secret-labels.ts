@@ -1,11 +1,11 @@
 /**
- * The labels on a preview's runtime secret objects, shared by both materializers.
+ * The labels on a preview's runtime secret objects.
  *
- * They are the handoff contract: `PostgresSecretMaterializer` stamps
- * `SECRET_TYPE` on a Secret it writes, and `AwsExternalSecretManager` reads that
- * same key to tell a Secret it may delete and recreate from an ESO-owned or
- * foreign one it must not touch. A key spelled differently in either place makes
- * the handoff silently stop working, so there is one definition.
+ * `PostgresSecretMaterializer` stamps `POSTGRES_SECRET_TYPE` on every Secret it
+ * writes, and `ExternalSecretRelease` selects on `EXTERNAL_SECRET_TYPE` to find the
+ * ExternalSecrets left over from before the cutover. A key spelled differently in
+ * either place makes the release silently stop finding them, so there is one
+ * definition.
  *
  * `previewkit.dev/managed-by` is stamped far more widely than this (workloads,
  * recipes, hooks); this module deliberately covers only the secret objects rather
@@ -19,11 +19,11 @@ export const SECRET_LABEL = {
 
 export const MANAGED_BY_PREVIEWKIT = "previewkit";
 
-/** `SECRET_LABEL.type` on the ExternalSecret CRs this app owns. */
+/**
+ * `SECRET_LABEL.type` on the ExternalSecret CRs previewkit used to create. Nothing
+ * stamps this any more; it is how the release finds the ones still owning a Secret.
+ */
 export const EXTERNAL_SECRET_TYPE = "aws-external-secret";
 
-/**
- * `SECRET_LABEL.type` on a K8s Secret written straight from Postgres, which is
- * how a Postgres-written target is told apart from an ESO-owned one.
- */
+/** `SECRET_LABEL.type` on a K8s Secret previewkit writes from the database. */
 export const POSTGRES_SECRET_TYPE = "app-secret";

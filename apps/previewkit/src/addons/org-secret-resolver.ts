@@ -12,9 +12,9 @@ import type { BuildSecretSource } from "../secrets/build-secret-source";
  * path does. The row is only checked for existence - it carries nothing the read
  * needs.
  *
- * This sits parallel to the per-app `AwsExternalSecretManager` pipeline - same
- * JSON convention, different scope (org vs app) and different consumer (addon
- * provisioning, not runtime K8s mounting).
+ * This sits parallel to the per-app runtime secrets - same bundle shape, different
+ * scope (org vs app) and different consumer (addon provisioning, not the K8s Secret
+ * a preview's pods mount).
  */
 export class OrgSecretResolver {
     private readonly logger: Logger;

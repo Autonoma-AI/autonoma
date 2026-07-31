@@ -19,8 +19,8 @@ import { GitHubProvider } from "./git-provider/github-provider";
 import { logger } from "./logger";
 import { PreviewPipeline } from "./pipeline/preview-pipeline";
 import { TeardownPipeline } from "./pipeline/teardown-pipeline";
-import { AwsExternalSecretManager } from "./secrets/aws-external-secret-manager";
 import { BuildSecretSource } from "./secrets/build-secret-source";
+import { ExternalSecretRelease } from "./secrets/external-secret-release";
 import { PostgresSecretMaterializer } from "./secrets/postgres-secret-materializer";
 import { RuntimeSecrets } from "./secrets/runtime-secrets";
 
@@ -129,13 +129,6 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         ...(logSink != null ? { logSink } : {}),
     });
 
-    // AWS Secrets Manager -> K8s ExternalSecret bridge.
-    const awsExternalSecretManager = new AwsExternalSecretManager(
-        kc.makeApiClient(k8s.CustomObjectsApi),
-        kc.makeApiClient(k8s.CoreV1Api),
-        env.CLUSTER_SECRET_STORE_NAME,
-    );
-
     // Secret values the runner reads. The runner only ever unwraps a key, which names
     // no CMK, but KmsKeyProvider takes one for its mint path; without it nothing can be
     // opened, and a deploy that needs secrets fails saying so.
@@ -147,17 +140,18 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
               )
             : undefined;
     const secretValues = secretKeys != null ? new SecretValues(db, secretKeys) : undefined;
-    const readFromPostgres = env.PREVIEWKIT_SECRETS_READ === "postgres";
     const buildSecrets = new BuildSecretSource(secretValues);
 
-    // The runtime K8s Secret each preview pod mounts. Postgres writes it directly
-    // when this environment has flipped; External Secrets remains the per-app
-    // fallback, and hands over ownership of any target Postgres takes on.
+    // The runtime K8s Secret each preview pod mounts, written from the database.
+    // `release` is decommissioning, not deploy logic: previewkit creates no
+    // ExternalSecret any more, but a namespace deployed before the cutover still has
+    // one owning its Secret, and ESO would keep reconciling that from a store nobody
+    // writes. Taking the target over releases it first.
+    const externalSecretRelease = new ExternalSecretRelease(kc.makeApiClient(k8s.CustomObjectsApi));
     const runtimeSecrets = new RuntimeSecrets(
-        awsExternalSecretManager,
-        readFromPostgres && secretValues != null
+        secretValues != null
             ? new PostgresSecretMaterializer(kc.makeApiClient(k8s.CoreV1Api), secretValues, (namespace, secretNames) =>
-                  awsExternalSecretManager.releaseTargets(namespace, secretNames),
+                  externalSecretRelease.releaseTargets(namespace, secretNames),
               )
             : undefined,
     );

@@ -5,8 +5,8 @@ import { previewSecretName } from "../../src/secrets/preview-secret-name";
 describe("dedupeSecretRecordsByTarget", () => {
     it("keeps every row when targets are distinct", () => {
         const records = [
-            { applicationId: "app", id: "a", appName: "web", awsSecretArn: "arn:web" },
-            { applicationId: "app", id: "b", appName: "api", awsSecretArn: "arn:api" },
+            { applicationId: "app", id: "a", appName: "web" },
+            { applicationId: "app", id: "b", appName: "api" },
         ];
         const { chosen, collisions } = dedupeSecretRecordsByTarget(records, previewSecretName);
 
@@ -18,8 +18,8 @@ describe("dedupeSecretRecordsByTarget", () => {
     it("collapses rows that fold to one target, keeping the oldest and reporting the rest", () => {
         // "boss-roast" and "boss--roast" both normalize to boss-roast-secrets.
         const records = [
-            { applicationId: "app", id: "cmr2", appName: "boss--roast", awsSecretArn: "arn:same" },
-            { applicationId: "app", id: "cmr1", appName: "boss-roast", awsSecretArn: "arn:same" },
+            { applicationId: "app", id: "cmr2", appName: "boss--roast" },
+            { applicationId: "app", id: "cmr1", appName: "boss-roast" },
         ];
         const { chosen, collisions } = dedupeSecretRecordsByTarget(records, previewSecretName);
 

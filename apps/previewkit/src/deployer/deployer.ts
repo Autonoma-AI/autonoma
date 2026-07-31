@@ -6,7 +6,7 @@ import { computeDeployWaves } from "../pipeline/deploy-graph";
 import { parsePostgresOptions } from "../recipes/postgres-recipe";
 import type { RecipeResources } from "../recipes/recipe";
 import { RecipeRegistry } from "../recipes/recipe-registry";
-import type { AppSecretInfo } from "../secrets/runtime-secret-materializer";
+import type { AppSecretInfo } from "../secrets/runtime-secret-types";
 import type { RuntimeSecrets } from "../secrets/runtime-secrets";
 import { type AddonOutputs, EnvInjector } from "./env-injector";
 import { mirrorDockerHubImage } from "./image-mirror";
