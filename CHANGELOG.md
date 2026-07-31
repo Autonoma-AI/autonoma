@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.260731.2](https://github.com/Autonoma-AI/agent/compare/v1.260731.1...v1.260731.2) (2026-07-31)
+
+
+### Features
+
+* **api:** make Postgres the only store for previewkit secret values ([#2007](https://github.com/Autonoma-AI/agent/issues/2007)) ([4b27eec](https://github.com/Autonoma-AI/agent/commit/4b27eecc07f959941990c5e2fcf9e0b41368a25f))
+* **previewkit:** read build-time and addon secrets from Postgres only ([#2010](https://github.com/Autonoma-AI/agent/issues/2010)) ([57afdfe](https://github.com/Autonoma-AI/agent/commit/57afdfe66be8a776a4a6c49b6cb81bb321211ddc))
+* **previewkit:** write every preview's runtime Secret from Postgres ([#2011](https://github.com/Autonoma-AI/agent/issues/2011)) ([e4f119e](https://github.com/Autonoma-AI/agent/commit/e4f119e18c52c3311550067fab1543eff8bb375d))
+
+
+### Bug Fixes
+
+* **ai:** take video capability from the registry, not the provider string ([#2002](https://github.com/Autonoma-AI/agent/issues/2002)) ([c0dafa3](https://github.com/Autonoma-AI/agent/commit/c0dafa33c3aa8d01527a7d4554f8368bc33fb159))
+* **api:** restore the demo visitor's real session on exit ([#2012](https://github.com/Autonoma-AI/agent/issues/2012)) ([69d4737](https://github.com/Autonoma-AI/agent/commit/69d47374bc0568ddddc11b39a94019a33a4e0494))
+* **blacklight:** type chart tooltip/legend payloads explicitly for TS7 + React 19 ([#2005](https://github.com/Autonoma-AI/agent/issues/2005)) ([3e77581](https://github.com/Autonoma-AI/agent/commit/3e775818839ba36b25ee624dc8bbccbfab982fc2))
+* **ci:** stop extra alpha labels from cancelling the in-flight deploy ([#1976](https://github.com/Autonoma-AI/agent/issues/1976)) ([42c0d0e](https://github.com/Autonoma-AI/agent/commit/42c0d0e5bb1f430c1f5ef04c706743d8c09131f3))
+* **previewkit:** stop naming AWS as the secret store in UI copy and docs ([#2013](https://github.com/Autonoma-AI/agent/issues/2013)) ([0ca09bb](https://github.com/Autonoma-AI/agent/commit/0ca09bbe1502ced9170b886728db256ac383646d))
+
 ## [1.260731.1](https://github.com/Autonoma-AI/agent/compare/v1.260730.4...v1.260731.1) (2026-07-31)
 
 
