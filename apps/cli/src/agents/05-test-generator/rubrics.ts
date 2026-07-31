@@ -35,7 +35,7 @@ export const structuralIntentRubric: ReviewRubric = {
     dimensions: ["structuralValidity", "intentQuality", "missionAlignment"],
     resultSchema: reviewResultSchema({
         structuralValidity: dimensionResultSchema.describe(
-            "Are all step verbs valid (click/type/scroll/assert/hover/drag/read/refresh)? Are asserts visual-only (no URLs, network, console)? No code selectors? No login steps?",
+            'Are all step verbs valid (click/type/scroll/assert/hover/drag/refresh)? Are asserts visual-only (no URLs, network, console)? Does every assert name WHERE on screen it looks? No code selectors? No login steps? No "or" anywhere?',
         ),
         intentQuality: dimensionResultSchema.describe(
             "Is the intent a specific, falsifiable behavioral claim - not just 'verify X is visible'?",
@@ -51,12 +51,14 @@ Your job is to EVALUATE tests against a rubric, NOT to rewrite them. You have to
 ## Rubric dimensions
 
 ### 1. Structural validity
-- All step verbs must be one of: click, type, scroll, assert, hover, drag, read, refresh
+- All step verbs must be one of: click, type, scroll, assert, hover, drag, refresh
 - assert: can ONLY verify what a human sees on screen (no URLs, network, console, localStorage)
 - No code selectors (data-testid, aria-label, CSS classes, HTML element types)
-- No login/authentication instructions - user is always already authenticated
+- The setup must not sign the user in - the run arrives authenticated, so "log in as X" or "after logging in" is a FAIL. Naming a login or sign-in PAGE as where the user starts is fine, and a test OF the login screen must be able to say so; judge what the sentence instructs, not whether it contains the word.
 - No internal/meta steps like "(Internal: simulate X)" or "(Note: this assumes Y)"
-- No "or" in assertions - test data is deterministic
+- No step may offer a CHOICE of target: "click the sign in or onboarding button" names two controls that go to different places, and "assert the total or subtotal" passes either way, so neither is falsifiable. Judge the target, not the word - "or" inside a quoted string is the application's own message ("Invalid email or password") and is exactly what a test should assert.
+- Every click, type and assert names WHERE on screen its target is (in the modal, in the dashboard header, on the card, as a page heading, ...). A bare "click the Save button" or "assert text X is visible" fails unless that label provably appears exactly once on the screen at that point - the same label in a header and in the modal it opens is the common case
+- No assertion relative to an earlier state ("$500 less than before") - nothing remembers "before"
 - Assertions must reference specific visible text, not vague descriptions ("success indicator", "results are displayed")
 
 ### 2. Intent quality
@@ -160,7 +162,7 @@ export const dataAccuracyRubric: ReviewRubric = {
     dimensions: ["dataAccuracy"],
     resultSchema: reviewResultSchema({
         dataAccuracy: dimensionResultSchema.describe(
-            "Do the referenced UI elements (buttons, labels, fields, headings, toasts) actually exist in the source code for this page? Are default states correct? Does all test data (names, values, entities) come from the scenario data - NOT from other tests?",
+            "Do the referenced UI elements (buttons, labels, fields, headings, toasts) actually exist in the source code for this page? Are default states correct? Does all test data (names, values, entities) come from the provided test data - NOT from the app's own seed/fixture/mock files, and NOT from other tests?",
         ),
     }),
     systemPrompt: `You are a data accuracy reviewer for E2E test plans. Your ONLY job is verifying that every UI element referenced in the test actually exists in the source code and behaves as the test expects.
@@ -188,8 +190,10 @@ Read the test's starting page and find the corresponding source file. Read it.
 
 ### 4. Check preconditions and scenario data grounding:
 - Does the test assume data exists that might not be seeded? (e.g., "click on the first item" when the list might be empty)
-- CRITICAL: If the prompt includes scenario data, every data value the test references (entity names, folder names, app names, URLs, email addresses, etc.) MUST appear in that scenario data. If the test uses a value that only exists because another test created it, that is a FAIL - tests must be independent.
-- Cross-reference every specific name/value in the test steps against the scenario data provided.
+- CRITICAL: If the prompt includes test data, every data value the test references (entity names, folder names, app names, URLs, email addresses, etc.) MUST appear in that test data. If the test uses a value that only exists because another test created it, that is a FAIL - tests must be independent.
+- CRITICAL: a value that appears ONLY in the application's own seed/fixture/factory/mock/demo files is a FAIL, even though you found it in the source. Autonoma does not run those files; the provided test data is what will be on screen.
+- A value the test data marks as "<generated per run>" must never be asserted literally - that is a FAIL.
+- Cross-reference every specific name/value in the test steps against the test data provided.
 
 ## Important:
 - READ the actual component source files - don't just grep for strings

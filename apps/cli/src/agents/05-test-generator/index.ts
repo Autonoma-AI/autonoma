@@ -18,8 +18,10 @@ import { buildBashTool, buildGlobTool, buildGrepTool, buildListDirectoryTool, bu
 import { type DiscoveredFeature, loadFeatures, runFeatureDiscovery } from "../00b-feature-discovery/index";
 import { CoverageState, type FeatureNode, JOURNEY_STATE_FILE, loadBfsState } from "./graph";
 import { SYSTEM_PROMPT } from "./prompt";
+import { loadRecipeContext } from "./recipe-context";
 import { restoreDeletedTest } from "./restore-deleted-test";
 import { runConsolidatedReview, type TestReviewFeedback } from "./review";
+import { ReviewPipeline } from "./review-pipeline";
 import {
     buildCreateFolderTool,
     buildGetProgressTool,
@@ -43,6 +45,16 @@ const MAX_REVIEW_CYCLES = 4;
  * to are no worse off than the ones it timed out on.
  */
 const REVIEW_BUDGET_MS = 45 * 60 * 1000;
+
+/**
+ * Consecutive write_test validation rejections, with no test written in between,
+ * that mean the loop will never converge. Validation happens before the tool
+ * runs, so a rule the model cannot satisfy is retried until the step budget is
+ * gone; this turns that into a fast, loud failure.
+ */
+const MAX_CONSECUTIVE_REJECTIONS = 25;
+const REJECTION_MESSAGE_CHARS = 300;
+
 /**
  * The share of the remaining budget a review scan may spend, leaving the rest
  * to act on what it finds. A scan allowed the whole budget hands back findings
@@ -63,6 +75,14 @@ export interface TestGeneratorInput {
     projectRoot: string;
     outputDir: string;
     modelId?: string;
+    /**
+     * An already-built model, used in place of `modelId` for the whole step - the
+     * BFS loop, researchers, journeys and the review/fix cycle all run on it. The
+     * product never passes this; the model-comparison eval does, so it can drive
+     * the step against a provider of its own (and meter it) without the CLI's
+     * credit proxy in the way.
+     */
+    model?: LanguageModel;
     config?: AppConfig;
     nonInteractive?: boolean;
     pages: Map<string, { route: string; path: string; description: string }>;
@@ -113,6 +133,7 @@ async function preseedQueue(
             parentId: undefined,
             depth: 0,
             status: "queued",
+            description: page.description,
         };
         if (state.enqueue(node)) seeded++;
     }
@@ -130,6 +151,8 @@ async function preseedQueue(
                 parentId,
                 depth: 1,
                 status: "queued",
+                description: feature.description,
+                interactiveElements: feature.interactiveElements,
             };
             if (state.enqueue(node)) seeded++;
         }
@@ -141,7 +164,7 @@ async function preseedQueue(
 }
 
 export async function runTestGenerator(input: TestGeneratorInput): Promise<AgentResult> {
-    const model = getModel(input.modelId);
+    const model = input.model ?? getModel(input.modelId);
 
     const ignorePatterns = await loadGitignorePatterns(input.projectRoot);
     const existingState = await loadBfsState(input.outputDir);
@@ -189,11 +212,20 @@ export async function runTestGenerator(input: TestGeneratorInput): Promise<Agent
         /* KB not available */
     }
 
-    try {
-        const scenariosMd = await readFile(join(input.outputDir, "scenarios.md"), "utf-8");
-        kbContext += `\n## Scenarios\n\n${scenariosMd}\n`;
-    } catch {
-        /* scenarios not available */
+    // The recipe is the data contract; the scenario is its human-facing summary and
+    // can disagree with it. Prefer the recipe, and fall back to the scenario only
+    // when there is no recipe to read (the pipeline can reach test generation before
+    // the SDK step has produced one).
+    const recipeContext = await loadRecipeContext(input.outputDir);
+    if (recipeContext !== "") {
+        kbContext += recipeContext;
+    } else {
+        try {
+            const scenariosMd = await readFile(join(input.outputDir, "scenarios.md"), "utf-8");
+            kbContext += `\n## Scenarios\n\n${scenariosMd}\n`;
+        } catch (err) {
+            debugLog("Neither recipe.json nor scenarios.md is readable; generating without a data contract", { err });
+        }
     }
 
     let features: Map<string, DiscoveredFeature> | undefined;
@@ -249,6 +281,14 @@ Do NOT try to finish early. Process EVERY node via next_node until it returns do
 
     const logger = createStepLogger("test-gen", CHUNK_STEPS);
 
+    // Review the first pass of each test while generation is still going. Nothing
+    // rewrites a test between being written and its first review, so that pass has
+    // no reason to wait for the last node - and review is most of the step's wall
+    // clock. The fix cycles below still run after generation: they delete and
+    // rewrite files, which cannot overlap a generator that is also writing.
+    const reviewDeadline = Date.now() + REVIEW_BUDGET_MS;
+    const pipeline = new ReviewPipeline(input.outputDir, input.projectRoot, model, reviewDeadline);
+
     const listDirectoryFn = await buildListDirectoryTool(input.projectRoot);
     const agentConfig = {
         id: "test-generator",
@@ -263,7 +303,10 @@ Do NOT try to finish early. Process EVERY node via next_node until it returns do
             grep: buildGrepTool(input.projectRoot),
             bash: buildBashTool(input.projectRoot),
             list_directory: listDirectoryFn,
-            write_test: buildWriteTestTool(state, input.outputDir),
+            write_test: buildWriteTestTool(state, input.outputDir, (test) => {
+                consecutiveRejections = 0;
+                pipeline.submit(test);
+            }),
             create_folder: buildCreateFolderTool(input.outputDir),
             next_node: buildNextNodeTool(state, input.outputDir),
             get_progress: buildGetProgressTool(state),
@@ -272,6 +315,7 @@ Do NOT try to finish early. Process EVERY node via next_node until it returns do
         }),
         onStepFinish: (info: Parameters<typeof logger.log>[0]) => {
             logger.log(info);
+            recordToolErrors(info.toolErrors);
 
             const stats = state.summary();
             if (info.stepNumber > 0 && info.stepNumber % 10 === 0) {
@@ -281,6 +325,36 @@ Do NOT try to finish early. Process EVERY node via next_node until it returns do
             }
         },
     };
+
+    // A write_test whose arguments fail validation is rejected before the tool
+    // runs, so the model just tries again - and nothing bounds that. A rule the
+    // model cannot satisfy therefore spends the entire step budget rejecting the
+    // same test: one real run burned 680 attempts and $11 without writing a single
+    // file, and reported no error at all. Consecutive rejections with nothing
+    // written in between mean the loop is not converging, so stop and say so.
+    let consecutiveRejections = 0;
+    let lastRejection: string | undefined;
+
+    function recordToolErrors(toolErrors: { name: string; error: unknown }[]): void {
+        const writeErrors = toolErrors.filter((e) => e.name === "write_test");
+        if (writeErrors.length === 0) return;
+
+        consecutiveRejections += writeErrors.length;
+        lastRejection = String(writeErrors.at(-1)?.error ?? "").slice(0, REJECTION_MESSAGE_CHARS);
+
+        if (consecutiveRejections === MAX_CONSECUTIVE_REJECTIONS) {
+            track("cli_write_test_rejection_loop", { rejections: consecutiveRejections });
+            captureLog("error", `write_test has rejected ${consecutiveRejections} attempts in a row`, {
+                source: "test-generator",
+                rejections: consecutiveRejections,
+                last_error: lastRejection,
+            });
+            console.error(
+                `\n  write_test has rejected ${consecutiveRejections} attempts in a row without a test being written.\n` +
+                    `  The model cannot satisfy a validation rule, so retrying will not converge:\n  ${lastRejection}\n`,
+            );
+        }
+    }
 
     let staleChunks = 0;
     let lastTestCount = state.summary().totalTests;
@@ -295,6 +369,11 @@ Do NOT try to finish early. Process EVERY node via next_node until it returns do
         totalSteps += CHUNK_STEPS;
 
         if (result) break;
+
+        if (consecutiveRejections >= MAX_CONSECUTIVE_REJECTIONS) {
+            console.log(`  [chunk] write_test is rejecting every attempt - stopping rather than burning the budget.`);
+            break;
+        }
 
         const stats = state.summary();
         const newTests = stats.totalTests - lastTestCount;
@@ -358,7 +437,18 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
         const lostTests = new Set<string>();
 
         // --- Review → Fix cycle (max MAX_REVIEW_CYCLES, inside REVIEW_BUDGET_MS) ---
-        const reviewDeadline = Date.now() + REVIEW_BUDGET_MS;
+        // Whatever the pipeline finished while generation ran. Cycle 1 reuses these
+        // instead of re-reviewing, so its cost has already been paid in parallel.
+        const pipelined = await pipeline.drain();
+        if (pipelined.length > 0) {
+            console.log(`  ${pipelined.length} tests were already reviewed during generation`);
+        }
+
+        // Tests that have already cleared every rubric. Nothing rewrites a passing
+        // test, so later cycles have no new question to ask about one - and asking
+        // anyway costs four agents per test and can flip the answer, which is what
+        // stopped the loop converging.
+        const settled = new Set<string>();
 
         for (let cycle = 0; cycle < MAX_REVIEW_CYCLES; cycle++) {
             if (Date.now() > reviewDeadline) {
@@ -379,9 +469,20 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
             // The scan stops early enough that its findings can still be fixed
             // inside the same budget.
             const scanDeadline = Date.now() + Math.floor((reviewDeadline - Date.now()) * REVIEW_SCAN_SHARE);
-            const reviewResult = await runConsolidatedReview(input.outputDir, input.projectRoot, model, scanDeadline);
+            const reviewResult = await runConsolidatedReview(
+                input.outputDir,
+                input.projectRoot,
+                model,
+                scanDeadline,
+                settled,
+                cycle === 0 ? pipelined : [],
+            );
+            for (const path of reviewResult.passedPaths) settled.add(path);
 
-            console.log(`  Review: ${reviewResult.passed} passed, ${reviewResult.failed} failed`);
+            console.log(
+                `  Review: ${reviewResult.passed} passed, ${reviewResult.failed} failed ` +
+                    `(${settled.size} settled overall)`,
+            );
 
             if (reviewResult.feedback.length === 0) {
                 console.log(`  All tests passed review - done`);

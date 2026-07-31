@@ -5,24 +5,28 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest
 import { CoverageState, type FeatureNode } from "../../src/agents/05-test-generator/graph";
 import { buildWriteTestTool } from "../../src/agents/05-test-generator/tools";
 
-function body(title: string): string {
-    return `---
-title: "${title}"
-description: "Creates a user from the admin panel"
-intent: "Creating a user from the admin panel adds them to the user list"
-criticality: high
-scenario: standard
-flow: "admin"
-verification: "Navigate to the user list and assert the new user's row is present"
----
-
-**Intent**: Creating a user adds them to the list.
-
-**Steps**
-1. click: New user
-2. type: Ada Lovelace
-3. assert: Ada Lovelace
-`;
+function spec(title: string) {
+    return {
+        title,
+        description: "Creates a user from the admin panel",
+        intent: "Creating a user from the admin panel adds them to the user list so the team can see it",
+        criticality: "high" as const,
+        scenario: "standard",
+        flow: "admin",
+        verification: "Navigate to the user list and assert the new user's row is present",
+        setup: "The user is on the admin panel.",
+        steps: [
+            { verb: "click" as const, description: 'the "New user" button', location: "in the page header" },
+            {
+                verb: "type" as const,
+                description: '"Ada Lovelace" into the Name field',
+                location: "in the new-user modal",
+            },
+            { verb: "assert" as const, description: 'text "Ada Lovelace"', location: "in the user list" },
+        ],
+        verificationSteps: [],
+        expectedResult: "Ada Lovelace appears in the user list.",
+    };
 }
 
 function makeNode(id: string): FeatureNode {
@@ -40,7 +44,7 @@ describe("write_test nodeId resolution", () => {
         const tool = buildWriteTestTool(state, outputDir);
         // The AI SDK types `execute` as optional on the tool wrapper.
         return await tool.execute?.(
-            { folder: "admin", filename, content: body(title), nodeId },
+            { folder: "admin", filename, test: spec(title), nodeId },
             { toolCallId: "call-1", messages: [] },
         );
     }

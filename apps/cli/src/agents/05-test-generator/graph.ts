@@ -32,6 +32,16 @@ export interface FeatureNode {
     parentId?: string;
     depth: number;
     status: "queued" | "exploring" | "tested" | "skipped";
+    /**
+     * What this feature is for, carried over from feature discovery. This is the
+     * node's mission: the one thing it must do correctly, which every test for the
+     * node has to verify. Feature discovery already writes it into features.json -
+     * dropping it here left the prompt telling the model to look up a mission that
+     * was never handed to it.
+     */
+    description?: string;
+    /** How many interactive elements discovery counted, so test depth can be proportional to it. */
+    interactiveElements?: number;
 }
 
 export interface SerializedCoverageState {

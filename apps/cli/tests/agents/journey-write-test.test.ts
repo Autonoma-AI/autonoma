@@ -5,23 +5,27 @@ import { afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest
 import { CoverageState, JOURNEY_STATE_FILE } from "../../src/agents/05-test-generator/graph";
 import { buildWriteTestTool } from "../../src/agents/05-test-generator/tools";
 
-const JOURNEY = `---
-title: "Document lifecycle"
-description: "Create, author and sign a document end to end"
-intent: "A document created and sent for signing keeps its recipient list intact through signing"
-criticality: critical
-scenario: standard
-flow: "core"
-verification: "Navigate to the document list and assert the signed document is listed as completed"
----
-
-**Intent**: Cross-feature flow.
-
-**Steps**
-1. click: New document
-2. type: Ada Lovelace
-3. assert: Ada Lovelace
-`;
+const JOURNEY = {
+    title: "Document lifecycle",
+    description: "Create, author and sign a document end to end",
+    intent: "A document created and sent for signing keeps its recipient list intact through signing",
+    criticality: "critical" as const,
+    scenario: "standard",
+    flow: "core",
+    verification: "Navigate to the document list and assert the signed document is listed as completed",
+    setup: "The user is on the documents page.",
+    steps: [
+        { verb: "click" as const, description: 'the "New document" button', location: "in the page header" },
+        {
+            verb: "type" as const,
+            description: '"Ada Lovelace" into the Recipient field',
+            location: "in the recipients panel",
+        },
+        { verb: "assert" as const, description: 'text "Ada Lovelace"', location: "in the recipient list" },
+    ],
+    verificationSteps: [],
+    expectedResult: "The document is listed as completed.",
+};
 
 beforeAll(() => {
     process.env.DONT_TRACK = "1";
@@ -64,7 +68,7 @@ describe("journey generation write path", () => {
             const tool = buildWriteTestTool(journeyState(), outputDir);
 
             const result = await tool.execute?.(
-                { folder: "journeys", filename: "document-lifecycle.md", content: JOURNEY, nodeId },
+                { folder: "journeys", filename: "document-lifecycle.md", test: JOURNEY, nodeId },
                 { toolCallId: "call-1", messages: [] },
             );
 
@@ -78,7 +82,7 @@ describe("journey generation write path", () => {
 
         for (const filename of ["first.md", "second.md"]) {
             await tool.execute?.(
-                { folder: "journeys", filename, content: JOURNEY, nodeId: `journeys/${filename}` },
+                { folder: "journeys", filename, test: JOURNEY, nodeId: `journeys/${filename}` },
                 { toolCallId: "call-1", messages: [] },
             );
         }

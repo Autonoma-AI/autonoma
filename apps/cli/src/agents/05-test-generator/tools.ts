@@ -1,7 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { hasToolCall, type LanguageModel, stepCountIs, tool, ToolLoopAgent } from "ai";
-import matter from "gray-matter";
 import { z } from "zod";
 import { track } from "../../core/analytics";
 import { debugLog } from "../../core/debug";
@@ -10,121 +9,28 @@ import { AI_MAX_RETRIES } from "../../core/model";
 import { TEST_FILE_EXT, TESTS_DIR, normalizeTestFilename } from "../../core/test-files";
 import { buildBashTool, buildGlobTool, buildGrepTool, buildReadFileTool } from "../../tools";
 import { type CoverageState, saveBfsState } from "./graph";
-import { CRITICALITY_LEVELS, VALID_VERBS } from "./validation";
+import type { WrittenTest } from "./review";
+import { renderTestMarkdown, testSpecSchema } from "./test-spec";
 
-const testFrontmatterSchema = z.object({
-    title: z.string().min(1),
-    description: z.string().min(1),
-    intent: z
-        .string()
-        .min(30, "Intent must be at least 30 characters - describe the BEHAVIOR being tested, not the steps"),
-    criticality: z.enum(CRITICALITY_LEVELS),
-    scenario: z.string().min(1),
-    flow: z.string().min(1),
-    verification: z
-        .string()
-        .min(
-            20,
-            "Verification must describe WHERE to navigate and WHAT to assert at the source of truth - not UI acknowledgments like toasts",
-        ),
-});
-
-/**
- * Test steps must use exact, concrete values from the scenario - no
- * placeholders, tokens, or examples. Scenario data is fully static (the planner
- * has no variable mechanism), so any `{{token}}`, bare `{variable}`, "Dynamic:",
- * or "e.g." in the steps is a value the visual agent cannot resolve. Returns the
- * first offending placeholder found, or null when the steps are clean.
- */
-export function findForbiddenPlaceholder(stepsSection: string): { name: string; match: string } | undefined {
-    const placeholderPatterns = [
-        { pattern: /Dynamic:\s/gi, name: '"Dynamic:" placeholder' },
-        { pattern: /\{\{[a-zA-Z0-9_]+\}\}/g, name: "{{token}} placeholder" },
-        { pattern: /(?<!\{)\{[a-z][a-zA-Z]*\}(?!\})/g, name: "bare {variable}" },
-        { pattern: /\(e\.g\./gi, name: '"(e.g." example' },
-        { pattern: /(?:^|\s)e\.g\.,?\s/gim, name: '"e.g." example' },
-    ];
-
-    for (const { pattern, name } of placeholderPatterns) {
-        const matches = stepsSection.match(pattern);
-        if (matches && matches.length > 0) {
-            return { name, match: matches[0] };
-        }
-    }
-
-    return undefined;
-}
-
-export function buildWriteTestTool(state: CoverageState, outputDir: string) {
+export function buildWriteTestTool(state: CoverageState, outputDir: string, onWritten?: (test: WrittenTest) => void) {
     return tool({
         description:
-            "Write a test file to qa-tests/{folder}/{filename}.md. " +
-            "Validates frontmatter before writing. Returns error if frontmatter is invalid.",
+            "Write one test to qa-tests/{folder}/{filename}.md. " +
+            "You supply the test's parts; the file is rendered for you, so do not write markdown or frontmatter yourself.",
         inputSchema: z.object({
             folder: z.string().describe("Subfolder name under qa-tests/"),
             filename: z
                 .string()
                 .describe(`File name ending in ${TEST_FILE_EXT} (e.g. login-valid-credentials${TEST_FILE_EXT})`),
-            content: z.string().describe("Full file content including YAML frontmatter"),
             nodeId: z
                 .string()
                 .describe(
                     "The id next_node returned for this feature, copied verbatim. Not a re-slugged version of it, not a folder path, not the test filename.",
                 ),
+            test: testSpecSchema,
         }),
         execute: async (input) => {
-            const frontmatter = extractFrontmatter(input.content);
-            if (!frontmatter) {
-                return { error: "File must start with YAML frontmatter (--- delimiters)" };
-            }
-
-            const parsed = testFrontmatterSchema.safeParse(frontmatter);
-            if (!parsed.success) {
-                return {
-                    error: `Invalid frontmatter: ${parsed.error.issues.map((i) => i.message).join(", ")}`,
-                };
-            }
-
-            if (!/\*\*Intent\*\*:/.test(input.content)) {
-                return {
-                    error: "Test must include an **Intent**: section between Setup and Steps describing what behavior is being tested",
-                };
-            }
-
-            const allSteps = input.content.match(/^\d+\.\s+(\w+):/gm) || [];
-            for (const step of allSteps) {
-                const verbMatch = step.match(/^\d+\.\s+(\w+):/);
-                if (verbMatch && !VALID_VERBS.has(verbMatch[1]!)) {
-                    return {
-                        error: `Invalid step verb "${verbMatch[1]}". Only valid verbs are: ${[...VALID_VERBS].join(", ")}`,
-                    };
-                }
-            }
-
-            const stepMatches =
-                input.content.match(/^\d+\.\s+(click|type|scroll|assert|hover|drag|read|refresh):/gm) || [];
-            const interactions = stepMatches.filter((s) => /^\d+\.\s+(click|type|drag):/.test(s));
-            if (interactions.length < 2) {
-                return {
-                    error:
-                        `Test has ${interactions.length} interaction(s) (click/type/drag). Minimum is 2. ` +
-                        `Visibility-only tests are not allowed - what BEHAVIOR does this test verify?`,
-                };
-            }
-
-            const bodyStart = input.content.indexOf("---", 3);
-            const body = bodyStart > -1 ? input.content.slice(bodyStart + 3) : input.content;
-            const stepsSection = body.slice(body.indexOf("**Steps**") || 0);
-
-            const placeholder = findForbiddenPlaceholder(stepsSection);
-            if (placeholder) {
-                return {
-                    error:
-                        `Test steps contain ${placeholder.name}: "${placeholder.match}". ` +
-                        `Use EXACT values from scenarios.md - not placeholders or examples.`,
-                };
-            }
-
+            const content = renderTestMarkdown(input.test);
             const relPath = join(TESTS_DIR, input.folder, normalizeTestFilename(input.filename));
             const absPath = join(outputDir, relPath);
 
@@ -152,9 +58,33 @@ export function buildWriteTestTool(state: CoverageState, outputDir: string) {
 
             try {
                 await mkdir(dirname(absPath), { recursive: true });
-                await writeFile(absPath, input.content, "utf-8");
+                await writeFile(absPath, content, "utf-8");
                 state.markTested(nodeId, [relPath]);
                 await saveBfsState(outputDir, state);
+
+                // The agent's own caveats about this test. Kept out of the file
+                // (the markdown is a product contract, and it bans parenthetical
+                // commentary) but recorded, so "I could not tell what this toggle
+                // defaults to" reaches a human instead of becoming a silent guess.
+                const notes = input.test.notes?.trim();
+                if (notes != null && notes !== "") {
+                    track("cli_write_test_notes", { node_id: nodeId });
+                    captureLog("info", `Test author flagged an uncertainty: ${notes}`, {
+                        source: "test-generator",
+                        path: relPath,
+                        node_id: nodeId,
+                    });
+                }
+
+                // Handed over in memory: the reviewer needs exactly the content just
+                // rendered, and `flow` is a field of the spec rather than something to
+                // re-parse out of the frontmatter built from it. The path is relative
+                // to the TESTS dir, matching the key the review side uses everywhere.
+                onWritten?.({
+                    relativePath: join(input.folder, normalizeTestFilename(input.filename)),
+                    content,
+                    flow: input.test.flow,
+                });
                 if (nodeId !== input.nodeId) {
                     debugLog("write_test received an unknown nodeId; attributed it to the current node", {
                         given: input.nodeId,
@@ -176,13 +106,13 @@ export function buildWriteTestTool(state: CoverageState, outputDir: string) {
                     });
                     return {
                         path: relPath,
-                        title: parsed.data.title,
+                        title: input.test.title,
                         note:
                             `nodeId "${input.nodeId}" is not a known node - recorded under "${nodeId}". ` +
                             `Pass the id returned by next_node verbatim.`,
                     };
                 }
-                return { path: relPath, title: parsed.data.title };
+                return { path: relPath, title: input.test.title };
             } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
                 return { error: `Failed to write test: ${message}` };
@@ -235,9 +165,19 @@ export function buildNextNodeTool(state: CoverageState, outputDir: string) {
                     sourceFiles: next.node.sourceFiles,
                     parentId: next.node.parentId,
                     depth: next.node.depth,
+                    // The node's mission and its discovered element count. Every test
+                    // for this node has to verify the mission; the element count is
+                    // what "test depth proportional to complexity" is measured against.
+                    mission: next.node.description,
+                    interactiveElements: next.node.interactiveElements,
                 },
                 remaining: next.remaining,
-                instruction: `Explore "${next.node.name}": read its source files, find all interactive elements, then write tests with write_test. If no tests are needed after reading the source (e.g. utility route, redirect), call next_node to skip.`,
+                instruction:
+                    `Explore "${next.node.name}": read its source files, find all interactive elements, then write tests with write_test. ` +
+                    (next.node.description != null
+                        ? `This node's MISSION is: "${next.node.description}". At least one test must directly assert that mission's outcome. `
+                        : "") +
+                    "If no tests are needed after reading the source (e.g. utility route, redirect), call next_node to skip.",
             };
         },
     });
@@ -312,13 +252,4 @@ export function buildSpawnResearcherTool(model: LanguageModel, workingDirectory:
             }
         },
     });
-}
-
-function extractFrontmatter(content: string): Record<string, unknown> | undefined {
-    try {
-        const { data } = matter(content);
-        return data && Object.keys(data).length > 0 ? data : undefined;
-    } catch {
-        return undefined;
-    }
 }

@@ -6,7 +6,22 @@ import { captureLog } from "./logs";
 import { AI_MAX_RETRIES } from "./model";
 
 const MAX_RETRIES = 3;
-const STEP_TIMEOUT_MS = 120_000;
+
+/**
+ * Per-step wall clock, or 0 to let a step run as long as the provider takes.
+ *
+ * Disabled. It was 120s, which a reasoning model exceeds legitimately - one run
+ * aborted 25 calls, all at exactly the limit, on a model that had spent 246k
+ * reasoning tokens. The aborts were not catching anything: a provider that is
+ * actually down fails fast, and one that is merely slow was being cut off
+ * mid-answer and charged for it anyway.
+ *
+ * The cost was worse than the wasted spend. An aborted REVIEW pass fails open -
+ * the dimension is recorded as passing - so every timeout quietly removed a
+ * quality check while looking like a pass. Provider-side request timeouts and
+ * `AI_MAX_RETRIES` still bound a genuinely hung connection.
+ */
+const STEP_TIMEOUT_MS = 0;
 
 // The tool loop stops as soon as the model calls `finish` - even when the
 // finish tool rejected with a validation error - or when the model replies
@@ -156,10 +171,10 @@ export async function runAgent<T>(
 
         try {
             const messages: ModelMessage[] = [{ role: "user", content: prompt }];
-            let generation = await agent.generate({
-                messages,
-                timeout: { stepMs: stepTimeout },
-            });
+            // A zero timeout means no cap - pass no `timeout` at all rather than a
+            // 0ms one, which would abort every step immediately.
+            const callOptions = stepTimeout > 0 ? { timeout: { stepMs: stepTimeout } } : {};
+            let generation = await agent.generate({ messages, ...callOptions });
 
             let nudges = 0;
             while (extractResult() === undefined && nudges < MAX_NUDGES) {
@@ -175,10 +190,7 @@ export async function runAgent<T>(
                 });
                 messages.push(...generation.response.messages);
                 messages.push({ role: "user", content: NUDGE_PROMPT });
-                generation = await agent.generate({
-                    messages,
-                    timeout: { stepMs: stepTimeout },
-                });
+                generation = await agent.generate({ messages, ...callOptions });
             }
 
             return extractResult();

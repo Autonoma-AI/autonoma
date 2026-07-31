@@ -25,6 +25,9 @@
         "eval:sdk": "tsx --env-file=../../.env evals/sdk-integration/run.ts",
         "eval:planner": "tsx --env-file=../../.env evals/planner/run.ts",
         "eval:bootstrap": "tsx --env-file=../../.env evals/planner/bootstrap.ts",
+        "eval:testgen": "tsx --env-file=../../.env evals/testgen/run.ts",
+        "eval:testgen:all": "tsx --env-file=../../.env evals/testgen/all.ts",
+        "eval:testgen:report": "tsx --env-file=../../.env evals/testgen/report.ts",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint src tests evals",
         "fmt": "oxfmt --write src tests evals",
@@ -46,6 +49,7 @@
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@ai-sdk/openai": "catalog:",
         "@autonoma/types": "workspace:*",
         "@octokit/app": "catalog:",
         "@types/cross-spawn": "^6.0.6",
