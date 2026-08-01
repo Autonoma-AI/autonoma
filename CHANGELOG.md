@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.260801.2](https://github.com/Autonoma-AI/agent/compare/v1.260801.1...v1.260801.2) (2026-08-01)
+
+
+### Features
+
+* **previewkit:** drop org-level secrets and addon provisioning ([#2046](https://github.com/Autonoma-AI/agent/issues/2046)) ([4db6bf3](https://github.com/Autonoma-AI/agent/commit/4db6bf3f77ad2e80991a553f508517711daca31e))
+
 ## [1.260801.1](https://github.com/Autonoma-AI/agent/compare/v1.260731.2...v1.260801.1) (2026-08-01)
 
 
