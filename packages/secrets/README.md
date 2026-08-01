@@ -166,6 +166,17 @@ No coordinated rollout, no ordering hazard, no window where one process can writ
 
 Deleting a row anyway (hand surgery, not the runbook) makes any value still sealed under it unreadable, and the error names the missing key id. `SecretKeys` will not serve stale material if that id is then re-minted, but the values sealed under the replaced key are gone.
 
+## Reading or writing one value by hand
+
+`src/scripts/secret-value.ts` decrypts or encrypts a single stored row directly against Postgres - the same `SecretValues` path the API uses, run by hand for an operator who needs to inspect or fix one value without going through the dashboard:
+
+```bash
+pnpm --filter @autonoma/secrets secret-value -- --application-id <id> --app-name web --key DATABASE_URL --get
+pnpm --filter @autonoma/secrets secret-value -- --application-id <id> --app-name web --key DATABASE_URL --set "postgres://..."
+```
+
+`--get` prints the decrypted value to stdout; `--set <value>` seals it under the current primary key and writes it, same as any other write. Needs `PREVIEWKIT_SECRETS_CMK` and `DATABASE_URL` for the environment you mean to touch - it does not import a shared `env.ts`, for the same reason `mint-key.ts` (`apps/previewkit/src/scripts`) doesn't.
+
 ## `KeyProvider`
 
 The two operations `SecretKeys` and `mintSecretKey` need from a key-management service. `KmsKeyProvider` is the AWS implementation; the seam exists so tests can supply a fake without an AWS client, and so a non-AWS host has somewhere to plug in.
