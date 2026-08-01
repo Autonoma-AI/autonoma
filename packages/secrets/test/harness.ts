@@ -59,7 +59,7 @@ export class SecretsHarness implements IntegrationHarness {
             },
         });
         await this.db.previewkitSecret.create({
-            data: { applicationId: application.id, appName, awsSecretArn: `arn:aws:secretsmanager:::${appName}` },
+            data: { applicationId: application.id, appName },
         });
 
         return { kind: "app", applicationId: application.id, appName };
@@ -69,7 +69,7 @@ export class SecretsHarness implements IntegrationHarness {
     async createOrgBundle(name = "neon"): Promise<OrgBundle> {
         const organizationId = await this.createOrg();
         await this.db.previewkitOrgSecret.create({
-            data: { organizationId, name, awsSecretArn: `arn:aws:secretsmanager:::${name}` },
+            data: { organizationId, name },
         });
 
         return { kind: "org", organizationId, name };

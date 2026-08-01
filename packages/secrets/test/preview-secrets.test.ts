@@ -52,7 +52,6 @@ secretsSuite({
                     data: {
                         applicationId: application.id,
                         appName,
-                        awsSecretArn: `arn:aws:secretsmanager:::${appName}`,
                     },
                 });
             }

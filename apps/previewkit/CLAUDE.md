@@ -293,8 +293,9 @@ app lines in a recent window.
   document.
 - `PreviewkitSecret` / `PreviewkitOrgSecret` - one bundle row per app / per org, with a
   `PreviewkitSecretValue` / `PreviewkitOrgSecretValue` row per key holding the sealed value.
-  `awsSecretArn` is retired, nullable, and read by nothing - it drops along with the bundle table
-  once the value rows carry `(applicationId, appName)` themselves.
+  `awsSecretArn` is gone: nothing referenced it once every read moved to the value rows. What is
+  left of a bundle row is `(applicationId, appName)`, which the value rows can carry themselves, so
+  the bundle table follows next.
 - `PreviewkitAddon` - provisioned addon state/outputs.
 
 ## Access proxy (`gatekeeper`, cluster mode)
@@ -392,18 +393,6 @@ The runner drains the sink's buffer before it exits.
 - `pnpm --filter @autonoma/previewkit build` - rolldown bundle of the runner into `dist/` (what the
   Dockerfile's builder stage runs). `dist/index.js` boots under plain `node` - no tsx at runtime.
 - `pnpm --filter @autonoma/previewkit test` - unit tests (`vitest.config.ts`, excludes `test/integration/**`). No Docker needed.
-- `pnpm --filter @autonoma/previewkit backfill-secrets` - copies the values AWS Secrets Manager
-  still owns into Postgres, sealed with the current encryption key, for the database
-  `DATABASE_URL` points at. Dual-write only covers writes made since it shipped, so anything
-  untouched since then lives only in AWS. Doubles as the verifier: it compares `fingerprint` per
-  (bundle, key), so a converged run reports nothing to do.
-    - **Dry run unless `--apply`.** Read the summary first; the interesting output is what it
-      refuses. `--bundle <substring>` scopes it to matching bundles - do one before doing all.
-    - Enumerates by `awsSecretArn`, never by rebuilding names, because seven bundles predate the
-      current three-segment scheme and `buildSecretName` cannot express their paths.
-    - Refuses any AWS secret shared by two bundles (writing it into both makes them diverge once
-      AWS is dropped) and reports bundles whose secret no longer exists rather than silently
-      writing nothing for them. Keys AWS no longer has are pruned, since AWS is authoritative.
 - `pnpm --filter @autonoma/previewkit mint-key` - mints the encryption key that seals previewkit
   secret values, for the database `DATABASE_URL` points at. Needs `PREVIEWKIT_SECRETS_CMK` (the
   alias is `alias/previewkit-secrets`) and `kms:GenerateDataKey` on that CMK. Deliberately does not

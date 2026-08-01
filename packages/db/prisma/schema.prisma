@@ -2395,10 +2395,6 @@ model PreviewkitSecret {
   id            String @id @default(cuid())
   applicationId String @map("application_id")
   appName       String @map("app_name")
-  /// Retired. No AWS secret is created for a new bundle, so this is null on
-  /// anything registered after Postgres became the store; the column drops once
-  /// the previewkit runner stops reading it as a fallback.
-  awsSecretArn  String? @map("aws_secret_arn")
 
   application Application               @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   values      PreviewkitSecretValue[]
@@ -2444,15 +2440,14 @@ model PreviewkitSecretValue {
 }
 
 // Org-scoped credentials referenced by preview config addons via the
-// `auth_secret` field. Stored in AWS Secrets Manager as a JSON map (matching
-// the per-app PreviewkitSecret pattern); each provider's options schema picks
-// the key it needs (e.g. NeonProvider expects `token`).
+// `auth_secret` field. One row per (org, name), with the values themselves in
+// previewkit_org_secret_value, each sealed under a previewkit encryption key
+// (matching the per-app PreviewkitSecret pattern); each provider's options schema
+// picks the key it needs (e.g. NeonProvider expects `token`).
 model PreviewkitOrgSecret {
   id             String @id @default(cuid())
   organizationId String @map("organization_id")
   name           String
-  /// Retired - see PreviewkitSecret.awsSecretArn.
-  awsSecretArn   String? @map("aws_secret_arn")
 
   organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   values       PreviewkitOrgSecretValue[]

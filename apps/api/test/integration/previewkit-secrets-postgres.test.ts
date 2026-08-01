@@ -56,9 +56,7 @@ apiTestSuite({
             expect(result).toEqual({ created: true, changed: true });
             const rows = await harness.db.previewkitSecretValue.findMany({ where: { key: "API_KEY" } });
             expect(rows).toHaveLength(1);
-            // No AWS secret backs a bundle now, so there is no ARN to record.
-            const bundle = await harness.db.previewkitSecret.findFirstOrThrow({ where: { applicationId } });
-            expect(bundle.awsSecretArn).toBeNull();
+            expect(await harness.db.previewkitSecret.count({ where: { applicationId } })).toBe(1);
             expect(rows[0]?.envelope).not.toContain("sk_live");
         });
 
@@ -204,8 +202,6 @@ apiTestSuite({
             expect((await orgSecrets.list(harness.organizationId, "neon")).map((entry) => entry.key)).toEqual([
                 "token",
             ]);
-            const row = await harness.db.previewkitOrgSecret.findFirstOrThrow({ where: { name: "neon" } });
-            expect(row.awsSecretArn).toBeNull();
 
             await expect(orgSecrets.delete(harness.organizationId, "neon", "missing")).rejects.toThrow(/not found/);
             await orgSecrets.delete(harness.organizationId, "neon", "token");

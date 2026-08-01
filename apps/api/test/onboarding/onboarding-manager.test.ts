@@ -1874,7 +1874,7 @@ integrationTestSuite({
             });
             // A secret bundle exists - so there is something to mount.
             await harness.db.previewkitSecret.create({
-                data: { applicationId: appId, appName: "web", awsSecretArn: "arn:aws:secretsmanager:test:web-23" },
+                data: { applicationId: appId, appName: "web" },
             });
             const secretsService = {
                 list: vi.fn(async () => [
@@ -2060,7 +2060,7 @@ integrationTestSuite({
             // ...but the secret bundle row is newer than the deploy, so the running
             // pod booted before these secrets and is stale.
             await harness.db.previewkitSecret.create({
-                data: { applicationId: appId, appName: "web", awsSecretArn: "arn:aws:secretsmanager:test:web" },
+                data: { applicationId: appId, appName: "web" },
             });
             // Both secrets already exist; nothing changes on this prepare call.
             const secretsService = {

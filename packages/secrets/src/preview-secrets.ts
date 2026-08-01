@@ -52,8 +52,7 @@ interface AppBundle {
  * Resolves the owning bundle from the Application rather than rebuilding the AWS
  * secret name. The name is a lossy guess: `previewkit/<repo>/web` misses the bundles
  * that predate that scheme, and misses any Application whose app is not called `web`
- * at all - both of which throw `ResourceNotFoundException` at the caller today. A row
- * lookup also survives `awsSecretArn` being dropped.
+ * at all - both of which throw `ResourceNotFoundException` at the caller.
  *
  * Falls back to the name-based AWS read whenever the row or its values are missing,
  * so a repo the migration has not reached still answers.

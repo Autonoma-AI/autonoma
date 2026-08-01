@@ -31,7 +31,7 @@ Persistence lives here rather than in the API services because those build their
 
 The API writes and reads secret values here and nowhere else. There is no mirror, no dual-write, and no AWS fallback on this side: `PreviewkitSecretsService` and `OrgSecretsService` hold a `SecretValues` and nothing else.
 
-**A bundle registered from now on has no `awsSecretArn`.** No AWS secret is created for it, so the column is nullable - and nothing reads it any more, so it drops next along with the bundle table itself. Rows that predate the cutover still carry theirs.
+**`awsSecretArn` is gone.** No AWS secret backs a bundle, and nothing read the column, so it is dropped from both tables. What remains of the bundle row is `(applicationId, appName)` - which the value rows can carry themselves, so the table follows next.
 
 **What went away with the AWS write, and why it could.** The service used to carry an ownership-tag system and a self-heal path: adopt an existing secret, refuse a foreign one, recreate when AWS had lost it, restore one scheduled for deletion, and sanitize punctuation AWS rejects in tag values. Every one of those was a consequence of Secrets Manager _names_ being a single flat space shared by every tenant, reached through lossy sanitization of user-controlled segments - so two applications could collide on one name and tags were the only proof of who owned it. A bundle is now identified by a foreign key into the Application that owns it, which no transform can alias, so none of those states are reachable and all of that code is gone.
 
@@ -96,21 +96,21 @@ The API's ARN lookups are gone, which was most of what blocked this. What remain
 
 Until then the value tables keep a suffixed name, and it is not worth renaming something scheduled for deletion.
 
-### The backfill, and what it left
+### What the backfill left behind
 
-Dual-write only covered writes made while it was on, so everything untouched since then lived only in AWS. `pnpm --filter @autonoma/previewkit backfill-secrets` closed that gap and doubles as the verifier: it compares `fingerprint` per (bundle, key), so a converged run reports nothing to do. Production converged on 2026-07-31 at 223 bundles / 2185 values.
+Dual-write only covered writes made while it was on, so everything untouched since then lived only in AWS. A backfill closed that gap and doubled as the verifier, comparing `fingerprint` per (bundle, key) so that a converged run reported nothing to do. **Production converged on 2026-07-31 at 223 bundles / 2185 values, and the script is gone** - it read `awsSecretArn`, which no longer exists, and copying from a store nothing reads has no meaning.
 
-Four things it got right that a simpler sweep would not, and they still apply to any environment yet to run it:
+Four things it got right are worth keeping, because the next migration of this shape will face them again:
 
-**Enumerate from `awsSecretArn`, never by rebuilding the name.** Some bundles predate the current `previewkit/<org>/<application>/<app>` scheme and sit at two segments, so a name-driven sweep silently skips them. It never has to: `upsert` merged into the existing ARN rather than recomputing, so a row's ARN was authoritative and legacy names never migrated.
+**Enumerate from the stored reference, never by rebuilding a name.** Some bundles predated the `previewkit/<org>/<application>/<app>` scheme and sat at two segments, so a name-driven sweep would have silently skipped them. It never had to: writes merged into the ARN already on the row, so the row was authoritative and legacy names never migrated.
 
-**Report dangling ARNs rather than skipping them.** A read that returns `{}` on `ResourceNotFoundException` writes zero values for these and looks successful.
+**Report dangling references rather than skipping them.** A read that returns `{}` on `ResourceNotFoundException` writes zero values for those and looks successful.
 
-**Refuse an ARN shared by two bundles.** Writing it into both makes them diverge once AWS is dropped - the only case where the backfill could write _wrong_ data rather than incomplete data, so it lists them for a human instead.
+**Refuse a reference shared by two bundles.** Writing it into both makes them diverge the moment the shared source goes - the only case where the backfill could write *wrong* data rather than incomplete data, so it listed them for a human. Five needed resolving by hand, plus two dangling.
 
 **Verify per bundle, not by a global count.** The fleet creates secrets continuously, so a snapshot-then-compare shows drift that is not a fault.
 
-A bundle registered after the cutover has no ARN and nothing to compare; the script counts those separately rather than dropping them silently.
+The AWS secrets themselves still exist. Dropping the reference did not delete them, so they remain a manual recovery path until they are deleted outright - along with the 65 orphans that no row ever referenced.
 
 ## `SecretKeys`
 
