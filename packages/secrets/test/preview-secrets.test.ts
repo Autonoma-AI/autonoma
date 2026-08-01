@@ -5,24 +5,7 @@ import { SecretKeys } from "../src/secret-keys";
 import { SecretValues } from "../src/secret-values";
 import { type SecretsHarness, secretsSuite } from "./harness";
 
-const REPO = "acme/widgets";
 const REPO_ID = 4242;
-
-/** Stands in for AWS Secrets Manager, recording the ids it was asked for. */
-class RecordingAws {
-    readonly asked: string[] = [];
-
-    constructor(private readonly secrets: Record<string, Record<string, string>> = {}) {}
-
-    async send(command: { input: { SecretId?: string } }): Promise<{ SecretString?: string }> {
-        const secretId = command.input.SecretId ?? "";
-        this.asked.push(secretId);
-
-        const found = this.secrets[secretId];
-        if (found == null) throw new Error(`ResourceNotFoundException: ${secretId}`);
-        return { SecretString: JSON.stringify(found) };
-    }
-}
 
 interface SeedOptions {
     sealed?: Record<string, Record<string, string>>;
@@ -56,27 +39,21 @@ secretsSuite({
             return { applicationId: application.id };
         }
 
-        function reader(harness: SecretsHarness, aws: RecordingAws): PreviewSecrets {
+        function reader(harness: SecretsHarness): PreviewSecrets {
             return new PreviewSecrets(
-                aws,
                 harness.db,
                 new SecretValues(harness.db, new SecretKeys(harness.db, harness.provider)),
             );
         }
 
-        function target(applicationId: string) {
-            return { applicationId, repoFullName: REPO };
-        }
-
-        test("reads the sealed preview env without asking AWS", async ({ harness }) => {
+        test("reads the sealed preview env", async ({ harness }) => {
             await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
             const { applicationId } = await seedApp(harness, { sealed: { web: { API_KEY: "sealed", DEBUG: "1" } } });
-            const aws = new RecordingAws();
 
-            const values = await reader(harness, aws).getEnvValues(target(applicationId));
-
-            expect(values).toEqual({ API_KEY: "sealed", DEBUG: "1" });
-            expect(aws.asked).toEqual([]);
+            expect(await reader(harness).getEnvValues({ applicationId })).toEqual({
+                API_KEY: "sealed",
+                DEBUG: "1",
+            });
         });
 
         test("lists the env-var names without decrypting anything", async ({ harness }) => {
@@ -86,7 +63,7 @@ secretsSuite({
             });
             const unwrapsAfterSeeding = harness.provider.unwrapped.length;
 
-            const names = await reader(harness, new RecordingAws()).getEnvVarNames(target(applicationId));
+            const names = await reader(harness).getEnvVarNames({ applicationId });
 
             expect(names).toEqual(["DATABASE_URL", "STRIPE_KEY"]);
             // Asking which names exist must not make a plaintext value materialize: the
@@ -95,14 +72,10 @@ secretsSuite({
         });
 
         test("resolves the sole stored bundle even when its app is not named web", async ({ harness }) => {
-            // The name-based fallback builds previewkit/<repo>/web, so this preview
-            // throws ResourceNotFoundException at the caller today.
             await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
             const { applicationId } = await seedApp(harness, { sealed: { storefront: { TOKEN: "t" } } });
 
-            const values = await reader(harness, new RecordingAws()).getEnvValues(target(applicationId));
-
-            expect(values).toEqual({ TOKEN: "t" });
+            expect(await reader(harness).getEnvValues({ applicationId })).toEqual({ TOKEN: "t" });
         });
 
         test("prefers web when the Application holds several bundles", async ({ harness }) => {
@@ -111,9 +84,7 @@ secretsSuite({
                 sealed: { api: { WHICH: "api" }, web: { WHICH: "web" } },
             });
 
-            const values = await reader(harness, new RecordingAws()).getEnvValues(target(applicationId));
-
-            expect(values).toEqual({ WHICH: "web" });
+            expect(await reader(harness).getEnvValues({ applicationId })).toEqual({ WHICH: "web" });
         });
 
         test("never crosses to another Application sharing the repo name and id", async ({ harness }) => {
@@ -123,47 +94,50 @@ secretsSuite({
             // from the repo name would have to guess between these two.
             const theirs = await seedApp(harness, { sealed: { web: { OWNER: "theirs" } } });
             const mine = await seedApp(harness, { sealed: { web: { OWNER: "mine" } } });
-            const client = reader(harness, new RecordingAws());
+            const client = reader(harness);
 
-            expect(await client.getEnvValues(target(mine.applicationId))).toEqual({ OWNER: "mine" });
-            expect(await client.getEnvValues(target(theirs.applicationId))).toEqual({ OWNER: "theirs" });
+            expect(await client.getEnvValues({ applicationId: mine.applicationId })).toEqual({ OWNER: "mine" });
+            expect(await client.getEnvValues({ applicationId: theirs.applicationId })).toEqual({ OWNER: "theirs" });
         });
 
-        test("falls back to AWS for an Application whose bundles are all empty", async ({ harness }) => {
+        test("lists nothing for an application that stores no secrets", async ({ harness }) => {
+            await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
             const { applicationId } = await seedApp(harness, {});
-            const aws = new RecordingAws({ [`previewkit/${REPO}/web`]: { API_KEY: "from-aws" } });
 
-            const values = await reader(harness, aws).getEnvValues(target(applicationId));
-
-            expect(values).toEqual({ API_KEY: "from-aws" });
-            expect(aws.asked).toEqual([`previewkit/${REPO}/web`]);
+            // Truthful rather than a miss: Postgres is the only store, so this preview
+            // really does run on its config's wired connections alone. The caller unions
+            // those in before treating an absent name as a finding.
+            expect(await reader(harness).getEnvVarNames({ applicationId })).toEqual([]);
         });
 
-        test("falls back to AWS for an applicationId that does not exist", async ({ harness }) => {
-            const aws = new RecordingAws({ [`previewkit/${REPO}/web`]: { API_KEY: "from-aws" } });
-
-            const values = await reader(harness, aws).getEnvValues(target("app_missing"));
-
-            expect(values).toEqual({ API_KEY: "from-aws" });
-        });
-
-        test("falls back to AWS when listing names finds nothing in Postgres", async ({ harness }) => {
+        test("refuses to hand a script an empty environment", async ({ harness }) => {
+            await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
             const { applicationId } = await seedApp(harness, {});
-            const aws = new RecordingAws({ [`previewkit/${REPO}/web`]: { API_KEY: "from-aws" } });
 
-            const names = await reader(harness, aws).getEnvVarNames(target(applicationId));
-
-            expect(names).toEqual(["API_KEY"]);
+            // A harness given no credentials runs every request unauthenticated and
+            // reports the 401s back as product bugs, so this stops instead.
+            await expect(reader(harness).getEnvValues({ applicationId })).rejects.toThrow(
+                /No preview secrets are stored/,
+            );
         });
 
-        test("reads AWS when this environment has no key to open postgres with", async ({ harness }) => {
+        test("refuses for an applicationId that does not exist", async ({ harness }) => {
+            await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
+
+            await expect(reader(harness).getEnvValues({ applicationId: "app_missing" })).rejects.toThrow(
+                /No preview secrets are stored/,
+            );
+        });
+
+        test("refuses both reads when the environment has no encryption key", async ({ harness }) => {
             await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
             const { applicationId } = await seedApp(harness, { sealed: { web: { API_KEY: "sealed" } } });
-            const aws = new RecordingAws({ [`previewkit/${REPO}/web`]: { API_KEY: "from-aws" } });
+            const noCmk = new PreviewSecrets(harness.db);
 
-            const values = await new PreviewSecrets(aws, harness.db).getEnvValues(target(applicationId));
-
-            expect(values).toEqual({ API_KEY: "from-aws" });
+            // Including the listing: an environment that cannot read at all must not
+            // answer [], which the caller states as "this preview configures nothing".
+            await expect(noCmk.getEnvVarNames({ applicationId })).rejects.toThrow(/PREVIEWKIT_SECRETS_CMK/);
+            await expect(noCmk.getEnvValues({ applicationId })).rejects.toThrow(/PREVIEWKIT_SECRETS_CMK/);
         });
     },
 });

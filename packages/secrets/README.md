@@ -43,7 +43,7 @@ The same reasoning retired the save-time preflight (`assertSecretPathsAvailable`
 
 Under `postgres` a listing is served entirely from stored columns - no key is unwrapped and nothing is decrypted, since `fingerprint` and `maskedLength` are what a listing needs. `updatedAt` is the row's own. Reading a single value does decrypt, and resolves whichever key version sealed it.
 
-`PREVIEWKIT_SECRETS_READ` is gone from the API and the previewkit runner alike - neither has a second store to choose between. It survives only in the diffs and investigation workers, whose classifier introspection still falls back to AWS.
+`PREVIEWKIT_SECRETS_READ` is gone everywhere - nothing has a second store to choose between.
 
 ### The same flag covers the deploy runner
 
@@ -71,13 +71,23 @@ Each namespace releases its own on its next deploy. `deployment/previewkit/clust
 
 `PreviewSecrets` is what the investigation and diffs classifiers introspect a preview with (`get_preview_env` lists the names, `run_script` runs against the live backend with the same credentials).
 
-**It resolves rows, it does not rebuild a name.** The two copies it replaces built `previewkit/<repo>/web` and read that AWS secret directly - a guess that misses the bundles predating the three-segment scheme and any Application whose app is not called `web`, both surfacing as `ResourceNotFoundException` at the classifier. When an Application registers several apps it prefers `web`; a sole registration wins whatever it is named.
+**It resolves rows, it does not rebuild a name.** The two copies it replaces built `previewkit/<repo>/web` and read that AWS secret directly - a guess that missed the bundles predating the three-segment scheme and any Application whose app is not called `web`, both surfacing as `ResourceNotFoundException` at the classifier. When an Application holds several bundles it prefers `web`; a sole bundle wins whatever it is named.
 
 **The caller names the Application, so the tenant is never inferred.** The obvious signature is by repo full name, since that is what the classifiers pass around - but a repo name does not identify a tenant. Two organizations onboarding the same GitHub repo is representable, so resolving through it would have to pick among the environments sharing that name, and picking wrong means handing back another organization's live credentials. `PreviewTarget` carries the `applicationId` the caller already holds.
 
 **Listing names decrypts nothing.** `getEnvVarNames` exists so a classifier can see which keys a preview configures _without_ their values, so it reads the stored key columns and never unwraps a key.
 
-Both workers read their own `PREVIEWKIT_SECRETS_READ`. Their IRSA roles (`WorkerDiffsRole`, `InvestigationWorkerSecretsRole`) need `kms:Decrypt` on the CMK before `postgres` does anything there.
+**A read it cannot serve throws, rather than answering emptily.** This was the last AWS fallback anywhere in previewkit, and removing it is a safety fix as much as a cleanup: the AWS copies froze the moment the API stopped writing them, so by the end the fallback's only remaining job was to serve *stale* credentials to a harness that reports its 401s as product bugs.
+
+Both callers turn a plausible-but-wrong answer into a stated finding, so each miss has a deliberate shape:
+
+| situation | `getEnvVarNames` | `getEnvValues` |
+| --- | --- | --- |
+| bundle holds keys | the names | the values |
+| application stores no secrets | `[]` - truthful, and the caller unions in the config's wired connection keys before treating an absence as evidence | throws; a script handed no credentials runs unauthenticated |
+| no CMK in this environment | throws | throws |
+
+The `[]` is only safe because Postgres is the only store: there is no un-migrated state left for an empty answer to be confused with. Both workers need `kms:Decrypt` on the CMK (`WorkerDiffsRole`, `InvestigationWorkerSecretsRole`); neither needs `secretsmanager:GetSecretValue` any more.
 
 ### One table per scope
 

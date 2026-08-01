@@ -116,9 +116,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         // mistakes for signal. App logs additionally need LOKI configured on this worker.
         const previewIntegrated = previewNamespace != null;
         const appLogsAvailable = previewIntegrated && env.LOKI_URL != null && env.LOKI_URL !== "";
-        const preview = previewIntegrated
-            ? new PreviewEnvironment(previewSecrets(), context.repoFullName, context.applicationId)
-            : undefined;
+        const preview = previewIntegrated ? new PreviewEnvironment(previewSecrets(), context.applicationId) : undefined;
         logger.info("Resolved preview introspection availability", {
             extra: { previewIntegrated, appLogsAvailable },
         });

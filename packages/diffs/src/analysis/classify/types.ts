@@ -41,7 +41,6 @@ export interface RunArtifacts {
 
 /** Access to the PR's preview environment: its config var names + a read-only script harness against its backend. */
 export interface PreviewAccess {
-    repoFullName?: string;
     namespace?: string;
     getEnvVarNames(filter?: string): Promise<string[]>;
     runScript(input: { script: string; packages?: string[] }): Promise<string>;

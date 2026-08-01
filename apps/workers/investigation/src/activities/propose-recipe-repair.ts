@@ -58,7 +58,7 @@ export async function proposeRecipeRepair(input: ProposeRecipeRepairInput): Prom
     return withSnapshotContext(snapshotId, `repair-${slug}`, async (context) => {
         const prMeta = await resolvePrMeta(context);
         const reader = new LocalCodebaseReader(context.codebase.root, context.baseSha, context.headSha);
-        const preview = new PreviewEnvironment(previewSecrets(), context.repoFullName, context.applicationId);
+        const preview = new PreviewEnvironment(previewSecrets(), context.applicationId);
         const model = createModelSession().getModel({ model: "classifier", tag: "investigation-repair" });
 
         const dryRunSeed = await buildDryRunSeed({ snapshotId, scenarioId, applicationId: context.applicationId });

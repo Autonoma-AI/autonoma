@@ -14,10 +14,9 @@ interface PreviewSecretSource {
     getEnvValues(target: PreviewTarget): Promise<Record<string, string>>;
 }
 
-/** Identifies the preview to read: the owning Application, plus the repo its fallback names. */
+/** Identifies the preview to read: the Application that owns it, and nothing inferred. */
 interface PreviewTarget {
     applicationId: string;
-    repoFullName: string;
 }
 
 const SCRIPT_TIMEOUT_MS = 60_000;
@@ -36,14 +35,13 @@ export class PreviewEnvironment implements PreviewAccess {
 
     constructor(
         private readonly secrets: PreviewSecretSource,
-        public readonly repoFullName: string,
         /** The Application that owns this preview, so its secrets are never resolved by repo name alone. */
         private readonly applicationId: string,
         public readonly namespace?: string,
     ) {}
 
     private get target(): PreviewTarget {
-        return { applicationId: this.applicationId, repoFullName: this.repoFullName };
+        return { applicationId: this.applicationId };
     }
 
     async getEnvVarNames(filter?: string): Promise<string[]> {

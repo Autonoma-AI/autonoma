@@ -163,7 +163,6 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         const preview = previewIntegrated
             ? new PreviewEnvironment(
                   previewSecrets(),
-                  context.repoFullName,
                   context.applicationId,
                   resolvedPreview.connectionKeys,
                   resolvedPreview.namespace,
