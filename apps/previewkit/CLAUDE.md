@@ -291,11 +291,12 @@ app lines in a recent window.
   Application, overwritten in place on save). This is what the deploy pipeline reads. There is no
   revision history: saving overwrites the row, and every deploy/redeploy resolves the current
   document.
-- `PreviewkitSecret` / `PreviewkitOrgSecret` - one bundle row per app / per org, with a
-  `PreviewkitSecretValue` / `PreviewkitOrgSecretValue` row per key holding the sealed value.
-  `awsSecretArn` is gone: nothing referenced it once every read moved to the value rows. What is
-  left of a bundle row is `(applicationId, appName)`, which the value rows can carry themselves, so
-  the bundle table follows next.
+- `PreviewkitSecret` / `PreviewkitOrgSecret` - one row per secret: an env-var name and its sealed
+  value, keyed `(applicationId, appName, key)` / `(organizationId, name, key)`. There is NO bundle
+  row - a "bundle" is just the set of rows sharing a scope. So a bundle exists exactly as long as it
+  holds a key: deleting the last one removes the app from the secrets UI's bundle picker, and
+  "registered but empty" is not a representable state. Code that wants the bundles rather than the
+  rows queries `distinct: ["appName"]`.
 - `PreviewkitAddon` - provisioned addon state/outputs.
 
 ## Access proxy (`gatekeeper`, cluster mode)

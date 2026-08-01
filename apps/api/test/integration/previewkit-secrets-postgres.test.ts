@@ -16,8 +16,8 @@ apiTestSuite({
          * the key seam is, so every envelope here is really sealed and really opened.
          */
         async function store(harness: APITestHarness): Promise<SecretValues> {
-            await harness.db.previewkitSecretValue.deleteMany();
-            await harness.db.previewkitOrgSecretValue.deleteMany();
+            await harness.db.previewkitSecret.deleteMany();
+            await harness.db.previewkitOrgSecret.deleteMany();
             await harness.db.previewkitEncryptionKey.deleteMany();
 
             const provider = new FakeKeyProvider();
@@ -41,7 +41,7 @@ apiTestSuite({
             return new PreviewkitSecretsService(harness.db, values);
         }
 
-        test("registers the bundle on first write and seals the values", async ({ harness }) => {
+        test("reports the first write as created and seals the values", async ({ harness }) => {
             const values = await store(harness);
             const applicationId = await application(harness);
             const secrets = service(harness, values);
@@ -54,9 +54,8 @@ apiTestSuite({
             );
 
             expect(result).toEqual({ created: true, changed: true });
-            const rows = await harness.db.previewkitSecretValue.findMany({ where: { key: "API_KEY" } });
-            expect(rows).toHaveLength(1);
-            expect(await harness.db.previewkitSecret.count({ where: { applicationId } })).toBe(1);
+            const rows = await harness.db.previewkitSecret.findMany({ where: { applicationId } });
+            expect(rows.map((row) => row.key)).toEqual(["API_KEY"]);
             expect(rows[0]?.envelope).not.toContain("sk_live");
         });
 
@@ -75,14 +74,13 @@ apiTestSuite({
             ).toEqual({ created: false, changed: true });
         });
 
-        test("reports created false for a bundle another writer already registered", async ({ harness }) => {
+        test("reports created false for a bundle that already holds a different key", async ({ harness }) => {
             const values = await store(harness);
             const applicationId = await application(harness);
-            // Registered out of band, so the write hits the unique constraint rather than
-            // seeing the row on a prior read. This is the path a racing caller takes.
-            await harness.db.previewkitSecret.create({ data: { applicationId, appName: APP } });
+            const secrets = service(harness, values);
+            await secrets.upsert(applicationId, APP, [{ key: "OTHER", value: "x" }], harness.organizationId);
 
-            const result = await service(harness, values).upsert(
+            const result = await secrets.upsert(
                 applicationId,
                 APP,
                 [{ key: "API_KEY", value: "sk_live" }],
@@ -92,20 +90,18 @@ apiTestSuite({
             expect(result).toEqual({ created: false, changed: true });
         });
 
-        test("registers a new bundle exactly once when two writes race", async ({ harness }) => {
+        test("writes one row per key when two writes of the same key race", async ({ harness }) => {
             const values = await store(harness);
             const applicationId = await application(harness);
             const secrets = service(harness, values);
 
-            // Check-then-create let both of these decide to create the bundle, and the
-            // loser surfaced a unique violation as a 500.
-            const results = await Promise.all([
+            await Promise.all([
                 secrets.upsert(applicationId, APP, [{ key: "API_KEY", value: "one" }], harness.organizationId),
                 secrets.upsert(applicationId, APP, [{ key: "API_KEY", value: "one" }], harness.organizationId),
             ]);
 
-            expect(results.filter((result) => result.created)).toHaveLength(1);
             expect(await harness.db.previewkitSecret.count({ where: { applicationId } })).toBe(1);
+            expect(await secrets.getValue(applicationId, APP, "API_KEY", harness.organizationId)).toBe("one");
         });
 
         test("lists masked summaries without unwrapping a key", async ({ harness }) => {
@@ -174,14 +170,27 @@ apiTestSuite({
             // No store: an environment with no CMK cannot unwrap a key, so returning []
             // would read as "you have no secrets" when the truth is "cannot tell".
             const secrets = service(harness, undefined);
-            await harness.db.previewkitSecret.create({ data: { applicationId, appName: APP } });
 
             await expect(secrets.list(applicationId, APP, harness.organizationId)).rejects.toThrow(
                 /PREVIEWKIT_SECRETS_CMK/,
             );
         });
 
-        test("registers an org bundle once when two writes race", async ({ harness }) => {
+        test("drops an app from listApps once its last key is deleted", async ({ harness }) => {
+            const values = await store(harness);
+            const applicationId = await application(harness);
+            const secrets = service(harness, values);
+            await secrets.upsert(applicationId, APP, [{ key: "API_KEY", value: "sk_live" }], harness.organizationId);
+
+            expect(await secrets.listApps(applicationId, harness.organizationId)).toEqual([APP]);
+
+            // A bundle is its rows, so emptying it removes it - the UI's bundle picker
+            // stops offering an app that has nothing left to show.
+            await secrets.delete(applicationId, APP, "API_KEY", harness.organizationId);
+            expect(await secrets.listApps(applicationId, harness.organizationId)).toEqual([]);
+        });
+
+        test("writes one org row per key when two writes race", async ({ harness }) => {
             const values = await store(harness);
             const orgSecrets = new OrgSecretsService(harness.db, values);
 

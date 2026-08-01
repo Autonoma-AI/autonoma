@@ -1873,9 +1873,7 @@ integrationTestSuite({
                 },
             });
             // A secret bundle exists - so there is something to mount.
-            await harness.db.previewkitSecret.create({
-                data: { applicationId: appId, appName: "web" },
-            });
+            await seedSecret(harness, appId);
             const secretsService = {
                 list: vi.fn(async () => [
                     { key: "AUTONOMA_SHARED_SECRET", maskedLength: 32, updatedAt: new Date() },
@@ -2057,11 +2055,9 @@ integrationTestSuite({
                     },
                 },
             });
-            // ...but the secret bundle row is newer than the deploy, so the running
-            // pod booted before these secrets and is stale.
-            await harness.db.previewkitSecret.create({
-                data: { applicationId: appId, appName: "web" },
-            });
+            // ...but the secret is newer than the deploy, so the running pod booted
+            // before it and is stale.
+            await seedSecret(harness, appId);
             // Both secrets already exist; nothing changes on this prepare call.
             const secretsService = {
                 list: vi.fn(async () => [
@@ -2318,6 +2314,30 @@ async function linkRepository(harness: OnboardingTestHarness, applicationId: str
         data: {
             githubRepositoryId,
             signingSecretEnc: fakeEncryption.encrypt("shared-secret"),
+        },
+    });
+}
+
+/**
+ * One stored secret for the app's `web` bundle. Only its existence and timestamp
+ * matter here - the SDK-target checks never open it - so the envelope is a
+ * placeholder rather than a real seal.
+ */
+async function seedSecret(harness: OnboardingTestHarness, applicationId: string) {
+    await harness.db.previewkitEncryptionKey.upsert({
+        where: { id: "test-key" },
+        create: { id: "test-key", wrap: Buffer.from("wrapped"), primary: true },
+        update: {},
+    });
+    await harness.db.previewkitSecret.create({
+        data: {
+            applicationId,
+            appName: "web",
+            key: "AUTONOMA_SHARED_SECRET",
+            envelope: "v1.test-key.placeholder",
+            encryptionKeyId: "test-key",
+            fingerprint: "fingerprint",
+            maskedLength: 32,
         },
     });
 }

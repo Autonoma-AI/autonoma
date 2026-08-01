@@ -72,14 +72,12 @@ export class BuildSecretSource {
             );
         }
 
-        // Undefined means the bundle holds no values. That is either values that never
-        // landed, or a bundle whose every key was deleted - `DELETE` removes value rows
-        // without removing the bundle row, so an empty bundle is a legitimate state, not
-        // just a broken one. Either way nothing can serve the build, and failing beats a
-        // build that succeeds against no credentials.
+        // Undefined means the bundle holds nothing: values that never landed, or a
+        // bundle whose every key was deleted. Nothing can serve the build either way,
+        // and failing beats a build that succeeds against no credentials.
         const opened = await this.values.getAll(bundle);
         if (opened == null) {
-            throw new Error(`No secret values are stored for ${label}, which has a registered secret bundle.`);
+            throw new Error(`No secret values are stored for ${label}.`);
         }
 
         this.logger.info("Read secrets from postgres", {

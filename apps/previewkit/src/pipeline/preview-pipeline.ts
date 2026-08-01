@@ -540,10 +540,10 @@ export class PreviewPipeline {
                     appName: { in: mergedConfig.apps.map((app) => app.name) },
                 },
                 select: { appName: true },
+                distinct: ["appName"],
             });
-            // Which of this deploy's apps have a registered secret bundle. Only presence
-            // matters now: the values come from the bundle itself, not from anything on
-            // the row.
+            // Which of this deploy's apps hold at least one secret. Only presence
+            // matters here: the values are read from the bundle when they are needed.
             const secretApps = new Set(secretRecords.map((record) => record.appName));
             logger.info("Build step 6/7 building images for all apps", {
                 repo: repoFullName,

@@ -411,13 +411,12 @@ export class ApplicationsService extends Service {
                 },
             });
 
-            // Drop the preview secret rows so a re-created app for the same repo
-            // does not inherit stale registrations that collide with its own in the
-            // reused -pr-0 namespace. The AWS Secrets Manager secret is intentionally
-            // left intact - re-creating the app adopts it by name, avoiding the
-            // pending-deletion window entirely.
+            // Drop the preview secrets so a re-created app for the same repo does not
+            // inherit stale values that collide with its own in the reused -pr-0
+            // namespace. These rows hold the only copy, so this is a real deletion,
+            // not the release of a registration.
             const removed = await tx.previewkitSecret.deleteMany({ where: { applicationId: id } });
-            this.logger.info("Removed preview secret registrations for deleted application", {
+            this.logger.info("Removed preview secrets for deleted application", {
                 applicationId: id,
                 extra: { removed: removed.count },
             });

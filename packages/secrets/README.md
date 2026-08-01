@@ -10,7 +10,7 @@ Each stored envelope names the key that sealed it, so old values keep resolving 
 
 ## `SecretValues`
 
-Writes secret values into `previewkit_secret_value` / `previewkit_org_secret_value`, sealed with the current encryption key.
+Writes secret values into `previewkit_secret` / `previewkit_org_secret`, sealed with the current encryption key. One row is one secret: an env-var name and its envelope, keyed `(applicationId, appName, key)` or `(organizationId, name, key)`. A **bundle** is not a row - it is the set of rows sharing a scope, so a bundle exists exactly as long as it holds a key and "registered but empty" is not representable.
 
 ```ts
 const values = new SecretValues(db, keys);
@@ -31,7 +31,7 @@ Persistence lives here rather than in the API services because those build their
 
 The API writes and reads secret values here and nowhere else. There is no mirror, no dual-write, and no AWS fallback on this side: `PreviewkitSecretsService` and `OrgSecretsService` hold a `SecretValues` and nothing else.
 
-**`awsSecretArn` is gone.** No AWS secret backs a bundle, and nothing read the column, so it is dropped from both tables. What remains of the bundle row is `(applicationId, appName)` - which the value rows can carry themselves, so the table follows next.
+**`awsSecretArn` is gone**, and with it the bundle row it was the last reason to keep - see [One table per scope](#one-table-per-scope).
 
 **What went away with the AWS write, and why it could.** The service used to carry an ownership-tag system and a self-heal path: adopt an existing secret, refuse a foreign one, recreate when AWS had lost it, restore one scheduled for deletion, and sanitize punctuation AWS rejects in tag values. Every one of those was a consequence of Secrets Manager _names_ being a single flat space shared by every tenant, reached through lossy sanitization of user-controlled segments - so two applications could collide on one name and tags were the only proof of who owned it. A bundle is now identified by a foreign key into the Application that owns it, which no transform can alias, so none of those states are reachable and all of that code is gone.
 
@@ -79,22 +79,24 @@ Each namespace releases its own on its next deploy. `deployment/previewkit/clust
 
 Both workers read their own `PREVIEWKIT_SECRETS_READ`. Their IRSA roles (`WorkerDiffsRole`, `InvestigationWorkerSecretsRole`) need `kms:Decrypt` on the CMK before `postgres` does anything there.
 
-### Where the tables are going
+### One table per scope
 
-The current shape is a bundle row (`previewkit_secret`, one per app) plus a value row per key. That bundle exists only to hold `awsSecretArn` and to answer "is this registered": once the ARN is dropped, all it contains is `(applicationId, appName)`, which the value rows can carry themselves.
-
-So the end state is one table, and it can take the name that fits it:
+There used to be a bundle row (`previewkit_secret`, one per app) plus a value row per key. The bundle existed only to hold `awsSecretArn` and to answer "is this registered"; once the ARN was dropped, all it held was `(applicationId, appName)` - which the value rows carry themselves. The value tables were folded into their parents and took the parents' names:
 
 ```prisma
 PreviewkitSecret { applicationId, appName, key, envelope, encryptionKeyId, fingerprint, maskedLength }
 @@unique([applicationId, appName, key])
 ```
 
-`PreviewkitSecret` then means one secret, which is what the word means everywhere else - in the API contract (`SecretItem`), in the UI, and in how people talk about them.
+`PreviewkitSecret` now means one secret, which is what the word means everywhere else - in the API contract (`SecretItem`), in the UI, and in how people talk about them.
 
-The API's ARN lookups are gone, which was most of what blocked this. What remains is the `listApps` / registration checks, which want "does this bundle exist" rather than an ARN. Nothing reads `awsSecretArn` at all now. Once the runner stops reading AWS, the collapse is close to free: stop writing the bundle, repoint the foreign key, drop the table. Expand and contract, with no data fan-out, because the value rows already exist.
+Two consequences worth knowing:
 
-Until then the value tables keep a suffixed name, and it is not worth renaming something scheduled for deletion.
+**A bundle with no keys does not exist.** Delete an app's last secret and the app leaves `listApps`, so the secrets UI stops offering an empty bundle to open. Previously the registration row lingered and the reads had to special-case it.
+
+**`created` on an upsert is no longer arbitrated by a unique constraint.** It means "the bundle held no keys before this write", read in the same call that computes `changed`, so two writes racing a brand-new bundle can both report it. Onboarding redeploys on `created`, and the duplicate redeploy is superseded by the newer one - cheaper than serializing every secret write to make the flag exact.
+
+Code that wants the bundles rather than the rows asks for `distinct: ["appName"]`. That is the one place the collapse costs something: presence checks that were `findUnique` on a bundle are now scans of an index prefix.
 
 ### What the backfill left behind
 
@@ -183,6 +185,6 @@ This is deliberately preferred over a dev-only `KeyProvider` that skips wrapping
 - **Environments are isolated by their databases, not by IAM.** Each environment has its own database, so it only ever sees its own encryption keys, and a runner takes its `DATABASE_URL` from the API that launched it. IAM deliberately does _not_ provide this: `PreviewkitServiceRole` is one role shared by production, beta and alpha, and the API authenticates as the single `agent-api` IAM user, so any principal that can unwrap one environment's key can unwrap another's. Per-environment CMKs would look like isolation without adding any, so there is one key until those principals are split - at which point moving to per-environment CMKs is just a rotation per environment, which the key-versioning model already supports.
 - **The key policy is scoped to our encryption context.** `PreviewkitServiceRole` and `user/agent-api` get `kms:GenerateDataKey` and `kms:Decrypt` only under `kms:EncryptionContext:purpose = previewkit-secrets`, so leaked credentials cannot use the key for anything else.
 - **The CMK is a single point of total data loss.** Disable or delete it and every stored secret becomes permanently unreadable. Enable automatic rotation, never schedule deletion, and alarm on `DisableKey` / `ScheduleKeyDeletion`. Use a multi-region key if the DR plan involves another region - KMS ciphertext is bound to the key that produced it.
-- **65 orphaned AWS secrets to delete at decommission.** Secrets whose `previewkit_secret` row was cascade-deleted with its Application, leaving the AWS secret alive with its values intact - the survey above measured 23% of the prefix in that state. They are not migrated (a value row needs a bundle row to attach to), so Phase 4 is where they get scheduled for deletion. Treat it as data retention rather than tidiness: some belong to organizations that were deleted, and their secrets are still readable. The causes are visible in the names: deleted applications, a rename leaving both behind (`some-app-v2` orphaned next to a still-tracked `some-app`), and case-variant duplicates (`SomeApp` and `someapp`). Examples are illustrative - this file syncs to the public mirror, so real application slugs do not belong in it.
+- **65 orphaned AWS secrets to delete at decommission.** Secrets whose `previewkit_secret` row was cascade-deleted with its Application, leaving the AWS secret alive with its values intact - the survey above measured 23% of the prefix in that state. They were never migrated - nothing in Postgres referenced them - so they are scheduled for deletion at decommission. Treat it as data retention rather than tidiness: some belong to organizations that were deleted, and their secrets are still readable. The causes are visible in the names: deleted applications, a rename leaving both behind (`some-app-v2` orphaned next to a still-tracked `some-app`), and case-variant duplicates (`SomeApp` and `someapp`). Examples are illustrative - this file syncs to the public mirror, so real application slugs do not belong in it.
 - **CMK rotation is not key rotation.** Rotating the CMK only changes the wrapping of existing keys. Rotating the key that actually seals values is `mintSecretKey`.
 - **The wrapped keys sit in the same database as the ciphertext.** That is a deliberate trade: it removes the key from configuration entirely and makes rotation rollout-free, at the cost of one layer of defence in depth. An attacker needs the database _and_ KMS, where a configuration-held key would have meant the database _and_ the environment _and_ KMS.

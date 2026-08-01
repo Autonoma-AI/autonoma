@@ -1,4 +1,4 @@
-import { db, Prisma, type PrismaClient } from "@autonoma/db";
+import { db, type PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { secretFingerprint, type SecretValues } from "@autonoma/secrets";
@@ -11,9 +11,10 @@ import type { PreviewkitSecretsUpsertResult } from "../routes/onboarding/onboard
  * `/v1/previewkit/secrets/*` routes so external tooling (CI, scripts) can manage
  * secrets directly.
  *
- * Each `(applicationId, appName)` pair is one bundle: a `previewkit_secret` row
- * plus a value row per key, each value sealed under the environment's encryption
- * key. The runtime materializer writes those values into the K8s Secret a
+ * Each `(applicationId, appName)` pair is one bundle: the set of `previewkit_secret`
+ * rows sharing that scope, one per key, each sealed under the environment's
+ * encryption key. There is no bundle row, so a bundle exists exactly as long as it
+ * holds a key. The runtime materializer writes those values into the K8s Secret a
  * preview's pods mount on the next deploy.
  *
  * There is no name to derive and no global namespace to collide in. That is what
@@ -54,20 +55,20 @@ export class PreviewkitSecretsService {
         // application exists outside the caller's org.
         if (app == null) return [];
 
-        const registered = await this.isRegistered(applicationId, appName);
-        if (!registered) return [];
-
         // Served from the stored key columns, so a listing decrypts nothing and
         // unwraps no key - `maskedLength` and `fingerprint` are what it needs.
         return this.store().list(this.bundleFor(app.id, appName));
     }
 
     /**
-     * Lists the per-app secret bundle names registered for an application.
-     * Each (applicationId, appName) is its own bundle - a monorepo Application
-     * can declare many apps in its preview config - so the UI needs this to let
-     * the user pick which bundle to view; the app name rarely matches the
+     * Lists the per-app secret bundle names holding at least one secret. Each
+     * (applicationId, appName) is its own bundle - a monorepo Application can
+     * declare many apps in its preview config - so the UI needs this to let the
+     * user pick which bundle to view; the app name rarely matches the
      * Application's slug.
+     *
+     * An app drops out of this list when its last key is deleted, because a bundle
+     * is its rows and there is nothing left to name.
      */
     async listApps(applicationId: string, callerOrgId: string | undefined): Promise<string[]> {
         this.logger.info("Listing secret app bundles", { applicationId });
@@ -78,18 +79,21 @@ export class PreviewkitSecretsService {
         const rows = await this.prisma.previewkitSecret.findMany({
             where: { applicationId },
             select: { appName: true },
+            distinct: ["appName"],
             orderBy: { appName: "asc" },
         });
         return rows.map((row) => row.appName);
     }
 
     /**
-     * Writes `items` into the app's bundle, registering the bundle if this is its
-     * first secret.
+     * Writes `items` into the app's bundle.
      *
-     * `changed` is computed from the stored fingerprints rather than by reading the
-     * values back, so deciding whether anything moved costs one two-column query and
-     * no decryption.
+     * Both flags come from one two-column read of the stored fingerprints, so
+     * deciding them decrypts nothing: `created` means the bundle held no keys before
+     * this write, and `changed` that at least one value moved. Onboarding redeploys
+     * on `created`, and two writes racing a brand-new bundle can both report it -
+     * the extra redeploy is superseded by the newer one, which is cheaper than
+     * serializing every secret write to make the flag exact.
      */
     async upsert(
         applicationId: string,
@@ -110,9 +114,8 @@ export class PreviewkitSecretsService {
         const values = this.store();
         const bundle = this.bundleFor(app.id, appName);
 
-        const created = await this.register(app.id, appName);
-
-        const stored = created ? new Map<string, string>() : await values.fingerprints(bundle);
+        const stored = await values.fingerprints(bundle);
+        const created = stored.size === 0;
         const changed = items.some((item) => stored.get(item.key) !== secretFingerprint(item.value));
 
         // Written even when nothing changed: `changed` reports whether the values
@@ -172,37 +175,6 @@ export class PreviewkitSecretsService {
             where: callerOrgId != null ? { id: applicationId, organizationId: callerOrgId } : { id: applicationId },
             select: { id: true, name: true, organization: { select: { slug: true } } },
         });
-    }
-
-    /**
-     * Registers the bundle if it is not already, reporting whether this call is the
-     * one that did it.
-     *
-     * The unique constraint arbitrates, not a prior read. Checking and then creating
-     * lets two concurrent upserts for a new bundle both decide to create it, and the
-     * loser surfaces a unique violation as a 500 - which is reachable from two CI
-     * `PUT`s, or an onboarding save racing a direct one. `created` has to stay exact
-     * because onboarding uses it to decide whether to redeploy, so this cannot just
-     * be an idempotent upsert.
-     */
-    private async register(applicationId: string, appName: string): Promise<boolean> {
-        try {
-            // No AWS secret backs a bundle any more, so there is no ARN to record.
-            await this.prisma.previewkitSecret.create({ data: { applicationId, appName } });
-            return true;
-        } catch (err) {
-            if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return false;
-            throw err;
-        }
-    }
-
-    /** Whether the bundle has been registered, which is what makes a read answer [] rather than throw. */
-    private async isRegistered(applicationId: string, appName: string): Promise<boolean> {
-        const record = await this.prisma.previewkitSecret.findUnique({
-            where: { applicationId_appName: { applicationId, appName } },
-            select: { id: true },
-        });
-        return record != null;
     }
 
     private bundleFor(applicationId: string, appName: string): SecretBundle {

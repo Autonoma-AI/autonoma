@@ -10,9 +10,9 @@ import type { AppSecretInfo, SecretTarget } from "./runtime-secret-types";
  * Resolves which K8s Secret each app mounts, and gets it populated before the
  * deployer rolls out.
  *
- * Loads the Application's secret rows, collapses rows that fold to one Secret
- * target, and hands them to the materializer. There is one store: a target it
- * cannot serve fails the deploy rather than falling through to External Secrets,
+ * Loads the Application's secret bundles, collapses the ones that fold to a single
+ * Secret target, and hands them to the materializer. There is one store: a target
+ * it cannot serve fails the deploy rather than falling through to External Secrets,
  * which no longer has values to serve from.
  */
 export class RuntimeSecrets {
@@ -80,7 +80,7 @@ export class RuntimeSecrets {
         return written;
     }
 
-    /** One row per K8s Secret this namespace's apps mount. */
+    /** One entry per K8s Secret this namespace's apps mount. */
     private async loadTargets(
         organizationId: string,
         githubRepositoryId: number,
@@ -99,23 +99,24 @@ export class RuntimeSecrets {
                 application: { organizationId, githubRepositoryId },
                 appName: { in: appNames },
             },
-            select: { id: true, applicationId: true, appName: true },
+            select: { applicationId: true, appName: true },
+            // One row per key, so the bundles are what this wants, not the rows.
+            distinct: ["applicationId", "appName"],
         });
         if (records.length === 0) return [];
 
-        // Collapse rows that fold to one K8s Secret target (a same-app duplicate):
-        // two bundles writing one Secret would just overwrite each other. Keep one
-        // and log the rest.
+        // Collapse bundles that fold to one K8s Secret target: two of them writing
+        // one Secret would just overwrite each other. Keep one and log the rest.
         const { chosen, collisions } = dedupeSecretRecordsByTarget(records, previewSecretName);
         for (const collision of collisions) {
             this.logger.fatal(
-                "Multiple PreviewkitSecret rows resolve to one K8s Secret target; keeping one to avoid an ownership collision",
+                "Multiple secret bundles resolve to one K8s Secret target; keeping one to avoid an ownership collision",
                 {
                     namespace,
                     extra: {
                         target: collision.secretName,
-                        keptSecretId: collision.kept.id,
-                        droppedSecretIds: collision.dropped.map((record) => record.id),
+                        keptAppName: collision.kept.appName,
+                        droppedAppNames: collision.dropped.map((record) => record.appName),
                     },
                 },
             );

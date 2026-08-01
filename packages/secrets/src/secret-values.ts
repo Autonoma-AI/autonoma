@@ -4,12 +4,8 @@ import { describeSecretBundle, type SecretBundle, scopeIn } from "@autonoma/util
 import { secretFingerprint } from "./secret-fingerprint";
 import type { SecretKeys } from "./secret-keys";
 
-/**
- * How much of a value's length `maskedLength` will admit to, so long values do not
- * leak their size. Exported because the AWS-backed reads compute the same field
- * for the same `SecretSummary`, and the two must not drift apart.
- */
-export const MAX_MASKED_LENGTH = 32;
+/** How much of a value's length `maskedLength` will admit to, so long values do not leak their size. */
+const MAX_MASKED_LENGTH = 32;
 
 export interface SecretItem {
     key: string;
@@ -23,30 +19,19 @@ export interface SecretValueSummary {
     updatedAt: Date;
 }
 
-/** How Postgres differs from the authoritative store for one bundle. Empty everywhere means they agree. */
-export interface MirrorComparison {
-    /** Keys the authoritative store has that Postgres does not - usually not backfilled yet. */
-    missing: string[];
-    /** Keys Postgres has that the authoritative store does not - usually deleted before dual-write existed. */
-    extra: string[];
-    /** Keys both have, holding different values. */
-    mismatched: string[];
-}
-
 /**
  * Writes previewkit secret values into Postgres, sealed with the current
  * encryption key.
+ *
+ * A bundle is not a row - it is the set of rows sharing a scope, either
+ * `(applicationId, appName)` or `(organizationId, name)`. A bundle holding no keys
+ * therefore has no rows, and "registered but empty" is not a representable state.
  *
  * Rows carry `fingerprint` and `maskedLength` alongside the envelope, computed
  * here at seal time. That is deliberate: listing a bundle needs key names and an
  * "is this the value I already hold?" check, never the values themselves, so
  * storing those two derived fields means a list can be served without unwrapping
  * a key or decrypting anything.
- *
- * Persistence lives in this package rather than in the API services because the
- * services build their AWS client internally and cannot be exercised without an
- * AWS account; keeping the database work here makes it coverable by integration
- * tests against a real Postgres.
  */
 export class SecretValues {
     private readonly logger: Logger;
@@ -59,13 +44,11 @@ export class SecretValues {
     }
 
     /**
-     * Seals `items` and upserts them into `bundle`, leaving keys it was not given
-     * alone - the same merge semantics the authoritative store uses, so a caller
+     * Seals `items` into `bundle`, leaving keys it was not given alone - a caller
      * writing one key does not drop the rest.
      *
-     * Throws {@link NoPrimaryEncryptionKeyError} when no encryption key has been minted,
-     * which a caller mirroring writes during the migration can treat as "not
-     * provisioned yet" rather than as a failure.
+     * Throws {@link NoPrimaryEncryptionKeyError} when no encryption key has been
+     * minted, which is an environment with no CMK rather than a bad request.
      */
     async put(bundle: SecretBundle, items: readonly SecretItem[]): Promise<void> {
         if (items.length === 0) return;
@@ -73,9 +56,6 @@ export class SecretValues {
         this.logger.info("Sealing secret values", {
             extra: { bundle: describeSecretBundle(bundle), count: items.length },
         });
-
-        const parentId = await this.parentId(bundle);
-        if (parentId == null) return;
 
         const cipher = await this.keys.primary();
         const rows = items.map((item) => ({
@@ -89,14 +69,26 @@ export class SecretValues {
         await this.db.$transaction(
             rows.map((row) =>
                 bundle.kind === "app"
-                    ? this.db.previewkitSecretValue.upsert({
-                          where: { secretId_key: { secretId: parentId, key: row.key } },
-                          create: { secretId: parentId, ...row },
+                    ? this.db.previewkitSecret.upsert({
+                          where: {
+                              applicationId_appName_key: {
+                                  applicationId: bundle.applicationId,
+                                  appName: bundle.appName,
+                                  key: row.key,
+                              },
+                          },
+                          create: { applicationId: bundle.applicationId, appName: bundle.appName, ...row },
                           update: row,
                       })
-                    : this.db.previewkitOrgSecretValue.upsert({
-                          where: { orgSecretId_key: { orgSecretId: parentId, key: row.key } },
-                          create: { orgSecretId: parentId, ...row },
+                    : this.db.previewkitOrgSecret.upsert({
+                          where: {
+                              organizationId_name_key: {
+                                  organizationId: bundle.organizationId,
+                                  name: bundle.name,
+                                  key: row.key,
+                              },
+                          },
+                          create: { organizationId: bundle.organizationId, name: bundle.name, ...row },
                           update: row,
                       }),
             ),
@@ -112,18 +104,18 @@ export class SecretValues {
     }
 
     /**
-     * What Postgres holds for `bundle`, as key -> fingerprint. Reads two columns and
-     * decrypts nothing, which is the whole point of storing the fingerprint.
+     * What the bundle holds, as key -> fingerprint. Reads two columns and decrypts
+     * nothing, which is the whole point of storing the fingerprint.
      */
     async fingerprints(bundle: SecretBundle): Promise<Map<string, string>> {
         const rows =
             bundle.kind === "app"
-                ? await this.db.previewkitSecretValue.findMany({
-                      where: { secret: { applicationId: bundle.applicationId, appName: bundle.appName } },
+                ? await this.db.previewkitSecret.findMany({
+                      where: { applicationId: bundle.applicationId, appName: bundle.appName },
                       select: { key: true, fingerprint: true },
                   })
-                : await this.db.previewkitOrgSecretValue.findMany({
-                      where: { orgSecret: { organizationId: bundle.organizationId, name: bundle.name } },
+                : await this.db.previewkitOrgSecret.findMany({
+                      where: { organizationId: bundle.organizationId, name: bundle.name },
                       select: { key: true, fingerprint: true },
                   });
 
@@ -133,23 +125,17 @@ export class SecretValues {
     /**
      * Every key in `bundle` with the fields a listing needs, and nothing decrypted -
      * `fingerprint` and `maskedLength` were stored precisely so this is possible.
-     *
-     * `updatedAt` is the row's own, so unlike the AWS-backed listing (which has no
-     * per-key timestamp to report and substitutes the current time) this is real.
-     *
-     * An empty result is ambiguous at this level and must not be read as "no secrets":
-     * a bundle row implies at least one value in the authoritative store, since a write
-     * requires one, so empty means not migrated. The caller decides what to do.
+     * `updatedAt` is the row's own, so it is when that key last changed.
      */
     async list(bundle: SecretBundle): Promise<SecretValueSummary[]> {
         const rows =
             bundle.kind === "app"
-                ? await this.db.previewkitSecretValue.findMany({
-                      where: { secret: { applicationId: bundle.applicationId, appName: bundle.appName } },
+                ? await this.db.previewkitSecret.findMany({
+                      where: { applicationId: bundle.applicationId, appName: bundle.appName },
                       select: { key: true, fingerprint: true, maskedLength: true, updatedAt: true },
                   })
-                : await this.db.previewkitOrgSecretValue.findMany({
-                      where: { orgSecret: { organizationId: bundle.organizationId, name: bundle.name } },
+                : await this.db.previewkitOrgSecret.findMany({
+                      where: { organizationId: bundle.organizationId, name: bundle.name },
                       select: { key: true, fingerprint: true, maskedLength: true, updatedAt: true },
                   });
 
@@ -157,9 +143,9 @@ export class SecretValues {
     }
 
     /**
-     * Every value in the bundle, in the clear. Undefined when the bundle holds nothing,
-     * which means not migrated rather than empty - a bundle row implies at least one
-     * value, since a write requires one.
+     * Every value in the bundle, in the clear. Undefined when the bundle holds
+     * nothing, which the callers building or deploying against it treat as a failure
+     * rather than as an empty environment.
      *
      * One key unwrap covers the whole bundle: `forEnvelope` caches per key version, so
      * a bundle sealed under a single version costs one round trip regardless of size.
@@ -167,12 +153,12 @@ export class SecretValues {
     async getAll(bundle: SecretBundle): Promise<Record<string, string> | undefined> {
         const rows =
             bundle.kind === "app"
-                ? await this.db.previewkitSecretValue.findMany({
-                      where: { secret: { applicationId: bundle.applicationId, appName: bundle.appName } },
+                ? await this.db.previewkitSecret.findMany({
+                      where: { applicationId: bundle.applicationId, appName: bundle.appName },
                       select: { key: true, envelope: true },
                   })
-                : await this.db.previewkitOrgSecretValue.findMany({
-                      where: { orgSecret: { organizationId: bundle.organizationId, name: bundle.name } },
+                : await this.db.previewkitOrgSecret.findMany({
+                      where: { organizationId: bundle.organizationId, name: bundle.name },
                       select: { key: true, envelope: true },
                   });
 
@@ -190,16 +176,28 @@ export class SecretValues {
         return opened;
     }
 
-    /** One value in the clear. Undefined when the key is not mirrored, which is not the same as it not existing. */
+    /** One value in the clear, or undefined when the bundle has no such key. */
     async get(bundle: SecretBundle, key: string): Promise<string | undefined> {
         const row =
             bundle.kind === "app"
-                ? await this.db.previewkitSecretValue.findFirst({
-                      where: { key, secret: { applicationId: bundle.applicationId, appName: bundle.appName } },
+                ? await this.db.previewkitSecret.findUnique({
+                      where: {
+                          applicationId_appName_key: {
+                              applicationId: bundle.applicationId,
+                              appName: bundle.appName,
+                              key,
+                          },
+                      },
                       select: { envelope: true },
                   })
-                : await this.db.previewkitOrgSecretValue.findFirst({
-                      where: { key, orgSecret: { organizationId: bundle.organizationId, name: bundle.name } },
+                : await this.db.previewkitOrgSecret.findUnique({
+                      where: {
+                          organizationId_name_key: {
+                              organizationId: bundle.organizationId,
+                              name: bundle.name,
+                              key,
+                          },
+                      },
                       select: { envelope: true },
                   });
 
@@ -211,74 +209,24 @@ export class SecretValues {
     }
 
     /**
-     * How Postgres differs from the authoritative store for `bundle`, given what that
-     * store holds as key -> fingerprint.
-     *
-     * This is what earns the right to serve reads from here. A caller already
-     * computing fingerprints for its own response can compare for free, so every
-     * bundle anyone looks at reports whether the mirror agrees - continuous
-     * verification rather than a one-off backfill check.
-     */
-    async compare(bundle: SecretBundle, authoritative: ReadonlyMap<string, string>): Promise<MirrorComparison> {
-        const mirrored = await this.fingerprints(bundle);
-
-        return {
-            missing: [...authoritative.keys()].filter((key) => !mirrored.has(key)).sort(),
-            extra: [...mirrored.keys()].filter((key) => !authoritative.has(key)).sort(),
-            mismatched: [...authoritative.entries()]
-                .filter(([key, fingerprint]) => mirrored.has(key) && mirrored.get(key) !== fingerprint)
-                .map(([key]) => key)
-                .sort(),
-        };
-    }
-
-    /**
      * Removes one key from `bundle`, reporting whether it was there. An absent key
-     * is not an error - it is how a caller answers "did this delete anything?", which
-     * it can no longer ask another store.
+     * is not an error - it is how a caller answers "did this delete anything?".
      */
     async remove(bundle: SecretBundle, key: string): Promise<boolean> {
         this.logger.info("Removing a secret value", { extra: { bundle: describeSecretBundle(bundle), key } });
 
-        const parentId = await this.parentId(bundle);
-        if (parentId == null) return false;
-
         const removed =
             bundle.kind === "app"
-                ? await this.db.previewkitSecretValue.deleteMany({ where: { secretId: parentId, key } })
-                : await this.db.previewkitOrgSecretValue.deleteMany({ where: { orgSecretId: parentId, key } });
+                ? await this.db.previewkitSecret.deleteMany({
+                      where: { applicationId: bundle.applicationId, appName: bundle.appName, key },
+                  })
+                : await this.db.previewkitOrgSecret.deleteMany({
+                      where: { organizationId: bundle.organizationId, name: bundle.name, key },
+                  });
 
         this.logger.info("Secret value removed", {
             extra: { bundle: describeSecretBundle(bundle), key, count: removed.count },
         });
         return removed.count > 0;
-    }
-
-    /**
-     * The parent bundle row's id, or undefined when the bundle has not been
-     * registered. Undefined is not an error: while the authoritative store is
-     * still AWS, a bundle can legitimately exist there before anything mirrors it
-     * here, and a value row cannot be written without its parent.
-     */
-    private async parentId(bundle: SecretBundle): Promise<string | undefined> {
-        const row =
-            bundle.kind === "app"
-                ? await this.db.previewkitSecret.findUnique({
-                      where: {
-                          applicationId_appName: { applicationId: bundle.applicationId, appName: bundle.appName },
-                      },
-                      select: { id: true },
-                  })
-                : await this.db.previewkitOrgSecret.findUnique({
-                      where: { organizationId_name: { organizationId: bundle.organizationId, name: bundle.name } },
-                      select: { id: true },
-                  });
-
-        if (row == null) {
-            this.logger.warn("No secret bundle row to attach values to; skipping", {
-                extra: { bundle: describeSecretBundle(bundle) },
-            });
-        }
-        return row?.id;
     }
 }

@@ -2382,8 +2382,8 @@ model PreviewkitEncryptionKey {
   // identifiers, but hand-written SQL against it would not have to.
   primary Boolean @default(false) @map("is_primary")
 
-  values    PreviewkitSecretValue[]
-  orgValues PreviewkitOrgSecretValue[]
+  values    PreviewkitSecret[]
+  orgValues PreviewkitOrgSecret[]
 
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -2391,19 +2391,33 @@ model PreviewkitEncryptionKey {
   @@map("previewkit_encryption_key")
 }
 
+// One secret an app's preview runs with: an environment variable and its sealed
+// value. There is no bundle row - a "bundle" is just the set of rows sharing
+// (applicationId, appName), so an app with no secrets has no rows rather than an
+// empty parent.
 model PreviewkitSecret {
   id            String @id @default(cuid())
   applicationId String @map("application_id")
   appName       String @map("app_name")
+  /// The environment variable name, e.g. DATABASE_URL. Not a cryptographic key.
+  key           String
+  envelope      String
+  /// Which encryption key sealed `envelope`. Restrict, not Cascade: a key must
+  /// not be deletable while any value still needs it to be readable.
+  encryptionKeyId String @map("encryption_key_id")
+  /// Non-reversible SHA-256 prefix, for equality checks without the value.
+  fingerprint     String
+  maskedLength    Int    @map("masked_length")
 
-  application Application               @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  values      PreviewkitSecretValue[]
+  application   Application             @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  encryptionKey PreviewkitEncryptionKey @relation(fields: [encryptionKeyId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@unique([applicationId, appName])
+  @@unique([applicationId, appName, key])
   @@index([applicationId])
+  @@index([encryptionKeyId])
   @@map("previewkit_secret")
 }
 
@@ -2415,71 +2429,36 @@ model PreviewkitSecret {
 // `fingerprint` and `maskedLength` are derived at seal time precisely so listing
 // a bundle - which needs key names and a "does this match what I hold?" check,
 // not values - never has to unwrap a key or decrypt anything.
-model PreviewkitSecretValue {
-  id              String @id @default(cuid())
-  secretId        String @map("secret_id")
-  /// The environment variable name, e.g. DATABASE_URL. Not a cryptographic key.
-  key             String
-  envelope        String
-  /// Which encryption key sealed `envelope`. Restrict, not Cascade: a key must
-  /// not be deletable while any value still needs it to be readable.
-  encryptionKeyId String @map("encryption_key_id")
-  /// Non-reversible SHA-256 prefix, for equality checks without the value.
-  fingerprint     String
-  maskedLength    Int    @map("masked_length")
-
-  secret        PreviewkitSecret        @relation(fields: [secretId], references: [id], onDelete: Cascade)
-  encryptionKey PreviewkitEncryptionKey @relation(fields: [encryptionKeyId], references: [id], onDelete: Restrict)
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@unique([secretId, key])
-  @@index([encryptionKeyId])
-  @@map("previewkit_secret_value")
-}
 
 // Org-scoped credentials referenced by preview config addons via the
 // `auth_secret` field. One row per (org, name), with the values themselves in
 // previewkit_org_secret_value, each sealed under a previewkit encryption key
 // (matching the per-app PreviewkitSecret pattern); each provider's options schema
 // picks the key it needs (e.g. NeonProvider expects `token`).
+// The org-scoped mirror of PreviewkitSecret: one row per secret, identified by
+// (organizationId, name, key) instead of (applicationId, appName, key). See that
+// model for the reasoning behind every field.
 model PreviewkitOrgSecret {
   id             String @id @default(cuid())
   organizationId String @map("organization_id")
   name           String
-
-  organization Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  values       PreviewkitOrgSecretValue[]
-
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@unique([organizationId, name])
-  @@index([organizationId])
-  @@map("previewkit_org_secret")
-}
-
-/// The org-scoped mirror of `PreviewkitSecretValue`; see that model for the
-/// reasoning behind every field.
-model PreviewkitOrgSecretValue {
-  id              String @id @default(cuid())
-  orgSecretId     String @map("org_secret_id")
-  key             String
-  envelope        String
+  /// The key an addon provider reads, e.g. `token`. Not a cryptographic key.
+  key            String
+  envelope       String
   encryptionKeyId String @map("encryption_key_id")
   fingerprint     String
   maskedLength    Int    @map("masked_length")
 
-  orgSecret     PreviewkitOrgSecret     @relation(fields: [orgSecretId], references: [id], onDelete: Cascade)
+  organization  Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   encryptionKey PreviewkitEncryptionKey @relation(fields: [encryptionKeyId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  @@unique([orgSecretId, key])
+  @@unique([organizationId, name, key])
+  @@index([organizationId])
   @@index([encryptionKeyId])
-  @@map("previewkit_org_secret_value")
+  @@map("previewkit_org_secret")
 }
 
 // An Application's preview config document - latest-only, one row per

@@ -24,7 +24,7 @@ secretsSuite({
 
             await values(harness).put(bundle, [{ key: "DATABASE_URL", value: "postgres://secret" }]);
 
-            const row = await harness.db.previewkitSecretValue.findFirstOrThrow({ where: { key: "DATABASE_URL" } });
+            const row = await harness.db.previewkitSecret.findFirstOrThrow({ where: { key: "DATABASE_URL" } });
             const cipher = await new SecretKeys(harness.db, harness.provider).forEnvelope(row.envelope);
 
             expect(cipher.decrypt(row.envelope, scopeIn(bundle, "DATABASE_URL"))).toBe("postgres://secret");
@@ -36,7 +36,7 @@ secretsSuite({
 
             await values(harness).put(bundle, [{ key: "DATABASE_URL", value: "postgres://secret" }]);
 
-            const row = await harness.db.previewkitSecretValue.findFirstOrThrow({ where: { key: "DATABASE_URL" } });
+            const row = await harness.db.previewkitSecret.findFirstOrThrow({ where: { key: "DATABASE_URL" } });
 
             expect(row.envelope).not.toContain("postgres://secret");
         });
@@ -48,7 +48,7 @@ secretsSuite({
 
             await values(harness).put(bundle, [{ key: "LONG", value }]);
 
-            const row = await harness.db.previewkitSecretValue.findFirstOrThrow({ where: { key: "LONG" } });
+            const row = await harness.db.previewkitSecret.findFirstOrThrow({ where: { key: "LONG" } });
 
             expect(row.fingerprint).toBe(secretFingerprint(value));
             expect(row.maskedLength).toBe(32);
@@ -62,7 +62,7 @@ secretsSuite({
             await mint(harness, "2");
             await values(harness).put(bundle, [{ key: "B", value: "two" }]);
 
-            const rows = await harness.db.previewkitSecretValue.findMany({ orderBy: { key: "asc" } });
+            const rows = await harness.db.previewkitSecret.findMany({ orderBy: { key: "asc" } });
 
             expect(rows.map((row) => [row.key, row.encryptionKeyId])).toEqual([
                 ["A", "1"],
@@ -81,7 +81,7 @@ secretsSuite({
             ]);
             await store.put(bundle, [{ key: "A", value: "one-updated" }]);
 
-            const rows = await harness.db.previewkitSecretValue.findMany({ orderBy: { key: "asc" } });
+            const rows = await harness.db.previewkitSecret.findMany({ orderBy: { key: "asc" } });
             const keys = new SecretKeys(harness.db, harness.provider);
             const updated = await keys.forEnvelope(rows[0]?.envelope ?? "");
 
@@ -98,7 +98,7 @@ secretsSuite({
             await store.put(web, [{ key: "DATABASE_URL", value: "web-value" }]);
             await store.put(api, [{ key: "DATABASE_URL", value: "api-value" }]);
 
-            expect(await harness.db.previewkitSecretValue.count()).toBe(2);
+            expect(await harness.db.previewkitSecret.count()).toBe(2);
         });
 
         test("removes a single key", async ({ harness }) => {
@@ -114,7 +114,7 @@ secretsSuite({
             // this, having no second store left to ask.
             expect(await store.remove(bundle, "A")).toBe(true);
 
-            expect((await harness.db.previewkitSecretValue.findMany()).map((row) => row.key)).toEqual(["B"]);
+            expect((await harness.db.previewkitSecret.findMany()).map((row) => row.key)).toEqual(["B"]);
         });
 
         test("reports removing an absent key rather than failing", async ({ harness }) => {
@@ -124,11 +124,9 @@ secretsSuite({
             expect(await values(harness).remove(bundle, "NOT_THERE")).toBe(false);
         });
 
-        test("reports a removal against a bundle that was never registered", async ({ harness }) => {
+        test("reports a removal against an application that holds no secrets at all", async ({ harness }) => {
             await mint(harness, "1");
 
-            // No parent row at all, which is a different miss from a registered bundle
-            // that simply lacks the key.
             expect(
                 await values(harness).remove({ kind: "app", applicationId: "app_missing", appName: "web" }, "ANY"),
             ).toBe(false);
@@ -140,13 +138,13 @@ secretsSuite({
             const store = values(harness);
 
             await store.put(bundle, [{ key: "token", value: "neon-token" }]);
-            const row = await harness.db.previewkitOrgSecretValue.findFirstOrThrow({ where: { key: "token" } });
+            const row = await harness.db.previewkitOrgSecret.findFirstOrThrow({ where: { key: "token" } });
             const cipher = await new SecretKeys(harness.db, harness.provider).forEnvelope(row.envelope);
 
             expect(cipher.decrypt(row.envelope, scopeIn(bundle, "token"))).toBe("neon-token");
 
             await store.remove(bundle, "token");
-            expect(await harness.db.previewkitOrgSecretValue.count()).toBe(0);
+            expect(await harness.db.previewkitOrgSecret.count()).toBe(0);
         });
 
         test("reports a missing encryption key as a typed error the caller can skip on", async ({ harness }) => {
@@ -157,12 +155,14 @@ secretsSuite({
             );
         });
 
-        test("skips a bundle that has no parent row rather than failing", async ({ harness }) => {
+        test("refuses to seal a value against an application that does not exist", async ({ harness }) => {
             await mint(harness, "1");
-            const unregistered = { kind: "app", applicationId: "app_missing", appName: "web" } as const;
+            const nonexistent = { kind: "app", applicationId: "app_missing", appName: "web" } as const;
 
-            await expect(values(harness).put(unregistered, [{ key: "A", value: "one" }])).resolves.toBeUndefined();
-            expect(await harness.db.previewkitSecretValue.count()).toBe(0);
+            // The applicationId FK is what makes a bundle belong to a tenant, so a write
+            // naming an unknown one is a bug in the caller, not an empty bundle.
+            await expect(values(harness).put(nonexistent, [{ key: "A", value: "one" }])).rejects.toThrow();
+            expect(await harness.db.previewkitSecret.count()).toBe(0);
         });
 
         // The Restrict FK is what turns "retired rows are never deleted" from a
@@ -190,87 +190,6 @@ secretsSuite({
 });
 
 secretsSuite({
-    name: "SecretValues.compare",
-    cases: (test) => {
-        async function sealed(harness: SecretsHarness, items: { key: string; value: string }[]) {
-            await mint(harness, "1");
-            const bundle = await harness.createAppBundle();
-            await values(harness).put(bundle, items);
-            return bundle;
-        }
-
-        test("reports no difference when the two agree", async ({ harness }) => {
-            const bundle = await sealed(harness, [{ key: "A", value: "one" }]);
-
-            const diff = await values(harness).compare(bundle, new Map([["A", secretFingerprint("one")]]));
-
-            expect(diff).toEqual({ missing: [], extra: [], mismatched: [] });
-        });
-
-        test("reports a key the authoritative store has and Postgres does not", async ({ harness }) => {
-            const bundle = await sealed(harness, [{ key: "A", value: "one" }]);
-
-            const diff = await values(harness).compare(
-                bundle,
-                new Map([
-                    ["A", secretFingerprint("one")],
-                    ["B", secretFingerprint("two")],
-                ]),
-            );
-
-            expect(diff).toEqual({ missing: ["B"], extra: [], mismatched: [] });
-        });
-
-        test("reports a key Postgres has and the authoritative store does not", async ({ harness }) => {
-            const bundle = await sealed(harness, [
-                { key: "A", value: "one" },
-                { key: "B", value: "two" },
-            ]);
-
-            const diff = await values(harness).compare(bundle, new Map([["A", secretFingerprint("one")]]));
-
-            expect(diff).toEqual({ missing: [], extra: ["B"], mismatched: [] });
-        });
-
-        test("reports a key whose value differs", async ({ harness }) => {
-            const bundle = await sealed(harness, [{ key: "A", value: "one" }]);
-
-            const diff = await values(harness).compare(bundle, new Map([["A", secretFingerprint("changed")]]));
-
-            expect(diff).toEqual({ missing: [], extra: [], mismatched: ["A"] });
-        });
-
-        // An un-backfilled bundle is the case that must not be mistaken for an empty one:
-        // serving a read from here would show the user no secrets at all.
-        test("reports every key as missing when nothing has been mirrored", async ({ harness }) => {
-            await mint(harness, "1");
-            const bundle = await harness.createAppBundle();
-
-            const diff = await values(harness).compare(
-                bundle,
-                new Map([
-                    ["A", secretFingerprint("one")],
-                    ["B", secretFingerprint("two")],
-                ]),
-            );
-
-            expect(diff).toEqual({ missing: ["A", "B"], extra: [], mismatched: [] });
-        });
-
-        test("compares org bundles independently of app bundles with the same key", async ({ harness }) => {
-            await mint(harness, "1");
-            const app = await harness.createAppBundle();
-            const org = await harness.createOrgBundle();
-            await values(harness).put(app, [{ key: "token", value: "app-value" }]);
-
-            const diff = await values(harness).compare(org, new Map([["token", secretFingerprint("app-value")]]));
-
-            expect(diff).toEqual({ missing: ["token"], extra: [], mismatched: [] });
-        });
-    },
-});
-
-secretsSuite({
     name: "SecretValues reads",
     cases: (test) => {
         test("lists keys with real timestamps and no decryption", async ({ harness }) => {
@@ -289,9 +208,7 @@ secretsSuite({
             expect(listed[0]?.updatedAt).toBeInstanceOf(Date);
         });
 
-        // Empty must stay distinguishable from "no secrets" - a caller that served this
-        // as a listing would show a user nothing at all for an un-migrated bundle.
-        test("lists nothing for a bundle that was never mirrored", async ({ harness }) => {
+        test("lists nothing for a bundle holding no keys", async ({ harness }) => {
             await mint(harness, "1");
 
             expect(await values(harness).list(await harness.createAppBundle())).toEqual([]);
@@ -366,9 +283,9 @@ secretsSuite({
             expect(await values(harness).getAll(bundle)).toEqual({ OLD: "one", NEW: "two" });
         });
 
-        // Undefined rather than {} so a caller can tell "not migrated" from "no secrets"
-        // and fall back, instead of handing a build an empty set of secrets.
-        test("returns undefined for a bundle that was never mirrored", async ({ harness }) => {
+        // Undefined rather than {}, so a caller cannot mistake "nothing is stored" for a
+        // deliberately empty environment and hand a build no credentials at all.
+        test("returns undefined for a bundle holding no keys", async ({ harness }) => {
             await mint(harness, "1");
 
             expect(await values(harness).getAll(await harness.createAppBundle())).toBeUndefined();

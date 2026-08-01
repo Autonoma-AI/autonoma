@@ -11,10 +11,4 @@ export {
 } from "./preview-secrets";
 export { secretFingerprint } from "./secret-fingerprint";
 export { SecretKeys } from "./secret-keys";
-export {
-    MAX_MASKED_LENGTH,
-    SecretValues,
-    type MirrorComparison,
-    type SecretItem,
-    type SecretValueSummary,
-} from "./secret-values";
+export { SecretValues, type SecretItem, type SecretValueSummary } from "./secret-values";

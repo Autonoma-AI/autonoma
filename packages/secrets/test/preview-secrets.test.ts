@@ -25,7 +25,6 @@ class RecordingAws {
 }
 
 interface SeedOptions {
-    apps: string[];
     sealed?: Record<string, Record<string, string>>;
     githubRepositoryId?: number;
 }
@@ -33,7 +32,7 @@ interface SeedOptions {
 secretsSuite({
     name: "PreviewSecrets",
     cases: (test) => {
-        /** An Application with a secret row per named app, sealing whichever `sealed` names. */
+        /** An Application holding a sealed bundle per app named in `sealed`. */
         async function seedApp(harness: SecretsHarness, options: SeedOptions): Promise<{ applicationId: string }> {
             const organization = await harness.db.organization.create({
                 data: { name: `Org ${crypto.randomUUID()}`, slug: `org-${crypto.randomUUID()}` },
@@ -47,15 +46,6 @@ secretsSuite({
                     githubRepositoryId: options.githubRepositoryId ?? REPO_ID,
                 },
             });
-            for (const appName of options.apps) {
-                await harness.db.previewkitSecret.create({
-                    data: {
-                        applicationId: application.id,
-                        appName,
-                    },
-                });
-            }
-
             const values = new SecretValues(harness.db, new SecretKeys(harness.db, harness.provider));
             for (const [appName, items] of Object.entries(options.sealed ?? {})) {
                 await values.put(
@@ -80,10 +70,7 @@ secretsSuite({
 
         test("reads the sealed preview env without asking AWS", async ({ harness }) => {
             await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
-            const { applicationId } = await seedApp(harness, {
-                apps: ["web"],
-                sealed: { web: { API_KEY: "sealed", DEBUG: "1" } },
-            });
+            const { applicationId } = await seedApp(harness, { sealed: { web: { API_KEY: "sealed", DEBUG: "1" } } });
             const aws = new RecordingAws();
 
             const values = await reader(harness, aws).getEnvValues(target(applicationId));
@@ -95,7 +82,6 @@ secretsSuite({
         test("lists the env-var names without decrypting anything", async ({ harness }) => {
             await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
             const { applicationId } = await seedApp(harness, {
-                apps: ["web"],
                 sealed: { web: { STRIPE_KEY: "sk_live", DATABASE_URL: "postgres://x" } },
             });
             const unwrapsAfterSeeding = harness.provider.unwrapped.length;
@@ -108,24 +94,20 @@ secretsSuite({
             expect(harness.provider.unwrapped).toHaveLength(unwrapsAfterSeeding);
         });
 
-        test("resolves the sole registered app even when it is not named web", async ({ harness }) => {
+        test("resolves the sole stored bundle even when its app is not named web", async ({ harness }) => {
             // The name-based fallback builds previewkit/<repo>/web, so this preview
             // throws ResourceNotFoundException at the caller today.
             await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
-            const { applicationId } = await seedApp(harness, {
-                apps: ["storefront"],
-                sealed: { storefront: { TOKEN: "t" } },
-            });
+            const { applicationId } = await seedApp(harness, { sealed: { storefront: { TOKEN: "t" } } });
 
             const values = await reader(harness, new RecordingAws()).getEnvValues(target(applicationId));
 
             expect(values).toEqual({ TOKEN: "t" });
         });
 
-        test("prefers web when the Application registers several apps", async ({ harness }) => {
+        test("prefers web when the Application holds several bundles", async ({ harness }) => {
             await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
             const { applicationId } = await seedApp(harness, {
-                apps: ["api", "web"],
                 sealed: { api: { WHICH: "api" }, web: { WHICH: "web" } },
             });
 
@@ -139,16 +121,16 @@ secretsSuite({
             // Two organizations onboarding the same GitHub repo is representable, so the
             // read is keyed on the Application the caller states - resolving the tenant
             // from the repo name would have to guess between these two.
-            const theirs = await seedApp(harness, { apps: ["web"], sealed: { web: { OWNER: "theirs" } } });
-            const mine = await seedApp(harness, { apps: ["web"], sealed: { web: { OWNER: "mine" } } });
+            const theirs = await seedApp(harness, { sealed: { web: { OWNER: "theirs" } } });
+            const mine = await seedApp(harness, { sealed: { web: { OWNER: "mine" } } });
             const client = reader(harness, new RecordingAws());
 
             expect(await client.getEnvValues(target(mine.applicationId))).toEqual({ OWNER: "mine" });
             expect(await client.getEnvValues(target(theirs.applicationId))).toEqual({ OWNER: "theirs" });
         });
 
-        test("falls back to AWS for a preview Postgres holds nothing for", async ({ harness }) => {
-            const { applicationId } = await seedApp(harness, { apps: ["web"] });
+        test("falls back to AWS for an Application whose bundles are all empty", async ({ harness }) => {
+            const { applicationId } = await seedApp(harness, {});
             const aws = new RecordingAws({ [`previewkit/${REPO}/web`]: { API_KEY: "from-aws" } });
 
             const values = await reader(harness, aws).getEnvValues(target(applicationId));
@@ -157,7 +139,7 @@ secretsSuite({
             expect(aws.asked).toEqual([`previewkit/${REPO}/web`]);
         });
 
-        test("falls back to AWS for an Application with no registered secret at all", async ({ harness }) => {
+        test("falls back to AWS for an applicationId that does not exist", async ({ harness }) => {
             const aws = new RecordingAws({ [`previewkit/${REPO}/web`]: { API_KEY: "from-aws" } });
 
             const values = await reader(harness, aws).getEnvValues(target("app_missing"));
@@ -166,7 +148,7 @@ secretsSuite({
         });
 
         test("falls back to AWS when listing names finds nothing in Postgres", async ({ harness }) => {
-            const { applicationId } = await seedApp(harness, { apps: ["web"] });
+            const { applicationId } = await seedApp(harness, {});
             const aws = new RecordingAws({ [`previewkit/${REPO}/web`]: { API_KEY: "from-aws" } });
 
             const names = await reader(harness, aws).getEnvVarNames(target(applicationId));
@@ -176,7 +158,7 @@ secretsSuite({
 
         test("reads AWS when this environment has no key to open postgres with", async ({ harness }) => {
             await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
-            const { applicationId } = await seedApp(harness, { apps: ["web"], sealed: { web: { API_KEY: "sealed" } } });
+            const { applicationId } = await seedApp(harness, { sealed: { web: { API_KEY: "sealed" } } });
             const aws = new RecordingAws({ [`previewkit/${REPO}/web`]: { API_KEY: "from-aws" } });
 
             const values = await new PreviewSecrets(aws, harness.db).getEnvValues(target(applicationId));

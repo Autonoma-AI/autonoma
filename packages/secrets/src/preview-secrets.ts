@@ -54,7 +54,7 @@ interface AppBundle {
  * that predate that scheme, and misses any Application whose app is not called `web`
  * at all - both of which throw `ResourceNotFoundException` at the caller.
  *
- * Falls back to the name-based AWS read whenever the row or its values are missing,
+ * Falls back to the name-based AWS read whenever the bundle holds nothing,
  * so a repo the migration has not reached still answers.
  */
 export class PreviewSecrets {
@@ -108,8 +108,9 @@ export class PreviewSecrets {
 
     /**
      * Resolves the bundle and runs `read` against it, or returns undefined for the
-     * caller to fall back to AWS. Postgres holding nothing means not migrated rather
-     * than empty, so a miss must not answer with an empty preview env.
+     * caller to fall back to AWS. A miss must never answer with an empty preview env:
+     * a harness handed `{}` runs every request unauthenticated and reports the 401s
+     * as product bugs.
      */
     private async fromPostgres<T>(
         applicationId: string,
@@ -176,6 +177,7 @@ export class PreviewSecrets {
         const records = await this.prisma.previewkitSecret.findMany({
             where: { applicationId },
             select: { appName: true },
+            distinct: ["appName"],
         });
 
         // Prefer the primary app so both sources answer with the same values, but a

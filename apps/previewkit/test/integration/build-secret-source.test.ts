@@ -11,7 +11,7 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
     createHarness: () => PreviewkitTestHarness.create(),
     seed: async () => undefined,
     cases: (test) => {
-        /** An app bundle whose parent row exists, so sealed values have something to hang off. */
+        /** An Application, plus a sealed bundle under it when `sealed` names any keys. */
         async function bundleWith(
             harness: PreviewkitTestHarness,
             sealed: Record<string, string>,
@@ -25,10 +25,6 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
                     architecture: "WEB",
                 },
             });
-            await harness.db.previewkitSecret.create({
-                data: { applicationId: application.id, appName: "web" },
-            });
-
             const bundle: SecretBundle = { kind: "app", applicationId: application.id, appName: "web" };
             if (Object.keys(sealed).length > 0) {
                 const provider = new FakeKeyProvider();
@@ -73,11 +69,10 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
             await expect(source(harness).forKeys(bundle, ["PRESENT", "ABSENT"])).rejects.toThrow(/ABSENT/);
         });
 
-        test("fails rather than answering empty for a registered bundle holding nothing", async ({ harness }) => {
+        test("fails rather than answering empty for a bundle holding nothing", async ({ harness }) => {
             // Reachable two ways: values that never landed, or a bundle whose every key
-            // was deleted (DELETE removes value rows and leaves the bundle row). There is
-            // no second store to ask either way, and a build that succeeds against no
-            // credentials is worse than one that stops.
+            // was deleted. There is no second store to ask either way, and a build that
+            // succeeds against no credentials is worse than one that stops.
             const bundle = await bundleWith(harness, {});
 
             await expect(source(harness).forBundle(bundle)).rejects.toThrow(/No secret values are stored/);

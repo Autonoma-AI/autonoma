@@ -47,15 +47,11 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
     createHarness: () => PreviewkitTestHarness.create(),
     seed: async () => undefined,
     cases: (test) => {
-        /**
-         * An Application with one secret row per named app, and sealed values for
-         * whichever of them `sealed` names.
-         */
+        /** An Application holding a sealed bundle per app named in `sealed`. */
         async function seedApps(
             harness: PreviewkitTestHarness,
-            apps: string[],
             sealed: Record<string, Record<string, string>>,
-        ): Promise<{ organizationId: string }> {
+        ): Promise<{ organizationId: string; applicationId: string }> {
             const { organizationId } = await harness.createOrganization();
             const application = await harness.db.application.create({
                 data: {
@@ -66,10 +62,6 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
                     githubRepositoryId: REPO_ID,
                 },
             });
-            for (const appName of apps) {
-                await harness.db.previewkitSecret.create({ data: { applicationId: application.id, appName } });
-            }
-
             if (Object.keys(sealed).length > 0) {
                 const provider = new FakeKeyProvider();
                 await mintSecretKey({ db: harness.db, provider, keyId: "1" });
@@ -81,7 +73,7 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
                     );
                 }
             }
-            return { organizationId };
+            return { organizationId, applicationId: application.id };
         }
 
         function materializer(harness: PreviewkitTestHarness, writer: SecretWriter, released: string[][] = []) {
@@ -95,7 +87,7 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
         }
 
         test("writes the K8s Secret from the sealed values", async ({ harness }) => {
-            const { organizationId } = await seedApps(harness, ["web"], {
+            const { organizationId } = await seedApps(harness, {
                 web: { AUTONOMA_SHARED_SECRET: "shhh", DATABASE_URL: "postgres://x" },
             });
             const writer = new RecordingWriter();
@@ -115,7 +107,7 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
         });
 
         test("releases the ExternalSecret owning a target before writing it", async ({ harness }) => {
-            const { organizationId } = await seedApps(harness, ["web"], { web: { TOKEN: "t" } });
+            const { organizationId } = await seedApps(harness, { web: { TOKEN: "t" } });
             const released: string[][] = [];
             // The Secret already exists, as it does in a namespace deployed before the
             // cutover: that is the case the release exists for.
@@ -134,11 +126,16 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
             expect(writer.written[0]?.metadata?.ownerReferences).toEqual([]);
         });
 
-        test("fails the deploy when a registered app's Secret cannot be written", async ({ harness }) => {
-            // `api` has a registered bundle but no sealed values, so nothing can serve it.
-            // There is no ESO to fall through to any more, and rolling out an app whose
-            // Secret was never populated brings it up "ready" against missing credentials.
-            const { organizationId } = await seedApps(harness, ["web", "api"], { web: { TOKEN: "t" } });
+        test("fails the deploy when a stored app's Secret cannot be written", async ({ harness }) => {
+            const { organizationId } = await seedApps(harness, { web: { TOKEN: "t" }, api: { TOKEN: "t" } });
+            // `api` holds a row that cannot be opened - the shape a botched key rotation
+            // or a partial restore leaves behind. There is no ESO to fall through to any
+            // more, and rolling out an app whose Secret was never populated brings it up
+            // "ready" against missing credentials.
+            await harness.db.previewkitSecret.updateMany({
+                where: { appName: "api" },
+                data: { envelope: "v1.1.bm90LWFuLWVudmVsb3Bl" },
+            });
 
             await expect(
                 new RuntimeSecrets(materializer(harness, new RecordingWriter()), harness.db).applyForNamespace(
@@ -150,8 +147,8 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
             ).rejects.toThrow(/api/);
         });
 
-        test("returns nothing when no app has a registered secret", async ({ harness }) => {
-            const { organizationId } = await seedApps(harness, [], {});
+        test("returns nothing when no app holds a secret", async ({ harness }) => {
+            const { organizationId } = await seedApps(harness, {});
 
             const result = await new RuntimeSecrets(
                 materializer(harness, new RecordingWriter()),
@@ -161,8 +158,8 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
             expect(result.size).toBe(0);
         });
 
-        test("fails when registered apps exist but the environment has no encryption key", async ({ harness }) => {
-            const { organizationId } = await seedApps(harness, ["web"], {});
+        test("fails when stored bundles exist but the environment has no encryption key", async ({ harness }) => {
+            const { organizationId } = await seedApps(harness, { web: { TOKEN: "t" } });
 
             await expect(
                 new RuntimeSecrets(undefined, harness.db).applyForNamespace(organizationId, REPO_ID, NAMESPACE, [
@@ -172,7 +169,7 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
         });
 
         test("ignores an app of the same name registered under another Application", async ({ harness }) => {
-            const { organizationId } = await seedApps(harness, ["web"], { web: { TOKEN: "mine" } });
+            const { organizationId } = await seedApps(harness, { web: { TOKEN: "mine" } });
             // Same org, same app name, different repo - a bare appName match would mount
             // this foreign application's secret into the namespace.
             const other = await harness.db.application.create({
@@ -184,7 +181,10 @@ integrationTestSuite<PreviewkitTestHarness, undefined>({
                     githubRepositoryId: REPO_ID + 1,
                 },
             });
-            await harness.db.previewkitSecret.create({ data: { applicationId: other.id, appName: "web" } });
+            await new SecretValues(harness.db, new SecretKeys(harness.db, new FakeKeyProvider())).put(
+                { kind: "app", applicationId: other.id, appName: "web" },
+                [{ key: "TOKEN", value: "theirs" }],
+            );
 
             const writer = new RecordingWriter();
             const result = await new RuntimeSecrets(materializer(harness, writer), harness.db).applyForNamespace(

@@ -698,9 +698,12 @@ export class OnboardingSdkCapabilityService {
         sdkAppName: string,
         deployedAt: Date | null,
     ): Promise<boolean> {
-        const secret = await this.db.previewkitSecret.findUnique({
-            where: { applicationId_appName: { applicationId, appName: sdkAppName } },
+        // The bundle's own timestamp is the newest of its keys': any one of them
+        // changing is a reason to redeploy, since they all mount from one K8s Secret.
+        const secret = await this.db.previewkitSecret.findFirst({
+            where: { applicationId, appName: sdkAppName },
             select: { updatedAt: true },
+            orderBy: { updatedAt: "desc" },
         });
         if (secret == null) return false;
         if (deployedAt == null) return true;

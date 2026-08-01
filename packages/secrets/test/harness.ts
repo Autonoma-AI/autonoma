@@ -32,13 +32,11 @@ export class SecretsHarness implements IntegrationHarness {
     async beforeEach() {
         this.provider = new FakeKeyProvider();
 
-        // Values first: their encryptionKey FK is Restrict, so key rows cannot go while
+        // Secrets first: their encryptionKey FK is Restrict, so key rows cannot go while
         // any value still references one - which is the point of that constraint.
-        await this.db.previewkitSecretValue.deleteMany();
-        await this.db.previewkitOrgSecretValue.deleteMany();
-        await this.db.previewkitEncryptionKey.deleteMany();
         await this.db.previewkitSecret.deleteMany();
         await this.db.previewkitOrgSecret.deleteMany();
+        await this.db.previewkitEncryptionKey.deleteMany();
         await this.db.application.deleteMany();
         await this.db.organization.deleteMany();
     }
@@ -47,7 +45,7 @@ export class SecretsHarness implements IntegrationHarness {
         // No-op
     }
 
-    /** An app-scoped bundle with its `previewkit_secret` parent row registered. */
+    /** An app-scoped bundle identity, with the Application its rows hang off. */
     async createAppBundle(appName = "web"): Promise<AppBundle> {
         const organizationId = await this.createOrg();
         const application = await this.db.application.create({
@@ -58,21 +56,13 @@ export class SecretsHarness implements IntegrationHarness {
                 architecture: "WEB",
             },
         });
-        await this.db.previewkitSecret.create({
-            data: { applicationId: application.id, appName },
-        });
 
         return { kind: "app", applicationId: application.id, appName };
     }
 
-    /** An org-scoped bundle with its `previewkit_org_secret` parent row registered. */
+    /** An org-scoped bundle identity, with the Organization its rows hang off. */
     async createOrgBundle(name = "neon"): Promise<OrgBundle> {
-        const organizationId = await this.createOrg();
-        await this.db.previewkitOrgSecret.create({
-            data: { organizationId, name },
-        });
-
-        return { kind: "org", organizationId, name };
+        return { kind: "org", organizationId: await this.createOrg(), name };
     }
 
     private async createOrg(): Promise<string> {
