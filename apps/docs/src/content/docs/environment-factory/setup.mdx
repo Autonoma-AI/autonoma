@@ -8,6 +8,12 @@ import TabItem from "../../../components/TabItem.astro"
 
 This guide takes you from nothing to a working Environment Factory endpoint at `/api/autonoma`. Plan for anywhere from 30 minutes to a couple of hours, depending on how many models your app has.
 
+:::tip[You may not need to do this by hand]
+The [test planner](/test-planner/)'s "Set up test data" step hands this whole integration to your locally installed coding agent: it installs the SDK, writes the endpoint, registers factories that call your real creation code, validates the full up/down cycle against your running app, and opens a pull request for you to review.
+
+Doing it yourself is fully supported, and this guide is also how you understand what the agent built. But if you have not run the planner yet, start there.
+:::
+
 You'll do eight things:
 
 1. [Install the SDK](#1-install-the-sdk) in your existing backend

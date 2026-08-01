@@ -7,17 +7,25 @@ The endpoint creates and deletes data, so it's protected by three independent la
 
 ## The two secrets
 
-Two secrets with different jobs. They **must be different values** - the SDK throws `SAME_SECRETS` at startup if they match.
+Two secrets with different jobs. They **must be different values**. The SDK does not check this at startup - it returns `SAME_SECRETS` (HTTP 500) on the first request that arrives, so a handler with matching secrets boots cleanly and fails on first use.
 
 | Secret | Env variable | Who knows it | Purpose |
 | --- | --- | --- | --- |
 | **Shared secret** | `AUTONOMA_SHARED_SECRET` | You + Autonoma | HMAC-signs every request. Autonoma signs; your SDK verifies. |
-| **Signing secret** | `AUTONOMA_SIGNING_SECRET` | Only you | Signs the teardown token during `up`, verifies it during `down`. Autonoma stores it opaquely and can't read it. |
+| **Signing secret** | `AUTONOMA_SIGNING_SECRET` | You, and Autonoma when it manages your preview | Signs the teardown token during `up`, verifies it during `down`. |
 
 ```bash
 openssl rand -hex 32   # AUTONOMA_SHARED_SECRET
 openssl rand -hex 32   # AUTONOMA_SIGNING_SECRET (must differ)
 ```
+
+:::note[Who generates these depends on where your app runs]
+On an Autonoma-managed preview environment you do not generate either one. Autonoma mints both and
+injects them into your app, and they are rotatable under **Settings -> Secrets**. Both keys are
+reserved there - the dashboard rejects an attempt to set them yourself.
+
+Generate them by hand only when you host the endpoint somewhere Autonoma does not manage.
+:::
 
 ## The three layers
 
@@ -59,18 +67,21 @@ Every code the endpoint can return, with its fix:
 
 | Code | HTTP | Meaning | Fix |
 | --- | --- | --- | --- |
+| `CONFIGURATION_ERROR` | 503 | The handler is running without `AUTONOMA_SHARED_SECRET` and `AUTONOMA_SIGNING_SECRET`. Not emitted by every SDK - the TypeScript one fails differently | Set both in the environment where your backend actually runs - setting them locally but not in the deployed service is the usual cause |
 | `INVALID_SIGNATURE` | 401 | HMAC signature missing or doesn't match | Make `AUTONOMA_SHARED_SECRET` match the value Autonoma uses for your app |
-| `INVALID_BODY` | 400 | Body isn't valid JSON, or a required field is missing | Match each record to its own top-level model key and supply every required field |
+| `UNRESOLVED_TOKEN` | 400 | A `{{token}}` in the recipe's `create` has no matching entry under `variables` | Declare the variable, or fix the typo. Only [`{{testRunId}}` and `{{testRunShortId}}`](/reference/scenario-recipe-schema/#built-in-tokens) are built in |
+| `INVALID_BODY` | 400 | Body isn't valid JSON, a required field is missing, or a `_ref` names an alias nothing declares | Match each record to its own top-level model key, supply every required field, and declare each alias with `_alias` in the same payload |
 | `UNKNOWN_ACTION` | 400 | `action` isn't `discover`, `up`, or `down` | Check the request is one of the three actions |
+| `UNKNOWN_ENVIRONMENT` | 400 | The requested environment name does not exist | Use a scenario name your recipe actually declares |
 | `INVALID_REFS_TOKEN` | 403 | Refs token missing, malformed, or failed verification | Use the same `AUTONOMA_SIGNING_SECRET` between `up` and `down` |
 | `PRODUCTION_BLOCKED` | 404 | Older SDK versions only: the deprecated `allowProduction` option was not set | Upgrade the SDK (the endpoint is always enabled now), or set `allowProduction: true` until you can |
 | `SAME_SECRETS` | 500 | `sharedSecret` and `signingSecret` are identical | Use two different `openssl rand -hex 32` values |
 | `FACTORY_MISSING_PK` | 500 | A factory's `create` didn't return an id | Return at least `{ id: "..." }` from every `create` |
-| `INTERNAL_ERROR` | 500 | Unexpected server error | Check your factory bodies and server logs |
+| `INTERNAL_ERROR` | 500 | Unexpected server error - **and** the code for a record that fails a factory's `inputSchema`, surfacing as `Invalid input for "<Model>"` | Check the failing model's schema against the values the recipe sends, then your factory bodies and server logs |
 
 ## Other common problems
 
-These aren't error codes - they surface as database or validation failures. A dry run reports them to you with the message your own handler produced:
+These surface as database or validation failures rather than as a distinct code - a dry run reports them with the message your own handler produced. 
 
 ![A failed dry-run card in Autonoma, bordered red. The heading reads "Dry run failed during up" and the body carries the error verbatim: SDK returned HTTP 500 - null value in column organization_id of relation account violates not-null constraint. Below the message sits a "Fix with coding agent" button, which opens instructions for connecting the Autonoma MCP so an agent can read the recipe and repair the handler](/img/environment-factory/dry-run-failed.png)
 
@@ -79,7 +90,5 @@ The message is passed straight through from your endpoint, so what you debug is 
 | Problem | Cause | Fix |
 | --- | --- | --- |
 | FK violation on `up` | A required foreign key is missing | Set every FK (including the scope field) explicitly as a `{ "_ref": "alias" }` |
-| `Invalid input for "<Model>"` | Missing required field, or records under the wrong model key | Match each record to its own top-level model key and supply every required field |
-| `references unknown alias(es)` | A `_ref` points at an alias no record declares | Declare the alias with `_alias` in the same payload, or fix the typo |
-| FK violation on `down` | Circular FK between tables | The SDK handles cycles with deferred updates; if it still fails, check for untracked FKs |
+| `cycle detected in _alias/_ref graph` | Two records reference each other through `_alias` / `_ref` | Break the cycle - the SDK rejects it rather than resolving it. Create one record first and attach the second reference from inside a factory |
 | Parallel tests collide | Same email/slug across runs | Put a [`{{testRunId}}` / `{{testRunShortId}}` token](/reference/scenario-recipe-schema/#built-in-tokens) in every unique field |

@@ -5,6 +5,16 @@ description: "Autonoma Environment Factory example with Axum."
 
 The Rust SDK is **factory-driven**: you register one factory per model and the SDK derives the discover schema from each factory's `input_fields`. There is no database introspection, no SQLx executor, and no SQL fallback - your factories own creation, the SDK owns the protocol.
 
+:::caution[Replace the auth callback before you ship]
+The `auth` callback below returns a hardcoded placeholder token so the example stays readable. **It
+will not work.** Autonoma uses whatever `auth` returns to sign in as the user the scenario just
+created, so a fixed string means every test fails at login.
+
+Swap it for your app's real session or token creation - the same code path your login endpoint uses.
+See [Authentication](/environment-factory/authentication/) for the three supported shapes: session
+cookies, bearer tokens, and raw credentials.
+:::
+
 ## Axum
 
 Uses `create_axum_handler` from `autonoma_sdk::axum`. Factories are registered in a `HashMap<String, FactoryDefinition>`. The factories use whatever SQLx pool, Diesel connection, or service layer your app already has - the SDK does not need a database connection.
@@ -56,7 +66,7 @@ let config = HandlerConfig {
             let mut out: HashMap<String, serde_json::Value> = HashMap::new();
             out.insert(
                 "headers".into(),
-                serde_json::json!({ "Authorization": "Bearer test-token" }),
+                serde_json::json!({ "Authorization": "Bearer REPLACE_WITH_A_REAL_TOKEN" }),
             );
             out
         })

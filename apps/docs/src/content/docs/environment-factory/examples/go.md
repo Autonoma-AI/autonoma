@@ -5,6 +5,16 @@ description: "Autonoma Environment Factory example with Gin."
 
 The Go SDK is **factory-driven**: you register one factory per model and the SDK derives the discover schema from each factory's `InputStruct` (a Go struct type). There is no database introspection, no SQL executor, and no SQL fallback - your factories own creation, the SDK owns the protocol.
 
+:::caution[Replace the auth callback before you ship]
+The `auth` callback below returns a hardcoded placeholder token so the example stays readable. **It
+will not work.** Autonoma uses whatever `auth` returns to sign in as the user the scenario just
+created, so a fixed string means every test fails at login.
+
+Swap it for your app's real session or token creation - the same code path your login endpoint uses.
+See [Authentication](/environment-factory/authentication/) for the three supported shapes: session
+cookies, bearer tokens, and raw credentials.
+:::
+
 ## Gin
 
 Uses `autonoma.GinHandler` with factories registered in an `autonoma.FactoryRegistry` map. The factories use whatever `*sql.DB`, GORM, or service layer your app already has - the SDK does not need a database connection.
@@ -62,7 +72,7 @@ config := &autonoma.HandlerConfig{
     // Called after `up` - returns credentials so Autonoma can make authenticated requests
     Auth: func(user map[string]any, ctx autonoma.AuthContext) (map[string]any, error) {
         return map[string]any{
-            "headers": map[string]any{"Authorization": "Bearer test-token"},
+            "headers": map[string]any{"Authorization": "Bearer REPLACE_WITH_A_REAL_TOKEN"},
         }, nil
     },
 }

@@ -7,6 +7,7 @@ import { type CollectionEntry, getCollection } from "astro:content";
  */
 const SIDEBAR_ORDER: string[] = [
     "index",
+    "troubleshooting/index",
     "preview-environments/index",
     "preview-environments/apps",
     "preview-environments/databases",

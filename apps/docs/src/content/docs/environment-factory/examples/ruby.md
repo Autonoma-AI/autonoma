@@ -5,6 +5,16 @@ description: "Autonoma Environment Factory example with Rails."
 
 The Ruby SDK is **factory-driven**: you register one factory per model and the SDK derives the discover schema from each factory's `input_fields`. There is no database introspection, no ActiveRecord executor, and no SQL fallback - your factories own creation, the SDK owns the protocol.
 
+:::caution[Replace the auth callback before you ship]
+The `auth` callback below returns a hardcoded placeholder token so the example stays readable. **It
+will not work.** Autonoma uses whatever `auth` returns to sign in as the user the scenario just
+created, so a fixed string means every test fails at login.
+
+Swap it for your app's real session or token creation - the same code path your login endpoint uses.
+See [Authentication](/environment-factory/authentication/) for the three supported shapes: session
+cookies, bearer tokens, and raw credentials.
+:::
+
 ## Rails
 
 Uses `AutonomaRails::Handler` mixin in a standard Rails controller. The factories use whatever ActiveRecord models, service objects, or repositories your app already has - the SDK does not need a database connection.
@@ -54,7 +64,7 @@ class AutonomaController < ApplicationController
 
       # Called after `up` - returns credentials so Autonoma can make authenticated requests
       auth: ->(_user, _context) {
-        { "headers" => { "Authorization" => "Bearer test-token" } }
+        { "headers" => { "Authorization" => "Bearer REPLACE_WITH_A_REAL_TOKEN" } }
       }
     )
   end

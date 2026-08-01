@@ -14,7 +14,10 @@ You describe your stack once - apps, the databases they need, and their environm
 Once the Autonoma GitHub App is installed on your repository, every `pull_request` event triggers the pipeline:
 
 1. **Opened / synchronized / reopened** - Autonoma fetches the head commit, builds each app, provisions the databases and extra services it needs, runs the database setup tasks, deploys to a dedicated Kubernetes namespace, and comments the preview URL on the PR.
-2. **Closed** - Autonoma deletes the namespace and all resources tied to that PR, then updates the comment.
+2. **Ready for review** - a draft PR gets no preview by default, so marking it ready is what first builds one.
+3. **Closed** - Autonoma deletes the namespace and all resources tied to that PR, then updates the comment.
+
+Draft pull requests are skipped deliberately, to avoid building a preview for work still in progress.
 
 Each preview gets a stable, unguessable URL - a short hash derived from the service name, PR number, and repo, so the same PR always resolves to the same address. One PR may expose several apps, each with its own hostname under `preview.autonoma.app`.
 
@@ -24,7 +27,7 @@ A repository can also have a standing **main-branch environment**: a preview dep
 
 You set up your stack in the Autonoma dashboard (the preview environment onboarding flow), which saves the configuration for your repository. The flow leads with a coding agent: pair your agent to the app and it fills the configuration in for you, while you watch read-only. See [Set up a preview with a coding agent](/mcp/configure-preview/) for that path - the rest of this section describes what it is configuring, and applies either way.
 
-To fill it in yourself, take **Configure manually** on that screen. The manual flow has four required steps - **Apps**, **Database**, **Variables**, and a **Review** step that confirms the configuration and deploys it - plus two optional pieces most projects never need. It declares:
+To fill it in yourself, take **Configure manually** on that screen. The manual flow has three required steps - **Apps**, **Database**, and **Variables** - plus two optional pieces most projects never need. A final **Finish** screen confirms the configuration, where **Save and deploy** builds it. It declares:
 
 - **Apps** to build and deploy (each becomes a public HTTPS URL) - see [Apps and builds](/preview-environments/apps/)
 - **Databases** the apps need (Postgres, MySQL, MongoDB, Redis / Valkey), each with guided setup for schema, seed data, and migrations - see [Databases](/preview-environments/databases/)
@@ -33,6 +36,26 @@ To fill it in yourself, take **Configure manually** on that screen. The manual f
 - **Lifecycle hooks** (optional) - commands that run around each deploy - see [Lifecycle hooks](/preview-environments/hooks/)
 
 Extra services and lifecycle hooks sit off the main path: the flow finishes at Variables, and you reach them only if your setup needs them.
+
+## The setup flow, end to end
+
+Connecting a repository walks through three phases, shown down the left as **Create app**, **Config
+previews**, and **Finish**:
+
+| Phase | What happens |
+| --- | --- |
+| **Create app** | Install the Autonoma GitHub App, pick the repository, and name the application. |
+| **Config previews** | A short set of questions works out which setup fits - whether you already deploy previews per branch, where your backend runs, and how your data is scoped. From there you either connect deploys you already have, or configure PreviewKit to build them. Then Autonoma deploys one and verifies it is reachable. |
+| **Finish** | Confirm per-PR reviews and **Go live**. |
+
+That last screen is the one to know about. It is headed **PR reviews are on**, and the **Go live**
+button is what actually completes onboarding - not the **Start generating tests** button on the
+previous screen, which only moves you to it. Until you press it, the app is not finished.
+
+Once you are live, the **Finish setup** tab is where you deepen coverage: upload test artifacts with
+the [planner](/test-planner/), implement the [Environment Factory](/environment-factory/), and dry-run
+your scenarios. Those three are what let Autonoma provision real test data, and none of them is
+required to get PR reviews working.
 
 ## How apps are built
 
@@ -45,7 +68,7 @@ Either way, images are pushed to a private registry and pulled by the preview cl
 
 ## Secrets
 
-Secrets such as API keys and third-party tokens are stored encrypted and kept out of your stack configuration. Flag any value as a secret with the **Source** control in the onboarding **Variables** step, or manage them out-of-band via the REST API (handy for CI and rotating values without editing the config). They can be owner-scoped (every PR sees them) or PR-scoped (just this PR, useful for testing prod credentials in isolation). Autonoma also injects a few [built-in environment variables](/preview-environments/secrets/#built-in-environment-variables) (`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR`, `AUTONOMA_PREVIEWKIT_URL`) into every preview so your app can detect it's running in a preview. See [Secrets](/preview-environments/secrets/).
+Secrets such as API keys and third-party tokens are stored encrypted and kept out of your stack configuration. Flag any value as a secret with the **Source** control in the onboarding **Variables** step, or manage them out-of-band via the REST API (handy for CI and rotating values without editing the config). A secret belongs to an application (or to the organisation), and every preview of that application sees it - there is no per-PR scoping. Autonoma also injects a few [built-in environment variables](/preview-environments/secrets/#built-in-environment-variables) (`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR`, `AUTONOMA_PREVIEWKIT_URL`) into every preview so your app can detect it's running in a preview. See [Secrets](/preview-environments/secrets/).
 
 ## What's next
 

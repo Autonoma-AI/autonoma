@@ -142,10 +142,15 @@ Both `create` and `teardown` receive a context object. There is no SDK-managed d
 ```typescript
 interface FactoryContext {
   refs: Record<string, Record<string, unknown>[]>  // everything created so far
-  scenarioName: string
+  scenarioName: string                             // kept for compatibility - holds the testRunId
   testRunId: string
 }
 ```
+
+`scenarioName` does **not** carry the scenario's name. The scenario name never crosses the wire - the
+`up` request is `{ action, create, testRunId }` - so the SDK fills the field with `testRunId` and keeps
+it only for backwards compatibility. Use `testRunId`, and do not branch on `scenarioName` expecting a
+value like `adminWithTwoProjects`.
 
 :::note
 This is the *factory* context. The [auth callback](/environment-factory/authentication/) receives a **different** context object (`scopeValue`, `refs`) - don't reach for `testRunId` in `auth`, or `scopeValue` in a factory.

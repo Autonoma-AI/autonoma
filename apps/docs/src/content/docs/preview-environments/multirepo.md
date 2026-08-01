@@ -30,8 +30,8 @@ If the branch it picks doesn't exist in the connected repository, Autonoma alway
 
 | Branch matching | For a PR on branch `feature/x`, a connected repository builds... |
 | --- | --- |
-| **Same branch name** (default) | `feature/x` if that branch exists there, otherwise the fallback branch. Use this when you develop a feature across repositories on branches with the same name. |
-| **Fallback branch only** | Always the fallback branch (e.g. `main`). Use this when the connected repository is a stable service you don't branch per feature. |
+| **Same branch name** | `feature/x` if that branch exists there, otherwise the fallback branch. Use this when you develop a feature across repositories on branches with the same name. |
+| **Fallback branch only** (default) | Always the fallback branch (e.g. `main`). Use this when the connected repository is a stable service you don't branch per feature. |
 | **Regex rewrite** | A branch name derived by rewriting `feature/x` with a regular expression (e.g. stripping a `feature/` prefix), falling back if the result doesn't exist. Use this when your repositories follow different but predictable branch conventions. |
 
 ![The branch matching control set to regex rewrite, which reveals two extra fields it alone uses - a Pattern holding the expression that matches a feature branch, and a Replacement holding the capture group it rewrites to](/img/preview-environments/branch-matching.png)

@@ -58,7 +58,7 @@ The planner **analyzes** your project in place but **writes** everything it gene
 |------------------------|------------------------------------------|----------|-------|
 | `name`                 | string                                   | yes      | Stable identifier. Must match the scenario name used in the LLM-facing docs. |
 | `description`          | string                                   | yes      | Human-readable summary of the scenario state. |
-| `create`               | object                                   | yes      | The model graph passed to the SDK's `createScenario` / `up` flow. A flat map: keys are model names, values are arrays of seeded rows. Rows link with `_alias` / `_ref` (no nesting). Extra keys are preserved. |
+| `create`               | object                                   | yes      | The model graph passed to the SDK's `createScenario` / `up` flow. A flat map: keys are model names, values are arrays of seeded rows. Rows link with `_alias` / `_ref`, and a `_ref` is resolved wherever it appears - including nested inside an object or an array. Extra keys are preserved. |
 | `variables`            | object (map of name → definition)        | no       | **Deprecated.** Still accepted for recipes that already declare it, but no longer generated or documented. Use the built-in tokens below instead. |
 | `validation`           | object                                   | yes      | Proof that the recipe was validated. All fields must be present. |
 | `validation.status`    | literal string `"validated"`             | yes      | |

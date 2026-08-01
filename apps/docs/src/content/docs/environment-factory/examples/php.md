@@ -5,6 +5,16 @@ description: "Autonoma Environment Factory example with Laravel."
 
 The PHP SDK is **factory-driven**: you register one factory per model and the SDK derives the discover schema from each factory's `inputFields`. There is no database introspection, no Eloquent executor, and no SQL fallback - your factories own creation, the SDK owns the protocol.
 
+:::caution[Replace the auth callback before you ship]
+The `auth` callback below returns a hardcoded placeholder token so the example stays readable. **It
+will not work.** Autonoma uses whatever `auth` returns to sign in as the user the scenario just
+created, so a fixed string means every test fails at login.
+
+Swap it for your app's real session or token creation - the same code path your login endpoint uses.
+See [Authentication](/environment-factory/authentication/) for the three supported shapes: session
+cookies, bearer tokens, and raw credentials.
+:::
+
 ## Laravel
 
 Uses the auto-discovered service provider from `autonoma-ai/sdk`. The entire setup is configuration-driven via `config/autonoma.php`. The factories use whatever Eloquent models, repositories, or service classes your app already has - the SDK does not need a database connection.
@@ -59,7 +69,7 @@ return [
 
     // Called after `up` - returns credentials so Autonoma can make authenticated requests
     'auth' => function (?array $user, array $context): array {
-        return ['headers' => ['Authorization' => 'Bearer test-token']];
+        return ['headers' => ['Authorization' => 'Bearer REPLACE_WITH_A_REAL_TOKEN']];
     },
 ];
 ```

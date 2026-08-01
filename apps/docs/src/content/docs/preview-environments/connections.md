@@ -50,7 +50,7 @@ A connection value mixes literal text with `{{name.property}}` tokens, where `na
 
 | Token | Resolves to |
 | --- | --- |
-| `{{service.url}}` | The service's full in-cluster connection string: `postgres` -> `postgresql://preview:preview@<host>:<port>/preview`, `redis` / `valkey` -> `redis://<host>:<port>`, `mongodb` -> `mongodb://<host>:<port>/?directConnection=true` |
+| `{{service.url}}` | The service's full in-cluster connection string: `postgres` -> `postgresql://preview:preview@<host>:<port>/preview`, `mysql` -> `mysql://<user>:<pass>@<host>:3306/<db>`, `redis` / `valkey` -> `redis://<host>:<port>`, `mongodb` -> `mongodb://<host>:<port>/?directConnection=true` |
 | `{{service.host}}` / `{{service.port}}` | The service's in-cluster DNS name and port |
 | `{{app.url}}` | The app's public HTTPS preview URL |
 | `{{app.hostname}}` | The app's public hostname, without the scheme |

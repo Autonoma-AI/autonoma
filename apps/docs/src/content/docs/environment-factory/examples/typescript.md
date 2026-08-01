@@ -5,6 +5,16 @@ description: "Autonoma Environment Factory examples with Express, Hono, and Next
 
 The TypeScript SDK is **factory-driven**: you register one factory per model and the SDK derives the discover schema from each factory's Zod `inputSchema`. There is no database introspection, no ORM executor, and no SQL fallback - your factories own creation, the SDK owns the protocol.
 
+:::caution[Replace the auth callback before you ship]
+The `auth` callback below returns a hardcoded placeholder token so the example stays readable. **It
+will not work.** Autonoma uses whatever `auth` returns to sign in as the user the scenario just
+created, so a fixed string means every test fails at login.
+
+Swap it for your app's real session or token creation - the same code path your login endpoint uses.
+See [Authentication](/environment-factory/authentication/) for the three supported shapes: session
+cookies, bearer tokens, and raw credentials.
+:::
+
 `zod` is a peer dependency: `npm install zod` (any v3.23+ or v4 release works).
 
 ## Express
@@ -67,7 +77,7 @@ app.post(
     },
 
     // Called after `up` - returns credentials so Autonoma can make authenticated requests
-    auth: async (user) => ({ headers: { Authorization: 'Bearer test-token' } }),
+    auth: async (user) => ({ headers: { Authorization: 'Bearer REPLACE_WITH_A_REAL_TOKEN' } }),
   }),
 )
 ```
@@ -123,7 +133,7 @@ export const POST = createHandler({
     }),
   },
 
-  auth: async () => ({ headers: { Authorization: 'Bearer test-token' } }),
+  auth: async () => ({ headers: { Authorization: 'Bearer REPLACE_WITH_A_REAL_TOKEN' } }),
 })
 ```
 

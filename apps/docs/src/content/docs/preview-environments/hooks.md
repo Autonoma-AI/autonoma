@@ -18,22 +18,34 @@ Hooks live in two groups, chosen by when you need them to run:
 | **Pre-deploy** | Before your apps start. | Cache warmup, feature-flag sync. |
 | **Post-deploy** | After your apps are ready. | A smoke test, notifying Slack. |
 
-A pre-deploy hook runs while the preview is still coming up, so use it for anything the apps expect to already be in place. A post-deploy hook runs once every app has passed its health check, so use it for anything that needs a live, reachable preview - a quick smoke test against the frontend, or a message to your team that the preview is ready.
+**Every hook belongs to an app**, which is what decides the image its command runs in. A hook is a
+one-off Kubernetes Job launched from that app's built image, so the command has that app's code,
+dependencies and secrets available - and nothing else. Picking the app is required; the config will
+not save without it.
 
-```bash
-# post-deploy: smoke-test the frontend once it's live
-curl --fail "$AUTONOMA_PREVIEWKIT_URL/health"
-```
+A pre-deploy hook runs before the apps start. A post-deploy hook runs once **its own** app is ready -
+not once every app is. Two things follow that are easy to get wrong:
 
-## Where migrations and seeding belong
+- A post-deploy hook whose app never came up is **skipped silently**.
+- A failing post-deploy hook does **not** fail the deploy. It is reported as a warning on the PR
+  comment and the preview is still published, so a smoke test here will not gate anything.
 
-The one thing lifecycle hooks are **not** for is database setup. It's tempting to reach for a pre-deploy hook to run a migration or seed a table, but that work lives on each database instead.
-
-:::note
-Migrations and DB seeding live on each database's setup, not here. Use hooks for whole-preview steps that aren't tied to one database.
+:::caution[The built-in variables are not available in a hook]
+`AUTONOMA_PREVIEWKIT`, `AUTONOMA_PREVIEWKIT_PR` and `AUTONOMA_PREVIEWKIT_URL` are injected into your
+running app containers only. A hook Job gets its app's secrets and resolved connections, and none of
+those three - so a command like `curl "$AUTONOMA_PREVIEWKIT_URL/health"` sees an empty string.
 :::
 
-Keeping database work on the database means each database owns its own schema and seed data, and Autonoma can run that setup at the right moment for that database rather than as one preview-wide step. See [databases](/preview-environments/databases/) for where to put migration and seed commands. Reserve lifecycle hooks for steps that span the whole preview and aren't tied to any single database.
+## Migrations: prefer the database's own setup
+
+You *can* run a migration from a pre-deploy hook - it is a documented use, and the hook's own help text
+in the dashboard suggests it. Prefer putting it on the database instead.
+
+A database's setup tasks are owned by that database, so Autonoma runs them at the right moment for it,
+and each database carries its own schema and seed data rather than one preview-wide step doing
+everything. Reach for a pre-deploy hook when the work genuinely spans the preview, or when it does not
+belong to any single database. See [databases](/preview-environments/databases/) for where setup
+commands go.
 
 ## Optional by design
 

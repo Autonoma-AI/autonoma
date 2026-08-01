@@ -119,7 +119,7 @@ Connection values are templates - `{{api.host}}`, `{{pr}}`, and friends resolve 
 
 ## Built-in environment variables
 
-Autonoma injects a few variables into every preview app automatically. You don't upload them, and you can't override them - the names are reserved, so the API rejects any secret you try to set with one of these keys.
+Autonoma injects a few variables into every preview app automatically. You don't upload them, and you can't override them - the names are reserved. The dashboard rejects them, but this REST API does not validate the key - setting one here returns success and is then silently overridden at deploy time, so do not rely on an error to catch a typo.
 
 | Variable | Value | Notes |
 | --- | --- | --- |

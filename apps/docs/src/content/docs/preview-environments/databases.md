@@ -3,7 +3,7 @@ title: Databases
 description: Add every database your preview needs - Postgres, MySQL, MongoDB, Redis / Valkey - each with its own engine, version, and repo-aware setup tasks for schema, seed data, and migrations.
 ---
 
-<p class="lead">A database is a first-class part of every preview: pick the engines your app needs, and Autonoma runs the schema, seed, and migration steps that bring each one to life - with your repo checked out, so the files those steps depend on are actually there.</p>
+<p class="lead">A database is a first-class part of every preview: pick the engines your app needs, and Autonoma runs the schema, seed, and migration steps that bring each one to life, from one of your own apps' images - so the files and tooling those steps depend on are the ones your app already has.</p>
 
 ![On create, the database runs schema and seed steps; on every commit it runs migrations; the running preview then has the database ready](/img/preview-environments/database-lifecycle.jpg)
 
@@ -32,13 +32,22 @@ Caches usually need no setup tasks. Add a version and you're done - or add an on
 
 An empty database rarely matches what your app expects. It needs tables, seed rows, and the migrations that have accumulated since. Those steps almost always live **in your repo** - a `db/schema.sql`, a `seed` script, a `migrate` command - not in the database image, which is built for production and often ships none of them.
 
-So Autonoma runs your setup tasks **with the repo checked out**, the same way an app's bash build commands run. A command like `psql < db/schema.sql` finds the file because the repo is right there. Under the hood each task runs as a job with the repo available, but from your side it's just a command and a place for it to run.
+So Autonoma runs each setup task as a one-off job **from one of your apps' built images**, and you choose which app. That image is what the command sees.
+
+For an app using the **Manual** build method this means your repo is right there - the build copies the repository in, so `psql < db/schema.sql` finds the file. For an app built from a **Dockerfile**, the command sees only what that Dockerfile put in the image. A production Dockerfile that copies build output and nothing else will not have `db/schema.sql`, so either use a task whose app has the file, or add it to the image.
 
 Tasks are split by **when** they run, with sensible defaults you can override. Both sections are optional.
 
+:::caution[`on create` really means once]
+A run-once task is marked complete against the database, not against the task, and the volume survives
+redeploys. So editing a seed command - or adding a new run-once task to a database that already exists -
+will not re-run it on the next deploy. Recreate the preview, or move the work to a task that runs on
+every commit.
+:::
+
 ### Run once - on create
 
-Schema and seed data go here - the tasks that bring a fresh database to life the first time it's created. Your repo is checked out, so files like `db/schema.sql` are available even if the image doesn't ship them.
+Schema and seed data go here - the tasks that bring a fresh database to life the first time it's created. The command runs from the chosen app's image, so `db/schema.sql` is available if that image contains it - which a Manual build does, since it copies the repository in.
 
 ```bash
 # on create
@@ -63,7 +72,7 @@ These run on every full preview deploy - each new commit pushed to the PR. A per
 
 ## Where a task runs
 
-Every setup task runs as a one-off job with your repo checked out, after the databases are up and before your apps start. What you choose is which app's build the command borrows:
+Every setup task runs as a one-off job from a chosen app's image, after the databases are up and before your apps start. What you choose is which app's build the command borrows:
 
 ![A Postgres database card in preview setup with two setup task groups. The first, "run once - on create", holds a command box with prisma migrate deploy and prisma db seed; the second, "run on every commit / PR", holds prisma migrate deploy. Each has a WHERE control switching between "in the build" (active, in lime) and "separate job" (in violet), an App picker naming which app's image the command borrows, and a nested PHASE control choosing before build or after build. Below them a "Where does it run?" explainer contrasts the two options side by side in the same lime and violet](/img/preview-environments/setup-task-where.png)
 
@@ -72,18 +81,18 @@ The **Where** control is per task, and the **Phase** row underneath only applies
 | | In the build | Separate job |
 | --- | --- | --- |
 | **Image** | A chosen app's built image | The primary app's built image |
-| **Repo** | That app's checkout, with its build output available | The primary repo's checkout |
-| **Reach for it when** | The task needs a specific app's build output or its installed dependencies | The task just needs the primary repo checked out |
+| **What the command sees** | That app's image, including its build output | The primary app's image |
+| **Reach for it when** | The task needs a specific app's build output or its installed dependencies | The task just needs the primary app's image |
 
-**In the build** runs the command from the app you pick, so the task sees that app's repo checkout and everything its build produced - reach for it when a step depends on a particular app (a compiled asset, an installed CLI).
+**In the build** runs the command from the app you pick, so the task sees that app's image and everything its build produced - reach for it when a step depends on a particular app (a compiled asset, an installed CLI).
 
 **Separate job** runs the same command against the primary app's image, standing on its own - reach for it when a setup step just needs the repo and shouldn't be tied to any one app.
 
 ## Which repository it runs against
 
-The setup command always has a repo checked out. A preview can span more than one repository, because apps can be added [from another repository](/preview-environments/multirepo/) - so when there's more than one, an in-build task's **App** picker chooses which app (and therefore which repo's checkout) the command borrows. With a single repository the picker stays hidden and that repository is used.
+An in-build task's **App** picker chooses which app's image the command borrows. It appears whenever the preview has more than one app - not more than one repository - so a single-repo project that deploys a frontend and an API will see it. With exactly one app the picker is hidden and that app is used. A separate **Repo** picker appears when the preview spans more than one [repository](/preview-environments/multirepo/).
 
-The **before / after** position on an in-build task, and the **Repo** you pick for a separate job, are recorded with the task but not yet honored: the runner currently executes every setup task as a standalone job against the primary repo's checkout, between the databases coming up and the apps starting. So build-step ordering and per-repo checkout for a separate job are captured for when that lands, but today an in-build task's chosen app image and the primary repo are what's used.
+The **before / after** position on an in-build task is recorded but not yet honored: every setup task runs as a standalone job between the databases coming up and the apps starting. An in-build task does use the app you picked; a separate job falls back to the primary app. So build-step ordering is captured for when that lands, but does not change anything today.
 
 ## Next steps
 

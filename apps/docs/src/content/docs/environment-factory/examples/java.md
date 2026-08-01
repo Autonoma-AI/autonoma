@@ -5,6 +5,16 @@ description: "Autonoma Environment Factory example with Spring Boot."
 
 The Java SDK is **factory-driven**: you register one factory per model and the SDK derives the discover schema from each factory's `inputClass` (a Java class). There is no database introspection, no JDBC executor, and no SQL fallback - your factories own creation, the SDK owns the protocol.
 
+:::caution[Replace the auth callback before you ship]
+The `auth` callback below returns a hardcoded placeholder token so the example stays readable. **It
+will not work.** Autonoma uses whatever `auth` returns to sign in as the user the scenario just
+created, so a fixed string means every test fails at login.
+
+Swap it for your app's real session or token creation - the same code path your login endpoint uses.
+See [Authentication](/environment-factory/authentication/) for the three supported shapes: session
+cookies, bearer tokens, and raw credentials.
+:::
+
 ## Spring Boot
 
 Uses `AutonomaController` from `ai.autonoma.spring`. Configured as a Spring `@Configuration` bean. The factories use whatever `JdbcTemplate`, JPA repository, or service layer your app already has - the SDK does not need a database connection.
@@ -31,7 +41,7 @@ public class AutonomaConfig {
             System.getenv("AUTONOMA_SIGNING_SECRET"),
             // Called after `up` - returns credentials so Autonoma can make authenticated requests
             (user, context) -> AuthResult.ofHeaders(
-                Map.of("Authorization", "Bearer test-token")
+                Map.of("Authorization", "Bearer REPLACE_WITH_A_REAL_TOKEN")
             )
         );
 

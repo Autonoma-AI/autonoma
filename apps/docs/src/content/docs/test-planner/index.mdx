@@ -19,7 +19,7 @@ AUTONOMA_SHARED_SECRET=... AUTONOMA_DISTINCT_ID=... AUTONOMA_API_TOKEN=... AUTON
 
 Hit **Copy command**, then paste it into your terminal. The four chips under it are how you watch the upload land: the count climbs and each one fills in as the planner sends it. Hover a chip to see what that file is.
 
-That `npx` line downloads and runs the planner, published on npm as `@autonoma-ai/planner` (the installed command is `autonoma-planner`). Run it from the root of the repo you want to test. It works against your **frontend** (to map pages and flows) and your **backend** (to map data models and wire up test data). If those live in separate repos, run it where it can reach both.
+That `npx` line downloads and runs the planner, published on npm as `@autonoma-ai/planner`. `npx` runs it without installing it, so there is no `autonoma-planner` command on your `PATH` afterwards - keep using the full `npx` form for every command below. Run it from the root of the repo you want to test. It works against your **frontend** (to map pages and flows) and your **backend** (to map data models and wire up test data). If those live in separate repos, run it where it can reach both.
 
 It works through seven steps; everything it produces is readable live in the dashboard as it's written.
 
@@ -63,12 +63,37 @@ Everything the planner produces streams into the dashboard's file list the momen
 
 ## Commands and flags
 
-```bash
-autonoma-planner            # run the pipeline (default command)
-autonoma-planner status     # show progress for the current project
-autonoma-planner upload     # re-upload already-generated artifacts after a failed upload
+You run the planner through `npx`, which does **not** install anything on your `PATH`. Every command
+below therefore keeps the full `npx @autonoma-ai/planner@latest` prefix - a bare `autonoma-planner`
+will give you `command not found` unless you installed it globally yourself.
 
-# Useful flags
+The subcommand comes first, before any flags.
+
+```bash
+# Run the pipeline. This is the command the dashboard gives you, with your tokens filled in.
+AUTONOMA_SHARED_SECRET=... AUTONOMA_DISTINCT_ID=... AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... \
+  npx @autonoma-ai/planner@latest
+
+# Show how far the last run got. Local only - reads the saved progress file, no network.
+npx @autonoma-ai/planner@latest status
+
+# Re-send everything already generated on disk. Idempotent, and the fix when a run
+# finished but an artifact did not arrive. Needs the same env vars as the run.
+AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... \
+  npx @autonoma-ai/planner@latest upload
+```
+
+:::caution[`--resume` will not retry an upload]
+`--resume` continues from the first step that is not finished. If every step finished and only the
+upload failed, there is nothing left to resume - it prints `All steps complete.` and exits without
+uploading anything.
+
+Use `upload` to recover from that. It reads what is already on disk and re-sends it.
+:::
+
+Flags go after the subcommand:
+
+```bash
 --project <path>            # target a repo other than the current directory
 --frontend <path>           # in a monorepo, the frontend directory to plan tests for
 --backends <path,path>      # the backend/data-layer directories it depends on

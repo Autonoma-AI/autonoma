@@ -52,7 +52,7 @@ The score is computed over your **last 20 analysis runs**, no older than 30 days
 
 - Both pull-request runs and main-branch runs count.
 - A run that selected no tests is excluded entirely. It is neither good nor bad.
-- A run counts once no matter how many tests it investigated, so one large pull request cannot swing the number on its own.
+- The rate is computed over every finding in the window, not per run, so a pull request that produced a hundred findings weighs a hundred times as much as one that produced a single finding. The evidence gates below are the part that counts each run once.
 
 Runs rather than calendar days, because a busy repository produces a hundred runs in a week and a quiet one produces three in a month. A fixed time window makes the first number twitchy and the second meaningless.
 
@@ -83,8 +83,8 @@ The score alone does not set the level. Evidence gates clamp it, in both directi
 
 | You cannot reach | Until |
 | --- | --- |
-| **Steady** | 8 runs, 3 pull requests, and a week of history |
-| **Proven** | 20 runs, 8 pull requests, a month of history, no stale open failures, and at least one issue you resolved |
+| **Steady** | 8 runs, 3 distinct branches, and a week of history |
+| **Proven** | 20 runs, 8 distinct branches, a month of history, no stale open failures, and at least one issue you resolved |
 
 And symmetrically - **you cannot fall without evidence either**:
 

@@ -34,7 +34,7 @@ The env-var block takes a whole `.env` at once if you have one, and the rest of 
 | Field | What it does |
 | --- | --- |
 | **Image** | The Docker image to run, e.g. `axllent/mailpit` or `otel/opentelemetry-collector`. |
-| **Port(s)** | The port or ports the service listens on, so your app and other services can reach it. |
+| **Port** | The port or ports the service listens on, so your app and other services can reach it. |
 | **Environment variables** | Config passed into the container. Use **Add env var** for each key/value pair the image needs. |
 
 Set whatever the image expects through **Add env var** - a DSN, a collector config path, an SMTP hostname.
