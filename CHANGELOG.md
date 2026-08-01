@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.260801.1](https://github.com/Autonoma-AI/agent/compare/v1.260731.2...v1.260801.1) (2026-08-01)
+
+
+### Features
+
+* **analysis:** confidence-first PR verdict SSOT ([#1983](https://github.com/Autonoma-AI/agent/issues/1983)) ([496c62a](https://github.com/Autonoma-AI/agent/commit/496c62a2b29bb6017fbf94960e71e83b18fc4c8d))
+* **api:** gate analysis runs behind label and ready-for-review activation triggers ([#1963](https://github.com/Autonoma-AI/agent/issues/1963)) ([9e61884](https://github.com/Autonoma-AI/agent/commit/9e6188402101bc3c31ffe3ad4d8e52e8f8c22c90))
+* **api:** onboarding MCP support for the bring-your-own-deploys path ([#2031](https://github.com/Autonoma-AI/agent/issues/2031)) ([cebe172](https://github.com/Autonoma-AI/agent/commit/cebe17230c67f378a455e20b884163f0b296368e))
+* billing usage vercel ([#1890](https://github.com/Autonoma-AI/agent/issues/1890)) ([414393e](https://github.com/Autonoma-AI/agent/commit/414393e7cc873ba64f8801e91a06e35f1d926960))
+* **diffs:** absorb merged branches' plan work on main-branch analysis runs ([#2004](https://github.com/Autonoma-AI/agent/issues/2004)) ([39c8725](https://github.com/Autonoma-AI/agent/commit/39c87253d7adbbdf5c9ac8d24a96129ff7ae410a))
+* **previewkit:** drop awsSecretArn and retire the backfill script ([#2015](https://github.com/Autonoma-AI/agent/issues/2015)) ([6a777d3](https://github.com/Autonoma-AI/agent/commit/6a777d3696415c8376f3aeb59debcd6c40f4096b))
+* **ui:** ask about tenant isolation before database branching ([#2028](https://github.com/Autonoma-AI/agent/issues/2028)) ([9ec1067](https://github.com/Autonoma-AI/agent/commit/9ec1067eb7b6fffd9271a1498edc5f6ea298599c))
+* **ui:** present the deploy signal as a template, not a required workflow ([#2027](https://github.com/Autonoma-AI/agent/issues/2027)) ([8c389f5](https://github.com/Autonoma-AI/agent/commit/8c389f5ad72ec3b78e740d78496f37fbf90d7513))
+
+
+### Bug Fixes
+
+* **analysis:** give every agent the PR's real commit range ([#1999](https://github.com/Autonoma-AI/agent/issues/1999)) ([0a0dd2d](https://github.com/Autonoma-AI/agent/commit/0a0dd2d6f266c0666ef2e1b13a43ef323a48d4cb))
+* **analysis:** migrate the classifier onto AgentLoop and correct the evidence it reasons from ([#1958](https://github.com/Autonoma-AI/agent/issues/1958)) ([d4c5ee9](https://github.com/Autonoma-AI/agent/commit/d4c5ee97104fdaddfc85766964eb8732d4df8bdb))
+* **analysis:** name the open bug issues in the blocking merge-gate check ([#2026](https://github.com/Autonoma-AI/agent/issues/2026)) ([67402d8](https://github.com/Autonoma-AI/agent/commit/67402d8b762231427ec9e736cf75d7475eaee3d0))
+* **engine:** stop the execution agent when the model narrates instead of acting ([#2032](https://github.com/Autonoma-AI/agent/issues/2032)) ([480a971](https://github.com/Autonoma-AI/agent/commit/480a9718e571e05e4863af409eb0ad3ab87fdad5))
+* **ui:** drop the dead "I've installed it - refresh" button from onboarding ([#2037](https://github.com/Autonoma-AI/agent/issues/2037)) ([60788c9](https://github.com/Autonoma-AI/agent/commit/60788c97aac4f9e5f73004a1815eadcf63ec64f3))
+* **ui:** gate the connect-your-deploys step on a real signal ([#2021](https://github.com/Autonoma-AI/agent/issues/2021)) ([1663efc](https://github.com/Autonoma-AI/agent/commit/1663efcbddc5b4c101f14a53c5e59ea44af3f0c5))
+* **ui:** use the braille spinner on the MCP configuring screen ([#2038](https://github.com/Autonoma-AI/agent/issues/2038)) ([67f43fe](https://github.com/Autonoma-AI/agent/commit/67f43fee60a174dfc17f7c9a6a9e1cb290aa0150))
+
 ## [1.260731.2](https://github.com/Autonoma-AI/agent/compare/v1.260731.1...v1.260731.2) (2026-07-31)
 
 
