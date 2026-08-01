@@ -1,5 +1,6 @@
 import {
   Badge,
+  BrailleSpinner,
   Button,
   Checkbox,
   DropdownMenu,
@@ -27,7 +28,6 @@ import { EyeSlashIcon } from "@phosphor-icons/react/EyeSlash";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { InfoIcon } from "@phosphor-icons/react/Info";
 import { PlugsConnectedIcon } from "@phosphor-icons/react/PlugsConnected";
-import { SpinnerGapIcon } from "@phosphor-icons/react/SpinnerGap";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
@@ -184,7 +184,7 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
         {ready ? (
           <CheckCircleIcon weight="fill" className="size-6 text-status-success" />
         ) : (
-          <SpinnerGapIcon weight="bold" className="size-6 animate-spin text-primary" />
+          <BrailleSpinner animation="braille" size="xl" className="w-6 text-center text-primary" />
         )}
         <div className="flex flex-col">
           <span className="font-sans text-lg text-text-primary">
@@ -533,7 +533,7 @@ function StatusGlyph({ status }: { status?: AgentLogEntry["status"] }) {
   if (status === "done") return <CheckCircleIcon weight="fill" className="size-3.5 shrink-0 text-status-success" />;
   if (status === "error") return <XCircleIcon weight="fill" className="size-3.5 shrink-0 text-status-critical" />;
   if (status === "running")
-    return <SpinnerGapIcon weight="bold" className="size-3.5 shrink-0 animate-spin text-primary" />;
+    return <BrailleSpinner animation="braille" size="sm" className="w-3.5 shrink-0 text-center text-primary" />;
   return <CircleIcon className="size-3.5 shrink-0 text-text-secondary" />;
 }
 
