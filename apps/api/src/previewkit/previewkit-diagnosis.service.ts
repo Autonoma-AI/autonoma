@@ -63,18 +63,6 @@ const environmentSelect = {
         },
         orderBy: { appName: "asc" },
     },
-    addons: {
-        select: {
-            name: true,
-            provider: true,
-            status: true,
-            error: true,
-            outputs: true,
-            provisionedAt: true,
-            updatedAt: true,
-        },
-        orderBy: { name: "asc" },
-    },
     builds: {
         select: {
             headSha: true,
@@ -97,7 +85,7 @@ type EnvironmentRow = Prisma.PreviewkitEnvironmentGetPayload<{ select: typeof en
  * pass is fed, minus the AI. Returned by {@link PreviewkitDiagnosisService.signals}
  * for the MCP `diagnose_deploy` tool, whose consumer is a coding agent that has the
  * repo in front of it and can reason for itself. Giving it the source signals (state,
- * rule-based failure classification, service/addon states, config env-key surface,
+ * rule-based failure classification, service states, config env-key surface,
  * error-shaped logs) is more useful - and less hallucination-prone - than a prose
  * summary. The deterministic `findings` (rule-based, not AI) are included as a
  * starting-point categorization the agent can trust. The dashboard keeps the
@@ -110,7 +98,6 @@ export interface PreviewDeploySignals {
     reason?: string;
     deploy?: { status: string; phase?: string; error?: string };
     services?: Array<{ name: string; status: string; error?: string; url?: string; imageTag?: string }>;
-    addons?: Array<{ name: string; provider: string; status: string; error?: string }>;
     build?: { status: string; error?: string; startedAt?: string; finishedAt?: string; durationMs?: number };
     /** Rule-based (not AI) failure classification: the same signals the UI's AI pass reasons over. */
     failures?: PreviewFailure[];
@@ -125,11 +112,11 @@ export interface PreviewDeploySignals {
 /** Resolved environment, or a reason it can't be diagnosed yet. */
 type ResolvedEnvironment = { environment: EnvironmentRow } | { reason: string };
 
-const DIAGNOSIS_SYSTEM_PROMPT = `You are a preview-infrastructure diagnostician for PreviewKit. Given a failed deploy's status, structured failures, service and addon states, the resolved deploy config, and recent build/runtime log lines, produce a short summary and a list of findings that explain what went wrong and how to fix it.
+const DIAGNOSIS_SYSTEM_PROMPT = `You are a preview-infrastructure diagnostician for PreviewKit. Given a failed deploy's status, structured failures, service states, the resolved deploy config, and recent build/runtime log lines, produce a short summary and a list of findings that explain what went wrong and how to fix it.
 
 Classify each finding into exactly one category:
 - "missing_env_var": a required environment variable or secret is absent or empty (the app crashes referencing it, or config resolution fails on an unset value). User-fixable.
-- "user_setup": the customer's config is wrong - a bad app path, missing/incorrect Dockerfile, wrong port, failing health check, unbuildable image, or a mis-provisioned addon they configured. User-fixable.
+- "user_setup": the customer's config is wrong - a bad app path, missing/incorrect Dockerfile, wrong port, failing health check, or an unbuildable image. User-fixable.
 - "autonoma_error": a PreviewKit/platform fault the customer cannot fix - Kubernetes API errors, External-Secret sync timeouts, namespace or generated-spec problems, buildkit infrastructure failures, or our internal timeouts.
 - "unknown": the signals do not clearly attribute the failure.
 
@@ -169,7 +156,7 @@ export class PreviewkitDiagnosisService extends Service {
         const failures = this.classifyFailures(environment);
 
         // Only diagnose an actually-failing deploy. When nothing is wrong (build
-        // succeeded, all services/addons healthy, no environment error), skip the
+        // succeeded, all services healthy, no environment error), skip the
         // log fetch and the AI pass entirely: feeding error-grepped logs to the
         // model on a healthy deploy makes it manufacture findings from transient or
         // resolved startup noise (e.g. a "prisma connection" line logged during boot
@@ -205,7 +192,7 @@ export class PreviewkitDiagnosisService extends Service {
     /**
      * The raw, deterministic diagnostic signals for the MCP `diagnose_deploy` tool
      * (agent consumer): environment/build state, rule-based failure classification,
-     * per-service and per-addon states, the config env-key surface, error-shaped
+     * per-service states, the config env-key surface, error-shaped
      * logs (masked, only when failing), and the deterministic rule-based findings.
      * No AI pass - the client agent reasons over the source signals itself.
      */
@@ -246,12 +233,6 @@ export class PreviewkitDiagnosisService extends Service {
                 error: maskMaybeSecret(instance.error),
                 url: instance.url ?? undefined,
                 imageTag: instance.imageTag ?? undefined,
-            })),
-            addons: environment.addons.map((addon) => ({
-                name: addon.name,
-                provider: addon.provider,
-                status: addon.status,
-                error: maskMaybeSecret(addon.error),
             })),
             build:
                 latestBuild == null
@@ -362,12 +343,6 @@ export class PreviewkitDiagnosisService extends Service {
                     },
                     failures: failures.map((failure) => ({ ...failure, message: maskSecretsInLine(failure.message) })),
                     services: this.serviceStates(environment),
-                    addons: environment.addons.map((addon) => ({
-                        name: addon.name,
-                        provider: addon.provider,
-                        status: addon.status,
-                        error: maskMaybeSecret(addon.error),
-                    })),
                     resolvedConfig: summarizeConfig(environment.resolvedConfig),
                     logs,
                 }),
@@ -469,17 +444,6 @@ function heuristicFinding(failure: PreviewFailure): PreviewDiagnosisFinding {
             confidence: "medium",
         };
     }
-    if (failure.code === "addon_failed") {
-        return {
-            ...base,
-            category: "autonoma_error",
-            severity: "blocking",
-            title: "An addon failed to provision",
-            fixSteps: ["Retry the deploy.", "If it keeps failing, contact Autonoma support with these details."],
-            action: "contact_support",
-            confidence: "medium",
-        };
-    }
     return {
         ...base,
         category: failure.code === "unknown" ? "unknown" : "user_setup",
@@ -528,7 +492,6 @@ function summarizeConfig(resolvedConfig: Prisma.JsonValue | null): unknown {
             envKeys: [...app.connections.map((connection) => connection.key), ...app.build_secrets],
         })),
         services: parsed.data.services.map((service) => ({ name: service.name, recipe: service.recipe })),
-        addons: parsed.data.addons.map((addon) => ({ name: addon.name, provider: addon.provider })),
     };
 }
 

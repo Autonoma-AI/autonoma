@@ -39,12 +39,8 @@ export interface BuildPreviewImagesOutput {
     mergedConfigJson: string;
     /** app name -> pushed ECR image tag (only successfully built apps). */
     imageTags: Record<string, string>;
-    /** addon name -> provider outputs, fed into runtime env templates. */
-    addonOutputs: Record<string, Record<string, string>>;
     /** Per-app build outcomes, needed to render build-failed apps in the comment. */
     buildOutcomes: Record<string, PreviewBuildOutcome>;
-    /** Comment-ready addon rows (provisioning happens during build). */
-    addons: PreviewAddonResult[];
     /** Dependency fallback notices for the PR comment. */
     warnings: string[];
     /** Names of apps from the primary repo, used to resolve the primary url. */
@@ -57,9 +53,7 @@ export interface DeployPreviewEnvironmentInput {
     commentId: string;
     mergedConfigJson: string;
     imageTags: Record<string, string>;
-    addonOutputs: Record<string, Record<string, string>>;
     buildOutcomes: Record<string, PreviewBuildOutcome>;
-    addons: PreviewAddonResult[];
     warnings: string[];
     primaryAppNames: string[];
     /**
@@ -80,14 +74,6 @@ export interface PreviewServiceResult {
     error?: string;
 }
 
-/** Flat, comment-ready per-addon row. */
-export interface PreviewAddonResult {
-    name: string;
-    provider: string;
-    status: "ready" | "failed";
-    error?: string;
-}
-
 export interface DeployPreviewEnvironmentOutput {
     /** Every app came up. */
     ready: boolean;
@@ -95,7 +81,6 @@ export interface DeployPreviewEnvironmentOutput {
     totalCount: number;
     urls: Record<string, string>;
     services: PreviewServiceResult[];
-    addons: PreviewAddonResult[];
     /** Human-readable dependency fallback notices for the PR comment. */
     warnings: string[];
     /** First ready app url, for the comment header. */

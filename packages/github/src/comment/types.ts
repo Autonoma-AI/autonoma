@@ -62,13 +62,6 @@ export const AutonomaCommentServiceSchema = z.object({
 });
 export type AutonomaCommentService = z.infer<typeof AutonomaCommentServiceSchema>;
 
-export const AutonomaCommentAddonSchema = z.object({
-    name: z.string(),
-    provider: z.string(),
-    status: z.enum(["ready", "failed"]),
-});
-export type AutonomaCommentAddon = z.infer<typeof AutonomaCommentAddonSchema>;
-
 export const AutonomaCommentStatsSchema = z.object({
     // Total assigned tests (shown as "Tests"); falls back to `selected` when absent.
     assigned: z.number().int().nonnegative().optional(),
@@ -120,7 +113,6 @@ export const AutonomaCommentPayloadSchema = z.object({
     assetBaseUrl: z.string().optional(),
     ctas: z.array(AutonomaCommentCtaSchema).default([]),
     services: z.array(AutonomaCommentServiceSchema).default([]),
-    addons: z.array(AutonomaCommentAddonSchema).default([]),
     bugs: z.array(AutonomaCommentBugSchema).default([]),
     warnings: z.array(z.string()).default([]),
     details: z.array(z.object({ summary: z.string(), body: z.string() })).default([]),
@@ -147,7 +139,6 @@ export type PayloadBuilderInput = {
     previewUrl?: string | null;
     summaryUrl?: string | null;
     services?: AutonomaCommentService[];
-    addons?: AutonomaCommentAddon[];
     bugs?: AutonomaCommentBug[];
     tests?: {
         assigned?: number;

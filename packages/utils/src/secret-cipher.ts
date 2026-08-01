@@ -20,9 +20,12 @@ const KEY_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
  * written for: someone with write access to the database cannot move another
  * tenant's ciphertext into their own row and read it back through the API.
  */
-export type SecretScope =
-    | { kind: "app"; applicationId: string; appName: string; key: string }
-    | { kind: "org"; organizationId: string; name: string; key: string };
+export interface SecretScope {
+    kind: "app";
+    applicationId: string;
+    appName: string;
+    key: string;
+}
 
 /**
  * The bundle a secret value lives in - a {@link SecretScope} without the key.
@@ -30,14 +33,14 @@ export type SecretScope =
  * {@link scopeIn}, so the authenticated data is assembled in one place rather
  * than spelled out at each call site where a field could quietly be missed.
  */
-export type SecretBundle =
-    | { kind: "app"; applicationId: string; appName: string }
-    | { kind: "org"; organizationId: string; name: string };
+export interface SecretBundle {
+    kind: "app";
+    applicationId: string;
+    appName: string;
+}
 
 export function scopeIn(bundle: SecretBundle, key: string): SecretScope {
-    return bundle.kind === "app"
-        ? { kind: "app", applicationId: bundle.applicationId, appName: bundle.appName, key }
-        : { kind: "org", organizationId: bundle.organizationId, name: bundle.name, key };
+    return { kind: "app", applicationId: bundle.applicationId, appName: bundle.appName, key };
 }
 
 /**
@@ -138,10 +141,7 @@ export class SecretCipher {
  * `appName: "a", key: "b:c"` must not produce the same AAD.
  */
 function scopeAad(scope: SecretScope): Uint8Array {
-    const fields =
-        scope.kind === "app"
-            ? [scope.kind, scope.applicationId, scope.appName, scope.key]
-            : [scope.kind, scope.organizationId, scope.name, scope.key];
+    const fields = [scope.kind, scope.applicationId, scope.appName, scope.key];
 
     return new TextEncoder().encode(JSON.stringify(["previewkit-secret", FORMAT_VERSION, ...fields]));
 }

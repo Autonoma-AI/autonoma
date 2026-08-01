@@ -115,7 +115,6 @@ export async function buildInvestigationCommentPayload(
         assetBaseUrl: context.assetBaseUrl,
         ctas,
         services: [],
-        addons: [],
         warnings: [],
         details: [],
         previewUrls: hasPreview ? [context.previewUrl!] : [],

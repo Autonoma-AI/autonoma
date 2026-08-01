@@ -111,20 +111,17 @@ describe("payloadBuilder", () => {
         expect(markdown).toContain("Triggered by commit `abc1234`");
     });
 
-    it("renders grouped Services and Addons sections and a warnings callout", () => {
+    it("renders a grouped Services section and a warnings callout", () => {
         const markdown = renderMarkdown(
             payloadBuilder({
                 state: "running",
                 prNumber: 12,
                 services: [{ name: "web", status: "ready", url: "https://web.example.com" }],
-                addons: [{ name: "db", provider: "neon", status: "ready" }],
                 warnings: ["acme/api branch feature-x not found; used main instead."],
             }),
         );
 
         expect(markdown).toContain("**Services:**");
-        expect(markdown).toContain("**Addons:**");
-        expect(markdown).toContain("- db (neon) - Ready");
         expect(markdown).toContain("> **Note:**");
         expect(markdown).toContain("> - acme/api branch feature-x not found; used main instead.");
     });

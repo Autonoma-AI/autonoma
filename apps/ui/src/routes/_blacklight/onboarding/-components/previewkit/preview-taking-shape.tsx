@@ -176,7 +176,6 @@ function buildCards(document: ReturnType<typeof usePreviewkitConfig>["data"]["do
   if (document == null) return [];
   const apps = document.apps;
   const services = document.services ?? [];
-  const addons = document.addons ?? [];
 
   const cards: ConfigCard[] = [];
 
@@ -214,25 +213,6 @@ function buildCards(document: ReturnType<typeof usePreviewkitConfig>["data"]["do
       title: service.name,
       summary: `${service.name} · ${service.recipe}${service.version != null ? ` ${service.version}` : ""}`,
       sections: [{ heading: "config", rows }],
-    });
-  }
-
-  for (const addon of addons) {
-    cards.push({
-      id: `addon:${addon.name}`,
-      icon: StackIcon,
-      kicker: "extra service",
-      title: addon.name,
-      summary: `${addon.name} · ${addon.provider}`,
-      sections: [
-        {
-          heading: "config",
-          rows: [
-            { label: "name", value: addon.name },
-            { label: "provider", value: addon.provider },
-          ],
-        },
-      ],
     });
   }
 

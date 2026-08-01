@@ -1,5 +1,4 @@
-import type { PreviewAddonResult, PreviewBuildOutcome } from "@autonoma/types";
-import type { AddonProvisionOutcome } from "../addons/addon-manager";
+import type { PreviewBuildOutcome } from "@autonoma/types";
 import type { PreviewConfig } from "../config/schema";
 import type { AppBuildOutcome, AppStateUpdate } from "../db";
 import type { AppDeployOutcome } from "../deployer/deployer";
@@ -133,22 +132,5 @@ export function toFinalAppStates(
             return { appName: app.name, status: "skipped", port, error: `Deploy skipped: ${deploy.reason}` };
         }
         return { appName: app.name, status: "deploy_failed", port, imageTag, url: deploy.url, error: deploy.error };
-    });
-}
-
-/**
- * Maps addon provisioning outcomes to the PR-comment addon rows, resolving each
- * addon's provider from the config (or `unknown` if the config no longer lists it).
- */
-export function toAddonResults(config: PreviewConfig, addonOutcomes: AddonProvisionOutcome[]): PreviewAddonResult[] {
-    return addonOutcomes.map((outcome) => {
-        const addon = config.addons.find((candidate) => candidate.name === outcome.name);
-        const row: PreviewAddonResult = {
-            name: outcome.name,
-            provider: addon?.provider ?? "unknown",
-            status: outcome.status === "ok" ? "ready" : "failed",
-        };
-        if (outcome.status === "failed") row.error = outcome.error;
-        return row;
     });
 }

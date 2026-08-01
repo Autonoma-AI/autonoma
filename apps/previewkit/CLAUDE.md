@@ -2,7 +2,7 @@
 
 Per-PR preview environments. Previewkit reacts to GitHub `pull_request` events,
 builds container images from the PR's repo, deploys them plus infra services
-(Postgres, Redis, addons) into an isolated Kubernetes namespace, and posts the
+(Postgres, Redis, ...) into an isolated Kubernetes namespace, and posts the
 preview URL back to the PR.
 
 This file is loaded automatically when a session works under `apps/previewkit/`.
@@ -26,13 +26,13 @@ GitHub pull_request webhook
   -> apps/api  (PreviewkitTriggerService; gated by the API's PREVIEWKIT_ENABLED - see below)
   -> PreviewkitJobLauncher.launchDeploy() creates a `pk-deploy-*` Job (runs apps/previewkit/src/runner):
        clone repo(s) -> build images -> create namespace preview-{owner}-{repo}-pr-{N}
-       -> deploy infra services + addons -> hand namespace to the central Gatekeeper
+       -> deploy infra services -> hand namespace to the central Gatekeeper
        -> deploy app Deployments + Services
        -> run pre/post-deploy hooks -> post/update the PR comment, then exit
 ```
 
 On `pull_request.closed`, `launchTeardown()` creates a `pk-teardown-*` Job that runs
-`TeardownPipeline` (addon deprovision + namespace delete + PR comment). Teardown updates both PR
+`TeardownPipeline` (namespace delete + PR comment). Teardown updates both PR
 comments: the previewkit `"preview"` comment is replaced with a "Torn down" message, and the
 `"investigation"` test-results comment (owned by the investigation worker) has its now-dead "See preview"
 button stripped in place via `stripCtaFromBody` (`@autonoma/github/comment`). A per-app redeploy
@@ -103,13 +103,12 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
   (app Deployments/Services + hostnames; routing itself is the central Gatekeeper's, see below),
   `env-injector.ts` (`{{name.host}}` template resolution), `hook-job-runner.ts`, `pod-exec.ts`.
 - `db/index.ts` - all DB writes (`record*` functions) + the in-memory `AppBuildOutcome` type.
-- `addons/` - third-party resource providers (e.g. Neon) via a provider registry.
 - `recipes/` - infra service recipes (postgres, redis, valkey, mongodb, upstash, api-gateway, docker-image, aws, temporal).
 - `git-provider/` - GitHub provider + the `PullRequestEvent` shape (input to `deploy`).
 - `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, secret reads. Two
   independent read paths:
-    - **Build-time and addon values** go through `secrets/build-secret-source.ts` (`build_secrets:`
-      build args, addon `auth_secret:` lookups). Postgres only - there is no AWS fallback here, so a
+    - **Build-time values** go through `secrets/build-secret-source.ts` (`build_secrets:`
+      build args). Postgres only - there is no AWS fallback here, so a
       registered bundle Postgres cannot serve fails the deploy rather than building against nothing.
       It owns the key-picking, so a missing `build_secrets:` key fails there too. Callers pass a
       `SecretBundle` and nothing else.
@@ -266,7 +265,7 @@ app lines in a recent window.
 - `PreviewkitEnvironment` - one per (repo, PR). Holds `status` (enum `PreviewkitStatus`:
   pending/building/deploying/ready/failed/superseded/torn_down), `phase`, `urls` (JSON appName->URL
   map), `resolvedConfig` (the merged config for the latest deploy; summary/readiness views project it for display - no separate manifest column; each `config.multirepo.repos` entry is enriched with the concrete `sha` the dependency was deployed at - the per-dependency deploy provenance multi-repo grounding reads back),
-  `bypassToken`, `namespace`, `commentId`. Relations: `appInstances`, `builds`, `addons`, and `branch`
+  `bypassToken`, `namespace`, `commentId`. Relations: `appInstances`, `builds`, and `branch`
   (nullable `@unique` FK to the autonoma `Branch` the environment deploys; `onDelete: SetNull`). PR
   environments link to the feature branch, which the API creates eagerly when a `pull_request` webhook reaches
   previewkit; the main-branch env (PR 0) links to the application's main branch. Either way the API threads a
@@ -291,13 +290,12 @@ app lines in a recent window.
   Application, overwritten in place on save). This is what the deploy pipeline reads. There is no
   revision history: saving overwrites the row, and every deploy/redeploy resolves the current
   document.
-- `PreviewkitSecret` / `PreviewkitOrgSecret` - one row per secret: an env-var name and its sealed
-  value, keyed `(applicationId, appName, key)` / `(organizationId, name, key)`. There is NO bundle
+- `PreviewkitSecret` - one row per secret: an env-var name and its sealed
+  value, keyed `(applicationId, appName, key)`. There is NO bundle
   row - a "bundle" is just the set of rows sharing a scope. So a bundle exists exactly as long as it
   holds a key: deleting the last one removes the app from the secrets UI's bundle picker, and
   "registered but empty" is not a representable state. Code that wants the bundles rather than the
   rows queries `distinct: ["appName"]`.
-- `PreviewkitAddon` - provisioned addon state/outputs.
 
 ## Access proxy (`gatekeeper`, cluster mode)
 

@@ -46,7 +46,7 @@ connections:
 
 ## Template reference
 
-A connection value mixes literal text with `{{name.property}}` tokens, where `name` is any app, service, or addon declared in the same configuration. A value with no token at all is fine too - use it to pin non-sensitive per-environment config like `NODE_ENV=production`.
+A connection value mixes literal text with `{{name.property}}` tokens, where `name` is any app or service declared in the same configuration. A value with no token at all is fine too - use it to pin non-sensitive per-environment config like `NODE_ENV=production`.
 
 | Token | Resolves to |
 | --- | --- |
@@ -55,7 +55,6 @@ A connection value mixes literal text with `{{name.property}}` tokens, where `na
 | `{{app.url}}` | The app's public HTTPS preview URL |
 | `{{app.hostname}}` | The app's public hostname, without the scheme |
 | `{{app.host}}` / `{{app.port}}` | The app's in-cluster DNS name and port (app-to-app traffic that shouldn't leave the namespace) |
-| `{{addon.<outputKey>}}` | Any output a provisioned add-on exposes (e.g. a Neon add-on's `connectionString`) |
 | `{{pr}}` | The pull request number |
 | `{{namespace}}` | The preview's Kubernetes namespace |
 | `{{owner}}` | The repository owner |

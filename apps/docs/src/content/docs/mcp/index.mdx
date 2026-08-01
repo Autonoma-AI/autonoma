@@ -171,12 +171,12 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | `get_investigation` | repo, PR | Legacy. The equivalent findings from the older investigation pipeline, for a PR analyzed before the current one. Only needed when `get_analysis` reports that the PR has no analysis run |
 | `report_false_positive` | repo, PR, findingId, reason? | Flags a `get_investigation` finding as a likely false positive (not a real bug). A tracking signal for Autonoma to review - it does **not** change the check, re-run the analysis, unblock the merge, or hide the finding. No equivalent exists for `get_analysis` issues yet |
 | `get_deploy_status` | repo, PR | Per-service deploy status, endpoints, and the latest build outcome |
-| `diagnose_deploy` | repo, PR | The raw evidence in one call - status, service/addon states, latest build outcome, a rule-based failure classification, the config's env-key surface, and error-shaped logs - plus deterministic findings categorized as a missing env var, setup problem, or platform error. It is not an AI summary; you reason over the signals |
+| `diagnose_deploy` | repo, PR | The raw evidence in one call - status, service states, latest build outcome, a rule-based failure classification, the config's env-key surface, and error-shaped logs - plus deterministic findings categorized as a missing env var, setup problem, or platform error. It is not an AI summary; you reason over the signals |
 | `get_build_logs` | repo, PR | Build-log lines, from the `tail` (newest) or `head` (start of the build), optionally for one service |
 | `get_app_logs` | repo, PR | Runtime (stdout/stderr) log lines, from the `tail` (a crash) or `head` (startup) |
 | `get_endpoints` | repo, PR | The preview URL, a suggested SDK URL, and one entry per service (internal services like a database report `url: null` with a reason) |
 | `get_secret_status` | repo | The full env-var surface per app: topology connections (with template values) and secret-backed vars (declared build secrets + runtime secrets), with masked length and a fingerprint only, plus which declared build secrets are missing |
-| `get_config` | repo | The full active preview config document (apps, services, addons - no secret values), for read-edit-write of the whole shape via `apply_config` |
+| `get_config` | repo | The full active preview config document (apps, services - no secret values), for read-edit-write of the whole shape via `apply_config` |
 | `list_scenarios` | repo | The app's scenarios - the named test-data states its tests depend on - and whether each has a recipe |
 | `get_recipe` | repo, scenarioId | A scenario's active recipe: the `create` graph your SDK builds those entities from |
 
@@ -192,7 +192,7 @@ Every issue `get_analysis` returns carries a `kind`, and the kind decides where 
 | --- | --- | --- |
 | `set_secret` | repo, PR, app, key, value? | Sets (or, without a value, removes) a secret env var's value and applies it - rebuilds if it's a build secret, restarts otherwise. Values are stored encrypted and never returned |
 | `edit_previewkit_config` | repo, PR, app, fields | Changes structural config for one service (path, Dockerfile, port, health check, build-secret keys, connections) and rebuilds it. Only the fields you pass change; never sets a secret value |
-| `apply_config` | repo, PR, document, apply? | Saves a FULL config document (call `get_config` first, edit it, send the whole thing back) and, unless `apply:false`, redeploys the whole environment. The path for reshaping the preview: adding or removing an app, a service (a database, cache, side-container), or an addon - things a single-service edit can't express |
+| `apply_config` | repo, PR, document, apply? | Saves a FULL config document (call `get_config` first, edit it, send the whole thing back) and, unless `apply:false`, redeploys the whole environment. The path for reshaping the preview: adding or removing an app or a service (a database, cache, side-container) - things a single-service edit can't express |
 | `wait_for_deploy` | repo, PR, app? | Blocks (up to ~45s, then re-callable) until the deploy settles (ready or failed) and returns the outcome plus the last few log lines, so you can see progress and keep debugging after a `set_secret`, `edit_previewkit_config`, or `apply_config` rebuild |
 | `dry_run_scenario` | repo, scenarioId, recipe?, save?, target? | Runs a recipe against your deployed SDK (`up` then `down`). Pass a `recipe` to try an edit **without storing it**; pass `save: true` to promote it, which happens only if the run passes; pass a `target` to run against a specific preview instead of the app's stored endpoint |
 | `list_dry_run_targets` | repo | The previews a dry run can be pointed at - the app's open PR previews and its main deployment, with whether each is deployed yet. Use a returned `id` as `dry_run_scenario`'s `target` |
@@ -202,7 +202,7 @@ The write tools split cleanly by what they change, so your agent never has to gu
 
 - A **secret value** (an API key, token, or password) - `set_secret`. It stores the value and applies the minimal action itself: a rebuild if the key is a declared build secret (baked into the image at build), a restart otherwise. You do not tell it which; it reads your config.
 - **How one service is built or wired** (build path, Dockerfile, port, health check, which keys are injected at build, topology connections) - `edit_previewkit_config`. It saves a new config revision and rebuilds that one service.
-- **The shape of the preview** (add or remove an app, a service like a database or cache, or an addon) - `get_config` then `apply_config`. It saves the full document and redeploys the whole environment, since a topology change touches more than one service.
+- **The shape of the preview** (add or remove an app or a service like a database or cache) - `get_config` then `apply_config`. It saves the full document and redeploys the whole environment, since a topology change touches more than one service.
 
 ### Fixing test data
 

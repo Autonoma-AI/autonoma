@@ -318,7 +318,7 @@ export interface HooksDraft {
 }
 
 /** Document-level fields the form doesn't expose but must survive a round-trip. */
-export type DocumentPassthrough = Pick<PreviewConfig, "domain" | "registry" | "addons">;
+export type DocumentPassthrough = Pick<PreviewConfig, "domain" | "registry">;
 
 export interface TopologyDraft {
     apps: AppDraft[];
@@ -397,7 +397,7 @@ export function emptyAppDraft(repoKey: string, origin: AppDraftOrigin = "manual"
  * Generates a service name unique against `existing` (the current draft service
  * names), starting from `base` and appending `-2`, `-3`, … on collision. Mirrors
  * the unique-name constraint the previewkit schema enforces across
- * apps/services/addons, so a freshly-added instance never immediately collides.
+ * apps/services, so a freshly-added instance never immediately collides.
  */
 export function uniqueServiceName(base: string, existing: string[]): string {
     const taken = new Set(existing.map((name) => name.trim()).filter((name) => name !== ""));
@@ -475,7 +475,6 @@ export function draftFromConfig(
     const passthrough: Partial<DocumentPassthrough> = {};
     if (primary.domain != null) passthrough.domain = primary.domain;
     if (primary.registry != null) passthrough.registry = primary.registry;
-    if (primary.addons.length > 0) passthrough.addons = primary.addons;
 
     // Services and hooks are collected from EVERY document, each tagged with the
     // one that declares it. A dependency repo commonly owns the database its own
@@ -781,7 +780,6 @@ function compileDocument(draft: TopologyDraft, repoKey: string): CompiledDocumen
         return compiled;
     });
 
-    if (isPrimary && draft.passthrough.addons != null) document.addons = draft.passthrough.addons;
     const compiledHooks = compileHooks(hooks);
     if (compiledHooks != null) document.hooks = compiledHooks;
 
@@ -1520,7 +1518,6 @@ export function validateDraftClientSide(compiled: CompiledTopology): DraftIssues
 
     const mergedApps: unknown[] = [];
     const mergedServices: unknown[] = [];
-    const mergedAddons: unknown[] = [];
     const mergedIndexToDraftId = new Map<number, number>();
 
     for (const entry of allDocuments) {
@@ -1540,19 +1537,16 @@ export function validateDraftClientSide(compiled: CompiledTopology): DraftIssues
                 mergedApps.push(app);
             }
         }
-        // Every document's services and addons, not just the primary's: a dependency
+        // Every document's services, not just the primary's: a dependency
         // repo declares the database its own app connects to.
         const services = entry.document.services;
         if (Array.isArray(services)) mergedServices.push(...services);
-        const addons = entry.document.addons;
-        if (Array.isArray(addons)) mergedAddons.push(...addons);
     }
 
     const merged = authoringPreviewConfigSchema.safeParse({
         version: 1,
         apps: mergedApps,
         services: mergedServices,
-        addons: mergedAddons,
         // The primary document is the only one that declares the dependency repos, and
         // semantics need them: a database setup task can run as a separate job out of a
         // dependency repo (`location.repo`), which reads as an unknown repository when

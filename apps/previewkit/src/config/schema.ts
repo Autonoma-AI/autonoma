@@ -4,7 +4,6 @@ export {
     declaredSdkAppName,
     resolvePrimaryAppName,
     trustedPreviewConfigSchema,
-    type AddonConfig,
     type AppConfig,
     type AppRole,
     type Build,

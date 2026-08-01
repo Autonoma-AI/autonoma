@@ -38,7 +38,6 @@ function makeResult(overrides: Partial<DeployPreviewEnvironmentOutput> = {}): De
         totalCount: 1,
         urls: { web: "https://web.preview.example.com" },
         services: [],
-        addons: [],
         warnings: [],
         primaryUrl: "https://web.preview.example.com",
         ...overrides,

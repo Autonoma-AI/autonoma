@@ -213,16 +213,6 @@ declare global {
         export type PreviewkitManifest = {
             apps?: Array<{ name: string; port?: number | null; primary?: boolean | null }>;
             services?: Array<{ name: string; recipe?: string | null; version?: string | null }>;
-            addons?: Array<{ name: string; provider?: string | null }>;
         };
-
-        // Provider-controlled opaque blob persisted alongside the addon row.
-        // Whatever provision() returned in `state` is exactly what deprovision()
-        // sees — providers are responsible for shape compatibility across
-        // versions of their own code.
-        export type PreviewkitAddonState = Record<string, unknown>;
-        // Public outputs surfaced into the template engine; apps reference
-        // them as {{addonName.<key>}} in env and build_args.
-        export type PreviewkitAddonOutputs = Record<string, string>;
     }
 }

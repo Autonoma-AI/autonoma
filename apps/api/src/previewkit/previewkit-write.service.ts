@@ -196,8 +196,8 @@ export class PreviewkitWriteService {
 
     /**
      * Saves a FULL preview config document - the path for structural changes a
-     * single-app patch can't express: adding or removing an app, a service (a
-     * database, cache, or side-container), or an addon. Dependency (multirepo)
+     * single-app patch can't express: adding or removing an app, or a service (a
+     * database, cache, or side-container). Dependency (multirepo)
      * documents are preserved. Unless `apply` is false, redeploys the whole
      * environment against the new document, since a topology change touches more
      * than one service (so it rebuilds the environment, not a single app).

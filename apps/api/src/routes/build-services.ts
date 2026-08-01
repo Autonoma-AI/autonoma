@@ -55,7 +55,6 @@ import { OnboardingAgentSessionService } from "./onboarding/onboarding-agent-ses
 import { OnboardingManager } from "./onboarding/onboarding-manager";
 import { OnboardingService } from "./onboarding/onboarding.service";
 import { PreviewkitConfigService } from "./onboarding/previewkit-config-service";
-import { OrgSecretsService } from "./org-secrets/org-secrets.service";
 import { ScenariosService } from "./scenarios/scenarios.service";
 import { SnapshotEditService } from "./snapshot-edit/snapshot-edit.service";
 import { TestGenerationsService } from "./test-generations/test-generations.service";
@@ -79,7 +78,6 @@ export interface Services {
     secrets: PreviewkitSecretsService;
     previewkitSecretStatus: PreviewkitSecretStatusService;
     previewkitLogs: PreviewkitLogsService;
-    orgSecrets: OrgSecretsService;
     github: GitHubInstallationService;
     falsePositiveCandidates: FalsePositiveCandidateService;
     mergeGate: MergeGateService;
@@ -226,7 +224,6 @@ export function buildServices({
         secrets: previewkitSecretsService,
         previewkitSecretStatus: new PreviewkitSecretStatusService(conn, previewkitSecretsService),
         previewkitLogs: new PreviewkitLogsService(previewkitEnvironmentsService, buildLogStore, appLogStore),
-        orgSecrets: new OrgSecretsService(conn, secretValues),
         github: githubService,
         falsePositiveCandidates: falsePositiveCandidatesService,
         mergeGate: new MergeGateService(

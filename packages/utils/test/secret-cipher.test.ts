@@ -13,24 +13,11 @@ const APP_SCOPE: SecretScope = {
     key: "DATABASE_URL",
 };
 
-const ORG_SCOPE: SecretScope = {
-    kind: "org",
-    organizationId: "org_123",
-    name: "neon",
-    key: "token",
-};
-
 describe("SecretCipher", () => {
     it("round-trips a value in an app scope", () => {
         const cipher = makeCipher();
 
         expect(cipher.decrypt(cipher.encrypt("postgres://secret", APP_SCOPE), APP_SCOPE)).toBe("postgres://secret");
-    });
-
-    it("round-trips a value in an org scope", () => {
-        const cipher = makeCipher();
-
-        expect(cipher.decrypt(cipher.encrypt("neon-token", ORG_SCOPE), ORG_SCOPE)).toBe("neon-token");
     });
 
     it("round-trips empty and unicode values", () => {
@@ -70,15 +57,6 @@ describe("SecretCipher", () => {
                 { kind: "app", applicationId: APP_SCOPE.applicationId, appName: "web" },
                 "DATABASE_URL",
             );
-
-            expect(cipher.decrypt(sealed, derived)).toBe("value");
-        });
-
-        it("derives an org scope that opens what the equivalent literal sealed", () => {
-            const cipher = makeCipher();
-            const sealed = cipher.encrypt("value", ORG_SCOPE);
-
-            const derived = scopeIn({ kind: "org", organizationId: ORG_SCOPE.organizationId, name: "neon" }, "token");
 
             expect(cipher.decrypt(sealed, derived)).toBe("value");
         });
@@ -130,14 +108,6 @@ describe("SecretCipher", () => {
 
             expect(() => cipher.decrypt(sealed, { ...APP_SCOPE, appName: "api" })).toThrow();
             expect(() => cipher.decrypt(sealed, { ...APP_SCOPE, key: "OTHER_KEY" })).toThrow();
-        });
-
-        it("refuses a ciphertext moved to another organization", () => {
-            const cipher = makeCipher();
-            const sealed = cipher.encrypt("value", ORG_SCOPE);
-
-            expect(() => cipher.decrypt(sealed, { ...ORG_SCOPE, organizationId: "org_other" })).toThrow();
-            expect(() => cipher.decrypt(sealed, { ...ORG_SCOPE, name: "other" })).toThrow();
         });
 
         it("does not let separator characters re-cut one scope into another", () => {

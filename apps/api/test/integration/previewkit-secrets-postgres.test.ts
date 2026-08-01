@@ -2,7 +2,6 @@ import { mintSecretKey, SecretKeys, SecretValues } from "@autonoma/secrets";
 import { FakeKeyProvider } from "@autonoma/secrets/fake-key-provider";
 import { expect } from "vitest";
 import { PreviewkitSecretsService } from "../../src/previewkit/previewkit-secrets.service";
-import { OrgSecretsService } from "../../src/routes/org-secrets/org-secrets.service";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
 
@@ -17,7 +16,6 @@ apiTestSuite({
          */
         async function store(harness: APITestHarness): Promise<SecretValues> {
             await harness.db.previewkitSecret.deleteMany();
-            await harness.db.previewkitOrgSecret.deleteMany();
             await harness.db.previewkitEncryptionKey.deleteMany();
 
             const provider = new FakeKeyProvider();
@@ -188,33 +186,6 @@ apiTestSuite({
             // stops offering an app that has nothing left to show.
             await secrets.delete(applicationId, APP, "API_KEY", harness.organizationId);
             expect(await secrets.listApps(applicationId, harness.organizationId)).toEqual([]);
-        });
-
-        test("writes one org row per key when two writes race", async ({ harness }) => {
-            const values = await store(harness);
-            const orgSecrets = new OrgSecretsService(harness.db, values);
-
-            await Promise.all([
-                orgSecrets.upsert(harness.organizationId, "neon", [{ key: "token", value: "a" }]),
-                orgSecrets.upsert(harness.organizationId, "neon", [{ key: "token", value: "a" }]),
-            ]);
-
-            expect(await harness.db.previewkitOrgSecret.count({ where: { name: "neon" } })).toBe(1);
-        });
-
-        test("org secrets round-trip, and a delete of an absent key is a 404", async ({ harness }) => {
-            const values = await store(harness);
-            const orgSecrets = new OrgSecretsService(harness.db, values);
-
-            await orgSecrets.upsert(harness.organizationId, "neon", [{ key: "token", value: "neon-token" }]);
-
-            expect((await orgSecrets.list(harness.organizationId, "neon")).map((entry) => entry.key)).toEqual([
-                "token",
-            ]);
-
-            await expect(orgSecrets.delete(harness.organizationId, "neon", "missing")).rejects.toThrow(/not found/);
-            await orgSecrets.delete(harness.organizationId, "neon", "token");
-            expect(await orgSecrets.list(harness.organizationId, "neon")).toEqual([]);
         });
     },
 });

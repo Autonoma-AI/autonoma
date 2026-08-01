@@ -390,7 +390,7 @@ function PreviewLogsBody({
   onLogsChange: (next: PreviewLogSource) => void;
 }) {
   // Apps carry both build and runtime logs; recipe services (postgres, redis, ...) run as in-cluster
-  // pods with runtime output but are not built from the PR; only external addons have no logs at all.
+  // pods with runtime output but are not built from the PR.
   if (service != null && service.logAvailability === "none") {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center border border-border-dim bg-surface-base px-4 py-5 text-center text-sm text-text-secondary">
@@ -434,7 +434,7 @@ function serviceKey(service: PreviewService): string {
 }
 
 // Apps (web/api/worker) are deployed from the PR branch and carry per-app build/runtime logs;
-// everything else (databases, caches, addons) is grouped under "Services".
+// everything else (databases, caches) is grouped under "Services".
 function isAppService(service: PreviewService): boolean {
   return service.branchSource === "matched_pr_branch";
 }

@@ -1,4 +1,4 @@
-import type { PreviewkitAddonStatus, PreviewkitAppStatus, Prisma, PreviewkitStatus } from "@autonoma/db";
+import type { PreviewkitAppStatus, Prisma, PreviewkitStatus } from "@autonoma/db";
 import { declaredSdkAppName, previewConfigSchema, resolveSdkAppName } from "@autonoma/types";
 
 type PreviewEnvironmentStatus =
@@ -15,8 +15,7 @@ type PreviewServiceKind = "web" | "api" | "worker" | "database" | "service" | "u
 // Which log streams a service exposes. Apps are built from the PR and run as
 // scraped pods, so they have both. Recipe services (postgres, redis, ...) run as
 // in-cluster pods the Alloy DaemonSet scrapes but are not built from the PR, so
-// they have runtime output only. Addons are external providers with no pod to
-// scrape, so they have neither.
+// they have runtime output only.
 type PreviewServiceLogAvailability = "build_and_runtime" | "runtime_only" | "none";
 type PreviewServiceIconKey =
     | "web"
@@ -44,7 +43,6 @@ type PreviewkitAppBuildOutcome =
 type PreviewkitManifest = {
     apps?: Array<{ name: string; port?: number | null; primary?: boolean | null; sdk_implemented?: boolean | null }>;
     services?: Array<{ name: string; recipe?: string | null; version?: string | null }>;
-    addons?: Array<{ name: string; provider?: string | null }>;
 };
 
 type PreviewServiceSummary = {
@@ -159,15 +157,6 @@ export function buildServiceSummaries({
             port: number;
             updatedAt: Date;
         }>;
-        addons: Array<{
-            name: string;
-            provider: string;
-            status: "pending" | "ok" | "failed" | "deprovisioned";
-            error: string | null;
-            outputs: Prisma.JsonValue;
-            provisionedAt: Date | null;
-            updatedAt: Date;
-        }>;
     };
     manifest: PreviewkitManifest;
     latestBuild: {
@@ -207,36 +196,6 @@ export function buildServiceSummaries({
         } satisfies PreviewServiceSummary;
     });
 
-    const persistedAddons = new Map(environment.addons.map((addon) => [addon.name, addon]));
-    const addonNames = new Set([
-        ...(manifest.addons ?? []).map((addon) => addon.name),
-        ...environment.addons.map((addon) => addon.name),
-    ]);
-    const addons = [...addonNames].sort().map((name) => {
-        const addon = persistedAddons.get(name);
-        const manifestAddon = manifest.addons?.find((entry) => entry.name === name);
-        const provider = addon?.provider ?? manifestAddon?.provider ?? null;
-        const kind = inferAddonKind(provider);
-        return {
-            name,
-            kind,
-            iconKey: resolvePreviewServiceIconKey({ name, kind, provider }),
-            status: mapAddonStatus(addon?.status),
-            logAvailability: "none",
-            branch: null,
-            branchSource: "unknown" as const,
-            branchHint: addon?.provider != null ? addon.provider : (manifestAddon?.provider ?? null),
-            endpoint: safeAddonEndpoint(addon?.outputs),
-            port: null,
-            imageTag: null,
-            buildLogUrl: null,
-            buildDurationMs: null,
-            statusReason: addon?.error ?? null,
-            lastBuiltAt: null,
-            lastDeployedAt: addon?.provisionedAt ?? addon?.updatedAt ?? null,
-        } satisfies PreviewServiceSummary;
-    });
-
     const genericServices = (manifest.services ?? []).map((service) => {
         const kind = inferRecipeKind(service.recipe ?? service.name);
         return {
@@ -263,7 +222,7 @@ export function buildServiceSummaries({
         } satisfies PreviewServiceSummary;
     });
 
-    return [...apps, ...genericServices, ...addons];
+    return [...apps, ...genericServices];
 }
 
 export type PreviewFailureCode =
@@ -272,7 +231,6 @@ export type PreviewFailureCode =
     | "missing_path"
     | "missing_dockerfile"
     | "missing_image"
-    | "addon_failed"
     | "unknown";
 
 /**
@@ -338,8 +296,6 @@ export function classifyPreviewFailures({
                 message: environmentError,
                 ...(appName != null ? { appName } : {}),
             });
-        } else if (/addon/i.test(environmentError)) {
-            push({ code: "addon_failed", message: environmentError });
         } else if (appName != null) {
             push(classifyAppFailure(appName, environmentError, "deploy_failed", appIndexByName));
         } else if (failures.length === 0) {
@@ -438,7 +394,7 @@ function deriveAppStatus(
         if (environmentStatus === "failed" && isAppInFlight(instance.status)) return "failed";
         return mapAppStatus(instance.status);
     }
-    // No per-app row yet (config not resolved, or a service/addon handled
+    // No per-app row yet (config not resolved, or a service handled
     // elsewhere): fall back to the build outcome and the env-level status.
     if (build?.status === "failed") return "failed";
     if (environmentStatus === "pending" || environmentStatus === "building" || environmentStatus === "deploying")
@@ -457,14 +413,6 @@ function mapAppStatus(status: PreviewkitAppStatus): PreviewServiceStatus {
 /** An app row that has not reached a verdict yet - it maps to `building`. */
 function isAppInFlight(status: PreviewkitAppStatus): boolean {
     return mapAppStatus(status) === "building";
-}
-
-function mapAddonStatus(status: "pending" | "ok" | "failed" | "deprovisioned" | undefined): PreviewServiceStatus {
-    if (status === "ok") return "ready";
-    if (status === "pending") return "building";
-    if (status === "failed") return "failed";
-    if (status === "deprovisioned") return "stopped";
-    return "unknown";
 }
 
 export function mapBuildStatus(status: PreviewkitStatus): "ready" | "building" | "failed" | "unknown" {
@@ -520,7 +468,6 @@ export function projectManifest(resolvedConfig: Prisma.JsonValue): PreviewkitMan
             recipe: service.recipe,
             version: service.version ?? null,
         })),
-        addons: parsed.data.addons.map((addon) => ({ name: addon.name, provider: addon.provider })),
     };
 }
 
@@ -580,11 +527,11 @@ export type PreviewEnvironmentHealth = "ready" | "building" | "degraded" | "fail
  * health, so the badge can never contradict the per-app rows shown beneath it.
  *
  * Once per-app instance rows exist they are the source of truth: the
- * environment is `ready` only when every app is ready (and no addon failed),
- * `degraded` when some apps are up but others failed / were skipped or an addon
- * failed, `failed` when nothing came up, and `building` while any app is still
- * in flight. The persisted environment `status` is consulted only before any
- * app rows exist (e.g. a build that failed at moment 0).
+ * environment is `ready` only when every app is ready, `degraded` when some
+ * apps are up but others failed or were skipped, `failed` when nothing came
+ * up, and `building` while any app is still in flight. The persisted
+ * environment `status` is consulted only before any app rows exist (e.g. a
+ * build that failed at moment 0).
  *
  * This is what lets a fully-deployed environment whose post-deploy GitHub
  * finalization failed - status stamped `failed`, yet every app `ready` - read
@@ -599,15 +546,12 @@ export type PreviewEnvironmentHealth = "ready" | "building" | "degraded" | "fail
 export function deriveEnvironmentHealth(
     status: PreviewkitStatus,
     apps: Array<{ status: PreviewkitAppStatus }>,
-    addons: Array<{ status: PreviewkitAddonStatus }>,
 ): PreviewEnvironmentHealth {
     if (status === "torn_down") return "unknown";
 
-    const hasFailedAddon = addons.some((addon) => addon.status === "failed");
-
     if (apps.length === 0) {
         if (status === "failed") return "failed";
-        if (status === "ready") return hasFailedAddon ? "degraded" : "ready";
+        if (status === "ready") return "ready";
         return "building";
     }
 
@@ -616,7 +560,7 @@ export function deriveEnvironmentHealth(
 
     if (anyInFlight && status !== "failed") return "building";
     if (readyCount === 0) return "failed";
-    if (hasFailedAddon || readyCount < apps.length) return "degraded";
+    if (readyCount < apps.length) return "degraded";
     return "ready";
 }
 
@@ -691,12 +635,6 @@ export function resolveSdkAppUrl(manifest: PreviewkitManifest, urls: Record<stri
     return resolvePrimaryUrl(manifest, urls);
 }
 
-function safeAddonEndpoint(value: Prisma.JsonValue | undefined): string | null {
-    if (value == null) return null;
-    const outputs = parseStringRecord(value);
-    return outputs.url ?? outputs.host ?? null;
-}
-
 function inferServiceKind(name: string): PreviewServiceKind {
     const normalized = name.toLowerCase();
     if (normalized.includes("worker")) return "worker";
@@ -713,31 +651,21 @@ function inferRecipeKind(value: string): PreviewServiceKind {
     return "service";
 }
 
-function inferAddonKind(provider: string | null): PreviewServiceKind {
-    if (provider == null) return "service";
-    return inferRecipeKind(provider);
-}
-
 function resolvePreviewServiceIconKey({
     name,
     kind,
     runtime,
     recipe,
-    provider,
 }: {
     name: string;
     kind: PreviewServiceKind;
     runtime?: PreviewServiceIconKey | undefined;
     recipe?: string | null | undefined;
-    provider?: string | null | undefined;
 }): PreviewServiceIconKey {
     if (runtime != null && runtime !== "unknown") return runtime;
 
     const recipeIcon = recipe != null ? iconKeyFromToken(recipe) : undefined;
     if (recipeIcon != null) return recipeIcon;
-
-    const providerIcon = provider != null ? iconKeyFromToken(provider) : undefined;
-    if (providerIcon != null) return providerIcon;
 
     const nameIcon = iconKeyFromToken(name);
     if (nameIcon != null) return nameIcon;

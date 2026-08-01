@@ -42,7 +42,7 @@ const sealed = cipher.encrypt(value, { kind: "app", applicationId, appName, key 
 const value = cipher.decrypt(sealed, { kind: "app", applicationId, appName, key });
 ```
 
-Scopes are `{ kind: "app", applicationId, appName, key }` for `PreviewkitSecret` rows and `{ kind: "org", organizationId, name, key }` for `PreviewkitOrgSecret` rows. Passing a scope that differs in any field fails the GCM tag check, indistinguishable from tampering. So does handing an envelope to a cipher for a different generation, though that fails with an explicit message instead.
+Scopes are `{ kind: "app", applicationId, appName, key }` for `PreviewkitSecret` rows. Passing a scope that differs in any field fails the GCM tag check, indistinguishable from tampering. So does handing an envelope to a cipher for a different generation, though that fails with an explicit message instead.
 
 `readEnvelopeKeyId` reads which generation sealed an envelope without needing any key - that is how a caller knows which one to fetch and unwrap.
 

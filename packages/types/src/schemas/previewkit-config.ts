@@ -67,13 +67,6 @@ function buildResourcesSchema(role: PreviewResourceRole, allowCustomResources: b
 // `appSchema` and `serviceSchema` are built inside `buildPreviewConfigSchema`
 // (below) so their `resources` tier can be gated by `allowCustomResources`.
 
-const addonSchema = z.object({
-    name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
-    provider: z.string().min(1, "provider is required"),
-    auth_secret: z.string().min(1, "auth_secret is required"),
-    options: z.record(z.string(), z.unknown()).default({}),
-});
-
 const branchConventionSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("same_branch_name") }),
     z.object({
@@ -359,14 +352,13 @@ const connectionSchema = z.object({
         .string()
         .min(1, "value is required")
         .describe(
-            "Template resolved at deploy time. {{name.property}} tokens reference apps/services/addons in this " +
+            "Template resolved at deploy time. {{name.property}} tokens reference apps/services in this " +
                 "config by name. For a service: {{db.url}} = the full canonical connection string (postgres -> " +
                 "postgresql://preview:preview@<host>:<port>/preview; redis -> redis://...; mongodb -> " +
                 "mongodb://...), {{db.host}} = in-cluster DNS name, {{db.port}}. For an app: {{api.url}} = its " +
-                "public HTTPS URL, {{api.hostname}}. For an addon: {{name.<outputKey>}} (e.g. a Neon " +
-                "connectionString). Also available: {{pr}}, {{namespace}}, {{owner}}. Tokens can mix with literal " +
-                "text ('postgresql://user:pass@{{db.host}}:5432/mydb'), or be a plain literal ('production'). " +
-                "Prefer {{db.url}} to wire a database.",
+                "public HTTPS URL, {{api.hostname}}. Also available: {{pr}}, {{namespace}}, {{owner}}. Tokens can " +
+                "mix with literal text ('postgresql://user:pass@{{db.host}}:5432/mydb'), or be a plain literal " +
+                "('production'). Prefer {{db.url}} to wire a database.",
         ),
     build_time: z.boolean().default(false).describe("Also pass the resolved value as a Docker build arg."),
 });
@@ -433,17 +425,16 @@ function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allow
             config: configSchema.optional(),
             apps: z.array(appSchema).min(1, "At least one app is required"),
             services: z.array(serviceSchema).default([]),
-            addons: z.array(addonSchema).default([]),
             hooks: hooksSchema,
         })
         .superRefine((cfg, ctx) => {
-            const seen = new Map<string, "app" | "service" | "addon">();
-            const check = (name: string, kind: "app" | "service" | "addon") => {
+            const seen = new Map<string, "app" | "service">();
+            const check = (name: string, kind: "app" | "service") => {
                 const existing = seen.get(name);
                 if (existing != null) {
                     ctx.addIssue({
                         code: z.ZodIssueCode.custom,
-                        message: `Name "${name}" is used by both a ${existing} and an ${kind} - names must be unique across apps, services, and addons`,
+                        message: `Name "${name}" is used by both a ${existing} and an ${kind} - names must be unique across apps and services`,
                     });
                     return;
                 }
@@ -451,7 +442,6 @@ function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allow
             };
             for (const app of cfg.apps) check(app.name, "app");
             for (const service of cfg.services) check(service.name, "service");
-            for (const addon of cfg.addons) check(addon.name, "addon");
         });
 }
 
@@ -663,7 +653,6 @@ export function validatePreviewConfigSemantics(config: PreviewConfig): ConfigIss
     const names = new Set<string>([
         ...config.apps.map((app) => app.name),
         ...config.services.map((service) => service.name),
-        ...config.addons.map((addon) => addon.name),
     ]);
     const appNames = new Set(config.apps.map((app) => app.name));
 
@@ -879,6 +868,5 @@ export type ServiceConfig<TOptions = Record<string, unknown>> = Omit<PreviewConf
 };
 export type DatabaseSetupTask = z.infer<typeof databaseSetupTaskSchema>;
 export type DatabaseSetupLocation = z.infer<typeof databaseSetupLocationSchema>;
-export type AddonConfig = z.infer<typeof addonSchema>;
 export type BranchConvention = z.infer<typeof branchConventionSchema>;
 export type RepoDependency = z.infer<typeof repoDependencySchema>;

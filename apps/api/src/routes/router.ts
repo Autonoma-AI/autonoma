@@ -12,7 +12,6 @@ import { deploymentsRouter } from "./deployments/deployments.router";
 import { foldersRouter } from "./folders/folders.router";
 import { issuesRouter } from "./issues/issues.router";
 import { onboardingRouter } from "./onboarding/onboarding.router";
-import { orgSecretsRouter } from "./org-secrets/org-secrets.router";
 import { previewAccessRouter } from "./preview-access/preview-access.router";
 import { scenariosRouter } from "./scenarios/scenarios.router";
 import { secretsRouter } from "./secrets/secrets.router";
@@ -36,7 +35,6 @@ const appRouterImpl = router({
     tests: testsRouter,
     scenarios: scenariosRouter,
     secrets: secretsRouter,
-    orgSecrets: orgSecretsRouter,
     github: githubRouter,
     onboarding: onboardingRouter,
     previewAccess: previewAccessRouter,

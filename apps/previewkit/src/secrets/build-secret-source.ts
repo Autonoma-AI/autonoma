@@ -3,7 +3,7 @@ import { describeSecretBundle, type SecretBundle } from "@autonoma/utils";
 import { type Logger, logger as rootLogger } from "../logger";
 
 /**
- * The values a build and its addons read, from Postgres.
+ * The values a build reads, from Postgres.
  *
  * Keyed by bundle rather than by any external identifier: that is what the store
  * needs, and it is the only key that cannot resolve to the wrong owner. It also

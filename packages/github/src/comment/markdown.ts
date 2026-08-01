@@ -105,14 +105,6 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
         }
     }
 
-    if (payload.addons.length > 0) {
-        sections.push("", "**Addons:**");
-        for (const addon of payload.addons) {
-            const status = addon.status === "ready" ? "Ready" : "Failed";
-            sections.push(`- ${escapeMarkdown(addon.name)} (${escapeMarkdown(addon.provider)}) - ${status}`);
-        }
-    }
-
     if (payload.warnings.length > 0) {
         sections.push("", "> **Note:**", ...payload.warnings.map((warning) => `> - ${escapeMarkdown(warning)}`));
     }

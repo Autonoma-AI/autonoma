@@ -7,7 +7,6 @@ export { isOnboardingComplete } from "./onboarding-gate";
 export { createGitHubPrCommentStore } from "./pr-comment-store";
 export { postOrUpdateCommentOnGithub } from "./updater";
 export type {
-    AutonomaCommentAddon,
     AutonomaCommentBug,
     AutonomaCommentCta,
     AutonomaCommentEvidence,

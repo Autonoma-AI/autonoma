@@ -169,7 +169,6 @@ export async function buildAnalysisCommentPayload(
         assetBaseUrl: context.assetBaseUrl,
         ctas,
         services: [],
-        addons: [],
         warnings: coverageLine != null ? [coverageLine] : [],
         details: [],
         previewUrls: hasPreview ? [context.previewUrl!] : [],

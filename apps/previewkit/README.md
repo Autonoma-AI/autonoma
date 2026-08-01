@@ -100,7 +100,6 @@ hooks:
 | `registry` | No       | Container registry. Overrides `REGISTRY_URL` env var                   |
 | `apps`     | Yes      | List of app definitions (at least one)                                 |
 | `services` | No       | List of infrastructure services                                        |
-| `addons`   | No       | Third-party managed resources via provider plugins (e.g. Neon)         |
 | `hooks`    | No       | Lifecycle hooks (`pre_deploy` / `post_deploy`)                         |
 | `config`   | No       | Advanced settings, e.g. `config.multirepo` for multi-repo dependencies |
 
@@ -166,7 +165,7 @@ Every runtime is a Debian-family (`apt`) image, so the generator installs one co
 
 Every variable a user types is a secret (stored in AWS Secrets Manager). The one non-secret variable is a **connection**: an env var whose `value` is a template resolved against the preview's own topology at deploy time. It carries no static secret, so it is never stored in AWS.
 
-Each connection names an env `key` and a `value` template (plus an optional `build_time` flag). The template mixes literal text with `{{name.property}}` tokens, where `name` is an app, service, or addon declared in this config:
+Each connection names an env `key` and a `value` template (plus an optional `build_time` flag). The template mixes literal text with `{{name.property}}` tokens, where `name` is an app or service declared in this config:
 
 ```yaml
 connections:
@@ -198,7 +197,6 @@ Token properties resolve as:
         - `redis` / `valkey` -> `redis://<host>:<port>`
         - `mongodb` -> `mongodb://<host>:<port>/?directConnection=true`
 - `hostname` (apps only) - the app's public hostname without the scheme.
-- any output key of an **addon** (e.g. `{{neon-db.connectionString}}`).
 
 Recipes without a single-scheme URL (e.g. `temporal`, `api-gateway`) expose only `host` / `port`.
 

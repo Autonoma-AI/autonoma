@@ -182,16 +182,12 @@ export async function upsertConfig(
 }
 
 /**
- * Accumulates app/service/addon names across a multi-repo topology, throwing when
+ * Accumulates app/service names across a multi-repo topology, throwing when
  * two documents claim the same name. Within-document duplicates are already
  * schema errors; this guards the merged deploy (which concatenates all docs).
  */
 export function collectTopologyNames(config: PreviewConfig, sourceLabel: string, seen: Map<string, string>): void {
-    const names = [
-        ...config.apps.map((app) => app.name),
-        ...config.services.map((service) => service.name),
-        ...config.addons.map((addon) => addon.name),
-    ];
+    const names = [...config.apps.map((app) => app.name), ...config.services.map((service) => service.name)];
     for (const name of names) {
         const existing = seen.get(name);
         if (existing != null && existing !== sourceLabel) {

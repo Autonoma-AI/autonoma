@@ -35,7 +35,6 @@ export class SecretsHarness implements IntegrationHarness {
         // Secrets first: their encryptionKey FK is Restrict, so key rows cannot go while
         // any value still references one - which is the point of that constraint.
         await this.db.previewkitSecret.deleteMany();
-        await this.db.previewkitOrgSecret.deleteMany();
         await this.db.previewkitEncryptionKey.deleteMany();
         await this.db.application.deleteMany();
         await this.db.organization.deleteMany();
@@ -60,11 +59,6 @@ export class SecretsHarness implements IntegrationHarness {
         return { kind: "app", applicationId: application.id, appName };
     }
 
-    /** An org-scoped bundle identity, with the Organization its rows hang off. */
-    async createOrgBundle(name = "neon"): Promise<OrgBundle> {
-        return { kind: "org", organizationId: await this.createOrg(), name };
-    }
-
     private async createOrg(): Promise<string> {
         const org = await this.db.organization.create({
             data: { name: `Org ${crypto.randomUUID()}`, slug: `org-${crypto.randomUUID()}` },
@@ -74,7 +68,6 @@ export class SecretsHarness implements IntegrationHarness {
 }
 
 type AppBundle = { kind: "app"; applicationId: string; appName: string };
-type OrgBundle = { kind: "org"; organizationId: string; name: string };
 
 type SecretsSuiteContext = { harness: SecretsHarness; seedResult: undefined };
 

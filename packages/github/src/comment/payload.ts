@@ -21,7 +21,6 @@ export function payloadBuilder(input: PayloadBuilderInput): AutonomaCommentPaylo
         assetBaseUrl: input.assetBaseUrl ?? undefined,
         ctas: buildCtas(input),
         services,
-        addons: input.addons ?? [],
         bugs,
         warnings: input.warnings ?? [],
         details: input.details ?? buildServiceErrorDetails(services),

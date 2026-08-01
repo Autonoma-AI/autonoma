@@ -1,9 +1,8 @@
 import type { PreviewBuildOutcome } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
-import type { AddonProvisionOutcome } from "../../src/addons/addon-manager";
 import { previewConfigSchema } from "../../src/config/schema";
 import type { AppBuildOutcome } from "../../src/db";
-import { computeFinalOutcomes, toAddonResults, toBuildStates, toFinalAppStates } from "../../src/pipeline/outcomes";
+import { computeFinalOutcomes, toBuildStates, toFinalAppStates } from "../../src/pipeline/outcomes";
 
 const config = previewConfigSchema.parse({
     version: 1,
@@ -11,7 +10,6 @@ const config = previewConfigSchema.parse({
         { name: "web", path: "./apps/web", port: 3000 },
         { name: "api", path: "./apps/api", port: 4000 },
     ],
-    addons: [{ name: "db", provider: "neon", auth_secret: "db-credentials" }],
 });
 
 const buildOk: PreviewBuildOutcome = { status: "success", imageTag: "img:web", durationMs: 100 };
@@ -113,24 +111,5 @@ describe("toFinalAppStates", () => {
             imageTag: "img:web",
             error: "No deploy outcome recorded",
         });
-    });
-});
-
-describe("toAddonResults", () => {
-    it("maps a provisioned addon to a ready row with the provider from config", () => {
-        const ok: AddonProvisionOutcome = { name: "db", status: "ok", outputs: {}, fresh: true };
-        expect(toAddonResults(config, [ok])).toEqual([{ name: "db", provider: "neon", status: "ready" }]);
-    });
-
-    it("maps a failed addon to a failed row carrying its error", () => {
-        const failed: AddonProvisionOutcome = { name: "db", status: "failed", error: "quota exceeded" };
-        expect(toAddonResults(config, [failed])).toEqual([
-            { name: "db", provider: "neon", status: "failed", error: "quota exceeded" },
-        ]);
-    });
-
-    it("falls back to an `unknown` provider when the addon is not in the config", () => {
-        const ok: AddonProvisionOutcome = { name: "ghost", status: "ok", outputs: {}, fresh: false };
-        expect(toAddonResults(config, [ok])).toEqual([{ name: "ghost", provider: "unknown", status: "ready" }]);
     });
 });

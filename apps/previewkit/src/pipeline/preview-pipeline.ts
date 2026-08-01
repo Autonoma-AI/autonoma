@@ -16,7 +16,6 @@ import type {
     DeployPreviewEnvironmentOutput,
     PreviewServiceResult,
 } from "@autonoma/types";
-import type { AddonManager, AddonProvisionOutcome } from "../addons/addon-manager";
 import { BuildAbortedError, BuildError, type Builder } from "../builder/builder";
 import { buildPreviewCacheReference, buildPreviewImageReference } from "../builder/image-reference";
 import { resolveDependencyConfig } from "../config/dependency-config";
@@ -41,7 +40,7 @@ import {
     recordResolvedConfig,
 } from "../db";
 import type { DeployResult, Deployer } from "../deployer/deployer";
-import { type AddonOutputs, type EnvInjector, type PublicUrlInfo } from "../deployer/env-injector";
+import { type EnvInjector, type PublicUrlInfo } from "../deployer/env-injector";
 import { runHookJob } from "../deployer/hook-job-runner";
 import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
 import { resolveSdkAppUrl } from "../diffs/resolve-sdk-app-url";
@@ -54,7 +53,7 @@ import { logger } from "../logger";
 import { enrichDependencyShas } from "../multirepo/enrich-dependency-shas";
 import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { BuildSecretSource } from "../secrets/build-secret-source";
-import { computeFinalOutcomes, toAddonResults, toBuildStates, toFinalAppStates } from "./outcomes";
+import { computeFinalOutcomes, toBuildStates, toFinalAppStates } from "./outcomes";
 import { StatusWriter } from "./status-writer";
 
 // A failed hook's error carries the Job's whole log, while a PR-comment warning
@@ -77,9 +76,6 @@ interface AppBuildContext {
     namespace: string;
     templateContext: { pr: string; namespace: string; owner: string };
     publicUrlInfo: PublicUrlInfo;
-    // Successfully provisioned addon outputs, available to `build_args` via
-    // `{{addonName.<key>}}` templates. Empty if the env declares no addons.
-    addonOutputs: AddonOutputs;
     registry: string;
     org: string;
     repo: string;
@@ -104,7 +100,6 @@ interface PreviewPipelineOptions {
     builder: Builder;
     deployer: Deployer;
     buildSecrets: BuildSecretSource;
-    addonManager: AddonManager;
     registryUrl: string;
     /** ECR pull-through cache prefix for Docker Hub; threaded into generated
      *  Dockerfile base images. "" disables mirroring (see mirrorDockerHubImage). */
@@ -132,7 +127,6 @@ export class PreviewPipeline {
     private readonly builder: Builder;
     private readonly deployer: Deployer;
     private readonly buildSecrets: BuildSecretSource;
-    private readonly addonManager: AddonManager;
     private readonly registryUrl: string;
     private readonly dockerHubMirror: string;
     private readonly npmRegistryMirror: string;
@@ -144,7 +138,6 @@ export class PreviewPipeline {
         this.builder = options.builder;
         this.deployer = options.deployer;
         this.buildSecrets = options.buildSecrets;
-        this.addonManager = options.addonManager;
         this.registryUrl = options.registryUrl;
         this.dockerHubMirror = options.dockerHubMirror;
         this.npmRegistryMirror = options.npmRegistryMirror;
@@ -309,9 +302,9 @@ export class PreviewPipeline {
 
     /**
      * Step 2 - resolve config, clone primary + dependency repos, merge configs,
-     * snapshot the resolved config, provision addons (their outputs feed
-     * `build_args`), and build every app image to ECR. Temp dirs are cloned and torn
-     * down entirely within this step. Throws when every build fails.
+     * snapshot the resolved config, and build every app image to ECR. Temp dirs
+     * are cloned and torn down entirely within this step. Throws when every
+     * build fails.
      */
     async build(
         event: PullRequestEvent,
@@ -342,7 +335,7 @@ export class PreviewPipeline {
         // namespace's shared Loki stream. Best-effort; never blocks the build.
         void this.logSink?.markStart(namespace);
 
-        logger.info("Build step 1/7 resolving linked Application", {
+        logger.info("Build step 1/6 resolving linked Application", {
             repo: repoFullName,
             pr: prNumber,
             organizationId,
@@ -355,13 +348,13 @@ export class PreviewPipeline {
         if (application == null) {
             throw new Error(`Application not found for ${repoFullName} (org ${organizationId})`);
         }
-        logger.info("Build step 1/7 resolved linked Application", {
+        logger.info("Build step 1/6 resolved linked Application", {
             repo: repoFullName,
             pr: prNumber,
             applicationId: application.id,
         });
 
-        logger.info("Build step 2/7 resolving preview config", {
+        logger.info("Build step 2/6 resolving preview config", {
             repo: repoFullName,
             pr: prNumber,
             applicationId: application.id,
@@ -371,7 +364,7 @@ export class PreviewPipeline {
             throw new Error(`No preview config for ${repoFullName} at ${shortSha}`);
         }
         const primaryConfig = resolved.config;
-        logger.info("Build step 2/7 resolved preview config", {
+        logger.info("Build step 2/6 resolved preview config", {
             repo: repoFullName,
             pr: prNumber,
             applicationId: application.id,
@@ -385,7 +378,7 @@ export class PreviewPipeline {
             // flip a live environment's status to pending/building.
             if (!isScoped) await this.statusWriter.updatePhase(repoFullName, prNumber, "pending", "cloning");
             const deps = primaryConfig.config?.multirepo?.repos ?? [];
-            logger.info("Build step 3/7 cloning primary + dependency repos", {
+            logger.info("Build step 3/6 cloning primary + dependency repos", {
                 repo: repoFullName,
                 pr: prNumber,
                 sha: shortSha,
@@ -411,14 +404,14 @@ export class PreviewPipeline {
                 this.provider.fetchRepoTarball(repoFullName, headSha, primaryDir),
             ]);
             dependencyEntries = dependencyResults.filter((e): e is DependencyEntry => e != null);
-            logger.info("Build step 3/7 cloned primary + dependency repos", {
+            logger.info("Build step 3/6 cloned primary + dependency repos", {
                 repo: repoFullName,
                 pr: prNumber,
                 clonedDependencies: dependencyEntries.length,
                 skippedDependencies: deps.length - dependencyEntries.length,
             });
 
-            logger.info("Build step 4/7 merging config + snapshotting + seeding app rows", {
+            logger.info("Build step 4/6 merging config + snapshotting + seeding app rows", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
@@ -448,13 +441,12 @@ export class PreviewPipeline {
                     ),
                 );
             }
-            logger.info("Build step 4/7 merged config + snapshotted + seeded app rows", {
+            logger.info("Build step 4/6 merged config + snapshotted + seeded app rows", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
                 apps: mergedConfig.apps.map((a) => a.name),
                 services: mergedConfig.services.map((s) => s.name),
-                addons: mergedConfig.addons.map((a) => a.name),
             });
 
             const appRepoDirs = new Map<string, string>();
@@ -465,59 +457,6 @@ export class PreviewPipeline {
                 for (const app of entry.config.apps) {
                     appRepoDirs.set(app.name, entry.tmpDir);
                 }
-            }
-
-            // Provision addons before building - their outputs flow into build_args
-            // + runtime env via {{addonName.<key>}} templates. Each addon is its own
-            // failure domain.
-            let addonOutcomes: AddonProvisionOutcome[] = [];
-            let addonOutputs: AddonOutputs = {};
-            if (mergedConfig.addons.length > 0) {
-                if (!isScoped)
-                    await this.statusWriter.updatePhase(repoFullName, prNumber, "pending", "provisioning-addons");
-                logger.info("Build step 5/7 provisioning addons", {
-                    repo: repoFullName,
-                    pr: prNumber,
-                    namespace,
-                    addonNames: mergedConfig.addons.map((a) => a.name),
-                });
-                const environmentRow = await db.previewkitEnvironment.findUnique({
-                    where: { namespace },
-                    select: { id: true },
-                });
-                if (environmentRow == null) {
-                    logger.warn(
-                        "Cannot provision addons: PreviewkitEnvironment row missing. " +
-                            "Continuing without addon outputs - apps that reference them will fail at template-resolve time.",
-                        { namespace, addonNames: mergedConfig.addons.map((a) => a.name) },
-                    );
-                } else {
-                    addonOutcomes = await this.addonManager.provisionAll(
-                        environmentRow.id,
-                        organizationId,
-                        namespace,
-                        prNumber,
-                        mergedConfig.addons,
-                    );
-                    addonOutputs = Object.fromEntries(
-                        addonOutcomes
-                            .filter((o): o is Extract<AddonProvisionOutcome, { status: "ok" }> => o.status === "ok")
-                            .map((o) => [o.name, o.outputs]),
-                    );
-                    logger.info("Build step 5/7 provisioned addons", {
-                        repo: repoFullName,
-                        pr: prNumber,
-                        namespace,
-                        ok: addonOutcomes.filter((o) => o.status === "ok").map((o) => o.name),
-                        failed: addonOutcomes.filter((o) => o.status !== "ok").map((o) => o.name),
-                    });
-                }
-            } else {
-                logger.info("Build step 5/7 no addons declared; skipping addon provisioning", {
-                    repo: repoFullName,
-                    pr: prNumber,
-                    namespace,
-                });
             }
 
             if (!isScoped) await this.statusWriter.updatePhase(repoFullName, prNumber, "building", "building-images");
@@ -545,7 +484,7 @@ export class PreviewPipeline {
             // Which of this deploy's apps hold at least one secret. Only presence
             // matters here: the values are read from the bundle when they are needed.
             const secretApps = new Set(secretRecords.map((record) => record.appName));
-            logger.info("Build step 6/7 building images for all apps", {
+            logger.info("Build step 5/6 building images for all apps", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
@@ -561,7 +500,6 @@ export class PreviewPipeline {
                 shortSha,
                 secretApps,
                 application.id,
-                addonOutputs,
                 signal,
                 isScoped ? appName : undefined,
             );
@@ -572,7 +510,7 @@ export class PreviewPipeline {
                 if (outcome.status === "success") imageTags[name] = outcome.imageTag;
             }
             const allBuildsFailed = Object.values(appBuilds).every((o) => o.status === "failed");
-            logger.info("Build step 6/7 finished building images for all apps", {
+            logger.info("Build step 5/6 finished building images for all apps", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
@@ -585,7 +523,7 @@ export class PreviewPipeline {
                     .map(([n]) => n),
             });
 
-            logger.info("Build step 7/7 recording build outcomes", {
+            logger.info("Build step 6/6 recording build outcomes", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
@@ -615,7 +553,7 @@ export class PreviewPipeline {
             await recordSafe(() =>
                 recordAppStates(namespace, toBuildStates({ ...mergedConfig, apps: buildApps }, appBuilds)),
             );
-            logger.info("Build step 7/7 recorded build outcomes", {
+            logger.info("Build step 6/6 recorded build outcomes", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
@@ -645,9 +583,7 @@ export class PreviewPipeline {
             return {
                 mergedConfigJson: JSON.stringify(mergedConfig),
                 imageTags,
-                addonOutputs,
                 buildOutcomes: appBuilds,
-                addons: toAddonResults(mergedConfig, addonOutcomes),
                 warnings,
                 primaryAppNames: primaryConfig.apps.map((a) => a.name),
             };
@@ -683,7 +619,7 @@ export class PreviewPipeline {
         if (input.appName != null && input.appName !== "") {
             return this.deployScopedApp(input, input.appName, signal);
         }
-        const { event, commentId, imageTags, addonOutputs, buildOutcomes, addons, warnings, primaryAppNames } = input;
+        const { event, commentId, imageTags, buildOutcomes, warnings, primaryAppNames } = input;
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         // Re-hydrate the merged config across the Temporal activity boundary. The
         // config's resource policy was already applied upstream (the stored
@@ -700,7 +636,6 @@ export class PreviewPipeline {
             githubRepositoryId,
             config: mergedConfig,
             imageTags,
-            addonOutputs,
             commentId,
         };
 
@@ -727,14 +662,7 @@ export class PreviewPipeline {
         // Database setup (schema, seed, migrations) runs now that the database
         // services are up and before the apps boot, so an app never starts
         // against an unmigrated database.
-        await this.runDatabaseSetupTasks(
-            mergedConfig,
-            infraResult.namespace,
-            repoFullName,
-            prNumber,
-            imageTags,
-            addonOutputs,
-        );
+        await this.runDatabaseSetupTasks(mergedConfig, infraResult.namespace, repoFullName, prNumber, imageTags);
 
         await this.statusWriter.checkpoint(signal, repoFullName, prNumber, "pre-deploy-hooks");
         logger.info("Deploy step 2/7 running pre-deploy hooks", {
@@ -743,14 +671,7 @@ export class PreviewPipeline {
             namespace: infraResult.namespace,
             hooks: mergedConfig.hooks.pre_deploy.length,
         });
-        await this.runPreDeployHooks(
-            mergedConfig,
-            infraResult.namespace,
-            repoFullName,
-            prNumber,
-            imageTags,
-            addonOutputs,
-        );
+        await this.runPreDeployHooks(mergedConfig, infraResult.namespace, repoFullName, prNumber, imageTags);
         logger.info("Deploy step 2/7 finished pre-deploy hooks", {
             repo: repoFullName,
             pr: prNumber,
@@ -809,7 +730,6 @@ export class PreviewPipeline {
             repoFullName,
             prNumber,
             imageTags,
-            addonOutputs,
         );
         logger.info("Deploy step 4/7 finished post-deploy hooks", {
             repo: repoFullName,
@@ -934,7 +854,6 @@ export class PreviewPipeline {
             totalCount,
             urls: result.urls,
             services,
-            addons,
             warnings: [...warnings, ...hookWarnings],
         };
         if (previewUrl != null) output.previewUrl = previewUrl;
@@ -993,7 +912,7 @@ export class PreviewPipeline {
         appName: string,
         signal?: AbortSignal,
     ): Promise<DeployPreviewEnvironmentOutput> {
-        const { event, imageTags, addonOutputs, buildOutcomes, addons, warnings } = input;
+        const { event, imageTags, buildOutcomes, warnings } = input;
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         const mergedConfig = trustedPreviewConfigSchema.parse(JSON.parse(input.mergedConfigJson));
 
@@ -1019,7 +938,6 @@ export class PreviewPipeline {
             githubRepositoryId,
             config: mergedConfig,
             imageTags,
-            addonOutputs,
             commentId: "",
         };
 
@@ -1038,7 +956,7 @@ export class PreviewPipeline {
         };
 
         signal?.throwIfAborted();
-        await this.runPreDeployHooks(scopedHookConfig, namespace, repoFullName, prNumber, imageTags, addonOutputs);
+        await this.runPreDeployHooks(scopedHookConfig, namespace, repoFullName, prNumber, imageTags);
 
         // Mark the target `deploying` when it built; a build_failed target has no
         // image and keeps its build_failed row.
@@ -1061,7 +979,6 @@ export class PreviewPipeline {
             repoFullName,
             prNumber,
             imageTags,
-            addonOutputs,
         );
 
         // Recover a crash-looped target after its post_deploy hooks (e.g. migrations).
@@ -1117,7 +1034,6 @@ export class PreviewPipeline {
             totalCount: finalOutcomes.length,
             urls: result.urls,
             services,
-            addons,
             warnings: [...warnings, ...hookWarnings],
         };
         const previewUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
@@ -1446,7 +1362,6 @@ export class PreviewPipeline {
         shortSha: string,
         secretApps: Set<string>,
         applicationId: string,
-        addonOutputs: AddonOutputs,
         signal?: AbortSignal,
         onlyAppName?: string,
     ): Promise<Record<string, AppBuildOutcome>> {
@@ -1455,8 +1370,7 @@ export class PreviewPipeline {
         const repo = rawRepo!.toLowerCase();
 
         // Templating context for build_args. Resolves `{{name.host}}`,
-        // `{{name.port}}`, `{{name.url}}`, `{{pr}}`, `{{namespace}}`, `{{owner}}`,
-        // and now `{{addonName.<key>}}` for successfully provisioned addons -
+        // `{{name.port}}`, `{{name.url}}`, `{{pr}}`, `{{namespace}}`, `{{owner}}` -
         // same grammar the deployer applies to runtime env. The URL form is
         // what makes Vite-baked VITE_*_URL vars point at this PR's specific
         // services (opaque hashed hostname, e.g. `https://a3f8b21c4d9e.preview.autonoma.app`).
@@ -1492,7 +1406,6 @@ export class PreviewPipeline {
                     namespace,
                     templateContext,
                     publicUrlInfo,
-                    addonOutputs,
                     registry,
                     org,
                     repo,
@@ -1620,7 +1533,6 @@ export class PreviewPipeline {
                 ctx.namespace,
                 ctx.templateContext,
                 ctx.publicUrlInfo,
-                ctx.addonOutputs,
             );
 
             const buildInputs = this.resolveBuildInputs(app, dir, resolvedBuildArgs);
@@ -1690,7 +1602,6 @@ export class PreviewPipeline {
         repoFullName: string,
         prNumber: number,
         imageTags: Record<string, string>,
-        addonOutputs: AddonOutputs,
     ): Promise<void> {
         const imageTag = imageTags[hook.app];
         if (imageTag == null) {
@@ -1713,15 +1624,7 @@ export class PreviewPipeline {
         };
         const resolvedEnv = this.deployer
             .getEnvInjector()
-            .resolveConnections(
-                appConfig.connections,
-                config.apps,
-                config.services,
-                namespace,
-                context,
-                publicUrlInfo,
-                addonOutputs,
-            );
+            .resolveConnections(appConfig.connections, config.apps, config.services, namespace, context, publicUrlInfo);
         this.appendHookLog(namespace, hook.app, `$ ${hook.command}`);
         const kc = this.deployer.getKubeConfig();
         await runHookJob(kc, namespace, hook.app, imageTag, hook.command, resolvedEnv, {
@@ -1735,7 +1638,6 @@ export class PreviewPipeline {
         repoFullName: string,
         prNumber: number,
         imageTags: Record<string, string>,
-        addonOutputs: AddonOutputs,
     ): Promise<void> {
         if (config.hooks.pre_deploy.length === 0) return;
 
@@ -1743,7 +1645,7 @@ export class PreviewPipeline {
 
         for (const hook of config.hooks.pre_deploy) {
             logger.info("Executing pre-deploy hook Job", { namespace, app: hook.app, command: hook.command });
-            await this.runHookJobStep(hook, config, namespace, repoFullName, prNumber, imageTags, addonOutputs);
+            await this.runHookJobStep(hook, config, namespace, repoFullName, prNumber, imageTags);
             logger.info("Finished pre-deploy hook Job", { namespace, app: hook.app, command: hook.command });
         }
         logger.info("Finished running pre-deploy hooks", { namespace, hooks: config.hooks.pre_deploy.length });
@@ -1762,7 +1664,6 @@ export class PreviewPipeline {
         repoFullName: string,
         prNumber: number,
         imageTags: Record<string, string>,
-        addonOutputs: AddonOutputs,
     ): Promise<string[]> {
         if (config.hooks.post_deploy.length === 0) return [];
 
@@ -1785,15 +1686,7 @@ export class PreviewPipeline {
         for (const hook of runnable) {
             logger.info("Executing post-deploy hook Job", { app: hook.app, command: hook.command });
             try {
-                await this.runHookJobStep(
-                    hook,
-                    config,
-                    result.namespace,
-                    repoFullName,
-                    prNumber,
-                    imageTags,
-                    addonOutputs,
-                );
+                await this.runHookJobStep(hook, config, result.namespace, repoFullName, prNumber, imageTags);
                 logger.info("Finished post-deploy hook Job", {
                     namespace: result.namespace,
                     app: hook.app,
@@ -1833,7 +1726,6 @@ export class PreviewPipeline {
         repoFullName: string,
         prNumber: number,
         imageTags: Record<string, string>,
-        addonOutputs: AddonOutputs,
     ): Promise<void> {
         const servicesWithTasks = config.services.filter((s) => s.setup_tasks.length > 0);
         if (servicesWithTasks.length === 0) return;
@@ -1851,16 +1743,7 @@ export class PreviewPipeline {
                 onCreateAlreadyRan: setupHasRun,
             });
             for (const task of tasks) {
-                await this.runSetupTaskStep(
-                    task,
-                    service.name,
-                    config,
-                    namespace,
-                    repoFullName,
-                    prNumber,
-                    imageTags,
-                    addonOutputs,
-                );
+                await this.runSetupTaskStep(task, service.name, config, namespace, repoFullName, prNumber, imageTags);
             }
             // Mark the database's one-time setup done once its on_create tasks have
             // succeeded (they throw on failure above, so a failed run re-runs next
@@ -1883,7 +1766,6 @@ export class PreviewPipeline {
         repoFullName: string,
         prNumber: number,
         imageTags: Record<string, string>,
-        addonOutputs: AddonOutputs,
     ): Promise<void> {
         const appName = resolveSetupTaskApp(task, config);
         if (appName == null) {
@@ -1909,15 +1791,7 @@ export class PreviewPipeline {
         };
         const resolvedEnv = this.deployer
             .getEnvInjector()
-            .resolveConnections(
-                appConfig.connections,
-                config.apps,
-                config.services,
-                namespace,
-                context,
-                publicUrlInfo,
-                addonOutputs,
-            );
+            .resolveConnections(appConfig.connections, config.apps, config.services, namespace, context, publicUrlInfo);
         this.appendHookLog(namespace, appName, `$ [db-setup ${serviceName}] ${task.command}`);
         const kc = this.deployer.getKubeConfig();
         await runHookJob(kc, namespace, appName, imageTag, task.command, resolvedEnv, {
@@ -1934,18 +1808,9 @@ export class PreviewPipeline {
             error: service.error,
         }));
 
-        const addons = result.addons.map((addon) => ({
-            name: addon.name,
-            provider: addon.provider,
-            status: addon.status,
-        }));
-
         const serviceErrorDetails = result.services
             .filter((service) => service.error != null && service.error !== "")
             .map((service) => ({ summary: `${service.name} - error`, body: service.error! }));
-        const addonErrorDetails = result.addons
-            .filter((addon) => addon.status === "failed" && addon.error != null && addon.error !== "")
-            .map((addon) => ({ summary: `${addon.name} (addon) - error`, body: addon.error! }));
 
         // The visible "See preview" CTA points at the front door, which forks a
         // browser (-> waiting page) from an agent (-> 307 to the raw URL). The raw
@@ -1964,9 +1829,8 @@ export class PreviewPipeline {
                 ? "Preview is ready. Autonoma can run the selected tests against this commit."
                 : `${result.readyCount}/${result.totalCount} preview services are ready. Autonoma cannot run the full sweep yet.`,
             services,
-            addons,
             warnings: result.warnings,
-            details: [...serviceErrorDetails, ...addonErrorDetails],
+            details: serviceErrorDetails,
         });
     }
 }

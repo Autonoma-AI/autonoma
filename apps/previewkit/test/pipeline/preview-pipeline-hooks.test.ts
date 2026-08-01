@@ -60,7 +60,6 @@ function createPipeline() {
         builder: {} as never,
         deployer: deployer as never,
         buildSecrets: {} as never,
-        addonManager: {} as never,
         registryUrl: "registry.example.com",
         dockerHubMirror: "",
         npmRegistryMirror: "",
@@ -91,15 +90,12 @@ function deployInput(hooks: {
             version: 1,
             apps: [{ name: "web", port: 3000 }],
             services: [],
-            addons: [],
             hooks,
         }),
         imageTags: { web: "registry.example.com/acme/web:web" },
-        addonOutputs: {},
         buildOutcomes: {
             web: { status: "success", imageTag: "registry.example.com/acme/web:web", durationMs: 1 },
         },
-        addons: [],
         warnings: [],
         primaryAppNames: ["web"],
     };

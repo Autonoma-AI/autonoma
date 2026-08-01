@@ -8,7 +8,7 @@ import type { RecipeResources } from "../recipes/recipe";
 import { RecipeRegistry } from "../recipes/recipe-registry";
 import type { AppSecretInfo } from "../secrets/runtime-secret-types";
 import type { RuntimeSecrets } from "../secrets/runtime-secrets";
-import { type AddonOutputs, EnvInjector } from "./env-injector";
+import { EnvInjector } from "./env-injector";
 import { mirrorDockerHubImage } from "./image-mirror";
 import { isConflict, isNotFound } from "./k8s-errors";
 import { type GatekeeperRoute, NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
@@ -76,7 +76,6 @@ interface AppDeployContext {
     headSha: string;
     imageTags: Record<string, string>;
     secretsByApp: Map<string, AppSecretInfo>;
-    addonOutputs: AddonOutputs;
 }
 
 export interface DeployOptions {
@@ -89,7 +88,6 @@ export interface DeployOptions {
     githubRepositoryId: number;
     config: PreviewConfig;
     imageTags: Record<string, string>;
-    addonOutputs?: AddonOutputs;
     commentId?: string;
 }
 
@@ -265,7 +263,7 @@ export class Deployer {
      * failure (build skip or K8s apply error) does not stop other apps.
      */
     async deployApps(opts: DeployOptions, infraResult: InfraDeployResult): Promise<DeployResult> {
-        const { repoFullName, prNumber, headSha, config, imageTags, addonOutputs = {} } = opts;
+        const { repoFullName, prNumber, headSha, config, imageTags } = opts;
         const { namespace, secretsByApp, bypassToken } = infraResult;
         const domain = config.domain ?? this.domain;
 
@@ -284,7 +282,6 @@ export class Deployer {
             headSha,
             imageTags,
             secretsByApp,
-            addonOutputs,
         };
 
         const waves = computeDeployWaves(config.apps);
@@ -331,7 +328,7 @@ export class Deployer {
      * resolution can reference sibling hosts/services.
      */
     async deploySingleApp(opts: DeployOptions, infraResult: InfraDeployResult, appName: string): Promise<DeployResult> {
-        const { repoFullName, prNumber, headSha, config, imageTags, addonOutputs = {} } = opts;
+        const { repoFullName, prNumber, headSha, config, imageTags } = opts;
         const { namespace, secretsByApp, bypassToken } = infraResult;
         const domain = config.domain ?? this.domain;
         const owner = repoFullName.split("/")[0]!;
@@ -352,7 +349,6 @@ export class Deployer {
             headSha,
             imageTags,
             secretsByApp,
-            addonOutputs,
         };
 
         logger.info("Deploying single app", { namespace, app: appName });
@@ -621,19 +617,8 @@ export class Deployer {
     }
 
     private async deployApp(app: AppConfig, opts: AppDeployContext): Promise<{ name: string; url: string }> {
-        const {
-            namespace,
-            prNumber,
-            owner,
-            repoFullName,
-            domain,
-            secret,
-            config,
-            headSha,
-            imageTags,
-            secretsByApp,
-            addonOutputs,
-        } = opts;
+        const { namespace, prNumber, owner, repoFullName, domain, secret, config, headSha, imageTags, secretsByApp } =
+            opts;
 
         const imageTag = imageTags[app.name];
         if (imageTag == null) {
@@ -651,7 +636,6 @@ export class Deployer {
             namespace,
             templateContext,
             publicUrlInfo,
-            addonOutputs,
         );
 
         const secretInfo = secretsByApp.get(app.name);

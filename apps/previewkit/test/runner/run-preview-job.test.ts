@@ -31,9 +31,7 @@ const event: PreviewDeployEvent = {
 const buildOutput: BuildPreviewImagesOutput = {
     mergedConfigJson: "{}",
     imageTags: { app: "registry/app:tag" },
-    addonOutputs: {},
     buildOutcomes: {},
-    addons: [],
     warnings: [],
     primaryAppNames: ["app"],
 };
@@ -44,7 +42,6 @@ const deployOutput: DeployPreviewEnvironmentOutput = {
     totalCount: 1,
     urls: { app: "https://app.preview" },
     services: [],
-    addons: [],
     warnings: [],
 };
 

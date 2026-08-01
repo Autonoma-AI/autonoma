@@ -17,7 +17,6 @@ export * from "./bug-verdict";
 export * from "./generation";
 export * from "./api-key";
 export * from "./secrets";
-export * from "./org-secrets";
 export * from "./previewkit-builtins";
 export * from "./previewkit-config";
 export * from "./previewkit-runtimes";

@@ -60,7 +60,7 @@ type PreviewEnvironment = RouterOutputs["admin"]["listPreviewkitEnvironments"][n
 type PreviewApp = PreviewEnvironment["apps"][number];
 
 // Reconciled environment health -> Badge variant. This is a rollup of the
-// per-app (and addon) statuses, derived server-side so the headline badge can
+// per-app statuses, derived server-side so the headline badge can
 // never contradict the app rows beneath it - e.g. an environment whose apps are
 // all ready but whose post-deploy GitHub finalization failed reads "ready", not
 // "failed". The raw pipeline status/phase is shown in the badge's tooltip.

@@ -10,7 +10,7 @@ Each stored envelope names the key that sealed it, so old values keep resolving 
 
 ## `SecretValues`
 
-Writes secret values into `previewkit_secret` / `previewkit_org_secret`, sealed with the current encryption key. One row is one secret: an env-var name and its envelope, keyed `(applicationId, appName, key)` or `(organizationId, name, key)`. A **bundle** is not a row - it is the set of rows sharing a scope, so a bundle exists exactly as long as it holds a key and "registered but empty" is not representable.
+Writes secret values into `previewkit_secret`, sealed with the current encryption key. One row is one secret: an env-var name and its envelope, keyed `(applicationId, appName, key)`. A **bundle** is not a row - it is the set of rows sharing a scope, so a bundle exists exactly as long as it holds a key and "registered but empty" is not representable.
 
 ```ts
 const values = new SecretValues(db, keys);
@@ -29,7 +29,7 @@ Persistence lives here rather than in the API services because those build their
 
 ### Postgres is the store
 
-The API writes and reads secret values here and nowhere else. There is no mirror, no dual-write, and no AWS fallback on this side: `PreviewkitSecretsService` and `OrgSecretsService` hold a `SecretValues` and nothing else.
+The API writes and reads secret values here and nowhere else. There is no mirror, no dual-write, and no AWS fallback on this side: `PreviewkitSecretsService` holds a `SecretValues` and nothing else.
 
 **`awsSecretArn` is gone**, and with it the bundle row it was the last reason to keep - see [One table per scope](#one-table-per-scope).
 
@@ -47,7 +47,7 @@ Under `postgres` a listing is served entirely from stored columns - no key is un
 
 ### The same flag covers the deploy runner
 
-Values are read in two places on the runner side: `build_secrets:` build args and addon `auth_secret:` lookups (`BuildSecretSource`), and the runtime K8s Secret a preview's pods mount (`RuntimeSecrets`).
+Values are read in two places on the runner side: `build_secrets:` build args (`BuildSecretSource`), and the runtime K8s Secret a preview's pods mount (`RuntimeSecrets`).
 
 **Neither falls back.** Both read Postgres and nothing else, so a registered bundle that cannot be served fails the deploy. That is the safe direction: a build that succeeds against no credentials produces an image that boots and then misbehaves, or ships, and an app rolled out against an unpopulated Secret comes up "ready" and 401s every signed call. `awsSecretArn` is now read by nothing.
 

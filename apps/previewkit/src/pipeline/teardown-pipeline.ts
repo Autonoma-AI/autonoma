@@ -1,7 +1,6 @@
 import { db } from "@autonoma/db";
 import type { GitHubPrCommentKind } from "@autonoma/db";
 import { createGitHubPrCommentStore, SEE_PREVIEW_CTA_LABEL, stripCtaFromBody } from "@autonoma/github/comment";
-import type { AddonManager } from "../addons/addon-manager";
 import { recordEnvironmentTornDown } from "../db";
 import type { Deployer } from "../deployer/deployer";
 import type { PullRequestEvent } from "../git-provider/git-provider";
@@ -11,18 +10,15 @@ import { logger, withObservabilityContext } from "../logger";
 interface TeardownPipelineOptions {
     provider: GitProvider;
     deployer: Deployer;
-    addonManager: AddonManager;
 }
 
 export class TeardownPipeline {
     private readonly provider: GitProvider;
     private readonly deployer: Deployer;
-    private readonly addonManager: AddonManager;
 
     constructor(options: TeardownPipelineOptions) {
         this.provider = options.provider;
         this.deployer = options.deployer;
-        this.addonManager = options.addonManager;
     }
 
     async teardown(event: PullRequestEvent): Promise<void> {
@@ -53,78 +49,35 @@ export class TeardownPipeline {
         }
         logger.info("Namespace exists; proceeding with teardown", { repo: repoFullName, pr: prNumber, namespace });
 
-        logger.info("Step 1/7 reading namespace annotations", { repo: repoFullName, pr: prNumber, namespace });
+        logger.info("Step 1/6 reading namespace annotations", { repo: repoFullName, pr: prNumber, namespace });
         const annotations = await this.deployer.getNamespaceAnnotations(repoFullName, prNumber);
-        logger.info("Step 1/7 read namespace annotations", {
+        logger.info("Step 1/6 read namespace annotations", {
             repo: repoFullName,
             pr: prNumber,
             namespace,
             hasCommentId: annotations?.commentId != null && annotations.commentId !== "",
         });
 
-        // Deprovision third-party addons (Neon branches, etc.) before deleting the
-        // namespace. Best-effort: orphaned external resources are recoverable via the
-        // reconciler, but a stuck namespace is not, so per-addon failures must not
-        // block the rest of teardown. The manager owns its own try/catch and the
-        // persistence of failed states.
-        logger.info("Step 2/7 looking up environment row for addon deprovisioning", {
-            repo: repoFullName,
-            pr: prNumber,
-            namespace,
-        });
-        const envRow = await db.previewkitEnvironment
-            .findUnique({ where: { namespace }, select: { id: true } })
-            .catch((err: unknown) => {
-                logger.warn("Failed to look up env row for addon deprovisioning; skipping", { namespace, err });
-                return null;
-            });
-        if (envRow != null) {
-            logger.info("Step 2/7 deprovisioning addons", {
-                repo: repoFullName,
-                pr: prNumber,
-                namespace,
-                environmentId: envRow.id,
-            });
-            await this.addonManager.deprovisionAll(envRow.id, organizationId).catch((err) => {
-                logger.error("Addon deprovisioning encountered an unexpected error (continuing)", err, {
-                    namespace,
-                    organizationId,
-                });
-            });
-            logger.info("Step 2/7 finished addon deprovisioning", {
-                repo: repoFullName,
-                pr: prNumber,
-                namespace,
-                environmentId: envRow.id,
-            });
-        } else {
-            logger.info("Step 2/7 no environment row found; skipping addon deprovisioning", {
-                repo: repoFullName,
-                pr: prNumber,
-                namespace,
-            });
-        }
-
-        logger.info("Step 3/7 deleting namespace (cascades to all resources)", {
+        logger.info("Step 2/6 deleting namespace (cascades to all resources)", {
             repo: repoFullName,
             pr: prNumber,
             namespace,
         });
         await this.deployer.teardown(repoFullName, prNumber);
-        logger.info("Step 3/7 deleted namespace", { repo: repoFullName, pr: prNumber, namespace });
+        logger.info("Step 2/6 deleted namespace", { repo: repoFullName, pr: prNumber, namespace });
 
         // Best-effort: a failed DB write must never block teardown.
-        logger.info("Step 4/7 recording teardown in DB", { repo: repoFullName, pr: prNumber, namespace });
+        logger.info("Step 3/6 recording teardown in DB", { repo: repoFullName, pr: prNumber, namespace });
         await recordEnvironmentTornDown(namespace).catch((err) => {
             logger.error("Failed to record Previewkit teardown", err, { namespace });
         });
-        logger.info("Step 4/7 recorded teardown in DB", { repo: repoFullName, pr: prNumber, namespace });
+        logger.info("Step 3/6 recorded teardown in DB", { repo: repoFullName, pr: prNumber, namespace });
 
         // The DB row is the source of truth (the comment is reposted with a new id on every
         // deploy); the namespace annotation is the fallback for pre-GitHubPrComment environments.
         const commentId = (await this.resolveCommentId(repoFullName, prNumber)) ?? annotations?.commentId;
         if (commentId != null && commentId !== "") {
-            logger.info("Step 5/7 updating PR comment to torn-down state", {
+            logger.info("Step 4/6 updating PR comment to torn-down state", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
@@ -133,9 +86,9 @@ export class TeardownPipeline {
             await this.provider
                 .updateComment(repoFullName, commentId, this.buildTeardownComment(prNumber))
                 .catch((err) => logger.error("Failed to update teardown comment", err));
-            logger.info("Step 5/7 updated PR comment", { repo: repoFullName, pr: prNumber, namespace });
+            logger.info("Step 4/6 updated PR comment", { repo: repoFullName, pr: prNumber, namespace });
         } else {
-            logger.info("Step 5/7 no comment ID; skipping PR comment update", {
+            logger.info("Step 4/6 no comment ID; skipping PR comment update", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
@@ -145,7 +98,7 @@ export class TeardownPipeline {
         // The separate "investigation" comment (test results, posted by the investigation worker) carries its
         // own "See preview" button. Teardown never reposts it, so strip that now-dead link in place while
         // leaving the results intact. Best-effort: a failure here must not block teardown.
-        logger.info("Step 6/7 stripping preview link from investigation comment", { repo: repoFullName, pr: prNumber });
+        logger.info("Step 5/6 stripping preview link from investigation comment", { repo: repoFullName, pr: prNumber });
         await this.stripPreviewLinkFromInvestigationComment(repoFullName, prNumber).catch((err) =>
             logger.error("Failed to strip preview link from investigation comment", err, {
                 repo: repoFullName,
@@ -153,11 +106,11 @@ export class TeardownPipeline {
             }),
         );
 
-        logger.info("Step 7/7 setting teardown commit status", { repo: repoFullName, pr: prNumber, headSha });
+        logger.info("Step 6/6 setting teardown commit status", { repo: repoFullName, pr: prNumber, headSha });
         await this.provider
             .setCommitStatus(repoFullName, headSha, "success", "Preview environment torn down")
             .catch((err) => logger.error("Failed to set teardown status", err));
-        logger.info("Step 7/7 set teardown commit status", { repo: repoFullName, pr: prNumber, headSha });
+        logger.info("Step 6/6 set teardown commit status", { repo: repoFullName, pr: prNumber, headSha });
 
         logger.info("Preview teardown complete", { repo: repoFullName, pr: prNumber, namespace });
     }

@@ -57,7 +57,7 @@ Recommended flow when a PREVIEW fails to build or deploy (for a test or app fail
 1. Call get_deploy_status(repoFullName, prNumber) to see which service is unhealthy and whether it failed at build or at runtime.
 2. If a service failed to BUILD: call get_build_logs (start with from="tail" to see the failure; use from="head" for the start of the build). Missing build inputs often show up as a missing env var.
 3. If a service BUILT but crashes or errors at RUNTIME: call get_app_logs (from="tail" for the crash, from="head" for startup).
-4. Call diagnose_deploy(repoFullName, prNumber) to get all the raw evidence in one call - status, each service/addon state, the latest build outcome, a rule-based failure classification, the config's env-key surface, and error-shaped logs - plus deterministic findings categorized as a missing env var, a setup problem, or a platform error. Reason over the signals yourself; a "platform error" (autonoma_error) is on Autonoma, so contact support rather than editing your repo.
+4. Call diagnose_deploy(repoFullName, prNumber) to get all the raw evidence in one call - status, each service's state, the latest build outcome, a rule-based failure classification, the config's env-key surface, and error-shaped logs - plus deterministic findings categorized as a missing env var, a setup problem, or a platform error. Reason over the signals yourself; a "platform error" (autonoma_error) is on Autonoma, so contact support rather than editing your repo.
 5. Call get_secret_status(repoFullName) to see the full env-var surface per app: topology connections (with their template values) and secret-backed vars (declared build secrets + registered runtime secrets), including which declared build secrets are missing. Secret VALUES are never returned - only presence and masked length.
 6. Apply the fix. Three kinds:
    - A missing secret VALUE (an API key, token, password): call set_secret(repoFullName, prNumber, app, key, value). It stores the value and rebuilds or restarts the service automatically.
@@ -312,7 +312,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             title: "Diagnose a failed preview deploy",
             description:
                 "The raw diagnostic signals for a PR's preview deploy, for you to reason over: overall status, each " +
-                "service's and addon's state, the latest build outcome, a rule-based failure classification, the " +
+                "service's state, the latest build outcome, a rule-based failure classification, the " +
                 "config's env-key surface (never secret values), and error-shaped log lines. Also includes " +
                 "deterministic `findings` (categorized missing_env_var / user_setup / autonoma_error) you can trust " +
                 'as a starting point. `status: "ok"` means no failure was detected. Use when get_deploy_status shows ' +
@@ -673,7 +673,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             title: "Read the full preview config",
             description:
                 "Read the FULL preview config document: every app, service (databases, caches, side-containers), " +
-                "addon, and hook - no secret values. Read this first when you need to change the SHAPE of the preview " +
+                "and hook - no secret values. Read this first when you need to change the SHAPE of the preview " +
                 "(add or remove an app or a service), then edit the document and send it back with apply_config. For " +
                 "a build/wiring tweak to ONE existing service, edit_previewkit_config is simpler and doesn't need the " +
                 "whole document. The config is per-app, so this takes only repoFullName.",

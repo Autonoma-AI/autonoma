@@ -132,21 +132,6 @@ secretsSuite({
             ).toBe(false);
         });
 
-        test("seals and removes org-scoped values too", async ({ harness }) => {
-            await mint(harness, "1");
-            const bundle = await harness.createOrgBundle();
-            const store = values(harness);
-
-            await store.put(bundle, [{ key: "token", value: "neon-token" }]);
-            const row = await harness.db.previewkitOrgSecret.findFirstOrThrow({ where: { key: "token" } });
-            const cipher = await new SecretKeys(harness.db, harness.provider).forEnvelope(row.envelope);
-
-            expect(cipher.decrypt(row.envelope, scopeIn(bundle, "token"))).toBe("neon-token");
-
-            await store.remove(bundle, "token");
-            expect(await harness.db.previewkitOrgSecret.count()).toBe(0);
-        });
-
         test("reports a missing encryption key as a typed error the caller can skip on", async ({ harness }) => {
             const bundle = await harness.createAppBundle();
 
@@ -246,15 +231,6 @@ secretsSuite({
             await values(harness).put(web, [{ key: "A", value: "web-only" }]);
 
             expect(await values(harness).get(api, "A")).toBeUndefined();
-        });
-
-        test("reads org-scoped values too", async ({ harness }) => {
-            await mint(harness, "1");
-            const bundle = await harness.createOrgBundle();
-            await values(harness).put(bundle, [{ key: "token", value: "neon-token" }]);
-
-            expect(await values(harness).get(bundle, "token")).toBe("neon-token");
-            expect((await values(harness).list(bundle)).map((r) => r.key)).toEqual(["token"]);
         });
     },
 });

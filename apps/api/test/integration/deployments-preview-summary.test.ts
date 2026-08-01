@@ -14,7 +14,6 @@ apiTestSuite({
                 manifest: {
                     apps: [{ name: "web", port: 3000, primary: true }],
                     services: [{ name: "postgres", recipe: "postgres", version: "16" }],
-                    addons: [{ name: "db", provider: "neon" }],
                 },
                 urls: { web: "https://web-pr201.preview.example.com" },
                 appBuilds: {
@@ -33,7 +32,6 @@ apiTestSuite({
                         port: 3000,
                     },
                 ],
-                addons: [{ name: "db", provider: "neon", status: "ok", outputs: { host: "db.preview.example.com" } }],
             });
 
             const summary = await harness.request().deployments.previewSummaryByPr({
@@ -44,22 +42,21 @@ apiTestSuite({
             expect(summary.source).toBe("previewkit");
             expect(summary.status).toBe("ready");
             expect(summary.primaryUrl).toBe("https://web-pr201.preview.example.com");
-            expect(summary.serviceCount).toBe(3);
-            expect(summary.readyServiceCount).toBe(3);
-            expect(summary.services.map((service) => service.name).sort()).toEqual(["db", "postgres", "web"]);
+            expect(summary.serviceCount).toBe(2);
+            expect(summary.readyServiceCount).toBe(2);
+            expect(summary.services.map((service) => service.name).sort()).toEqual(["postgres", "web"]);
             expect(
                 summary.services
                     .map((service) => ({ name: service.name, iconKey: service.iconKey }))
                     .sort((left, right) => left.name.localeCompare(right.name)),
             ).toEqual([
-                { name: "db", iconKey: "postgres" },
                 { name: "postgres", iconKey: "postgres" },
                 { name: "web", iconKey: "web" },
             ]);
             expect(summary.actions.openPreview.enabled).toBe(true);
         });
 
-        test("returns icon keys for Previewkit apps, recipes, addons, and fallbacks", async ({ harness }) => {
+        test("returns icon keys for Previewkit apps, recipes, and fallbacks", async ({ harness }) => {
             const fixture = await createPreviewFixture(harness, { prNumber: 207, headSha: "sha-icons" });
 
             await createPreviewEnvironment(harness, fixture, {
@@ -82,7 +79,6 @@ apiTestSuite({
                         { name: "custom-image", recipe: "docker-image" },
                         { name: "unknown-thing", recipe: "unknown-recipe" },
                     ],
-                    addons: [{ name: "neon-db", provider: "neon" }],
                 },
                 urls: { web: "https://web-pr207.preview.example.com" },
                 appBuilds: {
@@ -128,9 +124,6 @@ apiTestSuite({
                         port: 3000,
                     },
                 ],
-                addons: [
-                    { name: "neon-db", provider: "neon", status: "ok", outputs: { host: "db.preview.example.com" } },
-                ],
             });
 
             const summary = await harness.request().deployments.previewSummaryByPr({
@@ -153,7 +146,6 @@ apiTestSuite({
                 valkey: "valkey",
                 "custom-image": "docker-image",
                 "unknown-thing": "service",
-                "neon-db": "postgres",
             });
             expect(summary.services.find((service) => service.name === "api")?.buildDurationMs).toBe(1000);
             expect(summary.services.find((service) => service.name === "backend")?.buildDurationMs).toBe(2400);
@@ -180,7 +172,7 @@ apiTestSuite({
 
             await createPreviewEnvironment(harness, fixture, {
                 status: "failed",
-                manifest: { apps: [{ name: "web", port: 3000, primary: true }], services: [], addons: [] },
+                manifest: { apps: [{ name: "web", port: 3000, primary: true }], services: [] },
                 urls: {},
                 appBuilds: {
                     web: {
@@ -218,7 +210,6 @@ apiTestSuite({
                         { name: "api", port: 4000 },
                     ],
                     services: [],
-                    addons: [],
                 },
                 urls: { web: "https://web-pr204.preview.example.com" },
                 appBuilds: {
@@ -267,7 +258,6 @@ apiTestSuite({
                         { name: "api", port: 4000 },
                     ],
                     services: [],
-                    addons: [],
                 },
                 urls: {
                     web: "https://web-pr208.preview.example.com",
@@ -327,7 +317,7 @@ apiTestSuite({
             await createPreviewEnvironment(harness, fixture, {
                 status: "ready",
                 headSha: "sha-old",
-                manifest: { apps: [{ name: "web", port: 3000, primary: true }], services: [], addons: [] },
+                manifest: { apps: [{ name: "web", port: 3000, primary: true }], services: [] },
                 urls: { web: "https://web-pr205.preview.example.com" },
                 appBuilds: {
                     web: {
@@ -445,7 +435,6 @@ async function createPreviewEnvironment(
         manifest: {
             apps: Array<{ name: string; port: number; primary?: boolean }>;
             services: Array<{ name: string; recipe: string; version?: string }>;
-            addons: Array<{ name: string; provider: string }>;
         };
         urls: Record<string, string>;
         appBuilds: Record<
@@ -459,13 +448,6 @@ async function createPreviewEnvironment(
             url: string;
             port: number;
             status?: PreviewkitAppStatus;
-            error?: string;
-        }>;
-        addons?: Array<{
-            name: string;
-            provider: string;
-            status: "pending" | "ok" | "failed" | "deprovisioned";
-            outputs?: Record<string, string>;
             error?: string;
         }>;
     },
@@ -523,37 +505,21 @@ async function createPreviewEnvironment(
             },
         });
     }
-
-    for (const addon of input.addons ?? []) {
-        await harness.db.previewkitAddon.create({
-            data: {
-                environmentId: environment.id,
-                name: addon.name,
-                provider: addon.provider,
-                status: addon.status,
-                outputs: addon.outputs ?? {},
-                error: addon.error,
-                provisionedAt: addon.status === "ok" ? new Date() : null,
-            },
-        });
-    }
 }
 
 /**
  * The summary projects its topology from the stored resolved config, so tests
  * persist a full (parseable) PreviewConfig. This widens the manifest-shaped
- * fixture input: `version` and an `auth_secret` per addon are the only fields
- * previewConfigSchema requires beyond what the fixtures already provide.
+ * fixture input: `version` is the only field previewConfigSchema requires
+ * beyond what the fixtures already provide.
  */
 function manifestToResolvedConfig(manifest: {
     apps: Array<{ name: string; port: number; primary?: boolean }>;
     services: Array<{ name: string; recipe: string; version?: string }>;
-    addons: Array<{ name: string; provider: string }>;
 }) {
     return {
         version: 1,
         apps: manifest.apps,
         services: manifest.services,
-        addons: manifest.addons.map((addon) => ({ ...addon, auth_secret: "test-secret" })),
     };
 }

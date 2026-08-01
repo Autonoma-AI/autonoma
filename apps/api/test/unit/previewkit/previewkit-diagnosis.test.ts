@@ -20,13 +20,6 @@ describe("heuristicFindings", () => {
         expect(findings[0]?.action).toBe("edit_config");
     });
 
-    it("attributes an addon failure to Autonoma with a contact_support action", () => {
-        const failures: PreviewFailure[] = [{ code: "addon_failed", message: "addon db failed to provision" }];
-        const { findings } = heuristicFindings(failures);
-        expect(findings[0]?.category).toBe("autonoma_error");
-        expect(findings[0]?.action).toBe("contact_support");
-    });
-
     it("keeps build/deploy failures user-owned but low confidence for the AI pass to reclassify", () => {
         const failures: PreviewFailure[] = [
             { code: "build_failed", message: "npm run build exited 1", appName: "web" },

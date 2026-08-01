@@ -4,22 +4,8 @@ import { buildAppHostname } from "./resource-factory";
 
 // Match K8s-style names (lowercase alnum + hyphens). `\w+` would drop hyphens,
 // which silently broke services and apps named like `api-gateway`.
-//
-// The field part used to be a fixed `host|port|url` whitelist. With addons in
-// the mix it's widened to any identifier-shaped token — the *resolver* now
-// distinguishes valid app/service fields (host/port/url) from provider-defined
-// addon output keys (whatever the provider returned). Unknown tokens still
-// throw with a helpful message.
-const SERVICE_TEMPLATE_REGEX = /\{\{([a-z0-9][a-z0-9-]*[a-z0-9])\.([A-Za-z_][A-Za-z0-9_]*)\}\}/g;
+const SERVICE_TEMPLATE_REGEX = /\{\{([a-z0-9][a-z0-9-]*[a-z0-9])\.(host|port|url|hostname)\}\}/g;
 const VARIABLE_TEMPLATE_REGEX = /\{\{(pr|namespace|owner)\}\}/g;
-
-/**
- * Per-addon outputs produced by `AddonManager.provisionAll`. The outer key
- * is the addon name from the preview config; the inner map is the provider's
- * declared outputs (e.g. NeonProvider returns `{ connectionString, host,
- * database }`). Apps reference these as `{{addonName.<key>}}`.
- */
-export type AddonOutputs = Record<string, Record<string, string>>;
 
 interface ServiceEntry {
     host: string;
@@ -56,7 +42,7 @@ export class EnvInjector {
     /**
      * Resolves an app's topology connections into runtime env vars. Each
      * connection's `value` is a template (e.g. `mongodb://{{db.host}}:{{db.port}}/x`)
-     * templated against the live app / service / addon map (see {@link applyTemplates}).
+     * templated against the live app / service map (see {@link applyTemplates}).
      *
      * Connections are the ONLY non-secret runtime env. Everything a user types
      * is a secret, stored in the per-app AWS Secrets Manager bundle and mounted
@@ -72,13 +58,12 @@ export class EnvInjector {
         namespace: string,
         context: ContextVariables,
         publicUrlInfo: PublicUrlInfo,
-        addonOutputs: AddonOutputs = {},
     ): Record<string, string> {
         const values: Record<string, string> = {};
         for (const connection of connections) {
             values[connection.key] = connection.value;
         }
-        return this.applyTemplates(values, apps, services, namespace, context, publicUrlInfo, addonOutputs);
+        return this.applyTemplates(values, apps, services, namespace, context, publicUrlInfo);
     }
 
     /**
@@ -90,10 +75,6 @@ export class EnvInjector {
      *   - `{{<name>.url}}`  — public HTTPS URL of an app, or the in-cluster
      *     connection string of a service whose recipe defines one (postgres ->
      *     `postgresql://…`, redis/valkey -> `redis://…`, mongodb -> `mongodb://…`)
-     *   - `{{<addonName>.<key>}}` — provider-defined output from a
-     *     successfully provisioned addon (e.g. `{{db.connectionString}}`).
-     *     Apps/services take precedence over addons; the config schema
-     *     enforces name uniqueness across all three pools.
      */
     applyTemplates(
         values: Record<string, string>,
@@ -102,7 +83,6 @@ export class EnvInjector {
         _namespace: string,
         context: ContextVariables,
         publicUrlInfo: PublicUrlInfo,
-        addonOutputs: AddonOutputs = {},
     ): Record<string, string> {
         const serviceMap = this.buildServiceMap(apps, services, publicUrlInfo);
         const resolved: Record<string, string> = {};
@@ -115,7 +95,7 @@ export class EnvInjector {
             });
 
             result = result.replace(SERVICE_TEMPLATE_REGEX, (_match, name: string, field: string) => {
-                return this.resolveReference(name, field, key, serviceMap, addonOutputs);
+                return this.resolveReference(name, field, key, serviceMap);
             });
 
             resolved[key] = result;
@@ -124,65 +104,36 @@ export class EnvInjector {
         return resolved;
     }
 
-    /**
-     * Looks up `{{name.field}}` against the three sources. Apps/services
-     * win (their field set is constrained to host/port/url); if the name
-     * is not in the service map, falls back to addon outputs where the
-     * key is provider-defined. Throws with a list of available names
-     * when nothing matches.
-     */
-    private resolveReference(
-        name: string,
-        field: string,
-        sourceKey: string,
-        serviceMap: ServiceMap,
-        addonOutputs: AddonOutputs,
-    ): string {
+    /** Looks up `{{name.field}}` against the app/service map. Throws with a list of available names when nothing matches. */
+    private resolveReference(name: string, field: string, sourceKey: string, serviceMap: ServiceMap): string {
         const svc = serviceMap[name];
-        if (svc != null) {
-            if (field === "url") {
-                if (svc.url == null) {
-                    throw new Error(
-                        `{{${name}.url}} is not available: the "${name}" service exposes no connection URL. ` +
-                            `Use {{${name}.host}} and {{${name}.port}} for in-cluster access.`,
-                    );
-                }
-                return svc.url;
-            }
-            if (field === "hostname") {
-                if (svc.hostname == null) {
-                    throw new Error(
-                        `{{${name}.hostname}} is only available for apps. ` +
-                            `"${name}" is a service (no public hostname). Use {{${name}.host}} for in-cluster access.`,
-                    );
-                }
-                return svc.hostname;
-            }
-            if (field === "host") return svc.host;
-            if (field === "port") return String(svc.port);
+        if (svc == null) {
+            const names = Object.keys(serviceMap).sort().join(", ");
             throw new Error(
-                `{{${name}.${field}}} in ${sourceKey}: only host/port/url are supported for apps and services. ` +
-                    `If "${name}" is meant to be an addon, declare it under \`addons:\` in the preview config.`,
+                `Unknown reference "{{${name}.${field}}}" in ${sourceKey}. Available names: ${names || "(none)"}.`,
             );
         }
 
-        const outputs = addonOutputs[name];
-        if (outputs != null) {
-            const value = outputs[field];
-            if (value == null) {
-                const available = Object.keys(outputs).sort().join(", ") || "(none)";
+        if (field === "url") {
+            if (svc.url == null) {
                 throw new Error(
-                    `{{${name}.${field}}} in ${sourceKey}: addon "${name}" has no output named "${field}". ` +
-                        `Available outputs: ${available}.`,
+                    `{{${name}.url}} is not available: the "${name}" service exposes no connection URL. ` +
+                        `Use {{${name}.host}} and {{${name}.port}} for in-cluster access.`,
                 );
             }
-            return value;
+            return svc.url;
         }
-
-        const names = [...Object.keys(serviceMap), ...Object.keys(addonOutputs)].sort().join(", ");
-        throw new Error(
-            `Unknown reference "{{${name}.${field}}}" in ${sourceKey}. Available names: ${names || "(none)"}.`,
-        );
+        if (field === "hostname") {
+            if (svc.hostname == null) {
+                throw new Error(
+                    `{{${name}.hostname}} is only available for apps. ` +
+                        `"${name}" is a service (no public hostname). Use {{${name}.host}} for in-cluster access.`,
+                );
+            }
+            return svc.hostname;
+        }
+        if (field === "host") return svc.host;
+        return String(svc.port);
     }
 
     private buildServiceMap(apps: AppConfig[], services: ServiceConfig[], publicUrlInfo: PublicUrlInfo): ServiceMap {

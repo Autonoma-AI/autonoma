@@ -5,10 +5,6 @@ import { LokiBuildLogSink } from "@autonoma/logger/loki-build-log-sink";
 import { KmsKeyProvider, SecretKeys, SecretValues } from "@autonoma/secrets";
 import { KMSClient } from "@aws-sdk/client-kms";
 import * as k8s from "@kubernetes/client-node";
-import { AddonManager } from "./addons/addon-manager";
-import { OrgSecretResolver } from "./addons/org-secret-resolver";
-import { NeonProvider } from "./addons/providers/neon";
-import { AddonProviderRegistry } from "./addons/registry";
 import { BuildKitBuilder } from "./builder/buildkit-builder";
 import { BuildKitJobManager } from "./builder/buildkit-job-manager";
 import { createPreviewkitDefaults } from "./config";
@@ -168,19 +164,12 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
         env.DOCKER_HUB_MIRROR,
     );
 
-    // Addon plugin registry + manager.
-    const addonProviderRegistry = new AddonProviderRegistry();
-    addonProviderRegistry.register(new NeonProvider());
-    const orgSecretResolver = new OrgSecretResolver(buildSecrets);
-    const addonManager = new AddonManager(addonProviderRegistry, orgSecretResolver);
-
     // Pipelines
     const previewPipeline = new PreviewPipeline({
         provider: githubProvider,
         builder,
         deployer,
         buildSecrets,
-        addonManager,
         registryUrl: previewkitDefaults.defaults.registry,
         dockerHubMirror: env.DOCKER_HUB_MIRROR,
         npmRegistryMirror,
@@ -190,7 +179,6 @@ export async function createPreviewkitServices(): Promise<PreviewkitServices> {
     const teardownPipeline = new TeardownPipeline({
         provider: githubProvider,
         deployer,
-        addonManager,
     });
 
     return {

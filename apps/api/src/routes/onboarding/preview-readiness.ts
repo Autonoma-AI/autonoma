@@ -81,18 +81,6 @@ const previewkitEnvironmentSelect = {
         },
         orderBy: { appName: "asc" },
     },
-    addons: {
-        select: {
-            name: true,
-            provider: true,
-            status: true,
-            error: true,
-            outputs: true,
-            provisionedAt: true,
-            updatedAt: true,
-        },
-        orderBy: { name: "asc" },
-    },
     builds: {
         select: {
             headSha: true,
@@ -127,10 +115,6 @@ function hasPreviewkitEnvironmentActivitySince(
 
     for (const appInstance of environment.appInstances) {
         if (appInstance.updatedAt.getTime() >= deployRequestedAt.getTime()) return true;
-    }
-
-    for (const addon of environment.addons) {
-        if (addon.updatedAt.getTime() >= deployRequestedAt.getTime()) return true;
     }
 
     return false;

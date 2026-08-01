@@ -8,7 +8,5 @@ import type { SecretBundle } from "./secret-cipher";
  * an operator reading a backfill summary should be looking at the same string.
  */
 export function describeSecretBundle(bundle: SecretBundle): string {
-    return bundle.kind === "app"
-        ? `app:${bundle.applicationId}/${bundle.appName}`
-        : `org:${bundle.organizationId}/${bundle.name}`;
+    return `app:${bundle.applicationId}/${bundle.appName}`;
 }

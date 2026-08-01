@@ -60,7 +60,6 @@ describe("PreviewPipeline deploy supersede handling", () => {
             builder: {} as never,
             deployer: deployer as never,
             buildSecrets: {} as never,
-            addonManager: {} as never,
             registryUrl: "registry.example.com",
             dockerHubMirror: "",
             npmRegistryMirror: "",
@@ -87,11 +86,9 @@ describe("PreviewPipeline deploy supersede handling", () => {
                         version: 1,
                         apps: [{ name: "web", port: 3000 }],
                         services: [],
-                        addons: [],
                         hooks: { pre_deploy: [], post_deploy: [] },
                     }),
                     imageTags: { web: "registry.example.com/acme/web:web" },
-                    addonOutputs: {},
                     buildOutcomes: {
                         web: {
                             status: "success",
@@ -99,7 +96,6 @@ describe("PreviewPipeline deploy supersede handling", () => {
                             durationMs: 1,
                         },
                     },
-                    addons: [],
                     warnings: [],
                     primaryAppNames: ["web"],
                 },

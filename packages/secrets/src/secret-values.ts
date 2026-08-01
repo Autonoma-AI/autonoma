@@ -68,29 +68,17 @@ export class SecretValues {
 
         await this.db.$transaction(
             rows.map((row) =>
-                bundle.kind === "app"
-                    ? this.db.previewkitSecret.upsert({
-                          where: {
-                              applicationId_appName_key: {
-                                  applicationId: bundle.applicationId,
-                                  appName: bundle.appName,
-                                  key: row.key,
-                              },
-                          },
-                          create: { applicationId: bundle.applicationId, appName: bundle.appName, ...row },
-                          update: row,
-                      })
-                    : this.db.previewkitOrgSecret.upsert({
-                          where: {
-                              organizationId_name_key: {
-                                  organizationId: bundle.organizationId,
-                                  name: bundle.name,
-                                  key: row.key,
-                              },
-                          },
-                          create: { organizationId: bundle.organizationId, name: bundle.name, ...row },
-                          update: row,
-                      }),
+                this.db.previewkitSecret.upsert({
+                    where: {
+                        applicationId_appName_key: {
+                            applicationId: bundle.applicationId,
+                            appName: bundle.appName,
+                            key: row.key,
+                        },
+                    },
+                    create: { applicationId: bundle.applicationId, appName: bundle.appName, ...row },
+                    update: row,
+                }),
             ),
             {
                 maxWait: 30000, // Time to wait for a database connection (default: 2000ms)
@@ -108,16 +96,10 @@ export class SecretValues {
      * nothing, which is the whole point of storing the fingerprint.
      */
     async fingerprints(bundle: SecretBundle): Promise<Map<string, string>> {
-        const rows =
-            bundle.kind === "app"
-                ? await this.db.previewkitSecret.findMany({
-                      where: { applicationId: bundle.applicationId, appName: bundle.appName },
-                      select: { key: true, fingerprint: true },
-                  })
-                : await this.db.previewkitOrgSecret.findMany({
-                      where: { organizationId: bundle.organizationId, name: bundle.name },
-                      select: { key: true, fingerprint: true },
-                  });
+        const rows = await this.db.previewkitSecret.findMany({
+            where: { applicationId: bundle.applicationId, appName: bundle.appName },
+            select: { key: true, fingerprint: true },
+        });
 
         return new Map(rows.map((row) => [row.key, row.fingerprint]));
     }
@@ -128,16 +110,10 @@ export class SecretValues {
      * `updatedAt` is the row's own, so it is when that key last changed.
      */
     async list(bundle: SecretBundle): Promise<SecretValueSummary[]> {
-        const rows =
-            bundle.kind === "app"
-                ? await this.db.previewkitSecret.findMany({
-                      where: { applicationId: bundle.applicationId, appName: bundle.appName },
-                      select: { key: true, fingerprint: true, maskedLength: true, updatedAt: true },
-                  })
-                : await this.db.previewkitOrgSecret.findMany({
-                      where: { organizationId: bundle.organizationId, name: bundle.name },
-                      select: { key: true, fingerprint: true, maskedLength: true, updatedAt: true },
-                  });
+        const rows = await this.db.previewkitSecret.findMany({
+            where: { applicationId: bundle.applicationId, appName: bundle.appName },
+            select: { key: true, fingerprint: true, maskedLength: true, updatedAt: true },
+        });
 
         return rows.sort((a, b) => a.key.localeCompare(b.key));
     }
@@ -151,16 +127,10 @@ export class SecretValues {
      * a bundle sealed under a single version costs one round trip regardless of size.
      */
     async getAll(bundle: SecretBundle): Promise<Record<string, string> | undefined> {
-        const rows =
-            bundle.kind === "app"
-                ? await this.db.previewkitSecret.findMany({
-                      where: { applicationId: bundle.applicationId, appName: bundle.appName },
-                      select: { key: true, envelope: true },
-                  })
-                : await this.db.previewkitOrgSecret.findMany({
-                      where: { organizationId: bundle.organizationId, name: bundle.name },
-                      select: { key: true, envelope: true },
-                  });
+        const rows = await this.db.previewkitSecret.findMany({
+            where: { applicationId: bundle.applicationId, appName: bundle.appName },
+            select: { key: true, envelope: true },
+        });
 
         if (rows.length === 0) return undefined;
 
@@ -178,28 +148,16 @@ export class SecretValues {
 
     /** One value in the clear, or undefined when the bundle has no such key. */
     async get(bundle: SecretBundle, key: string): Promise<string | undefined> {
-        const row =
-            bundle.kind === "app"
-                ? await this.db.previewkitSecret.findUnique({
-                      where: {
-                          applicationId_appName_key: {
-                              applicationId: bundle.applicationId,
-                              appName: bundle.appName,
-                              key,
-                          },
-                      },
-                      select: { envelope: true },
-                  })
-                : await this.db.previewkitOrgSecret.findUnique({
-                      where: {
-                          organizationId_name_key: {
-                              organizationId: bundle.organizationId,
-                              name: bundle.name,
-                              key,
-                          },
-                      },
-                      select: { envelope: true },
-                  });
+        const row = await this.db.previewkitSecret.findUnique({
+            where: {
+                applicationId_appName_key: {
+                    applicationId: bundle.applicationId,
+                    appName: bundle.appName,
+                    key,
+                },
+            },
+            select: { envelope: true },
+        });
 
         if (row == null) return undefined;
 
@@ -215,14 +173,9 @@ export class SecretValues {
     async remove(bundle: SecretBundle, key: string): Promise<boolean> {
         this.logger.info("Removing a secret value", { extra: { bundle: describeSecretBundle(bundle), key } });
 
-        const removed =
-            bundle.kind === "app"
-                ? await this.db.previewkitSecret.deleteMany({
-                      where: { applicationId: bundle.applicationId, appName: bundle.appName, key },
-                  })
-                : await this.db.previewkitOrgSecret.deleteMany({
-                      where: { organizationId: bundle.organizationId, name: bundle.name, key },
-                  });
+        const removed = await this.db.previewkitSecret.deleteMany({
+            where: { applicationId: bundle.applicationId, appName: bundle.appName, key },
+        });
 
         this.logger.info("Secret value removed", {
             extra: { bundle: describeSecretBundle(bundle), key, count: removed.count },

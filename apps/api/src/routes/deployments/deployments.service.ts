@@ -62,18 +62,6 @@ const PREVIEWKIT_SUMMARY_ENV_SELECT = {
         },
         orderBy: { appName: "asc" },
     },
-    addons: {
-        select: {
-            name: true,
-            provider: true,
-            status: true,
-            error: true,
-            outputs: true,
-            provisionedAt: true,
-            updatedAt: true,
-        },
-        orderBy: { name: "asc" },
-    },
     builds: {
         select: {
             headSha: true,
@@ -118,7 +106,7 @@ export class DeploymentsService extends Service {
      * URLs". Ordered most-recently updated first. `apps` carries every configured
      * app with its per-app lifecycle status - not just the ones that reached a
      * URL - sourced from the app-instance rows (see `buildPreviewAppSummaries`).
-     * `health` is a reconciled headline status rolled up from the apps + addons
+     * `health` is a reconciled headline status rolled up from the apps
      * (see `deriveEnvironmentHealth`) so the badge never contradicts the app rows;
      * the raw `status`/`phase` are kept for the underlying pipeline state.
      */
@@ -144,7 +132,6 @@ export class DeploymentsService extends Service {
                     select: { appName: true, status: true, url: true, error: true },
                     orderBy: { appName: "asc" },
                 },
-                addons: { select: { status: true } },
             },
         });
 
@@ -158,7 +145,7 @@ export class DeploymentsService extends Service {
                 headRef: environment.headRef,
                 status: environment.status,
                 phase: environment.phase,
-                health: deriveEnvironmentHealth(environment.status, apps, environment.addons),
+                health: deriveEnvironmentHealth(environment.status, apps),
                 organization: environment.organization,
                 deployedAt: environment.deployedAt,
                 updatedAt: environment.updatedAt,
@@ -217,7 +204,6 @@ export class DeploymentsService extends Service {
                     select: { appName: true, status: true, url: true, error: true },
                     orderBy: { appName: "asc" },
                 },
-                addons: { select: { status: true } },
             },
         });
 
@@ -235,7 +221,7 @@ export class DeploymentsService extends Service {
                 headRef: environment.headRef,
                 status: environment.status,
                 phase: environment.phase,
-                health: deriveEnvironmentHealth(environment.status, apps, environment.addons),
+                health: deriveEnvironmentHealth(environment.status, apps),
                 deployedAt: environment.deployedAt,
                 updatedAt: environment.updatedAt,
                 apps,

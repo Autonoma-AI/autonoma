@@ -58,7 +58,6 @@ const payload: AutonomaCommentPayload = {
         { label: "See preview", href: process.env.PREVIEW_URL ?? reportBase },
     ],
     services: [],
-    addons: [],
     warnings: [],
     details: [],
     bugs,
