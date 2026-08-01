@@ -9,6 +9,7 @@ const SIDEBAR_ORDER: string[] = [
     "index",
     "troubleshooting/index",
     "preview-environments/index",
+    "preview-environments/your-own-deploys",
     "preview-environments/apps",
     "preview-environments/databases",
     "preview-environments/services",

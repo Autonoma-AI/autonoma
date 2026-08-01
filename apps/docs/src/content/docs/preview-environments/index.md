@@ -9,6 +9,10 @@ description: Vercel-style preview environments for every pull request. Configure
 
 You describe your stack once - apps, the databases they need, and their environment variables - and Autonoma handles the rest: building the containers, provisioning the databases and extra services, running setup tasks, wiring environment variables, and posting the URL back to the PR.
 
+:::note
+Already build a preview for every pull request? You can connect those instead, and Autonoma will build nothing - see [Use your own deploys](/preview-environments/your-own-deploys/). Which to pick comes down to whether a test run can leave data behind in a shared database; that page has the trade-off. The rest of this section describes the Autonoma-hosted path.
+:::
+
 ## How it works
 
 Once the Autonoma GitHub App is installed on your repository, every `pull_request` event triggers the pipeline:
@@ -27,7 +31,7 @@ A repository can also have a standing **main-branch environment**: a preview dep
 
 You set up your stack in the Autonoma dashboard (the preview environment onboarding flow), which saves the configuration for your repository. The flow leads with a coding agent: pair your agent to the app and it fills the configuration in for you, while you watch read-only. See [Set up a preview with a coding agent](/mcp/configure-preview/) for that path - the rest of this section describes what it is configuring, and applies either way.
 
-To fill it in yourself, take **Configure manually** on that screen. The manual flow has three required steps - **Apps**, **Database**, and **Variables** - plus two optional pieces most projects never need. A final **Finish** screen confirms the configuration, where **Save and deploy** builds it. It declares:
+To fill it in yourself, decline the agent twice: **Answer a few questions instead** on the preview step (a short questionnaire about your stack, which is what routes you to this path), then **Configure manually** on the config step that follows. The manual flow has three required steps - **Apps**, **Database**, and **Variables** - plus two optional pieces most projects never need. A final **Finish** screen confirms the configuration, where **Save and deploy** builds it. It declares:
 
 - **Apps** to build and deploy (each becomes a public HTTPS URL) - see [Apps and builds](/preview-environments/apps/)
 - **Databases** the apps need (Postgres, MySQL, MongoDB, Redis / Valkey), each with guided setup for schema, seed data, and migrations - see [Databases](/preview-environments/databases/)
@@ -78,3 +82,4 @@ Secrets such as API keys and third-party tokens are stored encrypted and kept ou
 - [Lifecycle hooks](/preview-environments/hooks/) - commands that run around each deploy
 - [Multiple repositories](/preview-environments/multirepo/) - pull apps from more than one repository
 - [Manage secrets](/preview-environments/secrets/) - REST API reference
+- [Use your own deploys](/preview-environments/your-own-deploys/) - connect previews your pipeline already builds
