@@ -60,7 +60,23 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
     const provider = search.provider === "vercel" || search.provider === "custom" ? search.provider : undefined;
     // How the user entered onboarding; "vercel" (from the marketplace) streamlines the preview steps.
     const origin = search.origin === "vercel" ? "vercel" : undefined;
-    return { step, appId, error, apiKey, setupId, focusApp, focusField, focusSection, configStep, provider, origin };
+    // Opt out of the coding-agent headline on the preview step and answer the
+    // routing questionnaire by hand.
+    const manual = search.manual === true || search.manual === "true" ? true : undefined;
+    return {
+      step,
+      appId,
+      error,
+      apiKey,
+      setupId,
+      focusApp,
+      focusField,
+      focusSection,
+      configStep,
+      provider,
+      origin,
+      manual,
+    };
   },
   loader: async ({ context: { queryClient }, location }) => {
     const session = await ensureSessionData(queryClient);
@@ -155,7 +171,8 @@ function OnboardingLayout() {
   const { user, isAdmin } = useAuth();
   const authClient = useAuthClient();
   const { backendStep } = Route.useLoaderData();
-  const { step, appId, error, focusApp, focusField, focusSection, configStep, provider, origin } = Route.useSearch();
+  const { step, appId, error, focusApp, focusField, focusSection, configStep, provider, origin, manual } =
+    Route.useSearch();
   // useSearch widens the enums to `string`; re-narrow for the typed props.
   const initialProvider = provider === "vercel" || provider === "custom" ? provider : undefined;
   const onboardingOrigin = origin === "vercel" ? "vercel" : undefined;
@@ -201,7 +218,7 @@ function OnboardingLayout() {
   function renderStep() {
     if (currentStepId === "add-app") return <AddAppPage appId={appId} error={error} origin={onboardingOrigin} />;
     if (currentStepId === "preview-environment")
-      return <PreviewEnvironmentPage appId={appId} origin={onboardingOrigin} />;
+      return <PreviewEnvironmentPage appId={appId} origin={onboardingOrigin} manual={manual === true} />;
     if (currentStepId === "previewkit-config")
       return (
         <PreviewkitConfigPage

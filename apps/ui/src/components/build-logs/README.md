@@ -6,12 +6,12 @@ pattern. Nothing here touches routing or the tRPC layer.
 
 ## Files
 
-| File | Role |
-|------|------|
-| `use-build-log-stream.ts` | The reusable core - subscribes via `@microsoft/fetch-event-source` (so it can send an `Authorization` header) and accumulates entries. Transport-only; takes a `url` + optional `headers`. |
-| `build-log-stream-viewer.tsx` | Presentational terminal-style viewer + `PreviewBuildLogStreamExample` (builds the URL from owner/repo/pr + a bearer token). |
-| `preview-logs-tabs.tsx` | `PreviewLogsTabs` - build vs. runtime (`?source=app`) tab pair with a debounced server-side search box. Scoped to one app via the `app` prop. Pass `runtimeOnly` for services that run as in-cluster pods but aren't built from the PR (recipe services): the Build logs tab is hidden and only runtime output shows. |
-| `log-app-filter.tsx` | `LogAppFilter` - segmented app/service selector that drives `PreviewLogsTabs`' `app` prop (one app is always selected). Shared by the admin PreviewKit page and the onboarding deploy step. |
+| File                          | Role                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `use-build-log-stream.ts`     | The reusable core - subscribes via `@microsoft/fetch-event-source` (so it can send an `Authorization` header) and accumulates entries. Transport-only; takes a `url` + optional `headers`.                                                                                                                            |
+| `build-log-stream-viewer.tsx` | Presentational terminal-style viewer + `PreviewBuildLogStreamExample` (builds the URL from owner/repo/pr + a bearer token).                                                                                                                                                                                           |
+| `preview-logs-tabs.tsx`       | `PreviewLogsTabs` - build vs. runtime (`?source=app`) tab pair with a debounced server-side search box. Scoped to one app via the `app` prop. Pass `runtimeOnly` for services that run as in-cluster pods but aren't built from the PR (recipe services): the Build logs tab is hidden and only runtime output shows. |
+| `log-app-filter.tsx`          | `LogAppFilter` - segmented app/service selector that drives `PreviewLogsTabs`' `app` prop (one app is always selected). Shared by the admin PreviewKit page and the onboarding deploy step.                                                                                                                           |
 
 ## Usage
 
@@ -29,9 +29,9 @@ import { useBuildLogStream } from "components/build-logs/use-build-log-stream";
 
 // Whole viewer:
 <BuildLogStreamViewer
-  url={buildPreviewLogStreamUrl("acme", "api", 42)}
-  headers={{ Authorization: `Bearer ${token}` }}
-  className="max-w-3xl"
+    url={buildPreviewLogStreamUrl("acme", "api", 42)}
+    headers={{ Authorization: `Bearer ${token}` }}
+    className="max-w-3xl"
 />;
 
 // Just the data, your own UI:
@@ -44,14 +44,14 @@ Endpoint: `GET /v1/previewkit/environments/:owner/:repo/:pr/logs/stream` (SSE).
 
 Named events (`event:` field):
 
-| Event | `data` | Meaning |
-|-------|--------|---------|
-| `log` | JSON `{ kind, app?, message }` | A chunk of build output. |
-| `phase` | JSON `{ kind, message }` | Pipeline phase change (`cloning`, `building-images`, ...). |
-| `status` | JSON `{ kind, message }` | Terminal build status (`ready` / `failed`). |
-| `done` | status string | Stream finished; the client closes. |
-| `error` | message string | Server gave up on the stream; the client closes. |
-| `heartbeat` | (empty) | Keep-alive only; ignored. |
+| Event       | `data`                         | Meaning                                                    |
+| ----------- | ------------------------------ | ---------------------------------------------------------- |
+| `log`       | JSON `{ kind, app?, message }` | A chunk of build output.                                   |
+| `phase`     | JSON `{ kind, message }`       | Pipeline phase change (`cloning`, `building-images`, ...). |
+| `status`    | JSON `{ kind, message }`       | Terminal build status (`ready` / `failed`).                |
+| `done`      | status string                  | Stream finished; the client closes.                        |
+| `error`     | message string                 | Server gave up on the stream; the client closes.           |
+| `heartbeat` | (empty)                        | Keep-alive only; ignored.                                  |
 
 Each `log`/`phase`/`status` event carries an `id:` (the Redis Stream entry id).
 On reconnect the transport sends it back as `Last-Event-Id` and the server

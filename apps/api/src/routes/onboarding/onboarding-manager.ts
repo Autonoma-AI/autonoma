@@ -770,6 +770,58 @@ export class OnboardingManager {
         }
     }
 
+    /**
+     * Just how an app gets its previews. Split out from
+     * {@link getExternalSignalStatus} because the MCP checks it before every
+     * config write, and pulling five columns to read one is wasted work on a
+     * path where the guard almost always passes.
+     */
+    async getPreviewEnvironmentMode(applicationId: string, organizationId: string) {
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { onboardingState: { select: { previewEnvironmentMode: true } } },
+        });
+        if (application == null) throw new NotFoundError("Application not found");
+        return application.onboardingState?.previewEnvironmentMode ?? undefined;
+    }
+
+    /**
+     * The bring-your-own-deploys wiring, as a coding agent needs to see it: which
+     * preview path the app is on, whether a signed signal has landed, and whether
+     * one has ever carried a PR (which is what per-PR reviews require).
+     *
+     * Deliberately not `getState`: that is the UI's polled read and fans out into
+     * half a dozen queries for artifacts, scenarios and test cases the agent has
+     * no use for here.
+     */
+    async getExternalSignalStatus(applicationId: string, organizationId: string) {
+        this.logger.info("Loading external signal status", { applicationId, organizationId });
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: {
+                onboardingState: {
+                    select: {
+                        step: true,
+                        previewEnvironmentMode: true,
+                        previewUrl: true,
+                        diffTriggerConfirmedAt: true,
+                    },
+                },
+            },
+        });
+        if (application == null) throw new NotFoundError("Application not found");
+        const state = application.onboardingState;
+
+        return {
+            step: state?.step,
+            previewEnvironmentMode: state?.previewEnvironmentMode ?? undefined,
+            signalReceived: state?.previewUrl != null,
+            previewUrl: state?.previewUrl ?? undefined,
+            prReviewsConfirmed: state?.diffTriggerConfirmedAt != null,
+            prReviewsConfirmedAt: state?.diffTriggerConfirmedAt?.toISOString(),
+        };
+    }
+
     async getDeploymentSignalStatus(applicationId: string, organizationId: string) {
         this.logger.info("Loading onboarding deployment signal status", { applicationId, organizationId });
         const application = await this.db.application.findFirst({

@@ -7,7 +7,11 @@ import { userEvent, within } from "storybook/test";
 import { AgentConfiguringScreen } from "../routes/_blacklight/onboarding/-components/previewkit/agent-configuring-screen";
 
 const CONNECTED_AT = new Date("2026-01-05T10:12:00.000Z");
-const LAST_ACTIVITY_AT = new Date("2026-01-05T10:29:30.000Z");
+// Relative, not fixed: the screen compares this against now to decide whether the
+// agent looks stuck, so a hardcoded date is permanently stale and every story
+// renders the stalled state. Nothing displays the value itself, so keeping it
+// relative costs no screenshot determinism.
+const LAST_ACTIVITY_AT = new Date(Date.now() - 30 * 1000);
 
 /** The config the agent has written so far, exactly as the API would return it. */
 const configDocument = previewConfigSchema.parse({
@@ -36,6 +40,9 @@ const configuringFixtures: TrpcFixtures = {
     getAgentSession: {
       applicationId: baseApplication.id,
       step: "previewkit_configuring",
+      // Without this the screen renders its "no path chosen yet" branch, which is
+      // not the state a previewkit_configuring app is ever actually in.
+      previewEnvironmentMode: "previewkit",
       previewVerificationStatus: "building",
       holder: "agent",
       effectiveHolder: "agent",
@@ -96,6 +103,59 @@ const configuringFixtures: TrpcFixtures = {
   },
 };
 
+/**
+ * The configuring fixtures with the preview path swapped, so one fixture covers
+ * all three states the screen now renders.
+ */
+function withPreviewPath(mode: "previewkit" | "existing_deploys" | undefined, vercelProject?: string): TrpcFixtures {
+  const onboarding = configuringFixtures.onboarding ?? {};
+  const session = onboarding.getAgentSession;
+  const readiness = onboarding.getPreviewReadiness;
+  return {
+    ...configuringFixtures,
+    onboarding: {
+      ...onboarding,
+      getAgentSession: session == null ? session : { ...session, previewEnvironmentMode: mode },
+      // The integration cards infer the source from a linked Vercel project.
+      listAvailableVercelProjects: {
+        connected: vercelProject != null,
+        projects: [],
+        connectUrl: "https://vercel.com/integrations/autonoma/new",
+        linkedProject: vercelProject == null ? undefined : { id: "prj_fixture_01", name: vercelProject },
+      },
+      // A path that is undecided, or one Autonoma does not build, is never
+      // "building" - readiness sits idle until the customer's pipeline signals.
+      getPreviewReadiness:
+        readiness == null
+          ? readiness
+          : {
+              ...readiness,
+              mode,
+              diagnostics:
+                mode === "previewkit"
+                  ? readiness.diagnostics
+                  : { status: "idle", actions: [], logs: { available: false } },
+              services: mode === "previewkit" ? readiness.services : [],
+            },
+    },
+  };
+}
+
+/** The same session with its last activity pushed well past the stalled threshold. */
+function withStalledHeartbeat(): TrpcFixtures {
+  const fixtures = withPreviewPath("existing_deploys");
+  const onboarding = fixtures.onboarding ?? {};
+  const session = onboarding.getAgentSession;
+  return {
+    ...fixtures,
+    onboarding: {
+      ...onboarding,
+      getAgentSession:
+        session == null ? session : { ...session, agentLastActivityAt: new Date(Date.now() - 12 * 60 * 1000) },
+    },
+  };
+}
+
 const meta = {
   title: "Onboarding/AgentConfiguringScreen",
   component: AgentConfiguringScreen,
@@ -122,5 +182,57 @@ export const NotifyMenuOpen: Story = {
     const canvas = within(canvasElement);
     const trigger = await canvas.findByRole("button", { name: /notify me/i });
     await userEvent.click(trigger);
+  },
+};
+
+/**
+ * No preview path chosen yet - the agent is still reading the repo to decide.
+ * The headline must not promise a preview, and there is no topology or deploy to
+ * show because neither exists until the path is picked.
+ */
+export const DecidingPath: Story = {
+  args: { applicationId: baseApplication.id },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers(withPreviewPath(undefined)),
+    },
+  },
+};
+
+/**
+ * The customer's own pipeline builds the previews. Autonoma has no build to
+ * watch, so the deploy panel becomes the signal state and the preview topology
+ * is gone entirely.
+ */
+export const OwnPipeline: Story = {
+  args: { applicationId: baseApplication.id },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers(withPreviewPath("existing_deploys")),
+    },
+  },
+};
+
+/** The same path with a linked Vercel project, which is how the source is inferred. */
+export const OwnPipelineVercel: Story = {
+  args: { applicationId: baseApplication.id },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers(withPreviewPath("existing_deploys", "acme-web")),
+    },
+  },
+};
+
+/**
+ * The agent's heartbeat has gone quiet. The server does not release control for
+ * 30 minutes, so without this the user watches a spinner the whole time with no
+ * idea the agent is waiting on THEM - in a terminal it cannot see this screen from.
+ */
+export const AgentStalled: Story = {
+  args: { applicationId: baseApplication.id },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers(withStalledHeartbeat()),
+    },
   },
 };

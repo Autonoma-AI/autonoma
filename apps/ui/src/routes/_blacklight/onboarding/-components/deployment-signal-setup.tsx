@@ -1,20 +1,26 @@
 import { Button } from "@autonoma/blacklight";
+import {
+  buildDeploymentSignalWorkflow,
+  DEPLOYMENT_SIGNAL_SECRET_NAME,
+  DEPLOYMENT_SIGNAL_WORKFLOW_PATH,
+} from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
+import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { KeyIcon } from "@phosphor-icons/react/Key";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { RocketLaunchIcon } from "@phosphor-icons/react/RocketLaunch";
-import { SealCheckIcon } from "@phosphor-icons/react/SealCheck";
 import { getApiOrigin } from "lib/api-origin";
 import { toastManager } from "lib/toast-manager";
 import type { ReactNode } from "react";
+import { ConnectDeploysWithAgent } from "./connect-deploys-with-agent";
 
 /** Placeholders shown while the real values load, so the snippet stays copyable. */
 const APPLICATION_ID_PLACEHOLDER = "APPLICATION_ID";
 const SHARED_SECRET_PLACEHOLDER = "AUTONOMA_SHARED_SECRET";
-const SECRET_NAME = "AUTONOMA_SHARED_SECRET";
-const WORKFLOW_PATH = ".github/workflows/autonoma-preview.yml";
+const SECRET_NAME = DEPLOYMENT_SIGNAL_SECRET_NAME;
+const WORKFLOW_PATH = DEPLOYMENT_SIGNAL_WORKFLOW_PATH;
 
 /** One hop of the "what the workflow actually does" diagram. */
 interface FlowNode {
@@ -34,9 +40,9 @@ const FLOW_NODES: FlowNode[] = [
 ];
 
 /**
- * The four things the user has to do, in order. Steps 01-03 happen in their repo
- * and on GitHub, so Autonoma cannot observe them; step 04 is the one it watches,
- * and it is what gates Continue on the page.
+ * The three things the user does by hand. All of them happen in their repo and on
+ * GitHub, so Autonoma cannot observe any of them - the one step it CAN observe is
+ * the signal arriving, which is its own live panel rather than a fourth bullet.
  */
 interface SetupStep {
   index: string;
@@ -64,12 +70,6 @@ const SETUP_STEPS: SetupStep[] = [
     title: "Push, and let your preview deploy",
     body: "Autonoma is only signalled after a preview is actually live, so your normal deploy has to finish first.",
   },
-  {
-    index: "04",
-    icon: SealCheckIcon,
-    title: "Wait for the signal to reach Autonoma",
-    body: "The moment your first signed signal arrives we record the preview URL and unlock the next step. Keep this page open - it updates on its own.",
-  },
 ];
 
 export interface DeploymentSignalSetupProps {
@@ -92,7 +92,7 @@ export interface DeploymentSignalSetupProps {
 export function DeploymentSignalSetup({ applicationId, sharedSecret }: DeploymentSignalSetupProps) {
   const endpoint = `${getApiOrigin()}/v1/onboarding/deployment-signal`;
   const resolvedApplicationId = applicationId ?? APPLICATION_ID_PLACEHOLDER;
-  const workflow = buildWorkflowSnippet({ applicationId: resolvedApplicationId, endpoint });
+  const workflow = buildDeploymentSignalWorkflow({ applicationId: resolvedApplicationId, endpoint });
   const secret = sharedSecret ?? SHARED_SECRET_PLACEHOLDER;
 
   // The clipboard carries the brief as well as the YAML: the workflow is a
@@ -135,51 +135,68 @@ export function DeploymentSignalSetup({ applicationId, sharedSecret }: Deploymen
         </div>
       </section>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(28rem,1fr)]">
-        <section className="border border-border-dim bg-surface-base">
-          <div className="border-b border-border-dim bg-surface-raised px-5 py-4">
-            <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">
-              What you need to do
-            </h2>
+      {applicationId != null ? (
+        <section className="mt-6 flex flex-wrap items-center justify-between gap-4 border border-primary-ink/30 bg-surface-base p-5">
+          <div className="min-w-0">
+            <h2 className="text-lg font-medium text-text-primary">Let a coding agent do it</h2>
+            <p className="mt-1 max-w-2xl text-sm text-text-secondary">
+              Fitting this to your pipeline means reading how the project actually deploys. An agent already sitting in
+              your repo can do that, open a pull request with the change, and confirm the signal reached us.
+            </p>
           </div>
-          <div className="space-y-5 p-6">
-            {SETUP_STEPS.map((step) => (
-              <SetupStepRow key={step.index} step={step}>
-                {step.index === "01" ? (
-                  <Button variant="outline" size="xs" className="mt-3 gap-2" onClick={copySecret}>
-                    <CopyIcon size={13} />
-                    Copy secret value
-                  </Button>
-                ) : undefined}
-              </SetupStepRow>
-            ))}
-          </div>
+          <ConnectDeploysWithAgent applicationId={applicationId} />
         </section>
+      ) : undefined}
 
-        <section className="border border-border-dim bg-surface-base">
-          <div className="flex items-center justify-between border-b border-border-dim bg-surface-raised px-5 py-4">
-            <div className="flex items-center gap-2.5">
-              <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">
-                {WORKFLOW_PATH}
-              </h2>
-              <span className="border border-border-mid px-1.5 py-0.5 font-mono text-4xs uppercase tracking-widest text-text-secondary">
-                Template
-              </span>
+      {/* The agent panel above is the lead path now, so the hand-rolled steps and
+          the 60-line workflow open on demand. Left expanded they made the page
+          long enough that the live signal state scrolled out of sight. */}
+      <details className="group mt-6">
+        <summary className="flex cursor-pointer list-none items-center gap-2 border border-border-dim bg-surface-base px-5 py-4 font-mono text-sm font-bold uppercase tracking-widest text-text-primary transition-colors hover:border-border-highlight">
+          <CaretRightIcon size={14} weight="bold" className="transition-transform group-open:rotate-90" />
+          Or do it yourself
+        </summary>
+        <div className="mt-2 grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(28rem,1fr)]">
+          <section className="border border-border-dim bg-surface-base">
+            <div className="space-y-5 p-6">
+              {SETUP_STEPS.map((step) => (
+                <SetupStepRow key={step.index} step={step}>
+                  {step.index === "01" ? (
+                    <Button variant="outline" size="xs" className="mt-3 gap-2" onClick={copySecret}>
+                      <CopyIcon size={13} />
+                      Copy secret value
+                    </Button>
+                  ) : undefined}
+                </SetupStepRow>
+              ))}
             </div>
-            <Button variant="outline" size="xs" className="gap-2" onClick={copyWorkflow}>
-              <CopyIcon size={13} />
-              Copy
-            </Button>
-          </div>
-          <p className="border-b border-border-dim px-5 py-3 text-2xs leading-snug text-text-secondary">
-            Copying also puts a short brief on your clipboard - the signed call Autonoma needs and what to adapt - so
-            you can hand the whole thing to a coding agent and let it fit this to your pipeline.
-          </p>
-          <pre className="max-h-[34rem] overflow-auto p-6 font-mono text-2xs leading-relaxed text-text-primary">
-            {workflow}
-          </pre>
-        </section>
-      </div>
+          </section>
+
+          <section className="border border-border-dim bg-surface-base">
+            <div className="flex items-center justify-between border-b border-border-dim bg-surface-raised px-5 py-4">
+              <div className="flex items-center gap-2.5">
+                <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">
+                  {WORKFLOW_PATH}
+                </h2>
+                <span className="border border-border-mid px-1.5 py-0.5 font-mono text-4xs uppercase tracking-widest text-text-secondary">
+                  Template
+                </span>
+              </div>
+              <Button variant="outline" size="xs" className="gap-2" onClick={copyWorkflow}>
+                <CopyIcon size={13} />
+                Copy
+              </Button>
+            </div>
+            <p className="border-b border-border-dim px-5 py-3 text-2xs leading-snug text-text-secondary">
+              Copying also puts a short brief on your clipboard - the signed call Autonoma needs and what to adapt - so
+              you can hand the whole thing to a coding agent and let it fit this to your pipeline.
+            </p>
+            <pre className="max-h-[34rem] overflow-auto p-6 font-mono text-2xs leading-relaxed text-text-primary">
+              {workflow}
+            </pre>
+          </section>
+        </div>
+      </details>
     </>
   );
 }
@@ -261,38 +278,4 @@ function buildTemplateBrief({ applicationId, endpoint }: { applicationId: string
 #      previous preview URL, so signalling all of them means the last deploy to
 #      finish wins - and that may be your API rather than your frontend.
 # ---------------------------------------------------------------------------`;
-}
-
-function buildWorkflowSnippet({ applicationId, endpoint }: { applicationId: string; endpoint: string }) {
-  return `# ${WORKFLOW_PATH}
-name: Autonoma preview signal
-
-on:
-  deployment_status:
-
-jobs:
-  notify:
-    if: github.event.deployment_status.state == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Autonoma
-        env:
-          AUTONOMA_SHARED_SECRET: \${{ secrets.${SECRET_NAME} }}
-          AUTONOMA_ENDPOINT: ${endpoint}
-          AUTONOMA_APPLICATION_ID: ${applicationId}
-          PREVIEW_URL: \${{ github.event.deployment_status.target_url }}
-          PREVIEW_SHA: \${{ github.event.deployment.sha || github.sha }}
-        run: |
-          BODY=$(jq -nc \\
-            --arg applicationId "$AUTONOMA_APPLICATION_ID" \\
-            --arg previewUrl "$PREVIEW_URL" \\
-            --arg sha "$PREVIEW_SHA" \\
-            --arg provider "custom" \\
-            '{applicationId:$applicationId,previewUrl:$previewUrl,provider:$provider}
-              + (if $sha == "" then {} else {sha:$sha} end)')
-          SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$AUTONOMA_SHARED_SECRET" -hex | sed 's/^.* //')
-          curl -sS -X POST "$AUTONOMA_ENDPOINT" \\
-            -H "content-type: application/json" \\
-            -H "x-signature: $SIG" \\
-            --data "$BODY"`;
 }

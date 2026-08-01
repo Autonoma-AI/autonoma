@@ -22,6 +22,12 @@ interface OnboardingSearchOverrides {
     provider?: OnboardingSignalProvider;
     /** Where the user came from; "vercel" streamlines the preview-provider steps. */
     origin?: OnboardingOrigin;
+    /**
+     * Opt out of the coding-agent headline and answer the routing questionnaire
+     * yourself. Same shape as `configStep` on the config step: absent means the
+     * agent path is the headline, present means "take me to the hands-on flow".
+     */
+    manual?: boolean;
 }
 
 /**
@@ -42,5 +48,6 @@ export function buildOnboardingSearch(step: OnboardingStep, appId?: string, over
         configStep: overrides.configStep,
         provider: overrides.provider,
         origin: overrides.origin,
+        manual: overrides.manual,
     };
 }

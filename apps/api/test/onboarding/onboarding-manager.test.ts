@@ -1046,6 +1046,89 @@ integrationTestSuite({
             ).rejects.toThrow(OnboardingApplicationNotFoundError);
         });
 
+        test("external signal status reports nothing received before the first signal", async ({
+            harness,
+            seedResult: { manager, createApp, orgId },
+        }) => {
+            const appId = await createApp();
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: {
+                    applicationId: appId,
+                    step: "existing_deploys_configuring",
+                    previewEnvironmentMode: "existing_deploys",
+                },
+                update: { step: "existing_deploys_configuring", previewEnvironmentMode: "existing_deploys" },
+            });
+
+            const status = await manager.getExternalSignalStatus(appId, orgId);
+
+            expect(status.previewEnvironmentMode).toBe("existing_deploys");
+            expect(status.signalReceived).toBe(false);
+            expect(status.previewUrl).toBeUndefined();
+            expect(status.prReviewsConfirmed).toBe(false);
+        });
+
+        test("external signal status separates a received signal from confirmed PR reviews", async ({
+            harness,
+            seedResult: { manager, createApp, orgId },
+        }) => {
+            const appId = await createApp();
+            // A main-branch signal landed, but none has ever carried a PR - the state
+            // an app sits in when its wiring works yet no pull request is reviewed.
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: {
+                    applicationId: appId,
+                    step: "preview_verified",
+                    previewEnvironmentMode: "existing_deploys",
+                    previewUrl: "https://main.example.com",
+                },
+                update: {
+                    step: "preview_verified",
+                    previewEnvironmentMode: "existing_deploys",
+                    previewUrl: "https://main.example.com",
+                },
+            });
+
+            const received = await manager.getExternalSignalStatus(appId, orgId);
+            expect(received.signalReceived).toBe(true);
+            expect(received.previewUrl).toBe("https://main.example.com");
+            expect(received.prReviewsConfirmed).toBe(false);
+
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: { diffTriggerConfirmedAt: new Date() },
+            });
+
+            const confirmed = await manager.getExternalSignalStatus(appId, orgId);
+            expect(confirmed.prReviewsConfirmed).toBe(true);
+            expect(confirmed.prReviewsConfirmedAt).toEqual(expect.any(String));
+        });
+
+        test("preview environment mode is readable on its own for the MCP path guard", async ({
+            harness,
+            seedResult: { manager, createApp, orgId },
+        }) => {
+            const appId = await createApp();
+            // Unset until the user picks, which the guard treats as "not decided yet".
+            expect(await manager.getPreviewEnvironmentMode(appId, orgId)).toBeUndefined();
+
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: { applicationId: appId, previewEnvironmentMode: "existing_deploys" },
+                update: { previewEnvironmentMode: "existing_deploys" },
+            });
+
+            expect(await manager.getPreviewEnvironmentMode(appId, orgId)).toBe("existing_deploys");
+        });
+
+        test("external signal status refuses an app in another org", async ({ seedResult: { manager, createApp } }) => {
+            const appId = await createApp();
+
+            await expect(manager.getExternalSignalStatus(appId, "another-org")).rejects.toThrow(NotFoundError);
+        });
+
         test("deployment signal with a prNumber triggers PR diffs and self-confirms the BYO wiring", async ({
             harness,
             seedResult: { createApp },

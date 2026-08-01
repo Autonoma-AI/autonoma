@@ -1,14 +1,13 @@
-import { agentConfigurePrompt } from "./agent-configure-prompt";
-
 /**
- * The sentence the user hands to their coding agent to start agentic onboarding,
- * shared by the MCP-first page and the configure-with-agent modal so both quote the
- * same words - and the same words the pairing-code copy button puts on the clipboard.
+ * The sentence the user hands to their coding agent, quoted the same way on every
+ * surface that shows one - the MCP-first page, the configure-with-agent modal -
+ * and matching what the pairing-code copy button puts on the clipboard. Takes the
+ * sentence rather than building it, since each step asks for something different.
  */
-export function TellAgentLine({ code }: { code?: string }) {
+export function TellAgentLine({ prompt }: { prompt: string }) {
   return (
     <>
-      Then tell your agent: <span className="font-mono text-text-primary">{agentConfigurePrompt(code)}</span>
+      Then tell your agent: <span className="font-mono text-text-primary">{prompt}</span>
     </>
   );
 }

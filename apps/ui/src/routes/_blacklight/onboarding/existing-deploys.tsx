@@ -15,6 +15,7 @@ import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { LinkIcon } from "@phosphor-icons/react/Link";
 import { PlugsIcon } from "@phosphor-icons/react/Plugs";
+import { SealCheckIcon } from "@phosphor-icons/react/SealCheck";
 import { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { formatDate } from "lib/format";
@@ -156,73 +157,70 @@ export function ExistingDeploysPage({
         <DeploymentSignalSetup applicationId={appId} sharedSecret={sharedSecretQuery.data?.sharedSecret} />
       ) : undefined}
 
-      <section className="mt-6 border border-border-dim bg-surface-base p-5">
-        <div className="flex flex-wrap items-center gap-3">
-          <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Preview status</h2>
-          {previewUrlSet ? (
-            <Badge variant="success">{selectedProvider === "vercel" ? "deployment selected" : "accepted"}</Badge>
-          ) : isBuildingPreview ? (
-            <Badge variant="status-running" className="gap-1.5">
-              <BrailleSpinner animation="orbit" size="sm" />
-              building preview
-            </Badge>
-          ) : (
-            <Badge variant="outline">
-              {selectedProvider === "vercel" ? "no deployment selected" : "waiting for signal"}
-            </Badge>
-          )}
-        </div>
-        {signalStatusQuery.data?.previewUrl != null ? (
-          <div className="mt-3 space-y-1 text-sm text-text-secondary">
-            <p>
-              Preview URL:{" "}
-              <a
-                href={signalStatusQuery.data.previewUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="font-mono text-primary-ink underline-offset-4 hover:underline"
-              >
-                {signalStatusQuery.data.previewUrl}
-              </a>
-            </p>
-            {signalStatusQuery.data.acceptedAt != null ? (
-              <p>Accepted {formatDate(new Date(signalStatusQuery.data.acceptedAt))}</p>
-            ) : undefined}
+      {selectedProvider === "vercel" ? (
+        <section className="mt-6 border border-border-dim bg-surface-base p-5">
+          <div className="flex flex-wrap items-center gap-3">
+            <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Preview status</h2>
+            {previewUrlSet ? (
+              <Badge variant="success">deployment selected</Badge>
+            ) : isBuildingPreview ? (
+              <Badge variant="status-running" className="gap-1.5">
+                <BrailleSpinner animation="orbit" size="sm" />
+                building preview
+              </Badge>
+            ) : (
+              <Badge variant="outline">no deployment selected</Badge>
+            )}
           </div>
-        ) : selectedProvider === "custom" ? (
-          <div className="mt-4 flex items-start gap-3 border-l-2 border-primary-ink bg-surface-raised/40 px-4 py-3">
-            <BrailleSpinner animation="orbit" size="sm" className="mt-0.5 shrink-0 text-primary-ink" />
-            <div>
-              <p className="text-sm text-text-primary">Waiting for your first signed signal.</p>
-              <p className="mt-1 text-sm text-text-secondary">
-                Nothing has reached the deployment signal endpoint yet. Work through the four steps above - this panel
-                picks the signal up on its own, and unlocks Continue.
+          {signalStatusQuery.data?.previewUrl != null ? (
+            <div className="mt-3 space-y-1 text-sm text-text-secondary">
+              <p>
+                Preview URL:{" "}
+                <a
+                  href={signalStatusQuery.data.previewUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-primary-ink underline-offset-4 hover:underline"
+                >
+                  {signalStatusQuery.data.previewUrl}
+                </a>
               </p>
+              {signalStatusQuery.data.acceptedAt != null ? (
+                <p>Accepted {formatDate(new Date(signalStatusQuery.data.acceptedAt))}</p>
+              ) : undefined}
             </div>
-          </div>
-        ) : (
-          <p className="mt-3 text-sm text-text-secondary">
-            {isBuildingPreview
-              ? "Waiting for the redeployed preview to finish building."
-              : "Select a deployment above to use as the onboarding preview target."}
-          </p>
-        )}
-      </section>
+          ) : (
+            <p className="mt-3 text-sm text-text-secondary">
+              {isBuildingPreview
+                ? "Waiting for the redeployed preview to finish building."
+                : "Select a deployment above to use as the onboarding preview target."}
+            </p>
+          )}
+        </section>
+      ) : undefined}
 
-      <div className="mt-8 flex justify-between border-t border-border-dim pt-6">
-        <p className="max-w-xl text-sm text-text-secondary">
-          {selectedProvider === "vercel"
-            ? !vercelProjectLinked
-              ? "Link a Vercel project above before continuing."
-              : isBuildingPreview
-                ? "This unlocks as soon as your preview finishes building."
-                : !previewUrlSet
-                  ? "Select a deployment above before continuing."
-                  : "Deployment selected - continue to verify the preview is reachable."
-            : previewUrlSet
-              ? "Signal received - continue to verify the preview is reachable."
-              : "This unlocks when your first signed signal arrives. Until then there is no preview URL to verify."}
-        </p>
+      {/* The gate rides in the sticky bar rather than a panel above it. It is the
+          only live thing on the page and the thing that unlocks Continue, so it
+          has to be readable from anywhere - and a status panel placed just above
+          a sticky bar is the first thing that bar covers. */}
+      <div className="sticky bottom-0 z-20 mt-8 flex flex-wrap items-center justify-between gap-4 border-t border-border-dim bg-surface-void/95 px-1 py-4 backdrop-blur">
+        <div className="flex min-w-0 items-start gap-3">
+          {previewUrlSet ? (
+            <SealCheckIcon size={20} weight="fill" className="mt-0.5 shrink-0 text-status-success" />
+          ) : (
+            <BrailleSpinner animation="orbit" size="sm" className="mt-1 shrink-0 text-primary-ink" />
+          )}
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-text-primary">
+              {gateHeadline(selectedProvider, previewUrlSet, isBuildingPreview, vercelProjectLinked)}
+            </p>
+            <p className="mt-0.5 max-w-2xl truncate text-2xs text-text-secondary">
+              {previewUrlSet && signalStatusQuery.data?.previewUrl != null
+                ? signalStatusQuery.data.previewUrl
+                : gateDetail(selectedProvider, isBuildingPreview, vercelProjectLinked)}
+            </p>
+          </div>
+        </div>
         <Button
           // A dimmed accent button still reads as "the yellow thing you click",
           // which is how people got past this step without ever wiring the
@@ -239,6 +237,36 @@ export function ExistingDeploysPage({
       </div>
     </>
   );
+}
+
+/** The one-line state of the gate, shown in the sticky bar. */
+function gateHeadline(
+  provider: OnboardingSignalProvider,
+  previewUrlSet: boolean,
+  isBuildingPreview: boolean,
+  vercelProjectLinked: boolean,
+): string {
+  if (previewUrlSet) return provider === "vercel" ? "Deployment selected" : "Signal received";
+  if (provider === "vercel") {
+    if (!vercelProjectLinked) return "Link a Vercel project";
+    return isBuildingPreview ? "Building your preview" : "Select a deployment";
+  }
+  return "Waiting for your first signal";
+}
+
+/** The supporting line under {@link gateHeadline}; replaced by the preview URL once one exists. */
+function gateDetail(
+  provider: OnboardingSignalProvider,
+  isBuildingPreview: boolean,
+  vercelProjectLinked: boolean,
+): string {
+  if (provider === "vercel") {
+    if (!vercelProjectLinked) return "Continue unlocks once a project is linked and a deployment picked.";
+    return isBuildingPreview
+      ? "This unlocks as soon as your preview finishes building."
+      : "Pick a deployment above to use as the onboarding preview target.";
+  }
+  return "Nothing has reached the deployment signal endpoint yet - this updates on its own, no need to refresh.";
 }
 
 function VercelConnectSection({ appId }: { appId: string }) {

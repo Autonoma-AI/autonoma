@@ -39,8 +39,43 @@ type Phase = "waiting" | "connected" | "configuring";
  * {@link AgentConfiguringScreen} takes over. A session that is already agent-held
  * (returning mid-config) skips the ceremony and lands straight on configuring.
  */
-export function McpFirstConfigView({ appId, agentHeld }: { appId: string; agentHeld: boolean }) {
+export interface McpFirstCopy {
+  /** Heading on the pairing panel. */
+  heading: string;
+  /** One paragraph under the heading, saying what the agent will do. */
+  blurb: string;
+  /** Label on the escape hatch, e.g. "Configure manually". */
+  manualLabel: string;
+  /** Where the escape hatch - and a released agent - lands. */
+  manualSearch: ReturnType<typeof buildOnboardingSearch>;
+  /** The sentence the user pastes into their agent, code included. */
+  prompt: (code?: string) => string;
+}
+
+/** The config step's copy, and the default so existing call sites are unchanged. */
+function configCopy(appId: string): McpFirstCopy {
+  return {
+    heading: "Configure with a coding agent",
+    blurb:
+      "Three steps: install the Autonoma MCP from your terminal, authorize it when your agent asks, then give your agent the pairing code. It configures and deploys your preview while you watch here - no scripts, no YAML.",
+    manualLabel: "Configure manually",
+    manualSearch: buildOnboardingSearch("previewkit-config", appId, { configStep: "apps" }),
+    prompt: agentConfigurePrompt,
+  };
+}
+
+export function McpFirstConfigView({
+  appId,
+  agentHeld,
+  copy,
+}: {
+  appId: string;
+  agentHeld: boolean;
+  /** Omit for the config step; supply to reuse this screen on another step. */
+  copy?: McpFirstCopy;
+}) {
   const navigate = useNavigate();
+  const resolvedCopy = copy ?? configCopy(appId);
   const [phase, setPhase] = useState<Phase>(agentHeld ? "configuring" : "waiting");
 
   // Pairing detected: the agent-session poll flipped `agentHeld`, so leave the idle
@@ -55,12 +90,8 @@ export function McpFirstConfigView({ appId, agentHeld }: { appId: string; agentH
   // than latching on the read-only screen - otherwise "Take over" looks like a no-op.
   useEffect(() => {
     if (agentHeld || phase !== "configuring") return;
-    void navigate({
-      to: "/onboarding",
-      replace: true,
-      search: buildOnboardingSearch("previewkit-config", appId, { configStep: "apps" }),
-    });
-  }, [agentHeld, phase, appId, navigate]);
+    void navigate({ to: "/onboarding", replace: true, search: resolvedCopy.manualSearch });
+  }, [agentHeld, phase, resolvedCopy, navigate]);
 
   // Once connected, hold through the spin-up plus a short dwell on "Connected -
   // starting setup", then hand off to the live configuring screen. Keyed on `phase`
@@ -74,10 +105,10 @@ export function McpFirstConfigView({ appId, agentHeld }: { appId: string; agentH
 
   if (phase === "configuring") return <AgentConfiguringScreen applicationId={appId} />;
 
-  return <McpFirstPairing appId={appId} connected={phase === "connected"} />;
+  return <McpFirstPairing appId={appId} connected={phase === "connected"} copy={resolvedCopy} />;
 }
 
-function McpFirstPairing({ appId, connected }: { appId: string; connected: boolean }) {
+function McpFirstPairing({ appId, connected, copy }: { appId: string; connected: boolean; copy: McpFirstCopy }) {
   const createPairing = useCreateAgentPairing();
 
   // Mint one pairing code as the page opens - the code is shown immediately, no
@@ -103,14 +134,8 @@ function McpFirstPairing({ appId, connected }: { appId: string; connected: boole
             <div className="flex size-10 items-center justify-center border border-primary-ink text-primary-ink shadow-[0_0_15px_var(--accent-glow)]">
               <RobotIcon size={20} weight="bold" />
             </div>
-            <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">
-              Configure with a coding agent
-            </h2>
-            <p className="max-w-xl text-2xs leading-relaxed text-text-secondary">
-              Three steps: install the Autonoma MCP from your terminal, authorize it when your agent asks, then give
-              your agent the pairing code. It configures and deploys your preview while you watch here - no scripts, no
-              YAML.
-            </p>
+            <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">{copy.heading}</h2>
+            <p className="max-w-xl text-2xs leading-relaxed text-text-secondary">{copy.blurb}</p>
           </div>
 
           <ConnectAgentInstall
@@ -125,7 +150,7 @@ function McpFirstPairing({ appId, connected }: { appId: string; connected: boole
                 onRetry={() => createPairing.mutate({ applicationId: appId })}
               />
             }
-            tellAgent={<TellAgentLine code={code} />}
+            tellAgent={<TellAgentLine prompt={copy.prompt(code)} />}
           />
         </div>
 
@@ -140,11 +165,11 @@ function McpFirstPairing({ appId, connected }: { appId: string; connected: boole
           <span className="text-2xs text-text-secondary">Rather wire it up yourself?</span>
           <Link
             to="/onboarding"
-            search={buildOnboardingSearch("previewkit-config", appId, { configStep: "apps" })}
+            search={copy.manualSearch}
             className="inline-flex items-center gap-1.5 font-mono text-2xs text-text-secondary transition-colors hover:text-text-primary"
           >
             <SlidersIcon size={13} weight="bold" />
-            Configure manually
+            {copy.manualLabel}
             <ArrowRightIcon size={13} weight="bold" />
           </Link>
         </div>

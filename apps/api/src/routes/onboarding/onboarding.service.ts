@@ -57,6 +57,14 @@ export class OnboardingService extends Service {
         return this.manager.savePreviewkitConfig(applicationId, organizationId, document, dependencyDocuments, secrets);
     }
 
+    async getPreviewEnvironmentMode(applicationId: string, organizationId: string) {
+        return this.manager.getPreviewEnvironmentMode(applicationId, organizationId);
+    }
+
+    async getExternalSignalStatus(applicationId: string, organizationId: string) {
+        return this.manager.getExternalSignalStatus(applicationId, organizationId);
+    }
+
     async getDeploymentSignalStatus(applicationId: string, organizationId: string) {
         return this.manager.getDeploymentSignalStatus(applicationId, organizationId);
     }

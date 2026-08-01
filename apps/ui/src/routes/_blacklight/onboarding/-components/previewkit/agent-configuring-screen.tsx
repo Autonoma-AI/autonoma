@@ -31,7 +31,7 @@ import { PlugsConnectedIcon } from "@phosphor-icons/react/PlugsConnected";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
-import { useNavigate, useRouter } from "@tanstack/react-router";
+import { Link, useNavigate, useRouter } from "@tanstack/react-router";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import { PreviewLink } from "components/preview-link";
 import { TabAttention } from "components/tab-attention";
@@ -43,17 +43,29 @@ import {
   useStopAgent,
   useSubmitAgentEnv,
 } from "lib/onboarding/onboarding-api";
+import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplications } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { setLastApp } from "../../../_app-shell/-last-app";
 import { PasteEnvDialog } from "../../../_app-shell/app.$appSlug/preview-config/-variables/paste-env-dialog";
 import { DeployRequestIdleIndicator, isPreviewDeployRequestPhase } from "../deploy-request-indicator";
+import { IntegrationTakingShape } from "./integration-taking-shape";
 import { PreviewTakingShape } from "./preview-taking-shape";
 
 // Deploy phases in which the app pods are rolling out (and emitting runtime logs),
 // as opposed to the earlier clone/build phases. Used to auto-focus the App logs tab.
 const APP_ROLLOUT_PHASES = new Set(["deploying-services"]);
+
+/**
+ * How long without a tool call before we tell the user their agent looks stuck.
+ * Short on purpose: an agent that is genuinely working polls far more often than
+ * this, so being early costs a warning that clears itself, while being late
+ * costs the user waiting on someone who is waiting on them. The server does not
+ * release control until 30 minutes (STALE_AFTER_MS), which is far too long to
+ * leave a spinner running with no explanation.
+ */
+const STALLED_AFTER_MS = 3 * 60 * 1000;
 
 /**
  * The read-only "Claude is configuring your preview" screen shown while a coding
@@ -125,6 +137,16 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
   const total = logs.length;
   const running = [...logs].reverse().find((entry) => entry.status === "running");
   const ready = session.previewVerificationStatus === "ready";
+  // The agent beats `agentLastActivityAt` on every tool call, including its own
+  // status polls, so a gap this long means it is not calling anything - stuck, or
+  // waiting on an answer it asked for in the chat where we cannot see it. Control
+  // is not released until STALE_AFTER_MS (30 min) server-side, so without this the
+  // user watches a spinner for half an hour with no idea they are the blocker.
+  const stalled = !ready && isStalled(session.agentLastActivityAt);
+  // The agent's own words for why it picked this path, already persisted as that
+  // tool call's activity message. Promoted out of the feed because it scrolls
+  // away, and it is the decision most worth catching if the agent got it wrong.
+  const pathReason = logs.find((entry) => entry.tool === "select_preview_path")?.message;
   const pendingEnv = session.pendingRequest?.kind === "env" ? session.pendingRequest : undefined;
   // While the agent works, everything is on show; once ready, details collapse
   // behind the toggle (the deploy status/url/services stay - only the noisy
@@ -183,12 +205,18 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
       <div className="flex items-center gap-3">
         {ready ? (
           <CheckCircleIcon weight="fill" className="size-6 text-status-success" />
+        ) : stalled ? (
+          <WarningCircleIcon weight="fill" className="size-6 text-status-warn" />
         ) : (
           <BrailleSpinner animation="braille" size="xl" className="w-6 text-center text-primary" />
         )}
         <div className="flex flex-col">
           <span className="font-sans text-lg text-text-primary">
-            {ready ? "Your preview is live" : `${agentDisplayName(session.agentClient)} is configuring your preview`}
+            {ready
+              ? "Your preview is live"
+              : stalled
+                ? `${agentDisplayName(session.agentClient)} seems stuck`
+                : agentHeadline(session.agentClient, session.previewEnvironmentMode)}
           </span>
           <span className="font-mono text-2xs text-text-secondary">
             {ready ? "You can continue onboarding" : (running?.message ?? "Working…")}
@@ -198,6 +226,21 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
           {doneCount} / {total} calls
         </span>
       </div>
+
+      {stalled ? (
+        <div className="flex items-start gap-3 border-l-2 border-status-warn bg-status-warn/10 px-4 py-3">
+          <WarningCircleIcon size={16} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
+          <div className="flex flex-col gap-1">
+            <p className="text-sm text-text-primary">
+              No activity for a few minutes. {agentDisplayName(session.agentClient)} may be waiting on you.
+            </p>
+            <p className="text-2xs leading-relaxed text-text-secondary">
+              Check the terminal or chat where you started it - agents often stop to ask a question, and it cannot see
+              this screen. If it is idle rather than asking, tell it to continue, or Take over and finish here yourself.
+            </p>
+          </div>
+        </div>
+      ) : undefined}
 
       <Progress value={total === 0 ? 0 : (doneCount / total) * 100} />
 
@@ -246,9 +289,23 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
               </ScrollArea>
             </div>
 
-            <Suspense fallback={<Skeleton className="h-48 w-full" />}>
-              <PreviewTakingShape applicationId={applicationId} />
-            </Suspense>
+            {/* Each path shows what it is assembling, in the same column: an
+                Autonoma-hosted preview has a topology, the customer's own
+                pipeline has an integration. Before a path is chosen there is
+                neither - the config is a default nobody picked, so showing it
+                would promise apps and databases we may never build. */}
+            {session.previewEnvironmentMode == null ? undefined : (
+              <div className="flex flex-col gap-2">
+                <ChosenPath mode={session.previewEnvironmentMode} reason={pathReason} appId={applicationId} />
+                {session.previewEnvironmentMode === "previewkit" ? (
+                  <Suspense fallback={<Skeleton className="h-48 w-full" />}>
+                    <PreviewTakingShape applicationId={applicationId} />
+                  </Suspense>
+                ) : (
+                  <IntegrationTakingShape applicationId={applicationId} />
+                )}
+              </div>
+            )}
           </div>
         </>
       ) : undefined}
@@ -293,6 +350,19 @@ function showBrowserNotification(enabled: boolean, message: string): void {
     // service worker - the tab flash and chime still cover the alert.
     console.debug("Browser notification failed", err);
   }
+}
+
+/**
+ * What the browser will actually do with a notification right now, in the user's
+ * words. "Enabled" in our UI is not the same as "will appear": the permission can
+ * be denied or never asked, and the checkbox looks identical either way - which
+ * is why "notifications never work" has been so hard to pin down.
+ */
+function notificationPermissionLabel(): string {
+  if (typeof Notification === "undefined") return "not supported in this browser";
+  if (Notification.permission === "granted") return "allowed by your browser";
+  if (Notification.permission === "denied") return "blocked in your browser settings";
+  return "not requested yet";
 }
 
 /**
@@ -364,7 +434,7 @@ function AttentionMenu({
             />
             <span className="flex flex-col">
               Show a browser notification
-              <span className="text-3xs text-text-secondary">Your browser will ask for permission</span>
+              <span className="text-3xs text-text-secondary">Currently {notificationPermissionLabel()}</span>
             </span>
           </label>
         ) : undefined}
@@ -382,6 +452,49 @@ function AttentionMenu({
 function DeploySection({ applicationId, showLogs }: { applicationId: string; showLogs: boolean }) {
   const { data } = usePreviewReadiness(applicationId);
   const { diagnostics, previewUrl, services } = data;
+
+  // Before a path is picked the agent is still reading the repo, and there is
+  // nothing to deploy either way - a Deploy panel here would show an idle status
+  // for a deploy that may never be ours to run.
+  if (data.mode == null) {
+    return (
+      <div className="flex flex-col gap-2">
+        <SectionTitle>Preview</SectionTitle>
+        <p className="font-mono text-2xs text-text-secondary">
+          Working out how this app should get its previews - whether Autonoma builds them, or your own pipeline does.
+        </p>
+      </div>
+    );
+  }
+
+  // The customer's pipeline builds these previews, so there is no build to watch
+  // and no build/app log stream on our side - but the signal landing is still the
+  // live state, and it belongs in the same slot the deploy status occupies for an
+  // Autonoma-hosted preview.
+  if (data.mode === "existing_deploys") {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <SectionTitle>Preview signal</SectionTitle>
+          <DeployStatusBadge status={diagnostics.status} />
+        </div>
+        {previewUrl != null ? (
+          <PreviewLink
+            url={previewUrl}
+            className="inline-flex max-w-full items-center gap-1.5 truncate font-mono text-2xs text-primary hover:underline"
+          >
+            <GlobeIcon size={13} />
+            {previewUrl}
+          </PreviewLink>
+        ) : (
+          <p className="font-mono text-2xs text-text-secondary">
+            Waiting for your pipeline to signal that a preview is live. Your agent wires that up and confirms it lands.
+          </p>
+        )}
+      </div>
+    );
+  }
+
   const isReady = diagnostics.status === "ready";
   const isFailed = diagnostics.status === "failed";
   // The app pods roll out (and start emitting runtime logs) once the deploy reaches
@@ -490,6 +603,67 @@ function repoOwner(repoFullName: string): string {
 
 function repoName(repoFullName: string): string {
   return repoFullName.split("/")[1] ?? repoFullName;
+}
+
+/**
+ * The preview path as the session reports it, taken from the query output rather
+ * than re-declared, so it cannot drift from the enum behind it.
+ */
+type AgentSessionPreviewMode = NonNullable<ReturnType<typeof useAgentSession>["data"]>["previewEnvironmentMode"];
+
+/**
+ * What the agent is actually doing right now. Before a path is chosen it is not
+ * configuring a preview - it is reading the repo to decide whether Autonoma
+ * should build previews at all - and on the customer's own pipeline it never
+ * configures one. Saying "configuring your preview" through all three states
+ * describes work that may never happen.
+ */
+function agentHeadline(client: string | undefined, mode: AgentSessionPreviewMode): string {
+  const agent = agentDisplayName(client);
+  if (mode == null) return `${agent} is working out how to set this up`;
+  if (mode === "existing_deploys") return `${agent} is connecting your deploys`;
+  return `${agent} is configuring your preview`;
+}
+
+/**
+ * Which preview path the agent committed to, and why, shown above whatever that
+ * path is assembling. Changing it means stopping the agent - it is mid-flight
+ * building against this answer - so the link says so rather than implying the
+ * choice can be swapped underneath it.
+ */
+function ChosenPath({
+  mode,
+  reason,
+  appId,
+}: {
+  mode: "previewkit" | "existing_deploys";
+  reason?: string;
+  appId: string;
+}) {
+  return (
+    <div className="flex flex-col gap-1 border border-border-dim bg-surface-void px-3 py-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="font-mono text-3xs uppercase tracking-widest text-text-secondary">Preview path</span>
+        <Link
+          to="/onboarding"
+          search={buildOnboardingSearch("preview-environment", appId, { manual: true })}
+          className="font-mono text-3xs uppercase tracking-widest text-text-secondary transition-colors hover:text-primary"
+        >
+          Take over and change
+        </Link>
+      </div>
+      <span className="font-mono text-2xs text-text-primary">
+        {mode === "previewkit" ? "Autonoma builds your previews" : "Your own pipeline builds them"}
+      </span>
+      {reason != null ? <span className="text-3xs leading-snug text-text-secondary">{reason}</span> : undefined}
+    </div>
+  );
+}
+
+/** Whether the agent's heartbeat has gone quiet long enough to be worth flagging. */
+function isStalled(lastActivityAt: string | Date | undefined): boolean {
+  if (lastActivityAt == null) return false;
+  return Date.now() - new Date(lastActivityAt).getTime() > STALLED_AFTER_MS;
 }
 
 /**

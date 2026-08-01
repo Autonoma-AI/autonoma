@@ -1,6 +1,9 @@
+import type { OnboardingPreviewEnvironmentMode } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import {
     type AgentLogEntry,
+    buildDeploymentSignalWorkflow,
+    DEPLOYMENT_SIGNAL_BODY_FIELDS,
     authoringPreviewConfigSchema,
     isProtectedPreviewkitEnvKey,
     type OnboardingAgentPendingRequest,
@@ -9,6 +12,7 @@ import {
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { env } from "../env";
 import type { Services } from "../routes/build-services";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import { deprecatedBuildNotice } from "./deprecated-build-notice";
@@ -46,36 +50,100 @@ interface RecentLogTail {
 }
 
 /**
- * Server-level guidance the onboarding MCP client reads on connect. Portable and
- * client-agnostic so a Claude / Cursor / Codex agent configures a preview the
- * same way. The app is pinned by a pairing code the user copies from the UI - the
- * agent never needs a repo name.
+ * The path-neutral half of the guidance, read on connect. Deliberately short and
+ * says almost nothing about HOW to configure anything: an app can be on either
+ * of two very different paths, and which one is only known once the agent pairs.
+ * `playbookFor` supplies the rest, and `pair` hands it over.
  */
-const ONBOARDING_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a preview deployment of your app. These tools let a coding agent do the whole of onboarding: set up the build, databases, services and env, deploy off the default branch (or a branch you choose), and iterate until the preview comes up - then validate the app's Autonoma SDK endpoint and get its scenario recipes provisioning - while the user watches read-only in the Autonoma UI. This is the only Autonoma MCP you need for onboarding; there is a separate one for reviewing pull requests later.
+const SHARED_PREAMBLE = `Autonoma runs your end-to-end tests against a preview deployment of your app. These tools let a coding agent do the whole of onboarding while the user watches read-only in the Autonoma UI. This is the only Autonoma MCP you need for onboarding; there is a separate one for reviewing pull requests later.
+
+An app gets its previews one of two ways, and they need completely different work from you:
+- **Autonoma-hosted** - Autonoma builds and hosts a preview per pull request. You write the build, services and env config here and deploy through these tools.
+- **Their own pipeline** - the project already builds previews. Autonoma deploys NOTHING; you wire that pipeline to tell Autonoma when a preview is live.
+Do not guess which one: pair(code) returns \`previewSource\` and the full playbook for it. Follow the playbook it gives you.
+
+Which to pick is a question about where test data lands, and the two options are NOT equally safe. An Autonoma-hosted preview gets its own database, so a run creates and destroys data in an environment nothing else shares. Their own previews point at a real database - commonly staging, sometimes production - so a run writes into it, and anything it creates that no tenant owns STAYS there. Picture a marketplace with no per-preview database: a test run creates listings, and real users see them.
+- No preview environments today - Autonoma-hosted, since there is nothing to connect to.
+- Previews today, and every row of data hangs off a tenant (an org/account/workspace that can be deleted whole) - either works. Wiring their existing previews is less to change, so prefer it only when you are CONFIDENT the tenant covers everything.
+- Previews today, but data is NOT cleanly tenant-scoped - Autonoma-hosted, even though previews already exist.
+- **Not sure? Pick Autonoma-hosted.** Being wrong that way costs a preview we build for them anyway. Being wrong the other way writes test data into their real database in front of their users, and we cannot take it back. Never pick their-pipeline just because previews exist - you must also be sure a run cannot leave anything behind.
 
 Start every session by pairing - and pair FIRST, before you analyze the repo, read files, or plan. Pairing is low-risk: it only claims the app's config so the UI can show you are connected, it changes NO code and deploys NOTHING, and the user can take over at any time. This matters because the user is watching the Autonoma UI live and sees no activity at all until you pair - pairing is what flips the UI into "your agent is connected and configuring" and starts streaming what you do as feedback. If you spend minutes inspecting the project before pairing, the user just stares at an idle screen with no idea anything is happening (and may give up). So do NOT front-load repo analysis; pair immediately, then investigate.
 1. The user starts onboarding in the Autonoma UI and clicks "Configure with coding agent". The UI shows a short pairing CODE.
-2. Call pair(code) with it IMMEDIATELY, as your very first action - then do any repo analysis you need. That claims the app's config for you and returns its applicationId and current config. Use that applicationId for every other tool.
+2. Call pair(code) with it IMMEDIATELY, as your very first action - then do any repo analysis you need. That claims the app for you and returns its applicationId, how it gets its previews, and the playbook to follow. Use that applicationId for every other tool.
+3. CHECK YOU ARE IN THE RIGHT REPO. pair returns \`repository\` - the repo this app is linked to. Confirm your working directory is that repo (\`git remote get-url origin\`) BEFORE you read a single file. An agent run from the wrong checkout will happily analyze an unrelated codebase and pick a path from evidence that has nothing to do with the app. If it does not match, stop and tell the user rather than guessing.
+4. If pair reports \`previewSource: "not-chosen-yet"\`, the choice is yours to make: read the repo (does it already build previews? is every table owned by a tenant you could delete whole?), pick using the trade-off above, and call select_preview_path. Do that from evidence in the code rather than by asking the user to self-assess - you can read the schema, they are guessing. Tell them what you picked and why. Only fall back to asking if the repo genuinely does not say.
 
-Then loop until the preview is up:
-3. get_config(applicationId) - read the current preview config.
-4. apply_config(applicationId, document) - save the FULL config document (call get_config first, edit it, send the whole thing back). It is validated on save; if invalid, the error tells you what to fix.
-5. If the app needs secret env values (third-party API keys, tokens) you do NOT have: call request_env(applicationId, keys), then keep polling get_session_status (step 7) until the request clears - that poll is the only thing that tells you the values landed. NEVER put secret values in any tool call - you cannot, there is no tool that takes them. The user enters them in the Autonoma UI. ALWAYS ask the user first whether to set env on Autonoma from their .env (the default, they paste it into the UI) or configure them manually. Never request AUTONOMA_* variables (AUTONOMA_PREVIEWKIT, AUTONOMA_PREVIEWKIT_PR, AUTONOMA_PREVIEWKIT_URL, AUTONOMA_SHARED_SECRET, AUTONOMA_SIGNING_SECRET) - Autonoma injects all of them automatically and rejects attempts to set them. Non-secret config (e.g. NODE_ENV) belongs in apply_config as an app connection, and so does the URL of a service that lives INSIDE the preview (its own Postgres, Redis, ...) - that URL only exists at deploy time, so wire it as a connection instead of asking the user for it.
-6. trigger_deploy(applicationId) - deploy the base preview environment (environment 0). It deploys the app's configured deploy branch. Pick that branch deliberately rather than defaulting to a name: if unset it uses the repo's default branch (whatever it is named), which is the right choice when the user is working on it. But you typically run from the user's local checkout, which may sit on a different branch - check it (e.g. \`git rev-parse --abbrev-ref HEAD\`). If it is NOT the repo default (e.g. a branch they made to integrate Autonoma), ASK the user whether to deploy that branch or the default, then set their answer with apply_config's \`branch\` field (that does NOT deploy on its own) before trigger_deploy. Do not steer toward any particular branch without cause.
-7. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, KEEP POLLING: wait ~30s (sleep, if your client can) and call it again, for as long as it takes - a user can be several minutes away from a key they have to go dig up, and until you poll again you have no idea whether they answered. Nothing else tells you: they set the values in the Autonoma UI, so a quiet chat means nothing either way. (If they do say in the chat that they are done, great - poll once to pick it up and carry on.) When the request clears, check lastEnvResolution: the user may have SKIPPED keys they don't have (skippedKeys) - adapt the config to live without them (default, drop, or rework) instead of re-requesting.
-8. A ready status only means the pod health check passes - it does NOT mean the app works. Before declaring the preview done, verify it yourself: exercise the main flow against the preview URL (curl it, or a small Playwright script if the user has Playwright - log in, load data, hit a few real routes), then call get_session_status again and READ the app's runtime logs in recentLogs. If the logs show the app erroring behind the healthy page (crashed queries, missing env, stack traces), fix the cause and redeploy. If you cannot exercise the flow yourself, ask the user to click through the app once and then read the logs.
+Control: you hold the config while you work; the UI is read-only. If get_session_status (or any write) reports the user took over (standDown / paused), STOP configuring and let them - do not fight for control. They can hand it back with "Resume with Claude" and you re-claim on your next call. If you go idle for a while the UI hands control back automatically; just resume when the user asks.`;
 
-The SDK (environment factory): once the preview is up, the app needs ONE POST endpoint at \`/api/autonoma\` that creates and tears down a scenario's test data. The user implements it in their repo - conventionally on a PR titled "feat: autonoma-sdk", so they iterate on a branch instead of pushing to main - and every preview of that PR is its own environment. list_dry_run_targets(applicationId) lists them (the base \`main\` preview plus each open PR) and flags the one auto-detected as the SDK PR; work against that target, not against main. Then validate_sdk(applicationId, target) calls the handler's \`discover\` and stores the schema it returns - do this before any dry run. When it fails, the returned error is the handler's own; get_target_logs(applicationId, target, source:"app") is where the stack trace behind it lives. Note that get_session_status ONLY ever reports the base preview, so on this phase it tells you nothing about the PR you are validating - use list_dry_run_targets for that target's deploy state and get_target_logs for its output.
+/** Autonoma builds the preview, so the build/service/env config lives here. */
+const PREVIEWKIT_PLAYBOOK = `This app uses **Autonoma-hosted previews**: Autonoma builds and hosts them, so the build, services, env and deploy all go through these tools.
+
+Your tools here: get_config, apply_config, request_env, trigger_deploy, get_session_status, get_target_logs. The signal tools (get_signal_setup, get_signal_status, confirm_signal_setup) are for apps on their own pipeline and do not apply - ignore them.
+
+Loop until the preview is up:
+1. get_config(applicationId) - read the current preview config.
+2. apply_config(applicationId, document) - save the FULL config document (call get_config first, edit it, send the whole thing back). It is validated on save; if invalid, the error tells you what to fix.
+3. If the app needs secret env values (third-party API keys, tokens) you do NOT have: call request_env(applicationId, keys), then keep polling get_session_status (step 5) until the request clears - that poll is the only thing that tells you the values landed. NEVER put secret values in any tool call - you cannot, there is no tool that takes them. The user enters them in the Autonoma UI. ALWAYS ask the user first whether to set env on Autonoma from their .env (the default, they paste it into the UI) or configure them manually. Never request AUTONOMA_* variables (AUTONOMA_PREVIEWKIT, AUTONOMA_PREVIEWKIT_PR, AUTONOMA_PREVIEWKIT_URL, AUTONOMA_SHARED_SECRET, AUTONOMA_SIGNING_SECRET) - Autonoma injects all of them automatically and rejects attempts to set them. Non-secret config (e.g. NODE_ENV) belongs in apply_config as an app connection, and so does the URL of a service that lives INSIDE the preview (its own Postgres, Redis, ...) - that URL only exists at deploy time, so wire it as a connection instead of asking the user for it.
+4. trigger_deploy(applicationId) - deploy the base preview environment (environment 0). It deploys the app's configured deploy branch. Pick that branch deliberately rather than defaulting to a name: if unset it uses the repo's default branch (whatever it is named), which is the right choice when the user is working on it. But you typically run from the user's local checkout, which may sit on a different branch - check it (e.g. \`git rev-parse --abbrev-ref HEAD\`). If it is NOT the repo default (e.g. a branch they made to integrate Autonoma), ASK the user whether to deploy that branch or the default, then set their answer with apply_config's \`branch\` field (that does NOT deploy on its own) before trigger_deploy. Do not steer toward any particular branch without cause.
+5. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, KEEP POLLING: wait ~30s (sleep, if your client can) and call it again, for as long as it takes - a user can be several minutes away from a key they have to go dig up, and until you poll again you have no idea whether they answered. Nothing else tells you: they set the values in the Autonoma UI, so a quiet chat means nothing either way. (If they do say in the chat that they are done, great - poll once to pick it up and carry on.) When the request clears, check lastEnvResolution: the user may have SKIPPED keys they don't have (skippedKeys) - adapt the config to live without them (default, drop, or rework) instead of re-requesting.
+6. A ready status only means the pod health check passes - it does NOT mean the app works. Before declaring the preview done, verify it yourself: exercise the main flow against the preview URL (curl it, or a small Playwright script if the user has Playwright - log in, load data, hit a few real routes), then call get_session_status again and READ the app's runtime logs in recentLogs. If the logs show the app erroring behind the healthy page (crashed queries, missing env, stack traces), fix the cause and redeploy. If you cannot exercise the flow yourself, ask the user to click through the app once and then read the logs.
 
 Which app hosts the Autonoma SDK: set \`sdk_implemented: true\` on the app whose code serves the Environment Factory handler (the \`/api/autonoma\` route) - every scenario up/down is sent there. Set it on exactly one app, in the same apply_config call as the rest of the topology, as soon as you know where the handler lives. It is INDEPENDENT of \`primary\`: a full-stack app (Next.js, Rails, Django) is both the app the agents browse and the SDK host, so it carries both flags; a split topology marks the frontend \`primary\` and the API service \`sdk_implemented\`. Leave it unset and Autonoma falls back to the primary app, which makes every up 404 when the handler actually lives on another service.
 
+Connections wire env vars to the preview's own topology, resolved at deploy time - services do NOT auto-inject anything into apps. If an app needs to reach a database/service declared in this config, you MUST add a connection on that app. The value is a template: {{name.property}} tokens reference apps/services/addons by name. For a service, {{db.url}} is the full canonical connection string (postgres -> postgresql://preview:preview@<host>:<port>/preview) - prefer it; {{db.host}} / {{db.port}} exist for hand-built URLs. For an app, {{api.url}} is its public HTTPS URL. {{pr}}, {{namespace}} and {{owner}} are also available. Example: apps[].connections = [{ "key": "DATABASE_URL", "value": "{{db.url}}" }].`;
+
+/**
+ * The bring-your-own-deploys path. The work here is not configuration - there is
+ * none - it is wiring the customer's existing pipeline to make one signed call,
+ * then proving it fired. The starter workflow is framed as a template on purpose:
+ * it hangs off GitHub's `deployment_status`, which plenty of pipelines never emit.
+ */
+const EXTERNAL_DEPLOYS_PLAYBOOK = `This app uses **its own pipeline** for previews: the project already builds them. Autonoma deploys NOTHING here, and there is no build config to write. Your job is to make their pipeline tell Autonoma when a preview is live, then prove it worked.
+
+1. get_signal_setup(applicationId) - returns the endpoint, the applicationId, the shared secret, the exact body + signature contract, and a starter GitHub Actions workflow. Treat that workflow as a TEMPLATE, not a requirement: it hangs off GitHub's \`deployment_status\` event, which many pipelines never emit. READ how this project actually deploys (its CI config, its host) and make the same signed call from whatever step knows a preview is live - a deploy job, a post-deploy script, the host's own webhook.
+2. Wire it into the repo, conventionally on a branch + PR so the user reviews it rather than you pushing to main. Two things to get right: sign the EXACT bytes you POST (re-serializing the JSON after signing changes the digest and the call is rejected), and put the shared secret in the pipeline's secret store (e.g. \`gh secret set AUTONOMA_SHARED_SECRET\`) rather than committing it.
+3. On a pull-request deploy, send \`branch\` and \`prNumber\` TOGETHER - that is what turns a signal into a per-PR review. A signal carrying neither is recorded as a main-branch deploy. A signal carrying \`branch\` but NOT \`prNumber\` is IGNORED entirely, so never send one without the other.
+4. If one pull request deploys several services (frontend, API, database), signal only the one Autonoma should browse. Every signal overwrites the stored preview URL, so signalling all of them means whichever deploy finishes last wins - and that may be the API rather than the frontend.
+5. get_signal_status(applicationId) - poll until \`signalReceived\` is true. That is the ONLY confirmation the wiring works. Prove it with a real run of their pipeline (push the branch, let it deploy) rather than a hand-written curl: a curl you wrote proves your curl works, not that their pipeline calls us.
+6. confirm_signal_setup(applicationId) - once a signal has landed, mark setup done so onboarding advances.
+
+\`prReviewsConfirmed\` in get_signal_status turns true the first time a signal arrives carrying a prNumber. Until that happens the app records preview URLs but never reviews a pull request, so do not call the wiring finished on a main-branch signal alone.
+
+Your tools here: get_signal_setup, get_signal_status, confirm_signal_setup, plus the scenario/recipe tools once a preview URL exists.
+
+There is no config to write, no deploy to trigger and no build logs to read: apply_config, trigger_deploy, request_env and get_target_logs only apply to Autonoma-hosted previews and will refuse if you call them here.`;
+
+/** SDK endpoint + scenario recipes - identical once a preview URL exists, whichever path produced it. */
+const SDK_AND_RECIPES = `The SDK (environment factory): once the preview is up, the app needs ONE POST endpoint at \`/api/autonoma\` that creates and tears down a scenario's test data. The user implements it in their repo - conventionally on a PR titled "feat: autonoma-sdk", so they iterate on a branch instead of pushing to main - and every preview of that PR is its own environment. list_dry_run_targets(applicationId) lists them (the base \`main\` preview plus each open PR) and flags the one auto-detected as the SDK PR; work against that target, not against main. Then validate_sdk(applicationId, target) calls the handler's \`discover\` and stores the schema it returns - do this before any dry run. When it fails, the returned error is the handler's own; get_target_logs(applicationId, target, source:"app") is where the stack trace behind it lives. Note that get_session_status ONLY ever reports the base preview, so on this phase it tells you nothing about the PR you are validating - use list_dry_run_targets for that target's deploy state and get_target_logs for its output.
+
 Scenario recipes (test data): a scenario is a named app state a test depends on (e.g. "logged-in admin with one open invoice"); its recipe is the JSON your deployed Autonoma SDK follows to create those entities in the app's OWN database at test time. Before onboarding finishes the recipe often does not work yet, so fix it here: list_scenarios(applicationId) shows the app's scenarios and which already have a recipe; get_recipe(scenarioId) reads one; update_recipe(scenarioId, recipe) saves a corrected version (the recipe's \`name\` must stay the scenario's name - this EDITS an existing scenario, it does not create one; the recipe shape is validated on save and an invalid one is rejected with the exact bad field paths, so read them and resend); dry_run_scenario(scenarioId, recipe?) runs a recipe end-to-end against the deployed app (calls the SDK \`up\` to create the entities, then \`down\` to tear them back down) and, on failure, returns which phase failed (recipe/up/down) and the SDK's error - pass your edited \`recipe\` to try it WITHOUT storing it, which is how you iterate. This needs the app deployed with its SDK URL + signing secret configured, so get the preview up first. A scaled-to-zero preview 503s on the first call while it wakes; dry_run_scenario rides through that warm-up automatically, so give the first run ~a minute before concluding anything is wrong (and if it still comes back with a cold-start/503, just call it again - it is waking).
 
-How to iterate on a failing recipe - first tell apart the TWO things that can be wrong, because they iterate very differently. (1) The recipe JSON (a bad \`create\` graph, a wrong field, a \`_ref\` matching no \`_alias\`): iterate with dry_run_scenario(scenarioId, recipe) - it provisions your candidate without storing it, so the app keeps working off its current recipe while you experiment, and a wrong guess costs nothing. The recipe lives on Autonoma, so each attempt takes effect with NO redeploy. When one passes, re-run it with \`save: true\` (or call update_recipe) to make it the active recipe; do NOT save a recipe you have not seen pass. (2) The app's SDK handler code that interprets the recipe and writes to the database (a missing factory for a model, a broken insert): that lives in the app's repo and only changes when the app is REBUILT, and its thrown errors land in get_target_logs(target, source:"app") - read them before guessing. Commit the fix and push it to the branch whose preview you are testing: if you are working a target from list_dry_run_targets, that is the SDK PR's branch, and pushing to it redeploys that preview on its own. If instead you are on the base preview, push to \`deployBranch\` (returned by get_config / pair) and call trigger_deploy to rebuild it, polling get_session_status until it is \`ready\` again. Either way wait for the redeploy BEFORE you dry_run - against a preview that is still building you would just be testing the old code (list_dry_run_targets reports each target's availability). Fastest of all: iterate the SDK handler and recipe LOCALLY first - run the app's Autonoma SDK against a local server + database, exercise the recipe, and confirm the rows actually landed in the DB - then push/update only once it works. A local loop is seconds; a cloud rebuild is minutes.
+How to iterate on a failing recipe - first tell apart the TWO things that can be wrong, because they iterate very differently. (1) The recipe JSON (a bad \`create\` graph, a wrong field, a \`_ref\` matching no \`_alias\`): iterate with dry_run_scenario(scenarioId, recipe) - it provisions your candidate without storing it, so the app keeps working off its current recipe while you experiment, and a wrong guess costs nothing. The recipe lives on Autonoma, so each attempt takes effect with NO redeploy. When one passes, re-run it with \`save: true\` (or call update_recipe) to make it the active recipe; do NOT save a recipe you have not seen pass. (2) The app's SDK handler code that interprets the recipe and writes to the database (a missing factory for a model, a broken insert): that lives in the app's repo and only changes when the app is REBUILT, and its thrown errors land in get_target_logs(target, source:"app") - read them before guessing. Commit the fix and push it to the branch whose preview you are testing: if you are working a target from list_dry_run_targets, that is the SDK PR's branch, and pushing to it redeploys that preview on its own. If instead you are on the base preview, push to \`deployBranch\` (returned by get_config / pair) and call trigger_deploy to rebuild it, polling get_session_status until it is \`ready\` again. Either way wait for the redeploy BEFORE you dry_run - against a preview that is still building you would just be testing the old code (list_dry_run_targets reports each target's availability). Fastest of all: iterate the SDK handler and recipe LOCALLY first - run the app's Autonoma SDK against a local server + database, exercise the recipe, and confirm the rows actually landed in the DB - then push/update only once it works. A local loop is seconds; a cloud rebuild is minutes.`;
 
-Connections wire env vars to the preview's own topology, resolved at deploy time - services do NOT auto-inject anything into apps. If an app needs to reach a database/service declared in this config, you MUST add a connection on that app. The value is a template: {{name.property}} tokens reference apps/services/addons by name. For a service, {{db.url}} is the full canonical connection string (postgres -> postgresql://preview:preview@<host>:<port>/preview) - prefer it; {{db.host}} / {{db.port}} exist for hand-built URLs. For an app, {{api.url}} is its public HTTPS URL. {{pr}}, {{namespace}} and {{owner}} are also available. Example: apps[].connections = [{ "key": "DATABASE_URL", "value": "{{db.url}}" }].
+const ONBOARDING_INSTRUCTIONS = `${SHARED_PREAMBLE}
 
-Control: you hold the config while you work; the UI is read-only. If get_session_status (or any write) reports the user took over (standDown / paused), STOP configuring and let them - do not fight for control. They can hand it back with "Resume with Claude" and you re-claim on your next call. If you go idle for a while the UI hands control back automatically; just resume when the user asks.`;
+${SDK_AND_RECIPES}`;
+
+/** How the agent is told which way an app gets its previews - never the internal enum value. */
+function previewSourceOf(
+    mode: OnboardingPreviewEnvironmentMode | undefined,
+): "autonoma-hosted" | "their-pipeline" | "not-chosen-yet" {
+    if (mode === "previewkit") return "autonoma-hosted";
+    if (mode === "existing_deploys") return "their-pipeline";
+    return "not-chosen-yet";
+}
+
+/**
+ * The path-specific half of the guidance, handed over by `pair` once the app's
+ * mode is known. An app that has not chosen yet gets both, since the user is
+ * about to pick one in the UI and the agent should recognise either.
+ */
+function playbookFor(mode: OnboardingPreviewEnvironmentMode | undefined): string {
+    if (mode === "previewkit") return PREVIEWKIT_PLAYBOOK;
+    if (mode === "existing_deploys") return EXTERNAL_DEPLOYS_PLAYBOOK;
+    return `This app has not picked a path yet, so picking it is your first job: read the repo, decide with the trade-off in the preamble, and call select_preview_path. Both playbooks follow so you can see what each commits you to.\n\n${PREVIEWKIT_PLAYBOOK}\n\n${EXTERNAL_DEPLOYS_PLAYBOOK}`;
+}
 
 /** Everything the onboarding MCP tools need: the service graph and the authenticated user. */
 export interface OnboardingMcpDeps {
@@ -95,6 +163,14 @@ interface GuardedWriteParams {
     message: string;
     /** Rendered as dim JSON on the activity row; never carries secret values. */
     toolArguments?: AgentLogEntry["toolArguments"];
+    /**
+     * Refuse this write when the app gets its previews the other way, naming the
+     * tool to use instead. Config/deploys/env only mean something for previews
+     * Autonoma builds; the signal tools only mean something for previews it does
+     * not. Checked BEFORE claiming the app, so a wrong-path call does not take
+     * control or open an activity entry it will only fail out of.
+     */
+    requires?: { source: OnboardingPreviewEnvironmentMode; useInstead: string };
 }
 
 /**
@@ -124,6 +200,55 @@ function describeDryRun(hasCandidate: boolean, save: boolean): string {
     return save ? "Testing an edited recipe, saving it if it passes" : "Testing an edited recipe (not saved)";
 }
 
+/**
+ * Where a customer pipeline POSTs its signal.
+ *
+ * Built from the same origin MCP clients already dial (`MCP_RESOURCE_URL`, the
+ * dedicated `api.<host>` in prod/beta, falling back to the API's own base URL).
+ * Deriving `api.<APP_URL host>` by hand instead would emit `api.localhost:3000`
+ * in local dev, which resolves nowhere.
+ */
+function signalEndpoint(): string {
+    const origin = env.MCP_RESOURCE_URL ?? env.BETTER_AUTH_URL ?? env.APP_URL;
+    return new URL("/v1/onboarding/deployment-signal", origin).toString();
+}
+
+/**
+ * The move to spell out on a signal-status poll. Agents reliably stop at "no
+ * signal yet" and wait to be told, which strands the wiring; and a main-branch
+ * signal reads as success even though no pull request will ever be reviewed.
+ */
+function describeSignalNextStep(status: { signalReceived: boolean; prReviewsConfirmed: boolean }): string {
+    if (!status.signalReceived) {
+        return (
+            "No signal yet. Trigger a real deploy on their pipeline and poll this again - a signal only arrives " +
+            "once their pipeline actually runs the call, so waiting without deploying will never clear this."
+        );
+    }
+    if (!status.prReviewsConfirmed) {
+        return (
+            "A signal landed, so the wiring works - but none has carried a prNumber yet, so no pull request will be " +
+            "reviewed. Check the call sends `branch` and `prNumber` together on a pull-request deploy, then open or " +
+            "update a PR and poll again."
+        );
+    }
+    return "Signals are landing and one carried a pull request, so per-PR reviews are wired. Call confirm_signal_setup if you have not already.";
+}
+
+/**
+ * The refusal an Autonoma-hosted-only tool returns for an app on the customer's own
+ * deploys. Names the tool to use instead: an agent told only "not supported"
+ * tends to retry with different arguments, whereas a redirect moves it onto the
+ * right playbook.
+ */
+function wrongPathResult(tool: string, useInstead: string): CallToolResult {
+    return errorResult(
+        `${tool} only applies to Autonoma-hosted previews. This app builds its previews on its own pipeline, so there ` +
+            `is no Autonoma-side config, deploy or build log here. Use ${useInstead} instead, and re-read the ` +
+            `playbook that pair returned.`,
+    );
+}
+
 /** The result a write tool returns when the human has taken over - the agent must stand down. */
 function pausedResult(): CallToolResult {
     return jsonResult({
@@ -137,7 +262,7 @@ function pausedResult(): CallToolResult {
 
 /**
  * Builds the "onboarding" MCP server: the client-facing toolset a coding agent
- * uses to configure a PreviewKit preview during onboarding. The app is pinned by
+ * uses to configure a preview during onboarding. The app is pinned by
  * a pairing code (not a repo name); every tool resolves the org from the
  * per-call `applicationId` and verifies the authenticated user's membership.
  * Writes go through the {@link OnboardingAgentSessionService} soft mutex so the
@@ -228,12 +353,20 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
      * the tool's payload stays fully typed.
      */
     async function guardedWrite<T>(
-        { applicationId, tool, message, toolArguments }: GuardedWriteParams,
+        { applicationId, tool, message, toolArguments, requires }: GuardedWriteParams,
         work: (organizationId: string) => Promise<T>,
     ): Promise<CallToolResult> {
         return analytics.track(tool, async () => {
             try {
                 const organizationId = await resolveOrg(applicationId);
+                if (requires != null) {
+                    const mode = await services.onboarding.getPreviewEnvironmentMode(applicationId, organizationId);
+                    // Unset means the user has not chosen yet - let it through rather
+                    // than block an agent on a path that is still undecided.
+                    if (mode != null && mode !== requires.source) {
+                        return wrongPathResult(tool, requires.useInstead);
+                    }
+                }
                 const claim = await session.claimForAgent(applicationId);
                 if (!claim.claimed) return pausedResult();
 
@@ -260,8 +393,9 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
         {
             title: "Pair with an app",
             description:
-                "Claim an app's preview config using the pairing code the user copied from the Autonoma UI. " +
-                "Returns the applicationId (use it for every other tool) and the current config.",
+                "Claim an app using the pairing code the user copied from the Autonoma UI. Returns the applicationId " +
+                "(use it for every other tool), how the app gets its previews, and the playbook to follow - plus the " +
+                "current config when Autonoma is the one building its previews.",
             inputSchema: { code: z.string().min(1) },
         },
         async ({ code }) =>
@@ -271,10 +405,56 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     const view = await session.pairAgent(code, userId);
                     await captureAgentClient(view.applicationId);
                     const organizationId = await resolveOrg(view.applicationId);
-                    const config = await services.onboarding.getPreviewkitConfig(view.applicationId, organizationId);
+                    const mode = view.previewEnvironmentMode;
+                    // Which repo this app is. Without it an agent has no way to tell it
+                    // is sitting in the wrong checkout, and everything it infers from
+                    // the wrong codebase - not least which preview path to pick - is
+                    // confidently wrong. Best-effort: a GitHub hiccup must not fail
+                    // pairing, which is the one call that has to succeed.
+                    //
+                    // Fetched alongside the config, not before it: the GitHub round-trip
+                    // and the config read share only their inputs, so awaiting them in
+                    // sequence made every previewkit pair pay for both. Only Autonoma-hosted
+                    // previews have a config worth reading - on the customer's own pipeline
+                    // there is none, and before a path is picked there is only a default,
+                    // and handing either over invites the agent to start "fixing" a
+                    // document instead of doing the actual next thing.
+                    const [repository, config] = await Promise.all([
+                        services.github.getApplicationRepository(organizationId, view.applicationId).catch((err) => {
+                            logger.warn("pair could not resolve the app repository", {
+                                applicationId: view.applicationId,
+                                err,
+                            });
+                            return null;
+                        }),
+                        mode === "previewkit"
+                            ? services.onboarding.getPreviewkitConfig(view.applicationId, organizationId)
+                            : undefined,
+                    ]);
+                    const repoFields = {
+                        repository: repository?.fullName,
+                        checkRepository:
+                            repository?.fullName == null
+                                ? "Could not resolve this app's repository. Confirm with the user which repo it is before analyzing anything."
+                                : `Before you analyze anything, confirm the repo you are in IS ${repository.fullName} (e.g. \`git remote get-url origin\`). If it is not, STOP and tell the user - conclusions drawn from the wrong repo will be wrong.`,
+                    };
+                    if (config == null) {
+                        return jsonResult({
+                            paired: true,
+                            applicationId: view.applicationId,
+                            previewSource: previewSourceOf(mode),
+                            step: view.step,
+                            ...repoFields,
+                            playbook: playbookFor(mode),
+                        });
+                    }
                     return jsonResult({
                         paired: true,
                         applicationId: view.applicationId,
+                        previewSource: previewSourceOf(mode),
+                        step: view.step,
+                        ...repoFields,
+                        playbook: playbookFor(mode),
                         currentConfig: config.document,
                         configExists: config.saved,
                         deployBranch: config.deployBranch,
@@ -291,7 +471,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
         "get_config",
         {
             title: "Read the preview config",
-            description: "Read the current PreviewKit config document for an app.",
+            description: "Read the current preview config document for an app (Autonoma-hosted previews only).",
             inputSchema: { applicationId: z.string() },
         },
         async ({ applicationId }) =>
@@ -313,11 +493,62 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     );
 
     server.registerTool(
+        "select_preview_path",
+        {
+            title: "Choose how this app gets its previews",
+            description:
+                "Commit how this app will get its previews, when pair() reported `not-chosen-yet`. FIRST confirm your " +
+                "working directory is the repo pair() named in `repository` - a path picked from the wrong " +
+                "checkout is worse than no answer. Then decide from the " +
+                "REPO, not from asking the user to self-assess: whether previews already exist (a deploy workflow, a " +
+                "host config, preview URLs on past pull requests) and whether every table hangs off a tenant you " +
+                "could delete whole. Prefer `autonoma-hosted` when there are no previews, or when data is not cleanly " +
+                "tenant-scoped - an Autonoma-hosted preview gets its own database, so a run cannot leave rows behind " +
+                "in whatever staging or production database their existing previews point at. Prefer " +
+                "`their-pipeline` when previews already exist AND the data is tenant-scoped, since that is far less " +
+                "to change. Say WHY in `reason` - the user is watching, and this is a decision they would otherwise " +
+                "have answered a questionnaire to make. Returns the playbook for the path you chose; follow it next.",
+            inputSchema: {
+                applicationId: z.string(),
+                path: z
+                    .enum(["autonoma-hosted", "their-pipeline"])
+                    .describe("`autonoma-hosted` = Autonoma builds the previews; `their-pipeline` = the project does."),
+                reason: z
+                    .string()
+                    .min(1)
+                    .max(ACTIVITY_DESCRIPTION_MAX_LENGTH)
+                    .describe("Why this path, in one line, from what you found in the repo. Shown to the user."),
+            },
+        },
+        async ({ applicationId, path, reason }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "select_preview_path",
+                    message: reason,
+                    toolArguments: { path },
+                },
+                async (org) => {
+                    const mode: OnboardingPreviewEnvironmentMode =
+                        path === "autonoma-hosted" ? "previewkit" : "existing_deploys";
+                    await services.onboarding.selectPreviewEnvironmentMode(applicationId, org, mode);
+                    return {
+                        previewSource: previewSourceOf(mode),
+                        playbook: playbookFor(mode),
+                        message:
+                            "Path chosen. Follow the playbook above - and tell the user which you picked and why, " +
+                            "since they can still change it in the Autonoma UI.",
+                    };
+                },
+            ),
+    );
+
+    server.registerTool(
         "apply_config",
         {
             title: "Save the preview config",
             description:
-                "Save the FULL PreviewKit config document (read it with get_config first, edit it, send the whole " +
+                "Save the FULL preview config document (read it with get_config first, edit it, send the whole " +
                 "document back). Validated on save; an invalid document returns the errors to fix. Never include " +
                 "secret values - declare secret keys as build_secrets and set their values via request_env. " +
                 "An app's `build` is either `runtime` (pick a language runtime, write a bash build_script and a " +
@@ -356,6 +587,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 {
                     applicationId,
                     tool: "apply_config",
+                    requires: { source: "previewkit", useInstead: "get_signal_setup" },
                     message: description ?? "Saving preview config",
                     toolArguments:
                         branch != null ? { apps: document.apps.length, branch } : { apps: document.apps.length },
@@ -412,6 +644,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 {
                     applicationId,
                     tool: "request_env",
+                    requires: { source: "previewkit", useInstead: "their own pipeline's secret store" },
                     message: description ?? `Requesting ${keys.length} env value(s) from the user`,
                     toolArguments: { keys, appName },
                 },
@@ -451,6 +684,10 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 {
                     applicationId,
                     tool: "trigger_deploy",
+                    requires: {
+                        source: "previewkit",
+                        useInstead: "get_signal_status (their pipeline does the deploying)",
+                    },
                     message: description ?? "Deploying preview (default branch)",
                     toolArguments: {},
                 },
@@ -512,6 +749,129 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     return toToolResult(err);
                 }
             }),
+    );
+
+    // ─── existing_deploys path: wiring the customer's own pipeline ────
+
+    server.registerTool(
+        "get_signal_setup",
+        {
+            title: "Read the deployment-signal contract",
+            description:
+                "For apps whose previews come from their own pipeline: everything needed to make that pipeline tell " +
+                "Autonoma a preview is live - the endpoint, the applicationId, the shared secret to sign with, every " +
+                "body field, and a starter GitHub Actions workflow. The workflow is a TEMPLATE, not a requirement: it " +
+                "hangs off GitHub's `deployment_status` event, which many pipelines never emit. Read how the project " +
+                "actually deploys and make the same signed call from whatever step knows a preview is live. Send " +
+                "`branch` and `prNumber` together to get per-PR reviews - one without the other is dropped.",
+            inputSchema: { applicationId: z.string() },
+        },
+        async ({ applicationId }) =>
+            analytics.track("get_signal_setup", async () => {
+                try {
+                    const organizationId = await resolveOrg(applicationId);
+                    const [status, secret] = await Promise.all([
+                        services.onboarding.getExternalSignalStatus(applicationId, organizationId),
+                        services.applications.getSharedSecret(applicationId, organizationId),
+                    ]);
+                    if (status.previewEnvironmentMode === "previewkit") {
+                        return errorResult(
+                            "This app uses Autonoma-hosted previews - Autonoma builds them, so there is no signal for a " +
+                                "pipeline to send. Use get_config / apply_config / trigger_deploy instead.",
+                        );
+                    }
+                    return jsonResult({
+                        endpoint: signalEndpoint(),
+                        applicationId,
+                        sharedSecret: secret.sharedSecret,
+                        signature: {
+                            header: "x-signature",
+                            algorithm: "HMAC-SHA256, hex digest",
+                            signedOver:
+                                "The exact raw request body bytes. Re-serializing the JSON after signing changes " +
+                                "the digest and the call is rejected.",
+                        },
+                        body: DEPLOYMENT_SIGNAL_BODY_FIELDS,
+                        templateWorkflow: buildDeploymentSignalWorkflow({ applicationId, endpoint: signalEndpoint() }),
+                        templateWorkflowNote:
+                            "A starting point for pipelines that report deployments to GitHub. If this project " +
+                            "does not emit deployment_status, do not bend it to fit - make the same signed call " +
+                            "from whatever step in its pipeline knows a preview is live.",
+                    });
+                } catch (err) {
+                    logger.warn("get_signal_setup failed", { applicationId, err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "get_signal_status",
+        {
+            title: "Check whether a deployment signal has landed",
+            description:
+                "For apps whose previews come from their own pipeline: whether Autonoma has received a signed signal, the preview " +
+                "URL it carried, and whether any signal has ever carried a prNumber (`prReviewsConfirmed`) - which is " +
+                "what per-PR reviews require. This is the ONLY confirmation the wiring works, so poll it after " +
+                "triggering a real deploy. Prove it with an actual pipeline run rather than a hand-written curl: a " +
+                "curl proves your curl works, not that their pipeline calls us.",
+            inputSchema: { applicationId: z.string() },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        },
+        async ({ applicationId }) =>
+            analytics.track("get_signal_status", async () => {
+                try {
+                    const organizationId = await resolveOrg(applicationId);
+                    const status = await services.onboarding.getExternalSignalStatus(applicationId, organizationId);
+                    // Projected field by field rather than spread: the row carries the
+                    // internal `previewEnvironmentMode` enum, and an agent that sees a
+                    // value repeats it to the user.
+                    return jsonResult({
+                        previewSource: previewSourceOf(status.previewEnvironmentMode),
+                        step: status.step,
+                        signalReceived: status.signalReceived,
+                        previewUrl: status.previewUrl,
+                        prReviewsConfirmed: status.prReviewsConfirmed,
+                        prReviewsConfirmedAt: status.prReviewsConfirmedAt,
+                        nextStep: describeSignalNextStep(status),
+                    });
+                } catch (err) {
+                    logger.warn("get_signal_status failed", { applicationId, err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "confirm_signal_setup",
+        {
+            title: "Mark the deploy-signal wiring as done",
+            description:
+                "For apps whose previews come from their own pipeline: mark the wiring finished so onboarding advances from " +
+                "configuring to waiting for signals. Call it once you have SEEN a signal land via get_signal_status - " +
+                "confirming before then just moves the UI on while the wiring is still broken. Pass a short " +
+                "`description` - the user watches it on the activity feed.",
+            inputSchema: { applicationId: z.string(), description: activityDescription },
+        },
+        async ({ applicationId, description }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "confirm_signal_setup",
+                    message: description ?? "Confirming the deploy-signal wiring",
+                    toolArguments: {},
+                    requires: { source: "existing_deploys", useInstead: "trigger_deploy" },
+                },
+                async (org) => {
+                    await services.onboarding.confirmExistingDeploysSetup(applicationId, org);
+                    const status = await services.onboarding.getExternalSignalStatus(applicationId, org);
+                    return {
+                        step: status.step,
+                        signalReceived: status.signalReceived,
+                        prReviewsConfirmed: status.prReviewsConfirmed,
+                    };
+                },
+            ),
     );
 
     server.registerTool(
@@ -723,7 +1083,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "and call validate_sdk once more. A failure returns the handler's own error - read it, then " +
                 "get_target_logs(target, source:'app') for the stack trace behind it, fix the handler in the repo, " +
                 "push to the PR, and wait for its preview to redeploy before validating again. Only " +
-                "Autonoma-managed (PreviewKit) previews can be validated here; an app on its own hosting is " +
+                "Autonoma-hosted previews can be validated here; an app on its own hosting is " +
                 "validated from the Autonoma UI, where the user supplies its signing secret. Pass a short " +
                 "`description` - the user watches it on the activity feed.",
             inputSchema: {
@@ -885,7 +1245,38 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
         },
     );
 
-    // ─── Resource: the onboarding guide, readable on demand ───────────
+    server.registerPrompt(
+        "connect_my_deploys",
+        {
+            title: "Connect my own deploys to Autonoma",
+            description:
+                "Guided flow for an app whose previews come from the user's own pipeline: wire that pipeline to " +
+                "signal Autonoma when a preview is live, then prove the signal lands.",
+            argsSchema: { code: z.string().optional() },
+        },
+        ({ code }) => {
+            const pairingStep =
+                code != null && code.length > 0
+                    ? `Pair with code ${code}, then follow`
+                    : `Get the pairing code from the Autonoma UI ("Configure with coding agent") and call pair with it, then follow`;
+            return {
+                messages: [
+                    {
+                        role: "user",
+                        content: {
+                            type: "text",
+                            text:
+                                `Wire my existing deploy pipeline to Autonoma. ${pairingStep} the playbook below ` +
+                                `until a signal has actually landed - do not call it done on an untested workflow.` +
+                                `\n\n${SHARED_PREAMBLE}\n\n${EXTERNAL_DEPLOYS_PLAYBOOK}\n\n${SDK_AND_RECIPES}`,
+                        },
+                    },
+                ],
+            };
+        },
+    );
+
+    // ─── Resources: the guides, readable on demand ────────────────────
     server.registerResource(
         "onboarding-guide",
         "autonoma://onboarding-guide",
@@ -898,6 +1289,37 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
         },
         (uri) => ({
             contents: [{ uri: uri.href, text: ONBOARDING_INSTRUCTIONS, mimeType: "text/markdown" }],
+        }),
+    );
+
+    // Both playbooks are readable without pairing, so an agent can see what the
+    // work looks like before it holds an app - and so one that pairs into the
+    // less common path can re-read it without hunting through chat history.
+    server.registerResource(
+        "autonoma-hosted-playbook",
+        "autonoma://autonoma-hosted-playbook",
+        {
+            title: "Autonoma-hosted previews playbook",
+            description: "How to configure, deploy and verify a preview that Autonoma builds and hosts.",
+            mimeType: "text/markdown",
+        },
+        (uri) => ({
+            contents: [{ uri: uri.href, text: PREVIEWKIT_PLAYBOOK, mimeType: "text/markdown" }],
+        }),
+    );
+
+    server.registerResource(
+        "own-pipeline-playbook",
+        "autonoma://own-pipeline-playbook",
+        {
+            title: "Your own pipeline playbook",
+            description:
+                "How to wire a customer's own deploy pipeline to signal Autonoma when a preview is live, and how to " +
+                "prove the signal lands.",
+            mimeType: "text/markdown",
+        },
+        (uri) => ({
+            contents: [{ uri: uri.href, text: EXTERNAL_DEPLOYS_PLAYBOOK, mimeType: "text/markdown" }],
         }),
     );
 

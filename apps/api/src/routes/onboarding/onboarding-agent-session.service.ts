@@ -50,6 +50,13 @@ export type ClaimResult = { claimed: true } | { claimed: false; reason: "paused_
 export interface AgentSessionView {
     applicationId: string;
     step: $Enums.OnboardingStep;
+    /**
+     * Which preview path the app is on. Null until the user picks one. A paired
+     * agent needs it to know which playbook applies: PreviewKit apps are
+     * configured and deployed through the MCP, whereas `existing_deploys` apps
+     * deploy on the customer's own pipeline and only signal Autonoma.
+     */
+    previewEnvironmentMode?: $Enums.OnboardingPreviewEnvironmentMode;
     previewVerificationStatus: $Enums.OnboardingPreviewVerificationStatus;
     holder: $Enums.OnboardingAgentHolder;
     /**
@@ -418,6 +425,7 @@ export class OnboardingAgentSessionService {
             where: { applicationId },
             select: {
                 step: true,
+                previewEnvironmentMode: true,
                 previewVerificationStatus: true,
                 agentHolder: true,
                 agentConnectedAt: true,
@@ -445,6 +453,7 @@ export class OnboardingAgentSessionService {
         return {
             applicationId,
             step: state.step,
+            previewEnvironmentMode: state.previewEnvironmentMode ?? undefined,
             previewVerificationStatus: state.previewVerificationStatus,
             holder: state.agentHolder,
             effectiveHolder: stale ? "human" : state.agentHolder,

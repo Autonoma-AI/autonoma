@@ -78,8 +78,13 @@ function customWaitingFixtures(): TrpcFixtures {
       // The page loads the Vercel projects regardless of the active tab.
       listAvailableVercelProjects: unlinkedProjects,
       getDeploymentSignalStatus: {},
+      createAgentPairing: { code: "EKQGGK85", expiresAt: new Date(FIXTURE_EPOCH) },
     },
     applications: { getSharedSecret: { sharedSecret: "shs_fixture_0123456789abcdef" } },
+    auth: {
+      // The agent entry point checks whether this is the read-only demo org.
+      activeOrg: { id: "org_fixture_01", name: "Acme", slug: "acme", isDemo: false, canReturnToAccount: false },
+    },
   };
 }
 
@@ -94,6 +99,10 @@ function customSignalReceivedFixtures(): TrpcFixtures {
       },
     },
     applications: { getSharedSecret: { sharedSecret: "shs_fixture_0123456789abcdef" } },
+    auth: {
+      // The agent entry point checks whether this is the read-only demo org.
+      activeOrg: { id: "org_fixture_01", name: "Acme", slug: "acme", isDemo: false, canReturnToAccount: false },
+    },
   };
 }
 
@@ -145,4 +154,19 @@ export const CustomSetupGuide: Story = {
 export const CustomSignalReceived: Story = {
   args: { appId: APP_ID, initialProvider: "custom" },
   parameters: { msw: { handlers: [trpcHandler(customSignalReceivedFixtures())] } },
+};
+
+/**
+ * The agent entry point opened: the install command per client, the pairing code,
+ * and the prompt to hand over. This is the path where an agent is genuinely
+ * better placed than the user - it can read how the project actually deploys.
+ */
+export const CustomAgentDialog: Story = {
+  args: { appId: APP_ID, initialProvider: "custom" },
+  parameters: { msw: { handlers: [trpcHandler(customWaitingFixtures())] } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: /Wire it up with a coding agent/ }));
+    await within(document.body).findByText(/Connect your deploys with a coding agent/, undefined, { timeout: 10_000 });
+  },
 };
