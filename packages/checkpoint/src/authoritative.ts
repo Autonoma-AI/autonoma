@@ -94,6 +94,39 @@ export async function loadAuthoritativeCheckpointInputs(
     }
 }
 
+/**
+ * Whether the merged analysis pipeline has EVER run on this branch - the gate for a BRANCH-scoped surface, where
+ * asking it of the branch's active snapshot instead would be wrong: activating a snapshot is not an analysis act.
+ * A suite edit or an SDK plan upload both promote a job-less snapshot through `TestSuiteUpdater.finalize`, so an
+ * active-pointer gate flips back to the legacy store after one of those and hides every issue the pipeline filed.
+ * An `AnalysisJob` is written once per run and never removed, which makes this monotone: a branch that has run
+ * analysis stays authoritative.
+ *
+ * Degrades to `false` - the legacy view - because the failure this can realistically hit is an environment where the
+ * analysis tables are not migrated, and there the legacy store IS the truth.
+ */
+export async function hasBranchRunAnalysis(
+    db: PrismaClient,
+    organizationId: string,
+    branchId: string,
+    parentLogger?: Logger,
+): Promise<boolean> {
+    const logger = (parentLogger ?? rootLogger).child({ name: "hasBranchRunAnalysis" });
+    try {
+        const job = await db.analysisJob.findFirst({
+            where: { organizationId, snapshot: { branchId } },
+            select: { snapshotId: true },
+        });
+        return job != null;
+    } catch (error) {
+        logger.warn("Could not check for analysis runs on the branch; treating it as legacy", {
+            branch: { branchId },
+            err: error,
+        });
+        return false;
+    }
+}
+
 /** The report row shape the bucket counts are read from. */
 interface ReportCounts {
     snapshotId: string;

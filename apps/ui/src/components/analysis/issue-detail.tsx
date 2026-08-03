@@ -1,7 +1,7 @@
 import { Badge, Separator, Skeleton } from "@autonoma/blacklight";
 import type { AnalysisIssueDetail, AnalysisIssueFindingInstance } from "@autonoma/types";
-import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
+import { IssueBackLink } from "components/analysis/issue-back-link";
 import {
   analysisIssueKindMeta,
   analysisIssueSeverityMeta,
@@ -17,10 +17,12 @@ import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 /**
  * The full detail page for one branch-scoped analysis issue: header + lifecycle badges, the designated hero
  * screenshot, expected/actual, the grounded narrative (with inline evidence + `finding:` links resolved), the
- * suspected code-level cause, and the issue's finding instances across the PR's snapshots (each linking to its
- * per-snapshot finding page).
+ * suspected code-level cause, and the issue's finding instances across the branch's snapshots.
+ *
+ * A finding instance is reachable only through its PR, so an issue on main - which has no pull request, hence no
+ * `prNumber` - renders its instances (and the narrative's `finding:` tokens) as plain rows instead of links.
  */
-export function AnalysisIssueDetail({ issue, prNumber }: { issue: AnalysisIssueDetail; prNumber: number }) {
+export function AnalysisIssueDetail({ issue, prNumber }: { issue: AnalysisIssueDetail; prNumber?: number }) {
   const kindMeta = analysisIssueKindMeta(issue.kind);
   const severityMeta = analysisIssueSeverityMeta(issue.severity);
   const statusMeta = analysisIssueStatusMeta(issue.status);
@@ -33,7 +35,7 @@ export function AnalysisIssueDetail({ issue, prNumber }: { issue: AnalysisIssueD
   }
   const renderFindingLink = (slug: string, children: ReactNode): ReactNode => {
     const instance = instanceBySlug.get(slug);
-    if (instance == null) return children;
+    if (instance == null || prNumber == null) return children;
     return (
       <AppLink
         to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings/$findingId"
@@ -49,14 +51,7 @@ export function AnalysisIssueDetail({ issue, prNumber }: { issue: AnalysisIssueD
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3">
         <div className="flex items-center gap-2 text-text-secondary">
-          <AppLink
-            to="/app/$appSlug/pull-requests/$prNumber"
-            params={{ prNumber }}
-            aria-label="Back to the pull request"
-            className="inline-flex size-5 shrink-0 items-center justify-center rounded text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
-          >
-            <ArrowLeftIcon size={12} />
-          </AppLink>
+          <IssueBackLink prNumber={prNumber} />
           <span className="font-mono text-2xs uppercase tracking-widest">Issue</span>
         </div>
         <h1 className="text-2xl font-medium tracking-tight text-text-primary">{issue.title}</h1>
@@ -152,8 +147,30 @@ export function AnalysisIssueDetail({ issue, prNumber }: { issue: AnalysisIssueD
   );
 }
 
-function FindingInstanceRow({ instance, prNumber }: { instance: AnalysisIssueFindingInstance; prNumber: number }) {
+function FindingInstanceRow({ instance, prNumber }: { instance: AnalysisIssueFindingInstance; prNumber?: number }) {
   const meta = analysisVerdictMeta(instance.category);
+  const body = (
+    <>
+      <Badge variant={meta.variant} className="shrink-0 font-mono uppercase">
+        {meta.label}
+      </Badge>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm text-text-primary">{instance.headline}</p>
+        <p className="truncate font-mono text-2xs text-text-secondary">
+          {instance.slug}
+          {instance.headSha != null ? ` · ${instance.headSha.slice(0, 7)}` : ""} ·{" "}
+          {formatRelativeTime(instance.snapshotCreatedAt)}
+        </p>
+      </div>
+    </>
+  );
+
+  if (prNumber == null) {
+    return (
+      <li className="flex items-center gap-4 rounded-lg border border-border-dim bg-surface-void px-4 py-3">{body}</li>
+    );
+  }
+
   return (
     <li>
       <AppLink
@@ -161,17 +178,7 @@ function FindingInstanceRow({ instance, prNumber }: { instance: AnalysisIssueFin
         params={{ prNumber, snapshotId: instance.snapshotId, findingId: instance.findingId }}
         className="flex items-center gap-4 rounded-lg border border-border-dim bg-surface-void px-4 py-3 transition-colors hover:border-border-mid hover:bg-surface-raised"
       >
-        <Badge variant={meta.variant} className="shrink-0 font-mono uppercase">
-          {meta.label}
-        </Badge>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm text-text-primary">{instance.headline}</p>
-          <p className="truncate font-mono text-2xs text-text-secondary">
-            {instance.slug}
-            {instance.headSha != null ? ` · ${instance.headSha.slice(0, 7)}` : ""} ·{" "}
-            {formatRelativeTime(instance.snapshotCreatedAt)}
-          </p>
-        </div>
+        {body}
         <CaretRightIcon size={14} className="shrink-0 text-text-secondary" />
       </AppLink>
     </li>

@@ -461,7 +461,6 @@ const mainBranchDetail: NonNullable<TrpcFixtures["branches"]> = {
 
 // The app shell's sidebar reads these on every page; a completed onboarding state hides the finish-setup nudge.
 const shellFixtures: TrpcFixtures = {
-  bugs: { listSummary: [] },
   onboarding: {
     getState: {
       id: "onboarding_fixture_01",

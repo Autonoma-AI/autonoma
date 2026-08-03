@@ -102,7 +102,7 @@ async function seedFixture(harness: APITestHarness) {
 }
 
 apiTestSuite({
-    name: "bugs.list / bugs.listSummary main-branch scoping",
+    name: "bugs.list main-branch scoping",
     seed: async ({ harness }) => seedFixture(harness),
     cases: (test) => {
         test("list returns only the application's main-branch bugs", async ({ harness, seedResult }) => {
@@ -122,15 +122,6 @@ apiTestSuite({
             });
 
             expect(bugs.map((bug) => bug.id)).toEqual([seedResult.mainOpenBug.id]);
-        });
-
-        test("listSummary returns only the application's main-branch bugs", async ({ harness, seedResult }) => {
-            const bugs = await harness.request().bugs.listSummary({ applicationId: seedResult.application.id });
-            const ids = bugs.map((bug) => bug.id);
-
-            expect(ids).toEqual(expect.arrayContaining([seedResult.mainOpenBug.id, seedResult.mainResolvedBug.id]));
-            expect(ids).not.toContain(seedResult.featureBug.id);
-            expect(ids).not.toContain(seedResult.abandonedBug.id);
         });
 
         test("org-wide list unions every application's main-branch bugs", async ({ harness, seedResult }) => {

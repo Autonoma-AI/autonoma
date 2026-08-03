@@ -103,7 +103,6 @@ const previewConfigFixtures: TrpcFixtures = {
       },
     },
   },
-  bugs: { listSummary: [] },
   onboarding: {
     getState: completedOnboardingState,
     getPreviewkitConfig: savedResponse,

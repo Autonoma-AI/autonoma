@@ -2,10 +2,12 @@ import { Badge, Panel, PanelBody, Skeleton } from "@autonoma/blacklight";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import type { PreviewLogSource } from "components/build-logs/preview-logs-tabs";
+import { MainProblemsSection, MainProblemsSectionSkeleton } from "components/main-problems/main-problems-section";
 import { ShaRange } from "components/snapshot/sha-range";
 import { formatRelativeTime } from "lib/format";
 import {
   ensureBranchData,
+  ensureMainOpenProblemsData,
   ensurePrPipelineStatusData,
   ensureSnapshotHistoryData,
   useBranchDetail,
@@ -13,7 +15,6 @@ import {
   useSnapshotDetail,
   useSnapshotHistory,
 } from "lib/query/branches.queries";
-import { useBugsListByBranch } from "lib/query/bugs.queries";
 import {
   ensurePreviewSummaryByBranchIdData,
   usePreviewSummaryByBranchId,
@@ -21,7 +22,6 @@ import {
 } from "lib/query/deployments.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense } from "react";
-import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { CheckpointSummaryBadge } from "./-components/checkpoint-summary-badge";
 import { CheckpointTestsRun } from "./-components/checkpoint-tests-run";
@@ -31,7 +31,6 @@ import { EnvironmentSummaryStrip } from "./-components/preview/environment-summa
 import { PreviewEnvironmentExplorer } from "./-components/preview/preview-environment-explorer";
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
-type Bug = RouterOutputs["bugs"]["listByBranch"][number];
 
 // Persisted in the URL so a refresh keeps the selected preview service and log focus (build vs app).
 type MainBranchSearch = { service?: string; logs?: PreviewLogSource };
@@ -45,6 +44,7 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
       ensureSnapshotHistoryData(context.queryClient, branch.id),
       ensurePrPipelineStatusData(context.queryClient, app.id, branch.id),
       ensurePreviewSummaryByBranchIdData(context.queryClient, app.id, branch.id),
+      ensureMainOpenProblemsData(context.queryClient, app.id),
     ]);
   },
   validateSearch: (search: Record<string, unknown>): MainBranchSearch => ({
@@ -60,11 +60,11 @@ function MainBranchPage() {
       <header className="flex flex-wrap items-center gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-medium tracking-tight text-text-primary">
-            <GitBranchIcon size={22} className="text-text-tertiary" />
+            <GitBranchIcon size={22} className="text-text-secondary" />
             Main branch
           </h1>
           <p className="mt-1 font-mono text-xs text-text-secondary">
-            Health, checkpoints and bugs on your default branch
+            Health, checkpoints and open problems on your default branch
           </p>
         </div>
       </header>
@@ -84,7 +84,6 @@ function MainBranchContent() {
   const app = useCurrentApplication();
   const { data: branch } = useBranchDetail(app.id, app.mainBranch.name);
   const { data: snapshots } = useSnapshotHistory(branch.id);
-  const { data: bugs } = useBugsListByBranch(branch.id, "open");
   const { data: prStatus } = usePrPipelineStatus(app.id, branch.id);
 
   const ordered = [...snapshots].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -94,7 +93,7 @@ function MainBranchContent() {
     return (
       <Panel>
         <PanelBody>
-          <div className="flex flex-col items-center justify-center gap-3 py-14 text-center text-text-tertiary">
+          <div className="flex flex-col items-center justify-center gap-3 py-14 text-center text-text-secondary">
             <GitBranchIcon size={28} />
             <p className="text-sm">No checkpoints recorded on main yet</p>
           </div>
@@ -108,7 +107,7 @@ function MainBranchContent() {
       <div className="flex flex-wrap items-center gap-3 border border-border-dim bg-surface-base px-5 py-3">
         <PrStatusBadge status={prStatus} />
         <ShaRange baseSha={latest.baseSha} headSha={latest.headSha} />
-        <span className="ml-auto font-mono text-2xs text-text-tertiary">
+        <span className="ml-auto font-mono text-2xs text-text-secondary">
           {ordered.length} {ordered.length === 1 ? "checkpoint" : "checkpoints"} ·{" "}
           {formatRelativeTime(latest.createdAt)}
         </span>
@@ -116,7 +115,9 @@ function MainBranchContent() {
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
         <div className="flex flex-col gap-4">
-          {bugs.length > 0 && <MainBugsSection bugs={bugs} />}
+          <Suspense fallback={<MainProblemsSectionSkeleton />}>
+            <MainProblemsSection applicationId={app.id} />
+          </Suspense>
           <LatestCheckpointTests snapshotId={latest.id} totalTests={latest.healthCounts.totalTests} />
         </div>
         <MainCheckpointRail snapshots={ordered} />
@@ -175,44 +176,11 @@ function LatestCheckpointTests({ snapshotId, totalTests }: { snapshotId: string;
   );
 }
 
-function MainBugsSection({ bugs }: { bugs: Bug[] }) {
-  return (
-    <section className="flex flex-col gap-2">
-      <h2 className="text-sm font-semibold text-text-primary">
-        Open bugs on main · <span className="font-mono text-text-tertiary">{bugs.length}</span>
-      </h2>
-      <div className="flex flex-col gap-2">
-        {bugs.map((bug) => (
-          <MainBugRow key={bug.id} bug={bug} />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function MainBugRow({ bug }: { bug: Bug }) {
-  return (
-    <AppLink
-      to="/app/$appSlug/bugs/$bugId"
-      params={{ bugId: bug.id }}
-      className="flex flex-col gap-1 border border-border-dim bg-surface-void px-4 py-3 transition-colors hover:border-border-mid hover:bg-surface-raised"
-    >
-      <div className="flex min-w-0 items-center gap-2">
-        <Badge variant={SEVERITY_BADGE[bug.severity] ?? "secondary"}>{bug.severity}</Badge>
-        <span className="truncate text-sm font-medium text-text-primary">{bug.title}</span>
-      </div>
-      {bug.description.trim() !== "" && (
-        <p className="line-clamp-2 text-sm leading-relaxed text-text-secondary">{bug.description}</p>
-      )}
-    </AppLink>
-  );
-}
-
 function MainCheckpointRail({ snapshots }: { snapshots: Snapshot[] }) {
   return (
     <aside className="flex min-h-0 flex-col border border-border-dim bg-surface-base">
       <div className="border-b border-border-dim px-4 py-3">
-        <h3 className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">
+        <h3 className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-secondary">
           Checkpoint history
         </h3>
       </div>
@@ -225,40 +193,30 @@ function MainCheckpointRail({ snapshots }: { snapshots: Snapshot[] }) {
   );
 }
 
+/**
+ * One checkpoint on main. The verdict is the derived `CheckpointSummaryBadge` the PR surfaces render, never the raw
+ * `health`/`bugCount` pair: those are legacy-shaped, so a row would assert a count from a signal the problem list
+ * beside it does not read, and an amber "Not confirmed" run (raw `health` `unknown`) would lose its badge entirely.
+ * "Latest" marks the newest row without standing in for its verdict, so every row says how its run went.
+ */
 function MainCheckpointRow({ snapshot, isLatest }: { snapshot: Snapshot; isLatest: boolean }) {
-  const isHealthy = snapshot.health === "healthy" && snapshot.bugCount === 0;
-
   return (
     <div className="flex flex-col gap-2 border-b border-border-dim px-4 py-3 last:border-b-0">
-      <div className="flex items-center gap-2">
-        {isLatest ? (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+        {snapshot.summary != null && (
+          <CheckpointSummaryBadge summary={snapshot.summary} className="font-mono uppercase tracking-wider" />
+        )}
+        {isLatest && (
           <Badge variant="outline" className="font-mono uppercase tracking-wider text-text-secondary">
             Latest
           </Badge>
-        ) : // Prefer the derived summary: a coverage gap makes a run amber "Not confirmed", whose raw `health` is
-        // `unknown`, which would drop this row's badge to the bug counts below.
-        snapshot.summary != null ? (
-          <CheckpointSummaryBadge summary={snapshot.summary} className="font-mono uppercase tracking-wider" />
-        ) : isHealthy ? (
-          <Badge variant="success" className="font-mono uppercase tracking-wider">
-            Healthy
-          </Badge>
-        ) : snapshot.bugCount > 0 ? (
-          <Badge
-            variant="outline"
-            className="border-status-critical/60 bg-status-critical/10 font-mono uppercase tracking-wider text-status-critical"
-          >
-            {snapshot.bugCount} {snapshot.bugCount === 1 ? "bug" : "bugs"}
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="font-mono uppercase tracking-wider text-text-tertiary">
-            0 bugs
-          </Badge>
         )}
-        <span className="ml-auto font-mono text-2xs text-text-tertiary">{formatRelativeTime(snapshot.createdAt)}</span>
       </div>
-      <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />
-      <span className="font-mono text-2xs text-text-tertiary">
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />
+        <span className="font-mono text-2xs text-text-secondary">{formatRelativeTime(snapshot.createdAt)}</span>
+      </div>
+      <span className="font-mono text-2xs text-text-secondary">
         {formatCheckpointMetrics(snapshot.summary, snapshot.bugCount, snapshot.healthCounts.totalTests)}
       </span>
     </div>
@@ -276,12 +234,3 @@ function MainBranchSkeleton() {
     </div>
   );
 }
-
-type SeverityBadgeVariant = "critical" | "high" | "warn" | "secondary";
-
-const SEVERITY_BADGE: Record<string, SeverityBadgeVariant> = {
-  critical: "critical",
-  high: "high",
-  medium: "warn",
-  low: "secondary",
-};

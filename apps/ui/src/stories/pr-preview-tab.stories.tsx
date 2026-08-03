@@ -315,7 +315,6 @@ const SHARED_FIXTURES: TrpcFixtures = {
       },
     ],
   },
-  bugs: { listSummary: [] },
   onboarding: { getState: completedOnboardingState() },
 };
 

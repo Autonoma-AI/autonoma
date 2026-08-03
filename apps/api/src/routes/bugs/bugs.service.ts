@@ -288,40 +288,6 @@ export class BugsService extends Service {
         }));
     }
 
-    async listBugsSummary(organizationId: string, applicationId?: string, status?: BugStatus) {
-        this.logger.info("Listing bug summaries", { organizationId, applicationId, status });
-
-        const branchIds = await this.mainBranchIds(organizationId, applicationId);
-
-        const bugs = await this.db.bug.findMany({
-            where: {
-                organizationId,
-                branchId: { in: branchIds },
-                ...(status != null ? { status } : {}),
-            },
-            select: {
-                id: true,
-                status: true,
-                title: true,
-                severity: true,
-                lastSeenAt: true,
-                _count: { select: { issues: true } },
-            },
-            orderBy: { lastSeenAt: "desc" },
-        });
-
-        this.logger.info("Bug summaries listed", { count: bugs.length });
-
-        return bugs.map((bug) => ({
-            id: bug.id,
-            status: bug.status,
-            title: bug.title,
-            severity: bug.severity,
-            lastSeenAt: bug.lastSeenAt,
-            occurrences: bug._count.issues,
-        }));
-    }
-
     /**
      * Bugs on a single branch. Main is just a branch, so this backs both the PR detail
      * page (a feature branch) and the main-branch view. The `Bug.branchId` stamped by the

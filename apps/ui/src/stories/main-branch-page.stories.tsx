@@ -1,13 +1,60 @@
+import { type AnalysisVerdictState, deriveAnalysisVerdict } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
+import type { RouterOutputs } from "lib/trpc";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
 const BUILD_STARTED_AT = new Date("2026-01-01T11:27:14.000Z");
 const BUILD_FINISHED_AT = new Date("2026-01-01T11:28:20.000Z");
 const ENVIRONMENT_ID = "env_fixture_main_01";
 const HEAD_SHA = "a22387c9d4e1f6b8a0c3d5e7f9012345678901ab";
+const BASE_SHA = "b1039fc2e5a7d9038f4c6b1a2d3e4f5061728394";
+const BRANCH_ID = baseApplication.mainBranchId ?? "branch_fixture_01";
+const LATEST_SNAPSHOT_ID = "snapshot_fixture_main_02";
+const PREV_SNAPSHOT_ID = "snapshot_fixture_main_01";
+const LATEST_RUN_AT = new Date("2026-01-05T09:12:00.000Z");
+const PREV_RUN_AT = new Date("2026-01-03T16:40:00.000Z");
+const PATH = `/app/${baseApplication.slug}/pull-requests/main`;
+
+/** One checkpoint's per-bucket outcome - what the verdict and its badge copy are derived from. */
+interface CheckpointCounts {
+  bugCount: number;
+  passed: number;
+  coverage: number;
+}
+
+type Checkpoint = RouterOutputs["branches"]["snapshotHistory"][number];
+
+type CheckpointVerdictPresentation = Pick<
+  NonNullable<Checkpoint["summary"]>,
+  "tone" | "label" | "reason" | "executionState"
+> & { health: Checkpoint["health"] };
+
+/** How each verdict state presents, mirroring the authoritative summary builder. Only a coverage gap gets a reason. */
+const CHECKPOINT_VERDICT: Record<AnalysisVerdictState, (counts: CheckpointCounts) => CheckpointVerdictPresentation> = {
+  bug_found: (counts) => ({
+    tone: "critical",
+    label: `${counts.bugCount} ${counts.bugCount === 1 ? "bug" : "bugs"}`,
+    executionState: "failed",
+    health: "critical",
+  }),
+  not_confirmed: (counts) => ({
+    tone: "warning",
+    label: "Not confirmed",
+    reason: counts.passed === 0 ? `${counts.coverage} blocked` : `${counts.coverage} couldn't confirm`,
+    executionState: "not_started",
+    health: "unknown",
+  }),
+  no_tests_affected: () => ({
+    tone: "neutral",
+    label: "No tests affected",
+    executionState: "not_started",
+    health: "unknown",
+  }),
+  healthy: () => ({ tone: "success", label: "Passing", executionState: "passed", health: "healthy" }),
+};
 
 type PreviewServiceFixture = ReturnType<typeof appService> | ReturnType<typeof dependencyService>;
 
@@ -182,7 +229,6 @@ const mainBranchPageFixtures: TrpcFixtures = {
     },
     pipelineStatusByBranchId: { kind: "none" },
   },
-  bugs: { listSummary: [], listByBranch: [] },
   onboarding: { getState: completedOnboardingState() },
   deployments: {
     previewSummaryByBranchId: previewkitSummary(),
@@ -217,5 +263,200 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { path: `/app/${baseApplication.slug}/pull-requests/main` },
+  args: { path: PATH },
 };
+
+/**
+ * An application whose main branch runs the merged analysis pipeline: the problem list presents main's open
+ * `AnalysisIssue` rows - one bug, one environment problem - beside a checkpoint rail reading the same authoritative
+ * verdict, so the red count and the list under it agree.
+ */
+export const AnalyzedMain: Story = {
+  args: { path: PATH },
+  parameters: {
+    pageStory: true,
+    msw: {
+      handlers: appShellHandlers({
+        ...mainBranchPageFixtures,
+        branches: {
+          ...mainBranchPageFixtures.branches,
+          snapshotHistory: [
+            mainCheckpoint({ id: LATEST_SNAPSHOT_ID, createdAt: LATEST_RUN_AT, bugCount: 1, passed: 3, coverage: 1 }),
+            mainCheckpoint({ id: PREV_SNAPSHOT_ID, createdAt: PREV_RUN_AT, bugCount: 0, passed: 4, coverage: 0 }),
+          ],
+          snapshotDetail: mainSnapshotDetail(),
+          mainOpenProblems: {
+            source: "analysis_issue",
+            problems: [
+              {
+                id: "issue_fixture_01",
+                title: "Publishing an invoice leaves the supplier total stale",
+                kind: "bug",
+                severity: "high",
+                detail:
+                  "After publishing, the supplier row still shows the pre-publish total until the page is reloaded.",
+                occurrences: 3,
+                lastSeenAt: LATEST_RUN_AT,
+              },
+              {
+                id: "issue_fixture_02",
+                title: "The preview's OCR service is unreachable during extraction",
+                kind: "environment",
+                severity: "medium",
+                detail: "Extraction requests to the OCR service time out, so no test can reach the review step.",
+                occurrences: 2,
+                lastSeenAt: LATEST_RUN_AT,
+              },
+            ],
+          },
+        },
+      }),
+    },
+  },
+};
+
+/**
+ * An application whose main has never run analysis: it reads its deprecated `Bug` rows instead, including the
+ * `regressed` one at the top. This is the arm every application not yet running main analysis sees.
+ */
+export const LegacyBugsOnMain: Story = {
+  args: { path: PATH },
+  parameters: {
+    pageStory: true,
+    msw: {
+      handlers: appShellHandlers({
+        ...mainBranchPageFixtures,
+        branches: {
+          ...mainBranchPageFixtures.branches,
+          snapshotHistory: [
+            mainCheckpoint({ id: LATEST_SNAPSHOT_ID, createdAt: LATEST_RUN_AT, bugCount: 2, passed: 2, coverage: 0 }),
+          ],
+          snapshotDetail: mainSnapshotDetail(),
+          mainOpenProblems: {
+            source: "legacy_bug",
+            problems: [
+              {
+                id: "bug_fixture_01",
+                title: "Checkout button unresponsive after coupon removal",
+                kind: "bug",
+                severity: "critical",
+                detail: "Removing a coupon leaves the checkout button disabled until the page is reloaded.",
+                occurrences: 5,
+                lastSeenAt: LATEST_RUN_AT,
+              },
+              {
+                id: "bug_fixture_02",
+                title: "Saved card is dropped when the billing address changes",
+                kind: "bug",
+                severity: "medium",
+                detail: "The card selection resets to empty and the order cannot be completed without re-entering it.",
+                occurrences: 2,
+                lastSeenAt: PREV_RUN_AT,
+              },
+            ],
+          },
+        },
+      }),
+    },
+  },
+};
+
+/** One checkpoint on main, presented from its analysis verdict exactly as the API's authoritative arm builds it. */
+function mainCheckpoint(overrides: {
+  id: string;
+  createdAt: Date;
+  bugCount: number;
+  passed: number;
+  coverage: number;
+}) {
+  const totalTests = overrides.bugCount + overrides.passed + overrides.coverage;
+  // The badge copy is a pure function of the counts, so the fixture routes through the shared verdict predicate
+  // instead of restating the mapping - a story cannot then claim a combination the API never produces.
+  const state = deriveAnalysisVerdict({
+    bugCount: overrides.bugCount,
+    coverageGapCount: overrides.coverage,
+    investigatedCount: totalTests,
+  });
+  const verdict = CHECKPOINT_VERDICT[state](overrides);
+
+  return {
+    id: overrides.id,
+    status: "active" as const,
+    source: "GITHUB_PUSH" as const,
+    headSha: HEAD_SHA,
+    baseSha: BASE_SHA,
+    createdAt: overrides.createdAt,
+    prevSnapshotId: null,
+    _count: { testCaseAssignments: totalTests },
+    changeSummary: { added: 0, removed: 0, updated: 1 },
+    health: verdict.health,
+    healthCounts: {
+      failing: 0,
+      passing: overrides.passed,
+      running: 0,
+      setupFailed: 0,
+      notAffected: 0,
+      totalTests,
+    },
+    bugCount: overrides.bugCount,
+    summary: {
+      tone: verdict.tone,
+      label: verdict.label,
+      reason: verdict.reason,
+      executionState: verdict.executionState,
+      openBugCount: overrides.bugCount,
+      issueOccurrenceCount: overrides.bugCount,
+      testCounts: {
+        assigned: totalTests,
+        run: totalTests,
+        passed: overrides.passed,
+        failed: 0,
+        setupFailed: 0,
+        running: 0,
+        notRun: 0,
+      },
+      failingByKind: { engine: 0, app: 0 },
+      suiteChangeCount: 1,
+      analysis: {
+        jobStatus: "completed" as const,
+        bugCount: overrides.bugCount,
+        passedCount: overrides.passed,
+        coverageCount: overrides.coverage,
+      },
+    },
+  };
+}
+
+/** The latest checkpoint's detail, for the "Latest checkpoint" test breakdown beside the problem list. */
+function mainSnapshotDetail(): NonNullable<TrpcFixtures["branches"]>["snapshotDetail"] {
+  return {
+    snapshot: {
+      id: LATEST_SNAPSHOT_ID,
+      status: "active",
+      source: "GITHUB_PUSH",
+      headSha: HEAD_SHA,
+      baseSha: BASE_SHA,
+      createdAt: LATEST_RUN_AT,
+      prevSnapshotId: null,
+      branch: { id: BRANCH_ID, name: "main", applicationId: baseApplication.id, prNumber: undefined },
+    },
+    changes: [],
+    diffsJob: undefined,
+    createdTests: [],
+    refinementLoop: undefined,
+    health: "critical",
+    healthCounts: { failing: 0, passing: 3, running: 0, setupFailed: 0, notAffected: 0, totalTests: 5 },
+    summary: {
+      tone: "critical",
+      label: "1 bug",
+      executionState: "failed",
+      openBugCount: 1,
+      issueOccurrenceCount: 1,
+      testCounts: { assigned: 5, run: 5, passed: 3, failed: 0, setupFailed: 0, running: 0, notRun: 0 },
+      failingByKind: { engine: 0, app: 0 },
+      suiteChangeCount: 1,
+      analysis: { jobStatus: "completed", bugCount: 1, passedCount: 3, coverageCount: 1 },
+    },
+    executedTests: [],
+  };
+}

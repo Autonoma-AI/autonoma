@@ -254,7 +254,6 @@ const sidebarFixtures: TrpcFixtures = {
       },
     },
   },
-  bugs: { listSummary: [] },
 };
 
 /** A GitHub/PreviewKit app, so the SDK step renders the BYO preview-target flow. */

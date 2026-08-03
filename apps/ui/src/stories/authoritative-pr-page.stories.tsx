@@ -329,7 +329,6 @@ const chromeFixtures: TrpcFixtures = {
       actions: { openPreview: { enabled: false, href: null, reason: "No preview URL is available." } },
     },
   },
-  bugs: { listSummary: [] },
   onboarding: {
     getState: {
       id: "onboarding_fixture_01",

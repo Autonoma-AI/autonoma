@@ -63,6 +63,7 @@ import { Route as BlacklightAppShellAppAppSlugAdminGenerationsRouteImport } from
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberRouteRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/route'
 import { Route as BlacklightAppShellAppAppSlugGenerationsGenerationIdIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/generations/$generationId/index'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberSuiteRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/suite'
+import { Route as BlacklightAppShellAppAppSlugAnalysisIssuesIssueIdRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/analysis/issues/$issueId'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsRouteRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/_tabs/route'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/_tabs/index'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberIssuesIssueIdRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/issues/$issueId'
@@ -390,6 +391,12 @@ const BlacklightAppShellAppAppSlugPullRequestsPrNumberSuiteRoute =
     getParentRoute: () =>
       BlacklightAppShellAppAppSlugPullRequestsPrNumberRouteRoute,
   } as any)
+const BlacklightAppShellAppAppSlugAnalysisIssuesIssueIdRoute =
+  BlacklightAppShellAppAppSlugAnalysisIssuesIssueIdRouteImport.update({
+    id: '/analysis/issues/$issueId',
+    path: '/analysis/issues/$issueId',
+    getParentRoute: () => BlacklightAppShellAppAppSlugRouteRoute,
+  } as any)
 const BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsRouteRoute =
   BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsRouteRouteImport.update({
     id: '/_tabs',
@@ -563,6 +570,7 @@ export interface FileRoutesByFullPath {
   '/app/$appSlug/scenarios/': typeof BlacklightAppShellAppAppSlugScenariosIndexRoute
   '/app/$appSlug/settings/': typeof BlacklightAppShellAppAppSlugSettingsIndexRoute
   '/app/$appSlug/tests/': typeof BlacklightAppShellAppAppSlugTestsIndexRoute
+  '/app/$appSlug/analysis/issues/$issueId': typeof BlacklightAppShellAppAppSlugAnalysisIssuesIssueIdRoute
   '/app/$appSlug/pull-requests/$prNumber/suite': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSuiteRoute
   '/app/$appSlug/generations/$generationId/': typeof BlacklightAppShellAppAppSlugGenerationsGenerationIdIndexRoute
   '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRouteWithChildren
@@ -625,6 +633,7 @@ export interface FileRoutesByTo {
   '/app/$appSlug/scenarios': typeof BlacklightAppShellAppAppSlugScenariosIndexRoute
   '/app/$appSlug/settings': typeof BlacklightAppShellAppAppSlugSettingsIndexRoute
   '/app/$appSlug/tests': typeof BlacklightAppShellAppAppSlugTestsIndexRoute
+  '/app/$appSlug/analysis/issues/$issueId': typeof BlacklightAppShellAppAppSlugAnalysisIssuesIssueIdRoute
   '/app/$appSlug/pull-requests/$prNumber/suite': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSuiteRoute
   '/app/$appSlug/generations/$generationId': typeof BlacklightAppShellAppAppSlugGenerationsGenerationIdIndexRoute
   '/app/$appSlug/pull-requests/$prNumber/preview': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsPreviewRoute
@@ -692,6 +701,7 @@ export interface FileRoutesById {
   '/_blacklight/_app-shell/app/$appSlug/settings/': typeof BlacklightAppShellAppAppSlugSettingsIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/tests/': typeof BlacklightAppShellAppAppSlugTestsIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/_tabs': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsRouteRouteWithChildren
+  '/_blacklight/_app-shell/app/$appSlug/analysis/issues/$issueId': typeof BlacklightAppShellAppAppSlugAnalysisIssuesIssueIdRoute
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/suite': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSuiteRoute
   '/_blacklight/_app-shell/app/$appSlug/generations/$generationId/': typeof BlacklightAppShellAppAppSlugGenerationsGenerationIdIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRouteWithChildren
@@ -761,6 +771,7 @@ export interface FileRouteTypes {
     | '/app/$appSlug/scenarios/'
     | '/app/$appSlug/settings/'
     | '/app/$appSlug/tests/'
+    | '/app/$appSlug/analysis/issues/$issueId'
     | '/app/$appSlug/pull-requests/$prNumber/suite'
     | '/app/$appSlug/generations/$generationId/'
     | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId'
@@ -823,6 +834,7 @@ export interface FileRouteTypes {
     | '/app/$appSlug/scenarios'
     | '/app/$appSlug/settings'
     | '/app/$appSlug/tests'
+    | '/app/$appSlug/analysis/issues/$issueId'
     | '/app/$appSlug/pull-requests/$prNumber/suite'
     | '/app/$appSlug/generations/$generationId'
     | '/app/$appSlug/pull-requests/$prNumber/preview'
@@ -889,6 +901,7 @@ export interface FileRouteTypes {
     | '/_blacklight/_app-shell/app/$appSlug/settings/'
     | '/_blacklight/_app-shell/app/$appSlug/tests/'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/_tabs'
+    | '/_blacklight/_app-shell/app/$appSlug/analysis/issues/$issueId'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/suite'
     | '/_blacklight/_app-shell/app/$appSlug/generations/$generationId/'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId'
@@ -1296,6 +1309,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSuiteRouteImport
       parentRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberRouteRoute
     }
+    '/_blacklight/_app-shell/app/$appSlug/analysis/issues/$issueId': {
+      id: '/_blacklight/_app-shell/app/$appSlug/analysis/issues/$issueId'
+      path: '/analysis/issues/$issueId'
+      fullPath: '/app/$appSlug/analysis/issues/$issueId'
+      preLoaderRoute: typeof BlacklightAppShellAppAppSlugAnalysisIssuesIssueIdRouteImport
+      parentRoute: typeof BlacklightAppShellAppAppSlugRouteRoute
+    }
     '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/_tabs': {
       id: '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/_tabs'
       path: ''
@@ -1586,6 +1606,7 @@ interface BlacklightAppShellAppAppSlugRouteRouteChildren {
   BlacklightAppShellAppAppSlugPullRequestsIndexRoute: typeof BlacklightAppShellAppAppSlugPullRequestsIndexRoute
   BlacklightAppShellAppAppSlugScenariosIndexRoute: typeof BlacklightAppShellAppAppSlugScenariosIndexRoute
   BlacklightAppShellAppAppSlugSettingsIndexRoute: typeof BlacklightAppShellAppAppSlugSettingsIndexRoute
+  BlacklightAppShellAppAppSlugAnalysisIssuesIssueIdRoute: typeof BlacklightAppShellAppAppSlugAnalysisIssuesIssueIdRoute
   BlacklightAppShellAppAppSlugGenerationsGenerationIdIndexRoute: typeof BlacklightAppShellAppAppSlugGenerationsGenerationIdIndexRoute
 }
 
@@ -1631,6 +1652,8 @@ const BlacklightAppShellAppAppSlugRouteRouteChildren: BlacklightAppShellAppAppSl
       BlacklightAppShellAppAppSlugScenariosIndexRoute,
     BlacklightAppShellAppAppSlugSettingsIndexRoute:
       BlacklightAppShellAppAppSlugSettingsIndexRoute,
+    BlacklightAppShellAppAppSlugAnalysisIssuesIssueIdRoute:
+      BlacklightAppShellAppAppSlugAnalysisIssuesIssueIdRoute,
     BlacklightAppShellAppAppSlugGenerationsGenerationIdIndexRoute:
       BlacklightAppShellAppAppSlugGenerationsGenerationIdIndexRoute,
   }

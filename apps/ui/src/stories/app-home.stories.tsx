@@ -9,12 +9,37 @@ const SNAPSHOT_ID = "snapshot_fixture_01";
 
 /**
  * Page fixtures for the app dashboard: an active snapshot with a few test
- * cases, two open bugs, and a completed onboarding. Every literal typechecks
- * against `RouterOutputs`, so these rot loudly when the API shape changes.
+ * cases, two unresolved problems on main, and a completed onboarding. Every
+ * literal typechecks against `RouterOutputs`, so these rot loudly when the API
+ * shape changes.
  */
 export const dashboardFixtures: TrpcFixtures = {
   branches: {
     list: [],
+    // An application whose main has not run analysis: the rail keeps presenting its legacy `Bug` rows.
+    mainOpenProblems: {
+      source: "legacy_bug",
+      problems: [
+        {
+          id: "bug_fixture_01",
+          title: "Checkout button unresponsive after coupon removal",
+          kind: "bug",
+          severity: "high",
+          detail: "Removing a coupon leaves the checkout button disabled until the page is reloaded.",
+          occurrences: 3,
+          lastSeenAt: LAST_SEEN,
+        },
+        {
+          id: "bug_fixture_02",
+          title: "Profile avatar upload silently fails on PNG over 5MB",
+          kind: "bug",
+          severity: "medium",
+          detail: "The upload dialog closes as if it succeeded and the old avatar is still shown.",
+          occurrences: 1,
+          lastSeenAt: LAST_SEEN,
+        },
+      ],
+    },
     detailByName: {
       id: baseApplication.mainBranchId ?? "branch_fixture_01",
       name: "main",
@@ -33,26 +58,6 @@ export const dashboardFixtures: TrpcFixtures = {
         ],
       },
     },
-  },
-  bugs: {
-    listSummary: [
-      {
-        id: "bug_fixture_01",
-        status: "open",
-        title: "Checkout button unresponsive after coupon removal",
-        severity: "high",
-        lastSeenAt: LAST_SEEN,
-        occurrences: 3,
-      },
-      {
-        id: "bug_fixture_02",
-        status: "open",
-        title: "Profile avatar upload silently fails on PNG over 5MB",
-        severity: "medium",
-        lastSeenAt: LAST_SEEN,
-        occurrences: 1,
-      },
-    ],
   },
   onboarding: {
     getState: makeCompletedOnboardingState(),

@@ -16,19 +16,6 @@ export const bugsRouter = router({
             services.bugs.listBugs(organizationId, input?.applicationId, input?.status),
         ),
 
-    listSummary: protectedProcedure
-        .input(
-            z
-                .object({
-                    applicationId: z.string().optional(),
-                    status: z.enum(["open", "resolved", "regressed"]).optional(),
-                })
-                .optional(),
-        )
-        .query(({ ctx: { services, organizationId }, input }) =>
-            services.bugs.listBugsSummary(organizationId, input?.applicationId, input?.status),
-        ),
-
     listByBranch: protectedProcedure
         .input(
             z.object({

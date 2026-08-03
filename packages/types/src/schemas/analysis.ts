@@ -597,6 +597,47 @@ export const analysisForPrSchema = z.discriminatedUnion("status", [
 export type AnalysisForPr = z.infer<typeof analysisForPrSchema>;
 
 /**
+ * Which store an application's main-branch problems were read from. The fork is decided once, server-side, from
+ * whether main's active snapshot has an analysis job: `analysis_issue` for an application the merged pipeline has
+ * run on main, `legacy_bug` for one that has not - which keeps its deprecated `Bug` rows until its first main run.
+ * Surfaced so the presentation can route a problem to the store's own detail page without re-deriving the fork.
+ */
+export const mainProblemSourceSchema = z.enum(["legacy_bug", "analysis_issue"]);
+export type MainProblemSource = z.infer<typeof mainProblemSourceSchema>;
+
+/**
+ * One unresolved problem on an application's main branch, in the one shape both stores normalize to. `kind` is
+ * always `bug` on the legacy arm (a `Bug` row is an app bug by construction), so the shared ordering and badge
+ * metadata for analysis issues apply unchanged to both.
+ *
+ * `occurrences` + `lastSeenAt` are the recurrence pair each store expresses its own way: a legacy bug counts the
+ * `Issue` occurrences rolled into it and stamps `lastSeenAt` on each sighting, while an analysis issue counts the
+ * distinct runs that attributed a finding to it and takes the newest of those findings.
+ */
+export const mainOpenProblemSchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    kind: analysisIssueKindSchema,
+    severity: analysisIssueSeveritySchema,
+    /** The problem's own account of what went wrong (a bug's description, an issue's actual behavior). */
+    detail: z.string().optional(),
+    occurrences: z.number().int().nonnegative(),
+    lastSeenAt: z.date(),
+});
+export type MainOpenProblem = z.infer<typeof mainOpenProblemSchema>;
+
+/**
+ * Everything unresolved on an application's main branch, ordered bugs-first then by descending severity. One read
+ * for every surface that answers "what is still broken on main" - the overview rail and the main-branch page - so
+ * they cannot disagree about which store is authoritative for this application.
+ */
+export const mainOpenProblemsSchema = z.object({
+    source: mainProblemSourceSchema,
+    problems: z.array(mainOpenProblemSchema),
+});
+export type MainOpenProblems = z.infer<typeof mainOpenProblemsSchema>;
+
+/**
  * The per-job issue-set changes the snapshot page shows: which branch issues this run opened, carried forward
  * from an earlier run, or resolved. Derived from the run's `AnalysisJob` window and the findings it attributed.
  */

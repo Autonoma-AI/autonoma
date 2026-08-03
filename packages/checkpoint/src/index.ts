@@ -82,6 +82,7 @@ export {
 } from "./presentation";
 export {
     authoritativeSnapshotHealth,
+    hasBranchRunAnalysis,
     loadAuthoritativeCheckpointInputs,
     type LoadedAuthoritativeInputs,
 } from "./authoritative";

@@ -59,6 +59,7 @@ import {
     type InvestigationFinding,
     type InvestigationReportData,
     type InvestigationRunStep,
+    type MainOpenProblems,
     type OverlayPoint,
     type PrimaryScreenshot,
     primaryScreenshotSchema,
@@ -76,6 +77,7 @@ import type { PullRequestCacheService } from "../../github/pull-request-cache.se
 import { Service } from "../service";
 import { loadCreatedTests, type SnapshotCreatedTest } from "./created-tests";
 import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
+import { loadMainOpenProblems } from "./main-open-problems";
 import { computePrPipelineStatus } from "./pr-pipeline-status";
 import { loadRefinementLoop } from "./refinement-loop";
 import { loadSnapshotReport } from "./snapshot-report";
@@ -785,6 +787,14 @@ export class BranchesService extends Service {
             });
             return [];
         }
+    }
+
+    /**
+     * Everything unresolved on the application's main branch, from whichever store owns it - the one read behind
+     * the overview rail and the main-branch page's problem list. See {@link loadMainOpenProblems} for the fork.
+     */
+    async getMainOpenProblems(applicationId: string, organizationId: string): Promise<MainOpenProblems> {
+        return await loadMainOpenProblems(this.db, applicationId, organizationId, this.logger);
     }
 
     /**

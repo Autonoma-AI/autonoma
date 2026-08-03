@@ -87,6 +87,15 @@ export const branchesRouter = router({
             services.branches.getAnalysisIssues(input.branchId, organizationId),
         ),
 
+    // Everything still unresolved on the application's main branch, in one normalized shape: analysis issues once
+    // main has run the merged pipeline, the deprecated `Bug` rows until then. The fork is decided server-side, so
+    // the overview rail and the main-branch page's problem list read this and never re-derive it. User-facing.
+    mainOpenProblems: protectedProcedure
+        .input(z.object({ applicationId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getMainOpenProblems(input.applicationId, organizationId),
+        ),
+
     // One analysis issue in full (narrative + signed evidence + cross-snapshot finding instances) for the PR-level
     // issue-detail page. User-facing; returns null for an unknown/malformed issue.
     analysisIssueDetail: protectedProcedure

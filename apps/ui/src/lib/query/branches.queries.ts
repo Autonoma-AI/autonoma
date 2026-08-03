@@ -184,6 +184,19 @@ export async function ensureAnalysisIssuesData(queryClient: QueryClient, branchI
 }
 
 /**
+ * Everything still unresolved on the application's main branch, already normalized across the analysis-issue and
+ * legacy-bug stores by the API. Every "what is broken on main" surface reads this one query, so the overview rail
+ * and the main-branch page's problem list cannot disagree about which store is authoritative.
+ */
+export function useMainOpenProblems(applicationId: string) {
+    return useSuspenseQuery(trpc.branches.mainOpenProblems.queryOptions({ applicationId }));
+}
+
+export async function ensureMainOpenProblemsData(queryClient: QueryClient, applicationId: string) {
+    await ensureAPIQueryData(queryClient, trpc.branches.mainOpenProblems.queryOptions({ applicationId }));
+}
+
+/**
  * One analysis issue in full (narrative + signed evidence + cross-snapshot finding instances) for the PR-level
  * issue-detail page. A plain (non-suspense) query because the value is legitimately `null` for an unknown or
  * malformed issue - the page renders a graceful not-found for that, which useSuspenseQuery cannot express.
