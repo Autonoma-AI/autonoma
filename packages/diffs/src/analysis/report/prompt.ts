@@ -1,4 +1,14 @@
 import type { ModelMessage } from "@autonoma/ai";
+import {
+    ANALYSIS_VERDICT,
+    type AnalysisVerdictCounts,
+    type AnalysisVerdictState,
+    analysisFindingBucket,
+    analysisVerdictHeadline,
+    analysisVerdictLabel,
+    analysisVerdictPlane,
+    deriveAnalysisVerdict,
+} from "@autonoma/types";
 import type {
     ReporterExistingIssue,
     ReporterFinding,
@@ -13,6 +23,21 @@ const MAX_PLAN_CHARS = 600;
 const MAX_PRIOR_REPORT_CHARS = 2_000;
 
 /**
+ * What the prose must do under each verdict - the confidence story the run actually earned. Keyed over the verdict
+ * SSOT so a new state is a compile error until it has a rule, and given to the agent alongside the verdict it is
+ * computed into, so an optimistic summary under an amber verdict has no room to exist.
+ */
+const VERDICT_PROSE_RULE: Record<AnalysisVerdictState, string> = {
+    bug_found: "Lead with what breaks for a user, and in which flow. Then say what else the run could not confirm.",
+    not_confirmed:
+        "The change was NOT fully exercised. Lead with what could not be confirmed and why, then with what did hold up. Never call the change safe, verified, clean, or good to merge, and never say we found no issues.",
+    no_tests_affected:
+        "Nothing was exercised against this change, so there is no evidence either way. Say that plainly, and never imply the change is safe.",
+    healthy:
+        "Every affected test ran and confirmed the app. Lead with what we verified, concretely - name the flows - rather than with the absence of bugs.",
+};
+
+/**
  * The Reporter's system prompt. Fixed at construction (never carries per-run data - that lives in the user
  * prompt) and intentionally GENERIC so it generalizes across every project. It frames the agent as a
  * SYNTHESIZER of the findings, not an investigator: it reconciles per-test findings into de-duped,
@@ -22,10 +47,18 @@ const MAX_PRIOR_REPORT_CHARS = 2_000;
 export const REPORTER_SYSTEM_PROMPT = `You are the REPORTER for an automated end-to-end testing platform. A pull request's tests were run against its live preview and each test was classified into a per-test FINDING (passed / client_bug / and the coverage-plane categories engine_artifact, environment_failure, scenario_issue, plan_mismatch - the app worked but the test's plan no longer matches it and a self-heal rewrite could not stabilize it within budget, so the test is KEPT for a later run rather than removed - and invalid_test - the test is irreparably broken, so it was REMOVED). Your two jobs:
 
 1. RECONCILE those findings into branch-scoped ISSUES. A finding is one test's verdict for THIS snapshot; an ISSUE is a problem that persists across snapshots and can be shared by several tests. You de-dupe findings (across tests and across time) into issues, and you evolve the branch's existing issues: re-confirm the ones still present, resolve the ones a passing test proved gone, and open new ones for problems no existing issue covers.
-2. Write ONE holistic PR REPORT (Markdown prose) that tells the reviewer what this PR does and what the run found - open bugs first (the headline), then environment/scenario/coverage color, then a brief note on any self-heals. Lead with the LATEST job; make it cumulative using the prior reports.
+2. Write ONE holistic PR REPORT (Markdown prose) that tells the reviewer how much confidence this run earned: what we verified, what we could not, and what breaks. Lead with the LATEST job; make it cumulative using the prior reports.
 
 # You are a SYNTHESIZER, not an investigator.
 Never open or carry an issue without a finding to back it - every issue must cover at least one of THIS job's finding slugs. The findings already carry the verdict and evidence; your tools only ENRICH a finding-backed issue (ground its cause, see a screenshot, read a recipe), never manufacture a new problem. Do not investigate passing tests or self-heals.
+
+# The verdict is computed, and you do not author it.
+The PR's top-line verdict (BUG FOUND / NOT CONFIRMED / HEALTHY / NO TESTS AFFECTED) and its headline are derived from counts before you run, and every surface renders them. You are given that verdict as a hard constraint. Your prose must agree with it and may never soften it: a run that did not fully exercise the change is NOT CONFIRMED, so on one of those never call the change safe, verified, clean, or good to merge, and never say we found no issues. "No bug" is not "verified".
+
+# Every coverage gap belongs to one side, and you place it.
+THEIR side: the seeded test data (\`scenario_issue\`), and an \`environment_failure\` that traces to something they control - a missing feature flag, SDK key, or migration, a preview that lacks required configuration, an unimplemented scenario-setup endpoint. It blocks every future run until they fix it, so say what to fix.
+OUR side: \`engine_artifact\` (our harness flaked, crashed, or timed out), \`plan_mismatch\` (our rewrite could not stabilize the test), and an \`environment_failure\` that traces to our platform - a preview hostname that does not resolve, a preview that never came up, our own provisioning failing.
+An \`environment_failure\` carries no owner field: read its "What happened" to decide which side it is on. Then PLACE it - open an environment/scenario issue only for a gap on THEIR side, because that is what puts it in front of them with your words as the thing to fix. Never open an issue for a gap on ours; report it as coverage color in the report instead. Structure the report's coverage section the same way, and never ask the reader to fix something that is ours.
 
 # Reconciliation tools (one per outcome):
 - open_issue: a NEW problem no existing issue covers.
@@ -35,7 +68,7 @@ Never open or carry an issue without a finding to back it - every issue must cov
 # Coverage guarantees (finish is rejected until all hold):
 1. Every client_bug finding this job produced is covered by some issue (open or carry-forward).
 2. Every open issue whose covering test(s) re-ran and PASSED is resolved.
-3. Every open issue whose covering test(s) re-ran and STILL FAILED is carried forward.
+3. Every open issue whose covering test(s) re-ran and hit the SAME problem again is carried forward - a bug issue when the test came back client_bug, an environment issue when it came back environment_failure, a scenario issue when it came back scenario_issue. Carrying forward is also what attributes this run's finding to the issue, which is what keeps an environment or scenario gap on THEIR side of the report instead of ours - so a recurrence you leave untouched reads as our problem.
 Handle each existing issue at most once.
 
 # Investigate with the tools - targeted, not exhaustive.
@@ -44,7 +77,7 @@ Handle each existing issue at most once.
 - fetch_evidence: fetch a finding's screenshot to see what the app actually looked like. Only a screenshot you fetch can be embedded (\`![caption](evidence:<assetId>)\`) or set as an issue's hero; an id you never fetched renders as nothing.
 
 # Issue fields.
-- kind: \`bug\` (the app misbehaves), \`environment\` (a preview key/flag/service is wrong), or \`scenario\` (the seeded data/auth is missing or wrong).
+- kind: \`bug\` (the app misbehaves), \`environment\` (a preview key/flag/service they control is wrong), or \`scenario\` (the seeded data/auth is missing or wrong). All three are theirs to fix - a fault of ours is never an issue.
 - severity: your call for a real user (critical/high/medium/low).
 - expected/actual + a narrative that walks the reader through what happened and why it is wrong, grounded in the evidence you inspected.
 - primaryFindingSlug: of the slugs this issue covers, the ONE whose run demonstrates the problem most directly. A reader is sent to that run to watch it happen, so choose on clarity of the reproduction - not list order, and not the test with the longest trace.
@@ -53,7 +86,7 @@ Handle each existing issue at most once.
 
 # finish takes TWO pieces of prose, for two different readers.
 - reportMarkdown: the full report, read on a web page that renders Markdown and resolves your inline tokens.
-- summary: the same verdict in ONE to THREE sentences of plain prose, for a GitHub PR comment and a one-line page subtitle. Those surfaces render neither Markdown blocks nor our tokens, so headings, bullets, links and \`evidence:\`/\`issue:\`/\`finding:\` references are flattened out of it - write it as prose that stands alone. Lead with whether the app misbehaved and what breaks for a user.
+- summary: the same verdict in ONE to THREE sentences of plain prose, for a GitHub PR comment and a one-line page subtitle. Those surfaces render neither Markdown blocks nor our tokens, so headings, bullets, links and \`evidence:\`/\`issue:\`/\`finding:\` references are flattened out of it - write it as prose that stands alone. Lead with the confidence story the given verdict states: what breaks for a user, what we could not confirm and why, or what we did verify.
 
 # Self-heals are color, never an issue.
 When a finding was reached after a self-heal (the Investigator rewrote the plan and re-ran the test), that is retry context - mention it briefly in the report if useful, but never open an issue for it. Findings, not fix mechanics, are the source of truth.`;
@@ -62,6 +95,7 @@ When a finding was reached after a self-heal (the Investigator rewrote the plan 
 export function buildReporterPrompt(input: ReporterInput): ModelMessage[] {
     const sections = [
         renderPrHeader(input),
+        renderVerdictReality(input),
         renderImpactReasoning(input.impactReasoning),
         renderFindings(input.findings),
         renderExistingIssues(input.existingIssues),
@@ -82,6 +116,89 @@ function renderPrHeader(input: ReporterInput): string {
     return lines.join("\n");
 }
 
+/**
+ * The run's verdict, computed from its counts before a word of prose exists, handed to the agent as a constraint it
+ * writes to rather than a conclusion it reaches. This is the anti-false-security guarantee on the prose side: the
+ * headline is already fixed, so the only way for a summary to read "all good" under an amber verdict is to contradict
+ * a statement sitting in its own prompt.
+ *
+ * The bug side is stated as a floor, not a count: how many bug issues end up open is what the agent's own
+ * reconciliation decides. Everything else is exact - coverage gaps are per-finding facts no reconciliation moves.
+ */
+function renderVerdictReality(input: ReporterInput): string {
+    const findings = input.findings;
+    const passedCount = findings.filter((f) => analysisFindingBucket(f.category) === "passed").length;
+    const bugFindingCount = findings.filter((f) => f.category === ANALYSIS_VERDICT.client_bug).length;
+    const gaps = findings.filter((f) => analysisVerdictPlane(f.category) === "coverage");
+    const openBugIssueCount = input.existingIssues.filter(
+        (issue) => issue.status === "open" && issue.kind === "bug",
+    ).length;
+
+    const counts: AnalysisVerdictCounts = {
+        // A floor: any live bug finding must end up covered by an issue, and an open bug issue stays open unless the
+        // agent resolves it. Either one keeps the PR red.
+        bugCount: bugFindingCount + openBugIssueCount,
+        coverageGapCount: gaps.length,
+        investigatedCount: findings.length,
+    };
+
+    const lines = [
+        "# The verdict for this run is already decided - you do not author it",
+        "Computed from counts alone, and rendered on every surface (the PR comment, the merge gate, the dashboard):",
+        `- ${findings.length} test(s) investigated this job: ${passedCount} confirmed the app, ${bugFindingCount} found a bug, ${gaps.length} check(s) did not complete${renderGapBreakdown(gaps)}.`,
+        `- Open bug issue(s) carried from earlier runs on this branch: ${openBugIssueCount}.`,
+        ...renderVerdictOutcome(counts, bugFindingCount),
+    ];
+    return lines.join("\n");
+}
+
+/** The per-category tail of the "did not complete" count, so the agent knows which gaps it has to place. */
+function renderGapBreakdown(gaps: readonly ReporterFinding[]): string {
+    if (gaps.length === 0) return "";
+    const counted = new Map<string, number>();
+    for (const gap of gaps) counted.set(gap.category, (counted.get(gap.category) ?? 0) + 1);
+    const parts = [...counted].map(([category, count]) => `${count} ${category}`);
+    return ` (${parts.join(", ")})`;
+}
+
+/**
+ * The verdict the counts land on plus the rule its prose must follow. Three shapes, because only some of them are
+ * settled before the agent runs:
+ *
+ * - a live `client_bug` finding this job: coverage guarantee 1 forces it under an issue, so BUG FOUND is final.
+ * - no bug finding, only a bug issue carried from an earlier run: guarantee 2 makes the agent RESOLVE that issue when
+ *   a covering test re-ran and passed, which flips the PR off red. Both readings are stated with the rule for each -
+ *   claiming the verdict is settled here would both mis-state the outcome and discourage a resolve the run earned.
+ * - no bug at all: exact, since coverage gaps are per-finding facts no reconciliation moves.
+ */
+function renderVerdictOutcome(counts: AnalysisVerdictCounts, bugFindingCount: number): string[] {
+    const state = deriveAnalysisVerdict(counts);
+    if (state !== "bug_found") {
+        return [
+            `Unless your reconciliation leaves a bug issue open on this branch, this PR reads ${analysisVerdictLabel(state)} and every reader sees this headline: "${analysisVerdictHeadline(counts)}"`,
+            VERDICT_PROSE_RULE[state],
+        ];
+    }
+    if (bugFindingCount > 0) {
+        return [
+            "This PR therefore reads BUG FOUND (red): a test found a bug this job, and every live bug finding ends up under an issue, so the app-health verdict is settled.",
+            VERDICT_PROSE_RULE.bug_found,
+        ];
+    }
+
+    const withoutBug: AnalysisVerdictCounts = {
+        bugCount: 0,
+        coverageGapCount: counts.coverageGapCount,
+        investigatedCount: counts.investigatedCount,
+    };
+    const resolvedState = deriveAnalysisVerdict(withoutBug);
+    return [
+        `No test found a bug this job, so this one is yours to settle: leave the carried bug issue(s) open and the PR reads BUG FOUND (red); resolve them - which a covering test that re-ran and PASSED requires of you - and it reads ${analysisVerdictLabel(resolvedState)}, headline: "${analysisVerdictHeadline(withoutBug)}"`,
+        `If it stays red: ${VERDICT_PROSE_RULE.bug_found}`,
+        `If you resolve it: ${VERDICT_PROSE_RULE[resolvedState]}`,
+    ];
+}
+
 function renderImpactReasoning(impactReasoning: string | undefined): string {
     if (impactReasoning == null || impactReasoning.trim().length === 0) return "";
     return `# Why these tests were selected\n${impactReasoning.trim()}`;
@@ -96,6 +213,8 @@ function renderFinding(finding: ReporterFinding): string {
     const lines = [`## ${finding.slug} - ${finding.category}`, finding.headline];
     if (finding.expectedBehavior != null) lines.push(`Expected: ${finding.expectedBehavior}`);
     if (finding.actualBehavior != null) lines.push(`Actual: ${finding.actualBehavior}`);
+    // The coverage plane's account of the fault - and the only place an environment_failure's OWNER is readable.
+    if (finding.whatHappened != null) lines.push(`What happened: ${finding.whatHappened}`);
     if (finding.observedAppIssues != null) lines.push(`Observed app issues: ${finding.observedAppIssues}`);
     if (finding.falsePositiveRisk != null) lines.push(`False-positive risk: ${finding.falsePositiveRisk}`);
     if (finding.selfHealed) {

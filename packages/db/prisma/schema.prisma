@@ -2813,8 +2813,10 @@ model AnalysisFinding {
   selectionReason String? @map("selection_reason") @db.Text
 
   /// The branch-scoped AnalysisIssue this finding is attributed to, backfilled by the Reporter after it authors
-  /// the issues. Nullable - a passing or coverage-plane finding has no issue, and findings written before the
-  /// Reporter have none; SetNull so deleting an issue orphans its findings rather than cascading them away.
+  /// the issues. Nullable - a passing finding has no issue, a coverage-plane finding has one only when the gap is
+  /// the reader's to fix (which is how an environment_failure's OWNER is recorded, the PR comment reading its side
+  /// off this attribution), and findings written before the Reporter have none; SetNull so deleting an issue
+  /// orphans its findings rather than cascading them away.
   issueId String?        @map("issue_id")
   issue   AnalysisIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
 

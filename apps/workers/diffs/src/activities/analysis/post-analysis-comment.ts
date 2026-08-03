@@ -25,10 +25,11 @@ const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
  * Post (or update in place) the authoritative analysis run's PR comment, through the shared comment system - the
  * same renderer the diffs/investigation comments use, and the DB-store updater that keeps exactly one comment per
  * `(repo, pr, analysis)`, so a re-run replaces its previous comment rather than spamming a new one. The bug cards
- * deep-link to the branch-scoped issue-detail pages (stable across snapshots), not the per-snapshot findings, and the
- * comment carries a coding-agent handoff: a paste-ready brief, prefilled "open in <agent>" deep-links, and the
- * `get_analysis` MCP call that serves the same issues live without a login. Signed S3 report URLs are never posted
- * (they carry a token) - the comment links the in-app view; only media rides as short-lived signed URLs.
+ * deep-link to the branch-scoped issue-detail pages (stable across snapshots), not the per-snapshot findings; the
+ * body groups the run's coverage gaps by owner (what the reader must fix, then what is ours); and the comment carries
+ * a coding-agent handoff: a paste-ready brief, prefilled "open in <agent>" deep-links, and the `get_analysis` MCP
+ * call that serves the same issues live without a login. Signed S3 report URLs are never posted (they carry a token)
+ * - the comment links the in-app view; only media rides as short-lived signed URLs.
  *
  * `ANALYSIS_PR_COMMENT_ENABLED` is a kill switch, on by default.
  */
@@ -91,6 +92,8 @@ export async function postAnalysisComment({
             testCount: report.testCount,
             bugIssues: report.bugIssues,
             coverage: report.coverage,
+            clientEnvironmentFailures: report.clientEnvironmentFailures,
+            coverageIssues: report.coverageIssues,
             mergeGateBlocking,
             summary: report.summary,
         },

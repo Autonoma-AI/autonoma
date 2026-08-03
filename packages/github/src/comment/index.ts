@@ -11,6 +11,7 @@ export type {
     AutonomaCommentCta,
     AutonomaCommentEvidence,
     AutonomaCommentHandoff,
+    AutonomaCommentNote,
     AutonomaCommentPayload,
     AutonomaCommentService,
     AutonomaCommentState,

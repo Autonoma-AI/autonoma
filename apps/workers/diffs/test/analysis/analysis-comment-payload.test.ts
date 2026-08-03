@@ -167,28 +167,100 @@ describe("buildAnalysisCommentPayload", () => {
         expect(payload.bugs[0]?.evidence).toEqual([]);
     });
 
-    it("summarizes the coverage plane on one line, per category", async () => {
+    it("splits the coverage gaps by owner: what the reader must fix, then what is ours", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 7,
-                bugIssues: [bugIssue()],
+                testCount: 9,
+                bugIssues: [],
                 coverage: {
                     byCategory: [
+                        { category: "scenario_issue", count: 2 },
                         { category: "engine_artifact", count: 2 },
-                        { category: "environment_failure", count: 1 },
-                        { category: "plan_mismatch", count: 3 },
+                        { category: "environment_failure", count: 3 },
+                        { category: "plan_mismatch", count: 1 },
                     ],
-                    total: 6,
+                    total: 8,
                 },
+                // Of the three env gaps, the Reporter traced one to configuration the reader owns.
+                clientEnvironmentFailures: 1,
+                coverageIssues: [{ id: "issue_coupon_scenario", title: "Checkout scenario seeds no coupon codes" }],
             },
             context,
             sign,
         );
 
-        expect(payload.warnings).toEqual(["2 engine artifacts · 1 environment failure · 3 unresolved tests"]);
+        const attention = payload.notes.find((note) => note.tone === "attention");
+        expect(attention?.heading).toBe("⚠️ Needs your attention");
+        expect(attention?.items).toEqual([
+            "2 scenario issues - the test data these flows need was not seeded, so they never ran.",
+            "1 environment failure - the preview could not be exercised with the configuration it has.",
+        ]);
+        // The why-it-matters line: a setup gap outlives the run it was found in.
+        expect(attention?.lines[0]).toContain("block every future run on this branch");
+        // What to fix comes from the issue the Reporter filed, deep-linked to its detail page.
+        expect(attention?.links).toEqual([
+            {
+                label: "Checkout scenario seeds no coupon codes",
+                href: "https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_coupon_scenario",
+            },
+        ]);
+
+        const ours = payload.notes.find((note) => note.tone === "quiet");
+        expect(ours?.heading).toBe("On our side");
+        expect(ours?.items).toEqual([
+            "2 engine artifacts - our runner could not complete these checks.",
+            // The two env gaps the Reporter did not place on the reader read as ours, in our words.
+            "2 environment failures - the preview environment was not reachable when we ran.",
+            "1 unresolved test - the app rendered correctly, but the test's plan no longer matches it and our rewrite could not stabilize it.",
+        ]);
+        expect(ours?.lines[0]).toContain("Nothing here is yours to fix.");
+        // A kept plan_mismatch might be a defect we misdiagnosed, so it is never silently ours.
+        expect(ours?.lines[0]).toContain("Worth a glance");
+        expect(ours?.links).toEqual([]);
     });
 
-    it("is HEALTHY with no cards, summary, or coverage line on a clean pass", async () => {
+    it("keeps an unplaced environment failure on our side rather than nagging the reader about it", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            {
+                testCount: 2,
+                bugIssues: [],
+                coverage: { byCategory: [{ category: "environment_failure", count: 2 }], total: 2 },
+            },
+            context,
+            sign,
+        );
+
+        expect(payload.notes.map((note) => note.tone)).toEqual(["quiet"]);
+        expect(payload.notes[0]?.items).toEqual([
+            "2 environment failures - the preview environment was not reachable when we ran.",
+        ]);
+    });
+
+    it("reports removed invalid tests as one quiet line, in neither owner's block", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            {
+                testCount: 4,
+                bugIssues: [],
+                coverage: { byCategory: [{ category: "invalid_test", count: 2 }], total: 2 },
+            },
+            context,
+            sign,
+        );
+
+        // Not a problem to chase: no heading, no owner, one sentence.
+        expect(payload.notes).toEqual([
+            {
+                tone: "quiet",
+                items: [],
+                lines: [
+                    "2 invalid tests removed - they covered something the app contradicts, so they will not run again.",
+                ],
+                links: [],
+            },
+        ]);
+    });
+
+    it("is HEALTHY with no cards, summary, or body blocks on a clean pass", async () => {
         const payload = await buildAnalysisCommentPayload({ testCount: 3, bugIssues: [] }, context, sign);
 
         expect(payload.state).toBe("healthy");
@@ -196,6 +268,7 @@ describe("buildAnalysisCommentPayload", () => {
         expect(payload.headline).toBe("Autonoma verified this change - the app held up.");
         expect(payload.summary).toBeUndefined();
         expect(payload.bugs).toEqual([]);
+        expect(payload.notes).toEqual([]);
         expect(payload.warnings).toEqual([]);
     });
 
@@ -217,7 +290,9 @@ describe("buildAnalysisCommentPayload", () => {
         expect(payload.state).toBe("warning");
         expect(payload.stateLabel).toBe("NOT CONFIRMED");
         expect(payload.headline).toBe("Autonoma couldn't confirm this change - 1 check didn't complete.");
-        expect(payload.warnings).toEqual(["1 scenario issue"]);
+        expect(payload.notes[0]?.items).toEqual([
+            "1 scenario issue - the test data these flows need was not seeded, so they never ran.",
+        ]);
     });
 
     it("is NO TESTS AFFECTED when nothing was selected to run against the diff", async () => {
@@ -280,24 +355,39 @@ describe("buildAnalysisCommentPayload", () => {
         expect(payload.summary).toBe("The app misbehaved.");
     });
 
-    it("renders the summary and coverage line into the shared markdown", async () => {
+    it("renders the summary and both owner blocks into the shared markdown, quieting only ours", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
                 testCount: 5,
                 bugIssues: [],
                 coverage: {
-                    byCategory: [{ category: "plan_mismatch", count: 3 }],
-                    total: 3,
+                    byCategory: [
+                        { category: "scenario_issue", count: 1 },
+                        { category: "plan_mismatch", count: 3 },
+                    ],
+                    total: 4,
                 },
-                summary: "No app issues; three tests could not be stabilized.",
+                coverageIssues: [{ id: "issue_seed", title: "Orders scenario seeds no paid invoice" }],
+                summary: "One flow never ran for want of seeded data; three tests could not be stabilized.",
             },
             context,
             sign,
         );
         const body = renderMarkdown(payload);
 
-        expect(body).toContain("No app issues; three tests could not be stabilized.");
-        expect(body).toContain("3 unresolved tests");
+        // An amber run has no cards, so the title has to name the outcome rather than fall back to a neutral one.
+        expect(body).toContain("## 🟡 Autonoma couldn't confirm this PR");
+        expect(body).toContain("One flow never ran for want of seeded data; three tests could not be stabilized.");
+        // The reader's block is a plain, visible section with a real bullet list...
+        expect(body).toContain("**⚠️ Needs your attention**");
+        expect(body).toContain("- 1 scenario issue - the test data these flows need was not seeded");
+        expect(body).toContain(
+            "- [Orders scenario seeds no paid invoice](<https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_seed>)",
+        );
+        // ...while ours is blockquoted, so it reads as reported rather than requested.
+        expect(body).toContain("> **On our side**");
+        expect(body).toContain("> - 3 unresolved tests - the app rendered correctly");
+        expect(body).toContain("> Nothing here is yours to fix.");
     });
 
     it("points the visible preview CTA at the front door and keeps the raw URL for machines", async () => {

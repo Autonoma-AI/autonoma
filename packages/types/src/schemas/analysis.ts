@@ -114,6 +114,39 @@ export const coverageVerdicts: AnalysisVerdict[] = analysisVerdictSchema.options
 );
 
 /**
+ * Which side must act on a coverage-plane gap. Fault never moves the PR's top-line verdict (that stays purely
+ * confidence-driven), so this decides only WHERE a gap is reported: what only the reader can fix is asked of them,
+ * and what is ours is reported without asking anything of them.
+ *
+ * - `client`: their test data or their preview configuration - a mis-seeded scenario, a missing feature flag, SDK
+ *   key, or migration. It blocks every future run on the branch until it is fixed, not just the current one.
+ * - `autonoma`: our harness or our infrastructure.
+ * - `undecided`: `environment_failure` only. A preview we could not exercise can be either side, and the taxonomy
+ *   deliberately carries no owner field for it - the Reporter resolves it per finding from what happened, and the
+ *   caller places it from that.
+ * - `none`: nothing for anyone to chase - an `invalid_test` is a deliberate, evidence-backed removal, and the
+ *   app-health verdicts are not coverage gaps at all.
+ */
+export type AnalysisCoverageOwner = "client" | "autonoma" | "undecided" | "none";
+
+/** A `Record` over the verdict SSOT, so a new verdict is a compile error here until it is given an owner. */
+const COVERAGE_OWNER: Record<AnalysisVerdict, AnalysisCoverageOwner> = {
+    scenario_issue: "client",
+    environment_failure: "undecided",
+    engine_artifact: "autonoma",
+    plan_mismatch: "autonoma",
+    invalid_test: "none",
+    client_bug: "none",
+    passed: "none",
+};
+
+/** The side that must act on a coverage gap. An unknown stored value is nobody's to chase, so it reads `none`. */
+export function analysisCoverageOwner(category: string): AnalysisCoverageOwner {
+    const parsed = analysisVerdictSchema.safeParse(category);
+    return parsed.success ? COVERAGE_OWNER[parsed.data] : "none";
+}
+
+/**
  * The bucket a finding is COUNTED in - the three the checkpoint reports. Coarser than the tier on purpose:
  * `needs_review` is non-blocking, so it counts as coverage even though it is presented on its own.
  */

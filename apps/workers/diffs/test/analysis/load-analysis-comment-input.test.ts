@@ -147,6 +147,63 @@ class CommentInputHarness implements IntegrationHarness {
         return snapshot.id;
     }
 
+    /**
+     * One coverage-plane finding on the newest run, optionally attributed to a branch issue of `issueKind` - which is
+     * how the Reporter places an `environment_failure` on the reader's side rather than ours.
+     */
+    async seedCoverageFinding(
+        branch: SeededBranch,
+        options: {
+            slug: string;
+            category: string;
+            issueKind?: string;
+            issueTitle?: string;
+            issueStatus?: string;
+            issueSeverity?: string;
+        },
+    ): Promise<void> {
+        const { testCaseId, generationId } = await seedGenerationForSlug(this.db, {
+            applicationId: branch.applicationId,
+            organizationId: branch.organizationId,
+            snapshotId: branch.snapshotId,
+            slug: options.slug,
+        });
+        const issueId =
+            options.issueKind == null
+                ? undefined
+                : (
+                      await this.db.analysisIssue.create({
+                          data: {
+                              branchId: branch.branchId,
+                              organizationId: branch.organizationId,
+                              title: options.issueTitle ?? `${options.slug} issue`,
+                              kind: options.issueKind,
+                              severity: options.issueSeverity ?? "high",
+                              status: options.issueStatus ?? "open",
+                              actualBehavior: "The flow never ran.",
+                              narrativeMarkdown: "narrative",
+                          },
+                      })
+                  ).id;
+        const finding = await this.db.analysisFinding.create({
+            data: { reportSnapshotId: branch.snapshotId, organizationId: branch.organizationId, testCaseId, issueId },
+        });
+        const classification = await this.db.analysisClassification.create({
+            data: {
+                findingId: finding.id,
+                number: 1,
+                organizationId: branch.organizationId,
+                generationId,
+                category: options.category,
+                headline: `${options.slug} headline`,
+            },
+        });
+        await this.db.analysisFinding.update({
+            where: { id: finding.id },
+            data: { currentClassificationId: classification.id },
+        });
+    }
+
     /** An open bug issue covering both runs' `checkout` findings (and this branch's `cart` findings). */
     async seedIssue(branch: SeededBranch, options: SeedIssueOptions = {}): Promise<string> {
         const issue = await this.db.analysisIssue.create({
@@ -256,6 +313,73 @@ integrationTestSuite({
             const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
             expect(loaded?.bugIssues).toEqual([]);
+        });
+
+        test("places an env gap on the reader's side only when the Reporter filed an issue for it", async ({
+            harness,
+        }) => {
+            const branch = await harness.seedBranch();
+            // Their configuration: the Reporter opened an environment issue naming what to fix.
+            await harness.seedCoverageFinding(branch, {
+                slug: "invoices",
+                category: "environment_failure",
+                issueKind: "environment",
+                issueTitle: "Preview is missing the Firestore index invoices need",
+            });
+            // Ours: a preview that never came up, so no issue was filed and nothing is asked of them.
+            await harness.seedCoverageFinding(branch, { slug: "reports", category: "environment_failure" });
+            // Theirs by taxonomy, and the Reporter's scenario issue says what to seed.
+            await harness.seedCoverageFinding(branch, {
+                slug: "coupons",
+                category: "scenario_issue",
+                issueKind: "scenario",
+                issueTitle: "Checkout scenario seeds no coupon codes",
+            });
+
+            const loaded = await loadAnalysisCommentInput(branch.snapshotId);
+
+            expect(loaded?.clientEnvironmentFailures).toBe(1);
+            // Same severity, so they hold the query's slug order: `coupons` before `invoices`.
+            expect(loaded?.coverageIssues.map((issue) => issue.title)).toEqual([
+                "Checkout scenario seeds no coupon codes",
+                "Preview is missing the Firestore index invoices need",
+            ]);
+        });
+
+        test("keeps an env gap on the reader's side when its issue's severity is malformed", async ({ harness }) => {
+            const branch = await harness.seedBranch();
+            await harness.seedCoverageFinding(branch, {
+                slug: "invoices",
+                category: "environment_failure",
+                issueKind: "environment",
+                issueTitle: "Preview is missing the Firestore index invoices need",
+                issueSeverity: "catastrophic",
+            });
+
+            const loaded = await loadAnalysisCommentInput(branch.snapshotId);
+
+            // Severity only decides where the issue sorts; dropping the row would silently move the gap to our side.
+            expect(loaded?.clientEnvironmentFailures).toBe(1);
+            expect(loaded?.coverageIssues.map((issue) => issue.title)).toEqual([
+                "Preview is missing the Firestore index invoices need",
+            ]);
+        });
+
+        test("ignores a resolved coverage issue, so a fixed gap stops being asked of the reader", async ({
+            harness,
+        }) => {
+            const branch = await harness.seedBranch();
+            await harness.seedCoverageFinding(branch, {
+                slug: "invoices",
+                category: "environment_failure",
+                issueKind: "environment",
+                issueStatus: "resolved",
+            });
+
+            const loaded = await loadAnalysisCommentInput(branch.snapshotId);
+
+            expect(loaded?.clientEnvironmentFailures).toBe(0);
+            expect(loaded?.coverageIssues).toEqual([]);
         });
 
         test("returns undefined for a snapshot with no report", async ({ harness }) => {

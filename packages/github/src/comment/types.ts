@@ -54,6 +54,25 @@ export const AutonomaCommentBugSchema = z.object({
 });
 export type AutonomaCommentBug = z.infer<typeof AutonomaCommentBugSchema>;
 
+/**
+ * One grouped block of the comment body - how the analysis comment partitions its coverage gaps by OWNER: a visible
+ * "needs your attention" block for gaps only the reader can fix, and a quiet one for gaps that are ours. The copy is
+ * ours (never LLM-authored); `links` carry the issues a block is about.
+ */
+export const AutonomaCommentNoteSchema = z.object({
+    /** `attention` renders as a visible bold-headed block; `quiet` renders as an unobtrusive blockquote. */
+    tone: z.enum(["attention", "quiet"]),
+    /** The block's bold heading. Absent on a standalone quiet line, which is a sentence and nothing more. */
+    heading: z.string().optional(),
+    /** What the block is about, one tight bullet per entry. */
+    items: z.array(z.string()).default([]),
+    /** Closing paragraphs under the bullets: why the block matters, and any lead-in for `links`. */
+    lines: z.array(z.string()).default([]),
+    /** Links rendered as a bullet list under the prose - the issues behind the block. */
+    links: z.array(AutonomaCommentCtaSchema).default([]),
+});
+export type AutonomaCommentNote = z.infer<typeof AutonomaCommentNoteSchema>;
+
 export const AutonomaCommentServiceSchema = z.object({
     name: z.string(),
     status: z.enum(["ready", "failed", "building", "skipped", "unknown"]),
@@ -114,6 +133,11 @@ export const AutonomaCommentPayloadSchema = z.object({
     ctas: z.array(AutonomaCommentCtaSchema).default([]),
     services: z.array(AutonomaCommentServiceSchema).default([]),
     bugs: z.array(AutonomaCommentBugSchema).default([]),
+    /**
+     * Owner-grouped body blocks, rendered under the bug cards (the analysis comment): what the reader must fix, then
+     * what is ours to chase. Empty on every other comment kind, which carries its coverage caveats in `warnings`.
+     */
+    notes: z.array(AutonomaCommentNoteSchema).default([]),
     warnings: z.array(z.string()).default([]),
     details: z.array(z.object({ summary: z.string(), body: z.string() })).default([]),
     handoff: AutonomaCommentHandoffSchema.optional(),

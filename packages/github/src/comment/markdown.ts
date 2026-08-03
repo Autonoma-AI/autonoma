@@ -3,6 +3,7 @@ import type {
     AutonomaCommentBug,
     AutonomaCommentEvidence,
     AutonomaCommentHandoff,
+    AutonomaCommentNote,
     AutonomaCommentPayload,
     AutonomaCommentState,
     AutonomaCommentStats,
@@ -87,6 +88,10 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
         sections.push("", ...(rich ? [] : ["**Top issues**"]), renderBugList(payload));
     }
 
+    // The owner-grouped blocks sit between the bugs and the CTAs: what breaks, then what we could not confirm and
+    // whose it is to fix, then where to go next.
+    for (const note of payload.notes) sections.push("", renderNote(note));
+
     if (payload.ctas.length > 0) sections.push("", renderCtas(payload));
 
     if (payload.commitRef != null && payload.commitRef !== "") {
@@ -126,6 +131,28 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
     if (payload.handoff != null) sections.push("", renderHandoff(payload.handoff));
 
     return sections.join("\n");
+}
+
+/**
+ * One owner-grouped block. An `attention` block renders plainly, so it reads at the same weight as the bug cards
+ * above it; a `quiet` block is wrapped in a blockquote (the same understated treatment as the note under `warnings`),
+ * because it reports something the reader is not being asked to act on.
+ */
+function renderNote(note: AutonomaCommentNote): string {
+    const blocks: string[] = [];
+    if (note.heading != null && note.heading !== "") blocks.push(`**${escapeMarkdown(note.heading)}**`);
+    if (note.items.length > 0) blocks.push(note.items.map((item) => `- ${escapeMarkdown(item)}`).join("\n"));
+    for (const line of note.lines) blocks.push(escapeMarkdown(line));
+    if (note.links.length > 0) {
+        blocks.push(note.links.map((link) => `- ${renderTextLink(link.label, link.href)}`).join("\n"));
+    }
+    const body = blocks.join("\n\n");
+    if (note.tone === "attention") return body;
+    // A bare ">" on the blank lines, or markdown would fold the paragraphs into one.
+    return body
+        .split("\n")
+        .map((line) => (line === "" ? ">" : `> ${line}`))
+        .join("\n");
 }
 
 // Marker the machine-readable block is keyed by, so an agent can find the raw
@@ -178,6 +205,10 @@ function renderTitle(payload: AutonomaCommentPayload): string {
     if (rich && payload.state === "warning" && counts.warnings > 0) {
         return `Autonoma raised \`${counts.warnings} ${counts.warnings === 1 ? "warning" : "warnings"}\` in this PR`;
     }
+    // Amber with its gaps in owner-grouped body blocks rather than bug rows - the analysis comment's NOT CONFIRMED.
+    // The generic PR title would read as neutral, so name the outcome. Keyed on `notes`, which only that comment
+    // populates, so a comment kind whose warnings are rows keeps its own title even if none of them render rich.
+    if (payload.state === "warning" && payload.notes.length > 0) return "Autonoma couldn't confirm this PR";
     // Only engine artifacts surfaced: the flows never ran, so we can't claim "no issues" - we didn't finish testing.
     if (payload.state === "incomplete") return "Autonoma couldn't fully test this PR";
     // A developer chose to bypass the merge gate; the title names the outcome, the headline names who + why.

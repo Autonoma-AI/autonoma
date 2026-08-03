@@ -1,6 +1,23 @@
-import { analysisFindingBucket } from "@autonoma/types";
+import { ANALYSIS_VERDICT, type AnalysisIssueKind, type AnalysisVerdict, analysisFindingBucket } from "@autonoma/types";
 import type { RecordedIssueAction } from "./issue-actions";
 import type { ReporterExistingIssue, ReporterFinding } from "./types";
+
+/**
+ * The finding category whose recurrence proves an open issue of each kind is STILL PRESENT - what "still failed"
+ * means per class. A `Record` over the issue-kind SSOT, so a new kind is a compile error until recurrence is defined
+ * for it.
+ *
+ * It has to be per kind, not per plane: an environment or scenario issue whose covering test hit the same fault again
+ * is neither a bug (no carry-forward requirement) nor a pass (no resolve requirement), so a bug-only test would let
+ * the agent leave it untouched. Carrying forward is also what RE-ATTRIBUTES this run's finding to the issue, and the
+ * PR comment reads that attribution to tell an environment gap the reader must fix from one that is ours - so a lapse
+ * here moves a live configuration gap into "nothing here is yours to fix".
+ */
+const RECURRENCE_CATEGORY: Record<AnalysisIssueKind, AnalysisVerdict> = {
+    bug: ANALYSIS_VERDICT.client_bug,
+    environment: ANALYSIS_VERDICT.environment_failure,
+    scenario: ANALYSIS_VERDICT.scenario_issue,
+};
 
 /**
  * The three structural coverage guarantees the Reporter must satisfy before it may finish. They keep the LLM's
@@ -13,7 +30,10 @@ export interface CoverageViolations {
     uncoveredBugSlugs: string[];
     /** (2) Open issues whose covering test(s) re-ran and passed, but which were not resolved. */
     unresolvedPassedIssueIds: string[];
-    /** (3) Open issues whose covering test(s) re-ran and still failed, but which were not carried forward. */
+    /**
+     * (3) Open issues whose covering test(s) re-ran and hit the SAME problem again (see {@link RECURRENCE_CATEGORY}),
+     * but which were not carried forward.
+     */
     uncarriedFailingIssueIds: string[];
 }
 
@@ -30,6 +50,10 @@ export function hasCoverageViolations(v: CoverageViolations): boolean {
  * A covering test that "ran + passed" and one that "ran + still-failed" are mutually exclusive by construction:
  * a still-failing covering test forces carry-forward (check 3) and suppresses the resolve requirement (check 2),
  * so an issue whose covering tests are split (one passed, one still failing) is carried forward, never resolved.
+ *
+ * "Still failed" is per issue KIND, not per plane: a covering test that came back with a DIFFERENT fault than the one
+ * the issue is about (an engine artifact where an environment issue was) is neither recurrence nor proof it is gone,
+ * so it leaves the issue alone.
  */
 export function computeCoverageViolations(
     findings: readonly ReporterFinding[],
@@ -37,6 +61,8 @@ export function computeCoverageViolations(
     actions: readonly RecordedIssueAction[],
 ): CoverageViolations {
     const bucketBySlug = new Map(findings.map((f) => [f.slug, analysisFindingBucket(f.category)]));
+    // Recurrence is an exact-category question (per issue kind), not a bucket one, so it needs the raw verdicts.
+    const categoryBySlug = new Map(findings.map((f) => [f.slug, f.category]));
 
     const coveredSlugs = new Set<string>();
     const carriedForwardIds = new Set<string>();
@@ -58,7 +84,8 @@ export function computeCoverageViolations(
     for (const issue of existingIssues) {
         if (issue.status !== "open") continue;
         const coveringRan = issue.findingSlugs.filter((slug) => bucketBySlug.has(slug));
-        const stillFailing = coveringRan.some((slug) => bucketBySlug.get(slug) === "bug");
+        const recurred = RECURRENCE_CATEGORY[issue.kind];
+        const stillFailing = coveringRan.some((slug) => categoryBySlug.get(slug) === recurred);
         const passed = coveringRan.some((slug) => bucketBySlug.get(slug) === "passed");
 
         if (stillFailing) {

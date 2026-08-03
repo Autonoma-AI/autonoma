@@ -22,6 +22,8 @@ export function payloadBuilder(input: PayloadBuilderInput): AutonomaCommentPaylo
         ctas: buildCtas(input),
         services,
         bugs,
+        // Owner-grouped blocks are the analysis comment's own body shape; the comments built here carry none.
+        notes: [],
         warnings: input.warnings ?? [],
         details: input.details ?? buildServiceErrorDetails(services),
         previewUrls: input.previewUrls ?? [],

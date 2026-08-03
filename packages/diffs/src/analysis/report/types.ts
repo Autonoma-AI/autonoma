@@ -65,6 +65,12 @@ export interface ReporterFinding {
     headline: string;
     expectedBehavior?: string;
     actualBehavior?: string;
+    /**
+     * The coverage plane's account of what went wrong, in place of expected/actual (which only the app-health
+     * verdicts carry). This is what an `environment_failure` is placed by: whether it traces to the reader's
+     * configuration or to our own infrastructure is readable here and nowhere else.
+     */
+    whatHappened?: string;
     /** Whether the Investigator rewrote this test's plan and re-ran it before reaching this verdict - true when
      * the test was classified more than once (a retry-context signal, never an issue of its own). */
     selfHealed: boolean;

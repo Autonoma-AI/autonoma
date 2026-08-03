@@ -5,14 +5,17 @@ import type {
     AutonomaCommentCta,
     AutonomaCommentEvidence,
     AutonomaCommentHandoff,
+    AutonomaCommentNote,
     AutonomaCommentPayload,
     AutonomaCommentState,
 } from "@autonoma/github/comment";
 import {
+    ANALYSIS_VERDICT,
     type AnalysisVerdict,
     type AnalysisVerdictState,
     type CoverageSummary,
     type SuspectedCause,
+    analysisCoverageOwner,
     analysisVerdictHeadline,
     analysisVerdictLabel,
     buildAnalysisFindingUrl,
@@ -40,7 +43,7 @@ const MERGE_GATE_SKIP_CALLOUT =
 
 /**
  * A human noun for each verdict, keyed over the SSOT enum so a new verdict is a compile error until it is given
- * copy. Only the coverage-plane categories ever surface in the coverage line; the app-health entries exist to keep
+ * copy. Only the coverage-plane categories ever surface in the body blocks; the app-health entries exist to keep
  * the record exhaustive.
  */
 const COVERAGE_CATEGORY_NOUN: Record<AnalysisVerdict, string> = {
@@ -52,6 +55,48 @@ const COVERAGE_CATEGORY_NOUN: Record<AnalysisVerdict, string> = {
     plan_mismatch: "unresolved test",
     invalid_test: "invalid test",
 };
+
+/**
+ * What each coverage gap means for the reader, appended to its count. Keyed over the SSOT so a new verdict is a
+ * compile error until it has copy; the app-health entries never render (they are not coverage gaps).
+ * `environment_failure` reads differently depending on whose it is, so its client-side wording lives here and its
+ * infra-side wording in {@link OUR_ENVIRONMENT_EXPLANATION}.
+ */
+const COVERAGE_CATEGORY_EXPLANATION: Record<AnalysisVerdict, string> = {
+    client_bug: "the app misbehaved",
+    passed: "the app held up",
+    scenario_issue: "the test data these flows need was not seeded, so they never ran",
+    environment_failure: "the preview could not be exercised with the configuration it has",
+    engine_artifact: "our runner could not complete these checks",
+    plan_mismatch:
+        "the app rendered correctly, but the test's plan no longer matches it and our rewrite could not stabilize it",
+    // Never rendered as a gap: a removal is reported on its own quiet line, not asked of either side.
+    invalid_test: "the test's premise is impossible, so it was removed",
+};
+
+/** An `environment_failure` on our side: the preview infrastructure, not the reader's configuration. */
+const OUR_ENVIRONMENT_EXPLANATION = "the preview environment was not reachable when we ran";
+
+/** The visible block: gaps only the reader can fix, and why they matter beyond this run. */
+const ATTENTION_HEADING = "⚠️ Needs your attention";
+const ATTENTION_WHY =
+    "These are setup gaps, not app bugs - but they block every future run on this branch until they are fixed, not just this one.";
+/** Lead-in for the issues behind the gaps, each carrying the Reporter's account of what to fix. */
+const ATTENTION_ISSUES_LEAD = "What to fix:";
+
+/** The quiet block: gaps that are ours. Reported so the reader knows what was skipped, never asked of them. */
+const OUR_SIDE_HEADING = "On our side";
+const OUR_SIDE_WHY = "Nothing here is yours to fix.";
+
+/**
+ * The one gap in the quiet block that still deserves a human eye: a `plan_mismatch` is kept rather than removed
+ * precisely because it might be a real defect the classifier misdiagnosed.
+ */
+const PLAN_MISMATCH_NOTE = "Worth a glance: an unresolved test can be a real defect we misdiagnosed.";
+
+/** The removal line, whose grammar is the only reason the two readings are separate copy. */
+const REMOVED_TEST_WHY = "it covered something the app contradicts, so it will not run again";
+const REMOVED_TESTS_WHY = "they covered something the app contradicts, so they will not run again";
 
 /** URLs + PR identifiers the comment links to. */
 export interface AnalysisCommentContext {
@@ -101,14 +146,30 @@ export interface AnalysisCommentIssue {
     suspectedCause?: SuspectedCause;
 }
 
+/** One issue behind a client-owned coverage gap: the Reporter's own words for what has to be fixed. */
+export interface AnalysisCommentCoverageIssue {
+    /** The branch-scoped issue id the issue-detail page is keyed on. */
+    id: string;
+    title: string;
+}
+
 /** The finalized run the comment summarizes - read from the persisted `AnalysisReport` + open bug `AnalysisIssue`s. */
 export interface AnalysisCommentInput {
     /** Tests that produced a terminal verdict this run; zero means nothing was exercised (no tests affected). */
     testCount: number;
     /** The branch's open bug issues, each a rich card deep-linking to its issue-detail page. */
     bugIssues: AnalysisCommentIssue[];
-    /** The coverage-confidence plane summary, rendered as one caveat line. Absent when unavailable/malformed. */
+    /** The coverage-confidence plane summary, partitioned by owner into the body blocks. Absent when malformed. */
     coverage?: CoverageSummary;
+    /**
+     * How many of this run's `environment_failure` gaps are the READER'S to fix. The taxonomy carries no owner field
+     * for them (a preview we could not exercise can be either side), so this count is the Reporter's own placement:
+     * an env gap it attributed to an open environment/scenario issue is one it judged fixable configuration. The
+     * remainder are ours. Defaults to none, which keeps an unplaced env gap on our side rather than nagging.
+     */
+    clientEnvironmentFailures?: number;
+    /** The open issues behind this run's client-owned gaps - what to fix, in the Reporter's words. */
+    coverageIssues?: AnalysisCommentCoverageIssue[];
     /** True when the merge gate is live for this org and the verdict blocks the PR; drives the skip-instruction callout. */
     mergeGateBlocking?: boolean;
     /** The Reporter's one-paragraph run summary, rendered under the headline. Absent on a pre-Reporter run. */
@@ -117,11 +178,14 @@ export interface AnalysisCommentInput {
 
 /**
  * Build the shared GitHub-comment payload for an authoritative analysis run, issues-first. Only bug issues count
- * against the PR, so they alone set the headline state (`critical` vs `healthy`) and are the only cards - each
- * deep-linking to its branch-scoped issue-detail page (stable across snapshots), fixing the old finding-key path.
- * The coverage-confidence plane never blocks - it is condensed into a single caveat line - and the Reporter's
- * one-paragraph summary rides under the headline. Reuses the shared `AutonomaCommentPayload` + `renderMarkdown`;
- * media is signed via the injected signer.
+ * against the PR, so they alone are the cards - each deep-linking to its branch-scoped issue-detail page, which is
+ * stable across snapshots. The Reporter's one-paragraph summary rides under the headline.
+ *
+ * The top-line state and headline are the deterministic PR verdict, computed from counts alone; FAULT never touches
+ * them. Fault shapes the BODY instead: the coverage-confidence plane is partitioned by owner into a visible "needs
+ * your attention" block for what only the reader can fix and a quiet "on our side" block for what is ours - so a run
+ * we could not confirm says which gaps are actionable without nagging about the ones that are not. Reuses the shared
+ * `AutonomaCommentPayload` + `renderMarkdown`; media is signed via the injected signer.
  */
 export async function buildAnalysisCommentPayload(
     input: AnalysisCommentInput,
@@ -157,7 +221,6 @@ export async function buildAnalysisCommentPayload(
         ctas.push({ label: "See preview", href: previewFrontDoorUrl });
     }
 
-    const coverageLine = buildCoverageLine(input.coverage);
     return {
         state,
         stateLabel: analysisVerdictLabel(verdictState),
@@ -169,7 +232,8 @@ export async function buildAnalysisCommentPayload(
         assetBaseUrl: context.assetBaseUrl,
         ctas,
         services: [],
-        warnings: coverageLine != null ? [coverageLine] : [],
+        notes: buildCoverageNotes(input, context),
+        warnings: [],
         details: [],
         previewUrls: hasPreview ? [context.previewUrl!] : [],
         bugs,
@@ -188,23 +252,121 @@ function buildSummary(summary: string | undefined, mergeGateBlocking: boolean | 
 }
 
 /**
- * One line summarizing the coverage-confidence plane: the per-category counts (engine artifacts, environment /
- * scenario failures, and the unresolved `plan_mismatch` tests the run kept). Returns undefined when the plane is
- * empty, so a clean run shows no caveat line.
+ * The coverage-confidence plane, partitioned by OWNER into the body's blocks: what only the reader can fix (visible,
+ * with why it matters beyond this run and links to the issues that say what to fix), what is ours (quiet, and never
+ * asked of them), and the removed `invalid_test`s (one quiet line - a deliberate removal is not a problem to report).
+ *
+ * Each block appears only when this run actually produced a gap for it, so a clean run's body stays empty.
  */
-function buildCoverageLine(coverage: CoverageSummary | undefined): string | undefined {
-    if (coverage == null) return undefined;
-    const parts: string[] = [];
-    for (const entry of coverage.byCategory) {
-        if (entry.count <= 0) continue;
-        parts.push(countNoun(entry.count, COVERAGE_CATEGORY_NOUN[entry.category]));
+function buildCoverageNotes(input: AnalysisCommentInput, context: AnalysisCommentContext): AutonomaCommentNote[] {
+    const gaps = partitionCoverageGaps(input);
+    const notes: AutonomaCommentNote[] = [];
+
+    if (gaps.client.length > 0) {
+        const links = (input.coverageIssues ?? []).map((issue) => ({
+            label: issue.title,
+            href: buildAnalysisIssueUrl(context.appBaseUrl, context.appSlug, context.prNumber, issue.id),
+        }));
+        const lines = links.length > 0 ? [ATTENTION_WHY, ATTENTION_ISSUES_LEAD] : [ATTENTION_WHY];
+        notes.push({
+            tone: "attention",
+            heading: ATTENTION_HEADING,
+            items: gaps.client.map(describeGap),
+            lines,
+            links,
+        });
     }
-    if (parts.length === 0) return undefined;
-    return parts.join(" · ");
+
+    if (gaps.autonoma.length > 0) {
+        const hasPlanMismatch = gaps.autonoma.some((gap) => gap.category === ANALYSIS_VERDICT.plan_mismatch);
+        const why = hasPlanMismatch ? `${OUR_SIDE_WHY} ${PLAN_MISMATCH_NOTE}` : OUR_SIDE_WHY;
+        notes.push({
+            tone: "quiet",
+            heading: OUR_SIDE_HEADING,
+            items: gaps.autonoma.map(describeGap),
+            lines: [why],
+            links: [],
+        });
+    }
+
+    // A removal is a conclusion, not a problem: one quiet line, in neither owner's block.
+    const removed = countFor(input.coverage, ANALYSIS_VERDICT.invalid_test);
+    if (removed > 0) {
+        notes.push({ tone: "quiet", items: [], lines: [describeRemovedTests(removed)], links: [] });
+    }
+
+    return notes;
 }
 
-function countNoun(count: number, noun: string): string {
+/** The removed-test line: a deliberate, evidence-backed removal, stated once and left alone. */
+function describeRemovedTests(count: number): string {
+    const noun = describeCount(ANALYSIS_VERDICT.invalid_test, count);
+    return `${noun} removed - ${count === 1 ? REMOVED_TEST_WHY : REMOVED_TESTS_WHY}.`;
+}
+
+/** One coverage gap group as a block reports it: how many tests, and which wording explains it. */
+interface CoverageGap {
+    category: AnalysisVerdict;
+    count: number;
+    /** Overrides the category's default explanation - the infra-side reading of an `environment_failure`. */
+    explanation?: string;
+}
+
+interface PartitionedCoverageGaps {
+    client: CoverageGap[];
+    autonoma: CoverageGap[];
+}
+
+/**
+ * Split the run's coverage gaps between the two owners. Every category but `environment_failure` is owned by the
+ * taxonomy itself; env gaps are split by the Reporter's own count of the ones it traced to fixable configuration,
+ * clamped to the category's total so a stale count can never invent gaps. `invalid_test` belongs to neither block.
+ */
+function partitionCoverageGaps(input: AnalysisCommentInput): PartitionedCoverageGaps {
+    const partitioned: PartitionedCoverageGaps = { client: [], autonoma: [] };
+    for (const entry of input.coverage?.byCategory ?? []) {
+        if (entry.count <= 0) continue;
+        const owner = analysisCoverageOwner(entry.category);
+        if (owner === "client") {
+            partitioned.client.push({ category: entry.category, count: entry.count });
+            continue;
+        }
+        if (owner === "autonoma") {
+            partitioned.autonoma.push({ category: entry.category, count: entry.count });
+            continue;
+        }
+        // `invalid_test` owns no block at all; it is reported as a removal instead.
+        if (owner !== "undecided") continue;
+
+        // `environment_failure`: the reader's share is what the Reporter placed, the rest is ours.
+        const onClient = Math.min(Math.max(input.clientEnvironmentFailures ?? 0, 0), entry.count);
+        if (onClient > 0) partitioned.client.push({ category: entry.category, count: onClient });
+        const onUs = entry.count - onClient;
+        if (onUs > 0) {
+            partitioned.autonoma.push({
+                category: entry.category,
+                count: onUs,
+                explanation: OUR_ENVIRONMENT_EXPLANATION,
+            });
+        }
+    }
+    return partitioned;
+}
+
+/** One gap as a bullet: how many tests it cost, and what it means. */
+function describeGap(gap: CoverageGap): string {
+    const explanation = gap.explanation ?? COVERAGE_CATEGORY_EXPLANATION[gap.category];
+    return `${describeCount(gap.category, gap.count)} - ${explanation}.`;
+}
+
+function describeCount(category: AnalysisVerdict, count: number): string {
+    const noun = COVERAGE_CATEGORY_NOUN[category];
     return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/** How many gaps the run has in one coverage category. */
+function countFor(coverage: CoverageSummary | undefined, category: AnalysisVerdict): number {
+    return coverage?.byCategory.find((entry) => entry.category === category)?.count ?? 0;
 }
 
 /**

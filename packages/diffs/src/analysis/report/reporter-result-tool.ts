@@ -11,13 +11,13 @@ const reporterFinishInputSchema = z.object({
         .string()
         .min(1)
         .describe(
-            "The holistic PR report in Markdown: what this PR does, what the run found across all tests, the open bugs first (headline), then environment/scenario/coverage color, and a brief note on any self-heals. Lead with the latest job. You may embed a fetched screenshot inline with `![caption](evidence:<assetId>)` - only fetched ids survive. Never manufacture a problem without a finding.",
+            "The holistic PR report in Markdown: what this PR does, how much confidence the run earned, the open bugs first, then the coverage gaps SPLIT BY OWNER (what the reader must fix vs what is ours), and a brief note on any self-heals. Lead with the latest job, and never contradict the computed verdict you were given. You may embed a fetched screenshot inline with `![caption](evidence:<assetId>)` - only fetched ids survive. Never manufacture a problem without a finding.",
         ),
     summary: z
         .string()
         .min(1)
         .describe(
-            "The same verdict in ONE to THREE sentences of plain prose, for readers who see only a paragraph: the GitHub PR comment and the PR page's subtitle. Lead with whether the app misbehaved and what breaks for a user. Plain prose only - no Markdown headings, no bullet lists, no links, and no `evidence:`/`issue:`/`finding:` tokens, none of which render on those surfaces.",
+            "The same verdict in ONE to THREE sentences of plain prose, for readers who see only a paragraph: the GitHub PR comment and the PR page's subtitle. Lead with the confidence story the computed verdict states - what breaks for a user, or what could not be confirmed and why, or what was verified - and never imply the change is safe on a run that did not fully exercise it. Plain prose only - no Markdown headings, no bullet lists, no links, and no `evidence:`/`issue:`/`finding:` tokens, none of which render on those surfaces.",
         ),
 });
 
@@ -38,7 +38,7 @@ class CoverageError extends FixableToolError {
         }
         if (v.uncarriedFailingIssueIds.length > 0) {
             parts.push(
-                `These open issues have covering test(s) that re-ran and still failed, so they must be carried forward: ${v.uncarriedFailingIssueIds.join(", ")}.`,
+                `These open issues have covering test(s) that re-ran and hit the same problem again, so they must be carried forward: ${v.uncarriedFailingIssueIds.join(", ")}.`,
             );
         }
         if (v.unresolvedPassedIssueIds.length > 0) {
