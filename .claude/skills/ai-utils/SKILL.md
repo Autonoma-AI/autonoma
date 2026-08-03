@@ -25,7 +25,7 @@ Three classes form the core, with a clean immutable-config / per-run-state split
   - `createLoop(input)` - construct the per-run `AgentLoop` carrying any state the tools will read.
 
 - **`AgentLoop<TResult>`** - holds all mutable state for a single run and drives the `ToolLoopAgent`. Configured via `AgentConfig` (`name`, `model`, `systemPrompt`, `tools`, `reportTool`, optional `maxSteps`, optional `compactor`). The loop stops when the report tool produces a result or `maxSteps` is hit. Overridable hooks: `prepareStep` (inject per-step messages/settings), `onStepFinish` (per-step side effects; default logs the step), `snapshotPartial` (expose a partial result on failure). The system prompt is fixed at construction - anything per-run belongs in the user prompt.
-  - Terminal errors: `NoAgentResultError`, `MaxStepsReached`, `MultipleResultCalls`.
+  - Terminal errors: `NoAgentResultError`, `MaxStepsReached`. A duplicate result call throws `MultipleResultCalls`, which is *fixable*: it is returned to the model and the first result is kept.
   - `run` / `runLoop` return `AgentRunResult<TResult>`: `{ result, conversation }`, where `conversation` is the raw, uncompacted message stream.
 
 - **`AgentTool<TInput, TOutput, TLoop>`** - a thin wrapper over the AI SDK `Tool` with typed error handling and access to the loop via `execute(input, loop)`. Failures are classified:

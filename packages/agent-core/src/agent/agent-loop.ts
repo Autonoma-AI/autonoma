@@ -13,7 +13,7 @@ import type { LanguageModel } from "../model";
 import { logStepContent } from "./log-step";
 import type { ReportResultTool } from "./tools/agent-result";
 import type { AgentTool } from "./tools/agent-tool";
-import { FatalToolError } from "./tools/tool-errors";
+import { FatalToolError, FixableToolError } from "./tools/tool-errors";
 import { stripMedia } from "./transcript";
 
 type GenericToolSet = Record<string, Tool>;
@@ -146,9 +146,13 @@ export class AgentGenerationFailed extends AgentLoopError {
     }
 }
 
-export class MultipleResultCalls extends FatalToolError {
+export class MultipleResultCalls extends FixableToolError {
     constructor() {
         super("The result tool was called multiple times during the agent loop execution, which is not allowed");
+    }
+
+    public override suggestFix(): string {
+        return "This run already has a result - the first call was accepted. Do not call the result tool again.";
     }
 }
 
@@ -215,10 +219,10 @@ export class AgentLoop<TResult = unknown> {
 
     /** Set the result of the execution. Called by {@link ReportResultTool.execute}. */
     public setResult(result: TResult) {
-        if (this.result != null) {
-            this.logger.fatal("Result tool was called multiple times during agent loop execution", {
-                previousResult: this.result,
-                newResult: result,
+        if (this.result !== undefined) {
+            this.logger.warn("Result tool was called multiple times during agent loop execution; keeping the first", {
+                keptResult: this.result,
+                discardedResult: result,
             });
             throw new MultipleResultCalls();
         }

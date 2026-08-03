@@ -21,7 +21,9 @@ interface FakeResult {
 
 interface LogRecord {
     bindings: Record<string, unknown>;
+    level: "info" | "warn" | "error" | "fatal";
     message: string;
+    extra?: Record<string, unknown>;
 }
 
 /** A {@link Logger} that records every emitted line (with its accumulated child bindings). */
@@ -33,20 +35,20 @@ class RecordingLogger implements Logger {
     child(bindings: Record<string, unknown>): Logger {
         return new RecordingLogger(this.sink, { ...this.bindings, ...bindings });
     }
-    private record(message: string): void {
-        this.sink.push({ bindings: this.bindings, message });
+    private record(level: LogRecord["level"], message: string, extra?: Record<string, unknown>): void {
+        this.sink.push({ bindings: this.bindings, level, message, extra });
     }
-    info(message: string): void {
-        this.record(message);
+    info(message: string, extra?: Record<string, unknown>): void {
+        this.record("info", message, extra);
     }
-    warn(message: string): void {
-        this.record(message);
+    warn(message: string, extra?: Record<string, unknown>): void {
+        this.record("warn", message, extra);
     }
     error(message: string): void {
-        this.record(message);
+        this.record("error", message);
     }
     fatal(message: string): void {
-        this.record(message);
+        this.record("fatal", message);
     }
 }
 
@@ -67,6 +69,31 @@ describe("AgentLoop.setResult", () => {
         const loop = makeLoop();
         loop.setResult({ payload: "first" });
         expect(() => loop.setResult({ payload: "second" })).toThrow(MultipleResultCalls);
+    });
+
+    it("treats a null result as produced, for an agent whose result type admits null", () => {
+        const loop = new AgentLoop<FakeResult | null>({
+            name: "nullable-loop",
+            model: undefined as never,
+            systemPrompt: "",
+            tools: [],
+            reportTool: undefined as never,
+        });
+        loop.setResult(null);
+
+        expect(() => loop.setResult({ payload: "second" })).toThrow(MultipleResultCalls);
+    });
+
+    it("logs both the kept and the discarded payload at warn", () => {
+        const sink: LogRecord[] = [];
+        setDefaultLogger(new RecordingLogger(sink));
+        const loop = makeLoop();
+        loop.setResult({ payload: "first" });
+
+        expect(() => loop.setResult({ payload: "second" })).toThrow(MultipleResultCalls);
+
+        const warning = sink.find((r) => r.level === "warn");
+        expect(warning?.extra).toEqual({ keptResult: { payload: "first" }, discardedResult: { payload: "second" } });
     });
 });
 
@@ -189,6 +216,43 @@ describe("AgentLoop forces tool calls and stays bounded", () => {
         expect(result).toEqual({ payload: "done" });
         expect(model.doGenerateCalls.length).toBe(1);
         expect(model.doGenerateCalls[0]?.toolChoice).toEqual({ type: "required" });
+    });
+
+    it("keeps the first result when the model reports twice in one step, instead of killing the run", async () => {
+        const model = new MockLanguageModelV3({
+            doGenerate: async () => ({
+                content: [
+                    {
+                        type: "tool-call",
+                        toolCallId: "finish-1",
+                        toolName: "finish",
+                        input: JSON.stringify({ payload: "first" }),
+                    },
+                    {
+                        type: "tool-call",
+                        toolCallId: "finish-2",
+                        toolName: "finish",
+                        input: JSON.stringify({ payload: "second" }),
+                    },
+                ],
+                finishReason: { unified: "tool-calls", raw: "tool-calls" },
+                usage: FAKE_USAGE,
+                warnings: [],
+            }),
+        });
+        const loop = new AgentLoop<FakeResult>({
+            name: "stuttering-loop",
+            model,
+            systemPrompt: "system",
+            tools: [],
+            reportTool: new FinishTool({ resultSchema: z.object({ payload: z.string() }) }),
+            maxSteps: 5,
+        });
+
+        const { result } = await loop.runLoop([{ role: "user", content: "go" }]);
+
+        expect(result).toEqual({ payload: "first" });
+        expect(model.doGenerateCalls.length).toBe(1);
     });
 });
 
