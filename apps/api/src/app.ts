@@ -1,4 +1,4 @@
-import { aiCatalog } from "@autonoma/agent-guidance";
+import { AI_CATALOG_PATH, aiCatalog, aiCatalogLinkHeader, llmsTxt } from "@autonoma/agent-guidance";
 import { analytics } from "@autonoma/analytics";
 import { logger } from "@autonoma/logger";
 import { isPreviewOrigin } from "@autonoma/types";
@@ -51,6 +51,15 @@ const corsOptions = {
 
 export function createApiApp() {
     const app = new Hono();
+
+    // Advertise the catalog on every response, so an agent finds it from whatever request it
+    // happened to make first rather than having to already know the well-known path.
+    // Registered before any route: Hono runs matching handlers in registration order, and a
+    // route handler ends the chain, so middleware added after a route never wraps it.
+    app.use("*", async (c, next) => {
+        await next();
+        c.header("Link", aiCatalogLinkHeader(), { append: true });
+    });
 
     app.use("*", async (c, next) =>
         Sentry.withScope(async (scope) => {
@@ -112,10 +121,17 @@ export function createApiApp() {
     // so it does not need to already know our URLs to find them. CORS-enabled and cached,
     // since registries and browser-based agents both fetch it. Generated rather than static
     // because the URLs are per-environment - an alpha deployment advertises its own.
-    app.use("/.well-known/ai-catalog.json", cors(corsOptions));
-    app.get("/.well-known/ai-catalog.json", (c) => {
+    app.use(AI_CATALOG_PATH, cors(corsOptions));
+    app.get(AI_CATALOG_PATH, (c) => {
         c.header("Cache-Control", "public, max-age=3600");
         return c.json(aiCatalog({ apiUrl: MCP_RESOURCE_URL }));
+    });
+
+    // Without this the path falls through to the SPA and answers 200 with text/html, which is
+    // worse than a 404: an agent gets a success it may then try to parse as llms.txt.
+    app.get("/llms.txt", (c) => {
+        c.header("Cache-Control", "public, max-age=3600");
+        return c.text(llmsTxt({ apiUrl: MCP_RESOURCE_URL, appUrl: env.APP_URL }));
     });
 
     // Domain-ownership proof for the OpenAI Apps directory submission - see

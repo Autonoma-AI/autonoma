@@ -47,6 +47,19 @@ server {
     # falls through to the SPA and the OAuth handshake never starts. Everything
     # else under /.well-known/ (SPA-owned) still resolves via the SPA fallback.
 
+    # Same reason as the catalog below, and the same failure if it is missing: without
+    # this, /llms.txt falls through to the SPA and answers 200 with the app shell, which
+    # an agent may then try to parse as llms.txt. A 404 would be less misleading.
+    location = /llms.txt {
+        proxy_pass http://${API_UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_pass_request_headers on;
+    }
+
     # An agent looking for us tries the brand domain, not the API host, so the
     # Agentic Resource Discovery catalog has to resolve here. Proxied rather than
     # duplicated: the API generates it from its own environment, so there is one

@@ -19,6 +19,15 @@ import { unauthorizedGuidance } from "@autonoma/agent-guidance";
 return c.json(unauthorizedGuidance({ appUrl, docsUrl, surface: "mcp" }), 401);
 ```
 
+## What is in here
+
+| Export | Used for |
+| --- | --- |
+| `unauthorizedGuidance` | The body of a 401, explaining both ways to authenticate. |
+| `aiCatalog` | The Agentic Resource Discovery document at `/.well-known/ai-catalog.json`. |
+| `llmsTxt` | The `llms.txt` served on the app origin. Rendered from `aiCatalog`, so the two cannot disagree. |
+| `aiCatalogLinkHeader` / `AI_CATALOG_PATH` | The `Link` header advertising the catalog, and the path it points at. |
+
 ## The discovery catalog
 
 `aiCatalog()` builds the [Agentic Resource Discovery](https://agenticresourcediscovery.org/) document
