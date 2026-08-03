@@ -11,7 +11,7 @@ import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useBranches } from "lib/query/branches.queries";
+import { useBranchNames } from "lib/query/branches.queries";
 import { Suspense } from "react";
 import { useMainBranch } from "../-use-main-branch";
 import { useSelectedBranchName } from "../-use-selected-branch";
@@ -49,7 +49,7 @@ export function BranchPicker() {
 function BranchList({ selectedBranchName }: { selectedBranchName: string }) {
   const app = useCurrentApplication();
   const mainBranch = useMainBranch();
-  const { data: openBranches } = useBranches("open");
+  const { data: openBranches } = useBranchNames();
   const navigate = useNavigate();
   const { appSlug } = useParams({ from: "/_blacklight/_app-shell/app/$appSlug" });
   // `shouldThrow: false` returns the typed params on the detail route, or undefined on the index - no `as` cast.
@@ -87,7 +87,7 @@ function BranchList({ selectedBranchName }: { selectedBranchName: string }) {
         <BranchOption
           key={b.id}
           name={b.name}
-          testCount={b.activeSnapshot?._count.testCaseAssignments ?? 0}
+          testCount={b.testCount}
           isCurrent={selectedBranchName === b.name}
           onSelect={() => select(b.name)}
         />

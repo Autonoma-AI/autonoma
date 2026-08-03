@@ -193,6 +193,16 @@ const baseTrpcFixtures: TrpcFixtures = {
  * Pass `role: "admin"` for the pages behind the admin guard - they redirect to
  * "/" for anyone else, so a story without it screenshots the home page.
  */
+type BranchPage = RouterOutputs["branches"]["list"];
+
+/**
+ * A `branches.list` page around some rows. The envelope (totals, page size) is the server's, so stories build it
+ * here rather than each spelling out a shape that would then drift one story at a time.
+ */
+export function branchPage(items: BranchPage["items"] = [], page = 1): BranchPage {
+    return { items, totalCount: items.length, page, pageSize: 25 };
+}
+
 export function appShellHandlers(pageFixtures: TrpcFixtures = {}, { role }: { role?: string } = {}) {
     return [
         trpcHandler(mergeTrpcFixtures(baseTrpcFixtures, pageFixtures)),

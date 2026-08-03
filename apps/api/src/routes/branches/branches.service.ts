@@ -6,6 +6,7 @@ import {
     computeFailingByKind,
     computeSnapshotHealth,
     countOpenBugsBySnapshot,
+    countTestsBySnapshot,
     failingExecutionIds,
     listExecutedTestsForSnapshot,
     loadAuthoritativeCheckpointInputs,
@@ -87,6 +88,26 @@ export type { TestSuiteChangeRow } from "./test-suite-changes";
 
 /** Signed-URL lifetime for a finding's screenshot/video - short, re-signed on every page load. */
 const INVESTIGATION_MEDIA_TTL_SECONDS = 60 * 60;
+
+/**
+ * Pull requests per page. Matches GitHub's own list, which is the page every reader arrives from - and the number
+ * is returned in the response rather than shared as a constant, so the client's pager can never disagree with the
+ * window the server actually cut.
+ */
+const BRANCH_PAGE_SIZE = 25;
+
+/**
+ * How the pull-request list is ordered: most recently updated first, which is what GitHub's own list does and so
+ * what a reader arriving from it expects. `createdAt` breaks the tie so the order is TOTAL - without a tiebreaker
+ * rows with equal timestamps order arbitrarily per query, and a row can appear on two pages or on none.
+ *
+ * Shared, not repeated: every query that pages this list has to cut the same window, or the page's investigation
+ * column would describe a different 25 pull requests than the rows beside it.
+ */
+const PR_LIST_ORDER: Prisma.BranchOrderByWithRelationInput[] = [
+    { prInfo: { prUpdatedAt: { sort: "desc", nulls: "last" } } },
+    { createdAt: "desc" },
+];
 
 /** Fallback suite-change counts for a snapshot the batched summary has no entry for. */
 const NO_SUITE_CHANGES: SnapshotChangeSummary = { added: 0, removed: 0, updated: 0 };
@@ -501,23 +522,30 @@ export class BranchesService extends Service {
     }
 
     /**
-     * The same presence, for every pull request of an application in a given state.
+     * The same presence, for ONE PAGE of an application's pull requests.
      *
      * The snapshot ids are resolved HERE rather than named by the caller. The list views already read these
      * branches from `listBranches`, so having them ship one id per row back is a round trip of the server's own
      * answer - and at a few hundred open pull requests it is ~10KB of `input=` on a batched tRPC GET, which the
      * edge rejects with 414 before any procedure in that batch runs.
+     *
+     * Takes the same `state` and `page` as {@link listBranches}, and MUST order identically, or it would answer
+     * about a different 25 pull requests than the ones on screen.
      */
     async getInvestigationReportsForApplication(
         applicationId: string,
         organizationId: string,
         state: PullRequestStateFilter = "open",
+        page = 1,
     ) {
-        this.logger.info("Getting investigation reports for application", { applicationId, extra: { state } });
+        this.logger.info("Getting investigation reports for application", { applicationId, extra: { state, page } });
 
         const branches = await this.db.branch.findMany({
             where: { applicationId, prInfo: prInfoStateFilter(state), application: { organizationId } },
             select: { activeSnapshotId: true },
+            orderBy: PR_LIST_ORDER,
+            skip: (page - 1) * BRANCH_PAGE_SIZE,
+            take: BRANCH_PAGE_SIZE,
         });
 
         const snapshotIds = branches.map((branch) => branch.activeSnapshotId).filter((id): id is string => id != null);
@@ -1433,11 +1461,59 @@ export class BranchesService extends Service {
         return signed?.url;
     }
 
-    async listBranches(applicationId: string, organizationId: string, state: PullRequestStateFilter = "open") {
-        this.logger.info("Listing branches", { applicationId, extra: { state } });
+    /**
+     * Every open branch's name and test count, for the Tests page's branch picker.
+     *
+     * Deliberately NOT `listBranches`: the picker needs two fields and has no search box, so paging it would
+     * silently hide older branches with no way to reach them, while the full list's per-row health aggregates are
+     * work the picker throws away. This is two cheap queries with no fan-out, so it can stay unpaged.
+     */
+    async listBranchNames(applicationId: string, organizationId: string) {
+        this.logger.info("Listing branch names", { applicationId });
 
         const branches = await this.db.branch.findMany({
-            where: { applicationId, prInfo: prInfoStateFilter(state), application: { organizationId } },
+            where: { applicationId, prInfo: prInfoStateFilter("open"), application: { organizationId } },
+            select: { id: true, name: true, activeSnapshotId: true },
+            orderBy: PR_LIST_ORDER,
+        });
+
+        const testCountBySnapshot = await countTestsBySnapshot(
+            this.db,
+            branches.map((branch) => branch.activeSnapshotId).filter((id): id is string => id != null),
+        );
+
+        return branches.map((branch) => ({
+            id: branch.id,
+            name: branch.name,
+            testCount: branch.activeSnapshotId != null ? (testCountBySnapshot.get(branch.activeSnapshotId) ?? 0) : 0,
+        }));
+    }
+
+    /**
+     * One page of an application's pull requests, most recently updated first.
+     *
+     * Paged rather than whole because every aggregate below fans out over the rows this returns: an application
+     * with ~300 open pull requests spent seconds building a list nobody scrolls. A page bounds all of it at once.
+     */
+    async listBranches(
+        applicationId: string,
+        organizationId: string,
+        state: PullRequestStateFilter = "open",
+        page = 1,
+    ) {
+        this.logger.info("Listing branches", { applicationId, extra: { state, page } });
+
+        const where = { applicationId, prInfo: prInfoStateFilter(state), application: { organizationId } };
+
+        // Clamped, not trusted: `?page=12` outlives the twelfth page (pull requests merge, the list shrinks, a
+        // bookmark goes stale). Serving the last page beats an empty table under a pager offering pages that no
+        // longer exist. The page actually served comes back in the response, and every other surface follows it.
+        const totalCount = await this.db.branch.count({ where });
+        const pageCount = Math.max(1, Math.ceil(totalCount / BRANCH_PAGE_SIZE));
+        const effectivePage = Math.min(Math.max(page, 1), pageCount);
+
+        const branches = await this.db.branch.findMany({
+            where,
             select: {
                 id: true,
                 name: true,
@@ -1453,7 +1529,9 @@ export class BranchesService extends Service {
                 },
                 activeSnapshot: { select: { id: true, status: true, headSha: true } },
             },
-            orderBy: { createdAt: "desc" },
+            orderBy: PR_LIST_ORDER,
+            skip: (effectivePage - 1) * BRANCH_PAGE_SIZE,
+            take: BRANCH_PAGE_SIZE,
         });
 
         const activeSnapshots = branches
@@ -1497,7 +1575,7 @@ export class BranchesService extends Service {
         // Postgres, so this no-ops when the cache is fresh and never blocks the response.
         this.prCache.kickOff(applicationId, organizationId);
 
-        return branches.map(({ prInfo, activeSnapshot, ...branch }) => {
+        const items = branches.map(({ prInfo, activeSnapshot, ...branch }) => {
             // No active snapshot: nothing to present. A snapshot that exists always goes through `presentCheckpoint`,
             // the one place the legacy-vs-authoritative fork lives.
             const { summary, health, bugCount } =
@@ -1543,6 +1621,8 @@ export class BranchesService extends Service {
                         : null,
             };
         });
+
+        return { items, totalCount, page: effectivePage, pageSize: BRANCH_PAGE_SIZE };
     }
 
     /**

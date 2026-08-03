@@ -32,36 +32,50 @@ export interface LatestPullRequest {
     previewUrl?: string;
 }
 
-export function useLatestPullRequests(): LatestPullRequest[] {
-    const currentApp = useCurrentApplication();
-    const baseBranchName = currentApp.mainBranch.name;
-    const { data: branches } = useSuspenseQuery(
-        trpc.branches.list.queryOptions({ applicationId: currentApp.id, state: "open" }),
-    );
-
-    return branches
-        .flatMap((branch) =>
-            branch.prNumber != null
-                ? [
-                      {
-                          id: branch.id,
-                          prNumber: branch.prNumber,
-                          snapshotId: branch.activeSnapshot?.id,
-                          branchName: branch.name,
-                          baseBranchName,
-                          health: branch.activeSnapshot?.health ?? "unknown",
-                          summary: branch.activeSnapshot?.summary ?? undefined,
-                          testCount: branch.activeSnapshot?._count.testCaseAssignments ?? 0,
-                          createdAt: branch.createdAt,
-                          bugCount: branch.bugCount,
-                          previewUrl: branch.previewUrl ?? undefined,
-                      },
-                  ]
-                : [],
-        )
-        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+export interface LatestPullRequestsPage {
+    items: LatestPullRequest[];
+    totalCount: number;
+    pageCount: number;
+    page: number;
 }
 
-export async function ensureLatestPullRequestsData(queryClient: QueryClient, applicationId: string) {
-    await ensureAPIQueryData(queryClient, trpc.branches.list.queryOptions({ applicationId, state: "open" }));
+export function useLatestPullRequests(page = 1): LatestPullRequestsPage {
+    const currentApp = useCurrentApplication();
+    const baseBranchName = currentApp.mainBranch.name;
+    const { data } = useSuspenseQuery(
+        trpc.branches.list.queryOptions({ applicationId: currentApp.id, state: "open", page }),
+    );
+
+    const items = data.items.flatMap((branch) =>
+        branch.prNumber != null
+            ? [
+                  {
+                      id: branch.id,
+                      prNumber: branch.prNumber,
+                      snapshotId: branch.activeSnapshot?.id,
+                      branchName: branch.name,
+                      baseBranchName,
+                      health: branch.activeSnapshot?.health ?? "unknown",
+                      summary: branch.activeSnapshot?.summary ?? undefined,
+                      testCount: branch.activeSnapshot?._count.testCaseAssignments ?? 0,
+                      createdAt: branch.createdAt,
+                      bugCount: branch.bugCount,
+                      previewUrl: branch.previewUrl ?? undefined,
+                  },
+              ]
+            : [],
+    );
+
+    // Already ordered by the server (most recently updated first) - re-sorting here would fight the paging and
+    // shuffle rows within a page against the order the page boundary was cut on.
+    return {
+        items,
+        totalCount: data.totalCount,
+        pageCount: Math.max(1, Math.ceil(data.totalCount / data.pageSize)),
+        page: data.page,
+    };
+}
+
+export async function ensureLatestPullRequestsData(queryClient: QueryClient, applicationId: string, page = 1) {
+    await ensureAPIQueryData(queryClient, trpc.branches.list.queryOptions({ applicationId, state: "open", page }));
 }

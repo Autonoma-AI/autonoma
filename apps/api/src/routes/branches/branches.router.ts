@@ -7,10 +7,19 @@ export const branchesRouter = router({
             z.object({
                 applicationId: z.string(),
                 state: z.enum(["open", "closed", "merged"]).default("open"),
+                page: z.number().int().min(1).default(1),
             }),
         )
         .query(({ ctx: { services, organizationId }, input }) =>
-            services.branches.listBranches(input.applicationId, organizationId, input.state),
+            services.branches.listBranches(input.applicationId, organizationId, input.state, input.page),
+        ),
+
+    // Name + test count for every open branch, for the Tests page's branch picker. Two cheap queries and no
+    // per-row aggregates, so unlike `list` it is not paged - a picker that hides options is worse than a long one.
+    names: protectedProcedure
+        .input(z.object({ applicationId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.listBranchNames(input.applicationId, organizationId),
         ),
 
     detailByName: protectedProcedure
@@ -135,10 +144,16 @@ export const branchesRouter = router({
             z.object({
                 applicationId: z.string(),
                 state: z.enum(["open", "closed", "merged"]).default("open"),
+                page: z.number().int().min(1).default(1),
             }),
         )
         .query(({ ctx: { services, organizationId }, input }) =>
-            services.branches.getInvestigationReportsForApplication(input.applicationId, organizationId, input.state),
+            services.branches.getInvestigationReportsForApplication(
+                input.applicationId,
+                organizationId,
+                input.state,
+                input.page,
+            ),
         ),
 
     activeSnapshot: protectedProcedure

@@ -1,4 +1,4 @@
-import { Badge, cn, EmptyState, Skeleton } from "@autonoma/blacklight";
+import { Badge, cn, EmptyState, Pagination, Skeleton } from "@autonoma/blacklight";
 import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
@@ -21,10 +21,11 @@ import {
 import { AppLink } from "../../-app-link";
 import { CheckpointSummaryBadge } from "../pull-requests/-components/checkpoint-summary-badge";
 
-export function OpenPrsList() {
-  const prs = useLatestPullRequests();
+export function OpenPrsList({ page, onPageChange }: { page: number; onPageChange: (page: number) => void }) {
+  const prs = useLatestPullRequests(page);
   // Internal-only (@autonoma.app); the hook is disabled for everyone else, so no entry point renders.
-  const investigation = useInvestigationReportsBySnapshot("open");
+  // Keyed to the page the SERVER served (it clamps an over-run one), so it describes the rows actually on screen.
+  const investigation = useInvestigationReportsBySnapshot("open", prs.page);
   // One liveness poll covering every preview the app has (never wakes them).
   const { data: liveness } = useApplicationPreviewLiveness();
 
@@ -32,19 +33,19 @@ export function OpenPrsList() {
     <section className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="flex shrink-0 items-center gap-2.5">
         <h2 className="text-sm font-semibold text-text-primary">Open pull requests</h2>
-        <span className="font-mono text-[11px] text-text-tertiary">· {prs.length} · sorted by recency</span>
+        <span className="font-mono text-[11px] text-text-secondary">· {prs.totalCount} · most recently updated</span>
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col border border-border-dim bg-surface-base">
         <div className="flex shrink-0 items-center gap-3 border-b border-border-mid bg-surface-void px-4 py-2.5">
           <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-text-secondary">
-            {prs.length} open
+            {prs.totalCount} open
           </span>
-          <span className="ml-auto font-mono text-[10px] text-text-tertiary">health · branch · last activity</span>
+          <span className="ml-auto font-mono text-[10px] text-text-secondary">health · branch · last activity</span>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {prs.length === 0 ? (
+          {prs.items.length === 0 ? (
             <EmptyState
               className="border-0 bg-transparent"
               icon={<GitPullRequestIcon size={32} />}
@@ -52,7 +53,7 @@ export function OpenPrsList() {
               description="Push a branch with an open PR to see it tracked here."
             />
           ) : (
-            prs.map((pr) => (
+            prs.items.map((pr) => (
               <PrRow
                 key={pr.id}
                 pr={pr}
@@ -63,6 +64,8 @@ export function OpenPrsList() {
             ))
           )}
         </div>
+
+        <Pagination page={prs.page} pageCount={prs.pageCount} onPageChange={onPageChange} />
       </div>
     </section>
   );
@@ -89,21 +92,21 @@ function PrRow({
         className="absolute inset-0"
       />
 
-      <GitPullRequestIcon size={14} weight="fill" className="shrink-0 text-text-tertiary" />
+      <GitPullRequestIcon size={14} weight="fill" className="shrink-0 text-text-secondary" />
 
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="truncate text-[13px] font-medium text-text-primary">{pr.title ?? pr.branchName}</span>
           <HealthBadge pr={pr} />
         </div>
-        <div className="truncate font-mono text-[11px] text-text-tertiary">
+        <div className="truncate font-mono text-[11px] text-text-secondary">
           #{pr.prNumber} · opened {formatRelativeTime(pr.createdAt)}
           {pr.authorLogin != null && ` by @${pr.authorLogin}`} ·{" "}
           <span className="text-text-secondary">{pr.branchName}</span> {"->"} {pr.baseBranchName}
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center gap-3.5 font-mono text-[11px] text-text-tertiary">
+      <div className="flex shrink-0 items-center gap-3.5 font-mono text-[11px] text-text-secondary">
         {pr.commits != null && (
           <span>
             {pr.commits} {pr.commits === 1 ? "commit" : "commits"}
@@ -177,7 +180,7 @@ function HealthBadge({ pr }: { pr: LatestPullRequest }) {
     return (
       <Badge
         variant="outline"
-        className="border-border-mid font-mono text-[10px] uppercase tracking-wider text-text-tertiary"
+        className="border-border-mid font-mono text-[10px] uppercase tracking-wider text-text-secondary"
       >
         ● {pr.summary.label}
       </Badge>

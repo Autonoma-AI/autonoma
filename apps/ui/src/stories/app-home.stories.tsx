@@ -1,11 +1,27 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
+import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
 const LAST_SEEN = new Date("2026-01-05T10:30:00.000Z");
 const SNAPSHOT_ID = "snapshot_fixture_01";
+
+const PAGED_BRANCH_NAMES = [
+  "feat/statements-export",
+  "chore/bump-deps",
+  "fix/ledger-rounding",
+  "feat/bulk-transfer-import",
+  "refactor/consolidate-external-transfer",
+];
+const PAGED_TITLES = [
+  "Export statements as CSV from the account page",
+  "Bump the all-dependencies group across 1 directory",
+  "Round ledger balances half-up to match the bank",
+  "Import bulk transfers from a signed CSV",
+  "Consolidate the two external-transfer code paths",
+];
+const PAGED_AUTHORS = ["jrivera", "amoreno", "tcastro", "lweiss"];
 
 /**
  * Page fixtures for the app dashboard: an active snapshot with a few test
@@ -15,7 +31,7 @@ const SNAPSHOT_ID = "snapshot_fixture_01";
  */
 export const dashboardFixtures: TrpcFixtures = {
   branches: {
-    list: [],
+    list: branchPage(),
     // An application whose main has not run analysis: the rail keeps presenting its legacy `Bug` rows.
     mainOpenProblems: {
       source: "legacy_bug",
@@ -130,4 +146,43 @@ type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
   args: { path: `/app/${baseApplication.slug}` },
+};
+
+/** One page of a long list, so the pager is exercised rather than hidden by a short fixture. */
+const PAGED_PRS = branchPage(
+  Array.from({ length: 25 }, (_, index) => {
+    const prNumber = 4187 - index;
+    return {
+      id: `branch_page_${prNumber}`,
+      name: PAGED_BRANCH_NAMES[index % PAGED_BRANCH_NAMES.length]!,
+      createdAt: new Date(Date.UTC(2026, 6, 31 - (index % 28), 9, 12)),
+      prNumber,
+      pr: {
+        title: PAGED_TITLES[index % PAGED_TITLES.length]!,
+        state: "open" as const,
+        authorLogin: PAGED_AUTHORS[index % PAGED_AUTHORS.length]!,
+        updatedAt: new Date(Date.UTC(2026, 7, 3, 23 - index, 40)),
+      },
+      bugCount: index % 5 === 0 ? 1 : 0,
+      previewUrl: undefined,
+      prStatus: { kind: "pending_checks" as const },
+      activeSnapshot: null,
+    };
+  }),
+);
+
+/**
+ * An application with far more open pull requests than fit on a page - sandstone has ~290. The list shows the 25
+ * most recently updated and pages through the rest; the header keeps reporting the true total.
+ */
+export const ManyPullRequests: Story = {
+  args: { path: `/app/${baseApplication.slug}` },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...dashboardFixtures,
+        branches: { ...dashboardFixtures.branches, list: { ...PAGED_PRS, totalCount: 292 } },
+      }),
+    },
+  },
 };

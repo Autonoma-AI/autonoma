@@ -1,6 +1,6 @@
 import { previewConfigSchema } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
+import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { userEvent, within } from "storybook/test";
@@ -94,7 +94,7 @@ const previewConfigFixtures: TrpcFixtures = {
     },
   },
   branches: {
-    list: [],
+    list: branchPage(),
     detailByName: {
       id: baseApplication.mainBranchId ?? "branch_fixture_01",
       name: "main",

@@ -1,6 +1,6 @@
 import { type AnalysisVerdictState, deriveAnalysisVerdict } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
+import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import type { RouterOutputs } from "lib/trpc";
@@ -211,7 +211,7 @@ function completedOnboardingState() {
  */
 const mainBranchPageFixtures: TrpcFixtures = {
   branches: {
-    list: [],
+    list: branchPage(),
     snapshotHistory: [],
     detailByName: {
       id: baseApplication.mainBranchId ?? "branch_fixture_01",

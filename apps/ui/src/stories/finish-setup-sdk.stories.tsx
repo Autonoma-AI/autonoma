@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
+import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import type { RouterOutputs } from "lib/trpc";
@@ -238,7 +238,7 @@ const noPreviewTargets: SdkDryRunTargets = {
 // The app shell's sidebar (milestones) reads these on every page under the shell.
 const sidebarFixtures: TrpcFixtures = {
   branches: {
-    list: [],
+    list: branchPage(),
     detailByName: {
       id: baseApplication.mainBranchId ?? "branch_fixture_01",
       name: "main",

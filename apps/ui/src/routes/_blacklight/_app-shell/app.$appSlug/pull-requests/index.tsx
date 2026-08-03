@@ -1,5 +1,6 @@
 import {
   type ColumnDef,
+  Pagination,
   Panel,
   PanelBody,
   PanelHeader,
@@ -18,6 +19,7 @@ import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { createFileRoute, notFound } from "@tanstack/react-router";
+import { toPageParam } from "lib/page-param";
 import {
   INVESTIGATION_TONE_CLASS,
   type InvestigationPresence,
@@ -55,15 +57,17 @@ function isPullRequestStateFilter(value: unknown): value is PullRequestStateFilt
 }
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-requests/")({
-  validateSearch: (search: Record<string, unknown>): { state: PullRequestStateFilter } => {
-    if (isPullRequestStateFilter(search.state)) return { state: search.state };
-    return { state: "open" };
+  // `page` is omitted on page 1, so the common URL stays `?state=open` and existing links keep working.
+  validateSearch: (search: Record<string, unknown>): { state: PullRequestStateFilter; page?: number } => {
+    const state = isPullRequestStateFilter(search.state) ? search.state : "open";
+    const page = toPageParam(search.page);
+    return page > 1 ? { state, page } : { state };
   },
-  loaderDeps: ({ search: { state } }) => ({ state }),
-  loader: async ({ context, params: { appSlug }, deps: { state } }) => {
+  loaderDeps: ({ search: { state, page } }) => ({ state, page: page ?? 1 }),
+  loader: async ({ context, params: { appSlug }, deps: { state, page } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
-    await ensureBranchesData(context.queryClient, app.id, state);
+    await ensureBranchesData(context.queryClient, app.id, state, page);
   },
   pendingComponent: PullRequestsPageSkeleton,
   component: PullRequestsPage,
@@ -81,11 +85,15 @@ type PullRequestRow = {
   prStatus: PrPipelineStatus;
 };
 
-function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
-  const { data: branches } = useBranches(state);
+function PullRequestsContent({ state, page }: { state: PullRequestStateFilter; page: number }) {
+  const { data: branches } = useBranches(state, page);
+  const navigate = Route.useNavigate();
   const appNavigate = useAppNavigate();
+  const pageCount = Math.max(1, Math.ceil(branches.totalCount / branches.pageSize));
+  // The server clamps an over-run page, so this is the page on screen - which is not always the one in the URL.
+  const servedPage = branches.page;
 
-  const rows: PullRequestRow[] = branches.flatMap((b) =>
+  const rows: PullRequestRow[] = branches.items.flatMap((b) =>
     b.prNumber != null
       ? [
           {
@@ -104,7 +112,8 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
   );
 
   // Internal-only (@autonoma.app); disabled for everyone else, so the column below never renders for customers.
-  const investigation = useInvestigationReportsBySnapshot(state);
+  // Same state AND page as the list, so it describes the rows actually on screen.
+  const investigation = useInvestigationReportsBySnapshot(state, servedPage);
 
   function handleRowClick(row: PullRequestRow) {
     void appNavigate({
@@ -187,7 +196,7 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
       <PanelHeader className="flex items-center gap-2">
         <GitPullRequestIcon size={14} className="text-text-secondary" />
         <PanelTitle>{PR_STATE_TITLE[state]}</PanelTitle>
-        <span className="ml-auto font-mono text-2xs text-text-secondary">{rows.length} total</span>
+        <span className="ml-auto font-mono text-2xs text-text-secondary">{branches.totalCount} total</span>
       </PanelHeader>
 
       <PanelBody className="overflow-auto p-0">
@@ -198,6 +207,14 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
           emptyMessage={`No ${state} pull requests.`}
         />
       </PanelBody>
+
+      <Pagination
+        page={servedPage}
+        pageCount={pageCount}
+        // Replaces rather than pushes: paging is browsing one list, not a place worth a back-button stop each time.
+        onPageChange={(next) => void navigate({ search: { state, page: next }, replace: true })}
+        label={`${rows.length} of ${branches.totalCount}`}
+      />
     </Panel>
   );
 }
@@ -309,11 +326,12 @@ function MainBranchChip() {
 }
 
 function PullRequestsPage() {
-  const { state } = Route.useSearch();
+  const { state, page = 1 } = Route.useSearch();
   const navigate = Route.useNavigate();
 
   function handleTabChange(value: unknown) {
     if (!isPullRequestStateFilter(value)) return;
+    // Back to page 1: the tabs are different lists, and page 7 of "open" means nothing in "merged".
     void navigate({ search: { state: value } });
   }
 
@@ -339,8 +357,8 @@ function PullRequestsPage() {
         </TabsList>
       </Tabs>
 
-      <Suspense key={state} fallback={<ContentSkeleton />}>
-        <PullRequestsContent state={state} />
+      <Suspense key={`${state}:${page}`} fallback={<ContentSkeleton />}>
+        <PullRequestsContent state={state} page={page} />
       </Suspense>
     </div>
   );

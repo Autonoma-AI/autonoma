@@ -1,6 +1,7 @@
 import { Skeleton } from "@autonoma/blacklight";
 import { createFileRoute } from "@tanstack/react-router";
 import { useOnboardingState } from "lib/onboarding/onboarding-api";
+import { toPageParam } from "lib/page-param";
 import { ensureAPIQueryData } from "lib/query/api-queries";
 import { ensureMainOpenProblemsData } from "lib/query/branches.queries";
 import { ensureLatestPullRequestsData } from "lib/query/latest-prs.queries";
@@ -13,11 +14,18 @@ import { MainProblemsRail, MainProblemsRailSkeleton } from "./-home/main-problem
 import { OpenPrsList, OpenPrsListSkeleton } from "./-home/open-prs-list";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/")({
-  loader: async ({ context, params: { appSlug } }) => {
+  // `prs` rather than `page`: Home is one screen with several lists, so the param says which list it pages.
+  // Optional, and omitted on page 1 - so every existing link to Home stays valid and the common URL stays clean.
+  validateSearch: (search: Record<string, unknown>): { prs?: number } => {
+    const page = toPageParam(search.prs);
+    return page > 1 ? { prs: page } : {};
+  },
+  loaderDeps: ({ search: { prs } }) => ({ prs: prs ?? 1 }),
+  loader: async ({ context, params: { appSlug }, deps: { prs } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) return;
     await Promise.all([
-      ensureLatestPullRequestsData(context.queryClient, app.id),
+      ensureLatestPullRequestsData(context.queryClient, app.id, prs),
       ensureMainOpenProblemsData(context.queryClient, app.id),
       ensureAPIQueryData(context.queryClient, trpc.onboarding.getState.queryOptions({ applicationId: app.id })),
     ]);
@@ -48,6 +56,8 @@ function HomePage() {
  */
 function HomeBody({ appId, appSlug, appName }: { appId: string; appSlug: string; appName: string }) {
   const { data: state } = useOnboardingState(appId);
+  const { prs = 1 } = Route.useSearch();
+  const navigate = Route.useNavigate();
 
   if (!state.setupComplete) {
     return (
@@ -64,8 +74,10 @@ function HomeBody({ appId, appSlug, appName }: { appId: string; appSlug: string;
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-6 py-5">
-        <Suspense fallback={<OpenPrsListSkeleton />}>
-          <OpenPrsList />
+        {/* Keyed on the page so the list suspends to its skeleton while the next page loads, rather than
+            holding the previous page's rows under a stale pager. */}
+        <Suspense key={prs} fallback={<OpenPrsListSkeleton />}>
+          <OpenPrsList page={prs} onPageChange={(next) => void navigate({ search: { prs: next }, replace: true })} />
         </Suspense>
       </div>
 

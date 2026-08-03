@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
+import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { HttpResponse, http } from "msw";
@@ -255,7 +255,7 @@ function completedOnboardingState() {
 const SHARED_FIXTURES: TrpcFixtures = {
   branches: {
     // The app shell's sidebar (milestones) reads these on every page.
-    list: [],
+    list: branchPage(),
     // No checkpoints yet for this PR - exercises the Overview tab's empty state under the new
     // fixed-viewport shell (checkpoint content itself is unrelated to this PR's shell change).
     snapshotHistory: [],

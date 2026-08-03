@@ -117,6 +117,7 @@ export { Sparkline, type SparklineProps } from "./components/ui/sparkline";
 export { StatusDot, statusDotVariants } from "./components/ui/status-dot";
 export { EmptyState, type EmptyStateProps } from "./components/ui/empty-state";
 export { Switch } from "./components/ui/switch";
+export { Pagination, paginationSlots, type PaginationProps } from "./components/ui/pagination";
 export { SortableTable, type SortableTableProps, type ColumnDef } from "./components/ui/table";
 export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants } from "./components/ui/tabs";
 export { VerdictHero, type VerdictHeroCta, type VerdictHeroProps } from "./components/ui/verdict-hero";

@@ -56,16 +56,23 @@ export interface InvestigationPresenceResult {
 }
 
 /**
- * Takes the application and the pull-request state the list is showing, NOT the snapshot ids on screen: the
- * server already knows which snapshots those are, and shipping a few hundred ids back to it is what pushed a
- * batched tRPC GET past the edge's URL limit.
+ * Takes the application, state and page the list is showing, NOT the snapshot ids on screen: the server already
+ * knows which snapshots those are, and shipping a few hundred ids back to it is what pushed a batched tRPC GET
+ * past the edge's URL limit. The page has to match the list's, or this answers about different rows.
  */
-export function useInvestigationReportsBySnapshot(state: PullRequestStateFilter): InvestigationPresenceResult {
+export function useInvestigationReportsBySnapshot(
+    state: PullRequestStateFilter,
+    page = 1,
+): InvestigationPresenceResult {
     const currentApp = useCurrentApplication();
     const { user } = useAuth();
     const enabled = user?.email?.endsWith(`@${env.VITE_INTERNAL_DOMAIN}`) ?? false;
     const { data, isLoading } = useQuery({
-        ...trpc.branches.investigationReportsForApplication.queryOptions({ applicationId: currentApp.id, state }),
+        ...trpc.branches.investigationReportsForApplication.queryOptions({
+            applicationId: currentApp.id,
+            state,
+            page,
+        }),
         enabled,
     });
     return {
@@ -228,17 +235,29 @@ export async function ensureAnalysisSnapshotIssueChangesData(queryClient: QueryC
     await ensureAPIQueryData(queryClient, trpc.branches.analysisSnapshotIssueChanges.queryOptions({ snapshotId }));
 }
 
-export function useBranches(state: PullRequestStateFilter = "open") {
+/**
+ * Every open branch's name and test count, for the Tests page's branch picker. Its own query rather than a slice
+ * of {@link useBranches}: the picker has no search box, so paging it would hide older branches with no way to
+ * reach them, and it throws away the per-row health the paged list pays for.
+ */
+export function useBranchNames() {
     const currentApp = useCurrentApplication();
-    return useSuspenseQuery(trpc.branches.list.queryOptions({ applicationId: currentApp.id, state }));
+    return useSuspenseQuery(trpc.branches.names.queryOptions({ applicationId: currentApp.id }));
+}
+
+/** One page of pull requests. The page size and total live on the response - never re-derive them here. */
+export function useBranches(state: PullRequestStateFilter = "open", page = 1) {
+    const currentApp = useCurrentApplication();
+    return useSuspenseQuery(trpc.branches.list.queryOptions({ applicationId: currentApp.id, state, page }));
 }
 
 export async function ensureBranchesData(
     queryClient: QueryClient,
     applicationId: string,
     state: PullRequestStateFilter = "open",
+    page = 1,
 ) {
-    await ensureAPIQueryData(queryClient, trpc.branches.list.queryOptions({ applicationId, state }));
+    await ensureAPIQueryData(queryClient, trpc.branches.list.queryOptions({ applicationId, state, page }));
 }
 
 export function useBranchDetail(applicationId: string, branchName: string) {

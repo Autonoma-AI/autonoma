@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
+import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { withRunSignals } from "./analysis-run-signals";
@@ -251,7 +251,7 @@ const failedSnapshotHistoryItem: (typeof snapshotHistory)[number] = {
 // Chrome the app shell + PR header/tab bar need on every PR page, independent of the checkpoint content.
 const chromeFixtures: TrpcFixtures = {
   branches: {
-    list: [],
+    list: branchPage(),
     detailByName: {
       id: baseApplication.mainBranchId ?? "branch_fixture_01",
       name: "main",
