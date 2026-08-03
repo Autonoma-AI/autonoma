@@ -1,5 +1,8 @@
 import { createClient, Prisma, type PrismaClient } from "@autonoma/db";
+import { OctokitGitHubApp, type GitHubApp } from "@autonoma/github";
+import { base64PrivateKey } from "@autonoma/github/schemas";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { z } from "zod";
 import { migratePreviewConfigToV2 } from "./migrate-preview-config-v2.lib";
 
 /**
@@ -11,6 +14,7 @@ import { migratePreviewConfigToV2 } from "./migrate-preview-config-v2.lib";
  * readiness / grounding readers keep parsing environments deployed before the
  * cutover. Defaults to DRY RUN - pass `--apply` to write.
  *
+ *   GITHUB_APP_ID=... GITHUB_APP_PRIVATE_KEY=... \
  *   pnpm --filter @autonoma/api exec tsx src/scripts/migrate-preview-config-v2.ts <DATABASE_URL> \
  *     [--apply] [--print] [--application <id>] [--map <applicationId>=<owner/repo> ...]
  *
@@ -21,11 +25,16 @@ import { migratePreviewConfigToV2 } from "./migrate-preview-config-v2.lib";
  * so this targets exactly the env DB you name - run it once per prod/beta/alpha,
  * and re-run after the API rollout finishes to catch rows written by old pods.
  *
- * The Application's repo full name comes from its newest PreviewkitEnvironment
- * (the Application row stores only the numeric GitHub id). An application that
- * never deployed a preview has no row to read it from - those are reported and
- * SKIPPED; supply their names with `--map <applicationId>=<owner/repo>` and
- * re-run. Already-v2 rows are skipped, so re-running is safe.
+ * The Application's repo full name resolves through, in order:
+ * 1. an explicit `--map <applicationId>=<owner/repo>` override;
+ * 2. the GitHub App installation listing, matched by the numeric
+ *    `githubRepositoryId` (the same lookup the API's save path uses). Enabled
+ *    when `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY` (base64 PEM - the exact
+ *    values from the SAME env's API, since installation ids in this DB belong
+ *    to that env's GitHub App) are set;
+ * 3. the newest PreviewkitEnvironment the repo ever deployed.
+ * A row none of those resolve is reported and SKIPPED; re-running is safe
+ * (already-v2 rows short-circuit).
  *
  * Leaves the `dependency_documents` column in place - it is dropped, together
  * with this script, in the follow-up PR once every environment is migrated.
@@ -62,10 +71,17 @@ class PreviewConfigV2Migrator {
      * would misattribute every dependency app to the primary repo.
      */
     private readonly migratedDocumentByApplication = new Map<string, Record<string, unknown>>();
+    /**
+     * Installation repo listings per organization (github repo id -> full
+     * name), fetched at most once per org. A failed listing caches as an empty
+     * map so one broken installation never hammers GitHub across its rows.
+     */
+    private readonly installationReposByOrg = new Map<string, Map<number, string>>();
 
     constructor(
         private readonly db: PrismaClient,
         private readonly args: CliArgs,
+        private readonly githubApp: GitHubApp | undefined,
     ) {
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
@@ -83,7 +99,7 @@ class PreviewConfigV2Migrator {
                 applicationId: true,
                 document: true,
                 dependencyDocuments: true,
-                application: { select: { githubRepositoryId: true } },
+                application: { select: { organizationId: true, githubRepositoryId: true } },
             },
         });
         this.logger.info("Migrating previewkit configs", { extra: { total: rows.length, apply: this.args.apply } });
@@ -102,6 +118,7 @@ class PreviewConfigV2Migrator {
             }
             const primaryRepository = await this.resolvePrimaryRepository(
                 row.applicationId,
+                row.application.organizationId,
                 row.application.githubRepositoryId,
             );
             if (primaryRepository == null) {
@@ -110,7 +127,9 @@ class PreviewConfigV2Migrator {
                     kind: "config",
                     id: row.applicationId,
                     outcome: "skipped",
-                    reason: "primary repo full name unresolvable - pass --map <applicationId>=<owner/repo>",
+                    reason:
+                        "primary repo full name unresolvable - set GITHUB_APP_ID + GITHUB_APP_PRIVATE_KEY " +
+                        "or pass --map <applicationId>=<owner/repo>",
                 });
                 continue;
             }
@@ -236,20 +255,69 @@ class PreviewConfigV2Migrator {
         this.record({ ...outcomeBase, outcome: "migrated" });
     }
 
-    /** The app's repo full name: an explicit --map wins, else the newest environment's repoFullName. */
+    /**
+     * The app's repo full name: an explicit --map wins, then the GitHub App
+     * installation listing (matched by the numeric repo id - the API save
+     * path's own lookup), then the newest environment's repoFullName.
+     */
     private async resolvePrimaryRepository(
         applicationId: string,
+        organizationId: string,
         githubRepositoryId: number | null,
     ): Promise<string | undefined> {
         const mapped = this.args.repoByApplicationId.get(applicationId);
         if (mapped != null) return mapped;
         if (githubRepositoryId == null) return undefined;
+
+        const listing = await this.listInstallationRepos(organizationId);
+        const fromGithub = listing.get(githubRepositoryId);
+        if (fromGithub != null) return fromGithub;
+
         const environment = await this.db.previewkitEnvironment.findFirst({
             where: { githubRepositoryId },
             orderBy: { updatedAt: "desc" },
             select: { repoFullName: true },
         });
         return environment?.repoFullName;
+    }
+
+    /** The org installation's repos by GitHub id; empty when GitHub resolution is off or the listing fails. */
+    private async listInstallationRepos(organizationId: string): Promise<Map<number, string>> {
+        const cached = this.installationReposByOrg.get(organizationId);
+        if (cached != null) return cached;
+
+        const listing = new Map<number, string>();
+        this.installationReposByOrg.set(organizationId, listing);
+        if (this.githubApp == null) return listing;
+
+        const installation = await this.db.gitHubInstallation.findUnique({
+            where: { organizationId },
+            select: { installationId: true },
+        });
+        if (installation == null) {
+            this.logger.warn("Organization has no GitHub installation; falling back to environment rows", {
+                organizationId,
+            });
+            return listing;
+        }
+
+        try {
+            const client = await this.githubApp.getInstallationClient(installation.installationId);
+            for (const repo of await client.listInstallationRepos()) {
+                listing.set(repo.id, repo.fullName);
+            }
+            this.logger.info("Listed installation repositories", {
+                organizationId,
+                extra: { installationId: installation.installationId, repos: listing.size },
+            });
+        } catch (err) {
+            this.logger.warn("Failed to list installation repositories; falling back to environment rows", {
+                organizationId,
+                extra: { installationId: installation.installationId },
+                err,
+            });
+        }
+        return listing;
     }
 
     private async resolveApplicationId(
@@ -377,11 +445,38 @@ function parseArgs(argv: string[]): CliArgs {
     return args;
 }
 
+// Optional GitHub App credentials, validated at the process boundary. Same
+// names and encoding (base64 PEM) as the API's env, so the operator exports
+// that env's values verbatim. Deliberately not the API's `createEnv` module -
+// importing it would demand the API's entire required env for a DB script.
+const githubCredentialsSchema = z.object({
+    GITHUB_APP_ID: z.string().min(1).optional(),
+    GITHUB_APP_PRIVATE_KEY: base64PrivateKey.optional(),
+});
+
+function buildGitHubApp(): GitHubApp | undefined {
+    const logger = rootLogger.child({ name: "buildGitHubApp" });
+    const credentials = githubCredentialsSchema.parse(process.env);
+    if (credentials.GITHUB_APP_ID == null || credentials.GITHUB_APP_PRIVATE_KEY == null) {
+        logger.info("GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY not set - repo names resolve from environment rows only");
+        return undefined;
+    }
+    logger.info("GitHub resolution enabled", { extra: { appId: credentials.GITHUB_APP_ID } });
+    // The webhook secret and slug feed webhook verification and deep links,
+    // neither of which this script's listing calls touch.
+    return new OctokitGitHubApp({
+        appId: credentials.GITHUB_APP_ID,
+        privateKey: credentials.GITHUB_APP_PRIVATE_KEY,
+        webhookSecret: "unused-by-migration",
+        appSlug: "migration",
+    });
+}
+
 async function main(): Promise<void> {
     const args = parseArgs(process.argv.slice(2));
     const db = createClient(args.connectionString);
     try {
-        await new PreviewConfigV2Migrator(db, args).run();
+        await new PreviewConfigV2Migrator(db, args, buildGitHubApp()).run();
     } finally {
         await db.$disconnect();
     }
