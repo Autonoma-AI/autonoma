@@ -294,9 +294,8 @@ app lines in a recent window.
   Application, overwritten in place on save). This is what the deploy pipeline reads. There is no
   revision history: saving overwrites the row, and every deploy/redeploy resolves the current
   document. The `document` (v2) carries the whole topology - every app names its `repository`
-  (`owner/repo` full name), multirepo dependency apps included. The `dependency_documents` column is
-  the retired v1 sidecar: folded into `document` by `migrate-preview-config-v2`, unread, dropped in
-  a follow-up PR.
+  (`owner/repo` full name), multirepo dependency apps included. There is no dependency sidecar: a
+  multirepo dependency's apps live in this one document, tagged by `repository`.
 - `PreviewkitSecret` - one row per secret: an env-var name and its sealed
   value, keyed `(applicationId, appName, key)`. There is NO bundle
   row - a "bundle" is just the set of rows sharing a scope. So a bundle exists exactly as long as it

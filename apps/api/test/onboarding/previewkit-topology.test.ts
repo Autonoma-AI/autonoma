@@ -201,12 +201,11 @@ integrationTestSuite({
             });
             expect(dependencyApplication).toBeNull();
 
-            // One row, document only - the dependencyDocuments sidecar is retired.
+            // One row holding the whole topology - there is no dependency sidecar.
             const storedConfig = await harness.db.previewkitConfig.findUniqueOrThrow({
                 where: { applicationId: appId },
-                select: { document: true, dependencyDocuments: true },
+                select: { document: true },
             });
-            expect(storedConfig.dependencyDocuments).toBeNull();
             expect(storedConfig.document).toMatchObject({ version: 2 });
 
             // getPreviewkitConfig round-trips the whole topology.

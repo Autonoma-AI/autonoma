@@ -2448,12 +2448,6 @@ model PreviewkitConfig {
   /// ![object]
   document Json
 
-  // RETIRED v1 sidecar (dependency configs per multirepo repo). Folded into
-  // `document` by migrate-preview-config-v2; nothing reads or writes it. The
-  // column is dropped, together with that script, in the follow-up PR.
-  /// ![object]
-  dependencyDocuments Json? @map("dependency_documents")
-
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
