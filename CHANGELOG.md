@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.260803.1](https://github.com/Autonoma-AI/agent/compare/v1.260801.2...v1.260803.1) (2026-08-03)
+
+
+### Features
+
+* **previewkit:** merge dependency documents into one repository-tagged config (v2) ([#2058](https://github.com/Autonoma-AI/agent/issues/2058)) ([8a7aec4](https://github.com/Autonoma-AI/agent/commit/8a7aec439a4cb1028614056bcd11f64b4e8c1d8d))
+* **secrets:** add operator script to encrypt/decrypt one previewkit secret ([#2048](https://github.com/Autonoma-AI/agent/issues/2048)) ([c032890](https://github.com/Autonoma-AI/agent/commit/c032890bccf1cd19ee36a047024ed57c28a149ff))
+* **terraform:** decommission utility-vpc and legacy-vpc ([#2074](https://github.com/Autonoma-AI/agent/issues/2074)) ([07c0a07](https://github.com/Autonoma-AI/agent/commit/07c0a079cd5eda61d579af375ce7b4a0559dc960))
+* **terraform:** import us-east-1 VPCs as the first Terraform migration slice ([#2066](https://github.com/Autonoma-AI/agent/issues/2066)) ([afc5a7b](https://github.com/Autonoma-AI/agent/commit/afc5a7b358bb84f86d749d7f3fa25d78c15749d0))
+
+
+### Bug Fixes
+
+* **agent-core:** a duplicate result-tool call no longer kills the run ([#2061](https://github.com/Autonoma-AI/agent/issues/2061)) ([bd85796](https://github.com/Autonoma-AI/agent/commit/bd85796398b719ccc6b10e0d3b60f2d6ddc4ab8d))
+* **analysis:** persist Impact Analysis conversation and cost record ([#2057](https://github.com/Autonoma-AI/agent/issues/2057)) ([2736284](https://github.com/Autonoma-AI/agent/commit/273628459aeda55ebe5ba300716411bb6581386d))
+* **monitoring:** change NodeNotReady alert duration from 2m to 5m ([#2064](https://github.com/Autonoma-AI/agent/issues/2064)) ([9389a2e](https://github.com/Autonoma-AI/agent/commit/9389a2ec9b173c5707ceb0ecbbc3c3622d66bfd5))
+* **ui:** show "Impact analysis" to clients on the analysis snapshot page ([#2073](https://github.com/Autonoma-AI/agent/issues/2073)) ([47ba619](https://github.com/Autonoma-AI/agent/commit/47ba6193095e098107b9bcf2c817a85e129ea5f6))
+
 ## [1.260801.2](https://github.com/Autonoma-AI/agent/compare/v1.260801.1...v1.260801.2) (2026-08-01)
 
 
