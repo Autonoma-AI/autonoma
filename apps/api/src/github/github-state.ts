@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-const STATE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+/** How long an install link stays valid. Exported so a caller can tell an agent when to stop waiting. */
+export const INSTALL_STATE_TTL_MS = 15 * 60 * 1000;
 
 function getSecret(): string {
     const secret = process.env.BETTER_AUTH_SECRET;
@@ -10,7 +11,7 @@ function getSecret(): string {
 
 export function createInstallState(organizationId: string, returnPath?: string): string {
     const payload = Buffer.from(
-        JSON.stringify({ organizationId, returnPath, exp: Date.now() + STATE_TTL_MS }),
+        JSON.stringify({ organizationId, returnPath, exp: Date.now() + INSTALL_STATE_TTL_MS }),
     ).toString("base64url");
     const sig = createHmac("sha256", getSecret()).update(payload).digest("hex");
     return `${payload}.${sig}`;

@@ -201,6 +201,8 @@ Some tools apply to only one path; called on the other they return an error nami
 | Tool | Input | Does |
 | --- | --- | --- |
 | `pair` | code | Claims the app using the pairing code from the UI; returns its `applicationId`, the `repository` it is linked to, how it gets its previews, the playbook for that path, and (Autonoma-hosted) the current config and `deployBranch` |
+| `get_github_connection` | applicationId | Which repository this app is connected to, and which others are linkable. Safe at any point - if your pairing code came from the UI the repository is already connected, and this confirms which one. If the GitHub App is not installed it returns a link to hand to a human and the tool to poll, since GitHub has no API to install an app |
+| `link_repository` | applicationId, repoFullName | Connects an app that has no repository yet, and completes the GitHub step. For apps being set up entirely through this MCP; if the app already has a repository it refuses rather than repointing it, which is a UI action |
 | `select_preview_path` | applicationId, path, reason | Commits how the app gets its previews, when pairing reported none chosen yet. `reason` is one line, shown to you live |
 | `get_config` | applicationId | Reads the current preview environment config document and the current `deployBranch` |
 | `apply_config` | applicationId, document, `branch?` | Saves the full config document (validated; errors returned to fix). Never carries secret values. Optional `branch` sets the deploy branch (defaults to the repo default; does not deploy) |

@@ -1,4 +1,6 @@
+import { needsHuman } from "@autonoma/agent-guidance";
 import type { OnboardingPreviewEnvironmentMode } from "@autonoma/db";
+import { ConflictError, NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
 import {
     type AgentLogEntry,
@@ -13,6 +15,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { env } from "../env";
+import { INSTALL_STATE_TTL_MS, createInstallState } from "../github/github-state";
 import type { Services } from "../routes/build-services";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import { deprecatedBuildNotice } from "./deprecated-build-notice";
@@ -467,6 +470,113 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     return toToolResult(err);
                 }
             }),
+    );
+
+    server.registerTool(
+        "get_github_connection",
+        {
+            title: "Check the GitHub connection",
+            description:
+                "Whether Autonoma can see this app's repository yet, and which repositories are available to link. " +
+                "Safe to call at any point: if you were handed a pairing code from the Autonoma UI the repository is " +
+                "already connected, and this just confirms which one - worth checking against your working directory " +
+                "before you read any files. If the GitHub App is not installed, this returns a link to hand to a human " +
+                "and polls to completion - GitHub has no API to install an app, so it is the one step an agent cannot " +
+                "do itself.",
+            inputSchema: { applicationId: z.string() },
+        },
+        async ({ applicationId }) =>
+            analytics.track("get_github_connection", async () => {
+                try {
+                    const organizationId = await resolveOrg(applicationId);
+                    const installation = await services.github.getInstallation(organizationId);
+                    if (installation == null) {
+                        const slug = services.github.getSlug();
+                        const state = createInstallState(organizationId);
+                        return jsonResult(
+                            needsHuman({
+                                action: "install_github_app",
+                                reason:
+                                    "Autonoma's GitHub App is not installed on this organization. GitHub only allows " +
+                                    "an organization owner to install it, from their browser.",
+                                url: `https://github.com/apps/${slug}/installations/new?state=${state}`,
+                                pollWith: "get_github_connection",
+                                expiresAt: new Date(Date.now() + INSTALL_STATE_TTL_MS),
+                            }),
+                        );
+                    }
+
+                    const repositories = await services.github.listRepositories(organizationId);
+                    const linked = repositories.find((repo) => repo.applicationId === applicationId);
+                    return jsonResult({
+                        connected: true,
+                        account: installation.accountLogin,
+                        linkedRepository: linked?.fullName,
+                        // Only repos the installation can see are linkable. Granting access to more is
+                        // also a browser step, hence the settings link rather than a tool.
+                        availableRepositories: repositories
+                            .filter((repo) => repo.applicationId == null)
+                            .map((repo) => repo.fullName),
+                        grantAccessToMoreUrl: `https://github.com/apps/${services.github.getSlug()}/installations/new`,
+                    });
+                } catch (err) {
+                    logger.warn("get_github_connection failed", { applicationId, err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "link_repository",
+        {
+            title: "Link a repository to this app",
+            description:
+                "Connect this app to one of the repositories Autonoma can see, for an app that has none yet, and " +
+                "complete the GitHub step. Only for an app being set up entirely through this MCP - if the app " +
+                "already has a repository (which it does whenever the pairing code came from the Autonoma UI) this " +
+                "refuses rather than moving it, since that would repoint an app people are already using. Changing " +
+                "an existing link is a UI action. Call get_github_connection first for the available names, and use " +
+                "the full 'owner/repo' form.",
+            inputSchema: { applicationId: z.string(), repoFullName: z.string().min(1) },
+        },
+        async ({ applicationId, repoFullName }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "link_repository",
+                    message: `Linked ${repoFullName}`,
+                    toolArguments: { repoFullName },
+                },
+                async (organizationId) => {
+                    const repositories = await services.github.listRepositories(organizationId);
+                    // `linkRepository` deliberately supports re-linking, so nothing below would stop an
+                    // agent repointing a connected app at a different repository. On every path that
+                    // starts in the UI the app is already linked before an agent can pair, so that is
+                    // the common case, not the edge one.
+                    const alreadyLinked = repositories.find((repo) => repo.applicationId === applicationId);
+                    if (alreadyLinked != null) {
+                        if (alreadyLinked.fullName === repoFullName) {
+                            return { linkedRepository: alreadyLinked.fullName, alreadyLinked: true };
+                        }
+                        throw new ConflictError(
+                            `This app is already linked to ${alreadyLinked.fullName}. Changing which repository an app points at is a UI action, since it repoints work people may already be relying on.`,
+                        );
+                    }
+
+                    const match = repositories.find((repo) => repo.fullName === repoFullName);
+                    if (match == null) {
+                        throw new NotFoundError(
+                            `${repoFullName} is not one of the repositories Autonoma can see. Call get_github_connection for the available names, or grant access to it on GitHub first.`,
+                        );
+                    }
+
+                    await services.github.linkRepository(organizationId, applicationId, match.id);
+                    // Linking is what the GitHub step was waiting on, so advance it here rather than
+                    // leaving the agent to discover a separate completion tool. Mirrors the UI.
+                    await services.onboarding.completeGithub(applicationId, organizationId);
+                    return { linkedRepository: match.fullName, step: "preview_environment" };
+                },
+            ),
     );
 
     server.registerTool(
