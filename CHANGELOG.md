@@ -1,5 +1,33 @@
 # Changelog
 
+## [1.260803.2](https://github.com/Autonoma-AI/agent/compare/v1.260803.1...v1.260803.2) (2026-08-03)
+
+
+### Features
+
+* **analysis:** owner-grouped PR comment body + confidence-first Reporter contract ([#2014](https://github.com/Autonoma-AI/agent/issues/2014)) ([ef5c004](https://github.com/Autonoma-AI/agent/commit/ef5c00456c30b2ab9d96adf6c3d0b045ff8a9572))
+* **api:** accept an API key on the MCP surface ([#2086](https://github.com/Autonoma-AI/agent/issues/2086)) ([2302f7f](https://github.com/Autonoma-AI/agent/commit/2302f7f95d6020cd56751e27aebfae49319a2ce6))
+* **api:** resolve repo names via the GitHub App in migrate-preview-config-v2 ([#2077](https://github.com/Autonoma-AI/agent/issues/2077)) ([e51613f](https://github.com/Autonoma-AI/agent/commit/e51613fb719cfe77478b16836496980219df48ba))
+* **cli:** formbricks SDK-integration eval case ([#2033](https://github.com/Autonoma-AI/agent/issues/2033)) ([88465d2](https://github.com/Autonoma-AI/agent/commit/88465d28aae25f1935fcd3d59f5c0a2373050986))
+* **diffs:** re-verify the branch's open bugs so a fixed one can resolve ([#2009](https://github.com/Autonoma-AI/agent/issues/2009)) ([e1de2a3](https://github.com/Autonoma-AI/agent/commit/e1de2a37ae43a48303eba2d1c10209a194ee2591))
+* **terraform:** import subnets, route tables, gateways, and VPC endpoints ([#2075](https://github.com/Autonoma-AI/agent/issues/2075)) ([8d0d99f](https://github.com/Autonoma-AI/agent/commit/8d0d99fd3d600e295677a6815ae30d3e7dbfab8f))
+* **ui:** one presenter for main's open problems (legacy Bug vs AnalysisIssue) ([#2025](https://github.com/Autonoma-AI/agent/issues/2025)) ([b1ccc59](https://github.com/Autonoma-AI/agent/commit/b1ccc595de36176766df1b8822fd01146b5fa8fa))
+* **ui:** warn before deleting a colleague's API key ([#2088](https://github.com/Autonoma-AI/agent/issues/2088)) ([4b690bd](https://github.com/Autonoma-AI/agent/commit/4b690bd21a38b452c43ba2d80c6f43fec4355466))
+
+
+### Bug Fixes
+
+* **analysis:** decline model-filled fields with null, never an empty string ([#2055](https://github.com/Autonoma-AI/agent/issues/2055)) ([e3e3891](https://github.com/Autonoma-AI/agent/commit/e3e3891e43cb39e50a8cf1b7ba6d37fac7e1ac74))
+* **api:** delete an application's config rows on delete ([#2079](https://github.com/Autonoma-AI/agent/issues/2079)) ([d03472d](https://github.com/Autonoma-AI/agent/commit/d03472d3756977cf133776a12e2c991dda345545))
+* **ci:** supersede in-flight per-app builds on new commits ([#2087](https://github.com/Autonoma-AI/agent/issues/2087)) ([656f0ad](https://github.com/Autonoma-AI/agent/commit/656f0ada1ee444a4d5e9ad9e51637e972e49df8c))
+* **terraform:** remove the retired AMP (aps-workspaces) VPC endpoints ([#2083](https://github.com/Autonoma-AI/agent/issues/2083)) ([3360b54](https://github.com/Autonoma-AI/agent/commit/3360b548e1593dfabafa8ad7953e9c380f3432c9))
+* **ui:** agent-configured apps can finish onboarding ([#2082](https://github.com/Autonoma-AI/agent/issues/2082)) ([9a318ef](https://github.com/Autonoma-AI/agent/commit/9a318ef3f7d857a4c66bbd9d7d2955503d42475b))
+
+
+### Performance Improvements
+
+* **ci:** stop deploy-services test jobs re-testing the whole dependency graph ([#2081](https://github.com/Autonoma-AI/agent/issues/2081)) ([a97ad56](https://github.com/Autonoma-AI/agent/commit/a97ad5677497dce741f956facd6b410ab14add04))
+
 ## [1.260803.1](https://github.com/Autonoma-AI/agent/compare/v1.260801.2...v1.260803.1) (2026-08-03)
 
 
