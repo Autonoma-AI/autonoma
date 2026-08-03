@@ -3,7 +3,7 @@ import type { SuiteHealth, SuiteHealthLevel } from "@autonoma/types";
 import { SUITE_HEALTH_LEVELS, suiteHealthRank } from "@autonoma/types";
 import { WrenchIcon } from "@phosphor-icons/react/Wrench";
 import { useSuiteHealth } from "lib/query/suite-health.queries";
-import { Suspense, useState } from "react";
+import { Component, Suspense, useState, type ReactNode } from "react";
 import {
   SUITE_HEALTH_LOWERS,
   SUITE_HEALTH_PRESENTATION,
@@ -210,10 +210,32 @@ function SidebarSuiteHealthSkeleton({ collapsed }: { collapsed: boolean }) {
   );
 }
 
+/**
+ * Isolates a failed suite-health fetch to the meter itself, and renders nothing when it happens.
+ *
+ * The sidebar is on every page, so without this the throw from `useSuspenseQuery` - including one from the
+ * background poll, which re-throws on the next render - takes the whole app shell down with it. There is nothing
+ * useful to say in its place either: the meter is a passive glance at a number, and an error row where a number
+ * belongs asks the reader to deal with a problem that is not theirs. It comes back on its own on the next poll.
+ */
+class SuiteHealthErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  override state: { hasError: boolean } = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  override render() {
+    return this.state.hasError ? null : this.props.children;
+  }
+}
+
 export function SidebarSuiteHealth({ collapsed }: { collapsed: boolean }) {
   return (
-    <Suspense fallback={<SidebarSuiteHealthSkeleton collapsed={collapsed} />}>
-      <SidebarSuiteHealthContent collapsed={collapsed} />
-    </Suspense>
+    <SuiteHealthErrorBoundary>
+      <Suspense fallback={<SidebarSuiteHealthSkeleton collapsed={collapsed} />}>
+        <SidebarSuiteHealthContent collapsed={collapsed} />
+      </Suspense>
+    </SuiteHealthErrorBoundary>
   );
 }

@@ -51,16 +51,21 @@ export interface InvestigationPresenceResult {
     bySnapshot: Map<string, InvestigationPresence>;
     /** True while the (internal-only) presence query is in flight - the entry points show skeletons meanwhile. */
     isLoading: boolean;
-    /** Whether the entry points apply at all (internal user with snapshots to look up). */
+    /** Whether the entry points apply at all (internal user only). */
     enabled: boolean;
 }
 
-export function useInvestigationReportsBySnapshot(snapshotIds: string[]): InvestigationPresenceResult {
+/**
+ * Takes the application and the pull-request state the list is showing, NOT the snapshot ids on screen: the
+ * server already knows which snapshots those are, and shipping a few hundred ids back to it is what pushed a
+ * batched tRPC GET past the edge's URL limit.
+ */
+export function useInvestigationReportsBySnapshot(state: PullRequestStateFilter): InvestigationPresenceResult {
+    const currentApp = useCurrentApplication();
     const { user } = useAuth();
-    const isInternal = user?.email?.endsWith(`@${env.VITE_INTERNAL_DOMAIN}`) ?? false;
-    const enabled = isInternal && snapshotIds.length > 0;
+    const enabled = user?.email?.endsWith(`@${env.VITE_INTERNAL_DOMAIN}`) ?? false;
     const { data, isLoading } = useQuery({
-        ...trpc.branches.investigationReportsForSnapshots.queryOptions({ snapshotIds }),
+        ...trpc.branches.investigationReportsForApplication.queryOptions({ applicationId: currentApp.id, state }),
         enabled,
     });
     return {

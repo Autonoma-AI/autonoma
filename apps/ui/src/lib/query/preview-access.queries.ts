@@ -1,6 +1,7 @@
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import type { RouterOutputs } from "lib/trpc";
 import { trpc } from "lib/trpc";
+import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 
 type PreviewState = RouterOutputs["previewAccess"]["status"]["state"];
 
@@ -79,6 +80,23 @@ export function usePreviewLiveness(urls: string[]) {
     return useQuery({
         ...trpc.previewAccess.liveness.queryOptions({ urls: sorted }),
         enabled: sorted.length > 0,
+        refetchInterval: LIVENESS_POLL_MS,
+    });
+}
+
+/**
+ * The same map for every preview the CURRENT APPLICATION has - the shape every in-app list wants.
+ *
+ * Prefer this over {@link usePreviewLiveness} anywhere the previews belong to one application. Naming the URLs
+ * means sending one per row back to the server that produced them: at a few hundred open pull requests that is
+ * ~15KB of query string, which the edge rejects with 414 - taking down every other procedure sharing the tRPC
+ * batch - and anything past {@link LIVENESS_URL_CAP} was dropped before it even got that far. `usePreviewLiveness`
+ * stays for the cross-org admin fleet view, which has no single application to key on.
+ */
+export function useApplicationPreviewLiveness() {
+    const currentApp = useCurrentApplication();
+    return useQuery({
+        ...trpc.previewAccess.livenessForApplication.queryOptions({ applicationId: currentApp.id }),
         refetchInterval: LIVENESS_POLL_MS,
     });
 }

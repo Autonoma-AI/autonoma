@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseSuiteHealth } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import { suiteHealthFixture } from "lib/storybook/suite-health-fixtures";
+import { HttpResponse, http } from "msw";
 import { userEvent, within } from "storybook/test";
 import { dashboardFixtures } from "./app-home.stories";
 
@@ -25,6 +26,9 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 const PATH = "/app/acme-web";
+
+/** Matches the meter's own request only - it is deliberately unbatched, so it is never in a URL with anything else. */
+const SUITE_HEALTH_ENDPOINT = "*/v1/trpc/applications.suiteHealth";
 
 /** `autonoma/online-bank`: the cleanest suite we run. Its score earns Proven; only its age holds it at Steady. */
 export const Steady: Story = {
@@ -182,6 +186,22 @@ export const WaitingForFirstRun: Story = {
           { passed: 0, clientBug: 0, environmentFailure: 0, scenarioIssue: 0, planMismatch: 0, engineArtifact: 0 },
         ),
       ),
+    },
+  },
+};
+
+/**
+ * The meter's request fails. The sidebar renders on every page, so the failure has to stop here: the meter simply
+ * is not there, and the rest of the shell - navigation, the page itself - keeps working around the gap.
+ */
+export const Unavailable: Story = {
+  args: { path: PATH },
+  parameters: {
+    msw: {
+      handlers: [
+        http.get(SUITE_HEALTH_ENDPOINT, () => new HttpResponse(null, { status: 500 })),
+        ...handlers(baseSuiteHealth),
+      ],
     },
   },
 };

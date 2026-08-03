@@ -80,12 +80,31 @@ const linkOptions = {
     }),
 } as const;
 
+/** Operation-context key that routes a query around `httpBatchLink`. Read by the `splitLink` below. */
+const SKIP_BATCH = "skipBatch";
+
+/**
+ * Query options that keep a query out of the shared HTTP batch. A batch resolves only when its SLOWEST member
+ * does, so anything that renders outside the page it happens to share a tick with paints at that page's speed:
+ * the sidebar's suite-health meter is a ~50ms query, and batched behind a 300-pull-request `branches.list` it
+ * sits on a skeleton for seconds. Pass as the second argument to `queryOptions`.
+ */
+export const UNBATCHED = { trpc: { context: { [SKIP_BATCH]: true } } };
+
+/**
+ * Split a batch rather than let its URL grow unbounded. A batched query is a GET with every member's input in the
+ * query string, and our edge answers 414 past ~8-12KB of it - which fails the WHOLE batch, including procedures
+ * whose own input was two fields. Individual procedures should not be shipping large inputs in the first place
+ * (key them by an id and resolve server-side), but this keeps one that does from taking its neighbours with it.
+ */
+const MAX_BATCH_URL_LENGTH = 8_000;
+
 export const trpcClient = createTRPCClient<AppRouter>({
     links: [
         splitLink({
-            condition: (op) => op.input instanceof FormData,
+            condition: (op) => op.input instanceof FormData || op.context[SKIP_BATCH] === true,
             true: httpLink(linkOptions),
-            false: httpBatchLink(linkOptions),
+            false: httpBatchLink({ ...linkOptions, maxURLLength: MAX_BATCH_URL_LENGTH }),
         }),
     ],
 });

@@ -13,20 +13,20 @@ import {
   useInvestigationReportsBySnapshot,
 } from "lib/query/branches.queries";
 import { type LatestPullRequest, useLatestPullRequests } from "lib/query/latest-prs.queries";
-import { pickPreviewLiveness, type PreviewLivenessState, usePreviewLiveness } from "lib/query/preview-access.queries";
+import {
+  pickPreviewLiveness,
+  type PreviewLivenessState,
+  useApplicationPreviewLiveness,
+} from "lib/query/preview-access.queries";
 import { AppLink } from "../../-app-link";
 import { CheckpointSummaryBadge } from "../pull-requests/-components/checkpoint-summary-badge";
 
 export function OpenPrsList() {
   const prs = useLatestPullRequests();
   // Internal-only (@autonoma.app); the hook is disabled for everyone else, so no entry point renders.
-  const investigation = useInvestigationReportsBySnapshot(
-    prs.map((pr) => pr.snapshotId).filter((id): id is string => id != null),
-  );
-  // One batched liveness poll for every preview on the page (never wakes them).
-  const { data: liveness } = usePreviewLiveness(
-    prs.map((pr) => pr.previewUrl).filter((url): url is string => url != null),
-  );
+  const investigation = useInvestigationReportsBySnapshot("open");
+  // One liveness poll covering every preview the app has (never wakes them).
+  const { data: liveness } = useApplicationPreviewLiveness();
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3">

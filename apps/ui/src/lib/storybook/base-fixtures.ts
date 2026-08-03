@@ -166,7 +166,7 @@ const baseTrpcFixtures: TrpcFixtures = {
     github: { getInstallation: null },
     // List views poll preview liveness; default to none so a story that doesn't
     // set it renders without the badge (and never errors on the unmocked call).
-    previewAccess: { liveness: {} },
+    previewAccess: { liveness: {}, livenessForApplication: {} },
     billing: {
         status: {
             creditBalance: 740,

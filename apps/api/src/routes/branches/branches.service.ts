@@ -501,6 +501,31 @@ export class BranchesService extends Service {
     }
 
     /**
+     * The same presence, for every pull request of an application in a given state.
+     *
+     * The snapshot ids are resolved HERE rather than named by the caller. The list views already read these
+     * branches from `listBranches`, so having them ship one id per row back is a round trip of the server's own
+     * answer - and at a few hundred open pull requests it is ~10KB of `input=` on a batched tRPC GET, which the
+     * edge rejects with 414 before any procedure in that batch runs.
+     */
+    async getInvestigationReportsForApplication(
+        applicationId: string,
+        organizationId: string,
+        state: PullRequestStateFilter = "open",
+    ) {
+        this.logger.info("Getting investigation reports for application", { applicationId, extra: { state } });
+
+        const branches = await this.db.branch.findMany({
+            where: { applicationId, prInfo: prInfoStateFilter(state), application: { organizationId } },
+            select: { activeSnapshotId: true },
+        });
+
+        const snapshotIds = branches.map((branch) => branch.activeSnapshotId).filter((id): id is string => id != null);
+
+        return await this.getInvestigationReportsForSnapshots(snapshotIds, organizationId);
+    }
+
+    /**
      * Batched presence for the PR-list entry points (Home + PR list): given the active snapshot ids of many PRs,
      * return which ones have an investigation report and its bug count + lifecycle status. Batched deliberately -
      * a per-PR fetch would N+1 the list. Matches the twin's report (via the pairing FK) or a legacy report keyed

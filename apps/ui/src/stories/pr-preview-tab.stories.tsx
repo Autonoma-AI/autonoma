@@ -350,7 +350,10 @@ const readyPreviewTabFixtures: TrpcFixtures = {
   ...SHARED_FIXTURES,
   // Deployed and actually serving -> the strip shows a "Live" runtime badge
   // beside the deploy status (vs "Idle" had it scaled to zero).
-  previewAccess: { liveness: { "https://web-app.preview-2624.internal": "healthy" } },
+  previewAccess: {
+    liveness: { "https://web-app.preview-2624.internal": "healthy" },
+    livenessForApplication: { "https://web-app.preview-2624.internal": "healthy" },
+  },
   deployments: {
     previewSummaryByPr: readyPreviewkitSummary(),
     previewSummaryById: readyPreviewkitSummary(),

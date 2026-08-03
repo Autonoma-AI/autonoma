@@ -130,10 +130,15 @@ export const branchesRouter = router({
 
     // Batched investigation presence for the PR-list entry points (Home + PR list). Internal-only, gated to
     // @autonoma.app users; returns one entry per PR-snapshot that has a report (keyed by the PR snapshot id).
-    investigationReportsForSnapshots: internalEmailProcedure
-        .input(z.object({ snapshotIds: z.array(z.string()) }))
+    investigationReportsForApplication: internalEmailProcedure
+        .input(
+            z.object({
+                applicationId: z.string(),
+                state: z.enum(["open", "closed", "merged"]).default("open"),
+            }),
+        )
         .query(({ ctx: { services, organizationId }, input }) =>
-            services.branches.getInvestigationReportsForSnapshots(input.snapshotIds, organizationId),
+            services.branches.getInvestigationReportsForApplication(input.applicationId, organizationId, input.state),
         ),
 
     activeSnapshot: protectedProcedure

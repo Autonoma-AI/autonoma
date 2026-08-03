@@ -9,8 +9,12 @@ import { probePreview } from "./probe-preview";
 import { resolvePreviewLivenessService } from "./resolve-preview-liveness";
 
 // A batched liveness poll covers a whole list view at once; cap it so a single
-// request can never fan out to an unbounded set.
+// request can never fan out to an unbounded set. Only `liveness` needs it -
+// `livenessForApplication` derives its own set, so nothing arrives to bound.
 const MAX_LIVENESS_URLS = 200;
+
+/** An environment's advertised URLs: a `{ appName: url }` blob on `previewkitEnvironment.urls`. */
+const PreviewUrlsSchema = z.record(z.string(), z.string());
 
 /**
  * What the deploy status alone tells the waiting page, or undefined when the
@@ -144,7 +148,61 @@ export const previewAccessRouter = router({
             }
             return result;
         }),
+
+    /**
+     * The same map for every preview an APPLICATION has, resolved entirely here.
+     *
+     * `liveness` above needs the caller to name the URLs, which means a list view has to ship one URL per row back
+     * to the server that gave them to it: an application with a few hundred open pull requests turns a two-field
+     * query into ~15KB of `input=`, and a batched tRPC GET carrying that is rejected at the edge with 414 before
+     * any procedure runs. It also silently truncated - the old cap was 200 URLs, so row 201 onward always read
+     * "unknown". Keyed by application, the request is one id and no row is left out.
+     */
+    livenessForApplication: protectedProcedure
+        .input(z.object({ applicationId: z.string() }))
+        .query(async ({ input, ctx: { organizationId } }): Promise<Record<string, PreviewLivenessState>> => {
+            const service = resolvePreviewLivenessService();
+            if (service == null) return {};
+
+            const application = await db.application.findFirst({
+                where: { id: input.applicationId, organizationId },
+                select: { githubRepositoryId: true },
+            });
+            if (application?.githubRepositoryId == null) return {};
+
+            const [environments, fleet] = await Promise.all([
+                db.previewkitEnvironment.findMany({
+                    where: {
+                        organizationId,
+                        githubRepositoryId: application.githubRepositoryId,
+                        status: { not: "torn_down" },
+                    },
+                    select: { namespace: true, urls: true, appInstances: { select: { url: true } } },
+                }),
+                service.getFleet(),
+            ]);
+
+            const result: Record<string, PreviewLivenessState> = {};
+            for (const environment of environments) {
+                const state = service.stateForNamespace(environment.namespace, fleet);
+                // Both sources, because the two halves of the product reach a preview by different keys: the PR
+                // list renders `previewkitEnvironment.urls`, while the app-instance rows are what `liveness`
+                // matches on. Every URL of an environment shares its namespace, so they all resolve the same.
+                for (const url of environmentUrls(environment.urls)) result[url] = state;
+                for (const instance of environment.appInstances) {
+                    if (instance.url != null) result[instance.url] = state;
+                }
+            }
+            return result;
+        }),
 });
+
+/** The environment's advertised URLs. A malformed `urls` blob contributes nothing rather than failing the read. */
+function environmentUrls(urls: unknown): string[] {
+    const parsed = PreviewUrlsSchema.safeParse(urls);
+    if (!parsed.success) return [];
+    return Object.values(parsed.data).filter((url) => url.length > 0);
+}
 
 function unknownFor(urls: string[]): Record<string, PreviewLivenessState> {
     const result: Record<string, PreviewLivenessState> = {};

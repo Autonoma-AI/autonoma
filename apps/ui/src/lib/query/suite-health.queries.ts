@@ -1,7 +1,5 @@
-import type { QueryClient } from "@tanstack/react-query";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { ensureAPIQueryData } from "lib/query/api-queries";
-import { trpc } from "lib/trpc";
+import { UNBATCHED, trpc } from "lib/trpc";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 
 /**
@@ -10,10 +8,14 @@ import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-curren
  */
 const REFETCH_INTERVAL_MS = 60_000;
 
+/**
+ * Unbatched: the meter lives in the sidebar, so it fires on every page and would otherwise ride in whatever batch
+ * that page's own queries form. The query costs ~50ms; the pull-request list it sits beside costs seconds.
+ */
 export function useSuiteHealth() {
     const currentApp = useCurrentApplication();
     return useSuspenseQuery({
-        ...trpc.applications.suiteHealth.queryOptions({ applicationId: currentApp.id }),
+        ...trpc.applications.suiteHealth.queryOptions({ applicationId: currentApp.id }, UNBATCHED),
         refetchInterval: REFETCH_INTERVAL_MS,
     });
 }
@@ -24,9 +26,7 @@ export function useSuiteHealth() {
  */
 export function useSuiteHealthFixPlan() {
     const currentApp = useCurrentApplication();
-    return useSuspenseQuery(trpc.applications.suiteHealthFixPlan.queryOptions({ applicationId: currentApp.id }));
-}
-
-export async function ensureSuiteHealthData(queryClient: QueryClient, applicationId: string) {
-    await ensureAPIQueryData(queryClient, trpc.applications.suiteHealth.queryOptions({ applicationId }));
+    return useSuspenseQuery(
+        trpc.applications.suiteHealthFixPlan.queryOptions({ applicationId: currentApp.id }, UNBATCHED),
+    );
 }

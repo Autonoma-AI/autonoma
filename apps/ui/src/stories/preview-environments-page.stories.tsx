@@ -63,7 +63,7 @@ const meta = {
       handlers: appShellHandlers({
         ...dashboardFixtures,
         deployments: { listActiveForApp: ENVIRONMENTS },
-        previewAccess: { liveness: LIVENESS },
+        previewAccess: { liveness: LIVENESS, livenessForApplication: LIVENESS },
       }),
     },
   },

@@ -104,9 +104,7 @@ function PullRequestsContent({ state }: { state: PullRequestStateFilter }) {
   );
 
   // Internal-only (@autonoma.app); disabled for everyone else, so the column below never renders for customers.
-  const investigation = useInvestigationReportsBySnapshot(
-    rows.map((row) => row.snapshotId).filter((id): id is string => id != null),
-  );
+  const investigation = useInvestigationReportsBySnapshot(state);
 
   function handleRowClick(row: PullRequestRow) {
     void appNavigate({
