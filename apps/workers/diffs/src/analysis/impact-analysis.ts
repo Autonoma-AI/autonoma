@@ -213,6 +213,7 @@ async function runSelection({
     const existingTests = metadata.existingTests.filter((test) => !importedSlugs.has(test.slug));
 
     const { result } = await runDiffsAgent({
+        snapshotId: updater.snapshotId,
         input: {
             ...metadata,
             existingTests,

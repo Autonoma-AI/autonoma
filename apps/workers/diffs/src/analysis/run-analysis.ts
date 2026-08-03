@@ -3,9 +3,7 @@ import { db } from "@autonoma/db";
 import type { AffectedTest, Codebase, CreatedTest, FlowIndex } from "@autonoma/diffs";
 import { type AffectedTestSpec, prepareAffectedTestGenerations } from "@autonoma/diffs/prepare-affected-tests";
 import { type Logger, logger } from "@autonoma/logger";
-import { S3Storage } from "@autonoma/storage";
 import { AddTest, TestSuiteUpdater } from "@autonoma/test-updates";
-import { uploadConversation } from "../upload-conversation";
 import { assembleDiffsAgentInput } from "./assemble-input";
 import { runDiffsAgent } from "./run-diffs-agent";
 
@@ -34,15 +32,7 @@ export async function runDiffsAnalysis({ snapshotId, codebase }: RunDiffsAnalysi
 
     const { agentInput, branchData } = await assembleDiffsAgentInput({ snapshotId });
 
-    const { result: agentResult, conversation } = await runDiffsAgent({ input: agentInput, codebase });
-
-    const conversationUrl = await uploadConversation({
-        storage: S3Storage.createFromEnv(),
-        snapshotId,
-        phase: "analysis",
-        conversation,
-        logger: logger.child({ name: "uploadConversation" }),
-    });
+    const { result: agentResult, conversationUrl } = await runDiffsAgent({ snapshotId, input: agentInput, codebase });
 
     logger.info("Agent analysis complete, applying results", {
         extra: {

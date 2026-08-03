@@ -69,7 +69,7 @@ export class AnalysisEvaluation extends Evaluation<AnalysisCase> {
         const codebase = await this.rehydrateCodebase(coords, helpers, testCase.name);
 
         const session = openModelSession();
-        const model = session.getModel({ model: "smart-visual", tag: "diffs-analysis" });
+        const model = session.getModel({ model: "smart-visual", tag: "analysis-impact" });
         const agent = new DiffsAgent({ model });
 
         this.logger.info("Running diffs agent for eval case", { extra: { case: testCase.name } });
