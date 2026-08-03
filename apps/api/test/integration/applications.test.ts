@@ -141,5 +141,54 @@ apiTestSuite({
                 harness.db.application.update({ where: { id: fresh.id }, data: { githubRepositoryId: repoId } }),
             ).resolves.toBeDefined();
         });
+
+        test("delete removes the application's preview and trigger config rows", async ({ harness }) => {
+            const doomed = await harness.services.applications.createApplication({
+                name: "Configured App",
+                organizationId: harness.organizationId,
+                architecture: ApplicationArchitecture.WEB,
+                url: "https://configured.example.com",
+                file: "s3://bucket/default-file.png",
+            });
+            const survivor = await harness.services.applications.createApplication({
+                name: "Untouched App",
+                organizationId: harness.organizationId,
+                architecture: ApplicationArchitecture.WEB,
+                url: "https://untouched.example.com",
+                file: "s3://bucket/default-file.png",
+            });
+
+            await harness.db.previewkitConfig.create({
+                data: {
+                    applicationId: doomed.id,
+                    document: {
+                        version: 2,
+                        apps: [{ name: "web", repository: "acme/web", path: ".", port: 3000, primary: true }],
+                    },
+                },
+            });
+            await harness.db.applicationTriggerConfig.create({
+                data: { applicationId: doomed.id, autoRunOnReadyForReview: true },
+            });
+            await harness.db.previewkitConfig.create({
+                data: {
+                    applicationId: survivor.id,
+                    document: {
+                        version: 2,
+                        apps: [{ name: "api", repository: "acme/api", path: ".", port: 8080, primary: true }],
+                    },
+                },
+            });
+
+            await harness.request().applications.delete({ id: doomed.id });
+
+            expect(await harness.db.previewkitConfig.findUnique({ where: { applicationId: doomed.id } })).toBeNull();
+            expect(
+                await harness.db.applicationTriggerConfig.findUnique({ where: { applicationId: doomed.id } }),
+            ).toBeNull();
+            expect(
+                await harness.db.previewkitConfig.findUnique({ where: { applicationId: survivor.id } }),
+            ).not.toBeNull();
+        });
     },
 });

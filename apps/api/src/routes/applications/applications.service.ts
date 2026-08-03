@@ -421,6 +421,29 @@ export class ApplicationsService extends Service {
                 extra: { removed: removed.count },
             });
 
+            // Same reasoning for the preview config document: the row holds the only
+            // copy of the topology, and a re-created app for the same repo must
+            // author its own rather than inherit this one. Kept rows are also
+            // unmigratable - every config migration resolves the repo through
+            // githubRepositoryId, which this delete just nulled - so they would
+            // accumulate as permanent noise in the config table.
+            const removedConfigs = await tx.previewkitConfig.deleteMany({ where: { applicationId: id } });
+            this.logger.info("Removed preview config for deleted application", {
+                applicationId: id,
+                extra: { removed: removedConfigs.count },
+            });
+
+            // The activation trigger config is the same shape of thing: a 1:1
+            // config row holding the only copy of a repo-level opt-in, reachable
+            // only through (organizationId, githubRepositoryId). Nulling the repo id
+            // above orphans it permanently, and a new app for the repo must start
+            // from the code defaults (nothing runs until explicitly asked).
+            const removedTriggers = await tx.applicationTriggerConfig.deleteMany({ where: { applicationId: id } });
+            this.logger.info("Removed activation trigger config for deleted application", {
+                applicationId: id,
+                extra: { removed: removedTriggers.count },
+            });
+
             // Free the Vercel project too, same reasoning as the GitHub repo above -
             // otherwise it stays "linked" to this now-disabled application forever,
             // invisible both as linked (app is disabled) and as available to link
