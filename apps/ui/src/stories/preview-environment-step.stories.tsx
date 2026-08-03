@@ -45,8 +45,24 @@ export const AgentFirst: Story = {
   parameters: { msw: { handlers: [trpcHandler(unpairedFixtures())] } },
 };
 
+/**
+ * Arriving from the Vercel marketplace (`?origin=vercel`) gets the same
+ * agent-first headline as everyone else - the origin shortens the questionnaire,
+ * it does not choose the questionnaire.
+ */
+export const VercelOrigin: Story = {
+  args: { appId: APP_ID, origin: "vercel" },
+  parameters: { msw: { handlers: [trpcHandler(unpairedFixtures())] } },
+};
+
 /** The opt-out (`?manual`) - the routing questionnaire, unchanged. */
 export const AnswerQuestionsInstead: Story = {
   args: { appId: APP_ID, manual: true },
+  parameters: { msw: { handlers: [trpcHandler(unpairedFixtures())] } },
+};
+
+/** The opt-out from a Vercel origin: the questionnaire skips its host intro. */
+export const VercelAnswerQuestionsInstead: Story = {
+  args: { appId: APP_ID, origin: "vercel", manual: true },
   parameters: { msw: { handlers: [trpcHandler(unpairedFixtures())] } },
 };

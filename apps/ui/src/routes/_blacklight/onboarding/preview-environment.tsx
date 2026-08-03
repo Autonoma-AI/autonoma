@@ -18,13 +18,15 @@ export const Route = createFileRoute("/_blacklight/onboarding/preview-environmen
 /** What the user hands their agent here: the whole preview setup, path choice included. */
 const SETUP_INSTRUCTION = `set up my preview environments with the ${ONBOARDING_MCP_SERVER_NAME} MCP`;
 
-function agentSetupCopy(appId: string): McpFirstCopy {
+function agentSetupCopy(appId: string, origin?: OnboardingOrigin): McpFirstCopy {
   return {
     heading: "Set up with a coding agent",
     blurb:
       "Install the Autonoma MCP from your terminal, authorize it when your agent asks, then give your agent the pairing code. It reads your repo, works out how your previews and test data should work, and sets it up while you watch here.",
     manualLabel: "Answer a few questions instead",
-    manualSearch: buildOnboardingSearch("preview-environment", appId, { manual: true }),
+    // Keep the origin on the escape hatch: the questionnaire uses it to skip the
+    // questions arriving from that marketplace already answers.
+    manualSearch: buildOnboardingSearch("preview-environment", appId, { manual: true, origin }),
     prompt: (code) => agentMcpPrompt(SETUP_INSTRUCTION, code),
   };
 }
@@ -39,9 +41,9 @@ function agentSetupCopy(appId: string): McpFirstCopy {
  * and goes straight to the work.
  *
  * The questionnaire becomes the opt-out rather than a step the agent path passes
- * through. Vercel-origin users go straight to it: arriving from that marketplace
- * already answers where their previews come from, so offering an agent to
- * re-derive it would only add a step.
+ * through - for every entry point, marketplace origins included. A Vercel origin
+ * only shortens the questionnaire (it already answers where the previews come
+ * from), it does not decide that the user wants the questionnaire at all.
  */
 export function PreviewEnvironmentPage({
   appId,
@@ -87,7 +89,7 @@ export function PreviewEnvironmentPage({
     return <p className="font-mono text-sm text-text-secondary">No application found. Please start from setup.</p>;
   }
 
-  if (manual === true || origin === "vercel") {
+  if (manual === true) {
     return (
       <PreviewRouterQuiz
         appId={appId}
@@ -106,7 +108,7 @@ export function PreviewEnvironmentPage({
     <McpFirstConfigView
       appId={appId}
       agentHeld={agentSession?.effectiveHolder === "agent"}
-      copy={agentSetupCopy(appId)}
+      copy={agentSetupCopy(appId, origin)}
     />
   );
 }
