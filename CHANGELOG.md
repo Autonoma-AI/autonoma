@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.260803.3](https://github.com/Autonoma-AI/agent/compare/v1.260803.2...v1.260803.3) (2026-08-03)
+
+
+### Features
+
+* **activation:** trigger-config settings page and run-from-Autonoma button ([#2017](https://github.com/Autonoma-AI/agent/issues/2017)) ([f4902c4](https://github.com/Autonoma-AI/agent/commit/f4902c4c550d8df025d32d0757813cec4c15c748))
+* **api:** make an unauthorized response teach how to authenticate ([#2091](https://github.com/Autonoma-AI/agent/issues/2091)) ([79a9f6c](https://github.com/Autonoma-AI/agent/commit/79a9f6c19492aa2a3f8d3c55386eef59790c1b05))
+* **api:** publish an agent discovery catalog ([#2093](https://github.com/Autonoma-AI/agent/issues/2093)) ([ff268cf](https://github.com/Autonoma-AI/agent/commit/ff268cf3230c553c8e1579f8881b1db57154b7a7))
+* **api:** serve llms.txt and advertise the catalog on every response ([#2095](https://github.com/Autonoma-AI/agent/issues/2095)) ([24ec9ea](https://github.com/Autonoma-AI/agent/commit/24ec9ea489605d01021eea1f155088668333c6f9))
+* **terraform:** import security groups and rules for main-vpc and previewkit-vpc ([#2089](https://github.com/Autonoma-AI/agent/issues/2089)) ([6996527](https://github.com/Autonoma-AI/agent/commit/699652757b6cb4dd0e5b26b6e3dce472c0d10f7f))
+
+
+### Bug Fixes
+
+* **ui:** key preview liveness and investigation presence by application ([#2094](https://github.com/Autonoma-AI/agent/issues/2094)) ([56e0aea](https://github.com/Autonoma-AI/agent/commit/56e0aeabd67bfb46fcab18040ddc7efc3fe96029))
+
 ## [1.260803.2](https://github.com/Autonoma-AI/agent/compare/v1.260803.1...v1.260803.2) (2026-08-03)
 
 
