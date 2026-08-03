@@ -120,7 +120,7 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
         analysisReport != null ? (
           <div className="flex flex-col gap-6">
             <AnalysisReportBody report={analysisReport} prNumber={prNumber} snapshotId={snapshotId} />
-            {isAdmin && analysisReport.impactReasoning != null && (
+            {analysisReport.impactReasoning != null && (
               <ReasoningPanel
                 title="Impact analysis"
                 content={analysisReport.impactReasoning}
