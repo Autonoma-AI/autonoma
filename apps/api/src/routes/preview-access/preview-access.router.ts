@@ -1,17 +1,12 @@
-import { db, type PreviewkitStatus } from "@autonoma/db";
+import { db, type Prisma, type PreviewkitStatus } from "@autonoma/db";
 import { isPreviewUrl, previewOrigin } from "@autonoma/types";
 import { resolvePreviewkitBypassToken } from "@autonoma/utils";
 import { z } from "zod";
 import { env } from "../../env";
-import { protectedProcedure, writeProcedure, router } from "../../trpc";
+import { internalProcedure, protectedProcedure, writeProcedure, router } from "../../trpc";
 import type { PreviewLivenessState } from "./preview-liveness.service";
 import { probePreview } from "./probe-preview";
 import { resolvePreviewLivenessService } from "./resolve-preview-liveness";
-
-// A batched liveness poll covers a whole list view at once; cap it so a single
-// request can never fan out to an unbounded set. Only `liveness` needs it -
-// `livenessForApplication` derives its own set, so nothing arrives to bound.
-const MAX_LIVENESS_URLS = 200;
 
 /** An environment's advertised URLs: a `{ appName: url }` blob on `previewkitEnvironment.urls`. */
 const PreviewUrlsSchema = z.record(z.string(), z.string());
@@ -94,120 +89,89 @@ export const previewAccessRouter = router({
     }),
 
     /**
-     * Per-URL preview power/health state for LIST views, keyed by the input URL.
+     * Per-URL preview power/health state for LIST views, keyed by URL.
      *
-     * Read straight from the preview cluster's Kubernetes API, so - unlike
-     * `status` above - this NEVER wakes a sleeping preview. Safe to poll behind a
-     * list of environments. A URL that is not a preview, not in the caller's org,
-     * or has no live workloads (and any URL at all when liveness is not
-     * configured) resolves to "unknown".
-     */
-    liveness: protectedProcedure
-        .input(z.object({ urls: z.array(z.url()).max(MAX_LIVENESS_URLS) }))
-        .query(async ({ input, ctx: { user } }): Promise<Record<string, PreviewLivenessState>> => {
-            const service = resolvePreviewLivenessService();
-            if (service == null) return unknownFor(input.urls);
-
-            // Instances store the bare origin; a list URL may be an origin already
-            // or carry a path. Normalize, keeping each origin's original URL keys.
-            const originByUrl = new Map<string, string>();
-            for (const url of input.urls) {
-                if (!isPreviewUrl(url, env.INTERNAL_DOMAIN)) continue;
-                const origin = previewOrigin(url);
-                if (origin != null) originByUrl.set(url, origin);
-            }
-            const origins = [...new Set(originByUrl.values())];
-
-            // The DB lookup (org-scoped: only the caller's previews resolve to a
-            // namespace) and the whole-fleet snapshot are independent.
-            const [instances, fleet] = await Promise.all([
-                origins.length === 0
-                    ? Promise.resolve([])
-                    : db.previewkitAppInstance.findMany({
-                          where: {
-                              url: { in: origins },
-                              environment: { organization: { members: { some: { user: { email: user.email } } } } },
-                          },
-                          select: { url: true, environment: { select: { namespace: true } } },
-                      }),
-                service.getFleet(),
-            ]);
-
-            const namespaceByOrigin = new Map<string, string>();
-            for (const instance of instances) {
-                // url is nullable in the schema; the `url in origins` filter only
-                // ever returns non-null rows, but narrow it for the type.
-                if (instance.url != null) namespaceByOrigin.set(instance.url, instance.environment.namespace);
-            }
-
-            const result: Record<string, PreviewLivenessState> = {};
-            for (const url of input.urls) {
-                const origin = originByUrl.get(url);
-                const namespace = origin != null ? namespaceByOrigin.get(origin) : undefined;
-                result[url] = namespace != null ? service.stateForNamespace(namespace, fleet) : "unknown";
-            }
-            return result;
-        }),
-
-    /**
-     * The same map for every preview an APPLICATION has, resolved entirely here.
+     * Read straight from the preview cluster's Kubernetes API, so - unlike `status` above - this NEVER wakes a
+     * sleeping preview, and is safe to poll behind a list. A URL whose preview has no live workloads (and every
+     * URL when liveness is not configured) resolves to "unknown".
      *
-     * `liveness` above needs the caller to name the URLs, which means a list view has to ship one URL per row back
-     * to the server that gave them to it: an application with a few hundred open pull requests turns a two-field
-     * query into ~15KB of `input=`, and a batched tRPC GET carrying that is rejected at the edge with 414 before
-     * any procedure runs. It also silently truncated - the old cap was 200 URLs, so row 201 onward always read
-     * "unknown". Keyed by application, the request is one id and no row is left out.
+     * Deliberately NOT keyed by a caller-supplied URL list. That shape made a list view ship one URL per row back
+     * to the server that had just produced them: at a few hundred rows it is ~10-15KB of `input=`, and a tRPC GET
+     * carrying that is rejected at the edge with 414 before any procedure in the batch runs. The two callers each
+     * name the SET they want - one application, or the whole fleet - and the URLs are resolved here.
      */
     livenessForApplication: protectedProcedure
         .input(z.object({ applicationId: z.string() }))
         .query(async ({ input, ctx: { organizationId } }): Promise<Record<string, PreviewLivenessState>> => {
-            const service = resolvePreviewLivenessService();
-            if (service == null) return {};
-
             const application = await db.application.findFirst({
                 where: { id: input.applicationId, organizationId },
                 select: { githubRepositoryId: true },
             });
             if (application?.githubRepositoryId == null) return {};
 
-            const [environments, fleet] = await Promise.all([
-                db.previewkitEnvironment.findMany({
-                    where: {
-                        organizationId,
-                        githubRepositoryId: application.githubRepositoryId,
-                        status: { not: "torn_down" },
-                    },
-                    select: { namespace: true, urls: true, appInstances: { select: { url: true } } },
-                }),
-                service.getFleet(),
-            ]);
-
-            const result: Record<string, PreviewLivenessState> = {};
-            for (const environment of environments) {
-                const state = service.stateForNamespace(environment.namespace, fleet);
-                // Both sources, because the two halves of the product reach a preview by different keys: the PR
-                // list renders `previewkitEnvironment.urls`, while the app-instance rows are what `liveness`
-                // matches on. Every URL of an environment shares its namespace, so they all resolve the same.
-                for (const url of environmentUrls(environment.urls)) result[url] = state;
-                for (const instance of environment.appInstances) {
-                    if (instance.url != null) result[instance.url] = state;
-                }
-            }
-            return result;
+            return await livenessByUrl({
+                organizationId,
+                githubRepositoryId: application.githubRepositoryId,
+                status: { not: "torn_down" },
+            });
         }),
+
+    /**
+     * The same map for every preview in the fleet, across organizations - the admin previewkit view, which has no
+     * single application to key on. Internal-only, matching the environments list it sits beside.
+     *
+     * Deliberately uncapped, and it has to stay that way while `listActiveEnvironments` is: the two share a `where`
+     * on purpose, and a row the list renders but this query skipped would show a blank badge forever. Truncating
+     * one side of that pair is exactly the defect the old URL-array shape had. If the fleet ever needs bounding,
+     * bound the LIST first and key this to the page it returns.
+     *
+     * It is not self-limiting, though: `torn_down` is excluded (6,004 rows), leaving ~1,200 environments - and
+     * ~580 of those are `failed` ones months old that nothing tears down, so the set does creep upward. It is two
+     * sequential scans costing 3ms and 6ms at that size, which buys a lot of creep before this matters.
+     */
+    livenessForFleet: internalProcedure.query(
+        async (): Promise<Record<string, PreviewLivenessState>> =>
+            await livenessByUrl({ status: { not: "torn_down" } }),
+    ),
 });
+
+/**
+ * Liveness for every preview matching `where`, keyed by every URL that reaches it.
+ *
+ * Both sources of URL are indexed, because the two halves of the product reach a preview by different keys: the
+ * PR list renders `previewkitEnvironment.urls`, while the admin view renders the app-instance rows. Every URL of
+ * an environment shares its namespace, so they all resolve to the same state.
+ */
+async function livenessByUrl(
+    where: Prisma.PreviewkitEnvironmentWhereInput,
+): Promise<Record<string, PreviewLivenessState>> {
+    const service = resolvePreviewLivenessService();
+    if (service == null) return {};
+
+    const [environments, fleet] = await Promise.all([
+        db.previewkitEnvironment.findMany({
+            where,
+            select: { namespace: true, urls: true, appInstances: { select: { url: true } } },
+        }),
+        service.getFleet(),
+    ]);
+
+    const result: Record<string, PreviewLivenessState> = {};
+    for (const environment of environments) {
+        const state = service.stateForNamespace(environment.namespace, fleet);
+        for (const url of environmentUrls(environment.urls)) result[url] = state;
+        for (const instance of environment.appInstances) {
+            if (instance.url != null) result[instance.url] = state;
+        }
+    }
+    return result;
+}
 
 /** The environment's advertised URLs. A malformed `urls` blob contributes nothing rather than failing the read. */
 function environmentUrls(urls: unknown): string[] {
     const parsed = PreviewUrlsSchema.safeParse(urls);
     if (!parsed.success) return [];
     return Object.values(parsed.data).filter((url) => url.length > 0);
-}
-
-function unknownFor(urls: string[]): Record<string, PreviewLivenessState> {
-    const result: Record<string, PreviewLivenessState> = {};
-    for (const url of urls) result[url] = "unknown";
-    return result;
 }
 
 async function findAuthorizedEnvironment(url: string, userEmail: string) {

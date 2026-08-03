@@ -1,5 +1,6 @@
 import type { IssueKind, PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { countTestsBySnapshot } from "./assigned-tests";
 import { listExecutedTestsForSnapshots, type SnapshotExecutedTest } from "./executed-tests";
 
 export type SnapshotHealth = "healthy" | "critical" | "running" | "unknown";
@@ -155,11 +156,10 @@ export async function aggregateSnapshotHealth(
     const snapshotIds = snapshotsWithStatus.map((s) => s.id);
     logger.info("Aggregating snapshot health", { count: snapshotIds.length });
 
-    const [assignments, executedTestsBySnapshot] = await Promise.all([
-        db.testCaseAssignment.findMany({
-            where: { snapshotId: { in: snapshotIds } },
-            select: { snapshotId: true, testCaseId: true },
-        }),
+    // Counted, not listed. Only the per-snapshot TOTAL is used below, and fetching the rows to take their length
+    // pulled ~10k of them across a 300-pull-request list - then re-scanned the whole array once per snapshot.
+    const [testCountBySnapshot, executedTestsBySnapshot] = await Promise.all([
+        countTestsBySnapshot(db, snapshotIds),
         listExecutedTestsForSnapshots(db, snapshotIds),
     ]);
 
@@ -168,8 +168,7 @@ export async function aggregateSnapshotHealth(
 
     const result = new Map<string, SnapshotHealthResult>();
     for (const snapshot of snapshotsWithStatus) {
-        const snapAssignments = assignments.filter((a) => a.snapshotId === snapshot.id);
-        const totalTests = snapAssignments.length;
+        const totalTests = testCountBySnapshot.get(snapshot.id) ?? 0;
 
         const executedTests = executedTestsBySnapshot.get(snapshot.id) ?? [];
         const tally = tallyExecutedTests(executedTests);

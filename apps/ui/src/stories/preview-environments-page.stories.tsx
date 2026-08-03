@@ -48,7 +48,7 @@ const ENVIRONMENTS: PreviewEnvironment[] = [
   }),
 ];
 
-const LIVENESS: Record<string, RouterOutputs["previewAccess"]["liveness"][string]> = {
+const LIVENESS: Record<string, RouterOutputs["previewAccess"]["livenessForApplication"][string]> = {
   "https://pr4.preview.autonoma.app": "error", // Crashing
   "https://pr3.preview.autonoma.app": "healthy", // Live
   "https://pr12.preview.autonoma.app": "asleep", // Idle
@@ -63,7 +63,7 @@ const meta = {
       handlers: appShellHandlers({
         ...dashboardFixtures,
         deployments: { listActiveForApp: ENVIRONMENTS },
-        previewAccess: { liveness: LIVENESS, livenessForApplication: LIVENESS },
+        previewAccess: { livenessForApplication: LIVENESS },
       }),
     },
   },

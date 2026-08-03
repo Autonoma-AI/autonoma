@@ -166,7 +166,7 @@ const baseTrpcFixtures: TrpcFixtures = {
     github: { getInstallation: null },
     // List views poll preview liveness; default to none so a story that doesn't
     // set it renders without the badge (and never errors on the unmocked call).
-    previewAccess: { liveness: {}, livenessForApplication: {} },
+    previewAccess: { livenessForApplication: {}, livenessForFleet: {} },
     billing: {
         status: {
             creditBalance: 740,
@@ -189,11 +189,14 @@ const baseTrpcFixtures: TrpcFixtures = {
  * MSW handlers that satisfy the app-shell guards (session, active org,
  * approved org status, one application) so any page under the shell renders.
  * Page-specific tRPC fixtures deep-merge over the baseline.
+ *
+ * Pass `role: "admin"` for the pages behind the admin guard - they redirect to
+ * "/" for anyone else, so a story without it screenshots the home page.
  */
-export function appShellHandlers(pageFixtures: TrpcFixtures = {}) {
+export function appShellHandlers(pageFixtures: TrpcFixtures = {}, { role }: { role?: string } = {}) {
     return [
         trpcHandler(mergeTrpcFixtures(baseTrpcFixtures, pageFixtures)),
-        ...authHandlers({ session: makeSession(), organizations: [makeOrganization()] }),
+        ...authHandlers({ session: makeSession({ role }), organizations: [makeOrganization()] }),
     ];
 }
 

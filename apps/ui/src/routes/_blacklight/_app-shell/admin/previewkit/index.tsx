@@ -46,7 +46,11 @@ import {
   useRedeployPreviewkitApp,
   useRedeployPreviewkitEnvironment,
 } from "lib/query/admin.queries";
-import { pickPreviewLiveness, type PreviewLivenessState, usePreviewLiveness } from "lib/query/preview-access.queries";
+import {
+  pickPreviewLiveness,
+  type PreviewLivenessState,
+  useFleetPreviewLiveness,
+} from "lib/query/preview-access.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense, useState } from "react";
 
@@ -211,11 +215,7 @@ function EnvironmentsTable() {
   // Must stay above the empty early return below: the environments query refetches,
   // so a hook declared after that return changes the hook count when the first
   // environment appears and throws React #310.
-  const { data: liveness } = usePreviewLiveness(
-    filtered
-      .flatMap((environment) => environment.apps.map((app) => app.url))
-      .filter((url): url is string => url != null),
-  );
+  const { data: liveness } = useFleetPreviewLiveness();
 
   if (environments.length === 0) {
     return <EmptyState message="No active preview environments" />;

@@ -72,6 +72,7 @@ export {
     type SnapshotHealthCounts,
     type SnapshotHealthResult,
 } from "./health";
+export { countTestsBySnapshot } from "./assigned-tests";
 export { countOpenBugsBySnapshot } from "./open-bugs";
 export {
     buildCheckpointSummary,

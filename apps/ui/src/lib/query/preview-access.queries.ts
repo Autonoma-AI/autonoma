@@ -6,7 +6,7 @@ import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-curren
 type PreviewState = RouterOutputs["previewAccess"]["status"]["state"];
 
 /** Runtime power/health of a preview, straight from the cluster (asleep | waking | healthy | error | unknown). */
-export type PreviewLivenessState = RouterOutputs["previewAccess"]["liveness"][string];
+export type PreviewLivenessState = RouterOutputs["previewAccess"]["livenessForApplication"][string];
 
 /**
  * How often list views re-poll preview liveness. Slower than the waiting page's
@@ -15,12 +15,6 @@ export type PreviewLivenessState = RouterOutputs["previewAccess"]["liveness"][st
  * read NEVER wakes a preview, so polling it behind a list is free of side effects.
  */
 const LIVENESS_POLL_MS = 8_000;
-
-// Mirrors previewAccess.liveness's server-side input cap (MAX_LIVENESS_URLS in
-// preview-access.router.ts). Past it the whole request fails validation and
-// EVERY row loses its badge, not just the overflow - so cap here and let a
-// large fleet (the admin view) degrade partially instead of all-or-nothing.
-const LIVENESS_URL_CAP = 200;
 
 /**
  * How often the waiting page re-checks a cold preview. Each poll sends a real
@@ -66,32 +60,12 @@ export function usePreviewStatus(url: string) {
 }
 
 /**
- * Runtime liveness for a set of previews, keyed by the URL passed in, for LIST
- * views (PR list, admin, the preview strip). Batched - one call covers every URL
- * on the page. Unlike `usePreviewStatus`, this is a pure read that NEVER wakes a
- * preview, so it is safe to poll behind a list. A URL that is not one of ours (or
- * whose preview is torn down / not reachable) resolves to "unknown".
- */
-export function usePreviewLiveness(urls: string[]) {
-    // Sort for a stable query key regardless of the caller's ordering, so the
-    // same set of URLs doesn't thrash the cache as rows re-render; cap to the
-    // server-side limit so an oversized set degrades partially, not entirely.
-    const sorted = [...urls].sort().slice(0, LIVENESS_URL_CAP);
-    return useQuery({
-        ...trpc.previewAccess.liveness.queryOptions({ urls: sorted }),
-        enabled: sorted.length > 0,
-        refetchInterval: LIVENESS_POLL_MS,
-    });
-}
-
-/**
- * The same map for every preview the CURRENT APPLICATION has - the shape every in-app list wants.
+ * Runtime liveness for every preview the CURRENT APPLICATION has, keyed by URL, for LIST views. A pure read that
+ * NEVER wakes a preview, so it is safe to poll behind a list.
  *
- * Prefer this over {@link usePreviewLiveness} anywhere the previews belong to one application. Naming the URLs
- * means sending one per row back to the server that produced them: at a few hundred open pull requests that is
- * ~15KB of query string, which the edge rejects with 414 - taking down every other procedure sharing the tRPC
- * batch - and anything past {@link LIVENESS_URL_CAP} was dropped before it even got that far. `usePreviewLiveness`
- * stays for the cross-org admin fleet view, which has no single application to key on.
+ * The caller names the application, not the URLs. Sending one URL per row back to the server that produced them
+ * was ~10-15KB of query string at a few hundred rows, which the edge rejects with 414 - taking down every other
+ * procedure sharing the tRPC batch with it.
  */
 export function useApplicationPreviewLiveness() {
     const currentApp = useCurrentApplication();
@@ -117,4 +91,15 @@ export function pickPreviewLiveness(
         if (state != null && state !== "unknown") return state;
     }
     return "unknown";
+}
+
+/**
+ * The same map for every preview in the fleet, across organizations - the admin previewkit view, which has no
+ * single application to key on. Internal-only, like the environments list it sits beside.
+ */
+export function useFleetPreviewLiveness() {
+    return useQuery({
+        ...trpc.previewAccess.livenessForFleet.queryOptions(),
+        refetchInterval: LIVENESS_POLL_MS,
+    });
 }

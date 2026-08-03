@@ -1451,14 +1451,7 @@ export class BranchesService extends Service {
                         prUpdatedAt: true,
                     },
                 },
-                activeSnapshot: {
-                    select: {
-                        id: true,
-                        status: true,
-                        headSha: true,
-                        _count: { select: { testCaseAssignments: true } },
-                    },
-                },
+                activeSnapshot: { select: { id: true, status: true, headSha: true } },
             },
             orderBy: { createdAt: "desc" },
         });
@@ -1541,7 +1534,9 @@ export class BranchesService extends Service {
                         ? {
                               id: activeSnapshot.id,
                               status: activeSnapshot.status,
-                              _count: { testCaseAssignments: activeSnapshot._count.testCaseAssignments },
+                              _count: {
+                                  testCaseAssignments: healthBySnapshot.get(activeSnapshot.id)?.counts.totalTests ?? 0,
+                              },
                               health,
                               summary,
                           }
