@@ -3,11 +3,13 @@ name: CI Checks
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  # A plain title/body/base edit shouldn't cancel an in-progress full suite run
+  # from a real push - only a new commit (or reopen/ready-for-review) should.
+  cancel-in-progress: ${{ github.event.action != 'edited' }}
 
 jobs:
   validate-pr-title:
@@ -23,7 +25,9 @@ jobs:
 
   changes:
     name: Detect changes
-    if: github.event.pull_request.draft == false
+    # "edited" (title/body/base tweaks, no new commit) only needs to re-run
+    # validate-pr-title, not the whole lint/test/build/typecheck suite.
+    if: github.event.pull_request.draft == false && github.event.action != 'edited'
     runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       db: ${{ steps.filter.outputs.db }}
@@ -134,7 +138,7 @@ jobs:
   lint:
     name: Lint
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    if: github.event.pull_request.draft == false
+    if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -169,7 +173,7 @@ jobs:
   test:
     name: Test
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    if: github.event.pull_request.draft == false
+    if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -213,7 +217,7 @@ jobs:
   build:
     name: Build
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    if: github.event.pull_request.draft == false
+    if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -244,7 +248,7 @@ jobs:
   typecheck:
     name: Typecheck
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    if: github.event.pull_request.draft == false
+    if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
         uses: actions/checkout@v7
