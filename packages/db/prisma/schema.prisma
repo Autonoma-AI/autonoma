@@ -748,11 +748,12 @@ model BranchSnapshot {
   investigationSnapshot   BranchSnapshot? @relation("InvestigationPair", fields: [investigationSnapshotId], references: [id], onDelete: SetNull)
   investigationParent     BranchSnapshot? @relation("InvestigationPair")
 
-  // Per-dependency deployed commit SHAs (keyed by previewkit multirepo dependency
-  // name), pinned the first time grounding runs for this snapshot by resolving the
-  // headSha-exact PreviewkitEnvironment and copying its enriched resolvedConfig dep
-  // SHAs. All agents in the snapshot read this pinned copy so a later redeploy can
-  // not corrupt an in-flight snapshot's multi-repo fidelity. `null` = not yet
+  // Per-dependency deployed commit SHAs (keyed by repo full name `owner/repo`;
+  // rows pinned before config v2 used the retired repo alias), pinned the first
+  // time grounding runs for this snapshot by resolving the headSha-exact
+  // PreviewkitEnvironment and copying its enriched resolvedConfig repo SHAs. All
+  // agents in the snapshot read this pinned copy so a later redeploy can not
+  // corrupt an in-flight snapshot's multi-repo fidelity. `null` = not yet
   // pinned; `{}` = pinned with no matching/partial manifest (degrade, never error).
   /// ![Record<string, string>]
   pinnedDependencyShas Json? @map("pinned_dependency_shas")
@@ -2045,12 +2046,12 @@ model PreviewkitEnvironment {
 
   bypassToken String? @map("bypass_token")
 
-  // The effective (merged) config for the latest deploy attempt: the primary
-  // app's config merged with any multirepo dependencies. The summary +
-  // readiness views project it for display and failure diagnostics - there is
-  // no separate manifest column. Overwritten on each deploy once the config
-  // resolves. Not read on redeploy - that re-resolves the Application's
-  // current config.
+  // The effective config for the latest deploy attempt: the Application's full
+  // topology document with each dependency repo's deployed commit stamped onto
+  // its `repositories[]` entry (`sha`). The summary + readiness views project
+  // it for display and failure diagnostics - there is no separate manifest
+  // column. Overwritten on each deploy once the config resolves. Not read on
+  // redeploy - that re-resolves the Application's current config.
   /// ![object]
   resolvedConfig Json? @map("resolved_config")
 
@@ -2440,16 +2441,16 @@ model PreviewkitConfig {
   applicationId String      @unique @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  // Opaque config document; validated by previewConfigSchema on read.
+  // Opaque config document (v2); validated by previewConfigSchema on read. The
+  // whole topology lives here: every app carries its `repository` (owner/repo
+  // full name), multirepo dependency apps included. Dependency repos are NOT
+  // separate Applications - the deploy clones them for source only.
   /// ![object]
   document Json
 
-  // Multirepo dependency configs owned by this (primary) config: an array of
-  // { repo, document } where document is a previewConfigSchema-validated config
-  // for a repo declared in `document.config.multirepo.repos`. Dependency repos
-  // are NOT separate Applications - the primary app owns the whole topology and
-  // the deploy reads each dependency's config from here (cloning the repo for
-  // source only). Null/absent means a single-repo project.
+  // RETIRED v1 sidecar (dependency configs per multirepo repo). Folded into
+  // `document` by migrate-preview-config-v2; nothing reads or writes it. The
+  // column is dropped, together with that script, in the follow-up PR.
   /// ![object]
   dependencyDocuments Json? @map("dependency_documents")
 

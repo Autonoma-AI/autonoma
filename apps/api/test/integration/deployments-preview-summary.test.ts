@@ -510,16 +510,16 @@ async function createPreviewEnvironment(
 /**
  * The summary projects its topology from the stored resolved config, so tests
  * persist a full (parseable) PreviewConfig. This widens the manifest-shaped
- * fixture input: `version` is the only field previewConfigSchema requires
- * beyond what the fixtures already provide.
+ * fixture input: `version` and the per-app `repository` are the only fields
+ * previewConfigSchema requires beyond what the fixtures already provide.
  */
 function manifestToResolvedConfig(manifest: {
     apps: Array<{ name: string; port: number; primary?: boolean }>;
     services: Array<{ name: string; recipe: string; version?: string }>;
 }) {
     return {
-        version: 1,
-        apps: manifest.apps,
+        version: 2,
+        apps: manifest.apps.map((app) => ({ ...app, repository: "acme/preview-test" })),
         services: manifest.services,
     };
 }

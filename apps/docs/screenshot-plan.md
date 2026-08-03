@@ -106,7 +106,7 @@ Mostly blocked on D1-D5. Ordered by value once unblocked.
 | P5 | `apps.md` `### Manual builds` | `BuildModeSection` manual: runtime grid + the live **Build spec** rail | component | `onboarding-buildmethod--converted-to-manual` (exists) | [x] `build-manual.png` |
 | P6 | `apps.md` `## Build method` | Just the Manual \| Dockerfile toggle + active hint, one crop per segment | tight crop ~380x110 | crop from P5's story | [x] `build-manual.png (same shot)` |
 | P7 | `hooks.md` `## Pre-deploy and post-deploy` - **blocked on D2** | `HooksSection` with one hook per group, showing the per-hook App picker | component | none - pure props | [ ] |
-| P8 | `multirepo.md` `## Connected repositories` | `AddAppDialog` with a repo picked, revealing Alias + Fallback branch | full dialog | none - needs `github.listRepositories` | [ ] |
+| P8 | `multirepo.md` `## Connected repositories` | `AddAppDialog` with a repo picked, revealing the Fallback branch field | full dialog | none - needs `github.listRepositories` | [ ] |
 | P9 | `index.md` `## What you configure` - **blocked on D1** | Same MCP-first screen as M1 - reuse the asset | full page | `onboarding-mcpfirstconfig--waiting` | [ ] |
 | P10 | `multirepo.md` `## Which branch gets deployed` | `BranchMatchingField` on Regex rewrite, so Pattern + Replacement are visible | component | none - pure props, trivial | [x] `branch-matching.png` |
 | P11 | `services.md` `## Configuring an extra service` | A filled `ServiceCard`: fields, env-var rows, count chip, paste-`.env`, collapsed Advanced | component | none - pure props | [x] `service-card.png` |
@@ -160,7 +160,7 @@ Roughly 25 images across the whole docs site, over half of them zoomed crops or 
 |---|---|---|
 | D2 / P7 | `hooks.md` contradicts the product's own copy on which hook does migrations vs seed data, and omits that every hook is bound to an app | Needs a product decision, not a docs edit. The story (`onboarding-previewconfigsections--lifecycle-hooks`) is written and ready to shoot the moment it is settled |
 | M2 | The manual preview-config wizard | Needs a new page story at `?configStep=apps` |
-| P8 | `AddAppDialog` with Alias + Fallback branch | Needs `github.listRepositories` fixtures |
+| P8 | `AddAppDialog` with Fallback branch | Needs `github.listRepositories` fixtures |
 | P9, P13, P14 | Config stepper, finish-fork card, add-app dialog on `preview-environments/index.md` | The overview now points at the agent path in prose; revisit whether it also needs its own images |
 | E1 | Dry run **after** a run, with per-scenario results | Results live in component state behind a mutation, so it needs a `play` function. Feasible - `finish-setup-sdk.stories.tsx` now has a working `play` to copy - but a mixed pass/fail row set needs the tRPC handler to vary by input |
 | E4 | Scenarios → Webhook calls tab | Route needs 7+ fixtures |

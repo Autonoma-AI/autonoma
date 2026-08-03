@@ -1,4 +1,4 @@
-import { Prisma, type PrismaClient } from "@autonoma/db";
+import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
 import {
     authoringPreviewConfigSchema,
@@ -53,13 +53,15 @@ export function kebabCaseAppName(value: string | undefined): string {
  * so it lands as a sensible, Kubernetes-safe default instead of a generic `web`,
  * and carries a complete Manual (runtime) build block so the config is valid and
  * deployable as-is - what the user sees in the form is exactly what deploys.
+ * `repository` is the Application's repo full name, resolved by the caller.
  */
-export function defaultPreviewkitConfig(applicationName?: string): PreviewConfig {
+export function defaultPreviewkitConfig(applicationName: string | undefined, repository: string): PreviewConfig {
     return previewConfigSchema.parse({
-        version: 1,
+        version: 2,
         apps: [
             {
                 name: kebabCaseAppName(applicationName),
+                repository,
                 path: ".",
                 port: 3000,
                 primary: true,
@@ -79,9 +81,8 @@ export function defaultPreviewkitConfig(applicationName?: string): PreviewConfig
 
 /**
  * Schema-validates a config document, throwing `BadRequestError` on shape
- * errors. Semantic checks run separately on the merged multi-repo topology
- * (see `mergeConfigsForValidation`), because references like `depends_on` may
- * legitimately cross repo documents.
+ * errors. Semantic checks (depends_on, hooks, repository membership) run
+ * separately in `PreviewkitConfigService`.
  *
  * This is the shared write path, so it accepts a retired framework preset: the
  * debug surfaces read a stored document, patch one field and save it back, and
@@ -112,91 +113,26 @@ function parseOrThrow(schema: z.ZodType<PreviewConfig>, document: unknown): Prev
     return validation.data;
 }
 
-/** Concatenates apps/services/hooks across documents, mirroring the pipeline's mergeConfigs. */
-export function mergeConfigsForValidation(primary: PreviewConfig, dependencies: PreviewConfig[]): PreviewConfig {
-    return {
-        ...primary,
-        apps: [...primary.apps, ...dependencies.flatMap((dependency) => dependency.apps)],
-        services: [...primary.services, ...dependencies.flatMap((dependency) => dependency.services)],
-        hooks: {
-            pre_deploy: [...primary.hooks.pre_deploy, ...dependencies.flatMap((d) => d.hooks.pre_deploy)],
-            post_deploy: [...primary.hooks.post_deploy, ...dependencies.flatMap((d) => d.hooks.post_deploy)],
-        },
-    };
-}
-
-/** A multirepo dependency's config, stored on the primary config's `dependencyDocuments`. */
-export interface DependencyDocument {
-    /** Repo full name (`owner/repo`) declared in the primary's `config.multirepo.repos`. */
-    repo: string;
-    document: PreviewConfig;
-}
-
-const storedDependencyDocumentsSchema = z.array(z.object({ repo: z.string(), document: previewConfigSchema }));
-
-/**
- * Parses the `dependencyDocuments` JSON stored on a config. Returns []
- * for null/absent (single-repo project); `invalid: true` when a present value no
- * longer validates, so the caller can log it rather than silently dropping
- * dependencies.
- */
-export function parseStoredDependencyDocuments(value: unknown): {
-    documents: DependencyDocument[];
-    invalid: boolean;
-} {
-    if (value == null) return { documents: [], invalid: false };
-    const parsed = storedDependencyDocumentsSchema.safeParse(value);
-    if (!parsed.success) return { documents: [], invalid: true };
-    return { documents: parsed.data, invalid: false };
-}
-
 /**
  * Saves an Application's preview config - latest-only, so this overwrites the
- * single `PreviewkitConfig` row in place (creating it on first save).
- * `dependencyDocuments` (primary-app saves only) carries the multirepo
- * dependency configs the deploy reads - dependency repos are not separate
+ * single `PreviewkitConfig` row in place (creating it on first save). The
+ * document is the whole topology: multirepo dependency apps live in it too,
+ * each tagged with its `repository` - dependency repos are not separate
  * Applications.
  */
-export async function upsertConfig(
-    db: PrismaClient,
-    applicationId: string,
-    config: PreviewConfig,
-    dependencyDocuments: DependencyDocument[] = [],
-): Promise<void> {
+export async function upsertConfig(db: PrismaClient, applicationId: string, config: PreviewConfig): Promise<void> {
     const savedDocument = JSON.parse(JSON.stringify(config));
-    const savedDependencyDocuments =
-        dependencyDocuments.length > 0 ? JSON.parse(JSON.stringify(dependencyDocuments)) : Prisma.DbNull;
 
     await db.previewkitConfig.upsert({
         where: { applicationId },
         create: {
             applicationId,
             document: savedDocument,
-            dependencyDocuments: savedDependencyDocuments,
         },
         update: {
             document: savedDocument,
-            dependencyDocuments: savedDependencyDocuments,
         },
     });
-}
-
-/**
- * Accumulates app/service names across a multi-repo topology, throwing when
- * two documents claim the same name. Within-document duplicates are already
- * schema errors; this guards the merged deploy (which concatenates all docs).
- */
-export function collectTopologyNames(config: PreviewConfig, sourceLabel: string, seen: Map<string, string>): void {
-    const names = [...config.apps.map((app) => app.name), ...config.services.map((service) => service.name)];
-    for (const name of names) {
-        const existing = seen.get(name);
-        if (existing != null && existing !== sourceLabel) {
-            throw new BadRequestError(
-                `Name "${name}" is used by both ${existing} and ${sourceLabel} - names must be unique across the merged preview topology`,
-            );
-        }
-        seen.set(name, sourceLabel);
-    }
 }
 
 /** Strips leading "./" / "/" and trailing "/" so config paths compare against git tree paths. */

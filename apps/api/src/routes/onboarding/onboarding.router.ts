@@ -190,9 +190,6 @@ export const onboardingRouter = router({
             z.object({
                 applicationId: z.string(),
                 document: authoringPreviewConfigSchema,
-                dependencyDocuments: z
-                    .array(z.object({ repo: z.string(), document: authoringPreviewConfigSchema }))
-                    .optional(),
                 secrets: PreviewkitConfigSecretsSchema.optional(),
             }),
         )
@@ -201,7 +198,6 @@ export const onboardingRouter = router({
                 input.applicationId,
                 ctx.organizationId,
                 input.document,
-                input.dependencyDocuments,
                 input.secrets,
             ),
         ),
@@ -215,20 +211,15 @@ export const onboardingRouter = router({
     validatePreviewkitConfig: writeProcedure
         // `document` is deliberately unvalidated at the boundary: this procedure's
         // job is to report problems with malformed documents as data, not 400.
+        // Preflight covers every repository of the topology in one call.
         .input(
             z.object({
                 applicationId: z.string(),
                 document: z.unknown(),
-                githubRepositoryId: z.number().int().positive().optional(),
             }),
         )
         .mutation(({ ctx, input }) =>
-            ctx.services.onboarding.validatePreviewkitConfig(
-                input.applicationId,
-                ctx.organizationId,
-                input.document,
-                input.githubRepositoryId,
-            ),
+            ctx.services.onboarding.validatePreviewkitConfig(input.applicationId, ctx.organizationId, input.document),
         ),
 
     listDockerfiles: protectedProcedure

@@ -5,10 +5,10 @@ import type { AppBuildOutcome } from "../../src/db";
 import { computeFinalOutcomes, toBuildStates, toFinalAppStates } from "../../src/pipeline/outcomes";
 
 const config = previewConfigSchema.parse({
-    version: 1,
+    version: 2,
     apps: [
-        { name: "web", path: "./apps/web", port: 3000 },
-        { name: "api", path: "./apps/api", port: 4000 },
+        { name: "web", repository: "acme/web", path: "./apps/web", port: 3000 },
+        { name: "api", repository: "acme/web", path: "./apps/api", port: 4000 },
     ],
 });
 
@@ -111,5 +111,40 @@ describe("toFinalAppStates", () => {
             imageTag: "img:web",
             error: "No deploy outcome recorded",
         });
+    });
+});
+
+describe("repo-skipped apps in the rollup", () => {
+    const skipReason =
+        'Repository acme/backend has neither branch "feature/x" nor fallback branch "main" - apps from it were skipped';
+
+    it("counts a repo-skipped app as failed so full readiness stays false", () => {
+        const outcomes = computeFinalOutcomes(
+            config,
+            { web: buildOk },
+            { web: { status: "ok", url: "https://web" }, api: { status: "skipped", reason: "build failed" } },
+            { api: skipReason },
+        );
+        // One ready + one skipped must roll up as 1/2, never 1/1.
+        expect(outcomes).toHaveLength(2);
+        expect(outcomes.filter((o) => o.status === "ok")).toHaveLength(1);
+        expect(outcomes.find((o) => o.name === "api")).toEqual({ name: "api", status: "failed", error: skipReason });
+    });
+
+    it("keeps the branch-resolution reason on the skipped row instead of a generic build message", () => {
+        const states = toFinalAppStates(
+            config,
+            { web: buildOk },
+            { web: { status: "ok", url: "https://web" }, api: { status: "skipped", reason: "build failed" } },
+            { web: "img:web" },
+            { api: skipReason },
+        );
+        expect(states.find((s) => s.appName === "api")).toEqual({
+            appName: "api",
+            status: "skipped",
+            port: 4000,
+            error: skipReason,
+        });
+        expect(states.find((s) => s.appName === "web")?.status).toBe("ready");
     });
 });

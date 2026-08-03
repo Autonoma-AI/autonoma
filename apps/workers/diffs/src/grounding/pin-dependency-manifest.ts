@@ -117,9 +117,12 @@ export class SnapshotDependencyManifestPinner {
 
     /**
      * Projects the per-dependency SHA map from an environment's enriched
-     * `resolvedConfig`. Only dependencies that recorded a `sha` at deploy time are
-     * pinned; a config that fails to parse or carries no multirepo block yields an
-     * empty map (partial manifest -> partial pin).
+     * `resolvedConfig`, keyed by repo full name (`owner/repo`). Pre-v2 snapshots
+     * hold maps keyed by the retired repo alias - the column is only ever read
+     * back through this pinner's idempotence check, so both key spaces coexist.
+     * Only dependencies that recorded a `sha` at deploy time are pinned; a config
+     * that fails to parse or declares no repositories yields an empty map
+     * (partial manifest -> partial pin).
      */
     private extractDependencyShas(resolvedConfig: unknown): SnapshotDependencyShaMap {
         if (resolvedConfig == null) return {};
@@ -134,10 +137,9 @@ export class SnapshotDependencyManifestPinner {
             return {};
         }
 
-        const repos = parsed.data.config?.multirepo?.repos ?? [];
         const manifest: SnapshotDependencyShaMap = {};
-        for (const repo of repos) {
-            if (repo.sha != null) manifest[repo.name] = repo.sha;
+        for (const settings of parsed.data.repositories) {
+            if (settings.sha != null) manifest[settings.repo] = settings.sha;
         }
         return manifest;
     }

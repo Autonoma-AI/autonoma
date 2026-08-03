@@ -10,16 +10,16 @@ function uniqueInt(): number {
 }
 
 /**
- * Build a deploy-resolved previewkit config carrying the given multirepo dep
- * SHAs. Stored verbatim as `resolvedConfig` JSON; the pinner re-parses it and
- * fills the remaining defaults, so only the fields the pinner reads need to be
- * present.
+ * Build a deploy-resolved previewkit config carrying the given per-repository
+ * deploy SHAs. Stored verbatim as `resolvedConfig` JSON; the pinner re-parses
+ * it and fills the remaining defaults, so only the fields the pinner reads
+ * need to be present.
  */
-function configWithDeps(deps: Array<{ name: string; repo: string; sha?: string }>): Record<string, unknown> {
+function configWithDeps(deps: Array<{ repo: string; sha?: string }>): Record<string, unknown> {
     return {
-        version: 1,
-        apps: [{ name: "web", port: 3000 }],
-        config: { multirepo: { repos: deps } },
+        version: 2,
+        apps: [{ name: "web", repository: "acme/web", port: 3000 }],
+        repositories: deps,
     };
 }
 
@@ -101,19 +101,22 @@ diffJobContextSuite({
                 seedResult.organizationId,
                 target,
                 configWithDeps([
-                    { name: "api", repo: "acme/api", sha: "api-sha-aaa" },
-                    { name: "worker", repo: "acme/worker", sha: "worker-sha-bbb" },
+                    { repo: "acme/api", sha: "api-sha-aaa" },
+                    { repo: "acme/worker", sha: "worker-sha-bbb" },
                 ]),
             );
 
             const pinned = await new SnapshotDependencyManifestPinner(harness.db).ensurePinned(target.snapshotId);
 
-            expect(pinned).toEqual({ api: "api-sha-aaa", worker: "worker-sha-bbb" });
+            expect(pinned).toEqual({ "acme/api": "api-sha-aaa", "acme/worker": "worker-sha-bbb" });
             const reloaded = await harness.db.branchSnapshot.findUniqueOrThrow({
                 where: { id: target.snapshotId },
                 select: { pinnedDependencyShas: true },
             });
-            expect(reloaded.pinnedDependencyShas).toEqual({ api: "api-sha-aaa", worker: "worker-sha-bbb" });
+            expect(reloaded.pinnedDependencyShas).toEqual({
+                "acme/api": "api-sha-aaa",
+                "acme/worker": "worker-sha-bbb",
+            });
         });
 
         test("pins only dependencies that recorded a SHA (partial manifest)", async ({ harness, seedResult }) => {
@@ -122,15 +125,12 @@ diffJobContextSuite({
                 harness.db,
                 seedResult.organizationId,
                 target,
-                configWithDeps([
-                    { name: "api", repo: "acme/api", sha: "api-sha-only" },
-                    { name: "skipped", repo: "acme/skipped" },
-                ]),
+                configWithDeps([{ repo: "acme/api", sha: "api-sha-only" }, { repo: "acme/skipped" }]),
             );
 
             const pinned = await new SnapshotDependencyManifestPinner(harness.db).ensurePinned(target.snapshotId);
 
-            expect(pinned).toEqual({ api: "api-sha-only" });
+            expect(pinned).toEqual({ "acme/api": "api-sha-only" });
         });
 
         test("degrades to an empty pin when no environment matches the exact headSha", async ({
@@ -144,7 +144,7 @@ diffJobContextSuite({
                 harness.db,
                 seedResult.organizationId,
                 target,
-                configWithDeps([{ name: "api", repo: "acme/api", sha: "newer-sha" }]),
+                configWithDeps([{ repo: "acme/api", sha: "newer-sha" }]),
                 { headSha: "redeployed-head" },
             );
 
@@ -181,7 +181,7 @@ diffJobContextSuite({
                 harness.db,
                 seedResult.organizationId,
                 target,
-                configWithDeps([{ name: "api", repo: "acme/api", sha: "should-not-pin" }]),
+                configWithDeps([{ repo: "acme/api", sha: "should-not-pin" }]),
             );
 
             const pinned = await new SnapshotDependencyManifestPinner(harness.db).ensurePinned(target.snapshotId);
@@ -198,30 +198,56 @@ diffJobContextSuite({
                 harness.db,
                 seedResult.organizationId,
                 target,
-                configWithDeps([{ name: "api", repo: "acme/api", sha: "original-sha" }]),
+                configWithDeps([{ repo: "acme/api", sha: "original-sha" }]),
             );
 
             const pinner = new SnapshotDependencyManifestPinner(harness.db);
             const first = await pinner.ensurePinned(target.snapshotId);
-            expect(first).toEqual({ api: "original-sha" });
+            expect(first).toEqual({ "acme/api": "original-sha" });
 
             // Simulate a redeploy of the same PR: previewkit overwrites the
             // environment's resolvedConfig (and could move its headSha) in place.
             await harness.db.previewkitEnvironment.update({
                 where: { namespace: target.namespace },
-                data: { resolvedConfig: configWithDeps([{ name: "api", repo: "acme/api", sha: "redeployed-sha" }]) },
+                data: { resolvedConfig: configWithDeps([{ repo: "acme/api", sha: "redeployed-sha" }]) },
             });
 
             const second = await pinner.ensurePinned(target.snapshotId);
 
             // The in-flight snapshot keeps grounding against the code that was live
             // when it first grounded - the redeploy can not corrupt it.
-            expect(second).toEqual({ api: "original-sha" });
+            expect(second).toEqual({ "acme/api": "original-sha" });
             const reloaded = await harness.db.branchSnapshot.findUniqueOrThrow({
                 where: { id: target.snapshotId },
                 select: { pinnedDependencyShas: true },
             });
-            expect(reloaded.pinnedDependencyShas).toEqual({ api: "original-sha" });
+            expect(reloaded.pinnedDependencyShas).toEqual({ "acme/api": "original-sha" });
+        });
+
+        test("returns a pre-v2, alias-keyed pinned map untouched", async ({ harness, seedResult }) => {
+            const target = await seedPinTarget(harness.db, seedResult.organizationId, { headSha: "head-alias" });
+            // Snapshots pinned before the v2 config migration hold maps keyed by
+            // the retired repo alias. The idempotence check must hand them back
+            // verbatim rather than re-resolving under the new key space.
+            await harness.db.branchSnapshot.update({
+                where: { id: target.snapshotId },
+                data: { pinnedDependencyShas: { api: "alias-keyed-sha" } },
+            });
+            await createEnvironment(
+                harness.db,
+                seedResult.organizationId,
+                target,
+                configWithDeps([{ repo: "acme/api", sha: "repo-keyed-sha" }]),
+            );
+
+            const pinned = await new SnapshotDependencyManifestPinner(harness.db).ensurePinned(target.snapshotId);
+
+            expect(pinned).toEqual({ api: "alias-keyed-sha" });
+            const reloaded = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: target.snapshotId },
+                select: { pinnedDependencyShas: true },
+            });
+            expect(reloaded.pinnedDependencyShas).toEqual({ api: "alias-keyed-sha" });
         });
     },
 });

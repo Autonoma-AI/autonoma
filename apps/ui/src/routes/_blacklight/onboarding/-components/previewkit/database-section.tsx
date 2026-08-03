@@ -431,7 +431,7 @@ function SetupTaskRow({
               onChange={(value) => onUpdate({ repo: value === PRIMARY_REPO_SENTINEL ? "" : value })}
               options={[
                 { value: PRIMARY_REPO_SENTINEL, label: "primary repo" },
-                ...repos.map((repo) => ({ value: repo.name, label: repo.name })),
+                ...repos.map((repo) => ({ value: repo.repo, label: repo.repo })),
               ]}
             />
           ) : undefined}

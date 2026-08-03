@@ -29,27 +29,29 @@ describe("kebabCaseAppName", () => {
 });
 
 describe("defaultPreviewkitConfig", () => {
-    it("names the starter app after the application (kebab-cased)", () => {
-        const config = defaultPreviewkitConfig("Boss Roast");
+    it("names the starter app after the application (kebab-cased) and stamps its repository", () => {
+        const config = defaultPreviewkitConfig("Boss Roast", "acme/boss-roast");
         expect(config.apps[0]?.name).toBe("boss-roast");
         expect(config.apps[0]?.primary).toBe(true);
+        expect(config.apps[0]?.repository).toBe("acme/boss-roast");
+        expect(config.version).toBe(2);
     });
 
     it("falls back to web when no application name is given", () => {
-        expect(defaultPreviewkitConfig().apps[0]?.name).toBe("web");
+        expect(defaultPreviewkitConfig(undefined, "acme/web").apps[0]?.name).toBe("web");
     });
 
     it("always produces a schema-valid name, even for a single-character app name", () => {
         // The k8s name schema requires >= 2 chars; a 1-char slug must fall back.
-        expect(() => defaultPreviewkitConfig("Q")).not.toThrow();
-        expect(defaultPreviewkitConfig("Q").apps[0]?.name).toBe("web");
+        expect(() => defaultPreviewkitConfig("Q", "acme/q")).not.toThrow();
+        expect(defaultPreviewkitConfig("Q", "acme/q").apps[0]?.name).toBe("web");
     });
 
     it("seeds a complete runtime build block so the starter is deployable as-is", () => {
         // The starter must be a valid, complete app out of the box - no separate
         // "edit before you can deploy" gate. A runtime build with a non-empty
         // entrypoint is what makes it schema-valid and immediately deployable.
-        const build = defaultPreviewkitConfig("Boss Roast").apps[0]?.build;
+        const build = defaultPreviewkitConfig("Boss Roast", "acme/boss-roast").apps[0]?.build;
         expect(build?.framework).toBe("runtime");
         if (build?.framework !== "runtime") throw new Error("expected a runtime build");
         expect(build.runtime).toBe("node");
@@ -60,8 +62,8 @@ describe("defaultPreviewkitConfig", () => {
 describe("config write contracts", () => {
     function documentWithBuild(build: unknown) {
         return {
-            version: 1,
-            apps: [{ name: "web", port: 3000, build }],
+            version: 2,
+            apps: [{ name: "web", repository: "acme/web", port: 3000, build }],
         };
     }
 
@@ -83,7 +85,7 @@ describe("config write contracts", () => {
     });
 
     it("rejects a malformed document on both paths", () => {
-        expect(() => parseConfigShapeOrThrow({ version: 1, apps: [] })).toThrow();
-        expect(() => parseAuthoredConfigShapeOrThrow({ version: 1, apps: [] })).toThrow();
+        expect(() => parseConfigShapeOrThrow({ version: 2, apps: [] })).toThrow();
+        expect(() => parseAuthoredConfigShapeOrThrow({ version: 2, apps: [] })).toThrow();
     });
 });

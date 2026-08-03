@@ -51,10 +51,9 @@ export class OnboardingService extends Service {
         applicationId: string,
         organizationId: string,
         document: unknown,
-        dependencyDocuments?: Array<{ repo: string; document: unknown }>,
         secrets?: PreviewkitConfigSecrets,
     ) {
-        return this.manager.savePreviewkitConfig(applicationId, organizationId, document, dependencyDocuments, secrets);
+        return this.manager.savePreviewkitConfig(applicationId, organizationId, document, secrets);
     }
 
     async getPreviewEnvironmentMode(applicationId: string, organizationId: string) {
@@ -69,13 +68,8 @@ export class OnboardingService extends Service {
         return this.manager.getDeploymentSignalStatus(applicationId, organizationId);
     }
 
-    async validatePreviewkitConfig(
-        applicationId: string,
-        organizationId: string,
-        document: unknown,
-        githubRepositoryId?: number,
-    ) {
-        return this.manager.validatePreviewkitConfig(applicationId, organizationId, document, githubRepositoryId);
+    async validatePreviewkitConfig(applicationId: string, organizationId: string, document: unknown) {
+        return this.manager.validatePreviewkitConfig(applicationId, organizationId, document);
     }
 
     async listDockerfiles(applicationId: string, organizationId: string, githubRepositoryId?: number) {

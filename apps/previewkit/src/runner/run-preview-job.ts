@@ -150,7 +150,7 @@ async function runDeploy(
             imageTags: built.imageTags,
             buildOutcomes: built.buildOutcomes,
             warnings: built.warnings,
-            primaryAppNames: built.primaryAppNames,
+            skippedApps: built.skippedApps,
         };
         deployed = await previewPipeline.deployEnvironment(deployInput, signal);
         logger.info("Preview environment deployed", {
@@ -264,7 +264,7 @@ async function runRedeployApp(
             imageTags: built.imageTags,
             buildOutcomes: built.buildOutcomes,
             warnings: built.warnings,
-            primaryAppNames: built.primaryAppNames,
+            skippedApps: built.skippedApps,
             appName,
         };
         await previewPipeline.deployEnvironment(deployInput, signal);

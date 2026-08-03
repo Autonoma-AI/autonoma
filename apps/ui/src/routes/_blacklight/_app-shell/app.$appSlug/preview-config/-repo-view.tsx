@@ -7,7 +7,7 @@ import type { RepoDraft } from "../../../onboarding/-components/previewkit/topol
 import { usePreviewDraft } from "./-draft-context";
 
 /**
- * One dependency repo's pane: its alias and fallback branch, plus the (shared)
+ * One dependency repo's pane: its fallback branch, plus the (shared)
  * branch-matching rule that decides which branch of every dependency repo a PR
  * preview builds. The primary repo has no pane - it always builds the PR's own
  * branch - so this only ever shows dependency repos.
@@ -15,9 +15,9 @@ import { usePreviewDraft } from "./-draft-context";
 export function RepoView({ repo }: { repo: RepoDraft }) {
   const { draft, appCountByRepoKey, setRepos, setBranchConvention } = usePreviewDraft();
   const [confirmRemove, setConfirmRemove] = useState(false);
-  const appCount = appCountByRepoKey.get(repo.name) ?? 0;
+  const appCount = appCountByRepoKey.get(repo.repo) ?? 0;
 
-  // setRepos remaps each app's repoKey when a dependency repo's alias changes and
+  // setRepos rewrites each app's repository when a repo's full name is edited and
   // drops a removed repo's apps, so both edits go through the whole-list setter.
   function updateRepo(patch: Partial<RepoDraft>) {
     setRepos(draft.repos.map((candidate) => (candidate.id === repo.id ? { ...candidate, ...patch } : candidate)));
@@ -64,19 +64,6 @@ export function RepoView({ repo }: { repo: RepoDraft }) {
 
       <div className="flex max-w-2xl flex-col gap-6 p-4 lg:p-6">
         <div className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <Label htmlFor="pk-repo-alias">Alias</Label>
-            <Input
-              id="pk-repo-alias"
-              value={repo.name}
-              onChange={(event) => updateRepo({ name: event.target.value })}
-              placeholder="api"
-              className="font-mono"
-            />
-            <p className="mt-1 text-2xs text-text-secondary">
-              Short name for this repo in resource names. Must be unique.
-            </p>
-          </div>
           <div>
             <Label htmlFor="pk-repo-fallback">Fallback branch</Label>
             <Input

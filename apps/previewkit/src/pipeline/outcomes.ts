@@ -28,14 +28,22 @@ export interface AppFinalOutcome {
  * Stage A keeps this binary: an app is `ok` only if both build and deploy
  * succeeded; everything else is `failed`. The `error` field surfaces the
  * earliest failure (build error wins over deploy error, since a failed
- * build implies a skipped deploy).
+ * build implies a skipped deploy). An app in `skipReasons` (its repository
+ * had no resolvable branch) is `failed` with that reason, so a topology
+ * with skipped apps never rolls up as fully ready.
  */
 export function computeFinalOutcomes(
     config: PreviewConfig,
     appBuilds: Record<string, PreviewBuildOutcome>,
     deployOutcomes: Record<string, AppDeployOutcome>,
+    skipReasons: Record<string, string> = {},
 ): AppFinalOutcome[] {
     return config.apps.map((app) => {
+        const skipReason = skipReasons[app.name];
+        if (skipReason != null) {
+            return { name: app.name, status: "failed", error: skipReason };
+        }
+
         const build = appBuilds[app.name];
         const deploy = deployOutcomes[app.name];
 
@@ -91,19 +99,28 @@ export function toBuildStates(config: PreviewConfig, appBuilds: Record<string, A
 
 /**
  * Maps the combined build + deploy outcomes to the terminal lifecycle state
- * for every app: `build_failed`, `skipped` (built upstream-failed so deploy
- * was never attempted), `deploy_failed` (with the reason), or `ready`. This
- * is what makes "A and B are ready but C failed to deploy" a set of distinct
- * persisted rows rather than an inferred absence.
+ * for every app: `build_failed`, `skipped` (its repository had no resolvable
+ * branch, or it built upstream-failed so deploy was never attempted),
+ * `deploy_failed` (with the reason), or `ready`. This is what makes "A and B
+ * are ready but C failed to deploy" a set of distinct persisted rows rather
+ * than an inferred absence. `skipReasons` wins over the build/deploy records
+ * so a repo-skipped app keeps its branch-resolution reason instead of being
+ * overwritten with a generic "no build outcome".
  */
 export function toFinalAppStates(
     config: PreviewConfig,
     buildOutcomes: Record<string, PreviewBuildOutcome>,
     deployOutcomes: Record<string, AppDeployOutcome>,
     imageTags: Record<string, string>,
+    skipReasons: Record<string, string> = {},
 ): AppStateUpdate[] {
     return config.apps.map((app) => {
         const port = app.port;
+        const skipReason = skipReasons[app.name];
+        if (skipReason != null) {
+            return { appName: app.name, status: "skipped", port, error: skipReason };
+        }
+
         const build = buildOutcomes[app.name];
         const deploy = deployOutcomes[app.name];
         const imageTag = imageTags[app.name];

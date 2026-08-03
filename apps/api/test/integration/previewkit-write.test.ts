@@ -72,8 +72,17 @@ function fakeRedeployer() {
 /** A single-app config declaring API_KEY as a build secret (so build-vs-runtime classification has something to read). */
 function seedDocument() {
     return {
-        version: 1,
-        apps: [{ name: "web", path: ".", port: 3000, primary: true, build_secrets: ["API_KEY"] }],
+        version: 2,
+        apps: [
+            {
+                name: "web",
+                repository: REPO_FULL_NAME,
+                path: ".",
+                port: 3000,
+                primary: true,
+                build_secrets: ["API_KEY"],
+            },
+        ],
         services: [],
     };
 }
@@ -92,7 +101,8 @@ integrationTestSuite({
             seedResult: { orgId, config },
         }) => {
             const appId = await harness.createApp(orgId);
-            await config.save(appId, orgId, seedDocument(), []);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, seedDocument());
             const secrets = fakeSecretWriter();
             const trigger = fakeRedeployer();
             const service = new PreviewkitWriteService(config, secrets, trigger);
@@ -125,7 +135,8 @@ integrationTestSuite({
             seedResult: { orgId, config },
         }) => {
             const appId = await harness.createApp(orgId);
-            await config.save(appId, orgId, seedDocument(), []);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, seedDocument());
             const secrets = fakeSecretWriter();
             const trigger = fakeRedeployer();
             const service = new PreviewkitWriteService(config, secrets, trigger);
@@ -149,7 +160,8 @@ integrationTestSuite({
             seedResult: { orgId, config },
         }) => {
             const appId = await harness.createApp(orgId);
-            await config.save(appId, orgId, seedDocument(), []);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, seedDocument());
             const secrets = fakeSecretWriter();
             secrets.setDeletePresent(false);
             const trigger = fakeRedeployer();
@@ -173,7 +185,8 @@ integrationTestSuite({
             seedResult: { orgId, config },
         }) => {
             const appId = await harness.createApp(orgId);
-            await config.save(appId, orgId, seedDocument(), []);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, seedDocument());
             const trigger = fakeRedeployer();
             const service = new PreviewkitWriteService(config, fakeSecretWriter(), trigger);
 
@@ -206,7 +219,8 @@ integrationTestSuite({
             seedResult: { orgId, config },
         }) => {
             const appId = await harness.createApp(orgId);
-            await config.save(appId, orgId, seedDocument(), []);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, seedDocument());
             const trigger = fakeRedeployer();
             const service = new PreviewkitWriteService(config, fakeSecretWriter(), trigger);
 
@@ -230,7 +244,8 @@ integrationTestSuite({
 
         test("edit_previewkit_config on an unknown app throws", async ({ harness, seedResult: { orgId, config } }) => {
             const appId = await harness.createApp(orgId);
-            await config.save(appId, orgId, seedDocument(), []);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, seedDocument());
             const service = new PreviewkitWriteService(config, fakeSecretWriter(), fakeRedeployer());
 
             await expect(
@@ -251,7 +266,8 @@ integrationTestSuite({
             seedResult: { orgId, config },
         }) => {
             const appId = await harness.createApp(orgId);
-            await config.save(appId, orgId, seedDocument(), []);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, seedDocument());
             const trigger = fakeRedeployer();
             const service = new PreviewkitWriteService(config, fakeSecretWriter(), trigger);
 
@@ -292,7 +308,8 @@ integrationTestSuite({
             seedResult: { orgId, config },
         }) => {
             const appId = await harness.createApp(orgId);
-            await config.save(appId, orgId, seedDocument(), []);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, seedDocument());
             const trigger = fakeRedeployer();
             const service = new PreviewkitWriteService(config, fakeSecretWriter(), trigger);
 

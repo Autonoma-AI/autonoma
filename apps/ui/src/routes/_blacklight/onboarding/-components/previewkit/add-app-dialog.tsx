@@ -20,7 +20,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { GITHUB_INSTALLED_RETURN_PATH, useGithubConfig, useGithubRepositories } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
 import { type FormEvent, useState } from "react";
-import { nextDraftId, repoAliasFrom, type RepoDraft } from "./topology-draft";
+import { nextDraftId, type RepoDraft } from "./topology-draft";
 
 // Cap the install-tab close poll so it can never leak indefinitely (~5 min).
 const INSTALL_POLL_INTERVAL_MS = 800;
@@ -36,8 +36,8 @@ interface AddAppDialogProps {
   primaryRepoFullName?: string;
   /** Dependency repos already in the config (each has at least one app). */
   repos: RepoDraft[];
-  /** Adds an app to a repo that is already part of the config (its alias). */
-  onAddToExistingRepo: (alias: string) => void;
+  /** Adds an app to a repo that is already part of the config (its `owner/repo` full name). */
+  onAddToExistingRepo: (repository: string) => void;
   /** Registers a new dependency repo and seeds its first app. */
   onAddToNewRepo: (repo: RepoDraft) => void;
 }
@@ -45,8 +45,8 @@ interface AddAppDialogProps {
 /**
  * Asks which repo a new app comes from, in place, when adding an app from a repo
  * other than the primary one. Existing dependency repos can be reused; picking a
- * newly-connected repo captures its alias and fallback branch here so the repo's
- * settings live next to the app instead of in a separate top-of-page band.
+ * newly-connected repo captures its fallback branch here so the repo's settings
+ * live next to the app instead of in a separate top-of-page band.
  */
 export function AddAppDialog({
   open,
@@ -61,19 +61,17 @@ export function AddAppDialog({
   // Opened in a new tab, so GitHub returns to the "close this tab" page - not back
   // to this dialog's page in a second tab.
   const { data: githubConfig } = useGithubConfig(GITHUB_INSTALLED_RETURN_PATH);
-  // `dep:<alias>` for an existing dependency repo, `new:<fullName>` for a repo to add.
+  // `dep:<fullName>` for an existing dependency repo, `new:<fullName>` for a repo to add.
   const [selection, setSelection] = useState<string | undefined>(undefined);
-  const [alias, setAlias] = useState("");
   const [fallbackBranch, setFallbackBranch] = useState("");
   const [query, setQuery] = useState("");
 
   const usedFullNames = new Set([primaryRepoFullName, ...repos.map((repo) => repo.repo)]);
   const availableRepos = installationRepos.filter((repo) => !usedFullNames.has(repo.fullName));
   const installUrl = githubConfig.installUrl;
-  const existingAliases = repos.map((repo) => repo.name);
 
   const showSearch = repos.length + availableRepos.length > SEARCH_THRESHOLD;
-  const filteredDeps = filterRepos(repos, query, (repo) => `${repo.repo} ${repo.name}`);
+  const filteredDeps = filterRepos(repos, query, (repo) => repo.repo);
   const filteredAvailable = filterRepos(availableRepos, query, (repo) => repo.fullName);
   const noMatches = query.trim() !== "" && filteredDeps.length === 0 && filteredAvailable.length === 0;
 
@@ -84,7 +82,6 @@ export function AddAppDialog({
 
   function reset() {
     setSelection(undefined);
-    setAlias("");
     setFallbackBranch("");
     setQuery("");
   }
@@ -94,9 +91,8 @@ export function AddAppDialog({
     onOpenChange(next);
   }
 
-  function selectNewRepo(fullName: string, name: string, defaultBranch: string) {
+  function selectNewRepo(fullName: string, defaultBranch: string) {
     setSelection(`new:${fullName}`);
-    setAlias(repoAliasFrom(name, existingAliases));
     setFallbackBranch(defaultBranch);
   }
 
@@ -121,10 +117,8 @@ export function AddAppDialog({
     event.preventDefault();
     if (selection == null) return;
     if (selectedNewRepo != null) {
-      const trimmedAlias = alias.trim();
       const draft: RepoDraft = {
         id: nextDraftId(),
-        name: trimmedAlias === "" ? repoAliasFrom(selectedNewRepo.name, existingAliases) : trimmedAlias,
         repo: selectedNewRepo.fullName,
         fallbackBranch: fallbackBranch.trim() === "" ? selectedNewRepo.defaultBranch : fallbackBranch.trim(),
         githubRepositoryId: selectedNewRepo.id,
@@ -175,11 +169,11 @@ export function AddAppDialog({
                 <div className="max-h-80 space-y-2 overflow-y-auto">
                   {filteredDeps.map((repo) => (
                     <RepoOption
-                      key={`dep:${repo.name}`}
-                      selected={selection === `dep:${repo.name}`}
+                      key={`dep:${repo.repo}`}
+                      selected={selection === `dep:${repo.repo}`}
                       title={repo.repo}
-                      subtitle={`Already added · alias ${repo.name}`}
-                      onSelect={() => setSelection(`dep:${repo.name}`)}
+                      subtitle="Already added"
+                      onSelect={() => setSelection(`dep:${repo.repo}`)}
                     />
                   ))}
                   {filteredAvailable.map((repo) => (
@@ -188,7 +182,7 @@ export function AddAppDialog({
                       selected={selection === `new:${repo.fullName}`}
                       title={repo.fullName}
                       subtitle="Connect to this preview"
-                      onSelect={() => selectNewRepo(repo.fullName, repo.name, repo.defaultBranch)}
+                      onSelect={() => selectNewRepo(repo.fullName, repo.defaultBranch)}
                     />
                   ))}
                   {noMatches ? (
@@ -202,41 +196,26 @@ export function AddAppDialog({
 
             {selectedNewRepo != null ? (
               <div className="space-y-3 border border-border-dim bg-surface-raised p-4">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <Label htmlFor="pk-add-app-alias">Alias</Label>
-                    <Input
-                      id="pk-add-app-alias"
-                      value={alias}
-                      onChange={(event) => setAlias(event.target.value)}
-                      placeholder="api"
-                      className="font-mono"
-                    />
-                    <p className="mt-1 text-2xs text-text-secondary">
-                      Short name for this repo in resource names. Must be unique.
-                    </p>
-                  </div>
-                  <div>
-                    <Label htmlFor="pk-add-app-fallback">Fallback branch</Label>
-                    <Input
-                      id="pk-add-app-fallback"
-                      value={fallbackBranch}
-                      onChange={(event) => setFallbackBranch(event.target.value)}
-                      placeholder="main"
-                      className="font-mono"
-                    />
-                    <p className="mt-1 text-2xs text-text-secondary">
-                      Deployed when branch matching finds no matching branch.{" "}
-                      <a
-                        href={MULTIREPO_DOCS_URL}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-primary-ink underline underline-offset-2"
-                      >
-                        Learn more
-                      </a>
-                    </p>
-                  </div>
+                <div className="max-w-xs">
+                  <Label htmlFor="pk-add-app-fallback">Fallback branch</Label>
+                  <Input
+                    id="pk-add-app-fallback"
+                    value={fallbackBranch}
+                    onChange={(event) => setFallbackBranch(event.target.value)}
+                    placeholder="main"
+                    className="font-mono"
+                  />
+                  <p className="mt-1 text-2xs text-text-secondary">
+                    Deployed when branch matching finds no matching branch.{" "}
+                    <a
+                      href={MULTIREPO_DOCS_URL}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary-ink underline underline-offset-2"
+                    >
+                      Learn more
+                    </a>
+                  </p>
                 </div>
               </div>
             ) : undefined}

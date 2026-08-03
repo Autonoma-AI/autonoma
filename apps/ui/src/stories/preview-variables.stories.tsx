@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { EnvVarManager } from "../routes/_blacklight/_app-shell/app.$appSlug/preview-config/-variables/env-var-manager";
 import {
-  documentsFromDraft,
+  documentFromDraft,
   draftFromConfig,
   emptyDraftIssues,
   mapIssuesToDraft,
@@ -18,10 +18,11 @@ const STORED_SECRET_KEYS = ["STRIPE_SECRET_KEY", "RESEND_API_KEY"];
 
 /** A saved config for the ordinary shape: one Next.js web app wired to a Postgres service. */
 const savedConfig = previewConfigSchema.parse({
-  version: 1,
+  version: 2,
   apps: [
     {
       name: "web",
+      repository: "acme/storefront",
       path: ".",
       port: 3000,
       primary: true,
@@ -40,7 +41,7 @@ const savedConfig = previewConfigSchema.parse({
   services: [{ name: "db", recipe: "postgres", version: "16" }],
 });
 
-const baseDraft = draftFromConfig(savedConfig, [], "saved");
+const baseDraft = draftFromConfig(savedConfig, [{ repo: "acme/storefront", primary: true }], "saved");
 
 /** The saved app plus the masked secret rows the editor merges in from the stored key list. */
 const webApp: AppDraft = {
@@ -64,7 +65,7 @@ function opened(app: AppDraft, key: string): AppDraft {
  * messages the editor actually renders rather than a hand-written copy of them.
  */
 function issuesFor(app: AppDraft): DraftIssues {
-  const compiled = documentsFromDraft({ ...baseDraft, apps: [app] }).primary;
+  const compiled = documentFromDraft({ ...baseDraft, apps: [app] });
   const parsed = authoringPreviewConfigSchema.safeParse(compiled.document);
   if (parsed.success) return emptyDraftIssues();
   return mapIssuesToDraft(zodIssuesToConfigIssues(parsed.error), compiled.indexToDraftId);

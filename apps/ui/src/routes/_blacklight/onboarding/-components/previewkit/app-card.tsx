@@ -313,8 +313,8 @@ export function AppCard({
 }
 
 /**
- * Per-repo settings (alias, fallback branch) for a dependency-repo app, shown at
- * the top of the card. These belong to the repo, not the app, so editing them here
+ * Per-repo settings (fallback branch) for a dependency-repo app, shown at the
+ * top of the card. These belong to the repo, not the app, so editing them here
  * updates every app from the same repo; a note flags that when more than one app
  * shares it.
  */
@@ -336,19 +336,6 @@ function RepoSettings({
         </span>
       </div>
       <div className="mt-3 grid gap-4 sm:grid-cols-2">
-        <div>
-          <Label htmlFor={`pk-repo-${repo.id}-alias`}>Alias</Label>
-          <Input
-            id={`pk-repo-${repo.id}-alias`}
-            value={repo.name}
-            onChange={(event) => onRepoChange(repo.id, { name: event.target.value })}
-            placeholder="api"
-            className="font-mono"
-          />
-          <p className="mt-1 text-2xs text-text-secondary">
-            Short name for this repo in resource names. Must be unique.
-          </p>
-        </div>
         <div>
           <Label htmlFor={`pk-repo-${repo.id}-fallback`}>Fallback branch</Label>
           <Input

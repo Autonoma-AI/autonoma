@@ -9,10 +9,11 @@ const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
 
 /** A two-app preview on Postgres, saved - what the settings page loads for a live app. */
 const savedConfig = previewConfigSchema.parse({
-  version: 1,
+  version: 2,
   apps: [
     {
       name: "web",
+      repository: "acme/storefront",
       path: "apps/web",
       port: 3000,
       primary: true,
@@ -21,6 +22,7 @@ const savedConfig = previewConfigSchema.parse({
     },
     {
       name: "api",
+      repository: "acme/storefront",
       path: "apps/api",
       port: 8080,
       dockerfile: "apps/api/Dockerfile",
@@ -35,7 +37,7 @@ const savedResponse = {
   saved: true,
   document: savedConfig,
   deployBranch: "main",
-  dependencyConfigs: [],
+  repos: [{ repo: "acme/storefront", primary: true, githubRepositoryId: 101 }],
 };
 
 /** The app's existing secret bundle - keys only, the way the API hands it back. */
@@ -181,10 +183,11 @@ export const RetiredBuildPreset: Story = {
           getPreviewkitConfig: {
             ...savedResponse,
             document: previewConfigSchema.parse({
-              version: 1,
+              version: 2,
               apps: [
                 {
                   name: "web",
+                  repository: "acme/storefront",
                   path: ".",
                   port: 3000,
                   primary: true,

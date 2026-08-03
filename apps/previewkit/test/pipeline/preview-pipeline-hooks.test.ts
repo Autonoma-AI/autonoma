@@ -87,8 +87,8 @@ function deployInput(hooks: {
         namespace,
         commentId: "100",
         mergedConfigJson: JSON.stringify({
-            version: 1,
-            apps: [{ name: "web", port: 3000 }],
+            version: 2,
+            apps: [{ name: "web", repository: "acme/web", port: 3000 }],
             services: [],
             hooks,
         }),
@@ -97,7 +97,6 @@ function deployInput(hooks: {
             web: { status: "success", imageTag: "registry.example.com/acme/web:web", durationMs: 1 },
         },
         warnings: [],
-        primaryAppNames: ["web"],
     };
 }
 

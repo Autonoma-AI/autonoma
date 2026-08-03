@@ -1,17 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { AppConfig } from "../../src/config/schema.js";
-import { resolvePrimaryUrl } from "../../src/diffs/resolve-primary-url.js";
+import type { AppConfig } from "../../src/config/schema";
+import { resolvePrimaryUrl } from "../../src/diffs/resolve-primary-url";
 
 const makeApp = (name: string, primary?: boolean): AppConfig => ({
     name,
+    repository: "acme/web",
     path: ".",
     port: 3000,
-    build_args: {},
     build_secrets: [],
-    env: {},
-    replicas: 1,
+    connections: [],
     primary,
-    resources: { cpu: "250m", memory: "256Mi" },
+    resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
 });
 
 describe("resolvePrimaryUrl", () => {

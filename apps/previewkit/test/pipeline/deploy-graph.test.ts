@@ -1,15 +1,15 @@
 import { describe, it, expect } from "vitest";
-import type { AppConfig } from "../../src/config/schema.js";
-import { computeDeployWaves } from "../../src/pipeline/deploy-graph.js";
+import type { AppConfig } from "../../src/config/schema";
+import { computeDeployWaves } from "../../src/pipeline/deploy-graph";
 
 function app(name: string, depends_on?: string[]): AppConfig {
     return {
         name,
+        repository: "acme/web",
         path: ".",
         port: 3000,
-        env: {},
-        build_args: {},
-        replicas: 1,
+        connections: [],
+        build_secrets: [],
         resources: { cpu: "250m", memoryRequest: "256Mi", memoryLimit: "512Mi" },
         depends_on,
     };

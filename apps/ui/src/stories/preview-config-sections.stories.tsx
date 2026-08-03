@@ -19,10 +19,11 @@ import {
 // lifecycle hooks a Prisma-backed project ends up with. Parsed through the real
 // config schema so the drafts match what the editor loads from a saved config.
 const storefrontConfig = previewConfigSchema.parse({
-  version: 1,
+  version: 2,
   apps: [
     {
       name: "storefront",
+      repository: "acme/storefront",
       path: "apps/web",
       port: 3000,
       primary: true,
@@ -31,6 +32,7 @@ const storefrontConfig = previewConfigSchema.parse({
     },
     {
       name: "checkout-api",
+      repository: "acme/storefront",
       path: "apps/api",
       port: 8080,
       dockerfile: "apps/api/Dockerfile",
@@ -69,8 +71,17 @@ const storefrontDatabases = storefrontDraft.services.filter((service) => service
 // A Mailpit dev-mail container: the "extra service" shape - a user-supplied
 // image with its own ports and plain environment variables.
 const mailpitConfig = previewConfigSchema.parse({
-  version: 1,
-  apps: [{ name: "storefront", path: "apps/web", port: 3000, primary: true, dockerfile: "apps/web/Dockerfile" }],
+  version: 2,
+  apps: [
+    {
+      name: "storefront",
+      repository: "acme/storefront",
+      path: "apps/web",
+      port: 3000,
+      primary: true,
+      dockerfile: "apps/web/Dockerfile",
+    },
+  ],
   services: [
     {
       name: "mailpit",
@@ -91,8 +102,17 @@ const mailpitConfig = previewConfigSchema.parse({
 // The same container with an HTTP readiness probe recorded, so the probe's
 // conditional fields (path, port, delays) come back out of the options bag.
 const mailpitProbeConfig = previewConfigSchema.parse({
-  version: 1,
-  apps: [{ name: "storefront", path: "apps/web", port: 3000, primary: true, dockerfile: "apps/web/Dockerfile" }],
+  version: 2,
+  apps: [
+    {
+      name: "storefront",
+      repository: "acme/storefront",
+      path: "apps/web",
+      port: 3000,
+      primary: true,
+      dockerfile: "apps/web/Dockerfile",
+    },
+  ],
   services: [
     {
       name: "mailpit",
@@ -121,14 +141,19 @@ const mailpitProbeService = draftFromConfig(mailpitProbeConfig, [], "saved").ser
 // A preview spanning a second repo, on the regex branch-matching rule: a PR on
 // `feature/checkout-v2` builds the dependency repo's `checkout-v2` branch.
 const multirepoConfig = previewConfigSchema.parse({
-  version: 1,
-  apps: [{ name: "storefront", path: "apps/web", port: 3000, primary: true, dockerfile: "apps/web/Dockerfile" }],
-  config: {
-    multirepo: {
-      branch_convention: { type: "regex", pattern: "^feature/(.+)$", replacement: "$1" },
-      repos: [{ name: "payments-api", repo: "acme/payments-api", fallback_branch: "main" }],
+  version: 2,
+  apps: [
+    {
+      name: "storefront",
+      repository: "acme/storefront",
+      path: "apps/web",
+      port: 3000,
+      primary: true,
+      dockerfile: "apps/web/Dockerfile",
     },
-  },
+  ],
+  branch_convention: { type: "regex", pattern: "^feature/(.+)$", replacement: "$1" },
+  repositories: [{ repo: "acme/payments-api", fallback_branch: "main" }],
 });
 
 const regexConvention = draftFromConfig(multirepoConfig, [], "saved").branchConvention;

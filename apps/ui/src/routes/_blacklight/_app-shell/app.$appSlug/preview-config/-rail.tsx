@@ -5,7 +5,7 @@ import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import type { ReactNode } from "react";
-import { PRIMARY_REPO_KEY, SERVICE_OPTIONS } from "../../../onboarding/-components/previewkit/topology-draft";
+import { SERVICE_OPTIONS } from "../../../onboarding/-components/previewkit/topology-draft";
 import { usePreviewDraft } from "./-draft-context";
 
 /** What the preview-config rail points at: one app, one service, or one dependency repo. */
@@ -30,7 +30,7 @@ interface PreviewRailProps {
  */
 export function PreviewRail({ selection, onSelect, onAddFromAnotherRepo }: PreviewRailProps) {
   const { draft, addApp, addService, primaryRepoFullName } = usePreviewDraft();
-  const primaryRepoShortName = primaryRepoFullName?.split("/").pop();
+  const primaryRepoShortName = primaryRepoFullName.split("/").pop();
 
   return (
     <nav aria-label="Preview environment sections" className="flex shrink-0 flex-col gap-6 lg:w-52">
@@ -55,7 +55,7 @@ export function PreviewRail({ selection, onSelect, onAddFromAnotherRepo }: Previ
             }
           />
           <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={() => onSelect({ kind: "app", id: addApp(PRIMARY_REPO_KEY) })}>
+            <DropdownMenuItem onClick={() => onSelect({ kind: "app", id: addApp(primaryRepoFullName) })}>
               This repo
               {primaryRepoShortName != null ? (
                 <span className="ml-1 text-text-secondary">({primaryRepoShortName})</span>
@@ -113,7 +113,7 @@ export function PreviewRail({ selection, onSelect, onAddFromAnotherRepo }: Previ
               active={selection?.kind === "repo" && selection.id === repo.id}
               onClick={() => onSelect({ kind: "repo", id: repo.id })}
             >
-              {repo.name.trim() === "" ? <span className="italic">new repo</span> : repo.name}
+              {repo.repo.trim() === "" ? <span className="italic">new repo</span> : repo.repo}
             </RailItem>
           ))}
         </RailGroup>

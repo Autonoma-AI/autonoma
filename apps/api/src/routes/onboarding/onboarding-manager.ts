@@ -40,12 +40,11 @@ import {
     writePreviewUrl,
     type PreviewReadiness,
 } from "./preview-readiness";
-import { parseAuthoredConfigShapeOrThrow, parseStoredDependencyDocuments } from "./previewkit-config-helpers";
+import { parseAuthoredConfigShapeOrThrow } from "./previewkit-config-helpers";
 import {
     PreviewkitConfigService,
     type OnboardingPreviewkitConfig,
     type PreviewkitConfigValidationResult,
-    type PreviewkitDependencyDocument,
 } from "./previewkit-config-service";
 import { buildSdkUrl } from "./sdk-url";
 import { CompletedState } from "./states/completed-state";
@@ -262,7 +261,6 @@ export class OnboardingManager {
         applicationId: string,
         organizationId: string,
         document: unknown,
-        dependencyDocuments: PreviewkitDependencyDocument[] = [],
         secrets: PreviewkitConfigSecrets = [],
     ): Promise<OnboardingPreviewkitConfig> {
         this.logger.info("Saving onboarding PreviewKit config", {
@@ -275,9 +273,6 @@ export class OnboardingManager {
         // Runs before any side effect (secrets, state) so a rejected document
         // leaves nothing half-written.
         parseAuthoredConfigShapeOrThrow(document);
-        for (const dependency of dependencyDocuments) {
-            parseAuthoredConfigShapeOrThrow(dependency.document);
-        }
 
         await this.ensureApplicationHasRepository(applicationId, organizationId);
         await this.ensureStateAtOrAfter(applicationId, "previewkit_configuring", "save PreviewKit config");
@@ -286,9 +281,9 @@ export class OnboardingManager {
         // saves, so the two stay consistent (the rare residual - secrets written,
         // config not - is the safe direction: extra secret values are harmless until
         // referenced).
-        await this.upsertConfigSecrets(applicationId, organizationId, document, dependencyDocuments, secrets);
+        await this.upsertConfigSecrets(applicationId, organizationId, document, secrets);
 
-        const saved = await this.previewkitConfig.save(applicationId, organizationId, document, dependencyDocuments);
+        const saved = await this.previewkitConfig.save(applicationId, organizationId, document);
 
         // Deletes run after the commit so a rolled-back config can never end up
         // referencing a secret we already removed. Best-effort: a leftover secret
@@ -301,17 +296,15 @@ export class OnboardingManager {
     }
 
     /**
-     * Validate secret app names against the documents being saved, then upsert them
-     * before the DB commit. Checked against the whole topology, primary plus every
-     * dependency document: a dependency-repo app owns a secret bundle under this same
-     * Application (the deploy resolves secrets over the merged config), so matching
-     * only the primary document would reject the secrets of a multirepo backend.
+     * Validate secret app names against the document being saved, then upsert them
+     * before the DB commit. The document is the whole topology, so a multirepo
+     * dependency's app (which owns a secret bundle under this same Application)
+     * is matched like any other.
      */
     private async upsertConfigSecrets(
         applicationId: string,
         organizationId: string,
         document: unknown,
-        dependencyDocuments: PreviewkitDependencyDocument[],
         secrets: PreviewkitConfigSecrets,
     ): Promise<void> {
         const withUpserts = secrets.filter((entry) => entry.upserts.length > 0);
@@ -323,13 +316,6 @@ export class OnboardingManager {
             throw new BadRequestError("Cannot save secrets: the PreviewKit config is invalid");
         }
         const appNames = new Set(parsed.data.apps.map((app) => app.name));
-        for (const dependency of dependencyDocuments) {
-            const dependencyParsed = previewConfigSchema.safeParse(dependency.document);
-            if (!dependencyParsed.success) {
-                throw new BadRequestError(`Cannot save secrets: the config for "${dependency.repo}" is invalid`);
-            }
-            for (const app of dependencyParsed.data.apps) appNames.add(app.name);
-        }
         for (const entry of secrets) {
             if (!appNames.has(entry.appName)) {
                 throw new NotFoundError(`PreviewKit app '${entry.appName}' is not defined in the config`);
@@ -377,11 +363,10 @@ export class OnboardingManager {
         applicationId: string,
         organizationId: string,
         document: unknown,
-        githubRepositoryId?: number,
     ): Promise<PreviewkitConfigValidationResult> {
         this.logger.info("Validating onboarding PreviewKit config", { applicationId, organizationId });
         await this.ensureApplicationHasRepository(applicationId, organizationId);
-        return this.previewkitConfig.validate(applicationId, organizationId, document, githubRepositoryId);
+        return this.previewkitConfig.validate(applicationId, organizationId, document);
     }
 
     async listDockerfiles(applicationId: string, organizationId: string, githubRepositoryId?: number) {
@@ -1132,7 +1117,7 @@ export class OnboardingManager {
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
             select: {
-                previewkitConfig: { select: { document: true, dependencyDocuments: true } },
+                previewkitConfig: { select: { document: true } },
             },
         });
         if (application == null) throw new NotFoundError("Application not found");
@@ -1141,16 +1126,12 @@ export class OnboardingManager {
             throw new ConflictError("Save a valid PreviewKit config before managing secrets");
         }
 
-        const primary = previewConfigSchema.safeParse(stored.document);
-        if (!primary.success) {
-            throw new ConflictError(`Saved PreviewKit config is invalid: ${z.prettifyError(primary.error)}`);
+        const parsed = previewConfigSchema.safeParse(stored.document);
+        if (!parsed.success) {
+            throw new ConflictError(`Saved PreviewKit config is invalid: ${z.prettifyError(parsed.error)}`);
         }
 
-        const { documents } = parseStoredDependencyDocuments(stored.dependencyDocuments);
-        const appNames = new Set([
-            ...primary.data.apps.map((app) => app.name),
-            ...documents.flatMap((dependency) => dependency.document.apps.map((app) => app.name)),
-        ]);
+        const appNames = new Set(parsed.data.apps.map((app) => app.name));
         if (!appNames.has(appName)) {
             throw new NotFoundError(`PreviewKit app '${appName}' is not defined in the saved config`);
         }

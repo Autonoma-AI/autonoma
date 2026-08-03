@@ -622,7 +622,7 @@ integrationTestSuite({
                 where: { applicationId: appId },
                 select: { document: true },
             });
-            expect(stored.document).toMatchObject({ version: 1 });
+            expect(stored.document).toMatchObject({ version: 2 });
         });
 
         test("triggerPreviewkitMainDeploy requires a saved valid config", async ({
@@ -664,7 +664,7 @@ integrationTestSuite({
             });
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
 
-            await expect(manager.savePreviewkitConfig(appId, orgId, { version: 1, apps: [] })).rejects.toThrow(
+            await expect(manager.savePreviewkitConfig(appId, orgId, { version: 2, apps: [] })).rejects.toThrow(
                 "Invalid PreviewKit config",
             );
         });
@@ -690,10 +690,10 @@ integrationTestSuite({
             });
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
             await manager.savePreviewkitConfig(appId, orgId, {
-                version: 1,
+                version: 2,
                 apps: [
-                    { name: "web", path: ".", port: 3000, primary: true },
-                    { name: "api", path: "./apps/api", port: 4000 },
+                    { name: "web", repository: "acme/app", path: ".", port: 3000, primary: true },
+                    { name: "api", repository: "acme/app", path: "./apps/api", port: 4000 },
                 ],
             });
 
@@ -1312,10 +1312,10 @@ integrationTestSuite({
                         web: "https://web-pr-9.preview.example.com",
                     },
                     resolvedConfig: {
-                        version: 1,
+                        version: 2,
                         apps: [
-                            { name: "api", path: "apps/api", port: 4000 },
-                            { name: "web", path: "apps/web", port: 3000, primary: true },
+                            { name: "api", repository: "acme/app", path: "apps/api", port: 4000 },
+                            { name: "web", repository: "acme/app", path: "apps/web", port: 3000, primary: true },
                         ],
                     },
                 },
@@ -1563,8 +1563,8 @@ integrationTestSuite({
                     bypassToken: "bypass-token",
                     urls: { web: "https://web-pr-8.preview.example.com" },
                     resolvedConfig: {
-                        version: 1,
-                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                        version: 2,
+                        apps: [{ name: "web", repository: "acme/app", path: "apps/web", port: 3000, primary: true }],
                     },
                 },
             });
@@ -1653,8 +1653,8 @@ integrationTestSuite({
                     deployedAt: new Date(),
                     urls: { web: "https://web-pr-21.preview.example.com" },
                     resolvedConfig: {
-                        version: 1,
-                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                        version: 2,
+                        apps: [{ name: "web", repository: "acme/app", path: "apps/web", port: 3000, primary: true }],
                     },
                 },
             });
@@ -1731,8 +1731,8 @@ integrationTestSuite({
                     deployedAt: new Date(),
                     urls: { web: "https://web-pr-22.preview.example.com" },
                     resolvedConfig: {
-                        version: 1,
-                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                        version: 2,
+                        apps: [{ name: "web", repository: "acme/app", path: "apps/web", port: 3000, primary: true }],
                     },
                 },
             });
@@ -1808,8 +1808,8 @@ integrationTestSuite({
                     deployedAt: new Date(),
                     urls: { web: "https://web-pr-24.preview.example.com" },
                     resolvedConfig: {
-                        version: 1,
-                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                        version: 2,
+                        apps: [{ name: "web", repository: "acme/app", path: "apps/web", port: 3000, primary: true }],
                     },
                 },
             });
@@ -1881,8 +1881,8 @@ integrationTestSuite({
                     deployedAt: new Date(),
                     urls: { web: "https://web-pr-25.preview.example.com" },
                     resolvedConfig: {
-                        version: 1,
-                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                        version: 2,
+                        apps: [{ name: "web", repository: "acme/app", path: "apps/web", port: 3000, primary: true }],
                     },
                 },
             });
@@ -1950,8 +1950,8 @@ integrationTestSuite({
                     status: "ready",
                     urls: { web: "https://web-pr-23.preview.example.com" },
                     resolvedConfig: {
-                        version: 1,
-                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                        version: 2,
+                        apps: [{ name: "web", repository: "acme/app", path: "apps/web", port: 3000, primary: true }],
                     },
                 },
             });
@@ -2003,8 +2003,8 @@ integrationTestSuite({
                     deployedAt: new Date(),
                     urls: { web: "https://web-pr-31.preview.example.com" },
                     resolvedConfig: {
-                        version: 1,
-                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                        version: 2,
+                        apps: [{ name: "web", repository: "acme/app", path: "apps/web", port: 3000, primary: true }],
                     },
                 },
             });
@@ -2071,8 +2071,8 @@ integrationTestSuite({
                     deployedAt: new Date(),
                     urls: { web: "https://web-pr-32.preview.example.com" },
                     resolvedConfig: {
-                        version: 1,
-                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                        version: 2,
+                        apps: [{ name: "web", repository: "acme/app", path: "apps/web", port: 3000, primary: true }],
                     },
                 },
             });
@@ -2133,8 +2133,8 @@ integrationTestSuite({
                     deployedAt,
                     urls: { web: "https://web-pr-13.preview.example.com" },
                     resolvedConfig: {
-                        version: 1,
-                        apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                        version: 2,
+                        apps: [{ name: "web", repository: "acme/app", path: "apps/web", port: 3000, primary: true }],
                     },
                 },
             });
@@ -2193,10 +2193,10 @@ integrationTestSuite({
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
 
             await manager.savePreviewkitConfig(appId, orgId, {
-                version: 1,
+                version: 2,
                 apps: [
-                    { name: "web", path: "apps/web", port: 3000 },
-                    { name: "api", path: "apps/api", port: 4000, primary: true },
+                    { name: "web", repository: "acme/app", path: "apps/web", port: 3000 },
+                    { name: "api", repository: "acme/app", path: "apps/api", port: 4000, primary: true },
                 ],
             });
 
@@ -2246,10 +2246,10 @@ integrationTestSuite({
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
 
             await manager.savePreviewkitConfig(appId, orgId, {
-                version: 1,
+                version: 2,
                 apps: [
-                    { name: "web", path: "apps/web", port: 3000 },
-                    { name: "api", path: "apps/api", port: 4000, primary: true },
+                    { name: "web", repository: "acme/app", path: "apps/web", port: 3000 },
+                    { name: "api", repository: "acme/app", path: "apps/api", port: 4000, primary: true },
                 ],
             });
 
@@ -2399,6 +2399,25 @@ async function linkRepository(harness: OnboardingTestHarness, applicationId: str
             signingSecretEnc: fakeEncryption.encrypt("shared-secret"),
         },
     });
+    // The name the fixtures' apps carry as `repository`. There is no fake GitHub
+    // service in these tests, so config saves resolve the primary repo through
+    // the PreviewkitEnvironment fallback - seed one row naming it.
+    await harness.db.previewkitEnvironment.create({
+        data: {
+            namespace: `preview-acme-app-pr-${githubRepositoryId}`,
+            repoFullName: "acme/app",
+            prNumber: githubRepositoryId,
+            headSha: "seed000",
+            headRef: "main",
+            githubRepositoryId,
+            organizationId: (
+                await harness.db.application.findUniqueOrThrow({
+                    where: { id: applicationId },
+                    select: { organizationId: true },
+                })
+            ).organizationId,
+        },
+    });
 }
 
 /**
@@ -2441,14 +2460,14 @@ function deploymentSignalSignature(bodyText: string, signingSecret: string): str
 
 function validPreviewkitConfig() {
     return {
-        version: 1,
+        version: 2,
         apps: [
             {
                 name: "web",
+                repository: "acme/app",
                 path: ".",
                 port: 3000,
                 primary: true,
-                env: { AUTONOMA_ENABLED: "true" },
                 health_check: "/",
             },
         ],

@@ -35,7 +35,11 @@ export type PreviewBuildOutcome =
     | { status: "failed"; durationMs: number; error: string; runtime?: string };
 
 export interface BuildPreviewImagesOutput {
-    /** `JSON.stringify` of the merged `PreviewConfig`; parsed at the boundary. */
+    /**
+     * `JSON.stringify` of the effective `PreviewConfig`; parsed at the boundary.
+     * Carries the FULL topology, `skippedApps` included, so infra (Gatekeeper
+     * routes) and the deploy-wave graph always see every app.
+     */
     mergedConfigJson: string;
     /** app name -> pushed ECR image tag (only successfully built apps). */
     imageTags: Record<string, string>;
@@ -43,8 +47,13 @@ export interface BuildPreviewImagesOutput {
     buildOutcomes: Record<string, PreviewBuildOutcome>;
     /** Dependency fallback notices for the PR comment. */
     warnings: string[];
-    /** Names of apps from the primary repo, used to resolve the primary url. */
-    primaryAppNames: string[];
+    /**
+     * app name -> reason for apps whose repository had no resolvable branch this
+     * round. They stay in the config (routes, deploy waves) but are never built
+     * or deployed, their hooks are skipped, and the readiness rollup counts them
+     * as not ready.
+     */
+    skippedApps?: Record<string, string>;
 }
 
 export interface DeployPreviewEnvironmentInput {
@@ -55,7 +64,8 @@ export interface DeployPreviewEnvironmentInput {
     imageTags: Record<string, string>;
     buildOutcomes: Record<string, PreviewBuildOutcome>;
     warnings: string[];
-    primaryAppNames: string[];
+    /** See {@link BuildPreviewImagesOutput.skippedApps}. */
+    skippedApps?: Record<string, string>;
     /**
      * Scope the deploy to a single app (per-app redeploy). Infra still applies
      * with the full config (so sibling Gatekeeper routes + external secrets are

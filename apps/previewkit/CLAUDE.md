@@ -94,9 +94,8 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
   still carries (`node`/`next`/`vite`/`bun`).
 - `config/` - preview config: `schema.ts` (`previewConfigSchema`), `resolver.ts` (shared upgrade +
   validate), `load-config.ts` (`loadConfig` reads the Application's single `PreviewkitConfig` row -
-  latest-only, no revision history), `dependency-config.ts` (`resolveDependencyConfig` - multirepo
-  dependency configs come from the primary config's `dependencyDocuments`, not separate
-  Applications), `index.ts` (`createPreviewkitDefaults`).
+  latest-only, no revision history; the one document is the whole topology, every app tagged with
+  its `repository` full name), `index.ts` (`createPreviewkitDefaults`).
   The pipeline deploys from that DB config only; an Application with no config row is skipped, and
   every deploy/redeploy resolves the current document (there is no pinning to an older config).
 - `deployer/` - turns config into K8s objects: `deployer.ts`, `resource-factory.ts`
@@ -105,8 +104,13 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 - `db/index.ts` - all DB writes (`record*` functions) + the in-memory `AppBuildOutcome` type.
 - `recipes/` - infra service recipes (postgres, redis, valkey, mongodb, upstash, api-gateway, docker-image, aws, temporal).
 - `git-provider/` - GitHub provider + the `PullRequestEvent` shape (input to `deploy`).
-- `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, secret reads. Two
-  independent read paths:
+- `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, secret reads.
+  Multirepo: the dependency repo set is derived from `apps[].repository` (every value that is not the
+  event's repo); `resolve-target-branch.ts` + `resolve-dependency-checkout.ts` pick each repo's
+  branch/commit (convention, else its `repositories[]` `fallback_branch`), and
+  `enrich-repository-shas.ts` stamps the deployed `sha` per repo onto `resolvedConfig`. A repo with
+  no resolvable branch skips its apps (recorded `skipped`) instead of failing the deploy. Two
+  independent secret read paths:
     - **Build-time values** go through `secrets/build-secret-source.ts` (`build_secrets:`
       build args). Postgres only - there is no AWS fallback here, so a
       registered bundle Postgres cannot serve fails the deploy rather than building against nothing.
@@ -264,7 +268,7 @@ app lines in a recent window.
 
 - `PreviewkitEnvironment` - one per (repo, PR). Holds `status` (enum `PreviewkitStatus`:
   pending/building/deploying/ready/failed/superseded/torn_down), `phase`, `urls` (JSON appName->URL
-  map), `resolvedConfig` (the merged config for the latest deploy; summary/readiness views project it for display - no separate manifest column; each `config.multirepo.repos` entry is enriched with the concrete `sha` the dependency was deployed at - the per-dependency deploy provenance multi-repo grounding reads back),
+  map), `resolvedConfig` (the effective config for the latest deploy; summary/readiness views project it for display - no separate manifest column; each dependency repo's `repositories[]` entry is enriched with the concrete `sha` it was deployed at - the per-dependency deploy provenance multi-repo grounding reads back),
   `bypassToken`, `namespace`, `commentId`. Relations: `appInstances`, `builds`, and `branch`
   (nullable `@unique` FK to the autonoma `Branch` the environment deploys; `onDelete: SetNull`). PR
   environments link to the feature branch, which the API creates eagerly when a `pull_request` webhook reaches
@@ -289,7 +293,10 @@ app lines in a recent window.
 - `PreviewkitConfig` - the Application's DB-stored preview config (latest-only; one row per
   Application, overwritten in place on save). This is what the deploy pipeline reads. There is no
   revision history: saving overwrites the row, and every deploy/redeploy resolves the current
-  document.
+  document. The `document` (v2) carries the whole topology - every app names its `repository`
+  (`owner/repo` full name), multirepo dependency apps included. The `dependency_documents` column is
+  the retired v1 sidecar: folded into `document` by `migrate-preview-config-v2`, unread, dropped in
+  a follow-up PR.
 - `PreviewkitSecret` - one row per secret: an env-var name and its sealed
   value, keyed `(applicationId, appName, key)`. There is NO bundle
   row - a "bundle" is just the set of rows sharing a scope. So a bundle exists exactly as long as it
@@ -404,8 +411,9 @@ The runner drains the sink's buffer before it exits.
       `--key-id <id>` to choose the id.
 - `pnpm --filter @autonoma/previewkit test:integration` - Testcontainers (real Postgres). Needs Docker running.
     - Integration tests import `src/env.ts`, which (even under `TESTING=true`, which only skips the
-      logger env) still requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY` (base64-encoded PEM),
-      and `PREVIEW_URL_SECRET`. Set throwaway values to run them locally.
+      logger env) still requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY` (base64-encoded PEM - the
+      value must decode to a real PEM, so mint a throwaway with
+      `openssl genrsa 2048 | base64`), and `PREVIEW_URL_SECRET`.
 - DB schema changes: edit `packages/db/prisma/schema.prisma` -> `pnpm db:migrate` -> `pnpm db:generate`.
   Prisma's generated migration for an enum-value rename is destructive; prefer `ALTER TYPE ... RENAME VALUE`.
 - `scripts/apply-standard-resources.sh [--apply] [--namespace NS]` - retrofit running preview namespaces to the

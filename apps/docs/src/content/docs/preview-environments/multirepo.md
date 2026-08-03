@@ -15,12 +15,13 @@ The frontend rarely stands alone - it calls an API, background workers, a databa
 
 ## Connected repositories
 
-When an app your frontend needs lives in a different repository, you add that repository as a **connected repository**. You do it while adding an app: pick which repository the app comes from, or connect a new one through the Autonoma GitHub App. Each connected repository carries two settings:
+When an app your frontend needs lives in a different repository, you add that repository as a **connected repository**. You do it while adding an app: pick which repository the app comes from, or connect a new one through the Autonoma GitHub App. Every app records the repository it builds from, so the set of repositories in a preview is simply the set its apps name.
 
-- **Alias** - a short, lowercase name (e.g. `api`) that identifies the repository in your config and in generated resource names. It has to be unique across your repositories.
+Each connected repository carries one setting:
+
 - **Fallback branch** - the branch to deploy when branch matching finds no match (see below). Defaults to `main`.
 
-Every app from the same connected repository shares these two settings.
+Every app from the same connected repository shares it.
 
 ## Which branch gets deployed
 

@@ -14,19 +14,18 @@ async function createApplication(harness: PreviewkitTestHarness, slug = "web"): 
 
 // Seeds an application's config row, standing in for the authoring API in
 // apps/api (previewkit itself only reads configs, never writes them).
-async function seedConfig(
-    harness: PreviewkitTestHarness,
-    applicationId: string,
-    document: object,
-    dependencyDocuments?: object[],
-): Promise<void> {
+async function seedConfig(harness: PreviewkitTestHarness, applicationId: string, document: object): Promise<void> {
     await harness.db.previewkitConfig.create({
-        data: { applicationId, document, dependencyDocuments },
+        data: { applicationId, document },
     });
 }
 
 const baseConfig = resolveConfig({
-    document: { version: 1, domain: "base.example.com", apps: [{ name: "web", port: 3000 }] },
+    document: {
+        version: 2,
+        domain: "base.example.com",
+        apps: [{ name: "web", repository: "acme/web", port: 3000 }],
+    },
 });
 
 integrationTestSuite({
@@ -48,9 +47,9 @@ integrationTestSuite({
             const loaded = await loadConfig(applicationId);
 
             expect(loaded).toBeDefined();
-            expect(loaded!.config.apps[0]!.name).toBe("web");
-            expect(loaded!.config.domain).toBe("base.example.com");
-            expect(loaded!.dependencyConfigs).toEqual([]);
+            expect(loaded!.apps[0]!.name).toBe("web");
+            expect(loaded!.apps[0]!.repository).toBe("acme/web");
+            expect(loaded!.domain).toBe("base.example.com");
         });
 
         test("loadConfig honors per-app/service resource overrides from a stored config", async ({ harness }) => {
@@ -59,34 +58,41 @@ integrationTestSuite({
             // `resources` overrides are honored - unlike untrusted client input,
             // which is ignored.
             await seedConfig(harness, applicationId, {
-                version: 1,
-                apps: [{ name: "web", port: 3000, resources: { cpu: "2", memory: "4Gi" } }],
+                version: 2,
+                apps: [{ name: "web", repository: "acme/web", port: 3000, resources: { cpu: "2", memory: "4Gi" } }],
                 services: [{ name: "db", recipe: "postgres", resources: { cpu: "1", memory: "2Gi" } }],
             });
 
             const loaded = await loadConfig(applicationId);
 
-            expect(loaded!.config.apps[0]!.resources).toEqual({ cpu: "2", memoryRequest: "4Gi", memoryLimit: "4Gi" });
-            expect(loaded!.config.services[0]!.resources).toEqual({
+            expect(loaded!.apps[0]!.resources).toEqual({ cpu: "2", memoryRequest: "4Gi", memoryLimit: "4Gi" });
+            expect(loaded!.services[0]!.resources).toEqual({
                 cpu: "1",
                 memoryRequest: "2Gi",
                 memoryLimit: "2Gi",
             });
         });
 
-        test("loadConfig resolves dependency configs stored on the primary config", async ({ harness }) => {
+        test("loadConfig round-trips a document whose apps span multiple repositories", async ({ harness }) => {
             const applicationId = await createApplication(harness);
-            const dependencyDocument = {
-                version: 1,
-                apps: [{ name: "api", port: 4000 }],
-            };
-            await seedConfig(harness, applicationId, baseConfig, [{ repo: "acme/api", document: dependencyDocument }]);
+            // The single document is the whole topology: the dependency repo's
+            // app lives in the same apps[] list, distinguished by `repository`,
+            // with per-repo overrides in `repositories`.
+            await seedConfig(harness, applicationId, {
+                version: 2,
+                apps: [
+                    { name: "web", repository: "acme/web", port: 3000 },
+                    { name: "api", repository: "acme/api", port: 4000 },
+                ],
+                repositories: [{ repo: "acme/api", fallback_branch: "develop" }],
+                branch_convention: { type: "same_branch_name" },
+            });
 
             const loaded = await loadConfig(applicationId);
 
-            expect(loaded!.dependencyConfigs).toHaveLength(1);
-            expect(loaded!.dependencyConfigs[0]!.repo).toBe("acme/api");
-            expect(loaded!.dependencyConfigs[0]!.config.apps[0]!.name).toBe("api");
+            expect(loaded!.apps.map((app) => app.repository)).toEqual(["acme/web", "acme/api"]);
+            expect(loaded!.repositories).toEqual([{ repo: "acme/api", fallback_branch: "develop" }]);
+            expect(loaded!.branch_convention).toEqual({ type: "same_branch_name" });
         });
     },
 });

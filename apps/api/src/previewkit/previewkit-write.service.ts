@@ -165,11 +165,8 @@ export class PreviewkitWriteService {
             ...current.document,
             apps: current.document.apps.map((app) => (app.name === appName ? patchedApp : app)),
         };
-        const dependencyDocuments = current.dependencyConfigs
-            .filter((dependency) => dependency.document != null)
-            .map((dependency) => ({ repo: dependency.repo, document: dependency.document }));
 
-        await this.config.save(applicationId, organizationId, nextDocument, dependencyDocuments);
+        await this.config.save(applicationId, organizationId, nextDocument);
 
         if (!apply) {
             this.logger.info("Preview config saved without applying", { applicationId, extra: { appName } });
@@ -197,10 +194,10 @@ export class PreviewkitWriteService {
     /**
      * Saves a FULL preview config document - the path for structural changes a
      * single-app patch can't express: adding or removing an app, or a service (a
-     * database, cache, or side-container). Dependency (multirepo)
-     * documents are preserved. Unless `apply` is false, redeploys the whole
-     * environment against the new document, since a topology change touches more
-     * than one service (so it rebuilds the environment, not a single app).
+     * database, cache, or side-container). The document is the whole topology,
+     * multirepo dependency apps included. Unless `apply` is false, redeploys the
+     * whole environment against the new document, since a topology change touches
+     * more than one service (so it rebuilds the environment, not a single app).
      */
     async applyConfig(params: {
         applicationId: string;
@@ -216,12 +213,7 @@ export class PreviewkitWriteService {
             extra: { apps: document.apps.length, services: document.services.length, apply },
         });
 
-        const current = await this.config.getConfig(applicationId, organizationId);
-        const dependencyDocuments = current.dependencyConfigs
-            .filter((dependency) => dependency.document != null)
-            .map((dependency) => ({ repo: dependency.repo, document: dependency.document }));
-
-        await this.config.save(applicationId, organizationId, document, dependencyDocuments);
+        await this.config.save(applicationId, organizationId, document);
 
         const apps = document.apps.map((app) => app.name);
         const services = document.services.map((service) => service.name);

@@ -17,10 +17,11 @@ import { draftFromConfig } from "../routes/_blacklight/onboarding/-components/pr
 // A dockerfile-built app with a Postgres database - the manual "review + deploy"
 // step's topology. Parsed through the real schema so the draft matches production.
 const dockerfileConfig = previewConfigSchema.parse({
-  version: 1,
+  version: 2,
   apps: [
     {
       name: "web",
+      repository: "acme/storefront",
       path: ".",
       port: 3000,
       primary: true,
@@ -31,7 +32,7 @@ const dockerfileConfig = previewConfigSchema.parse({
   services: [{ name: "db", recipe: "postgres", version: "16" }],
 });
 
-const reviewDraft = draftFromConfig(dockerfileConfig, [], "saved");
+const reviewDraft = draftFromConfig(dockerfileConfig, [{ repo: "acme/storefront", primary: true }], "saved");
 
 function branchFixtures(currentBranch: string): TrpcFixtures {
   return {

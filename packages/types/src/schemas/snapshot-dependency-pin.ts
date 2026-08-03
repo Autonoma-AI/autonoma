@@ -2,11 +2,12 @@ import { z } from "zod";
 
 /**
  * The per-snapshot pinned dependency-SHA map: previewkit multirepo dependency
- * name -> the concrete commit SHA that dependency was deployed at when the
- * snapshot's grounding first ran. Pinned once (headSha-exact) and read by every
- * agent in the snapshot, so a later redeploy can not change what an in-flight
- * snapshot grounds against. The same dependency's pinned SHA on the previous
- * snapshot is the diff base for that dependency's checkout slice.
+ * repo full name (`owner/repo`; pre-v2 rows used the retired repo alias) -> the
+ * concrete commit SHA that dependency was deployed at when the snapshot's
+ * grounding first ran. Pinned once (headSha-exact) and read by every agent in
+ * the snapshot, so a later redeploy can not change what an in-flight snapshot
+ * grounds against. The same dependency's pinned SHA on the previous snapshot is
+ * the diff base for that dependency's checkout slice.
  */
 export const snapshotDependencyShaMapSchema = z.record(z.string(), z.string());
 

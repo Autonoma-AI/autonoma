@@ -31,7 +31,7 @@ export function AppView({ app }: { app: AppDraft }) {
     usePreviewDraft();
   // A dependency-repo app scopes the file tree to that repo; a primary-repo app
   // has no RepoDraft, so the tree resolves to the Application's primary repo.
-  const githubRepositoryId = draft.repos.find((repo) => repo.name === app.repoKey)?.githubRepositoryId;
+  const githubRepositoryId = draft.repos.find((repo) => repo.repo === app.repository)?.githubRepositoryId;
   // Variables is the hero tab of the redesign; the wiring lives one tab over.
   const [tab, setTab] = useState<AppTab>("variables");
 
@@ -61,14 +61,14 @@ export function AppView({ app }: { app: AppDraft }) {
               Repository
             </p>
             <Select<string>
-              value={app.repoKey}
-              onValueChange={(repoKey) => {
-                if (repoKey != null) updateApp(app.id, { repoKey });
+              value={app.repository}
+              onValueChange={(repository) => {
+                if (repository != null) updateApp(app.id, { repository });
               }}
             >
               <SelectTrigger aria-label="App repository">
                 <span className="truncate">
-                  {repoGroups.find((group) => group.key === app.repoKey)?.label ?? app.repoKey}
+                  {repoGroups.find((group) => group.key === app.repository)?.label ?? app.repository}
                 </span>
               </SelectTrigger>
               <SelectContent>

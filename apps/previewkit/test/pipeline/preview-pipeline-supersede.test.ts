@@ -83,8 +83,8 @@ describe("PreviewPipeline deploy supersede handling", () => {
                     namespace,
                     commentId: "100",
                     mergedConfigJson: JSON.stringify({
-                        version: 1,
-                        apps: [{ name: "web", port: 3000 }],
+                        version: 2,
+                        apps: [{ name: "web", repository: "acme/web", port: 3000 }],
                         services: [],
                         hooks: { pre_deploy: [], post_deploy: [] },
                     }),
@@ -97,7 +97,6 @@ describe("PreviewPipeline deploy supersede handling", () => {
                         },
                     },
                     warnings: [],
-                    primaryAppNames: ["web"],
                 },
                 controller.signal,
             ),

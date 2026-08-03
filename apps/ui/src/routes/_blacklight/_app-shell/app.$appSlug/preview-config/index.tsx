@@ -6,7 +6,7 @@ import { ConnectAgentDialog, DEBUG_MCP_DOCS_URL, DEBUG_MCP_SERVER_NAME } from "c
 import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { Suspense, useState } from "react";
 import { AddAppDialog } from "../../../onboarding/-components/previewkit/add-app-dialog";
-import { PRIMARY_REPO_KEY, type TopologyDraft } from "../../../onboarding/-components/previewkit/topology-draft";
+import { type TopologyDraft } from "../../../onboarding/-components/previewkit/topology-draft";
 import { AppView } from "./-app-view";
 import { usePreviewDraft } from "./-draft-context";
 import { PreviewRail, type RailSelection } from "./-rail";
@@ -54,7 +54,7 @@ function PreviewConfigPage() {
             onOpenChange={setAddAppOpen}
             primaryRepoFullName={primaryRepoFullName}
             repos={draft.repos}
-            onAddToExistingRepo={(alias) => setSelection({ kind: "app", id: addApp(alias) })}
+            onAddToExistingRepo={(repository) => setSelection({ kind: "app", id: addApp(repository) })}
             onAddToNewRepo={(repo) => setSelection({ kind: "app", id: addAppFromNewRepo(repo) })}
           />
         </Suspense>
@@ -138,7 +138,7 @@ function SelectionPane({
   selection?: RailSelection;
   onSelect: (selection: RailSelection) => void;
 }) {
-  const { draft, addApp } = usePreviewDraft();
+  const { draft, addApp, primaryRepoFullName } = usePreviewDraft();
 
   if (selection == null) {
     return (
@@ -152,7 +152,7 @@ function SelectionPane({
           variant="cta"
           size="sm"
           className="gap-1"
-          onClick={() => onSelect({ kind: "app", id: addApp(PRIMARY_REPO_KEY) })}
+          onClick={() => onSelect({ kind: "app", id: addApp(primaryRepoFullName) })}
         >
           <PlusIcon size={12} weight="bold" />
           New app

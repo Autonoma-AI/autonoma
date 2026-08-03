@@ -33,7 +33,6 @@ const buildOutput: BuildPreviewImagesOutput = {
     imageTags: { app: "registry/app:tag" },
     buildOutcomes: {},
     warnings: [],
-    primaryAppNames: ["app"],
 };
 
 const deployOutput: DeployPreviewEnvironmentOutput = {

@@ -18,14 +18,8 @@ import type {
 } from "@autonoma/types";
 import { BuildAbortedError, BuildError, type Builder } from "../builder/builder";
 import { buildPreviewCacheReference, buildPreviewImageReference } from "../builder/image-reference";
-import { resolveDependencyConfig } from "../config/dependency-config";
 import { loadConfig } from "../config/load-config";
-import {
-    type BranchConvention,
-    type PreviewConfig,
-    type RepoDependency,
-    trustedPreviewConfigSchema,
-} from "../config/schema";
+import { isSameRepository, type AppConfig, type PreviewConfig, trustedPreviewConfigSchema } from "../config/schema";
 import {
     type AppBuildOutcome,
     type AppStateUpdate,
@@ -50,7 +44,8 @@ import { env } from "../env";
 import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
-import { enrichDependencyShas } from "../multirepo/enrich-dependency-shas";
+import { enrichRepositoryShas } from "../multirepo/enrich-repository-shas";
+import { resolveDependencyCheckout } from "../multirepo/resolve-dependency-checkout";
 import { resolveTargetBranch } from "../multirepo/resolve-target-branch";
 import type { BuildSecretSource } from "../secrets/build-secret-source";
 import { computeFinalOutcomes, toBuildStates, toFinalAppStates } from "./outcomes";
@@ -85,12 +80,22 @@ interface AppBuildContext {
     signal?: AbortSignal;
 }
 
+/**
+ * How one multirepo dependency repo will be checked out: the branch the
+ * convention resolved to and the repo's configured fallback. Derived per
+ * distinct non-primary `apps[].repository` value before any cloning starts.
+ */
+interface DependencyClonePlan {
+    /** Repo full name (`owner/repo`), as written on the apps. */
+    repo: string;
+    targetBranch: string;
+    fallbackBranch: string;
+}
+
 interface DependencyEntry {
-    dep: RepoDependency;
-    config: PreviewConfig;
+    plan: DependencyClonePlan;
     tmpDir: string;
     usedFallback: boolean;
-    targetBranch: string;
     /** The concrete commit SHA this dependency was deployed at. */
     sha: string;
 }
@@ -359,11 +364,10 @@ export class PreviewPipeline {
             pr: prNumber,
             applicationId: application.id,
         });
-        const resolved = await loadConfig(application.id);
-        if (resolved == null) {
+        const storedConfig = await loadConfig(application.id);
+        if (storedConfig == null) {
             throw new Error(`No preview config for ${repoFullName} at ${shortSha}`);
         }
-        const primaryConfig = resolved.config;
         logger.info("Build step 2/6 resolved preview config", {
             repo: repoFullName,
             pr: prNumber,
@@ -377,62 +381,86 @@ export class PreviewPipeline {
             // Skip env-level phase writes when scoped: a per-app rebuild must not
             // flip a live environment's status to pending/building.
             if (!isScoped) await this.statusWriter.updatePhase(repoFullName, prNumber, "pending", "cloning");
-            const deps = primaryConfig.config?.multirepo?.repos ?? [];
+            const clonePlans = this.planDependencyClones(storedConfig, repoFullName, event.headRef);
             logger.info("Build step 3/6 cloning primary + dependency repos", {
                 repo: repoFullName,
                 pr: prNumber,
                 sha: shortSha,
-                dependencyCount: deps.length,
+                dependencyCount: clonePlans.length,
             });
             primaryDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-`));
-            const convention = primaryConfig.config?.multirepo?.branch_convention;
-            const dependencyConfigByRepo = new Map(
-                resolved.dependencyConfigs.map((entry) => [entry.repo, entry.config]),
-            );
             const [dependencyResults] = await Promise.all([
-                Promise.all(
-                    deps.map((dep) =>
-                        this.cloneDependency(
-                            dep,
-                            prNumber,
-                            event.headRef,
-                            convention,
-                            dependencyConfigByRepo.get(dep.repo),
-                        ),
-                    ),
-                ),
+                Promise.all(clonePlans.map((plan) => this.cloneDependency(plan, prNumber))),
                 this.provider.fetchRepoTarball(repoFullName, headSha, primaryDir),
             ]);
             dependencyEntries = dependencyResults.filter((e): e is DependencyEntry => e != null);
+            const clonedRepos = new Set(dependencyEntries.map((entry) => entry.plan.repo.toLowerCase()));
+            const skippedPlans = clonePlans.filter((plan) => !clonedRepos.has(plan.repo.toLowerCase()));
             logger.info("Build step 3/6 cloned primary + dependency repos", {
                 repo: repoFullName,
                 pr: prNumber,
                 clonedDependencies: dependencyEntries.length,
-                skippedDependencies: deps.length - dependencyEntries.length,
+                skippedDependencies: skippedPlans.length,
             });
 
-            logger.info("Build step 4/6 merging config + snapshotting + seeding app rows", {
+            logger.info("Build step 4/6 enriching config + snapshotting + seeding app rows", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
             });
-            const mergedConfig = this.mergeConfigs(primaryConfig, dependencyEntries);
-            if (isScoped && !mergedConfig.apps.some((a) => a.name === appName)) {
-                throw new Error(`App "${appName}" not found in resolved config for ${repoFullName} PR ${prNumber}`);
+            // The full topology with per-dependency deploy provenance stamped
+            // onto `repositories[]`. This stays CANONICAL end-to-end - skipped
+            // apps included - so Gatekeeper routes and the deploy-wave graph
+            // always see every app (a filtered config would drop a running
+            // sibling's route on a scoped rebuild, and a surviving app's
+            // depends_on edge to a skipped app would read as a dangling edge).
+            const mergedConfig = enrichRepositoryShas(
+                storedConfig,
+                new Map(dependencyEntries.map((entry) => [entry.plan.repo, entry.sha])),
+            );
+            // Apps whose repository has no resolvable branch cannot build or
+            // deploy this round: they are recorded `skipped`, excluded from the
+            // build set, and - having no image - the deployer skips them too.
+            // Their hooks are skipped in deployEnvironment, and the readiness
+            // rollup counts them as not ready.
+            const skippedRepos = new Set(skippedPlans.map((plan) => plan.repo.toLowerCase()));
+            const skipReasonByRepo = new Map(
+                skippedPlans.map((plan) => [
+                    plan.repo.toLowerCase(),
+                    `Repository ${plan.repo} has neither branch "${plan.targetBranch}" nor fallback branch ` +
+                        `"${plan.fallbackBranch}" - apps from it were skipped`,
+                ]),
+            );
+            const skippedApps = mergedConfig.apps.filter((app) => skippedRepos.has(app.repository.toLowerCase()));
+            const skippedAppReasons: Record<string, string> = {};
+            for (const app of skippedApps) {
+                skippedAppReasons[app.name] =
+                    skipReasonByRepo.get(app.repository.toLowerCase()) ?? "Repository branch could not be resolved";
             }
-            // The apps to build: just the target when scoped, otherwise every app.
-            const buildApps = isScoped ? mergedConfig.apps.filter((a) => a.name === appName) : mergedConfig.apps;
-            // Snapshot the effective (merged) config. The summary + readiness views
-            // project it for display and failure diagnostics. Overwritten on each
-            // deploy once resolved.
+            if (isScoped) {
+                const skipReason = skippedAppReasons[appName];
+                if (skipReason != null) throw new Error(skipReason);
+                if (!mergedConfig.apps.some((a) => a.name === appName)) {
+                    throw new Error(`App "${appName}" not found in resolved config for ${repoFullName} PR ${prNumber}`);
+                }
+            }
+            // The apps to build: just the target when scoped, otherwise every
+            // non-skipped app.
+            const buildApps = isScoped
+                ? mergedConfig.apps.filter((a) => a.name === appName)
+                : mergedConfig.apps.filter((a) => skippedAppReasons[a.name] == null);
+            // Snapshot the effective config - the full topology, skipped apps
+            // included (their rows say why). The summary + readiness views
+            // project it for display and failure diagnostics. Overwritten on
+            // each deploy once resolved.
             await recordSafe(() => recordResolvedConfig({ namespace, resolvedConfig: mergedConfig }));
 
-            // Moment 0: now that the merged config names every app, seed a
-            // `pending` lifecycle row per app so each has a distinct status
-            // record from the start (and stale rows from a prior commit are
-            // pruned/reset). Skipped when scoped - `recordAppsPending` prunes
-            // rows for apps not in the list, which would wipe every sibling; a
-            // per-app rebuild touches only the target's row (below).
+            // Moment 0: now that the config names every app, seed a `pending`
+            // lifecycle row per app so each has a distinct status record from
+            // the start (and stale rows from a prior commit are pruned/reset).
+            // Skipped when scoped - `recordAppsPending` prunes rows for apps not
+            // in the list, which would wipe every sibling; a per-app rebuild
+            // touches only the target's row (below).
             if (!isScoped) {
                 await recordSafe(() =>
                     recordAppsPending(
@@ -440,23 +468,38 @@ export class PreviewPipeline {
                         mergedConfig.apps.map((a) => ({ appName: a.name, port: a.port })),
                     ),
                 );
+                if (skippedApps.length > 0) {
+                    await recordSafe(() =>
+                        recordAppStates(
+                            namespace,
+                            skippedApps.map((a) => ({
+                                appName: a.name,
+                                status: "skipped",
+                                port: a.port,
+                                error: skippedAppReasons[a.name],
+                            })),
+                        ),
+                    );
+                }
             }
-            logger.info("Build step 4/6 merged config + snapshotted + seeded app rows", {
+            logger.info("Build step 4/6 enriched config + snapshotted + seeded app rows", {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
                 apps: mergedConfig.apps.map((a) => a.name),
+                skippedApps: skippedApps.map((a) => a.name),
                 services: mergedConfig.services.map((s) => s.name),
             });
 
-            const appRepoDirs = new Map<string, string>();
-            for (const app of primaryConfig.apps) {
-                appRepoDirs.set(app.name, primaryDir);
-            }
+            const dirByRepo = new Map<string, string>();
+            dirByRepo.set(repoFullName.toLowerCase(), primaryDir);
             for (const entry of dependencyEntries) {
-                for (const app of entry.config.apps) {
-                    appRepoDirs.set(app.name, entry.tmpDir);
-                }
+                dirByRepo.set(entry.plan.repo.toLowerCase(), entry.tmpDir);
+            }
+            const appRepoDirs = new Map<string, string>();
+            for (const app of mergedConfig.apps) {
+                const dir = dirByRepo.get(app.repository.toLowerCase());
+                if (dir != null) appRepoDirs.set(app.name, dir);
             }
 
             if (!isScoped) await this.statusWriter.updatePhase(repoFullName, prNumber, "building", "building-images");
@@ -494,6 +537,7 @@ export class PreviewPipeline {
             });
             const appBuilds = await this.buildAllApps(
                 mergedConfig,
+                buildApps,
                 appRepoDirs,
                 repoFullName,
                 prNumber,
@@ -501,7 +545,6 @@ export class PreviewPipeline {
                 secretApps,
                 application.id,
                 signal,
-                isScoped ? appName : undefined,
             );
             const buildDurationMs = Date.now() - buildStart;
 
@@ -573,19 +616,27 @@ export class PreviewPipeline {
                 builtImages: Object.keys(imageTags),
             });
 
-            const warnings = dependencyEntries
-                .filter((e) => e.usedFallback)
-                .map(
-                    (entry) =>
-                        `${entry.dep.repo} branch ${entry.targetBranch} not found; used ${entry.dep.fallback_branch} instead.`,
-                );
+            const warnings = [
+                ...dependencyEntries
+                    .filter((e) => e.usedFallback)
+                    .map(
+                        (entry) =>
+                            `${entry.plan.repo} branch ${entry.plan.targetBranch} not found; ` +
+                            `used ${entry.plan.fallbackBranch} instead.`,
+                    ),
+                ...skippedPlans.map(
+                    (plan) =>
+                        `${plan.repo} has neither branch ${plan.targetBranch} nor fallback ` +
+                        `${plan.fallbackBranch}; its apps were skipped.`,
+                ),
+            ];
 
             return {
                 mergedConfigJson: JSON.stringify(mergedConfig),
                 imageTags,
                 buildOutcomes: appBuilds,
                 warnings,
-                primaryAppNames: primaryConfig.apps.map((a) => a.name),
+                skippedApps: skippedAppReasons,
             };
         } finally {
             const dirsToClean = [primaryDir, ...dependencyEntries.map((e) => e.tmpDir)].filter((d) => d != null);
@@ -619,7 +670,8 @@ export class PreviewPipeline {
         if (input.appName != null && input.appName !== "") {
             return this.deployScopedApp(input, input.appName, signal);
         }
-        const { event, commentId, imageTags, buildOutcomes, warnings, primaryAppNames } = input;
+        const { event, commentId, imageTags, buildOutcomes, warnings } = input;
+        const skippedApps = input.skippedApps ?? {};
         const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
         // Re-hydrate the merged config across the Temporal activity boundary. The
         // config's resource policy was already applied upstream (the stored
@@ -671,7 +723,26 @@ export class PreviewPipeline {
             namespace: infraResult.namespace,
             hooks: mergedConfig.hooks.pre_deploy.length,
         });
-        await this.runPreDeployHooks(mergedConfig, infraResult.namespace, repoFullName, prNumber, imageTags);
+        // A hook targeting a skipped app has no image to run from, so it is
+        // skipped with its app rather than aborting the deploy - the app's
+        // skipped row already names the reason.
+        const skippedHooks = mergedConfig.hooks.pre_deploy.filter((hook) => skippedApps[hook.app] != null);
+        if (skippedHooks.length > 0) {
+            logger.info("Skipping pre-deploy hooks targeting skipped apps", {
+                repo: repoFullName,
+                pr: prNumber,
+                namespace: infraResult.namespace,
+                extra: { hooks: skippedHooks.map((hook) => hook.app) },
+            });
+        }
+        const runnableHooksConfig: PreviewConfig = {
+            ...mergedConfig,
+            hooks: {
+                ...mergedConfig.hooks,
+                pre_deploy: mergedConfig.hooks.pre_deploy.filter((hook) => skippedApps[hook.app] == null),
+            },
+        };
+        await this.runPreDeployHooks(runnableHooksConfig, infraResult.namespace, repoFullName, prNumber, imageTags);
         logger.info("Deploy step 2/7 finished pre-deploy hooks", {
             repo: repoFullName,
             pr: prNumber,
@@ -779,7 +850,7 @@ export class PreviewPipeline {
             pr: prNumber,
             namespace: result.namespace,
         });
-        const finalOutcomes = computeFinalOutcomes(mergedConfig, buildOutcomes, result.appOutcomes);
+        const finalOutcomes = computeFinalOutcomes(mergedConfig, buildOutcomes, result.appOutcomes, skippedApps);
         const readyAppNames = new Set(finalOutcomes.filter((o) => o.status === "ok").map((o) => o.name));
         const readyCount = readyAppNames.size;
         const totalCount = finalOutcomes.length;
@@ -790,7 +861,7 @@ export class PreviewPipeline {
         await recordSafe(() =>
             recordAppStates(
                 result.namespace,
-                toFinalAppStates(mergedConfig, buildOutcomes, result.appOutcomes, imageTags),
+                toFinalAppStates(mergedConfig, buildOutcomes, result.appOutcomes, imageTags, skippedApps),
             ),
         );
         logger.info("Deploy step 6/7 recorded per-app states", {
@@ -840,7 +911,7 @@ export class PreviewPipeline {
             return svc;
         });
 
-        const primaryApps = mergedConfig.apps.filter((a) => primaryAppNames.includes(a.name));
+        const primaryApps = mergedConfig.apps.filter((a) => isSameRepository(a.repository, repoFullName));
         const previewUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
         const primaryUrl = resolvePrimaryUrl(primaryApps, result.urls);
         // Scoped to the whole topology, unlike the primary URL: the app serving the
@@ -1303,59 +1374,64 @@ export class PreviewPipeline {
         logger.info("Preview deployment failure finalizer complete", { repo: repoFullName, pr: prNumber, namespace });
     }
 
-    // Resolves the target branch, resolves the dependency's config (owned by
-    // the primary config's dependencyDocuments, passed in), and clones the repo
-    // into a temp dir. Returns null when the dependency has no config (opt-out).
-    private async cloneDependency(
-        dep: RepoDependency,
-        prNumber: number,
-        headRef: string,
-        convention: BranchConvention | undefined,
-        dependencyConfig: PreviewConfig | undefined,
-    ): Promise<DependencyEntry | null> {
-        const targetBranch = resolveTargetBranch(headRef, convention, dep.fallback_branch);
+    /**
+     * One clone plan per distinct non-primary `apps[].repository` value: the
+     * branch the convention resolves to for this PR, and the repo's fallback
+     * from its `repositories[]` settings entry (default `main`). The repo set
+     * is derived from the apps - a `repositories[]` entry alone never clones.
+     */
+    private planDependencyClones(config: PreviewConfig, repoFullName: string, headRef: string): DependencyClonePlan[] {
+        const settingsByRepo = new Map(config.repositories.map((settings) => [settings.repo.toLowerCase(), settings]));
+        const dependencyRepos = new Map<string, string>();
+        for (const app of config.apps) {
+            if (isSameRepository(app.repository, repoFullName)) continue;
+            dependencyRepos.set(app.repository.toLowerCase(), app.repository);
+        }
+        return [...dependencyRepos.values()].map((repo) => {
+            const fallbackBranch = settingsByRepo.get(repo.toLowerCase())?.fallback_branch ?? "main";
+            return {
+                repo,
+                fallbackBranch,
+                targetBranch: resolveTargetBranch(headRef, config.branch_convention, fallbackBranch),
+            };
+        });
+    }
 
-        const resolved = await resolveDependencyConfig(this.provider, dep, targetBranch, dependencyConfig);
+    // Resolves the dependency repo's checkout (target branch, else fallback)
+    // and clones it into a temp dir. Returns null when neither branch resolves -
+    // the caller records the repo's apps as skipped.
+    private async cloneDependency(plan: DependencyClonePlan, prNumber: number): Promise<DependencyEntry | null> {
+        const resolved = await resolveDependencyCheckout(
+            this.provider,
+            plan.repo,
+            plan.targetBranch,
+            plan.fallbackBranch,
+        );
         if (resolved == null) return null;
 
-        const tmpDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-${dep.name}-`));
+        const dirSlug = plan.repo.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+        const tmpDir = await mkdtemp(path.join(os.tmpdir(), `previewkit-${prNumber}-${dirSlug}-`));
         // Fetch at the resolved SHA, not the branch name: this pins the deployed
         // code to the exact commit recorded as provenance, even if the branch
         // moves between branch-head resolution and this fetch.
-        await this.provider.fetchRepoTarball(dep.repo, resolved.sha, tmpDir);
+        await this.provider.fetchRepoTarball(plan.repo, resolved.sha, tmpDir);
         logger.info("Cloned dependency repo", {
-            name: dep.name,
-            repo: dep.repo,
+            repo: plan.repo,
             branch: resolved.branch,
             sha: resolved.sha,
             usedFallback: resolved.usedFallback,
         });
         return {
-            dep,
-            config: resolved.config,
+            plan,
             tmpDir,
             usedFallback: resolved.usedFallback,
-            targetBranch,
             sha: resolved.sha,
-        };
-    }
-
-    private mergeConfigs(primaryConfig: PreviewConfig, deps: DependencyEntry[]): PreviewConfig {
-        const shaByDepName = new Map(deps.map((d) => [d.dep.name, d.sha]));
-        return {
-            ...primaryConfig,
-            config: enrichDependencyShas(primaryConfig.config, shaByDepName),
-            apps: [...primaryConfig.apps, ...deps.flatMap((d) => d.config.apps)],
-            services: [...primaryConfig.services, ...deps.flatMap((d) => d.config.services)],
-            hooks: {
-                pre_deploy: [...primaryConfig.hooks.pre_deploy, ...deps.flatMap((d) => d.config.hooks.pre_deploy)],
-                post_deploy: [...primaryConfig.hooks.post_deploy, ...deps.flatMap((d) => d.config.hooks.post_deploy)],
-            },
         };
     }
 
     private async buildAllApps(
         config: PreviewConfig,
+        buildApps: AppConfig[],
         appRepoDirs: Map<string, string>,
         repoFullName: string,
         prNumber: number,
@@ -1363,7 +1439,6 @@ export class PreviewPipeline {
         secretApps: Set<string>,
         applicationId: string,
         signal?: AbortSignal,
-        onlyAppName?: string,
     ): Promise<Record<string, AppBuildOutcome>> {
         const [rawOrg, rawRepo] = repoFullName.split("/");
         const org = rawOrg!.toLowerCase();
@@ -1392,11 +1467,11 @@ export class PreviewPipeline {
         // failed app outcome. Builds run in parallel with one buildkitd Job per
         // app. On abort, wait for every sibling to settle so each Job's cleanup
         // finishes before the runner exits.
-        // `onlyAppName` (per-app redeploy) narrows which apps build, while the
-        // full `config` is kept so build-arg templates can still reference siblings.
-        const appsToBuild = onlyAppName != null ? config.apps.filter((a) => a.name === onlyAppName) : config.apps;
+        // `buildApps` (a per-app redeploy's target, or every non-skipped app)
+        // narrows which apps build, while the full `config` is kept so build-arg
+        // templates can still reference siblings.
         const results = await Promise.allSettled(
-            appsToBuild.map(async (app) => {
+            buildApps.map(async (app) => {
                 const outcome = await this.buildOneApp(app, {
                     config,
                     appRepoDirs,

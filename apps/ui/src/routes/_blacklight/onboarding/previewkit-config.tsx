@@ -47,10 +47,9 @@ import { McpFirstConfigView } from "./-components/previewkit/mcp-first-config-vi
 import { ReviewSection } from "./-components/previewkit/review-section";
 import { ServicesSection } from "./-components/previewkit/services-section";
 import {
-  PRIMARY_REPO_KEY,
   appFieldFromDocumentKey,
   diffAppSecrets,
-  documentsFromDraft,
+  documentFromDraft,
   validateDraftClientSide,
   draftFromConfig,
   draftWithRepos,
@@ -59,7 +58,6 @@ import {
   fieldIssueKey,
   hookFieldErrors,
   APP_DRAFT_FIELDS,
-  repoAliasFrom,
   serviceRecipeIsDatabase,
   uniqueServiceName,
   withSecretRows,
@@ -221,14 +219,10 @@ function PreviewkitConfigContent({
   const loadedSecretKeys = useRef<Map<string, string[]>>(new Map());
 
   const [draft, setDraftState] = useState<TopologyDraft>(() =>
-    draftFromConfig(
-      configQuery.data.document,
-      configQuery.data.dependencyConfigs,
-      configQuery.data.saved ? "saved" : "starter",
-    ),
+    draftFromConfig(configQuery.data.document, configQuery.data.repos, configQuery.data.saved ? "saved" : "starter"),
   );
-  const [savedSnapshots, setSavedSnapshots] = useState<Record<string, string>>(() =>
-    configQuery.data.saved ? draftFromConfigSnapshot(configQuery.data) : {},
+  const [savedSnapshot, setSavedSnapshot] = useState<string | undefined>(() =>
+    configQuery.data.saved ? draftFromConfigSnapshot(configQuery.data) : undefined,
   );
   const [serverIssues, setServerIssues] = useState<DraftIssues>(emptyDraftIssues);
   const [activeStep, setActiveStep] = useState<ConfigStepId>(
@@ -304,7 +298,7 @@ function PreviewkitConfigContent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appId]);
 
-  const compiled = documentsFromDraft(draft);
+  const compiled = documentFromDraft(draft);
   const clientIssues = validateDraftClientSide(compiled);
   const issues = mergeIssues(clientIssues, serverIssues);
   // Names a hook may target: any app with a name. Hooks reference apps only.
@@ -312,15 +306,10 @@ function PreviewkitConfigContent({
   const hookErrors = hookFieldErrors(draft.hooks, hookAppNames);
   const hasBlockingIssues = issues.fieldErrors.size > 0 || issues.documentErrors.length > 0 || hookErrors.size > 0;
 
-  const groupSaved = (repoKey: string): boolean => {
-    const document =
-      repoKey === PRIMARY_REPO_KEY
-        ? compiled.primary.document
-        : compiled.dependencies.find((dependency) => dependency.alias === repoKey)?.document;
-    if (document == null) return false;
-    return savedSnapshots[repoKey] === snapshotDocument(document);
-  };
-  const allSaved = [PRIMARY_REPO_KEY, ...draft.repos.map((repo) => repo.name)].every(groupSaved);
+  // One document holds the whole topology, so saved-ness is a single bit; the
+  // per-group badge just reflects it (a repo section cannot be saved alone).
+  const allSaved = savedSnapshot === snapshotDocument(compiled.document);
+  const groupSaved = (): boolean => allSaved;
   const secretsDirty = draft.apps.some((app) => {
     const diff = diffAppSecrets(app.env, loadedSecretKeys.current.get(app.name.trim()) ?? []);
     return diff.upserts.length > 0 || diff.deletes.length > 0;
@@ -430,22 +419,25 @@ function PreviewkitConfigContent({
     }));
   }
 
-  // A fresh app's name defaults to its repo: the primary repo's short name for
-  // this-repo apps, the alias for a dependency repo - deduped against the names
-  // already in use, so a second app from the same repo gets `name-2`.
-  function defaultAppName(repoKey: string, current: TopologyDraft): string {
-    const base =
-      repoKey === PRIMARY_REPO_KEY
-        ? repoAliasFrom(repositoryQuery.data?.fullName?.split("/").pop() ?? "app", [])
-        : repoKey;
+  // A fresh app's name defaults to its repo's short name (k8s-safe), deduped
+  // against the names already in use, so a second app from the same repo gets
+  // `name-2`.
+  function defaultAppName(repository: string, current: TopologyDraft): string {
+    const short = repository.split("/").pop() ?? "app";
+    const base = short
+      .toLowerCase()
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
     const taken = [...current.apps.map((app) => app.name), ...current.services.map((service) => service.name)].filter(
       (name) => name.trim() !== "",
     );
-    return uniqueServiceName(base, taken);
+    return uniqueServiceName(base === "" ? "app" : base, taken);
   }
 
-  function addApp(repoKey: string) {
-    setDraft((current) => addApps(current, [{ ...emptyAppDraft(repoKey), name: defaultAppName(repoKey, current) }]));
+  function addApp(repository: string) {
+    setDraft((current) =>
+      addApps(current, [{ ...emptyAppDraft(repository), name: defaultAppName(repository, current) }]),
+    );
   }
 
   // Registering a dependency repo and seeding its first app is one action: the repo
@@ -453,7 +445,7 @@ function PreviewkitConfigContent({
   function addAppFromNewRepo(repo: RepoDraft) {
     setDraft((current) =>
       addApps({ ...current, repos: [...current.repos, repo] }, [
-        { ...emptyAppDraft(repo.name), name: defaultAppName(repo.name, current) },
+        { ...emptyAppDraft(repo.repo), name: defaultAppName(repo.repo, current) },
       ]),
     );
   }
@@ -473,9 +465,9 @@ function PreviewkitConfigContent({
       // drop the repo (and its group/settings) so repos stay in sync with apps.
       const repoEmptied =
         removed != null &&
-        removed.repoKey !== PRIMARY_REPO_KEY &&
-        !normalized.some((app) => app.repoKey === removed.repoKey);
-      const repos = repoEmptied ? current.repos.filter((repo) => repo.name !== removed.repoKey) : current.repos;
+        removed.repository !== current.primaryRepository &&
+        !normalized.some((app) => app.repository === removed.repository);
+      const repos = repoEmptied ? current.repos.filter((repo) => repo.repo !== removed.repository) : current.repos;
       return pruneDanglingDependsOn({ ...current, apps: normalized, repos });
     });
   }
@@ -488,39 +480,21 @@ function PreviewkitConfigContent({
 
   function save(onSaved?: () => void) {
     if (hasBlockingIssues) return;
-    const submission = documentsFromDraft(draft);
+    const submission = documentFromDraft(draft);
 
-    // Repo-aware preflight (path / Dockerfile existence) runs server-side per
-    // repo document and returns warnings as data; they render inline but never
-    // block the save. Results merge as each repo's check completes. Dependency
-    // documents keep only warnings: per-document semantic errors (e.g. a
-    // depends_on referencing a primary-repo service) are false positives there -
-    // the merged topology is validated client-side and again at save.
-    function collectPreflight(
-      document: Record<string, unknown>,
-      indexToDraftId: Map<number, number>,
-      options: { githubRepositoryId?: number; warningsOnly: boolean },
-    ) {
-      validateConfig.mutate(
-        { applicationId: appId, document, githubRepositoryId: options.githubRepositoryId },
-        {
-          onSuccess: (result) => {
-            const issues = options.warningsOnly
-              ? result.issues.filter((issue) => issue.severity === "warning")
-              : result.issues;
-            setServerIssues((current) => mergeIssues(current, mapIssuesToDraft(issues, indexToDraftId)));
-          },
+    // Repo-aware preflight (path / Dockerfile existence) runs server-side over
+    // every repository of the topology in one call and returns warnings as data;
+    // they render inline but never block the save.
+    validateConfig.mutate(
+      { applicationId: appId, document: submission.document },
+      {
+        onSuccess: (result) => {
+          setServerIssues((current) =>
+            mergeIssues(current, mapIssuesToDraft(result.issues, submission.indexToDraftId)),
+          );
         },
-      );
-    }
-    collectPreflight(submission.primary.document, submission.primary.indexToDraftId, { warningsOnly: false });
-    for (const dependency of submission.dependencies) {
-      const repoDraft = draft.repos.find((repo) => repo.name === dependency.alias);
-      collectPreflight(dependency.document, dependency.indexToDraftId, {
-        githubRepositoryId: repoDraft?.githubRepositoryId,
-        warningsOnly: true,
-      });
-    }
+      },
+    );
 
     // Secret values (from the Variables step) persist alongside the config in one
     // call: sensitive rows with a (re-)entered value are upserted, loaded keys no
@@ -536,22 +510,12 @@ function PreviewkitConfigContent({
     saveConfig.mutate(
       {
         applicationId: appId,
-        document: authoringPreviewConfigSchema.parse(submission.primary.document),
-        dependencyDocuments: submission.dependencies.map((dependency) => ({
-          repo: dependency.repo,
-          document: authoringPreviewConfigSchema.parse(dependency.document),
-        })),
+        document: authoringPreviewConfigSchema.parse(submission.document),
         secrets: secrets.length > 0 ? secrets : undefined,
       },
       {
         onSuccess: () => {
-          const snapshots: Record<string, string> = {
-            [PRIMARY_REPO_KEY]: snapshotDocument(submission.primary.document),
-          };
-          for (const dependency of submission.dependencies) {
-            snapshots[dependency.alias] = snapshotDocument(dependency.document);
-          }
-          setSavedSnapshots(snapshots);
+          setSavedSnapshot(snapshotDocument(submission.document));
           // Reflect the now-persisted secrets: clear typed values and mark rows as
           // stored (masked) so a re-save won't re-upload them.
           setDraft((current) => {
@@ -612,16 +576,16 @@ function PreviewkitConfigContent({
   }
 
   const repoGroups: Array<{ key: string; label: string; badge: string; githubRepositoryId?: number }> = [
-    { key: PRIMARY_REPO_KEY, label: repoName, badge: "primary repo" },
+    { key: draft.primaryRepository, label: repoName, badge: "primary repo" },
     ...draft.repos.map((repo) => ({
-      key: repo.name,
+      key: repo.repo,
       label: repo.repo,
       badge: "dependency",
       githubRepositoryId: repo.githubRepositoryId,
     })),
   ];
   const appCountByRepoKey = new Map(
-    draft.repos.map((repo) => [repo.name, draft.apps.filter((app) => app.repoKey === repo.name).length]),
+    draft.repos.map((repo) => [repo.repo, draft.apps.filter((app) => app.repository === repo.repo).length]),
   );
 
   // Every app is a real, deployable app now (starter apps are seeded complete).
@@ -673,7 +637,7 @@ function PreviewkitConfigContent({
             <div className="space-y-6">
               <AddAppMenu
                 thisRepoName={repositoryQuery.data?.fullName?.split("/").pop()}
-                onAddToThisRepo={() => addApp(PRIMARY_REPO_KEY)}
+                onAddToThisRepo={() => addApp(draft.primaryRepository)}
                 onAddFromAnotherRepo={() => setAddAppDialogOpen(true)}
               />
               <AppsStep
@@ -1067,9 +1031,9 @@ function AppsStep({
   return (
     <>
       {repoGroups.map((group) => {
-        const groupApps = draftApps.filter((app) => app.repoKey === group.key);
+        const groupApps = draftApps.filter((app) => app.repository === group.key);
         const dependencyOptions = allNames.filter((name) => name.trim() !== "");
-        const groupRepo = repos.find((repo) => repo.name === group.key);
+        const groupRepo = repos.find((repo) => repo.repo === group.key);
         const groupRepoAppCount = appCountByRepoKey.get(group.key) ?? 0;
         return (
           <div key={group.key} className="space-y-4">
@@ -1446,14 +1410,9 @@ function mergeIssues(client: DraftIssues, server: DraftIssues): DraftIssues {
 
 function draftFromConfigSnapshot(config: {
   document: Parameters<typeof draftFromConfig>[0];
-  dependencyConfigs: Parameters<typeof draftFromConfig>[1];
-}): Record<string, string> {
-  const compiled = documentsFromDraft(draftFromConfig(config.document, config.dependencyConfigs));
-  const snapshots: Record<string, string> = { [PRIMARY_REPO_KEY]: snapshotDocument(compiled.primary.document) };
-  for (const dependency of compiled.dependencies) {
-    snapshots[dependency.alias] = snapshotDocument(dependency.document);
-  }
-  return snapshots;
+  repos: Parameters<typeof draftFromConfig>[1];
+}): string {
+  return snapshotDocument(documentFromDraft(draftFromConfig(config.document, config.repos)).document);
 }
 
 /** Scrolls to and focuses the app/field a deploy failure pointed at, then clears the search params. */

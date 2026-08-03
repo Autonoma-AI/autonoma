@@ -7,14 +7,15 @@ import {
     DEPRECATED_BUILD_FRAMEWORKS,
     deprecatedBuildApps,
     previewConfigSchema,
+    topologyRepositories,
     validatePreviewConfigSemantics,
     validateHookSteps,
 } from "./previewkit-config";
 
 function parseWithBuild(build: unknown) {
     return previewConfigSchema.safeParse({
-        version: 1,
-        apps: [{ name: "web", port: 3000, build }],
+        version: 2,
+        apps: [{ name: "web", repository: "acme/web", port: 3000, build }],
     });
 }
 
@@ -92,7 +93,10 @@ describe("previewConfigSchema build block", () => {
     });
 
     it("parses an app with no build block (bare-Dockerfile path)", () => {
-        const result = previewConfigSchema.safeParse({ version: 1, apps: [{ name: "web", port: 3000 }] });
+        const result = previewConfigSchema.safeParse({
+            version: 2,
+            apps: [{ name: "web", repository: "acme/web", port: 3000 }],
+        });
         expect(result.success).toBe(true);
         if (result.success) {
             expect(result.data.apps[0]?.build).toBeUndefined();
@@ -162,8 +166,8 @@ describe("previewConfigSchema runtime build block", () => {
 describe("authoringPreviewConfigSchema build block", () => {
     function authorWithBuild(build: unknown) {
         return authoringPreviewConfigSchema.safeParse({
-            version: 1,
-            apps: [{ name: "web", port: 3000, build }],
+            version: 2,
+            apps: [{ name: "web", repository: "acme/web", port: 3000, build }],
         });
     }
 
@@ -201,37 +205,41 @@ describe("authoringPreviewConfigSchema build block", () => {
 describe("deprecatedBuildApps", () => {
     it("names every app still on a retired preset, and nothing else", () => {
         const parsed = previewConfigSchema.parse({
-            version: 1,
+            version: 2,
             apps: [
-                { name: "legacy", port: 3000, build: { framework: "next" } },
+                { name: "legacy", repository: "acme/web", port: 3000, build: { framework: "next" } },
                 {
                     name: "modern",
+                    repository: "acme/web",
                     port: 3001,
                     build: { framework: "runtime", runtime: "node", entrypoint: "npm start" },
                 },
-                { name: "bare", port: 3002 },
+                { name: "bare", repository: "acme/web", port: 3002 },
             ],
         });
         expect(deprecatedBuildApps(parsed)).toEqual([{ app: "legacy", framework: "next" }]);
     });
 });
 
-describe("previewConfigSchema multirepo dependency sha", () => {
-    function parseWithRepos(repos: unknown) {
+describe("previewConfigSchema repositories", () => {
+    function parseWithRepositories(repositories: unknown) {
         return previewConfigSchema.safeParse({
-            version: 1,
-            apps: [{ name: "web", port: 3000 }],
-            config: { multirepo: { repos } },
+            version: 2,
+            apps: [
+                { name: "web", repository: "acme/web", port: 3000 },
+                { name: "api", repository: "acme/api", port: 4000 },
+            ],
+            repositories,
         });
     }
 
-    it("defaults the dependency sha to undefined in authored config", () => {
-        const result = parseWithRepos([{ name: "api", repo: "acme/api" }]);
+    it("defaults fallback_branch and leaves sha undefined in authored config", () => {
+        const result = parseWithRepositories([{ repo: "acme/api" }]);
         expect(result.success).toBe(true);
         if (result.success) {
-            const dep = result.data.config?.multirepo?.repos[0];
-            expect(dep?.fallback_branch).toBe("main");
-            expect(dep?.sha).toBeUndefined();
+            const settings = result.data.repositories[0];
+            expect(settings?.fallback_branch).toBe("main");
+            expect(settings?.sha).toBeUndefined();
         }
     });
 
@@ -239,11 +247,105 @@ describe("previewConfigSchema multirepo dependency sha", () => {
     // re-parse that JSON, so the field must survive parsing (Zod strips unknown
     // keys, so an absent schema field would silently drop the recorded SHA).
     it("preserves a recorded dependency sha through parsing", () => {
-        const result = parseWithRepos([{ name: "api", repo: "acme/api", sha: "abc123def456" }]);
+        const result = parseWithRepositories([{ repo: "acme/api", sha: "abc123def456" }]);
         expect(result.success).toBe(true);
         if (result.success) {
-            expect(result.data.config?.multirepo?.repos[0]?.sha).toBe("abc123def456");
+            expect(result.data.repositories[0]?.sha).toBe("abc123def456");
         }
+    });
+
+    it("rejects a repository value that is not an owner/repo full name", () => {
+        const result = previewConfigSchema.safeParse({
+            version: 2,
+            apps: [{ name: "web", repository: "just-an-alias", port: 3000 }],
+        });
+        expect(result.success).toBe(false);
+    });
+
+    it("rejects an app without a repository", () => {
+        const result = previewConfigSchema.safeParse({
+            version: 2,
+            apps: [{ name: "web", port: 3000 }],
+        });
+        expect(result.success).toBe(false);
+    });
+
+    it("rejects duplicate settings entries for the same repository", () => {
+        const result = parseWithRepositories([{ repo: "acme/api" }, { repo: "acme/api", fallback_branch: "dev" }]);
+        expect(result.success).toBe(false);
+    });
+
+    it("warns about a settings entry no app builds from", () => {
+        const result = parseWithRepositories([{ repo: "acme/ghost" }]);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            const issues = validatePreviewConfigSemantics(result.data);
+            const warning = issues.find((issue) => issue.code === "unreferenced_repository");
+            expect(warning?.severity).toBe("warning");
+            expect(warning?.path).toEqual(["repositories", 0]);
+        }
+    });
+
+    it("derives the topology repository set from the apps", () => {
+        const result = parseWithRepositories([]);
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect([...topologyRepositories(result.data)].sort()).toEqual(["acme/api", "acme/web"]);
+        }
+    });
+
+    // Repository identity is case-insensitive (GitHub full names are), so every
+    // membership/duplicate check has to treat case-only variants as the same repo.
+    describe("case-insensitive repository identity", () => {
+        it("dedupes case-only variants in the topology set, keeping the first-seen casing", () => {
+            const result = previewConfigSchema.parse({
+                version: 2,
+                apps: [
+                    { name: "web", repository: "Acme/Web", port: 3000 },
+                    { name: "worker", repository: "acme/web", port: 3001 },
+                ],
+            });
+            expect([...topologyRepositories(result)]).toEqual(["Acme/Web"]);
+        });
+
+        it("rejects case-only duplicate settings entries", () => {
+            const result = parseWithRepositories([{ repo: "acme/api" }, { repo: "Acme/API", fallback_branch: "dev" }]);
+            expect(result.success).toBe(false);
+        });
+
+        it("accepts a setup-task repo reference that differs only in case", () => {
+            const result = previewConfigSchema.parse({
+                version: 2,
+                apps: [
+                    { name: "web", repository: "acme/web", port: 3000 },
+                    { name: "api", repository: "Acme/Backend", port: 4000 },
+                ],
+                services: [
+                    {
+                        name: "db",
+                        recipe: "postgres",
+                        setup_tasks: [
+                            {
+                                command: "rails db:schema:load",
+                                frequency: "on_create",
+                                location: { type: "separate_job", repo: "acme/backend" },
+                            },
+                        ],
+                    },
+                ],
+            });
+            const issues = validatePreviewConfigSemantics(result);
+            expect(issues.some((issue) => issue.code === "unknown_setup_task_repo")).toBe(false);
+        });
+
+        it("does not warn about a settings entry that differs from its app only in case", () => {
+            const result = parseWithRepositories([{ repo: "Acme/API" }]);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                const issues = validatePreviewConfigSemantics(result.data);
+                expect(issues.some((issue) => issue.code === "unreferenced_repository")).toBe(false);
+            }
+        });
     });
 });
 
@@ -268,8 +370,8 @@ describe("connection token parsing", () => {
 describe("connection validation", () => {
     const parse = (connections: unknown) =>
         previewConfigSchema.parse({
-            version: 1,
-            apps: [{ name: "web", port: 3000, connections }],
+            version: 2,
+            apps: [{ name: "web", repository: "acme/web", port: 3000, connections }],
             services: [{ name: "db", recipe: "postgres" }],
         });
 
@@ -318,8 +420,8 @@ describe("connection validation", () => {
 
     it("does not warn about non-database services without connections", () => {
         const config = previewConfigSchema.parse({
-            version: 1,
-            apps: [{ name: "web", port: 3000 }],
+            version: 2,
+            apps: [{ name: "web", repository: "acme/web", port: 3000 }],
             services: [{ name: "flow", recipe: "temporal" }],
         });
         const issues = validatePreviewConfigSemantics(config);
@@ -328,8 +430,15 @@ describe("connection validation", () => {
 
     it("rejects a reserved key as a connection", () => {
         const result = previewConfigSchema.safeParse({
-            version: 1,
-            apps: [{ name: "web", port: 3000, connections: [{ key: "AUTONOMA_PREVIEWKIT", value: "{{db.url}}" }] }],
+            version: 2,
+            apps: [
+                {
+                    name: "web",
+                    repository: "acme/web",
+                    port: 3000,
+                    connections: [{ key: "AUTONOMA_PREVIEWKIT", value: "{{db.url}}" }],
+                },
+            ],
             services: [{ name: "db", recipe: "postgres" }],
         });
         expect(result.success).toBe(false);

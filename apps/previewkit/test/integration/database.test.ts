@@ -174,7 +174,7 @@ integrationTestSuite({
                     status: "failed",
                     error: "boom",
                     tornDownAt: new Date(),
-                    resolvedConfig: { version: 1, apps: [{ name: "web", port: 3000 }] },
+                    resolvedConfig: { version: 2, apps: [{ name: "web", repository: "acme/web", port: 3000 }] },
                 },
             });
 
@@ -201,7 +201,10 @@ integrationTestSuite({
             // A fresh attempt preserves the prior config snapshot so the summary +
             // readiness views stay populated during the in-flight redeploy;
             // recordResolvedConfig overwrites it once this attempt resolves.
-            expect(env!.resolvedConfig).toEqual({ version: 1, apps: [{ name: "web", port: 3000 }] });
+            expect(env!.resolvedConfig).toEqual({
+                version: 2,
+                apps: [{ name: "web", repository: "acme/web", port: 3000 }],
+            });
         });
 
         test("recordPhaseChanged updates status, phase, error, and deployedAt on ready", async ({ harness }) => {

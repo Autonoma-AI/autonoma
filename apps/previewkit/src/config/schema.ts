@@ -1,8 +1,10 @@
 export {
     STANDARD_RESOURCES,
+    isSameRepository,
     previewConfigSchema,
     declaredSdkAppName,
     resolvePrimaryAppName,
+    topologyRepositories,
     trustedPreviewConfigSchema,
     type AppConfig,
     type AppRole,
@@ -10,6 +12,6 @@ export {
     type BranchConvention,
     type ContainerResources,
     type PreviewConfig,
-    type RepoDependency,
+    type RepositorySettings,
     type ServiceConfig,
 } from "@autonoma/types";

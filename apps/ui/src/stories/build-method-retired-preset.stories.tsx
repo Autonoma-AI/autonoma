@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { BuildModeSection } from "../routes/_blacklight/onboarding/-components/previewkit/build-mode-section";
 import {
-  documentsFromDraft,
+  documentFromDraft,
   draftFromConfig,
   emptyDraftIssues,
   mapIssuesToDraft,
@@ -15,10 +15,11 @@ import {
 // configs still carry. Parsed through the read schema (which still accepts a
 // preset) so the draft matches what the editor really loads.
 const storedPresetConfig = previewConfigSchema.parse({
-  version: 1,
+  version: 2,
   apps: [
     {
       name: "northwind-bank",
+      repository: "acme/northwind-bank",
       path: ".",
       port: 3000,
       primary: true,
@@ -33,13 +34,13 @@ const storedPresetConfig = previewConfigSchema.parse({
  * message the editor actually renders rather than a hand-written copy of it.
  */
 function issuesFor(app: AppDraft): DraftIssues {
-  const compiled = documentsFromDraft({ ...baseDraft, apps: [app] }).primary;
+  const compiled = documentFromDraft({ ...baseDraft, apps: [app] });
   const parsed = authoringPreviewConfigSchema.safeParse(compiled.document);
   if (parsed.success) return emptyDraftIssues();
   return mapIssuesToDraft(zodIssuesToConfigIssues(parsed.error), compiled.indexToDraftId);
 }
 
-const baseDraft = draftFromConfig(storedPresetConfig, [], "saved");
+const baseDraft = draftFromConfig(storedPresetConfig, [{ repo: "acme/northwind-bank", primary: true }], "saved");
 
 function BuildMethodEditor({ initial }: { initial: AppDraft }) {
   const [app, setApp] = useState(initial);

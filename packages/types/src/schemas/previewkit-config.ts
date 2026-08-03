@@ -18,6 +18,9 @@ export type PreviewResourceRole = keyof typeof STANDARD_RESOURCES;
 
 const k8sNameRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 
+// A GitHub repository full name: `owner/repo`, exactly one slash, no whitespace.
+const repoFullNameRegex = /^[^/\s]+\/[^/\s]+$/;
+
 /**
  * Per-container `resources` input. `cpu` and `memory` are the client-facing
  * knobs; the normalized `memoryRequest` / `memoryLimit` keys are accepted too so
@@ -84,27 +87,23 @@ const branchConventionSchema = z.discriminatedUnion("type", [
     z.object({ type: z.literal("manual") }),
 ]);
 
-const repoDependencySchema = z.object({
-    name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
-    repo: z.string(),
+/**
+ * Per-repository deploy settings. The topology's repository set is derived from
+ * the apps (`apps[].repository`) - an entry here is never what ADDS a repo, it
+ * only overrides the defaults for one (today: which branch to clone when the
+ * PR's branch does not exist there) and receives deploy provenance.
+ */
+const repositorySettingsSchema = z.object({
+    repo: z.string().regex(repoFullNameRegex, "Must be an owner/repo full name"),
     fallback_branch: z.string().default("main"),
     /**
-     * The concrete commit SHA the dependency was deployed at. Absent in
-     * user-authored config: previewkit resolves the dependency's branch to a
-     * commit at deploy time and records it here by enriching the stored
+     * The concrete commit SHA the repository was deployed at. Absent in
+     * user-authored config: previewkit resolves each dependency repo's branch to
+     * a commit at deploy time and records it here by enriching the stored
      * `resolvedConfig` (deploy provenance, not authored input). Multi-repo
      * grounding reads this back to inspect the exact code that was live.
      */
     sha: z.string().optional(),
-});
-
-const multirepoConfigSchema = z.object({
-    branch_convention: branchConventionSchema.optional(),
-    repos: z.array(repoDependencySchema).default([]),
-});
-
-const configSchema = z.object({
-    multirepo: multirepoConfigSchema.optional(),
 });
 
 // A pre/post-deploy hook step. Every hook runs as a one-off Kubernetes Job
@@ -146,8 +145,9 @@ export function isPreviewkitDatabaseEngine(recipe: string): recipe is Previewkit
  *   out there and the build output is available - running before or after that
  *   app's build step.
  * - `separate_job`: its own throwaway container with a fresh checkout of the
- *   chosen repo (`repo` names a connected repo from `config.multirepo.repos`;
- *   absent = the primary repo), independent of any app build.
+ *   chosen repo (`repo` is an `owner/repo` full name from the topology, i.e. an
+ *   `apps[].repository` value; absent = the primary repo), independent of any
+ *   app build.
  *
  * NOTE: the runner does not yet honor `type` / `position` / `repo` - every task
  * currently runs as a standalone job from the primary app's image between infra
@@ -378,6 +378,15 @@ const connectionSchema = z.object({
 function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allowCustomResources: boolean) {
     const appSchema = z.object({
         name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
+        repository: z
+            .string()
+            .regex(repoFullNameRegex, "Must be an owner/repo full name")
+            .describe(
+                "The owner/repo full name of the GitHub repository this app builds from. Mandatory even in " +
+                    "single-repo setups. Any value other than the application's own repository makes this app a " +
+                    "multirepo dependency: that repo is cloned at the branch the branch_convention (or its " +
+                    "repositories[] fallback_branch) resolves to.",
+            ),
         path: z.string().default("."),
         build_context: z.string().optional(),
         dockerfile: z.string().optional(),
@@ -419,10 +428,27 @@ function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allow
 
     return z
         .object({
-            version: z.literal(1),
+            version: z.literal(2),
             domain: z.string().optional(),
             registry: z.string().optional(),
-            config: configSchema.optional(),
+            // Per-repository overrides + deploy provenance; the repo set itself
+            // is derived from `apps[].repository`. See repositorySettingsSchema.
+            repositories: z
+                .array(repositorySettingsSchema)
+                .default([])
+                .describe(
+                    "Optional per-repository settings. The topology's repositories are derived from " +
+                        "apps[].repository - an entry here only overrides defaults (fallback_branch: which branch " +
+                        "to clone when the PR's branch does not exist in that repo; default main).",
+                ),
+            // Topology-wide: how a dependency repo's branch is derived from the
+            // PR's branch. Defaults to same_branch_name behavior when absent.
+            branch_convention: branchConventionSchema
+                .optional()
+                .describe(
+                    "How a dependency repo's branch is derived from the PR branch: same_branch_name (default), " +
+                        "regex (pattern + replacement rewrite), or manual (always the fallback_branch).",
+                ),
             apps: z.array(appSchema).min(1, "At least one app is required"),
             services: z.array(serviceSchema).default([]),
             hooks: hooksSchema,
@@ -442,6 +468,22 @@ function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allow
             };
             for (const app of cfg.apps) check(app.name, "app");
             for (const service of cfg.services) check(service.name, "service");
+
+            // Repository identity is case-insensitive, so case-only variants of
+            // the same repo count as duplicates (they would collapse
+            // unpredictably in the runner's per-repo maps otherwise).
+            const seenRepos = new Set<string>();
+            cfg.repositories.forEach((settings, index) => {
+                const key = settings.repo.toLowerCase();
+                if (seenRepos.has(key)) {
+                    ctx.addIssue({
+                        code: z.ZodIssueCode.custom,
+                        path: ["repositories", index, "repo"],
+                        message: `Repository "${settings.repo}" has more than one settings entry`,
+                    });
+                }
+                seenRepos.add(key);
+            });
         });
 }
 
@@ -611,6 +653,10 @@ export type ConfigIssueCode =
     | "unknown_connection_target"
     | "duplicate_connection_key"
     | "unreferenced_database_service"
+    | "unreferenced_repository"
+    | "primary_repository_not_referenced"
+    | "primary_repository_unresolved"
+    | "repository_not_accessible"
     | "empty_setup_task_command"
     | "unknown_setup_task_app"
     | "unknown_setup_task_repo"
@@ -641,6 +687,39 @@ export function zodIssuesToConfigIssues(error: z.ZodError): ConfigIssue[] {
         path: issue.path.filter((segment): segment is string | number => typeof segment !== "symbol"),
         message: issue.message,
     }));
+}
+
+/**
+ * The distinct repositories the topology builds from - derived from the apps,
+ * which are the only config entries with source. `repositories[]` entries and
+ * setup-task `repo` references must point into this set. Deduped
+ * case-insensitively (repository identity is case-insensitive - see
+ * {@link isSameRepository}); the first-seen casing is kept for display.
+ */
+export function topologyRepositories(config: Pick<PreviewConfig, "apps">): ReadonlySet<string> {
+    const byLowercase = new Map<string, string>();
+    for (const app of config.apps) {
+        const key = app.repository.toLowerCase();
+        if (!byLowercase.has(key)) byLowercase.set(key, app.repository);
+    }
+    return new Set(byLowercase.values());
+}
+
+/**
+ * Whether two `owner/repo` full names identify the same repository. GitHub
+ * treats full names case-insensitively, and webhook payloads / installation
+ * listings / user-authored config can disagree on casing.
+ */
+export function isSameRepository(a: string, b: string): boolean {
+    return a.toLowerCase() === b.toLowerCase();
+}
+
+/** Case-insensitive membership test against a collection of repo full names. */
+export function hasRepository(repos: Iterable<string>, repo: string): boolean {
+    for (const candidate of repos) {
+        if (isSameRepository(candidate, repo)) return true;
+    }
+    return false;
 }
 
 /**
@@ -732,9 +811,24 @@ export function validatePreviewConfigSemantics(config: PreviewConfig): ConfigIss
         });
     }
 
-    const repoNames = new Set((config.config?.multirepo?.repos ?? []).map((repo) => repo.name));
+    const repoNames = topologyRepositories(config);
     config.services.forEach((service, serviceIndex) => {
         issues.push(...validateSetupTasks(service.setup_tasks, appNames, repoNames, serviceIndex));
+    });
+
+    // A `repositories[]` entry for a repo no app builds from is stale: the repo
+    // set is derived from the apps, so the entry's overrides never apply. Warn -
+    // never block - so removing a repo's last app doesn't dead-end a save.
+    config.repositories.forEach((settings, index) => {
+        if (hasRepository(repoNames, settings.repo)) return;
+        issues.push({
+            severity: "warning",
+            code: "unreferenced_repository",
+            path: ["repositories", index],
+            message:
+                `Repository "${settings.repo}" has settings but no app builds from it - ` +
+                `set \`repository: "${settings.repo}"\` on an app or remove the entry`,
+        });
     });
 
     // A database service no app connection references is almost always a wiring
@@ -767,9 +861,9 @@ export function validatePreviewConfigSemantics(config: PreviewConfig): ConfigIss
 /**
  * Validates one service's database setup tasks. A task is invalid when it has no
  * command, an `in_build` task names an app that isn't declared, or a
- * `separate_job` task names a connected repo that isn't declared in
- * `config.multirepo.repos`. Shared by the semantic validator and the dashboard's
- * database editor so client and server apply the same rules.
+ * `separate_job` task names a repository no app of the topology builds from.
+ * Shared by the semantic validator and the dashboard's database editor so client
+ * and server apply the same rules.
  */
 export function validateSetupTasks(
     tasks: ReadonlyArray<z.infer<typeof databaseSetupTaskSchema>>,
@@ -796,7 +890,11 @@ export function validateSetupTasks(
                 message: `Setup task references unknown app "${task.location.app}"`,
             });
         }
-        if (task.location.type === "separate_job" && task.location.repo != null && !repoNames.has(task.location.repo)) {
+        if (
+            task.location.type === "separate_job" &&
+            task.location.repo != null &&
+            !hasRepository(repoNames, task.location.repo)
+        ) {
             issues.push({
                 severity: "error",
                 code: "unknown_setup_task_repo",
@@ -869,4 +967,4 @@ export type ServiceConfig<TOptions = Record<string, unknown>> = Omit<PreviewConf
 export type DatabaseSetupTask = z.infer<typeof databaseSetupTaskSchema>;
 export type DatabaseSetupLocation = z.infer<typeof databaseSetupLocationSchema>;
 export type BranchConvention = z.infer<typeof branchConventionSchema>;
-export type RepoDependency = z.infer<typeof repoDependencySchema>;
+export type RepositorySettings = z.infer<typeof repositorySettingsSchema>;

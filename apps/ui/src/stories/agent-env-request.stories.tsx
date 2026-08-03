@@ -11,10 +11,11 @@ const LAST_ACTIVITY_AT = new Date("2026-01-05T10:29:30.000Z");
 
 /** The config the agent has written so far, exactly as the API would return it. */
 const configDocument = previewConfigSchema.parse({
-  version: 1,
+  version: 2,
   apps: [
     {
       name: "web",
+      repository: "acme/storefront",
       dockerfile: "Dockerfile",
       port: 3000,
       primary: true,
@@ -86,7 +87,7 @@ const envRequestFixtures: TrpcFixtures = {
       applicationId: baseApplication.id,
       saved: true,
       document: configDocument,
-      dependencyConfigs: [],
+      repos: [{ repo: "acme/storefront", primary: true }],
     },
   },
 };

@@ -64,8 +64,8 @@ integrationTestSuite({
             await linkRepository(harness, appId, 93_001);
 
             const result = await manager.validatePreviewkitConfig(appId, orgId, {
-                version: 1,
-                apps: [{ name: "web", path: "." }],
+                version: 2,
+                apps: [{ name: "web", repository: "acme/web", path: "." }],
             });
 
             expect(result.valid).toBe(false);
@@ -81,10 +81,17 @@ integrationTestSuite({
             await linkRepository(harness, appId, 93_002);
 
             const invalid = await manager.validatePreviewkitConfig(appId, orgId, {
-                version: 1,
+                version: 2,
                 apps: [
-                    { name: "web", path: ".", port: 3000, primary: true, depends_on: ["ghost"] },
-                    { name: "api", path: "apps/api", port: 4000, primary: true },
+                    {
+                        name: "web",
+                        repository: "acme/web",
+                        path: ".",
+                        port: 3000,
+                        primary: true,
+                        depends_on: ["ghost"],
+                    },
+                    { name: "api", repository: "acme/web", path: "apps/api", port: 4000, primary: true },
                 ],
             });
 
@@ -97,8 +104,8 @@ integrationTestSuite({
             );
 
             const warningsOnly = await manager.validatePreviewkitConfig(appId, orgId, {
-                version: 1,
-                apps: [{ name: "web", path: ".", port: 3000 }],
+                version: 2,
+                apps: [{ name: "web", repository: "acme/web", path: ".", port: 3000 }],
             });
 
             expect(warningsOnly.valid).toBe(true);
@@ -113,7 +120,12 @@ integrationTestSuite({
         }) => {
             const appId = await createApp();
             await linkRepository(harness, appId, 93_003);
+            const { github, applications } = buildTopologyServices(harness, orgId, [
+                { id: 93_003, name: "web", fullName: "acme/web", defaultBranch: "main" },
+            ]);
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                github,
+                applications,
                 repoIntrospection: {
                     getRepoTree: async () => ({
                         paths: ["package.json", "apps/web/package.json", "apps/web/Dockerfile"],
@@ -123,10 +135,17 @@ integrationTestSuite({
             });
 
             const result = await manager.validatePreviewkitConfig(appId, orgId, {
-                version: 1,
+                version: 2,
                 apps: [
-                    { name: "web", path: "apps/web", port: 3000, primary: true, dockerfile: "Dockerfile" },
-                    { name: "api", path: "apps/api", port: 4000, dockerfile: "Dockerfile.api" },
+                    {
+                        name: "web",
+                        repository: "acme/web",
+                        path: "apps/web",
+                        port: 3000,
+                        primary: true,
+                        dockerfile: "Dockerfile",
+                    },
+                    { name: "api", repository: "acme/web", path: "apps/api", port: 4000, dockerfile: "Dockerfile.api" },
                 ],
             });
 
@@ -145,14 +164,17 @@ integrationTestSuite({
             expect(result.issues.filter((issue) => issue.path[1] === 0)).toEqual([]);
         });
 
-        test("savePreviewkitConfig stores dependency configs on the primary config (no satellite apps)", async ({
+        test("savePreviewkitConfig persists a multi-repo document as one row (no satellite apps)", async ({
             harness,
             seedResult: { orgId, createApp },
         }) => {
             const appId = await createApp();
             await linkRepository(harness, appId, 93_010);
             const depRepo: FakeRepo = { id: 93_011, name: "api", fullName: "acme/api", defaultBranch: "main" };
-            const { github, applications } = buildTopologyServices(harness, orgId, [depRepo]);
+            const { github, applications } = buildTopologyServices(harness, orgId, [
+                { id: 93_010, name: "web", fullName: "acme/web", defaultBranch: "main" },
+                depRepo,
+            ]);
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 github,
                 applications,
@@ -160,63 +182,52 @@ integrationTestSuite({
             await setStep(harness, appId, "preview_environment");
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
 
-            const saved = await manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), [
-                {
-                    repo: "acme/api",
-                    // depends_on crosses repo documents: "db" is a primary-repo
-                    // service. Semantics validate against the merged topology.
-                    document: { version: 1, apps: [{ name: "api-app", path: ".", port: 4000, depends_on: ["db"] }] },
-                },
-            ]);
+            const saved = await manager.savePreviewkitConfig(appId, orgId, multiRepoDocument());
 
             expect(saved.saved).toBe(true);
-            expect(saved.dependencyConfigs).toHaveLength(1);
-            const dependency = saved.dependencyConfigs[0];
-            expect(dependency).toMatchObject({ name: "api", repo: "acme/api", saved: true });
-            // Dependency repos are NOT separate Applications: the config + secrets
-            // live under the primary app, and no Application is created/linked.
-            expect(dependency?.applicationId).toBe(appId);
+            // Every repository of the topology is reported, primary flagged and
+            // resolved against the installation listing.
+            expect(saved.repos).toEqual([
+                { repo: "acme/web", primary: true, githubRepositoryId: 93_010 },
+                { repo: "acme/api", primary: false, githubRepositoryId: 93_011 },
+            ]);
+            // Dependency repos are NOT separate Applications: the whole topology is
+            // one document under the primary app, and no Application is created/linked.
             expect(applications.createMinimalApplication).not.toHaveBeenCalled();
             expect(github.linkRepository).not.toHaveBeenCalled();
-
             const dependencyApplication = await harness.db.application.findUnique({
                 where: { organizationId_githubRepositoryId: { organizationId: orgId, githubRepositoryId: depRepo.id } },
                 select: { id: true },
             });
             expect(dependencyApplication).toBeNull();
 
-            // The dependency document is persisted on the primary app's config.
+            // One row, document only - the dependencyDocuments sidecar is retired.
             const storedConfig = await harness.db.previewkitConfig.findUniqueOrThrow({
                 where: { applicationId: appId },
-                select: { dependencyDocuments: true },
+                select: { document: true, dependencyDocuments: true },
             });
-            expect(storedConfig.dependencyDocuments).not.toBeNull();
+            expect(storedConfig.dependencyDocuments).toBeNull();
+            expect(storedConfig.document).toMatchObject({ version: 2 });
 
-            // getPreviewkitConfig hydrates the dependency documents back.
+            // getPreviewkitConfig round-trips the whole topology.
             const loaded = await manager.getPreviewkitConfig(appId, orgId);
-            expect(loaded.dependencyConfigs).toHaveLength(1);
-            expect(loaded.dependencyConfigs[0]).toMatchObject({
-                name: "api",
-                repo: "acme/api",
-                saved: true,
-                applicationId: appId,
-            });
-            expect(loaded.dependencyConfigs[0]?.document?.apps[0]?.name).toBe("api-app");
+            expect(loaded.saved).toBe(true);
+            expect(loaded.document.apps.map((app) => app.name)).toEqual(["web", "api-app"]);
+            expect(loaded.document.apps[1]?.repository).toBe("acme/api");
+            expect(loaded.document.repositories).toEqual([{ repo: "acme/api", fallback_branch: "main" }]);
+            expect(loaded.repos).toEqual(saved.repos);
 
-            // A second save still creates no Application; config is latest-only,
-            // so the single row is overwritten in place.
-            const resaved = await manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), [
-                {
-                    repo: "acme/api",
-                    document: { version: 1, apps: [{ name: "api-app", path: ".", port: 4001 }] },
-                },
-            ]);
+            // Config is latest-only: a second save overwrites the single row in place.
+            const nextDocument = multiRepoDocument();
+            const dependencyApp = nextDocument.apps[1];
+            if (dependencyApp == null) throw new Error("multiRepoDocument must have a dependency app");
+            dependencyApp.port = 4001;
+            await manager.savePreviewkitConfig(appId, orgId, nextDocument);
             expect(applications.createMinimalApplication).not.toHaveBeenCalled();
-            expect(resaved.dependencyConfigs[0]?.document?.apps[0]?.port).toBe(4001);
             const configRows = await harness.db.previewkitConfig.findMany({ where: { applicationId: appId } });
             expect(configRows).toHaveLength(1);
             const reloaded = await manager.getPreviewkitConfig(appId, orgId);
-            expect(reloaded.dependencyConfigs[0]?.document?.apps[0]?.port).toBe(4001);
+            expect(reloaded.document.apps[1]?.port).toBe(4001);
         });
 
         test("savePreviewkitConfig accepts secrets for a dependency-repo app", async ({
@@ -226,6 +237,7 @@ integrationTestSuite({
             const appId = await createApp();
             await linkRepository(harness, appId, 93_050);
             const { github, applications } = buildTopologyServices(harness, orgId, [
+                { id: 93_050, name: "web", fullName: "acme/web", defaultBranch: "main" },
                 { id: 93_051, name: "api", fullName: "acme/api", defaultBranch: "main" },
             ]);
             const secretsService = {
@@ -240,14 +252,10 @@ integrationTestSuite({
             });
             await setStep(harness, appId, "previewkit_configuring");
 
-            const dependencyDocuments = [
-                { repo: "acme/api", document: { version: 1, apps: [{ name: "api-app", path: ".", port: 4000 }] } },
-            ];
-
-            // The app lives in the dependency document, and its secret bundle lives
-            // under this same Application - which the deploy resolves over the merged
-            // config, so the save must not judge the name by the primary document alone.
-            await manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), dependencyDocuments, [
+            // The app lives on a dependency repo, and its secret bundle lives under
+            // this same Application - the save judges the name against the whole
+            // document, not just the primary repo's apps.
+            await manager.savePreviewkitConfig(appId, orgId, multiRepoDocument(), [
                 { appName: "api-app", upserts: [{ key: "RAILS_MASTER_KEY", value: "s3cret" }], deletes: [] },
             ]);
 
@@ -258,10 +266,10 @@ integrationTestSuite({
                 orgId,
             );
 
-            // A name no document declares is still rejected, and nothing is written.
+            // A name the document does not declare is still rejected, and nothing is written.
             secretsService.upsert.mockClear();
             await expect(
-                manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), dependencyDocuments, [
+                manager.savePreviewkitConfig(appId, orgId, multiRepoDocument(), [
                     { appName: "ghost", upserts: [{ key: "TOKEN", value: "x" }], deletes: [] },
                 ]),
             ).rejects.toThrow("PreviewKit app 'ghost' is not defined in the config");
@@ -281,8 +289,8 @@ integrationTestSuite({
             // the MCP agent path hears about the missing wiring at apply_config
             // time instead of after a green deploy with a broken runtime.
             const saved = await manager.savePreviewkitConfig(appId, orgId, {
-                version: 1,
-                apps: [{ name: "web", path: ".", port: 3000, primary: true }],
+                version: 2,
+                apps: [{ name: "web", repository: "acme/web", path: ".", port: 3000, primary: true }],
                 services: [{ name: "db", recipe: "postgres" }],
             });
 
@@ -292,14 +300,46 @@ integrationTestSuite({
             );
         });
 
-        test("savePreviewkitConfig rejects undeclared dependency repos and merged duplicate names", async ({
+        test("savePreviewkitConfig refuses an unresolvable primary repository (never persists a guess)", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            // Linked to GitHub by id, but the id is in no installation listing
+            // and no preview ever deployed - the full name cannot be resolved.
+            const appId = await createApp();
+            await harness.db.application.update({
+                where: { id: appId },
+                data: { githubRepositoryId: 93_016, signingSecretEnc: fakeEncryption.encrypt("shared-secret") },
+            });
+            await setStep(harness, appId, "previewkit_configuring");
+
+            const document = {
+                version: 2,
+                apps: [{ name: "web", repository: "acme/web", path: ".", port: 3000, primary: true }],
+            };
+            await expect(manager.savePreviewkitConfig(appId, orgId, document)).rejects.toThrow(
+                "Could not resolve this application's repository",
+            );
+            expect(await harness.db.previewkitConfig.findUnique({ where: { applicationId: appId } })).toBeNull();
+
+            // The editor's live validation reports the same block as data.
+            const validation = await manager.validatePreviewkitConfig(appId, orgId, document);
+            expect(validation.valid).toBe(false);
+            expect(validation.issues).toContainEqual(
+                expect.objectContaining({ code: "primary_repository_unresolved", severity: "error" }),
+            );
+        });
+
+        test("savePreviewkitConfig warns on inaccessible repos and rejects a topology skipping the primary repo", async ({
             harness,
             seedResult: { orgId, createApp },
         }) => {
             const appId = await createApp();
             await linkRepository(harness, appId, 93_020);
-            const depRepo: FakeRepo = { id: 93_021, name: "api", fullName: "acme/api", defaultBranch: "main" };
-            const { github, applications } = buildTopologyServices(harness, orgId, [depRepo]);
+            // The installation can see only the primary repo - acme/api is not granted.
+            const { github, applications } = buildTopologyServices(harness, orgId, [
+                { id: 93_020, name: "web", fullName: "acme/web", defaultBranch: "main" },
+            ]);
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 github,
                 applications,
@@ -307,28 +347,37 @@ integrationTestSuite({
             await setStep(harness, appId, "preview_environment");
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
 
-            await expect(
-                manager.savePreviewkitConfig(
-                    appId,
-                    orgId,
-                    { version: 1, apps: [{ name: "web", path: ".", port: 3000, primary: true }] },
-                    [
-                        {
-                            repo: "acme/api",
-                            document: { version: 1, apps: [{ name: "api-app", path: ".", port: 4000 }] },
-                        },
-                    ],
-                ),
-            ).rejects.toThrow("is not declared in the primary config's multirepo.repos");
+            // An app on a repo the installation cannot access saves fine, but the
+            // warning surfaces so the user learns the app would be skipped at deploy.
+            const saved = await manager.savePreviewkitConfig(appId, orgId, multiRepoDocument());
+            expect(saved.saved).toBe(true);
+            expect(saved.warnings).toContainEqual(
+                expect.objectContaining({
+                    code: "repository_not_accessible",
+                    severity: "warning",
+                    path: ["apps", 1, "repository"],
+                }),
+            );
 
+            // A document with NO app on the Application's own repo would never
+            // deploy the PR's code - that is a blocking error.
             await expect(
-                manager.savePreviewkitConfig(appId, orgId, primaryDocumentWithDependency(), [
-                    {
-                        repo: "acme/api",
-                        document: { version: 1, apps: [{ name: "web", path: ".", port: 4000 }] },
-                    },
-                ]),
-            ).rejects.toThrow("names must be unique across the merged preview topology");
+                manager.savePreviewkitConfig(appId, orgId, {
+                    version: 2,
+                    apps: [{ name: "api-app", repository: "acme/api", path: ".", port: 4000, primary: true }],
+                }),
+            ).rejects.toThrow(/No app builds from this application's repository "acme\/web"/);
+
+            // Duplicate names across repos are ordinary within-document schema errors.
+            await expect(
+                manager.savePreviewkitConfig(appId, orgId, {
+                    version: 2,
+                    apps: [
+                        { name: "web", repository: "acme/web", path: ".", port: 3000, primary: true },
+                        { name: "web", repository: "acme/api", path: ".", port: 4000 },
+                    ],
+                }),
+            ).rejects.toThrow("names must be unique across apps and services");
         });
 
         test("triggerPreviewkitMainDeploy rejects a semantically invalid saved config", async ({
@@ -353,8 +402,17 @@ integrationTestSuite({
                 data: {
                     applicationId: appId,
                     document: {
-                        version: 1,
-                        apps: [{ name: "web", path: ".", port: 3000, primary: true, depends_on: ["ghost"] }],
+                        version: 2,
+                        apps: [
+                            {
+                                name: "web",
+                                repository: "acme/web",
+                                path: ".",
+                                port: 3000,
+                                primary: true,
+                                depends_on: ["ghost"],
+                            },
+                        ],
                     },
                 },
             });
@@ -371,13 +429,13 @@ integrationTestSuite({
             const appId = await createApp();
             const githubRepositoryId = 93_040;
             const repoFullName = `acme/web-${appId}`;
-            await linkRepository(harness, appId, githubRepositoryId);
+            await linkRepository(harness, appId, githubRepositoryId, repoFullName);
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption);
             await setStep(harness, appId, "preview_environment");
             await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
             await manager.savePreviewkitConfig(appId, orgId, {
-                version: 1,
-                apps: [{ name: "web", path: "apps/web", port: 3000, primary: true }],
+                version: 2,
+                apps: [{ name: "web", repository: repoFullName, path: "apps/web", port: 3000, primary: true }],
                 services: [],
             });
             await harness.db.onboardingState.update({
@@ -396,13 +454,13 @@ integrationTestSuite({
                     status: "failed",
                     phase: "building-images",
                     urls: {},
-                    // Merged snapshot includes a dependency-repo app the primary
-                    // config knows nothing about - field paths must still resolve.
+                    // The resolved snapshot spans repos: the dependency-repo app is an
+                    // ordinary entry of the one document - field paths must still resolve.
                     resolvedConfig: {
-                        version: 1,
+                        version: 2,
                         apps: [
-                            { name: "web", path: "apps/web", port: 3000, primary: true },
-                            { name: "api-app", path: "missing/dir", port: 4000 },
+                            { name: "web", repository: repoFullName, path: "apps/web", port: 3000, primary: true },
+                            { name: "api-app", repository: "acme/api", path: "missing/dir", port: 4000 },
                         ],
                         services: [],
                     },
@@ -490,12 +548,33 @@ integrationTestSuite({
  * Every case shares the suite's one organization, and `github_repository_id` is unique per
  * organization - so each case must pass a `githubRepositoryId` no other case in this file uses.
  */
-async function linkRepository(harness: OnboardingTestHarness, applicationId: string, githubRepositoryId: number) {
-    await harness.db.application.update({
+async function linkRepository(
+    harness: OnboardingTestHarness,
+    applicationId: string,
+    githubRepositoryId: number,
+    repoFullName = "acme/web",
+) {
+    const application = await harness.db.application.update({
         where: { id: applicationId },
         data: {
             githubRepositoryId,
             signingSecretEnc: fakeEncryption.encrypt("shared-secret"),
+        },
+        select: { organizationId: true },
+    });
+    // Saves refuse an unresolvable primary repo. Cases whose fake GitHub listing
+    // does not carry this id resolve through the PreviewkitEnvironment fallback,
+    // so seed one row naming the repo (unique on (repoFullName, prNumber) - the
+    // per-case-unique github id doubles as the PR number).
+    await harness.db.previewkitEnvironment.create({
+        data: {
+            namespace: `preview-seed-${githubRepositoryId}`,
+            repoFullName,
+            prNumber: githubRepositoryId,
+            headSha: "seed000",
+            headRef: "main",
+            githubRepositoryId,
+            organizationId: application.organizationId,
         },
     });
 }
@@ -512,11 +591,20 @@ async function setStep(
     });
 }
 
-function primaryDocumentWithDependency() {
+/**
+ * A whole multi-repo topology in ONE document: the primary-repo app plus a
+ * dependency-repo app, the dependency repo's defaults overridden in
+ * `repositories[]`. `depends_on` crosses repos freely - "db" is declared
+ * alongside the primary app and semantics validate the whole topology.
+ */
+function multiRepoDocument() {
     return {
-        version: 1,
-        config: { multirepo: { repos: [{ name: "api", repo: "acme/api", fallback_branch: "main" }] } },
-        apps: [{ name: "web", path: ".", port: 3000, primary: true }],
+        version: 2,
+        repositories: [{ repo: "acme/api", fallback_branch: "main" }],
+        apps: [
+            { name: "web", repository: "acme/web", path: ".", port: 3000, primary: true },
+            { name: "api-app", repository: "acme/api", path: ".", port: 4000, depends_on: ["db"] },
+        ],
         services: [{ name: "db", recipe: "postgres", version: "16" }],
     };
 }

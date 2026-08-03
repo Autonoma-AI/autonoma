@@ -18,6 +18,7 @@ const defaultPublicUrlInfo = {
 const apps: AppConfig[] = [
     {
         name: "web",
+        repository: "acme-corp/my-repo",
         path: "./apps/web",
         port: 3000,
         connections: [],
@@ -26,6 +27,7 @@ const apps: AppConfig[] = [
     },
     {
         name: "api",
+        repository: "acme-corp/my-repo",
         path: "./apps/api",
         port: 4000,
         connections: [],

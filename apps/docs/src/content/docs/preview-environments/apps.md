@@ -72,6 +72,7 @@ A few fields apply to every app, whichever build method you pick:
 | Field | What it does |
 | --- | --- |
 | **Name** | Lowercase identifier used in resource names and the preview URL. |
+| **Repository** | The GitHub repository (`owner/repo`) the app builds from. Defaults to the repository you open pull requests against; any other value pulls the app from a [connected repository](/preview-environments/multirepo/). |
 | **Port** | The port your app listens on inside the container. |
 
 ### The frontend app

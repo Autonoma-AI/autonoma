@@ -2,6 +2,7 @@ import {
     authoringPreviewConfigSchema,
     hasConnectionToken,
     isPreviewkitDatabaseEngine,
+    isSameRepository,
     PREVIEWKIT_RUNTIME_CATALOG,
     validateHookSteps,
     validatePreviewConfigSemantics,
@@ -16,8 +17,6 @@ import {
 /** The runtime a fresh app starts on (Manual is the default build method). */
 const DEFAULT_RUNTIME: PreviewkitRuntime = "node";
 import { z } from "zod";
-
-export const PRIMARY_REPO_KEY = "primary";
 
 export type ServiceRecipe =
     | "postgres"
@@ -131,8 +130,8 @@ export type AppBuildMode = "auto" | "dockerfile" | "runtime";
 
 export interface AppDraft {
     id: number;
-    /** `PRIMARY_REPO_KEY` or a dependency repo alias (`RepoDraft.name`). */
-    repoKey: string;
+    /** `owner/repo` full name of the repository this app builds from (compiles to `apps[].repository`). */
+    repository: string;
     name: string;
     path: string;
     buildContext: string;
@@ -203,8 +202,8 @@ export type SetupTaskLocationType = "in_build" | "separate_job";
 /**
  * One database setup command (schema, seed, or migration) in the editor. Compiles
  * to a `setup_tasks` entry. `app` + `position` apply when `locationType` is
- * `in_build`; `repo` (a dependency-repo alias, blank = the primary repo) applies
- * when `separate_job`. `id` is a stable React key (mirrors {@link ServiceDraft}).
+ * `in_build`; `repo` (an `owner/repo` full name, blank = the primary repo)
+ * applies when `separate_job`. `id` is a stable React key (mirrors {@link ServiceDraft}).
  */
 export interface SetupTaskDraft {
     id: number;
@@ -241,13 +240,6 @@ export function serviceEnvRow(key = "", value = ""): ServiceEnvDraft {
 
 export interface ServiceDraft {
     id: number;
-    /**
-     * Which document declares this service: {@link PRIMARY_REPO_KEY}, or a
-     * dependency repo's multirepo alias. The deploy merges every document into one
-     * topology, so a dependency repo can declare its own database or cache; the tag
-     * is what sends the service back to the document it came from on save.
-     */
-    repoKey: string;
     recipe: ServiceRecipe;
     name: string;
     version: string;
@@ -280,12 +272,12 @@ export interface ServiceDraft {
     optionsPassthrough: Record<string, unknown>;
 }
 
+/** One DEPENDENCY repository of the topology (the primary repo lives on {@link TopologyDraft.primaryRepository}). */
 export interface RepoDraft {
     id: number;
-    /** Kubernetes-safe alias used in `config.multirepo.repos[].name`. */
-    name: string;
     /** Repo full name (`owner/repo`). */
     repo: string;
+    /** Compiles to the repo's `repositories[].fallback_branch`; blank means the default (`main`). */
     fallbackBranch: string;
     githubRepositoryId?: number;
 }
@@ -306,8 +298,6 @@ export type HookGroup = "pre_deploy" | "post_deploy";
  */
 export interface HookDraft {
     id: number;
-    /** Which document declares this step. See {@link ServiceDraft.repoKey}. */
-    repoKey: string;
     app: string;
     command: string;
 }
@@ -321,11 +311,14 @@ export interface HooksDraft {
 export type DocumentPassthrough = Pick<PreviewConfig, "domain" | "registry">;
 
 export interface TopologyDraft {
+    /** The Application's own repo full name (`owner/repo`) - what a fresh app's `repository` defaults to. */
+    primaryRepository: string;
     apps: AppDraft[];
     services: ServiceDraft[];
+    /** Dependency repositories (the primary is not listed here). */
     repos: RepoDraft[];
     branchConvention: BranchConventionDraft;
-    /** Pre/post-deploy hooks, authored on the primary repo. Empty groups by default. */
+    /** Pre/post-deploy hooks. Empty groups by default. */
     hooks: HooksDraft;
     passthrough: Partial<DocumentPassthrough>;
 }
@@ -336,11 +329,6 @@ export interface CompiledDocument {
     indexToDraftId: Map<number, number>;
 }
 
-export interface CompiledTopology {
-    primary: CompiledDocument;
-    dependencies: Array<CompiledDocument & { alias: string; repo: string }>;
-}
-
 let draftIdCounter = 1;
 
 export function nextDraftId(): number {
@@ -348,31 +336,14 @@ export function nextDraftId(): number {
     return draftIdCounter;
 }
 
-/**
- * Sanitizes a repo name into a Kubernetes-safe alias (`config.multirepo.repos[].name`),
- * suffixing `-2`, `-3`, ... until it is unique among the aliases already in use.
- */
-export function repoAliasFrom(name: string, existingAliases: readonly string[]): string {
-    const base = name
-        .toLowerCase()
-        .replace(/[^a-z0-9-]+/g, "-")
-        .replace(/^-+|-+$/g, "");
-    const sanitized = base === "" ? "repo" : base;
-    const taken = new Set(existingAliases);
-    if (!taken.has(sanitized)) return sanitized;
-    let suffix = 2;
-    while (taken.has(`${sanitized}-${suffix}`)) suffix += 1;
-    return `${sanitized}-${suffix}`;
-}
-
-export function emptyAppDraft(repoKey: string, origin: AppDraftOrigin = "manual"): AppDraft {
+export function emptyAppDraft(repository: string, origin: AppDraftOrigin = "manual"): AppDraft {
     // A fresh app defaults to Manual mode (auto-detect is no longer a choice),
     // seeded with the default runtime's build script + entrypoint so it is valid
     // out of the box rather than failing on a required-but-empty entrypoint.
     const defaults = PREVIEWKIT_RUNTIME_CATALOG[DEFAULT_RUNTIME];
     return {
         id: nextDraftId(),
-        repoKey,
+        repository,
         name: "",
         path: ".",
         buildContext: "",
@@ -416,9 +387,6 @@ export function serviceDraftForRecipe(recipe: ServiceRecipe, existingNames: stri
     const option = SERVICE_OPTIONS.find((candidate) => candidate.recipe === recipe);
     return {
         id: nextDraftId(),
-        // A service attached from the catalog belongs to the primary document: the
-        // editor only ever adds to the repo the user is onboarding.
-        repoKey: PRIMARY_REPO_KEY,
         recipe,
         name: uniqueServiceName(option?.defaultName ?? recipe, existingNames),
         version: option?.version ?? "",
@@ -435,36 +403,54 @@ export function serviceDraftForRecipe(recipe: ServiceRecipe, existingNames: stri
     };
 }
 
-/** Hydrates the form draft from the saved primary document plus per-repo dependency documents. */
+/** One repository of the topology as the API's `getPreviewkitConfig.repos` reports it. */
+export interface TopologyRepoInput {
+    /** Repo full name (`owner/repo`). */
+    repo: string;
+    /** Whether this is the Application's own repository. */
+    primary: boolean;
+    githubRepositoryId?: number;
+}
+
+/** Hydrates the form draft from the saved document plus the API's resolved repo list. */
 export function draftFromConfig(
-    primary: PreviewConfig,
-    dependencies: Array<{ name: string; repo: string; githubRepositoryId?: number; document?: PreviewConfig }>,
+    document: PreviewConfig,
+    repos: readonly TopologyRepoInput[],
     mode: "saved" | "starter" = "saved",
 ): TopologyDraft {
-    const repos: RepoDraft[] = (primary.config?.multirepo?.repos ?? []).map((dep) => {
-        const match = dependencies.find((candidate) => candidate.name === dep.name);
+    const primaryRepository =
+        repos.find((repo) => repo.primary)?.repo ?? document.apps[0]?.repository ?? "unknown/unknown";
+
+    // Dependency repos: every non-primary repo the API resolved (derived from the
+    // document's apps), joined with the document's `repositories[]` settings for
+    // the fallback branch. A settings entry alone (no app) still gets a card so
+    // its fallback branch stays editable instead of silently dropping on save.
+    const settingsRepos = document.repositories.filter(
+        (settings) => !isSameRepository(settings.repo, primaryRepository),
+    );
+    const repoDrafts: RepoDraft[] = [];
+    for (const candidate of [
+        ...repos.filter((repo) => !repo.primary).map((repo) => repo.repo),
+        ...settingsRepos.map((settings) => settings.repo),
+    ]) {
+        if (repoDrafts.some((existing) => isSameRepository(existing.repo, candidate))) continue;
+        const settings = document.repositories.find((entry) => isSameRepository(entry.repo, candidate));
+        const resolved = repos.find((repo) => isSameRepository(repo.repo, candidate));
         const repoDraft: RepoDraft = {
             id: nextDraftId(),
-            name: dep.name,
-            repo: dep.repo,
-            fallbackBranch: dep.fallback_branch,
+            repo: candidate,
+            fallbackBranch: settings?.fallback_branch ?? "main",
         };
-        if (match?.githubRepositoryId != null) repoDraft.githubRepositoryId = match.githubRepositoryId;
-        return repoDraft;
-    });
+        if (resolved?.githubRepositoryId != null) repoDraft.githubRepositoryId = resolved.githubRepositoryId;
+        repoDrafts.push(repoDraft);
+    }
 
     // Fresh starter apps are real, editable apps from birth (origin "manual"):
     // they carry a complete seeded build block and are immediately deployable, so
     // there is no separate "untouched starter" state to unlock.
-    const apps = primary.apps.map((app) =>
-        appDraftFromConfig(app, PRIMARY_REPO_KEY, mode === "starter" ? "manual" : "saved"),
-    );
-    for (const dependency of dependencies) {
-        if (dependency.document == null) continue;
-        apps.push(...dependency.document.apps.map((app) => appDraftFromConfig(app, dependency.name, "saved")));
-    }
+    const apps = document.apps.map((app) => appDraftFromConfig(app, mode === "starter" ? "manual" : "saved"));
 
-    const convention = primary.config?.multirepo?.branch_convention;
+    const convention = document.branch_convention;
     const branchConvention: BranchConventionDraft =
         convention == null
             ? { type: "none" }
@@ -473,49 +459,33 @@ export function draftFromConfig(
               : { type: convention.type };
 
     const passthrough: Partial<DocumentPassthrough> = {};
-    if (primary.domain != null) passthrough.domain = primary.domain;
-    if (primary.registry != null) passthrough.registry = primary.registry;
+    if (document.domain != null) passthrough.domain = document.domain;
+    if (document.registry != null) passthrough.registry = document.registry;
 
-    // Services and hooks are collected from EVERY document, each tagged with the
-    // one that declares it. A dependency repo commonly owns the database its own
-    // app connects to, so reading only the primary document leaves those services
-    // invisible in the editor - and their `{{name.property}}` tokens unresolvable -
-    // while a save would drop them from the document they live in.
     const services: ServiceDraft[] = [];
     const hooks: HooksDraft = { pre_deploy: [], post_deploy: [] };
     if (mode !== "starter") {
-        services.push(...primary.services.map((service) => serviceDraftFromConfig(service, PRIMARY_REPO_KEY)));
-        hooks.pre_deploy.push(...primary.hooks.pre_deploy.map((step) => hookDraftFromConfig(step, PRIMARY_REPO_KEY)));
-        hooks.post_deploy.push(...primary.hooks.post_deploy.map((step) => hookDraftFromConfig(step, PRIMARY_REPO_KEY)));
-        for (const dependency of dependencies) {
-            const document = dependency.document;
-            if (document == null) continue;
-            services.push(...document.services.map((service) => serviceDraftFromConfig(service, dependency.name)));
-            hooks.pre_deploy.push(
-                ...document.hooks.pre_deploy.map((step) => hookDraftFromConfig(step, dependency.name)),
-            );
-            hooks.post_deploy.push(
-                ...document.hooks.post_deploy.map((step) => hookDraftFromConfig(step, dependency.name)),
-            );
-        }
+        services.push(...document.services.map(serviceDraftFromConfig));
+        hooks.pre_deploy.push(...document.hooks.pre_deploy.map(hookDraftFromConfig));
+        hooks.post_deploy.push(...document.hooks.post_deploy.map(hookDraftFromConfig));
     }
 
     return {
+        primaryRepository,
         apps,
         hooks,
         services,
-        repos,
+        repos: repoDrafts,
         branchConvention,
         passthrough,
     };
 }
 
-function serviceDraftFromConfig(service: PreviewConfig["services"][number], repoKey: string): ServiceDraft {
+function serviceDraftFromConfig(service: PreviewConfig["services"][number]): ServiceDraft {
     const recipe = toServiceRecipe(service.recipe);
     const custom = customImageFieldsFromOptions(service.options);
     return {
         id: nextDraftId(),
-        repoKey,
         recipe,
         name: service.name,
         version: service.version ?? "",
@@ -532,8 +502,8 @@ function serviceDraftFromConfig(service: PreviewConfig["services"][number], repo
     };
 }
 
-function appDraftFromConfig(app: PreviewConfig["apps"][number], repoKey: string, origin: AppDraftOrigin): AppDraft {
-    const draft = emptyAppDraft(repoKey, origin);
+function appDraftFromConfig(app: PreviewConfig["apps"][number], origin: AppDraftOrigin): AppDraft {
+    const draft = emptyAppDraft(app.repository, origin);
     draft.name = app.name;
     draft.path = app.path;
     draft.buildContext = app.build_context ?? "";
@@ -577,8 +547,8 @@ function appDraftFromConfig(app: PreviewConfig["apps"][number], repoKey: string,
     return draft;
 }
 
-function hookDraftFromConfig(step: PreviewConfig["hooks"]["pre_deploy"][number], repoKey: string): HookDraft {
-    return { id: nextDraftId(), repoKey, app: step.app, command: step.command };
+function hookDraftFromConfig(step: PreviewConfig["hooks"]["pre_deploy"][number]): HookDraft {
+    return { id: nextDraftId(), app: step.app, command: step.command };
 }
 
 function setupTaskDraftFromConfig(task: PreviewConfig["services"][number]["setup_tasks"][number]): SetupTaskDraft {
@@ -729,48 +699,39 @@ function readReadinessDraft(value: unknown): ServiceReadinessDraft {
 }
 
 /**
- * Compiles the form draft into the primary document plus one document per
- * dependency repo. Every app, service and hook is written back to the document
- * whose `repoKey` it carries, so a dependency repo keeps the services and hooks it
- * declared: emitting them only on the primary document would move a dependency's
- * database into the wrong repo, and emitting none would delete it.
+ * Compiles the form draft into the single config document. Every app carries its
+ * `repository`; dependency repos with a non-default fallback branch get a
+ * `repositories[]` settings entry.
  */
-export function documentsFromDraft(draft: TopologyDraft): CompiledTopology {
-    const primary = compileDocument(draft, PRIMARY_REPO_KEY);
-
-    const dependencies = draft.repos.map((repo) => {
-        const compiled = compileDocument(draft, repo.name);
-        return { ...compiled, alias: repo.name, repo: repo.repo };
-    });
-
-    return { primary, dependencies };
-}
-
-function compileDocument(draft: TopologyDraft, repoKey: string): CompiledDocument {
-    const isPrimary = repoKey === PRIMARY_REPO_KEY;
-    const apps = draft.apps.filter((app) => app.repoKey === repoKey);
-    const services = draft.services.filter((service) => service.repoKey === repoKey);
-    const hooks: HooksDraft = {
-        pre_deploy: draft.hooks.pre_deploy.filter((step) => step.repoKey === repoKey),
-        post_deploy: draft.hooks.post_deploy.filter((step) => step.repoKey === repoKey),
-    };
+export function documentFromDraft(draft: TopologyDraft): CompiledDocument {
     const indexToDraftId = new Map<number, number>();
-    const compiledApps = apps.map((app, index) => {
+    const compiledApps = draft.apps.map((app, index) => {
         indexToDraftId.set(index, app.id);
         return compileApp(app);
     });
 
-    const document: Record<string, unknown> = { version: 1 };
+    const document: Record<string, unknown> = { version: 2 };
 
-    if (isPrimary) {
-        if (draft.passthrough.domain != null) document.domain = draft.passthrough.domain;
-        if (draft.passthrough.registry != null) document.registry = draft.passthrough.registry;
-        const multirepo = compileMultirepo(draft);
-        if (multirepo != null) document.config = { multirepo };
+    if (draft.passthrough.domain != null) document.domain = draft.passthrough.domain;
+    if (draft.passthrough.registry != null) document.registry = draft.passthrough.registry;
+
+    const repositories = draft.repos.map((repo) => ({
+        repo: repo.repo.trim(),
+        fallback_branch: repo.fallbackBranch.trim() === "" ? "main" : repo.fallbackBranch.trim(),
+    }));
+    if (repositories.length > 0) document.repositories = repositories;
+    if (draft.branchConvention.type === "regex") {
+        document.branch_convention = {
+            type: "regex",
+            pattern: draft.branchConvention.pattern,
+            replacement: draft.branchConvention.replacement,
+        };
+    } else if (draft.branchConvention.type !== "none") {
+        document.branch_convention = { type: draft.branchConvention.type };
     }
 
     document.apps = compiledApps;
-    document.services = services.map((service) => {
+    document.services = draft.services.map((service) => {
         const compiled: Record<string, unknown> = { name: service.name.trim(), recipe: service.recipe };
         if (service.version.trim() !== "") compiled.version = service.version.trim();
         const options = compileServiceOptions(service);
@@ -780,7 +741,7 @@ function compileDocument(draft: TopologyDraft, repoKey: string): CompiledDocumen
         return compiled;
     });
 
-    const compiledHooks = compileHooks(hooks);
+    const compiledHooks = compileHooks(draft.hooks);
     if (compiledHooks != null) document.hooks = compiledHooks;
 
     return { document, indexToDraftId };
@@ -959,6 +920,7 @@ export function hookFieldErrors(hooks: HooksDraft, appNames: string[]): Map<stri
 function compileApp(app: AppDraft): Record<string, unknown> {
     const compiled: Record<string, unknown> = {
         name: app.name.trim(),
+        repository: app.repository.trim(),
         path: app.path.trim() === "" ? "." : app.path.trim(),
     };
     if (app.buildContext.trim() !== "") compiled.build_context = app.buildContext.trim();
@@ -1207,33 +1169,10 @@ export function diffAppSecrets(envRows: EnvRowDraft[], loadedSecretKeys: string[
     return { upserts, deletes };
 }
 
-function compileMultirepo(draft: TopologyDraft): Record<string, unknown> | undefined {
-    if (draft.repos.length === 0 && draft.branchConvention.type === "none") return undefined;
-
-    const multirepo: Record<string, unknown> = {
-        repos: draft.repos.map((repo) => ({
-            name: repo.name.trim(),
-            repo: repo.repo.trim(),
-            fallback_branch: repo.fallbackBranch.trim() === "" ? "main" : repo.fallbackBranch.trim(),
-        })),
-    };
-
-    if (draft.branchConvention.type === "regex") {
-        multirepo.branch_convention = {
-            type: "regex",
-            pattern: draft.branchConvention.pattern,
-            replacement: draft.branchConvention.replacement,
-        };
-    } else if (draft.branchConvention.type !== "none") {
-        multirepo.branch_convention = { type: draft.branchConvention.type };
-    }
-
-    return multirepo;
-}
-
 /** Field keys the app card understands; everything else lands in `documentErrors`. */
 export const APP_DRAFT_FIELDS = [
     "name",
+    "repository",
     "path",
     "buildMode",
     "buildContext",
@@ -1278,6 +1217,7 @@ export function fieldIssueKey(draftId: number, field: AppDraftField): string {
  */
 const APP_FIELD_LOCATIONS: Record<AppDraftField, { label: string; tab: string }> = {
     name: { label: "Name", tab: "Overview" },
+    repository: { label: "Repository", tab: "Overview" },
     path: { label: "Path", tab: "Overview" },
     buildMode: { label: "Build method", tab: "Overview" },
     buildContext: { label: "Root directory", tab: "Overview" },
@@ -1390,6 +1330,7 @@ export function mapIssuesToDraft(
 
 const APP_FIELD_BY_DOCUMENT_KEY: Record<string, AppDraftField> = {
     name: "name",
+    repository: "repository",
     path: "path",
     build_context: "buildContext",
     dockerfile: "dockerfile",
@@ -1439,39 +1380,33 @@ export function snapshotDocument(document: Record<string, unknown>): string {
 }
 
 /**
- * Applies a new dependency-repo list to the draft: a renamed repo carries its apps,
- * services and hooks along, and a dropped one takes all three with it. Every one of
- * them is declared by the document its `repoKey` names, so an item left behind under
- * a dead tag would keep showing in the editor while no document would ever emit it
- * again. Callers still prune `depends_on` and hook targets afterwards.
+ * Applies a new dependency-repo list to the draft: a repo whose full name was
+ * edited carries its apps along (their `repository` is rewritten), and a dropped
+ * repo takes its apps with it - an app left pointing at a repo no card names
+ * would keep showing in the editor while the deploy skips it. Services and hooks
+ * live on the single document and are untouched; callers still prune
+ * `depends_on` and hook targets afterwards.
  */
 export function draftWithRepos(draft: TopologyDraft, repos: RepoDraft[]): TopologyDraft {
-    const oldNameById = new Map(draft.repos.map((repo) => [repo.id, repo.name]));
-    const renameByOldName = new Map<string, string>();
+    const oldRepoById = new Map(draft.repos.map((repo) => [repo.id, repo.repo]));
+    const renameByOldRepo = new Map<string, string>();
     for (const repo of repos) {
-        const oldName = oldNameById.get(repo.id);
-        if (oldName != null && oldName !== repo.name) renameByOldName.set(oldName, repo.name);
+        const oldRepo = oldRepoById.get(repo.id);
+        if (oldRepo != null && oldRepo !== repo.repo) renameByOldRepo.set(oldRepo.toLowerCase(), repo.repo);
     }
-    const validKeys = new Set([PRIMARY_REPO_KEY, ...repos.map((repo) => repo.name)]);
+    const validRepos = new Set([
+        draft.primaryRepository.toLowerCase(),
+        ...repos.map((repo) => repo.repo.toLowerCase()),
+    ]);
 
-    const retag = <T extends { repoKey: string }>(items: T[]): T[] =>
-        items
-            .map((item) => {
-                const renamed = renameByOldName.get(item.repoKey);
-                return renamed != null ? { ...item, repoKey: renamed } : item;
-            })
-            .filter((item) => validKeys.has(item.repoKey));
+    const apps = draft.apps
+        .map((app) => {
+            const renamed = renameByOldRepo.get(app.repository.toLowerCase());
+            return renamed != null ? { ...app, repository: renamed } : app;
+        })
+        .filter((app) => validRepos.has(app.repository.toLowerCase()));
 
-    return {
-        ...draft,
-        repos,
-        apps: retag(draft.apps),
-        services: retag(draft.services),
-        hooks: {
-            pre_deploy: retag(draft.hooks.pre_deploy),
-            post_deploy: retag(draft.hooks.post_deploy),
-        },
-    };
+    return { ...draft, repos, apps };
 }
 
 /**
@@ -1495,85 +1430,22 @@ export function pruneDanglingDependsOn(draft: TopologyDraft): TopologyDraft {
 }
 
 /**
- * The client-side gate the save bar reads: schema issues per document, each mapped
- * onto that document's own draft rows, plus semantics on the MERGED topology.
+ * The client-side gate the save bar reads: schema issues on the compiled
+ * document, mapped onto the draft rows, plus the shared semantic checks - the
+ * same rules the API validates on save, so the button's state matches the
+ * answer the request would get.
  *
- * Semantics have to run on the merge because a reference may legitimately cross
- * documents - a primary-repo app wired to `{{api.url}}` where `api` is declared in a
- * dependency repo, or a dependency app wired to a database its own document owns.
- * Judging one document alone reads every crossing reference as dangling and disables
- * Save for the whole project. It is also what the API validates on save, so the
- * button's state matches the answer the request would get.
- *
- * Hooks are deliberately left out of the merge: `hookFieldErrors` reports them
- * per-row instead.
+ * Hooks are deliberately left out: `hookFieldErrors` reports them per-row instead.
  */
-export function validateDraftClientSide(compiled: CompiledTopology): DraftIssues {
+export function validateDraftClientSide(compiled: CompiledDocument): DraftIssues {
     const result = emptyDraftIssues();
 
-    const allDocuments = [
-        { label: "primary repo", ...compiled.primary },
-        ...compiled.dependencies.map((dependency) => ({ label: dependency.repo, ...dependency })),
-    ];
-
-    const mergedApps: unknown[] = [];
-    const mergedServices: unknown[] = [];
-    const mergedIndexToDraftId = new Map<number, number>();
-
-    for (const entry of allDocuments) {
-        const parsed = authoringPreviewConfigSchema.safeParse(entry.document);
-        if (!parsed.success) {
-            const issues = zodIssuesToConfigIssues(parsed.error).map((issue) =>
-                labelDocumentIssue(issue, entry.label, allDocuments.length > 1),
-            );
-            mapIssuesToDraft(issues, entry.indexToDraftId, result);
-        }
-
-        const apps = entry.document.apps;
-        if (Array.isArray(apps)) {
-            for (const [index, app] of apps.entries()) {
-                const draftId = entry.indexToDraftId.get(index);
-                if (draftId != null) mergedIndexToDraftId.set(mergedApps.length, draftId);
-                mergedApps.push(app);
-            }
-        }
-        // Every document's services, not just the primary's: a dependency
-        // repo declares the database its own app connects to.
-        const services = entry.document.services;
-        if (Array.isArray(services)) mergedServices.push(...services);
+    const parsed = authoringPreviewConfigSchema.safeParse(compiled.document);
+    if (!parsed.success) {
+        mapIssuesToDraft(zodIssuesToConfigIssues(parsed.error), compiled.indexToDraftId, result);
+        return result;
     }
 
-    const merged = authoringPreviewConfigSchema.safeParse({
-        version: 1,
-        apps: mergedApps,
-        services: mergedServices,
-        // The primary document is the only one that declares the dependency repos, and
-        // semantics need them: a database setup task can run as a separate job out of a
-        // dependency repo (`location.repo`), which reads as an unknown repository when
-        // the merged document carries no `multirepo` block.
-        config: compiled.primary.document.config,
-    });
-    if (merged.success) {
-        const issues = validatePreviewConfigSemantics(merged.data);
-        mapIssuesToDraft(issues, mergedIndexToDraftId, result);
-    } else if (mergedApps.length > 0) {
-        // Cross-document duplicate names surface here (the schema's uniqueness
-        // refine runs per document otherwise).
-        const issues = zodIssuesToConfigIssues(merged.error).filter((issue) => issue.path.length === 0);
-        mapIssuesToDraft(issues, mergedIndexToDraftId, result);
-    }
-
+    mapIssuesToDraft(validatePreviewConfigSemantics(parsed.data), compiled.indexToDraftId, result);
     return result;
-}
-
-/**
- * Prefixes a document-level message with the repo it came from, when there is more
- * than one. An issue that names an app INDEX (`apps.0.port`) is left alone: it renders
- * inline on that app's field, where the repo is already obvious. One that only names
- * the collection (`apps`, from the at-least-one-app rule) goes to the document banner,
- * where "At least one app is required" is baffling next to a primary repo full of apps.
- */
-function labelDocumentIssue(issue: ConfigIssue, label: string, multiRepo: boolean): ConfigIssue {
-    if (!multiRepo || (issue.path[0] === "apps" && typeof issue.path[1] === "number")) return issue;
-    return { ...issue, message: `${label}: ${issue.message}` };
 }

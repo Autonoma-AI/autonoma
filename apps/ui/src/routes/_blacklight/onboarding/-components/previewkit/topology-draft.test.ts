@@ -9,7 +9,7 @@ import {
     NEW_VARIABLE_BUILD_TIME,
     dedupeSecretRows,
     diffAppSecrets,
-    documentsFromDraft,
+    documentFromDraft,
     draftFromConfig,
     draftWithRepos,
     envRow,
@@ -22,55 +22,61 @@ import {
     parseDotenv,
     validateDraftClientSide,
     withSecretRows,
-    PRIMARY_REPO_KEY,
     type HooksDraft,
+    type TopologyRepoInput,
 } from "./topology-draft";
+
+const PRIMARY_REPO = "acme/web";
+const PRIMARY_REPOS: TopologyRepoInput[] = [{ repo: PRIMARY_REPO, primary: true }];
 
 describe("topology-draft hooks", () => {
     it("round-trips pre- and post-deploy hooks through draft and back", () => {
         const config = previewConfigSchema.parse({
-            version: 1,
-            apps: [{ name: "api", port: 4000 }],
+            version: 2,
+            apps: [{ name: "api", repository: PRIMARY_REPO, port: 4000 }],
             hooks: {
                 pre_deploy: [{ app: "api", command: "npx prisma migrate deploy" }],
                 post_deploy: [{ app: "api", command: "npm run seed" }],
             },
         });
 
-        const draft = draftFromConfig(config, [], "saved");
+        const draft = draftFromConfig(config, PRIMARY_REPOS, "saved");
         expect(draft.hooks.pre_deploy).toHaveLength(1);
         expect(draft.hooks.post_deploy).toHaveLength(1);
 
-        const reparsed = previewConfigSchema.parse(documentsFromDraft(draft).primary.document);
+        const reparsed = previewConfigSchema.parse(documentFromDraft(draft).document);
         expect(reparsed.hooks.pre_deploy).toEqual([{ app: "api", command: "npx prisma migrate deploy" }]);
         expect(reparsed.hooks.post_deploy).toEqual([{ app: "api", command: "npm run seed" }]);
     });
 
     it("drops fully-empty hook rows when compiling", () => {
         const config = previewConfigSchema.parse({
-            version: 1,
-            apps: [{ name: "api", port: 4000 }],
+            version: 2,
+            apps: [{ name: "api", repository: PRIMARY_REPO, port: 4000 }],
             hooks: { post_deploy: [{ app: "api", command: "npm run seed" }] },
         });
 
-        const draft = draftFromConfig(config, [], "saved");
+        const draft = draftFromConfig(config, PRIMARY_REPOS, "saved");
         // A blank row the user added but never filled in must not reach the document.
-        draft.hooks.post_deploy.push({ id: nextDraftId(), repoKey: PRIMARY_REPO_KEY, app: "", command: "" });
+        draft.hooks.post_deploy.push({ id: nextDraftId(), app: "", command: "" });
 
-        const reparsed = previewConfigSchema.parse(documentsFromDraft(draft).primary.document);
+        const reparsed = previewConfigSchema.parse(documentFromDraft(draft).document);
         expect(reparsed.hooks.post_deploy).toEqual([{ app: "api", command: "npm run seed" }]);
     });
 
     it("omits the hooks block entirely when there are no hooks", () => {
-        const config = previewConfigSchema.parse({ version: 1, apps: [{ name: "api", port: 4000 }] });
-        const draft = draftFromConfig(config, [], "saved");
-        expect(documentsFromDraft(draft).primary.document).not.toHaveProperty("hooks");
+        const config = previewConfigSchema.parse({
+            version: 2,
+            apps: [{ name: "api", repository: PRIMARY_REPO, port: 4000 }],
+        });
+        const draft = draftFromConfig(config, PRIMARY_REPOS, "saved");
+        expect(documentFromDraft(draft).document).not.toHaveProperty("hooks");
     });
 
     it("flags a hook that references an unknown app", () => {
         const config = previewConfigSchema.parse({
-            version: 1,
-            apps: [{ name: "api", port: 4000 }],
+            version: 2,
+            apps: [{ name: "api", repository: PRIMARY_REPO, port: 4000 }],
             hooks: { post_deploy: [{ app: "web", command: "echo hi" }] },
         });
 
@@ -80,30 +86,22 @@ describe("topology-draft hooks", () => {
 });
 
 describe("topology-draft multirepo round-trip", () => {
-    const DEP_ALIAS = "be";
     const DEP_REPO = "acme/api";
+    const TOPOLOGY_REPOS: TopologyRepoInput[] = [
+        { repo: PRIMARY_REPO, primary: true, githubRepositoryId: 101 },
+        { repo: DEP_REPO, primary: false, githubRepositoryId: 202 },
+    ];
 
-    /** A primary document that declares one dependency repo and owns nothing else. */
-    function primaryDocument() {
+    /** One document spanning two repos: the dependency app owns the services it connects to. */
+    function multirepoDocument() {
         return previewConfigSchema.parse({
-            version: 1,
-            config: { multirepo: { repos: [{ name: DEP_ALIAS, repo: DEP_REPO, fallback_branch: "main" }] } },
-            apps: [{ name: "web", port: 80, primary: true }],
-            services: [],
-        });
-    }
-
-    /**
-     * A dependency document that owns its app, the services that app connects to, and
-     * a pre-deploy hook: everything the merged deploy topology sees but the primary
-     * document cannot express.
-     */
-    function dependencyDocument() {
-        return previewConfigSchema.parse({
-            version: 1,
+            version: 2,
+            repositories: [{ repo: DEP_REPO, fallback_branch: "develop" }],
             apps: [
+                { name: "web", repository: PRIMARY_REPO, port: 80, primary: true },
                 {
                     name: "api",
+                    repository: DEP_REPO,
                     port: 3000,
                     connections: [
                         { key: "DATABASE_URL", value: "postgres://{{db.host}}:{{db.port}}/preview" },
@@ -120,146 +118,94 @@ describe("topology-draft multirepo round-trip", () => {
     }
 
     function draft() {
-        return draftFromConfig(
-            primaryDocument(),
-            [{ name: DEP_ALIAS, repo: DEP_REPO, document: dependencyDocument() }],
-            "saved",
-        );
+        return draftFromConfig(multirepoDocument(), TOPOLOGY_REPOS, "saved");
     }
 
-    it("loads a dependency repo's services and hooks, tagged with that repo", () => {
+    it("loads the topology: primary repo, dependency repo card, apps tagged by repository", () => {
         const loaded = draft();
 
-        // Without these the editor shows no services at all for a project whose
-        // database lives in the dependency repo, and every {{db.*}} token reads as
-        // pointing at something that does not exist.
-        expect(loaded.services.map((service) => [service.name, service.repoKey])).toEqual([
-            ["db", DEP_ALIAS],
-            ["cache", DEP_ALIAS],
+        expect(loaded.primaryRepository).toBe(PRIMARY_REPO);
+        expect(loaded.repos.map((repo) => [repo.repo, repo.fallbackBranch, repo.githubRepositoryId])).toEqual([
+            [DEP_REPO, "develop", 202],
         ]);
-        expect(loaded.hooks.pre_deploy.map((step) => [step.command, step.repoKey])).toEqual([
-            ["bundle exec rails db:schema:load", DEP_ALIAS],
+        expect(loaded.apps.map((app) => [app.name, app.repository])).toEqual([
+            ["web", PRIMARY_REPO],
+            ["api", DEP_REPO],
         ]);
+        expect(loaded.services.map((service) => service.name)).toEqual(["db", "cache"]);
+        expect(loaded.hooks.pre_deploy.map((step) => step.command)).toEqual(["bundle exec rails db:schema:load"]);
     });
 
-    it("writes each service and hook back to the document that declared it", () => {
-        const compiled = documentsFromDraft(draft());
-        const primary = previewConfigSchema.parse(compiled.primary.document);
-        const dependency = previewConfigSchema.parse(compiled.dependencies[0]?.document);
+    it("round-trips the whole topology through one document", () => {
+        const compiled = documentFromDraft(draft());
+        const reparsed = previewConfigSchema.parse(compiled.document);
 
-        // The dependency keeps its own topology instead of losing it (which deletes
-        // the database the api needs) or having it hoisted onto the primary document
-        // (which moves it into the wrong repo).
-        expect(dependency.services.map((service) => service.name)).toEqual(["db", "cache"]);
-        expect(dependency.hooks.pre_deploy).toEqual([{ app: "api", command: "bundle exec rails db:schema:load" }]);
-        expect(dependency.apps.map((app) => app.name)).toEqual(["api"]);
-        expect(primary.services).toEqual([]);
-        expect(primary.apps.map((app) => app.name)).toEqual(["web"]);
-        expect(compiled.primary.document).not.toHaveProperty("hooks");
+        expect(reparsed.apps.map((app) => [app.name, app.repository])).toEqual([
+            ["web", PRIMARY_REPO],
+            ["api", DEP_REPO],
+        ]);
+        expect(reparsed.repositories).toEqual([{ repo: DEP_REPO, fallback_branch: "develop" }]);
+        expect(reparsed.services.map((service) => service.name)).toEqual(["db", "cache"]);
+        expect(reparsed.hooks.pre_deploy).toEqual([{ app: "api", command: "bundle exec rails db:schema:load" }]);
+        expect(reparsed.services[0]?.options).toMatchObject({ image: "postgis/postgis:16-3.4" });
     });
 
-    it("preserves a service's recipe options through the round-trip", () => {
-        const compiled = documentsFromDraft(draft());
-        const dependency = previewConfigSchema.parse(compiled.dependencies[0]?.document);
-
-        expect(dependency.services[0]?.options).toMatchObject({ image: "postgis/postgis:16-3.4" });
-    });
-
-    it("leaves the merged topology free of blocking issues, so a save is accepted", () => {
-        const compiled = documentsFromDraft(draft());
-        const primary = previewConfigSchema.parse(compiled.primary.document);
-        const dependencies = compiled.dependencies.map((entry) => previewConfigSchema.parse(entry.document));
-
-        // Mirrors how the save validates: semantics run on the concatenation of every
-        // document. Dropping the dependency's services made the api's {{db.*}} and
-        // {{cache.*}} connections unresolvable and the save failed with a 400.
-        const issues = validatePreviewConfigSemantics({
-            ...primary,
-            apps: [...primary.apps, ...dependencies.flatMap((entry) => entry.apps)],
-            services: [...primary.services, ...dependencies.flatMap((entry) => entry.services)],
-            hooks: {
-                pre_deploy: [...primary.hooks.pre_deploy, ...dependencies.flatMap((entry) => entry.hooks.pre_deploy)],
-                post_deploy: [
-                    ...primary.hooks.post_deploy,
-                    ...dependencies.flatMap((entry) => entry.hooks.post_deploy),
-                ],
-            },
-        });
-
-        expect(issues.filter((issue) => issue.severity === "error")).toEqual([]);
-    });
-
-    it("does not flag a reference that crosses into another repo's document", () => {
-        // The primary app wires itself to the dependency app's URL, and the dependency
-        // app wires itself to services its own document declares. Judging either
-        // document alone reads those as dangling and disables Save for the project.
-        const withCrossReference = draftFromConfig(
-            previewConfigSchema.parse({
-                version: 1,
-                config: { multirepo: { repos: [{ name: DEP_ALIAS, repo: DEP_REPO, fallback_branch: "main" }] } },
-                apps: [
-                    {
-                        name: "web",
-                        port: 80,
-                        primary: true,
-                        connections: [{ key: "API_URL", value: "{{api.url}}/api" }],
-                    },
-                ],
-                services: [],
-            }),
-            [{ name: DEP_ALIAS, repo: DEP_REPO, document: dependencyDocument() }],
-            "saved",
-        );
-
-        const issues = validateDraftClientSide(documentsFromDraft(withCrossReference));
+    it("leaves the topology free of blocking issues, so a save is accepted", () => {
+        const issues = validateDraftClientSide(documentFromDraft(draft()));
 
         expect([...issues.fieldErrors]).toEqual([]);
         expect(issues.documentErrors).toEqual([]);
     });
 
-    it("still flags a reference that matches no document", () => {
+    it("still flags a reference that matches nothing in the topology", () => {
         const broken = draft();
         const web = broken.apps.find((app) => app.name === "web");
         if (web == null) throw new Error("expected the primary app to be loaded");
         web.env.push(envRow("GHOST_URL", "{{ghost.url}}", false, "new", false));
 
-        const issues = validateDraftClientSide(documentsFromDraft(broken));
+        const issues = validateDraftClientSide(documentFromDraft(broken));
 
         expect([...issues.fieldErrors.values()].flat().join(" ")).toContain("{{ghost...}}");
     });
 
-    it("drops a dependency's services and hooks when its repo is removed", () => {
+    it("drops a dependency repo's apps when the repo is removed; shared services stay", () => {
         const withoutRepo = draftWithRepos(draft(), []);
 
-        expect(withoutRepo.services).toEqual([]);
-        expect(withoutRepo.hooks.pre_deploy).toEqual([]);
         expect(withoutRepo.apps.map((app) => app.name)).toEqual(["web"]);
+        // Services and hooks live on the single document, not on a repo.
+        expect(withoutRepo.services.map((service) => service.name)).toEqual(["db", "cache"]);
     });
 
-    it("carries a dependency's services and hooks along when its alias is renamed", () => {
+    it("rewrites apps' repository when a repo's full name is edited", () => {
         const loaded = draft();
         const repo = loaded.repos[0];
         if (repo == null) throw new Error("expected the dependency repo to be loaded");
-        const renamed = draftWithRepos(loaded, [{ ...repo, name: "backend" }]);
+        const renamed = draftWithRepos(loaded, [{ ...repo, repo: "acme/backend" }]);
 
-        expect(renamed.services.map((service) => service.repoKey)).toEqual(["backend", "backend"]);
-        expect(renamed.hooks.pre_deploy.map((step) => step.repoKey)).toEqual(["backend"]);
-        // And they still compile into that repo's document under the new alias.
-        const compiled = documentsFromDraft(renamed);
-        const dependency = previewConfigSchema.parse(compiled.dependencies[0]?.document);
-        expect(compiled.dependencies[0]?.alias).toBe("backend");
-        expect(dependency.services.map((service) => service.name)).toEqual(["db", "cache"]);
+        expect(renamed.apps.map((app) => app.repository)).toEqual([PRIMARY_REPO, "acme/backend"]);
+        const reparsed = previewConfigSchema.parse(documentFromDraft(renamed).document);
+        expect(reparsed.repositories).toEqual([{ repo: "acme/backend", fallback_branch: "develop" }]);
     });
 
-    /**
-     * A primary document whose own database runs its setup task out of `repo`, as a
-     * separate job. Named `appdb` so it does not collide with the dependency's `db`.
-     */
-    function primaryWithSetupTaskIn(repo: string) {
+    it("keeps a settings-only repo (no app yet) editable instead of dropping it on load", () => {
+        const document = previewConfigSchema.parse({
+            version: 2,
+            repositories: [{ repo: "acme/orphan", fallback_branch: "staging" }],
+            apps: [{ name: "web", repository: PRIMARY_REPO, port: 80, primary: true }],
+        });
+        const loaded = draftFromConfig(document, PRIMARY_REPOS, "saved");
+        expect(loaded.repos.map((repo) => [repo.repo, repo.fallbackBranch])).toEqual([["acme/orphan", "staging"]]);
+    });
+
+    /** A database whose setup task runs as a separate job out of `repo`. */
+    function documentWithSetupTaskIn(repo: string) {
         return previewConfigSchema.parse({
-            version: 1,
-            config: { multirepo: { repos: [{ name: DEP_ALIAS, repo: DEP_REPO, fallback_branch: "main" }] } },
-            apps: [{ name: "web", port: 80, primary: true }],
+            version: 2,
+            repositories: [{ repo: DEP_REPO, fallback_branch: "main" }],
+            apps: [
+                { name: "web", repository: PRIMARY_REPO, port: 80, primary: true },
+                { name: "api", repository: DEP_REPO, port: 3000 },
+            ],
             services: [
                 {
                     name: "appdb",
@@ -276,55 +222,33 @@ describe("topology-draft multirepo round-trip", () => {
         });
     }
 
-    function gateFor(primaryDoc: ReturnType<typeof primaryDocument>) {
-        return validateDraftClientSide(
-            documentsFromDraft(
-                draftFromConfig(
-                    primaryDoc,
-                    [{ name: DEP_ALIAS, repo: DEP_REPO, document: dependencyDocument() }],
-                    "saved",
-                ),
-            ),
+    it("accepts a setup task that runs out of a repository an app builds from", () => {
+        const issues = validateDraftClientSide(
+            documentFromDraft(draftFromConfig(documentWithSetupTaskIn(DEP_REPO), TOPOLOGY_REPOS, "saved")),
         );
-    }
-
-    it("accepts a setup task that runs out of a declared dependency repo", () => {
-        // The merged document has to carry `config.multirepo`, or the declared repo reads
-        // as unknown and Save is blocked for exactly the projects this PR is meant to fix.
-        const issues = gateFor(primaryWithSetupTaskIn(DEP_ALIAS));
 
         expect(issues.documentErrors).toEqual([]);
         expect([...issues.fieldErrors]).toEqual([]);
     });
 
-    it("still rejects a setup task that names a repo nobody declares", () => {
-        const issues = gateFor(primaryWithSetupTaskIn("ghost"));
+    it("still rejects a setup task that names a repo no app builds from", () => {
+        const issues = validateDraftClientSide(
+            documentFromDraft(draftFromConfig(documentWithSetupTaskIn("acme/ghost"), TOPOLOGY_REPOS, "saved")),
+        );
 
-        expect(issues.documentErrors.join(" ")).toContain('unknown repository "ghost"');
-    });
-
-    it("names the repo when one document is left with no apps", () => {
-        const emptied = draft();
-        emptied.apps = emptied.apps.filter((app) => app.repoKey !== DEP_ALIAS);
-
-        const issues = validateDraftClientSide(documentsFromDraft(emptied));
-
-        // "At least one app is required" alone is baffling when the primary repo
-        // visibly has apps; the message has to say which document is empty.
-        expect(issues.documentErrors.join(" ")).toContain(DEP_REPO);
-        expect(issues.documentErrors.join(" ")).toContain("At least one app is required");
+        expect(issues.documentErrors.join(" ")).toContain('unknown repository "acme/ghost"');
     });
 });
 
 describe("topology-draft docker-image options", () => {
     function serviceOptions(options: Record<string, unknown>): unknown {
         const config = previewConfigSchema.parse({
-            version: 1,
-            apps: [{ name: "api", port: 4000 }],
+            version: 2,
+            apps: [{ name: "api", repository: PRIMARY_REPO, port: 4000 }],
             services: [{ name: "svc", recipe: "docker-image", options }],
         });
-        const draft = draftFromConfig(config, [], "saved");
-        const reparsed = previewConfigSchema.parse(documentsFromDraft(draft).primary.document);
+        const draft = draftFromConfig(config, PRIMARY_REPOS, "saved");
+        const reparsed = previewConfigSchema.parse(documentFromDraft(draft).document);
         return reparsed.services[0]?.options;
     }
 
@@ -356,20 +280,20 @@ describe("topology-draft docker-image options", () => {
     it("falls back to the primary port for a tcp probe with no explicit port", () => {
         const draft = draftFromConfig(
             previewConfigSchema.parse({
-                version: 1,
-                apps: [{ name: "api", port: 4000 }],
+                version: 2,
+                apps: [{ name: "api", repository: PRIMARY_REPO, port: 4000 }],
                 services: [
                     { name: "svc", recipe: "docker-image", options: { image: "x", port_definition: { port: 5432 } } },
                 ],
             }),
-            [],
+            PRIMARY_REPOS,
             "saved",
         );
         const service = draft.services[0];
         if (service == null) throw new Error("expected a service draft");
         service.readiness = { ...service.readiness, kind: "tcp", port: "" };
 
-        const reparsed = previewConfigSchema.parse(documentsFromDraft(draft).primary.document);
+        const reparsed = previewConfigSchema.parse(documentFromDraft(draft).document);
         expect(reparsed.services[0]?.options).toMatchObject({
             readiness: { tcp: { port_definition: { port: 5432 } } },
         });
@@ -378,14 +302,14 @@ describe("topology-draft docker-image options", () => {
     it("emits no options block for a catalog recipe", () => {
         const draft = draftFromConfig(
             previewConfigSchema.parse({
-                version: 1,
-                apps: [{ name: "api", port: 4000 }],
+                version: 2,
+                apps: [{ name: "api", repository: PRIMARY_REPO, port: 4000 }],
                 services: [{ name: "cache", recipe: "redis", version: "7" }],
             }),
-            [],
+            PRIMARY_REPOS,
             "saved",
         );
-        const compiled = documentsFromDraft(draft).primary.document;
+        const compiled = documentFromDraft(draft).document;
         const services = compiled.services;
         if (!Array.isArray(services)) throw new Error("expected services array");
         expect(services[0]).not.toHaveProperty("options");
@@ -402,13 +326,13 @@ describe("topology-draft docker-image options", () => {
             restore_from: { environment: "production", service: "db" },
         };
         const config = previewConfigSchema.parse({
-            version: 1,
-            apps: [{ name: "api", port: 4000 }],
+            version: 2,
+            apps: [{ name: "api", repository: PRIMARY_REPO, port: 4000 }],
             services: [{ name: "db", recipe: "postgres", options }],
         });
         // An unrelated edit + save must not drop any typed option.
-        const draft = draftFromConfig(config, [], "saved");
-        const reparsed = previewConfigSchema.parse(documentsFromDraft(draft).primary.document);
+        const draft = draftFromConfig(config, PRIMARY_REPOS, "saved");
+        const reparsed = previewConfigSchema.parse(documentFromDraft(draft).document);
         const service = reparsed.services.find((candidate) => candidate.name === "db");
         expect(service?.options).toEqual(options);
     });
@@ -422,15 +346,15 @@ describe("hookFieldErrors", () => {
     it("returns no errors for valid and fully-blank rows", () => {
         const draft = hooks({
             post_deploy: [
-                { id: 1, repoKey: PRIMARY_REPO_KEY, app: "api", command: "npm run seed" },
-                { id: 2, repoKey: PRIMARY_REPO_KEY, app: "", command: "" },
+                { id: 1, app: "api", command: "npm run seed" },
+                { id: 2, app: "", command: "" },
             ],
         });
         expect(hookFieldErrors(draft, ["api"]).size).toBe(0);
     });
 
     it("keys a missing-command error by hook id and field", () => {
-        const draft = hooks({ post_deploy: [{ id: 7, repoKey: PRIMARY_REPO_KEY, app: "api", command: "" }] });
+        const draft = hooks({ post_deploy: [{ id: 7, app: "api", command: "" }] });
         const errors = hookFieldErrors(draft, ["api"]);
         expect(errors.get("7:command")).toEqual(["Hook is missing a command"]);
         expect(errors.get("7:app")).toBeUndefined();
@@ -438,8 +362,8 @@ describe("hookFieldErrors", () => {
 
     it("keys missing-app and unknown-app errors per row across both groups", () => {
         const draft = hooks({
-            pre_deploy: [{ id: 3, repoKey: PRIMARY_REPO_KEY, app: "", command: "migrate" }],
-            post_deploy: [{ id: 4, repoKey: PRIMARY_REPO_KEY, app: "worker", command: "seed" }],
+            pre_deploy: [{ id: 3, app: "", command: "migrate" }],
+            post_deploy: [{ id: 4, app: "worker", command: "seed" }],
         });
         const errors = hookFieldErrors(draft, ["api"]);
         expect(errors.get("3:app")).toEqual(["Hook is missing an app"]);
@@ -573,10 +497,11 @@ describe("dedupeSecretRows", () => {
 describe("topology-draft retired build presets", () => {
     function configWithPreset() {
         return previewConfigSchema.parse({
-            version: 1,
+            version: 2,
             apps: [
                 {
                     name: "web",
+                    repository: PRIMARY_REPO,
                     port: 3000,
                     build: { framework: "next", package_manager: "pnpm", node_version: "22" },
                 },
@@ -585,17 +510,17 @@ describe("topology-draft retired build presets", () => {
     }
 
     it("loads a stored preset without dropping it, so the current deploy is preserved", () => {
-        const draft = draftFromConfig(configWithPreset(), [], "saved");
+        const draft = draftFromConfig(configWithPreset(), PRIMARY_REPOS, "saved");
         // The selector cannot represent a preset, so the app sits in "auto" holding
         // the block verbatim - editing an unrelated field never rewrites the build.
         expect(draft.apps[0]?.buildMode).toBe("auto");
         expect(draft.apps[0]?.buildPassthrough).toMatchObject({ framework: "next" });
-        const recompiled = previewConfigSchema.parse(documentsFromDraft(draft).primary.document);
+        const recompiled = previewConfigSchema.parse(documentFromDraft(draft).document);
         expect(recompiled.apps[0]?.build).toMatchObject({ framework: "next" });
     });
 
     it("blocks the save and points the error at the build-method selector", () => {
-        const compiled = documentsFromDraft(draftFromConfig(configWithPreset(), [], "saved")).primary;
+        const compiled = documentFromDraft(draftFromConfig(configWithPreset(), PRIMARY_REPOS, "saved"));
         const parsed = authoringPreviewConfigSchema.safeParse(compiled.document);
         expect(parsed.success).toBe(false);
         if (parsed.success) return;
@@ -607,14 +532,14 @@ describe("topology-draft retired build presets", () => {
     });
 
     it("saves once the user picks a method", () => {
-        const draft = draftFromConfig(configWithPreset(), [], "saved");
+        const draft = draftFromConfig(configWithPreset(), PRIMARY_REPOS, "saved");
         const app = draft.apps[0];
         if (app == null) throw new Error("expected an app");
         const converted = {
             ...draft,
             apps: [{ ...app, buildMode: "runtime" as const, buildPassthrough: undefined, entrypoint: "npm start" }],
         };
-        const document = documentsFromDraft(converted).primary.document;
+        const document = documentFromDraft(converted).document;
         expect(authoringPreviewConfigSchema.safeParse(document).success).toBe(true);
     });
 });
@@ -623,16 +548,21 @@ describe("fieldIssueSummaries", () => {
     it("names the app, field and tab of every blocking field error", () => {
         const draft = draftFromConfig(
             previewConfigSchema.parse({
-                version: 1,
+                version: 2,
                 apps: [
-                    { name: "web", port: 3000, build: { framework: "next", package_manager: "pnpm" } },
-                    { name: "api", port: 8080, dockerfile: "Dockerfile" },
+                    {
+                        name: "web",
+                        repository: PRIMARY_REPO,
+                        port: 3000,
+                        build: { framework: "next", package_manager: "pnpm" },
+                    },
+                    { name: "api", repository: PRIMARY_REPO, port: 8080, dockerfile: "Dockerfile" },
                 ],
             }),
-            [],
+            PRIMARY_REPOS,
             "saved",
         );
-        const issues = validateDraftClientSide(documentsFromDraft(draft));
+        const issues = validateDraftClientSide(documentFromDraft(draft));
         expect(issues.fieldErrors.size).toBeGreaterThan(0);
 
         const summaries = fieldIssueSummaries(issues.fieldErrors, draft.apps);
@@ -646,10 +576,10 @@ describe("fieldIssueSummaries", () => {
     it("files a variable error under the tab that edits variables", () => {
         const draft = draftFromConfig(
             previewConfigSchema.parse({
-                version: 1,
-                apps: [{ name: "web", port: 3000, dockerfile: "Dockerfile" }],
+                version: 2,
+                apps: [{ name: "web", repository: PRIMARY_REPO, port: 3000, dockerfile: "Dockerfile" }],
             }),
-            [],
+            PRIMARY_REPOS,
             "saved",
         );
         const app = draft.apps[0];
@@ -657,7 +587,7 @@ describe("fieldIssueSummaries", () => {
         // A connection to a service that isn't declared - a semantics error filed
         // against `connections`, which no editor renders inline.
         const broken = { ...draft, apps: [{ ...app, env: [envRow("DATABASE_URL", "{{ghost.url}}", false)] }] };
-        const issues = validateDraftClientSide(documentsFromDraft(broken));
+        const issues = validateDraftClientSide(documentFromDraft(broken));
 
         const summaries = fieldIssueSummaries(issues.fieldErrors, broken.apps);
         expect(summaries[0]?.field).toBe("Variables");

@@ -43,19 +43,20 @@ On PR close, the entire namespace is deleted.
 
 Previewkit deploys from the Application's **preview config** - a `PreviewkitConfig` row holding the preview config document, authored from the Autonoma dashboard (e.g. the PreviewKit onboarding topology builder). The config is latest-only: there is one row per Application, overwritten in place on every save (no revision history), and every deploy and redeploy resolves the current document. An Application with no config opts out: its pull requests are skipped.
 
-Multirepo dependency repos (`config.multirepo.repos`) are not separate Applications: each dependency's config is stored on the primary config's `dependencyDocuments`. A declared dependency with no stored config is skipped.
+The document carries the whole topology: every app names the repository it builds from (`apps[].repository`, an `owner/repo` full name - mandatory even for single-repo projects). Any repository other than the Application's own is a **multirepo dependency**: it is cloned for source at the branch the branch convention resolves to, but is not a separate Application. A dependency repo whose branch cannot be resolved skips its apps (recorded as `skipped` rows) rather than failing the deploy.
 
 ## Config document
 
 The preview config is authored from the Autonoma dashboard and stored as a `PreviewkitConfig`. It has the following shape (shown here as YAML for readability):
 
 ```yaml
-version: 1
+version: 2
 domain: preview.example.com
 registry: ghcr.io/my-org
 
 apps:
     - name: web
+      repository: acme/storefront
       path: ./apps/web
       port: 3000
       connections:
@@ -64,6 +65,7 @@ apps:
       health_check: /health
 
     - name: api
+      repository: acme/backend # a multirepo dependency: any repo other than the Application's own
       path: ./apps/api
       port: 4000
       dockerfile: ./apps/api/Dockerfile
@@ -87,6 +89,15 @@ hooks:
     post_deploy:
         - app: api
           command: "npx prisma migrate deploy"
+
+# Optional per-repo overrides; the repo set itself is derived from apps[].repository.
+repositories:
+    - repo: acme/backend
+      fallback_branch: main
+
+# Optional; how a dependency repo's branch is derived from the PR branch.
+branch_convention:
+    type: same_branch_name
 ```
 
 ### Config Reference
@@ -95,19 +106,21 @@ hooks:
 
 | Field      | Required | Description                                                            |
 | ---------- | -------- | ---------------------------------------------------------------------- |
-| `version`  | Yes      | Must be `1`                                                            |
-| `domain`   | No       | Preview domain. Overrides `PREVIEW_DOMAIN` env var                     |
-| `registry` | No       | Container registry. Overrides `REGISTRY_URL` env var                   |
-| `apps`     | Yes      | List of app definitions (at least one)                                 |
-| `services` | No       | List of infrastructure services                                        |
-| `hooks`    | No       | Lifecycle hooks (`pre_deploy` / `post_deploy`)                         |
-| `config`   | No       | Advanced settings, e.g. `config.multirepo` for multi-repo dependencies |
+| `version`           | Yes      | Must be `2`                                                                                                                                                         |
+| `domain`            | No       | Preview domain. Overrides `PREVIEW_DOMAIN` env var                                                                                                                  |
+| `registry`          | No       | Container registry. Overrides `REGISTRY_URL` env var                                                                                                               |
+| `apps`              | Yes      | List of app definitions (at least one)                                                                                                                             |
+| `services`          | No       | List of infrastructure services                                                                                                                                    |
+| `hooks`             | No       | Lifecycle hooks (`pre_deploy` / `post_deploy`)                                                                                                                     |
+| `repositories`      | No       | Per-repository overrides: `{ repo, fallback_branch }`. The repo set is derived from `apps[].repository`; an entry here only overrides defaults (`fallback_branch` defaults to `main`). Deploy provenance (`sha`) is stamped here in `resolvedConfig` |
+| `branch_convention` | No       | How a dependency repo's branch derives from the PR branch: `same_branch_name` (default), `regex` (`pattern` + `replacement`), or `manual` (always the fallback)      |
 
 **App fields:**
 
 | Field           | Required | Default | Description                                                                                                                                                                                                                                                                                                                                    |
 | --------------- | -------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`          | Yes      |         | Lowercase alphanumeric + hyphens. Used in K8s resource names and URLs                                                                                                                                                                                                                                                                          |
+| `repository`    | Yes      |         | The `owner/repo` full name of the GitHub repository this app builds from - mandatory even in single-repo setups. Any value other than the Application's own repo makes the app a multirepo dependency                                                                                                                                          |
 | `path`          | No       | `.`     | Path to the app directory relative to repo root                                                                                                                                                                                                                                                                                                |
 | `port`          | Yes      |         | Port the app listens on                                                                                                                                                                                                                                                                                                                        |
 | `dockerfile`    | No       |         | Path to a Dockerfile relative to repo root. Prefer a `build` block; this bare field is retained for back-compat and builds via the same BuildKit Dockerfile path                                                                                                                                                                              |
@@ -157,7 +170,7 @@ Every runtime is a Debian-family (`apt`) image, so the generator installs one co
 | ----------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `command`   | Yes      | The bash command to run                                                                                                                                                                                               |
 | `frequency` | Yes      | `on_create` (once when the preview is first created) or `every_commit` (on every deploy)                                                                                                                              |
-| `location`  | Yes      | Discriminated on `type`. `{ type: "in_build", app, position }` (`position`: `before` / `after` the named app's build) or `{ type: "separate_job", repo? }` (`repo` names a connected repo; absent = the primary repo) |
+| `location`  | Yes      | Discriminated on `type`. `{ type: "in_build", app, position }` (`position`: `before` / `after` the named app's build) or `{ type: "separate_job", repo? }` (`repo` is an `owner/repo` full name a topology app builds from; absent = the primary repo) |
 
 **Current behavior:** every setup task runs as a standalone one-off Kubernetes Job between the infra-deploy and app-deploy steps, from the primary app's built image. The `location.type`, `location.position`, and `location.repo` fields are persisted but not yet honored - build-phase ordering and per-repo checkout are on the roadmap.
 
