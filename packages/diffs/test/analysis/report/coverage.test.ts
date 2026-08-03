@@ -69,10 +69,37 @@ describe("computeCoverageViolations - guarantee 1: every client_bug finding is c
     });
 });
 
-describe("computeCoverageViolations - guarantee 2: an open issue whose covering test passed is resolved", () => {
+describe("computeCoverageViolations - guarantee 2: an open issue whose whole covered set passed is resolved", () => {
     it("flags an open issue whose covering test passed but was not resolved", () => {
         const v = computeCoverageViolations([finding("login", "passed")], [openIssue("iss-1", ["login"])], []);
         expect(v.unresolvedPassedIssueIds).toEqual(["iss-1"]);
+    });
+
+    it("flags a multi-test issue only once every one of its covering tests passed", () => {
+        const partial = computeCoverageViolations(
+            [finding("login", "passed")],
+            [openIssue("iss-1", ["login", "profile"])],
+            [],
+        );
+        expect(partial.unresolvedPassedIssueIds).toEqual([]);
+
+        const complete = computeCoverageViolations(
+            [finding("login", "passed"), finding("profile", "passed")],
+            [openIssue("iss-1", ["login", "profile"])],
+            [],
+        );
+        expect(complete.unresolvedPassedIssueIds).toEqual(["iss-1"]);
+    });
+
+    it("does not force a resolve when a covering test produced no verdict on the app", () => {
+        // `engine_artifact` is the coverage plane: the test never established whether the bug is still there, so a
+        // passing sibling is not grounds to close the issue.
+        const v = computeCoverageViolations(
+            [finding("login", "passed"), finding("profile", "engine_artifact")],
+            [openIssue("iss-1", ["login", "profile"])],
+            [],
+        );
+        expect(hasCoverageViolations(v)).toBe(false);
     });
 
     it("passes once the issue is resolved", () => {

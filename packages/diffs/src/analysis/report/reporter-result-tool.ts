@@ -43,7 +43,7 @@ class CoverageError extends FixableToolError {
         }
         if (v.unresolvedPassedIssueIds.length > 0) {
             parts.push(
-                `These open issues have covering test(s) that re-ran and passed, so they must be resolved: ${v.unresolvedPassedIssueIds.join(", ")}.`,
+                `Every covering test of these open issues re-ran and passed, so they must be resolved: ${v.unresolvedPassedIssueIds.join(", ")}.`,
             );
         }
         return `Cannot finish yet. ${parts.join(" ")}`;
@@ -52,18 +52,18 @@ class CoverageError extends FixableToolError {
 
 /**
  * Terminal tool for the {@link ReporterAgent}. Before it accepts the report, it enforces the three coverage
- * guarantees (every live bug covered; every open issue whose test passed resolved; every open issue whose test
- * still failed carried forward) as a fixable retry, then grounds every authored surface at persist time: unbacked
- * evidence images are stripped, `suspectedCause` references are validated against the checked-out repo, and a hero
- * screenshot resolves only from a fetched asset. So the result the caller gets can never surface an image the
- * agent did not fetch or a code reference that is not really there.
+ * guarantees (every live bug covered; every open issue whose WHOLE covered set passed resolved; every open issue whose
+ * covering test hit the same problem again carried forward) as a fixable retry, then grounds every authored surface at
+ * persist time: unbacked evidence images are stripped, `suspectedCause` references are validated against the
+ * checked-out repo, and a hero screenshot resolves only from a fetched asset. So the result the caller gets can never
+ * surface an image the agent did not fetch or a code reference that is not really there.
  */
 export class ReporterResultTool extends ReportResultTool<ReporterFinishInput, ReporterResult, ReporterAgentLoop> {
     constructor() {
         super({
             name: "finish",
             description:
-                "Finish the report. Rejected until every client_bug finding is covered by an issue, every open issue whose covering test(s) passed is resolved, and every open issue whose covering test(s) still failed is carried forward.",
+                "Finish the report. Rejected until every client_bug finding is covered by an issue, every open issue whose covering tests ALL re-ran and passed is resolved, and every open issue whose covering test hit the same problem again is carried forward.",
             inputSchema: reporterFinishInputSchema,
         });
     }

@@ -14,6 +14,7 @@ import type { AnalysisInvestigationTarget } from "@autonoma/workflow/activities"
 import { createGithubApp } from "../create-services";
 import { type BranchData, loadBranchData, loadDiffsContext } from "./load-context";
 import { EMPTY_MERGE_FLOW_RESULT, type MergeFlowResult, runMergeFlow } from "./merge-flow";
+import { reverifyOpenIssues } from "./reverify-issues";
 import { runDiffsAgent } from "./run-diffs-agent";
 
 /**
@@ -40,9 +41,12 @@ export interface SelectImpactTargetsParams {
  * Then it reuses the DiffsAgent (the same stateless selection the diffs job ran - diff + current suite, no prior-run
  * history, no carry-forward) to mark affected tests and author brand-new ones, materializing every target through
  * the canonical update actions on the run's OWN snapshot - `AddTest` for a new test (test case + plan + assignment),
- * `RegenerateSteps` for an affected test. Each action queues one pending generation; merge-imported, new and
- * affected tests then enter the Investigator fan-out identically (all three are assignments the Investigator cannot
- * tell apart). The generations are NOT batch-fired - each Investigator fires its own by id (epic invariant 2).
+ * `RegenerateSteps` for an affected test. Finally it adds the covering tests of the branch's open bug-kind issues
+ * (see {@link reverifyOpenIssues}), which is what lets a fixed bug resolve rather than sit open forever.
+ *
+ * Each action queues one pending generation; merge-imported, new, affected and re-verified tests then enter the
+ * Investigator fan-out identically (all four are assignments the Investigator cannot tell apart). The generations are
+ * NOT batch-fired - each Investigator fires its own by id.
  */
 export async function selectImpactTargets({
     snapshotId,
@@ -65,6 +69,11 @@ export async function selectImpactTargets({
 
     const agentResult = await runSelection({ updater, branchData, snapshot, codebase, merge, logger });
 
+    // Strictly after the diff selection: re-verification reads the snapshot's pending generations to know which tests
+    // the run already covers, and skips them - a second generation for one test deletes the first.
+    const selected = await materializeSelection({ updater, agentResult, logger });
+    const reverified = await reverifyOpenIssues({ db, updater, logger });
+
     const materialized = [
         ...merge.imports.map((imported) => ({
             generationId: imported.generationId,
@@ -72,7 +81,13 @@ export async function selectImpactTargets({
             // The TestCase is a real suite member, authored and already run on the branch that merged it.
             origin: "pre_existing" as const,
         })),
-        ...(await materializeSelection({ updater, agentResult, logger })),
+        ...selected,
+        // A re-verified test is a real suite member too - it is only in the run set because it once exposed the bug.
+        ...reverified.map((test) => ({
+            generationId: test.generationId,
+            reason: test.reason,
+            origin: "pre_existing" as const,
+        })),
     ];
 
     const targets = await resolveTargets(materialized, logger);
@@ -320,7 +335,14 @@ async function resolveTargets(
     const targets: AnalysisInvestigationTarget[] = [];
     for (const entry of materialized) {
         const row = rowById.get(entry.generationId);
-        if (row == null) continue;
+        if (row == null) {
+            // A generation this stage queued is gone, so its test silently leaves the run set. The run set is deduped
+            // so that nothing here replaces another's generation: reaching this means something else deleted it.
+            logger.warn("Dropping a target whose generation is gone", {
+                extra: { generationId: entry.generationId },
+            });
+            continue;
+        }
         if (row.testPlan.testCase.application.architecture !== "WEB") {
             logger.info("Skipping non-web target - the Investigator runs web generations only", {
                 extra: { slug: row.testPlan.testCase.slug },

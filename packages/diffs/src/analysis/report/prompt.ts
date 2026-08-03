@@ -67,7 +67,7 @@ An \`environment_failure\` carries no owner field: read its "What happened" to d
 
 # Coverage guarantees (finish is rejected until all hold):
 1. Every client_bug finding this job produced is covered by some issue (open or carry-forward).
-2. Every open issue whose covering test(s) re-ran and PASSED is resolved.
+2. Every open issue whose covering tests ALL re-ran this job and ALL passed is resolved. A covering test that did not run, or that came back as anything other than a pass, is not evidence the problem is gone - such an issue is yours to judge, not a required resolve.
 3. Every open issue whose covering test(s) re-ran and hit the SAME problem again is carried forward - a bug issue when the test came back client_bug, an environment issue when it came back environment_failure, a scenario issue when it came back scenario_issue. Carrying forward is also what attributes this run's finding to the issue, which is what keeps an environment or scenario gap on THEIR side of the report instead of ours - so a recurrence you leave untouched reads as our problem.
 Handle each existing issue at most once.
 
@@ -167,8 +167,9 @@ function renderGapBreakdown(gaps: readonly ReporterFinding[]): string {
  *
  * - a live `client_bug` finding this job: coverage guarantee 1 forces it under an issue, so BUG FOUND is final.
  * - no bug finding, only a bug issue carried from an earlier run: guarantee 2 makes the agent RESOLVE that issue when
- *   a covering test re-ran and passed, which flips the PR off red. Both readings are stated with the rule for each -
- *   claiming the verdict is settled here would both mis-state the outcome and discourage a resolve the run earned.
+ *   its whole covered set re-ran and passed, which flips the PR off red. Both readings are stated with the rule for
+ *   each - claiming the verdict is settled here would both mis-state the outcome and discourage a resolve the run
+ *   earned.
  * - no bug at all: exact, since coverage gaps are per-finding facts no reconciliation moves.
  */
 function renderVerdictOutcome(counts: AnalysisVerdictCounts, bugFindingCount: number): string[] {
@@ -193,7 +194,7 @@ function renderVerdictOutcome(counts: AnalysisVerdictCounts, bugFindingCount: nu
     };
     const resolvedState = deriveAnalysisVerdict(withoutBug);
     return [
-        `No test found a bug this job, so this one is yours to settle: leave the carried bug issue(s) open and the PR reads BUG FOUND (red); resolve them - which a covering test that re-ran and PASSED requires of you - and it reads ${analysisVerdictLabel(resolvedState)}, headline: "${analysisVerdictHeadline(withoutBug)}"`,
+        `No test found a bug this job, so this one is yours to settle: leave the carried bug issue(s) open and the PR reads BUG FOUND (red); resolve them - which an issue whose covering tests ALL re-ran and passed requires of you - and it reads ${analysisVerdictLabel(resolvedState)}, headline: "${analysisVerdictHeadline(withoutBug)}"`,
         `If it stays red: ${VERDICT_PROSE_RULE.bug_found}`,
         `If you resolve it: ${VERDICT_PROSE_RULE[resolvedState]}`,
     ];

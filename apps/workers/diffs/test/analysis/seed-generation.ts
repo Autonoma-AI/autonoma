@@ -28,7 +28,8 @@ export async function seedGenerationForSlug(
     return { testCaseId, generationId: generation.id };
 }
 
-async function findOrCreateTestCase(
+/** The test case a slug names in an application, minting it (with a flow to hold it) the first time. */
+export async function findOrCreateTestCase(
     db: PrismaClient,
     { applicationId, organizationId, slug }: { applicationId: string; organizationId: string; slug: string },
 ): Promise<string> {

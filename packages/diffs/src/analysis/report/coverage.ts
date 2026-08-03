@@ -28,7 +28,7 @@ const RECURRENCE_CATEGORY: Record<AnalysisIssueKind, AnalysisVerdict> = {
 export interface CoverageViolations {
     /** (1) Live `client_bug` findings this job produced that no issue covers. */
     uncoveredBugSlugs: string[];
-    /** (2) Open issues whose covering test(s) re-ran and passed, but which were not resolved. */
+    /** (2) Open issues whose whole covering set re-ran and passed, but which were not resolved. */
     unresolvedPassedIssueIds: string[];
     /**
      * (3) Open issues whose covering test(s) re-ran and hit the SAME problem again (see {@link RECURRENCE_CATEGORY}),
@@ -47,13 +47,16 @@ export function hasCoverageViolations(v: CoverageViolations): boolean {
 /**
  * Compute the coverage violations for a finish attempt. Pure over its inputs so it stays unit-testable in
  * isolation; the reporter reaches it through {@link ReporterAgentLoop.checkCoverage}, which feeds its own state.
- * A covering test that "ran + passed" and one that "ran + still-failed" are mutually exclusive by construction:
- * a still-failing covering test forces carry-forward (check 3) and suppresses the resolve requirement (check 2),
- * so an issue whose covering tests are split (one passed, one still failing) is carried forward, never resolved.
  *
- * "Still failed" is per issue KIND, not per plane: a covering test that came back with a DIFFERENT fault than the one
- * the issue is about (an engine artifact where an environment issue was) is neither recurrence nor proof it is gone,
- * so it leaves the issue alone.
+ * One covering test that hit the issue's problem again forces carry-forward; a resolve is forced only when the whole
+ * covered set re-ran and every one of those tests passed. A covering test that did not run, or that came back with a
+ * different fault, says nothing about this issue's problem, so a resolve off its passing sibling would close a live
+ * issue. Partial evidence is the agent's call (see `assertResolvable`), which is what can still close an issue whose
+ * covered set will never fully re-run.
+ *
+ * "Still failed" is per issue KIND, not per plane (see {@link RECURRENCE_CATEGORY}): a covering test that came back
+ * with a DIFFERENT fault than the one the issue is about (an engine artifact where an environment issue was) is
+ * neither recurrence nor proof it is gone, so it leaves the issue alone.
  */
 export function computeCoverageViolations(
     findings: readonly ReporterFinding[],
@@ -83,14 +86,16 @@ export function computeCoverageViolations(
     const uncarriedFailingIssueIds: string[] = [];
     for (const issue of existingIssues) {
         if (issue.status !== "open") continue;
-        const coveringRan = issue.findingSlugs.filter((slug) => bucketBySlug.has(slug));
+        // A slug with no finding this job looks up to `undefined` in both maps, which is what keeps a partly-run
+        // covered set out of the fully-passed case below.
+        const covering = [...new Set(issue.findingSlugs)];
         const recurred = RECURRENCE_CATEGORY[issue.kind];
-        const stillFailing = coveringRan.some((slug) => categoryBySlug.get(slug) === recurred);
-        const passed = coveringRan.some((slug) => bucketBySlug.get(slug) === "passed");
+        const stillFailing = covering.some((slug) => categoryBySlug.get(slug) === recurred);
+        const fullyPassed = covering.length > 0 && covering.every((slug) => bucketBySlug.get(slug) === "passed");
 
         if (stillFailing) {
             if (!carriedForwardIds.has(issue.id)) uncarriedFailingIssueIds.push(issue.id);
-        } else if (passed) {
+        } else if (fullyPassed) {
             if (!resolvedIds.has(issue.id)) unresolvedPassedIssueIds.push(issue.id);
         }
     }
