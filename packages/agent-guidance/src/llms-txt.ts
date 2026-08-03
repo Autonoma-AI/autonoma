@@ -41,7 +41,7 @@ export function llmsTxt({ apiUrl, appUrl, docsUrl }: LlmsTxtInput): string {
 
 > Agentic end-to-end testing. Autonoma deploys a preview environment for a pull request, runs end-to-end tests against it, and reports what broke.
 
-This host serves the Autonoma web application, which is behind a session and not useful to scrape. If you are an agent, use the machine-readable surfaces below.
+This host serves the Autonoma web application, which is behind a session and not useful to scrape - the public site is https://getautonoma.com. If you are an agent, use the machine-readable surfaces below.
 
 ## Agent surfaces
 

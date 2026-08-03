@@ -26,15 +26,24 @@ describe("aiCatalog", () => {
 
         expect(catalog.specVersion).toBe("1.0");
         expect(catalog.host.displayName.length).toBeGreaterThan(0);
-        expect(catalog.host.identifier.length).toBeGreaterThan(0);
+        // The spec identifies a host by DID; an ARD validator rejects a bare domain here.
+        expect(catalog.host.identifier).toBe("did:web:autonoma.app");
         expect(catalog.entries.length).toBeGreaterThan(0);
         for (const entry of catalog.entries) {
-            expect(entry.identifier.startsWith("urn:ai:")).toBe(true);
+            expect(entry.identifier.startsWith("urn:air:")).toBe(true);
             expect(entry.displayName.length).toBeGreaterThan(0);
             expect(entry.type.length).toBeGreaterThan(0);
             expect(entry.description.length).toBeGreaterThan(0);
             expect(() => new URL(entry.url)).not.toThrow();
         }
+    });
+
+    it("uses the spec's urn:air scheme, which a validator enforces", () => {
+        // The ARD landing page's example is simplified; the normative schema this is
+        // validated against is the AI Catalog spec it defers to.
+        const catalog = aiCatalog({ apiUrl: "https://api.autonoma.app" });
+
+        expect(catalog.entries.every((entry) => /^urn:air:[^:]+:[^:]+:[^:]+$/.test(entry.identifier))).toBe(true);
     });
 
     it("gives every entry a distinct identifier, since registries dedupe on it", () => {

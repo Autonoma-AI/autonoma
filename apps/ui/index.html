@@ -10,6 +10,9 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
     <link rel="manifest" href="/site.webmanifest">
+    <!-- Agent discovery. Crawlers look in three places for the catalog; this is the one
+         that only exists in the rendered document. See also robots.txt and the Link header. -->
+    <link rel="ai-catalog" type="application/json" href="/.well-known/ai-catalog.json">
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap"

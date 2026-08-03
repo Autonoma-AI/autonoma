@@ -1,0 +1,28 @@
+# autonoma.app serves the Autonoma web application. Almost everything here is behind a
+# session, and this is a single-page app, so a crawler that follows those paths gets the
+# same empty shell every time and indexes nothing useful. The public marketing site is
+# getautonoma.com; the only pages worth reading here are the legal ones.
+#
+# Written as allow-by-default with the app areas excluded, rather than `Disallow: /` with
+# allowances: `Allow:` is a widely supported extension but not part of the original
+# standard, and a crawler honouring only `Disallow:` would skip the discovery documents
+# below - which would leave the Agentmap line pointing at something it had been told not
+# to read.
+
+User-agent: *
+Allow: /
+
+Disallow: /app/
+Disallow: /settings/
+Disallow: /admin/
+Disallow: /onboarding
+Disallow: /login
+Disallow: /pending
+Disallow: /rejected
+Disallow: /preview-auth
+Disallow: /preview-waiting
+Disallow: /github-installed
+
+# Agentic Resource Discovery. Points at the same catalog as the Link header and the
+# <link rel="ai-catalog"> tag - crawlers differ in which of the three they read.
+Agentmap: https://autonoma.app/.well-known/ai-catalog.json

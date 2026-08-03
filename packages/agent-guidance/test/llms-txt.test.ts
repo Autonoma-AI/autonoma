@@ -32,6 +32,10 @@ describe("llmsTxt", () => {
         expect(trailing).not.toContain(".app//");
     });
 
+    it("points a reader at the public site, since this host has nothing to read", () => {
+        expect(text).toContain("https://getautonoma.com");
+    });
+
     it("tells a headless caller the header to send", () => {
         expect(text).toContain("Authorization: Bearer");
     });

@@ -33,6 +33,8 @@ export interface AiCatalogInput {
 
 const SPEC_VERSION = "1.0";
 const DEFAULT_HOST_IDENTIFIER = "autonoma.app";
+/** The spec's identifier scheme is `urn:air:` - Agentic Information Resource - not `urn:ai:`. */
+const URN_PREFIX = "urn:air";
 const DEFAULT_DOCS_URL = "https://docs.autonoma.app";
 
 const MCP_SERVER_MEDIA_TYPE = "application/mcp-server+json";
@@ -56,10 +58,11 @@ export function aiCatalog({ apiUrl, docsUrl, hostIdentifier }: AiCatalogInput): 
 
     return {
         specVersion: SPEC_VERSION,
-        host: { displayName: "Autonoma", identifier },
+        // The spec identifies a host by DID, not by bare domain.
+        host: { displayName: "Autonoma", identifier: `did:web:${identifier}` },
         entries: [
             {
-                identifier: `urn:ai:${identifier}:mcp:debug`,
+                identifier: `${URN_PREFIX}:${identifier}:mcp:debug`,
                 displayName: "Autonoma debugging MCP",
                 type: MCP_SERVER_MEDIA_TYPE,
                 url: `${api}/v1/mcp/debug`,
@@ -68,7 +71,7 @@ export function aiCatalog({ apiUrl, docsUrl, hostIdentifier }: AiCatalogInput): 
                     `Docs: ${docs}/mcp/`,
             },
             {
-                identifier: `urn:ai:${identifier}:mcp:onboarding`,
+                identifier: `${URN_PREFIX}:${identifier}:mcp:onboarding`,
                 displayName: "Autonoma onboarding MCP",
                 type: MCP_SERVER_MEDIA_TYPE,
                 url: `${api}/v1/mcp/onboarding`,
@@ -77,7 +80,7 @@ export function aiCatalog({ apiUrl, docsUrl, hostIdentifier }: AiCatalogInput): 
                     `Docs: ${docs}/mcp/configure-preview/`,
             },
             {
-                identifier: `urn:ai:${identifier}:api:previewkit`,
+                identifier: `${URN_PREFIX}:${identifier}:api:previewkit`,
                 displayName: "Autonoma preview environments API",
                 type: OPENAPI_MEDIA_TYPE,
                 url: `${api}/v1/previewkit/openapi.json`,

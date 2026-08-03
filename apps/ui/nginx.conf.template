@@ -17,6 +17,10 @@ server {
     # redirect to /index.html re-runs location matching.
     location = /index.html {
         add_header Cache-Control "no-cache";
+        # Repeated, not inherited: nginx only inherits add_header into a location that
+        # defines none of its own, and every HTML path lands here through the try_files
+        # fallback below - so the server-level header never reaches a page a crawler reads.
+        add_header Link '</.well-known/ai-catalog.json>; rel="ai-catalog"; type="application/json"' always;
     }
 
     # The service worker must never be cached hard, or clients get pinned to an
@@ -93,6 +97,12 @@ server {
         proxy_set_header X-Forwarded-Host $host;
         proxy_pass_request_headers on;
     }
+
+    # Agent discovery, third of three signals (see also robots.txt and the <link> tag in
+    # index.html). Crawlers differ in which they read, so the catalog is advertised in all
+    # three. This server-level copy covers the proxied locations; `location = /index.html`
+    # repeats it because a location with its own add_header inherits none.
+    add_header Link '</.well-known/ai-catalog.json>; rel="ai-catalog"; type="application/json"' always;
 
     location / {
         try_files $uri $uri/ /index.html;
