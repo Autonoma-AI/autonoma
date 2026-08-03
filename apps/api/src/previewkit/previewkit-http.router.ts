@@ -52,7 +52,7 @@ const TERMINAL_STATUSES = new Set(["ready", "failed", "torn_down"]);
 // (heavy) routes, but the native routes terminate here, so the API must
 // authenticate them itself - same middleware Previewkit used, applying per-caller
 // org-scoping (API-key callers -> their org; the service secret -> no narrowing).
-const requireAuth = requireApiKeyOrService({ db, serviceSecret: env.PREVIEWKIT_SERVICE_SECRET });
+const requireAuth = requireApiKeyOrService({ db, serviceSecret: env.PREVIEWKIT_SERVICE_SECRET, appUrl: env.APP_URL });
 
 /**
  * Auth for the browser-facing build-log stream: accept a logged-in app session

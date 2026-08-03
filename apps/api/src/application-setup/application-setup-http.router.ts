@@ -14,6 +14,7 @@ import * as Sentry from "@sentry/node";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { encryptionHelper, generationProvider, getVercelEncryptionHelper, scenarioManager } from "../context";
+import { env } from "../env";
 import { OnboardingManager } from "../routes/onboarding/onboarding-manager";
 import { ApplicationSetupService } from "./application-setup.service";
 
@@ -22,7 +23,7 @@ export const applicationSetupHttpRouter = new Hono<{ Variables: UserAuthVariable
 // CORS first (preflight needs to succeed before auth), then auth gates
 // every actual request. Both apply to all routes in this router.
 applicationSetupHttpRouter.use("*", cors({ origin: "*" }));
-applicationSetupHttpRouter.use("*", requireApiKey({ db }));
+applicationSetupHttpRouter.use("*", requireApiKey({ db, appUrl: env.APP_URL }));
 
 const onboardingManager = new OnboardingManager(db, scenarioManager, encryptionHelper, { getVercelEncryptionHelper });
 const recipeStore = new ScenarioRecipeStore(db);

@@ -1,3 +1,4 @@
+import { unauthorizedGuidance } from "@autonoma/agent-guidance";
 import type { PrismaClient } from "@autonoma/db";
 import type { MiddlewareHandler } from "hono";
 import { verifyApiKey } from "./api-key";
@@ -28,13 +29,19 @@ export interface CallerAuthVariables {
 
 export interface RequireApiKeyOptions {
     db: PrismaClient;
+    /**
+     * Canonical app origin, so the 401 body can point at the API-keys screen. Optional because
+     * the guidance falls back to the canonical public host; pass it so per-environment deploys
+     * (alpha, beta) send the caller to their own settings page rather than production's.
+     */
+    appUrl?: string;
 }
 
 /**
  * Bearer-token middleware. Looks up the token in the `apiKey` table. On
  * success, sets `c.var.user = { userId, organizationId }`; on any failure
- * (missing header, unknown key, expired, disabled) returns 401 with a
- * `{ error: "Unauthorized" }` JSON body.
+ * (missing header, unknown key, expired, disabled) returns 401 with a body
+ * explaining how to authenticate, so a headless caller can act on it.
  *
  * Use this for routes that only allow human API keys. For routes that
  * also accept the autonoma-to-previewkit service secret, see
@@ -43,7 +50,8 @@ export interface RequireApiKeyOptions {
 export function requireApiKey(options: RequireApiKeyOptions): MiddlewareHandler<{ Variables: UserAuthVariables }> {
     return async (c, next) => {
         const ctx = await verifyApiKey(options.db, c.req.header("authorization"));
-        if (ctx == null) return c.json({ error: "Unauthorized" }, 401);
+        // A bare "Unauthorized" tells a headless caller nothing about how to become authorized.
+        if (ctx == null) return c.json(unauthorizedGuidance({ appUrl: options.appUrl, surface: "api" }), 401);
         c.set("user", { userId: ctx.userId, organizationId: ctx.organizationId });
         return next();
     };
@@ -64,6 +72,9 @@ export interface RequireServiceSecretOptions {
 export function requireServiceSecret(options: RequireServiceSecretOptions): MiddlewareHandler {
     return async (c, next) => {
         if (!verifyServiceSecret(c.req.header("authorization"), options.secret)) {
+            // Deliberately bare, unlike the API-key middlewares: this surface accepts only the
+            // shared service secret, so telling the caller to go create an API key would send
+            // them down a path that cannot work here.
             return c.json({ error: "Unauthorized" }, 401);
         }
         return next();
@@ -75,6 +86,12 @@ export interface RequireApiKeyOrServiceOptions {
     /** Optional. When unset, the service-secret path is disabled and only
      *  API-key callers will succeed. */
     serviceSecret: string | undefined;
+    /**
+     * Canonical app origin, so the 401 body can point at the API-keys screen. Optional because
+     * the guidance falls back to the canonical public host; pass it so per-environment deploys
+     * send the caller to their own settings page rather than production's.
+     */
+    appUrl?: string;
 }
 
 /**
@@ -103,6 +120,8 @@ export function requireApiKeyOrService(
             return next();
         }
 
-        return c.json({ error: "Unauthorized" }, 401);
+        // This variant also accepts API keys, so it is a headless-agent entry point too and
+        // owes the same explanation as `requireApiKey`.
+        return c.json(unauthorizedGuidance({ appUrl: options.appUrl, surface: "api" }), 401);
     };
 }

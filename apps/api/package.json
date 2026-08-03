@@ -23,6 +23,7 @@
         "@ai-sdk/google": "catalog:",
         "@autonoma-ai/sdk": "^0.2.9",
         "@autonoma-ai/server-hono": "^0.2.9",
+        "@autonoma/agent-guidance": "workspace:*",
         "@autonoma/analytics": "workspace:*",
         "@autonoma/auth": "workspace:*",
         "@autonoma/billing": "workspace:*",

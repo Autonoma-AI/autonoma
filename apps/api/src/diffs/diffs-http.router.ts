@@ -46,7 +46,7 @@ async function resolvePreviewEnvironmentMode(organizationId: string, repoId: num
 // itself is the trust anchor.
 const externalRouter = new Hono<{ Variables: UserAuthVariables }>()
     .use("*", cors({ origin: "*" }))
-    .use("*", requireApiKey({ db }))
+    .use("*", requireApiKey({ db, appUrl: env.APP_URL }))
     .post("/trigger", async (ctx) => {
         const logger = rootLogger.child({ name: "diffsHttpRouter.trigger" });
         logger.info("Received diffs trigger request");

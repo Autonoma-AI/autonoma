@@ -1,8 +1,8 @@
 {
-    "name": "@autonoma/auth",
+    "name": "@autonoma/agent-guidance",
     "version": "0.0.1",
     "private": true,
-    "description": "Shared authentication helpers for Autonoma services (API key verification, service-to-service shared secret).",
+    "description": "One source of truth for the guidance Autonoma gives an agent or human when a request cannot proceed",
     "type": "module",
     "exports": {
         ".": "./src/index.ts"
@@ -14,13 +14,7 @@
         "fmt": "oxfmt --write src/",
         "test": "vitest run --passWithNoTests"
     },
-    "dependencies": {
-        "@autonoma/agent-guidance": "workspace:*",
-        "@autonoma/db": "workspace:*",
-        "hono": "catalog:"
-    },
     "devDependencies": {
-        "dotenv": "catalog:",
         "vitest": "catalog:"
     }
 }

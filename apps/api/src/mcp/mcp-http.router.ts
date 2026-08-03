@@ -1,3 +1,4 @@
+import { unauthorizedGuidance } from "@autonoma/agent-guidance";
 import { analytics } from "@autonoma/analytics";
 import { verifyApiKey } from "@autonoma/auth";
 import { db, type PrismaClient } from "@autonoma/db";
@@ -52,9 +53,10 @@ interface McpServerDeps {
 export const mcpHttpRouter = new Hono<McpEnv>();
 
 /**
- * Authenticate the bearer once for every server route. On an unauthenticated
- * request it returns 401 with a `WWW-Authenticate` header pointing at the
- * protected-resource metadata, so the client can discover the authorization server.
+ * Authenticate the bearer once for every server route. On an unauthenticated request it
+ * returns 401 with a `WWW-Authenticate` header pointing at the protected-resource metadata,
+ * so the client can discover the authorization server, plus a body explaining both ways in -
+ * a client that cannot open a browser gets no help at all from the OAuth challenge alone.
  */
 mcpHttpRouter.use("*", async (c, next) => {
     const credential = await verifyMcpCredential(c);
@@ -64,7 +66,7 @@ mcpHttpRouter.use("*", async (c, next) => {
         // which would advertise an insecure metadata URL an OAuth client rejects.
         const resourceMetadataUrl = new URL("/.well-known/oauth-protected-resource", env.APP_URL).toString();
         c.header("WWW-Authenticate", `Bearer resource_metadata="${resourceMetadataUrl}"`);
-        return c.json({ error: "Unauthorized" }, 401);
+        return c.json(unauthorizedGuidance({ appUrl: env.APP_URL, surface: "mcp" }), 401);
     }
     // Turn the credential into its authorization boundary here, once, so no route or tool
     // ever sees the raw credential and has to remember to narrow by it.

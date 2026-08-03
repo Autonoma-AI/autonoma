@@ -100,7 +100,7 @@ function effectiveUsageCost(
 
 export const llmProxyHttpRouter = new Hono<{ Variables: UserAuthVariables }>();
 
-llmProxyHttpRouter.use("*", requireApiKey({ db }));
+llmProxyHttpRouter.use("*", requireApiKey({ db, appUrl: env.APP_URL }));
 
 // Reject oversized bodies at the edge, before the handler reads them. The cap
 // (MAX_REQUEST_BYTES) is sized above a full context-window planner request, so
