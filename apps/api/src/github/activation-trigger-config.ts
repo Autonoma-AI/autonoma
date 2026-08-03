@@ -20,6 +20,19 @@ export interface RepoConfigRef {
     githubRepositoryId: number;
 }
 
+/** The persisted trigger-config columns, or `null`/`undefined` when the application has no config row. */
+type TriggerConfigRow = { autoRunOnReadyForReview: boolean; analysisTriggerLabel: string } | null | undefined;
+
+/**
+ * Apply the code defaults to a (possibly missing) trigger-config row.
+ */
+export function resolveActivationTriggerConfig(row: TriggerConfigRow): ActivationTriggerConfig {
+    return {
+        autoRunOnReadyForReview: row?.autoRunOnReadyForReview ?? false,
+        analysisTriggerLabel: row?.analysisTriggerLabel ?? DEFAULT_ANALYSIS_TRIGGER_LABEL,
+    };
+}
+
 /**
  * Resolve a repo's activation trigger config from its linked application. Returns the code defaults when the
  * application has no config row (the common case) or no application is linked - a missing row means "unconfigured",
@@ -43,10 +56,7 @@ export async function readActivationTriggerConfig(
     });
 
     const config = application?.triggerConfig;
-    const resolved: ActivationTriggerConfig = {
-        autoRunOnReadyForReview: config?.autoRunOnReadyForReview ?? false,
-        analysisTriggerLabel: config?.analysisTriggerLabel ?? DEFAULT_ANALYSIS_TRIGGER_LABEL,
-    };
+    const resolved = resolveActivationTriggerConfig(config);
     logger.info("Resolved activation trigger config", {
         organizationId: ref.organizationId,
         extra: {

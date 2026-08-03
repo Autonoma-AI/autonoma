@@ -11,6 +11,12 @@ export interface ActiveOrg {
     slug: string;
     isDemo: boolean;
     canReturnToAccount: boolean;
+    /**
+     * Whether the merge gate is effectively enabled for this org: the global `MERGE_GATE_ENABLED` switch AND the
+     * org's own `mergeGateEnabled`. Gates activation-only UI (the analysis-triggers settings page, the PR
+     * "Run analysis" button) so clients not in the merge-gate program never see it.
+     */
+    mergeGateEnabled: boolean;
 }
 
 export class AuthService extends Service {
@@ -26,7 +32,7 @@ export class AuthService extends Service {
 
         const org = await this.db.organization.findUnique({
             where: { id: activeOrgId },
-            select: { id: true, name: true, slug: true },
+            select: { id: true, name: true, slug: true, settings: { select: { mergeGateEnabled: true } } },
         });
 
         if (org == null) return undefined;
@@ -38,7 +44,10 @@ export class AuthService extends Service {
         // the demo cookie replaced theirs, and leaving hands it back.
         const canReturnToAccount = isDemo && (await this.parkedSessions.has(sessionToken));
 
-        return { id: org.id, name: org.name, slug: org.slug, isDemo, canReturnToAccount };
+        // Effective merge-gate state (global switch AND the org's opt-in)
+        const mergeGateEnabled = env.MERGE_GATE_ENABLED && org.settings?.mergeGateEnabled === true;
+
+        return { id: org.id, name: org.name, slug: org.slug, isDemo, canReturnToAccount, mergeGateEnabled };
     }
 
     async getOrgStatus(userId: string): Promise<OrgStatus | undefined> {

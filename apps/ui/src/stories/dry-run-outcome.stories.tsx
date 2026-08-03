@@ -17,7 +17,14 @@ const meta = {
       handlers: [
         trpcHandler({
           auth: {
-            activeOrg: { id: "org_fixture_01", name: "Acme", slug: "acme", isDemo: false, canReturnToAccount: false },
+            activeOrg: {
+              id: "org_fixture_01",
+              name: "Acme",
+              slug: "acme",
+              isDemo: false,
+              canReturnToAccount: false,
+              mergeGateEnabled: false,
+            },
           },
         }),
       ],

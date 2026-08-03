@@ -20,6 +20,8 @@ import type { Auth } from "../auth";
 import { ParkedSessionStore } from "../demo/parked-session.store";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
+import { ActivationTriggerConfigService } from "../github/activation-trigger-config.service";
+import { PreviewAnalysisRunTrigger } from "../github/analysis-run-trigger";
 import { BranchContributorService } from "../github/branch-contributor.service";
 import { BugFixOutcomeService } from "../github/bug-fix-outcome.service";
 import { FalsePositiveCandidateService } from "../github/false-positive-candidate.service";
@@ -81,6 +83,7 @@ export interface Services {
     github: GitHubInstallationService;
     falsePositiveCandidates: FalsePositiveCandidateService;
     mergeGate: MergeGateService;
+    activationTriggerConfig: ActivationTriggerConfigService;
     branchContributor: BranchContributorService;
     bugFixOutcome: BugFixOutcomeService;
     repoIntrospection: RepoIntrospectionService;
@@ -233,7 +236,9 @@ export function buildServices({
             analytics,
             falsePositiveCandidatesService,
             new MergeGateSlackNotifier(env.SLACK_BOT_TOKEN, env.MERGE_GATE_SLACK_CHANNEL),
+            new PreviewAnalysisRunTrigger(conn, diffsTriggerService),
         ),
+        activationTriggerConfig: new ActivationTriggerConfigService(conn, githubService),
         branchContributor: branchContributorService,
         bugFixOutcome: new BugFixOutcomeService(conn, analytics, env.MERGE_GATE_ENABLED, branchContributorService),
         repoIntrospection: repoIntrospectionService,

@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useAPIMutation } from "lib/query/api-queries";
-import { trpc } from "lib/trpc";
+import { toastManager } from "lib/toast-manager";
+import { type RouterOutputs, trpc } from "lib/trpc";
 
 const GITHUB_PR_STALE_TIME_MS = 5 * 60_000;
 const GITHUB_REPOSITORY_STALE_TIME_MS = 5 * 60_000;
@@ -107,6 +108,60 @@ export function useCommitFromGitHub(applicationId: string, sha: string | undefin
         staleTime: GITHUB_COMMIT_STALE_TIME_MS,
         refetchOnWindowFocus: false,
         retry: false,
+    });
+}
+
+export function useTriggerConfig(applicationId: string) {
+    return useSuspenseQuery(trpc.github.getTriggerConfig.queryOptions({ applicationId }));
+}
+
+export function useUpdateTriggerConfig(applicationId: string) {
+    const queryClient = useQueryClient();
+    return useAPIMutation({
+        ...trpc.github.updateTriggerConfig.mutationOptions({
+            onSettled: () => {
+                void queryClient.invalidateQueries({
+                    queryKey: trpc.github.getTriggerConfig.queryKey({ applicationId }),
+                });
+            },
+        }),
+        successToast: { title: "Trigger settings saved" },
+        errorToast: { title: "Failed to save trigger settings" },
+    });
+}
+
+/** Why a requested run did not begin. */
+type RunAnalysisNotStartedReason = Extract<RouterOutputs["github"]["runAnalysis"], { status: "not_started" }>["reason"];
+
+/** What to tell the user for each no-op reason. */
+const RUN_NOT_STARTED_MESSAGE: Record<RunAnalysisNotStartedReason, string> = {
+    gate_disabled: "Autonoma is not enabled for this app yet.",
+    activation_off: "On-request analysis is not enabled for this app yet.",
+    no_trigger: "Autonoma is not fully set up for this app yet.",
+    no_preview: "This PR has no live preview to analyze yet.",
+    already_analyzed: "This PR's latest commit was already analyzed - push a new commit to re-run.",
+};
+
+export function useRunAnalysis() {
+    return useAPIMutation({
+        ...trpc.github.runAnalysis.mutationOptions({
+            onSuccess: (result) => {
+                if (result.status === "started") {
+                    toastManager.add({
+                        type: "success",
+                        title: "Analysis started",
+                        description: "Autonoma is analyzing this PR - the verdict will appear on the PR shortly.",
+                    });
+                    return;
+                }
+                toastManager.add({
+                    type: "info",
+                    title: "Nothing to analyze",
+                    description: RUN_NOT_STARTED_MESSAGE[result.reason],
+                });
+            },
+        }),
+        errorToast: { title: "Failed to start analysis" },
     });
 }
 

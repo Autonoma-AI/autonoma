@@ -2,10 +2,13 @@ import { Button, Skeleton } from "@autonoma/blacklight";
 import type { PrPipelineStatus } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
+import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { useLocation } from "@tanstack/react-router";
+import { useActiveOrg } from "lib/query/auth.queries";
 import { useBranchByPr, usePrPipelineStatus } from "lib/query/branches.queries";
-import { useApplicationRepositoryFromGitHub, usePullRequestFromGitHub } from "lib/query/github.queries";
+import { useApplicationRepositoryFromGitHub, usePullRequestFromGitHub, useRunAnalysis } from "lib/query/github.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
@@ -37,7 +40,14 @@ export function PRPageHeader({ prNumber }: { prNumber: number }) {
 
   return (
     <>
-      <PRTopBar prUrl={prUrl} title={title} showTitleSkeleton={showTitleSkeleton} status={prStatus} />
+      <PRTopBar
+        applicationId={app.id}
+        prNumber={prNumber}
+        prUrl={prUrl}
+        title={title}
+        showTitleSkeleton={showTitleSkeleton}
+        status={prStatus}
+      />
       <PRMetaRow
         applicationId={app.id}
         prNumber={prNumber}
@@ -52,11 +62,15 @@ export function PRPageHeader({ prNumber }: { prNumber: number }) {
 }
 
 function PRTopBar({
+  applicationId,
+  prNumber,
   prUrl,
   title,
   showTitleSkeleton,
   status,
 }: {
+  applicationId: string;
+  prNumber: number;
   prUrl: string | undefined;
   title: string;
   showTitleSkeleton: boolean;
@@ -79,6 +93,8 @@ function PRTopBar({
 
       <PrStatusBadge status={status} />
 
+      <RunAnalysisButton applicationId={applicationId} prNumber={prNumber} />
+
       {prUrl != null && (
         <a href={prUrl} target="_blank" rel="noopener noreferrer">
           <Button variant="outline" size="sm">
@@ -89,6 +105,33 @@ function PRTopBar({
         </a>
       )}
     </div>
+  );
+}
+
+// The "Autonoma UI" analysis trigger from the trigger-config page: start a run for this PR from the dashboard,
+// for any branch, without switching to GitHub. Disabled while a request is in flight. Hidden entirely for orgs
+// without the merge gate enabled.
+function RunAnalysisButton({ applicationId, prNumber }: { applicationId: string; prNumber: number }) {
+  const { data: activeOrg } = useActiveOrg();
+  const runAnalysis = useRunAnalysis();
+
+  if (activeOrg?.mergeGateEnabled !== true) return null;
+
+  return (
+    <Button
+      variant="accent"
+      size="sm"
+      onClick={() => runAnalysis.mutate({ applicationId, prNumber })}
+      disabled={runAnalysis.isPending}
+      aria-label="pr-run-analysis"
+    >
+      {runAnalysis.isPending ? (
+        <CircleNotchIcon size={14} className="animate-spin" />
+      ) : (
+        <LightningIcon size={14} weight="fill" />
+      )}
+      {runAnalysis.isPending ? "Starting..." : "Run analysis"}
+    </Button>
   );
 }
 

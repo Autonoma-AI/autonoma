@@ -18,6 +18,7 @@ export default defineConfig({
             REDIS_URL: "redis://localhost:6379",
             // Exercise the remaining investigation entry points (re-investigation sweep, merge flow).
             INVESTIGATION_SHADOW_ENABLED: "true",
+            MERGE_GATE_ENABLED: "true",
             // GitHub App: tests run against the fake (LOCAL_DEV=true). Real credentials
             // are unnecessary; passing them as base64 PEM is awkward in test fixtures.
             LOCAL_DEV: "true",

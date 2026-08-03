@@ -53,6 +53,7 @@ import { Route as BlacklightAppShellAppAppSlugFinishSetupIndexRouteImport } from
 import { Route as BlacklightAppShellAppAppSlugEditIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/edit/index'
 import { Route as BlacklightAppShellAppAppSlugBillingIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/billing/index'
 import { Route as BlacklightAppShellAppAppSlugApiKeysIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/api-keys/index'
+import { Route as BlacklightAppShellAppAppSlugAnalysisTriggersIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/analysis-triggers/index'
 import { Route as BlacklightAppShellAppAppSlugAdminIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/admin/index'
 import { Route as BlacklightAppShellAppAppSlugTestsTestSlugRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/tests/$testSlug'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsMainRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/main'
@@ -330,6 +331,12 @@ const BlacklightAppShellAppAppSlugApiKeysIndexRoute =
     path: '/api-keys/',
     getParentRoute: () => BlacklightAppShellAppAppSlugRouteRoute,
   } as any)
+const BlacklightAppShellAppAppSlugAnalysisTriggersIndexRoute =
+  BlacklightAppShellAppAppSlugAnalysisTriggersIndexRouteImport.update({
+    id: '/analysis-triggers/',
+    path: '/analysis-triggers/',
+    getParentRoute: () => BlacklightAppShellAppAppSlugRouteRoute,
+  } as any)
 const BlacklightAppShellAppAppSlugAdminIndexRoute =
   BlacklightAppShellAppAppSlugAdminIndexRouteImport.update({
     id: '/',
@@ -557,6 +564,7 @@ export interface FileRoutesByFullPath {
   '/app/$appSlug/pull-requests/main': typeof BlacklightAppShellAppAppSlugPullRequestsMainRoute
   '/app/$appSlug/tests/$testSlug': typeof BlacklightAppShellAppAppSlugTestsTestSlugRoute
   '/app/$appSlug/admin/': typeof BlacklightAppShellAppAppSlugAdminIndexRoute
+  '/app/$appSlug/analysis-triggers/': typeof BlacklightAppShellAppAppSlugAnalysisTriggersIndexRoute
   '/app/$appSlug/api-keys/': typeof BlacklightAppShellAppAppSlugApiKeysIndexRoute
   '/app/$appSlug/billing/': typeof BlacklightAppShellAppAppSlugBillingIndexRoute
   '/app/$appSlug/edit/': typeof BlacklightAppShellAppAppSlugEditIndexRoute
@@ -620,6 +628,7 @@ export interface FileRoutesByTo {
   '/app/$appSlug/pull-requests/main': typeof BlacklightAppShellAppAppSlugPullRequestsMainRoute
   '/app/$appSlug/tests/$testSlug': typeof BlacklightAppShellAppAppSlugTestsTestSlugRoute
   '/app/$appSlug/admin': typeof BlacklightAppShellAppAppSlugAdminIndexRoute
+  '/app/$appSlug/analysis-triggers': typeof BlacklightAppShellAppAppSlugAnalysisTriggersIndexRoute
   '/app/$appSlug/api-keys': typeof BlacklightAppShellAppAppSlugApiKeysIndexRoute
   '/app/$appSlug/billing': typeof BlacklightAppShellAppAppSlugBillingIndexRoute
   '/app/$appSlug/edit': typeof BlacklightAppShellAppAppSlugEditIndexRoute
@@ -687,6 +696,7 @@ export interface FileRoutesById {
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/main': typeof BlacklightAppShellAppAppSlugPullRequestsMainRoute
   '/_blacklight/_app-shell/app/$appSlug/tests/$testSlug': typeof BlacklightAppShellAppAppSlugTestsTestSlugRoute
   '/_blacklight/_app-shell/app/$appSlug/admin/': typeof BlacklightAppShellAppAppSlugAdminIndexRoute
+  '/_blacklight/_app-shell/app/$appSlug/analysis-triggers/': typeof BlacklightAppShellAppAppSlugAnalysisTriggersIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/api-keys/': typeof BlacklightAppShellAppAppSlugApiKeysIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/billing/': typeof BlacklightAppShellAppAppSlugBillingIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/edit/': typeof BlacklightAppShellAppAppSlugEditIndexRoute
@@ -758,6 +768,7 @@ export interface FileRouteTypes {
     | '/app/$appSlug/pull-requests/main'
     | '/app/$appSlug/tests/$testSlug'
     | '/app/$appSlug/admin/'
+    | '/app/$appSlug/analysis-triggers/'
     | '/app/$appSlug/api-keys/'
     | '/app/$appSlug/billing/'
     | '/app/$appSlug/edit/'
@@ -821,6 +832,7 @@ export interface FileRouteTypes {
     | '/app/$appSlug/pull-requests/main'
     | '/app/$appSlug/tests/$testSlug'
     | '/app/$appSlug/admin'
+    | '/app/$appSlug/analysis-triggers'
     | '/app/$appSlug/api-keys'
     | '/app/$appSlug/billing'
     | '/app/$appSlug/edit'
@@ -887,6 +899,7 @@ export interface FileRouteTypes {
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/main'
     | '/_blacklight/_app-shell/app/$appSlug/tests/$testSlug'
     | '/_blacklight/_app-shell/app/$appSlug/admin/'
+    | '/_blacklight/_app-shell/app/$appSlug/analysis-triggers/'
     | '/_blacklight/_app-shell/app/$appSlug/api-keys/'
     | '/_blacklight/_app-shell/app/$appSlug/billing/'
     | '/_blacklight/_app-shell/app/$appSlug/edit/'
@@ -1237,6 +1250,13 @@ declare module '@tanstack/react-router' {
       path: '/api-keys'
       fullPath: '/app/$appSlug/api-keys/'
       preLoaderRoute: typeof BlacklightAppShellAppAppSlugApiKeysIndexRouteImport
+      parentRoute: typeof BlacklightAppShellAppAppSlugRouteRoute
+    }
+    '/_blacklight/_app-shell/app/$appSlug/analysis-triggers/': {
+      id: '/_blacklight/_app-shell/app/$appSlug/analysis-triggers/'
+      path: '/analysis-triggers'
+      fullPath: '/app/$appSlug/analysis-triggers/'
+      preLoaderRoute: typeof BlacklightAppShellAppAppSlugAnalysisTriggersIndexRouteImport
       parentRoute: typeof BlacklightAppShellAppAppSlugRouteRoute
     }
     '/_blacklight/_app-shell/app/$appSlug/admin/': {
@@ -1595,6 +1615,7 @@ interface BlacklightAppShellAppAppSlugRouteRouteChildren {
   BlacklightAppShellAppAppSlugIssuesIssueIdRoute: typeof BlacklightAppShellAppAppSlugIssuesIssueIdRoute
   BlacklightAppShellAppAppSlugPreviewEnvironmentIdRoute: typeof BlacklightAppShellAppAppSlugPreviewEnvironmentIdRoute
   BlacklightAppShellAppAppSlugPullRequestsMainRoute: typeof BlacklightAppShellAppAppSlugPullRequestsMainRoute
+  BlacklightAppShellAppAppSlugAnalysisTriggersIndexRoute: typeof BlacklightAppShellAppAppSlugAnalysisTriggersIndexRoute
   BlacklightAppShellAppAppSlugApiKeysIndexRoute: typeof BlacklightAppShellAppAppSlugApiKeysIndexRoute
   BlacklightAppShellAppAppSlugBillingIndexRoute: typeof BlacklightAppShellAppAppSlugBillingIndexRoute
   BlacklightAppShellAppAppSlugEditIndexRoute: typeof BlacklightAppShellAppAppSlugEditIndexRoute
@@ -1630,6 +1651,8 @@ const BlacklightAppShellAppAppSlugRouteRouteChildren: BlacklightAppShellAppAppSl
       BlacklightAppShellAppAppSlugPreviewEnvironmentIdRoute,
     BlacklightAppShellAppAppSlugPullRequestsMainRoute:
       BlacklightAppShellAppAppSlugPullRequestsMainRoute,
+    BlacklightAppShellAppAppSlugAnalysisTriggersIndexRoute:
+      BlacklightAppShellAppAppSlugAnalysisTriggersIndexRoute,
     BlacklightAppShellAppAppSlugApiKeysIndexRoute:
       BlacklightAppShellAppAppSlugApiKeysIndexRoute,
     BlacklightAppShellAppAppSlugBillingIndexRoute:

@@ -137,6 +137,16 @@ export interface RequestAnalysisRunParams extends RepoPrRef {
     actorLogin?: string;
 }
 
+/**
+ * The outcome of asking for an analysis run, so a caller (the dashboard's Run button) can tell the user whether a
+ * run actually began rather than always claiming success. `not_started` separates the org/PR reasons a run could
+ * not begin from a thrown error: `gate_disabled`/`activation_off` when the org does not honor explicit requests,
+ * `no_trigger` when no run trigger is wired, and the {@link RunNotStartedReason} values when nothing was analyzable.
+ */
+export type RequestAnalysisRunResult =
+    | { status: "started" }
+    | { status: "not_started"; reason: "gate_disabled" | "activation_off" | "no_trigger" | RunNotStartedReason };
+
 export interface ApplySkipParams extends RepoPrRef {
     actorLogin: string;
     /**
@@ -253,6 +263,14 @@ export class MergeGateService {
                 return;
             }
 
+            if (activation) {
+                await this.ensureAnalysisTriggerLabel(client, {
+                    organizationId: params.organizationId,
+                    githubRepositoryId: params.githubRepositoryId,
+                    repoFullName: params.repoFullName,
+                });
+            }
+
             const checkRunId = activation
                 ? await client.createCheckRun({
                       repoFullName: params.repoFullName,
@@ -298,7 +316,7 @@ export class MergeGateService {
      * actor) and emits `merge_gate.activated`. No-ops when the gate is off, the org is not migrated to activation,
      * or no run trigger is wired.
      */
-    async requestAnalysisRun(params: RequestAnalysisRunParams): Promise<void> {
+    async requestAnalysisRun(params: RequestAnalysisRunParams): Promise<RequestAnalysisRunResult> {
         this.logger.info("Merge gate: requestAnalysisRun", {
             organizationId: params.organizationId,
             extra: {
@@ -314,14 +332,14 @@ export class MergeGateService {
             this.logger.info("Merge gate: requestAnalysisRun skipped (gate not enabled for org)", {
                 organizationId: params.organizationId,
             });
-            return;
+            return { status: "not_started", reason: "gate_disabled" };
         }
         // Only a migrated org honors an explicit request.
         if (!activation) {
             this.logger.info("Merge gate: requestAnalysisRun skipped (org not migrated to activation)", {
                 organizationId: params.organizationId,
             });
-            return;
+            return { status: "not_started", reason: "activation_off" };
         }
 
         const trigger = this.analysisRunTrigger;
@@ -330,11 +348,11 @@ export class MergeGateService {
                 organizationId: params.organizationId,
                 extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
             });
-            return;
+            return { status: "not_started", reason: "no_trigger" };
         }
 
         const client = await this.getInstallationClient(params.organizationId);
-        await this.checkRuns.runExclusive(params.repoFullName, params.headSha, async () => {
+        return await this.checkRuns.runExclusive(params.repoFullName, params.headSha, async () => {
             const checkRunId = await this.flipCheckToInProgress(client, params);
 
             const outcome = await this.fireRequestedRun(trigger, params);
@@ -345,7 +363,7 @@ export class MergeGateService {
                     organizationId: params.organizationId,
                     extra: { repoFullName: params.repoFullName, prNumber: params.prNumber, reason: outcome.reason },
                 });
-                return;
+                return { status: "not_started", reason: outcome.reason ?? "no_preview" };
             }
 
             await this.checkRuns.setActivation(params.repoFullName, params.headSha, {
@@ -379,6 +397,51 @@ export class MergeGateService {
                     source: params.source,
                 },
             });
+            return { status: "started" };
+        });
+    }
+
+    /**
+     * The "run from Autonoma" button entrypoint: request an analysis run for an application's PR from the dashboard.
+     * The UI names the PR by (application, number); resolve the linked repo and the PR's current head, then delegate
+     * to {@link requestAnalysisRun} with `source: ui`.
+     */
+    async requestAnalysisRunFromApplication(params: {
+        organizationId: string;
+        applicationId: string;
+        prNumber: number;
+        actorLogin?: string;
+    }): Promise<RequestAnalysisRunResult> {
+        this.logger.info("Merge gate: requestAnalysisRunFromApplication", {
+            organizationId: params.organizationId,
+            extra: { applicationId: params.applicationId, prNumber: params.prNumber, actorLogin: params.actorLogin },
+        });
+
+        const application = await this.db.application.findFirst({
+            where: { id: params.applicationId, organizationId: params.organizationId },
+            select: { githubRepositoryId: true },
+        });
+        if (application == null) throw new NotFoundError("Application not found");
+        if (application.githubRepositoryId == null) {
+            throw new NotFoundError("Application is not linked to a GitHub repository");
+        }
+        const githubRepositoryId = application.githubRepositoryId;
+
+        const client = await this.getInstallationClient(params.organizationId);
+
+        const [repository, pullRequest] = await Promise.all([
+            client.getRepository(githubRepositoryId),
+            client.getPullRequest(githubRepositoryId, params.prNumber),
+        ]);
+
+        return await this.requestAnalysisRun({
+            organizationId: params.organizationId,
+            repoFullName: repository.fullName,
+            githubRepositoryId,
+            prNumber: params.prNumber,
+            headSha: pullRequest.headSha,
+            source: ANALYSIS_RUN_SOURCE.ui,
+            actorLogin: params.actorLogin,
         });
     }
 

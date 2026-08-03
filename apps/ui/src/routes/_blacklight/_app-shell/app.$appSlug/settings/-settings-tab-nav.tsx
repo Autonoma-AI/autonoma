@@ -7,17 +7,28 @@ import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { KeyIcon } from "@phosphor-icons/react/Key";
 import type { Icon } from "@phosphor-icons/react/lib";
+import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { Link } from "@tanstack/react-router";
+import { useActiveOrg } from "lib/query/auth.queries";
 
-type SettingsTab = "general" | "billing" | "scenarios" | "history" | "github" | "api-keys" | "preview";
+type SettingsTab =
+  | "general"
+  | "billing"
+  | "scenarios"
+  | "history"
+  | "github"
+  | "api-keys"
+  | "preview"
+  | "analysis-triggers";
 
 interface SettingsTabNavProps {
   activeTab: SettingsTab;
   appSlug: string;
 }
 
-const TAB_CONFIG: { value: SettingsTab; label: string; icon: Icon; path: string }[] = [
+const TAB_CONFIG: { value: SettingsTab; label: string; icon: Icon; path: string; gated?: boolean }[] = [
   { value: "general", label: "General", icon: GearSixIcon, path: "settings" },
+  { value: "analysis-triggers", label: "Triggers", icon: LightningIcon, path: "analysis-triggers", gated: true },
   { value: "billing", label: "Billing", icon: CreditCardIcon, path: "billing" },
   { value: "scenarios", label: "Scenarios", icon: BroadcastIcon, path: "scenarios" },
   { value: "api-keys", label: "API Keys", icon: KeyIcon, path: "api-keys" },
@@ -28,6 +39,9 @@ const TAB_CONFIG: { value: SettingsTab; label: string; icon: Icon; path: string 
 
 export function SettingsTabNav({ activeTab, appSlug }: SettingsTabNavProps) {
   const base = `/app/${appSlug}`;
+  const { data: activeOrg } = useActiveOrg();
+  const mergeGateEnabled = activeOrg?.mergeGateEnabled ?? false;
+  const tabs = TAB_CONFIG.filter((tab) => !tab.gated || mergeGateEnabled);
 
   return (
     <div className="flex flex-col gap-6">
@@ -38,7 +52,7 @@ export function SettingsTabNav({ activeTab, appSlug }: SettingsTabNavProps) {
 
       <div className="overflow-x-auto">
         <nav className="flex w-max min-w-full items-center gap-1 border-b border-border-dim">
-          {TAB_CONFIG.map((tab) => {
+          {tabs.map((tab) => {
             const isActive = activeTab === tab.value;
             return (
               <Link

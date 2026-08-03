@@ -45,7 +45,14 @@ const meta = {
           // The escape hatch's dialog reads the org to stay inert in the demo, so the card
           // pulls this in even with the dialog closed.
           auth: {
-            activeOrg: { id: "org_fixture_01", name: "Acme", slug: "acme", isDemo: false, canReturnToAccount: false },
+            activeOrg: {
+              id: "org_fixture_01",
+              name: "Acme",
+              slug: "acme",
+              isDemo: false,
+              canReturnToAccount: false,
+              mergeGateEnabled: false,
+            },
           },
           deployments: {
             testUserOptions: {

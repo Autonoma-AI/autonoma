@@ -21,6 +21,7 @@ const demoFixtures: TrpcFixtures = {
       slug: "northwind",
       isDemo: true,
       canReturnToAccount: false,
+      mergeGateEnabled: false,
     },
   },
 };
@@ -59,6 +60,7 @@ export const BannerWithReturn: Story = {
             slug: "northwind",
             isDemo: true,
             canReturnToAccount: true,
+            mergeGateEnabled: false,
           },
         },
       }),

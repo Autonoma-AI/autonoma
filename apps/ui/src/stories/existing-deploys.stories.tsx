@@ -83,7 +83,14 @@ function customWaitingFixtures(): TrpcFixtures {
     applications: { getSharedSecret: { sharedSecret: "shs_fixture_0123456789abcdef" } },
     auth: {
       // The agent entry point checks whether this is the read-only demo org.
-      activeOrg: { id: "org_fixture_01", name: "Acme", slug: "acme", isDemo: false, canReturnToAccount: false },
+      activeOrg: {
+        id: "org_fixture_01",
+        name: "Acme",
+        slug: "acme",
+        isDemo: false,
+        canReturnToAccount: false,
+        mergeGateEnabled: false,
+      },
     },
   };
 }
@@ -101,7 +108,14 @@ function customSignalReceivedFixtures(): TrpcFixtures {
     applications: { getSharedSecret: { sharedSecret: "shs_fixture_0123456789abcdef" } },
     auth: {
       // The agent entry point checks whether this is the read-only demo org.
-      activeOrg: { id: "org_fixture_01", name: "Acme", slug: "acme", isDemo: false, canReturnToAccount: false },
+      activeOrg: {
+        id: "org_fixture_01",
+        name: "Acme",
+        slug: "acme",
+        isDemo: false,
+        canReturnToAccount: false,
+        mergeGateEnabled: false,
+      },
     },
   };
 }

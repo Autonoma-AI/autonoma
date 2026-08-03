@@ -1,3 +1,4 @@
+import { TriggerConfigSchema } from "@autonoma/types";
 import { z } from "zod";
 import { protectedProcedure, writeProcedure, router } from "../trpc";
 import { createInstallState } from "./github-state";
@@ -77,5 +78,30 @@ export const githubRouter = router({
         .input(z.object({ applicationId: z.string(), sha: z.string().trim().min(1) }))
         .query(({ ctx: { services, organizationId }, input }) =>
             services.github.getApplicationCommit(organizationId, input.applicationId, input.sha),
+        ),
+
+    getTriggerConfig: protectedProcedure
+        .input(z.object({ applicationId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.activationTriggerConfig.getForApplication(organizationId, input.applicationId),
+        ),
+
+    updateTriggerConfig: writeProcedure
+        .input(z.object({ applicationId: z.string() }).merge(TriggerConfigSchema))
+        .mutation(({ ctx: { services, organizationId }, input }) =>
+            services.activationTriggerConfig.updateForApplication(organizationId, input.applicationId, {
+                autoRunOnReadyForReview: input.autoRunOnReadyForReview,
+                analysisTriggerLabel: input.analysisTriggerLabel,
+            }),
+        ),
+
+    runAnalysis: writeProcedure
+        .input(z.object({ applicationId: z.string(), prNumber: z.number().int().positive() }))
+        .mutation(({ ctx: { services, organizationId }, input }) =>
+            services.mergeGate.requestAnalysisRunFromApplication({
+                organizationId,
+                applicationId: input.applicationId,
+                prNumber: input.prNumber,
+            }),
         ),
 });

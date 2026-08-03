@@ -84,7 +84,14 @@ const completedOnboardingState = {
 /** Page fixtures for the Preview Environments settings tab of a live app. */
 const previewConfigFixtures: TrpcFixtures = {
   auth: {
-    activeOrg: { id: "org_fixture_01", name: "Acme Corp", slug: "acme-corp", isDemo: false, canReturnToAccount: false },
+    activeOrg: {
+      id: "org_fixture_01",
+      name: "Acme Corp",
+      slug: "acme-corp",
+      isDemo: false,
+      canReturnToAccount: false,
+      mergeGateEnabled: false,
+    },
   },
   branches: {
     list: [],
