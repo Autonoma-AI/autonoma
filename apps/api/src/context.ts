@@ -51,6 +51,33 @@ const githubApp = buildGitHubApp(env);
 // Launches the preview lifecycle (deploy / teardown / per-app redeploy) as Kubernetes Jobs.
 const previewkitTriggers = resolvePreviewkitTriggers();
 
+/**
+ * The DB handle and the fully-wired service graph, with no authentication performed.
+ * For callers that already authenticated the request themselves and would otherwise pay
+ * for a second, discarded auth pass - notably the MCP surface, which verifies its own
+ * bearer in middleware and never reads `user`/`session` off the context.
+ */
+export function createServiceContext() {
+    return {
+        db,
+        services: buildServices({
+            conn: db,
+            auth,
+            redisClient,
+            storageProvider,
+            scenarioManager,
+            encryptionHelper,
+            getVercelEncryptionHelper,
+            generationProvider,
+            githubApp,
+            pipelineWorkflows: temporalPipelineWorkflows,
+            triggerPreviewDeploy: previewkitTriggers.deploy,
+            triggerPreviewTeardown: previewkitTriggers.teardown,
+            triggerPreviewRedeployApp: previewkitTriggers.redeployApp,
+        }),
+    };
+}
+
 export async function createContext(c: HonoContext) {
     const rawSession = await auth.api.getSession({
         headers: c.req.raw.headers,
@@ -70,26 +97,8 @@ export async function createContext(c: HonoContext) {
         }
     }
 
-    return {
-        db,
-        user,
-        session,
-        services: buildServices({
-            conn: db,
-            auth,
-            redisClient,
-            storageProvider,
-            scenarioManager,
-            encryptionHelper,
-            getVercelEncryptionHelper,
-            generationProvider,
-            githubApp,
-            pipelineWorkflows: temporalPipelineWorkflows,
-            triggerPreviewDeploy: previewkitTriggers.deploy,
-            triggerPreviewTeardown: previewkitTriggers.teardown,
-            triggerPreviewRedeployApp: previewkitTriggers.redeployApp,
-        }),
-    };
+    const { services } = createServiceContext();
+    return { db, user, session, services };
 }
 
 export type Context = Awaited<ReturnType<typeof createContext>>;

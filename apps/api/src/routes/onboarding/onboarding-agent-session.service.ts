@@ -10,7 +10,7 @@ import {
     OnboardingAgentPendingRequestSchema,
 } from "@autonoma/types";
 import { z } from "zod";
-import { env } from "../../env";
+import type { McpPrincipal } from "../../mcp/mcp-principal";
 import type { RateLimitPolicy, RateLimiterService } from "../../rate-limit/rate-limiter.service";
 
 /**
@@ -156,13 +156,13 @@ export class OnboardingAgentSessionService {
      * for the agent (consuming the code). Throws NotFoundError for an unknown,
      * expired, or non-member code - all indistinguishable, so a code can't probe.
      */
-    async pairAgent(code: string, userId: string): Promise<AgentSessionView> {
+    async pairAgent(code: string, principal: McpPrincipal): Promise<AgentSessionView> {
         this.logger.info("Agent pairing with code");
-        // Per-user pacing on the guess surface. The real boundary is the org
-        // membership check below - a guessed code can't reach an app the caller
-        // isn't already a member of - so this is throttling, not the gate.
+        // Per-user pacing on the guess surface. The real boundary is the organization
+        // check below - a guessed code can't reach an app outside the principal's orgs -
+        // so this is throttling, not the gate.
         await this.rateLimiter.consume(
-            `onboarding-pair:${userId}`,
+            `onboarding-pair:${principal.userId}`,
             PAIR_RATE_LIMIT,
             "Too many pairing attempts; wait a minute and try again.",
         );
@@ -177,29 +177,21 @@ export class OnboardingAgentSessionService {
 
         const expiresAt = state?.agentPairingExpiresAt;
         const organizationId = state?.application.organizationId;
-        // The read-only demo org is never reachable over MCP (it bypasses writeProcedure); refuse to
-        // pair an agent to a demo-org app, indistinguishable from an invalid code. Belt-and-suspenders
-        // beside resolveOrgForMember - createPairing is itself a blocked write in the demo, so a code
-        // should never exist, but a pairing must never bind to the demo either way.
+        // The principal's organizations are the whole authorization boundary here: they are the
+        // caller's memberships, already narrowed to one org when the credential is an API key and
+        // already stripped of the read-only demo org (which the MCP path must never reach, since it
+        // bypasses `writeProcedure`). Every rejection - unknown code, expired code, an app the
+        // caller cannot reach - throws the same error, so a code can never be used to probe.
         if (
             state == null ||
             organizationId == null ||
-            organizationId === env.DEMO_ORG ||
+            !principal.organizationIds.includes(organizationId) ||
             expiresAt == null ||
             expiresAt.getTime() < Date.now()
         ) {
-            throw new NotFoundError("Pairing code is invalid or expired");
-        }
-
-        const membership = await this.db.member.findFirst({
-            where: { userId, organizationId },
-            select: { organizationId: true },
-        });
-        if (membership == null) {
-            this.logger.warn("Pairing user is not a member of the app's org", {
-                userId,
-                applicationId: state.applicationId,
-                organizationId,
+            this.logger.warn("Rejected agent pairing", {
+                userId: principal.userId,
+                extra: { known: state != null, expired: expiresAt != null && expiresAt.getTime() < Date.now() },
             });
             throw new NotFoundError("Pairing code is invalid or expired");
         }
@@ -229,23 +221,30 @@ export class OnboardingAgentSessionService {
      * Resolves the org a paired agent's per-call `applicationId` acts in and
      * verifies the OAuth user is a member - the same boundary as pairing, applied
      * to every subsequent stateless tool call (the MCP server is stateless, so
-     * the app is named per call). Probe-safe: an unknown app and a non-member both
-     * throw the same NotFoundError.
+     * the app is named per call). Probe-safe: an unknown app and one outside the
+     * principal's organizations both throw the same NotFoundError.
+     *
+     * The principal carries the caller's authorized organizations - already narrowed to a
+     * single one when the credential is an API key, and already stripped of the demo org.
+     * Authorization is that list, so this never has to reason about the credential itself.
      */
-    async resolveOrgForMember(applicationId: string, userId: string): Promise<string> {
-        // One relation-filtered query on the hot path (every tool call): the app must
-        // exist, be enabled, AND have the OAuth user as a member of its org. Unknown
-        // app and non-member both resolve to null, so the caller can't probe which.
+    async resolveOrgForMember(applicationId: string, principal: McpPrincipal): Promise<string> {
+        // One query on the hot path (every tool call): the app must exist, be enabled, AND
+        // belong to an org the principal may act in. Unknown app and out-of-reach app both
+        // resolve to null, so the caller can't probe which.
         const application = await this.db.application.findFirst({
-            where: { id: applicationId, disabled: false, organization: { members: { some: { userId } } } },
+            where: {
+                id: applicationId,
+                disabled: false,
+                organizationId: { in: principal.organizationIds },
+            },
             select: { organizationId: true },
         });
-        // The read-only demo org is never reachable over MCP: the MCP path bypasses `writeProcedure`,
-        // so a demo viewer (a member of DEMO_ORG so `orgStatus` resolves to "approved") could otherwise
-        // mutate config/secrets/recipes via the onboarding tools. Treat it exactly like a non-member -
-        // same NotFoundError, indistinguishable from an unknown app.
-        if (application == null || application.organizationId === env.DEMO_ORG) {
-            this.logger.warn("No enabled app the agent user is a member of", { userId, applicationId });
+        if (application == null) {
+            this.logger.warn("No enabled app in the agent's authorized organizations", {
+                userId: principal.userId,
+                applicationId,
+            });
             throw new NotFoundError(`No application found for ${applicationId}`);
         }
         return application.organizationId;

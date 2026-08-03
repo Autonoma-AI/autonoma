@@ -52,7 +52,11 @@ The same server backs two later entry points, each with its own line to hand ove
 | --- | --- |
 | **URL** | `https://api.autonoma.app/v1/mcp/onboarding` |
 | **Transport** | Streamable HTTP |
-| **Authentication** | OAuth - your client opens a browser to sign in to Autonoma and authorize; no API key or token to paste |
+| **Authentication** | OAuth - your client opens a browser to sign in to Autonoma and authorize; no API key or token to paste. An agent with no browser can send an [API key](/mcp/#headless-agents-and-ci) instead. |
+
+:::note
+An API key gets an agent past the sign-in, but this server still pins itself to one application with a pairing code you copy from the Autonoma UI, so onboarding is not fully hands-off yet. A key can only pair with an application in the organization it was created for.
+:::
 
 ## Connect your coding agent
 

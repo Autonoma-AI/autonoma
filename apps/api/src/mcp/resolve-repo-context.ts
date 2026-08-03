@@ -1,8 +1,8 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
-import { env } from "../env";
 import type { ListedRepository } from "../github/github-installation.service";
+import type { McpPrincipal } from "./mcp-principal";
 
 /** The org + linked application an MCP tool call acts in, resolved from the `repoFullName` it names. */
 export interface RepoContext {
@@ -20,8 +20,8 @@ export interface RepoContextDeps {
 
 /**
  * Resolve the organization + application an MCP tool call acts in FROM the `repoFullName` ("owner/repo") it names.
- * The OAuth token carries only `userId`, and a user can be in many orgs, so we resolve per-repo and verify
- * membership - a token can only ever read orgs the user belongs to.
+ * A credential can span several orgs (an OAuth token covers every org its user belongs to), so we resolve
+ * per-repo against the principal's authorized orgs - resolution can only ever reach orgs already on it.
  *
  * `repoFullName` is stored on-DB only for repos that have a preview environment, so we can't rely on PreviewKit:
  * a diffs-only client is onboarded (an `Application` linked by numeric `githubRepositoryId`) but has no preview
@@ -29,24 +29,17 @@ export interface RepoContextDeps {
  * as the resolution path, keeping the PreviewKit row only as a fast DB shortcut.
  *
  * Throws `NotFoundError` (never an authorization-specific error) when no accessible application is found OR the
- * user isn't a member of the owning org: the two are indistinguishable, so a token can't probe repos in orgs the
- * user can't see.
+ * repo is outside the principal's orgs: the two are indistinguishable, so a credential can't probe repos it
+ * cannot reach.
  */
 export async function resolveRepoContext(
     { db, listRepositories }: RepoContextDeps,
-    userId: string,
+    principal: McpPrincipal,
     repoFullName: string,
 ): Promise<RepoContext> {
     const logger = rootLogger.child({ name: "resolveRepoContext" });
 
-    const memberships = await db.member.findMany({ where: { userId }, select: { organizationId: true } });
-    // The read-only demo org is never reachable over MCP. The MCP path bypasses `writeProcedure`,
-    // so a demo viewer (who is a member of DEMO_ORG so `orgStatus` resolves to "approved") could
-    // otherwise read secrets/logs/config and mutate them via tools. Dropping it here makes every
-    // tool that names a demo-org repo resolve to `notFound`, identical to a non-member.
-    const userOrgIds = memberships
-        .map((membership) => membership.organizationId)
-        .filter((organizationId) => organizationId !== env.DEMO_ORG);
+    const userOrgIds = principal.organizationIds;
     if (userOrgIds.length === 0) throw notFound(repoFullName);
 
     // Fast path (no GitHub call): a preview environment already maps repoFullName -> org + numeric repo id.

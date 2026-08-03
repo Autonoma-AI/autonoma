@@ -1,23 +1,39 @@
 import { analytics } from "@autonoma/analytics";
-import type { PrismaClient } from "@autonoma/db";
+import { verifyApiKey } from "@autonoma/auth";
+import { db, type PrismaClient } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { StreamableHTTPTransport } from "@hono/mcp";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type Context, Hono } from "hono";
-import { auth, createContext } from "../context";
+import { auth, createServiceContext } from "../context";
 import { env } from "../env";
 import type { Services } from "../routes/build-services";
 import { buildDebugMcpServer } from "./debug-mcp-server";
 import { listAccessibleRepos } from "./list-accessible-repos";
 import { McpAnalytics } from "./mcp-analytics";
+import { type McpCredential, type McpPrincipal, resolveMcpPrincipal } from "./mcp-principal";
 import { buildOnboardingMcpServer } from "./onboarding-mcp-server";
 import { resolveRepoContext } from "./resolve-repo-context";
 
 const logger = rootLogger.child({ name: "mcpHttpRouter" });
 
-/** The verified MCP bearer session (userId-only, multi-org), stashed by the auth middleware. */
-type McpSession = NonNullable<Awaited<ReturnType<typeof auth.api.getMcpSession>>>;
-type McpEnv = { Variables: { mcpSession: McpSession } };
+/**
+ * What the MCP auth middleware sets on the Hono context. Routes type their env with
+ * `Hono<{ Variables: McpAuthVariables }>` so `c.var.mcpAuth` is inferred, matching
+ * `UserAuthVariables` / `CallerAuthVariables` in `@autonoma/auth`.
+ *
+ * The credential is already resolved to its authorization boundary here: routes and tools
+ * take the principal, never a bare user id, so the breadth of the credential cannot be lost
+ * on the way down.
+ */
+export interface McpAuthVariables {
+    mcpAuth: {
+        principal: McpPrincipal;
+        /** Which credential authenticated the request, so logs and analytics can tell them apart. */
+        credential: "oauth" | "api_key";
+    };
+}
+type McpEnv = { Variables: McpAuthVariables };
 
 /** The per-request wiring a named MCP server is built from. */
 interface McpServerDeps {
@@ -36,13 +52,13 @@ interface McpServerDeps {
 export const mcpHttpRouter = new Hono<McpEnv>();
 
 /**
- * Verify the MCP bearer token once for every server route. On an unauthenticated
+ * Authenticate the bearer once for every server route. On an unauthenticated
  * request it returns 401 with a `WWW-Authenticate` header pointing at the
  * protected-resource metadata, so the client can discover the authorization server.
  */
 mcpHttpRouter.use("*", async (c, next) => {
-    const session = await auth.api.getMcpSession({ headers: c.req.raw.headers });
-    if (session == null) {
+    const credential = await verifyMcpCredential(c);
+    if (credential == null) {
         // Build the challenge URL from the canonical origin (APP_URL), not
         // `c.req.url`: behind the TLS-terminating ingress the request URL is http,
         // which would advertise an insecure metadata URL an OAuth client rejects.
@@ -50,9 +66,29 @@ mcpHttpRouter.use("*", async (c, next) => {
         c.header("WWW-Authenticate", `Bearer resource_metadata="${resourceMetadataUrl}"`);
         return c.json({ error: "Unauthorized" }, 401);
     }
-    c.set("mcpSession", session);
+    // Turn the credential into its authorization boundary here, once, so no route or tool
+    // ever sees the raw credential and has to remember to narrow by it.
+    const principal = await resolveMcpPrincipal(db, credential);
+    c.set("mcpAuth", { principal, credential: credential.organizationId != null ? "api_key" : "oauth" });
     return next();
 });
+
+/**
+ * MCP's OAuth flow is unreachable without a browser: the client picks its own
+ * redirect URI and every one of them (Claude Code, `mcp-remote`) listens on
+ * localhost, so an agent running on a remote box or in CI has nothing to answer
+ * the callback with and the code expires. The API key already authenticates the
+ * whole tRPC surface and `/v1/previewkit/*`, so accept it here too rather than
+ * leaving headless agents with no way in at all.
+ */
+async function verifyMcpCredential(c: Context<McpEnv>): Promise<McpCredential | undefined> {
+    const session = await auth.api.getMcpSession({ headers: c.req.raw.headers });
+    if (session != null) return { userId: session.userId };
+
+    const keyContext = await verifyApiKey(db, c.req.header("authorization"));
+    if (keyContext == null) return undefined;
+    return { userId: keyContext.userId, organizationId: keyContext.organizationId };
+}
 
 /**
  * Client bug resolution: resolves org per `repoFullName` a tool names (the token
@@ -61,27 +97,27 @@ mcpHttpRouter.use("*", async (c, next) => {
  * `mcp.tool_called` event, attributed to the org the tool resolves.
  */
 mcpHttpRouter.all("/debug", (c) => {
-    const { userId } = c.get("mcpSession");
+    const { principal } = c.get("mcpAuth");
     // The org is discovered deep inside a handler (from the repoFullName a tool
     // names), so observeRepoContextResolution records it onto the request's
     // observability context for the analytics event to read back. Resolution reads
     // the org's GitHub App installation repos, so it needs the per-request
     // `services.github` (a diffs-only repo has no preview env to shortcut it).
-    const mcpAnalytics = new McpAnalytics(analytics, "debug", userId);
+    const mcpAnalytics = new McpAnalytics(analytics, "debug", principal.userId);
     return serveMcp(c, ({ services, db }) => {
         const resolveRepoCtx = mcpAnalytics.observeRepoContextResolution((repoFullName) =>
             resolveRepoContext(
-                { db, listRepositories: (organizationId) => services.github.listRepositories(organizationId) },
-                userId,
+                { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
+                principal,
                 repoFullName,
             ),
         );
         return buildDebugMcpServer({
             services,
             resolveRepoContext: resolveRepoCtx,
-            listRepos: () => listAccessibleRepos(services.github, userId),
+            listRepos: () => listAccessibleRepos(services.github, principal),
             analytics: mcpAnalytics,
-            userId,
+            userId: principal.userId,
             mergeGate: services.mergeGate,
         });
     });
@@ -93,21 +129,29 @@ mcpHttpRouter.all("/debug", (c) => {
  * tracked as an `mcp.tool_called` event, attributed to the resolved org.
  */
 mcpHttpRouter.all("/onboarding", (c) => {
-    const { userId } = c.get("mcpSession");
-    const mcpAnalytics = new McpAnalytics(analytics, "onboarding", userId);
-    return serveMcp(c, ({ services }) => buildOnboardingMcpServer({ services, userId, analytics: mcpAnalytics }));
+    const { principal } = c.get("mcpAuth");
+    const mcpAnalytics = new McpAnalytics(analytics, "onboarding", principal.userId);
+    return serveMcp(c, ({ services }) => buildOnboardingMcpServer({ services, principal, analytics: mcpAnalytics }));
 });
 
 /**
  * The per-request plumbing shared by every server route: log the call, borrow the
- * fully-wired service graph the tRPC layer builds (auth already came from the
- * verified MCP token), build the named server, and pump it over Streamable HTTP.
+ * fully-wired service graph the tRPC layer builds, build the named server, and pump it
+ * over Streamable HTTP.
+ *
+ * Deliberately `createServiceContext` and not `createContext`: the caller was already
+ * authenticated in middleware, and the tools read identity from the principal, never from
+ * the context. `createContext` would re-run a session lookup and a second `verifyApiKey`
+ * (an unindexed scan of `api_key`) plus a user fetch, and then we would throw all of it away.
  */
 async function serveMcp(c: Context<McpEnv>, build: (deps: McpServerDeps) => McpServer) {
-    const { userId } = c.get("mcpSession");
-    logger.info("Handling MCP request", { userId, extra: { path: c.req.path } });
+    const { principal, credential } = c.get("mcpAuth");
+    logger.info("Handling MCP request", {
+        userId: principal.userId,
+        extra: { path: c.req.path, credential, organizationCount: principal.organizationIds.length },
+    });
 
-    const { services, db } = await createContext(c);
+    const { services, db } = createServiceContext();
     const server = build({ services, db });
     const transport = new StreamableHTTPTransport();
     await server.connect(transport);

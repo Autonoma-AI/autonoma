@@ -18,7 +18,7 @@ Everything below is the same server, just configured per client. When a client a
 | --- | --- |
 | **URL** | `https://api.autonoma.app/v1/mcp/debug` |
 | **Transport** | Streamable HTTP |
-| **Authentication** | OAuth - your client opens a browser to sign in to Autonoma and authorize; no API key or token to paste |
+| **Authentication** | OAuth - your client opens a browser to sign in to Autonoma and authorize; no API key or token to paste. Headless agents can send an [API key](#headless-agents-and-ci) instead. |
 
 :::note
 You need an Autonoma account with your app connected, and a pull request that has a preview environment. The MCP is scoped to your organization - it only ever sees your own deploys, logs, and secret status.
@@ -26,6 +26,33 @@ You need an Autonoma account with your app connected, and a pull request that ha
 
 :::note
 Still setting Autonoma up? Use the [onboarding MCP](/mcp/configure-preview) instead - it covers the whole of onboarding, from the preview environment through your SDK endpoint and scenario recipes. This server is for afterwards, once Autonoma is reviewing your pull requests. If you have both connected, say which one you mean by name (`autonoma` here, `autonoma-onboarding` there) - an agent holding both cannot tell "the Autonoma MCP" apart.
+:::
+
+## Headless agents and CI
+
+The OAuth flow needs a browser. Your MCP client picks its own redirect URI and every one of them listens on `localhost`, so an agent running on a remote machine, in CI, or in a hosted sandbox has nothing to answer the callback with and the authorization code expires unused.
+
+For those, send an Autonoma API key as a plain bearer token and skip OAuth entirely:
+
+```bash
+curl https://api.autonoma.app/v1/mcp/debug \
+  -H "Authorization: Bearer $AUTONOMA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Most clients let you set a static header. With `mcp-remote`:
+
+```bash
+npx -y mcp-remote https://api.autonoma.app/v1/mcp/debug \
+  --header "Authorization: Bearer ${AUTONOMA_API_KEY}"
+```
+
+Create a key under **Settings → API keys**. The same key works for the onboarding MCP, the REST API, and the planner CLI.
+
+:::note
+An API key belongs to one organization, and over MCP it can only reach that organization - even if you belong to several. An OAuth token is scoped to you rather than to one org, so it resolves the organization per call from the repository a tool names. If a key seems unable to see a repo, check it was created in the organization that owns it.
 :::
 
 ## Connect your coding agent

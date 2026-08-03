@@ -1,7 +1,7 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { env } from "../env";
 import type { GitHubInstallationService } from "../github/github-installation.service";
+import type { McpPrincipal } from "./mcp-principal";
 
 /** Cap the discovery list; an internal user can belong to many orgs. */
 const MAX_REPOS = 100;
@@ -12,24 +12,22 @@ export interface AccessibleRepo {
 }
 
 /**
- * List the repos an MCP-authenticated user can debug: every repo in an organization the user is a member of
- * that is linked to an Autonoma application (via the org's GitHub App installation, NOT PreviewKit - so
- * diffs-only apps that never deploy a preview still show up). This is the discovery entry point - when the
- * agent can't infer the repo from the git remote, it calls this so the user can pick one. Bounded to
- * {@link MAX_REPOS}; `truncated` signals there were more.
+ * List the repos an MCP caller can debug: every repo in one of the principal's organizations that is linked
+ * to an Autonoma application (via the org's GitHub App installation, NOT PreviewKit - so diffs-only apps that
+ * never deploy a preview still show up). This is the discovery entry point - when the agent can't infer the
+ * repo from the git remote, it calls this so the user can pick one. Bounded to {@link MAX_REPOS}; `truncated`
+ * signals there were more.
+ *
+ * Discovery reads the same principal as resolution, so a credential can never advertise a repo it would then
+ * be refused when it tried to act on it.
  */
 export async function listAccessibleRepos(
     github: GitHubInstallationService,
-    userId: string,
+    principal: McpPrincipal,
 ): Promise<{ repos: AccessibleRepo[]; truncated: boolean }> {
     const logger = rootLogger.child({ name: "listAccessibleRepos" });
 
-    const memberships = await db.member.findMany({ where: { userId }, select: { organizationId: true } });
-    // Never surface the read-only demo org over MCP - the MCP path is not covered by the demo
-    // write-block, so a demo viewer must not be able to discover or act on it. See resolveRepoContext.
-    const orgIds = memberships
-        .map((membership) => membership.organizationId)
-        .filter((organizationId) => organizationId !== env.DEMO_ORG);
+    const orgIds = principal.organizationIds;
     if (orgIds.length === 0) return { repos: [], truncated: false };
 
     const orgs = await db.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } });
@@ -66,6 +64,9 @@ export async function listAccessibleRepos(
     const truncated = all.length > MAX_REPOS;
     const repos = all.slice(0, MAX_REPOS);
 
-    logger.info("Listed accessible repos", { userId, extra: { count: repos.length, truncated } });
+    logger.info("Listed accessible repos", {
+        userId: principal.userId,
+        extra: { count: repos.length, truncated },
+    });
     return { repos, truncated };
 }

@@ -3,6 +3,7 @@ import { ApplicationArchitecture } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { expect } from "vitest";
 import type { ListedRepository } from "../../src/github/github-installation.service";
+import type { McpPrincipal } from "../../src/mcp/mcp-principal";
 import { resolveRepoContext } from "../../src/mcp/resolve-repo-context";
 import { apiTestSuite } from "../api-test";
 
@@ -17,6 +18,11 @@ function listed(id: number, fullName: string, applicationId?: string): ListedRep
         applicationId,
         applicationName: applicationId != null ? "app" : undefined,
     };
+}
+
+/** The authorization boundary a request arrives with, built by `resolveMcpPrincipal` in production. */
+function principal(userId: string, ...organizationIds: string[]): McpPrincipal {
+    return { userId, organizationIds };
 }
 
 /** A fake installation lister returning canned repos per org (and [] for any org not seeded). */
@@ -66,7 +72,7 @@ apiTestSuite({
 
             const context = await resolveRepoContext(
                 { db: harness.db, listRepositories: lister.list },
-                harness.userId,
+                principal(harness.userId, harness.organizationId),
                 repoFullName,
             );
 
@@ -97,7 +103,7 @@ apiTestSuite({
 
             const context = await resolveRepoContext(
                 { db: harness.db, listRepositories: lister.list },
-                harness.userId,
+                principal(harness.userId, harness.organizationId),
                 repoFullName,
             );
 
@@ -114,7 +120,7 @@ apiTestSuite({
             await expect(
                 resolveRepoContext(
                     { db: harness.db, listRepositories: lister.list },
-                    `stranger-${randomBytes(4).toString("hex")}`,
+                    principal(`stranger-${randomBytes(4).toString("hex")}`),
                     "acme/diffs-only",
                 ),
             ).rejects.toThrow(NotFoundError);
@@ -129,7 +135,11 @@ apiTestSuite({
             });
 
             await expect(
-                resolveRepoContext({ db: harness.db, listRepositories: lister.list }, harness.userId, repoFullName),
+                resolveRepoContext(
+                    { db: harness.db, listRepositories: lister.list },
+                    principal(harness.userId, harness.organizationId),
+                    repoFullName,
+                ),
             ).rejects.toThrow(NotFoundError);
         });
 
@@ -165,8 +175,85 @@ apiTestSuite({
             });
 
             await expect(
-                resolveRepoContext({ db: harness.db, listRepositories: lister.list }, harness.userId, repoFullName),
+                resolveRepoContext(
+                    { db: harness.db, listRepositories: lister.list },
+                    principal(harness.userId, harness.organizationId, secondOrg.id),
+                    repoFullName,
+                ),
             ).rejects.toThrow(/more than one of your organizations/);
+        });
+
+        test("an org-scoped caller resolves the scoped org instead of a disambiguation error", async ({ harness }) => {
+            const repoFullName = "acme/scoped";
+            const secondOrg = await harness.db.organization.create({
+                data: { name: "Scoped Org", slug: `scoped-org-${randomBytes(4).toString("hex")}` },
+            });
+            await harness.db.member.create({
+                data: { userId: harness.userId, organizationId: secondOrg.id, role: "owner" },
+            });
+            const appA = await harness.db.application.create({
+                data: {
+                    name: "Scoped App A",
+                    slug: `scoped-app-a-${randomBytes(4).toString("hex")}`,
+                    architecture: ApplicationArchitecture.WEB,
+                    organizationId: harness.organizationId,
+                    githubRepositoryId: 6006,
+                },
+            });
+            const appB = await harness.db.application.create({
+                data: {
+                    name: "Scoped App B",
+                    slug: `scoped-app-b-${randomBytes(4).toString("hex")}`,
+                    architecture: ApplicationArchitecture.WEB,
+                    organizationId: secondOrg.id,
+                    githubRepositoryId: 7007,
+                },
+            });
+            const lister = fakeLister({
+                [harness.organizationId]: [listed(6006, repoFullName, appA.id)],
+                [secondOrg.id]: [listed(7007, repoFullName, appB.id)],
+            });
+
+            // The principal an API key produces: one org, even though the user is in two.
+            const context = await resolveRepoContext(
+                { db: harness.db, listRepositories: lister.list },
+                principal(harness.userId, secondOrg.id),
+                repoFullName,
+            );
+
+            expect(context.organizationId).toBe(secondOrg.id);
+            expect(context.applicationId).toBe(appB.id);
+            // The unscoped org must not even be queried, or a key would read repos outside its org.
+            expect(lister.calls).toEqual([secondOrg.id]);
+        });
+
+        test("an org-scoped caller cannot reach a repo in another of its owner's orgs", async ({ harness }) => {
+            const repoFullName = "acme/out-of-scope";
+            const otherOrg = await harness.db.organization.create({
+                data: { name: "Other Org", slug: `other-org-${randomBytes(4).toString("hex")}` },
+            });
+            await harness.db.member.create({
+                data: { userId: harness.userId, organizationId: otherOrg.id, role: "owner" },
+            });
+            const app = await harness.db.application.create({
+                data: {
+                    name: "Out Of Scope App",
+                    slug: `out-of-scope-app-${randomBytes(4).toString("hex")}`,
+                    architecture: ApplicationArchitecture.WEB,
+                    organizationId: otherOrg.id,
+                    githubRepositoryId: 8008,
+                },
+            });
+            const lister = fakeLister({ [otherOrg.id]: [listed(8008, repoFullName, app.id)] });
+
+            // The user IS a member of otherOrg, so this is the key's scope doing the work, not membership.
+            await expect(
+                resolveRepoContext(
+                    { db: harness.db, listRepositories: lister.list },
+                    principal(harness.userId, harness.organizationId),
+                    repoFullName,
+                ),
+            ).rejects.toThrow(NotFoundError);
         });
     },
 });

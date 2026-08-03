@@ -18,6 +18,7 @@ import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import { deprecatedBuildNotice } from "./deprecated-build-notice";
 import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
+import type { McpPrincipal } from "./mcp-principal";
 import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
 import { resolveDryRunTarget, resolveDryRunTargetUrl } from "./resolve-dry-run-target";
 import { describeError, errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
@@ -148,8 +149,8 @@ function playbookFor(mode: OnboardingPreviewEnvironmentMode | undefined): string
 /** Everything the onboarding MCP tools need: the service graph and the authenticated user. */
 export interface OnboardingMcpDeps {
     services: Services;
-    /** The OAuth-authenticated user driving the agent (from the verified MCP token). */
-    userId: string;
+    /** The authenticated caller and the complete set of orgs it may act in. */
+    principal: McpPrincipal;
     /** Records a `mcp.tool_called` PostHog event per tool invocation, attributed to the resolved org. */
     analytics: McpAnalytics;
 }
@@ -270,7 +271,8 @@ function pausedResult(): CallToolResult {
  */
 export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     const logger = rootLogger.child({ name: "onboardingMcpServer" });
-    const { services, userId, analytics } = deps;
+    const { services, principal, analytics } = deps;
+    const userId = principal.userId;
     const session = services.onboardingAgentSession;
 
     const server = new McpServer(
@@ -285,7 +287,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
      * tool instead of calling the service directly.
      */
     const resolveOrg = analytics.observeOrgResolution((applicationId) =>
-        session.resolveOrgForMember(applicationId, userId),
+        session.resolveOrgForMember(applicationId, principal),
     );
 
     /**
@@ -402,7 +404,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             analytics.track("pair", async () => {
                 try {
                     logger.info("Pairing agent with code");
-                    const view = await session.pairAgent(code, userId);
+                    const view = await session.pairAgent(code, principal);
                     await captureAgentClient(view.applicationId);
                     const organizationId = await resolveOrg(view.applicationId);
                     const mode = view.previewEnvironmentMode;
