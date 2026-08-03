@@ -70,7 +70,12 @@ function FixDialogShell({ health, open, onOpenChange, children }: FixDialogProps
       serverName={DEBUG_MCP_SERVER_NAME}
       endpoint="debug"
       docsUrl={DEBUG_MCP_DOCS_URL}
-      tellAgent={children}
+      // The real prompt here runs to a few hundred words naming every affected pull
+      // request, so it stays behind the copy button rather than being inlined into a
+      // launch command nobody could read. The short sentence gets the agent started;
+      // the plan is what the user pastes next.
+      prompt={`use the ${DEBUG_MCP_SERVER_NAME} MCP to fix my suite health`}
+      capabilities={children}
     />
   );
 }

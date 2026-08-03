@@ -12,7 +12,7 @@ import { CopyPromptButton } from "./copy-prompt-button";
  * leads with "the same one" instead of introducing it from scratch.
  */
 export const ONBOARDING_AGENT_DIALOG_DESCRIPTION =
-  "Autonoma's onboarding MCP - the same one that configures previews. Install it if you have not already, authorize it when your agent asks, then hand your agent the pairing code.";
+  "Autonoma's onboarding MCP - the same one that configures previews. Two commands: install and sign in, then start your agent on the job. Skip the first if you already have it installed.";
 
 export interface ConnectOnboardingAgentDialogProps {
   open: boolean;
@@ -80,6 +80,8 @@ export function ConnectOnboardingAgentDialog({
       serverName={ONBOARDING_MCP_SERVER_NAME}
       endpoint="onboarding"
       docsUrl={ONBOARDING_MCP_DOCS_URL}
+      prompt={prompt}
+      capabilities={capabilities}
       pairing={
         <AgentPairingCode
           code={code}
@@ -88,11 +90,6 @@ export function ConnectOnboardingAgentDialog({
           prompt={prompt}
           onRetry={() => mintPairing({ applicationId })}
         />
-      }
-      tellAgent={
-        <>
-          Then tell your agent: <span className="font-mono text-text-primary">{prompt}</span>. {capabilities}
-        </>
       }
     />
   );

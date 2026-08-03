@@ -19,6 +19,12 @@ export interface UnauthorizedGuidance {
     resource: string;
     message: string;
     authenticate: AuthenticationOption[];
+    /**
+     * What an agent should do when authenticating cannot fix this from where it is standing.
+     * Named separately from `authenticate` because it is not another way in - it is the
+     * instruction for the case where there is no way in from inside this process.
+     */
+    ifYouCannotAuthenticate: string;
     documentation: string;
 }
 
@@ -82,6 +88,8 @@ export function unauthorizedGuidance({ appUrl, docsUrl, surface }: UnauthorizedG
                 howTo: "Complete the OAuth flow advertised in the WWW-Authenticate header of this response.",
             },
         ],
+        ifYouCannotAuthenticate:
+            "Report this to the user rather than retrying - a retry returns this same response. Sign-in has to happen outside your session: ask them to run `claude mcp login <server>` (or sign in from their editor's MCP settings) in their own terminal, and then to restart you, since a running session does not pick up a server signed in underneath it.",
         documentation: `${docs}${SURFACE_DOCS_PATH[surface]}`,
     };
 }

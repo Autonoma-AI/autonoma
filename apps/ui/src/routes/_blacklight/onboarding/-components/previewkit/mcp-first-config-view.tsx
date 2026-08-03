@@ -14,7 +14,6 @@ import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useEffect, useRef, useState } from "react";
 import { agentConfigurePrompt } from "./agent-configure-prompt";
 import { AgentConfiguringScreen } from "./agent-configuring-screen";
-import { TellAgentLine } from "./tell-agent-line";
 
 /**
  * How long the cube's connect spin-up plays before handing off to the live
@@ -57,7 +56,7 @@ function configCopy(appId: string): McpFirstCopy {
   return {
     heading: "Configure with a coding agent",
     blurb:
-      "Three steps: install the Autonoma MCP from your terminal, authorize it when your agent asks, then give your agent the pairing code. It configures and deploys your preview while you watch here - no scripts, no YAML.",
+      "Two commands in your terminal: install the Autonoma MCP and sign in, then start your agent. It configures and deploys your preview while you watch here - no scripts, no YAML.",
     manualLabel: "Configure manually",
     manualSearch: buildOnboardingSearch("previewkit-config", appId, { configStep: "apps" }),
     prompt: agentConfigurePrompt,
@@ -142,6 +141,7 @@ function McpFirstPairing({ appId, connected, copy }: { appId: string; connected:
             serverName={ONBOARDING_MCP_SERVER_NAME}
             endpoint="onboarding"
             docsUrl={ONBOARDING_MCP_DOCS_URL}
+            prompt={copy.prompt(code)}
             pairing={
               <PairingCodeBlock
                 code={code}
@@ -150,7 +150,6 @@ function McpFirstPairing({ appId, connected, copy }: { appId: string; connected:
                 onRetry={() => createPairing.mutate({ applicationId: appId })}
               />
             }
-            tellAgent={<TellAgentLine prompt={copy.prompt(code)} />}
           />
         </div>
 

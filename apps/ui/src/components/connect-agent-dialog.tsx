@@ -55,43 +55,121 @@ export function mcpEndpointUrl(path: McpEndpoint): string {
   return `${getApiOrigin()}/v1/mcp/${path}`;
 }
 
+/**
+ * Permission mode the launch command starts the agent in. Configuring a preview means
+ * reading the repo, writing config, and calling MCP tools back to back - at default
+ * permissions the run stalls on a prompt every few seconds, which is where people
+ * abandon setup. Swap for `--permission-mode acceptEdits` to auto-approve edits while
+ * still confirming shell commands.
+ */
+const CLAUDE_PERMISSION_FLAG = "--dangerously-skip-permissions";
+
+/**
+ * Heads the Claude Code install block. Shell comments, so they survive the two ways this
+ * actually reaches people - a copy-paste and a screenshot handed to an agent - and both
+ * of those are the failure being warned about: `claude mcp add` run from inside a running
+ * agent writes config the current session never reloads, and `claude mcp login` run
+ * without a TTY aborts with "stdin isn't a terminal".
+ *
+ * The last two lines address the agent directly. An agent handed these commands runs
+ * them, sees them succeed, and reports success - leaving the user with a session that
+ * still has no Autonoma tools and no idea why. It cannot fix that itself; the only
+ * useful thing it can do is say so, so the copied text tells it to.
+ *
+ * Pre-wrapped to roughly the block's width. The `#` only starts each logical line, so a
+ * line long enough to soft-wrap puts uncommented-looking text under it, and the block
+ * stops reading as a comment at a glance.
+ */
+const TERMINAL_ONLY_NOTE = [
+  "# Run in a terminal, not inside a running agent.",
+  "# Agent reading this: don't run these. Ask the user to run them, then",
+  "# have them restart you - a running session won't see the new server.",
+].join("\n");
+
+/**
+ * Escape a prompt for a double-quoted shell argument. Inside double quotes a shell still
+ * expands `$` and backticks and honours `\`, so a prompt naming a variable or a path would
+ * otherwise reach the agent mangled - or run something.
+ */
+function shellQuote(value: string): string {
+  return value.replace(/([\\"$`])/g, "\\$1");
+}
+
+/** What a tab's snippets are built from: where the server lives, what it is called, what to ask it. */
+interface InstallSnippetInput {
+  /** MCP endpoint URL the client connects to. */
+  url: string;
+  /** MCP server name the client registers. */
+  serverName: string;
+  /** The sentence handed to the agent, pairing code included. */
+  prompt: string;
+}
+
 interface AgentTab {
   id: string;
   label: string;
-  /** How to install the MCP for this client, given the endpoint URL + server name. */
-  snippet: (url: string, serverName: string) => string;
-  /** File / place the snippet goes (shown above the code). */
+  /**
+   * Install AND authorize this client, as one copyable block. Authorization is not a
+   * separate step it can be: left as prose next to a copy button it gets skipped, and
+   * the user reads the resulting missing tools as a broken MCP.
+   */
+  install: (input: InstallSnippetInput) => string;
+  /** File / place the install snippet goes (shown above the code). */
   location?: string;
-  /** What the user does with the snippet, and when - installing is a step BEFORE the agent runs. */
-  instruction: string;
+  /** What the user does with the install snippet. */
+  installInstruction: string;
+  /**
+   * Start the agent on the prompt. Undefined for clients driven from an editor rather
+   * than a CLI, where the user opens the app and pastes the prompt themselves.
+   */
+  launch?: (input: InstallSnippetInput) => string;
+  /** What the user does at the launch step. */
+  launchInstruction: string;
 }
 
 const AGENT_TABS: AgentTab[] = [
   {
     id: "claude",
     label: "Claude Code",
-    instruction: "Run this in your terminal first, before you open Claude Code. Already open? Quit and reopen it.",
-    snippet: (url, serverName) => `claude mcp add --transport http ${serverName} ${url}`,
+    installInstruction: "Installs the server and signs you in - a browser opens, approve it there.",
+    // `--scope user` and not the default (`local`): the default binds the server to the
+    // directory the command happened to run in, so someone who pastes this into whatever
+    // terminal is already open registers it against their home directory and then finds no
+    // Autonoma tools in their project. That failure looks exactly like "they never authorized".
+    install: ({ url, serverName }) =>
+      [
+        TERMINAL_ONLY_NOTE,
+        `claude mcp add --transport http --scope user ${serverName} ${url}`,
+        `claude mcp login ${serverName}`,
+      ].join("\n"),
+    launchInstruction: "Once the browser confirms, run this from your project to start the agent on the job.",
+    launch: ({ prompt }) => `claude ${CLAUDE_PERMISSION_FLAG} "${shellQuote(prompt)}"`,
   },
   {
     id: "cursor",
     label: "Cursor",
     location: "~/.cursor/mcp.json",
-    instruction: "Add this to your Cursor MCP config, then restart Cursor.",
-    snippet: (url, serverName) => JSON.stringify({ mcpServers: { [serverName]: { url } } }, null, 2),
+    installInstruction:
+      "Add this to your Cursor MCP config and restart Cursor, then open MCP settings and sign in to the server.",
+    install: ({ url, serverName }) => JSON.stringify({ mcpServers: { [serverName]: { url } } }, null, 2),
+    launchInstruction: "Then open Cursor in your project and paste this to the agent:",
   },
   {
     id: "windsurf",
     label: "Windsurf",
     location: "~/.codeium/windsurf/mcp_config.json",
-    instruction: "Add this to your Windsurf MCP config, then refresh MCP servers in Cascade.",
-    snippet: (url, serverName) => JSON.stringify({ mcpServers: { [serverName]: { serverUrl: url } } }, null, 2),
+    installInstruction:
+      "Add this to your Windsurf MCP config and refresh MCP servers in Cascade, then sign in to the server there.",
+    install: ({ url, serverName }) => JSON.stringify({ mcpServers: { [serverName]: { serverUrl: url } } }, null, 2),
+    launchInstruction: "Then open Windsurf in your project and paste this to the agent:",
   },
   {
     id: "other",
     label: "Other",
-    instruction: "Run this in your terminal before you open your agent, or add the equivalent entry to its MCP config.",
-    snippet: (url) => `npx -y mcp-remote ${url}`,
+    installInstruction:
+      "Run this in your terminal before you open your agent, or add the equivalent entry to its MCP config. It opens a browser to sign in.",
+    install: ({ url }) => `npx -y mcp-remote ${url}`,
+    launchInstruction: "Then open your agent in your project and paste this to it:",
   },
 ];
 
@@ -105,9 +183,11 @@ export interface ConnectAgentDialogProps {
   endpoint: McpEndpoint;
   /** Public docs page for this MCP flow. */
   docsUrl: string;
-  /** The "Then tell your agent: ..." guidance under the install tabs. */
-  tellAgent: ReactNode;
-  /** Optional block above the install tabs (e.g. the onboarding pairing code). */
+  /** The sentence the agent is started on, pairing code already appended. */
+  prompt: string;
+  /** What the agent can do once connected, shown under the launch step. */
+  capabilities?: ReactNode;
+  /** Optional block above the steps (e.g. the onboarding pairing code). */
   pairing?: ReactNode;
 }
 
@@ -126,7 +206,8 @@ export function ConnectAgentDialog({
   serverName,
   endpoint,
   docsUrl,
-  tellAgent,
+  prompt,
+  capabilities,
   pairing,
 }: ConnectAgentDialogProps) {
   // Connecting a coding agent is an MCP entry point, and the demo org is locked out of the
@@ -154,7 +235,8 @@ export function ConnectAgentDialog({
             serverName={serverName}
             endpoint={endpoint}
             docsUrl={docsUrl}
-            tellAgent={tellAgent}
+            prompt={prompt}
+            capabilities={capabilities}
             pairing={pairing}
           />
         </DialogBody>
@@ -169,60 +251,71 @@ export interface ConnectAgentInstallProps {
   endpoint: McpEndpoint;
   /** Public docs page for this MCP flow. */
   docsUrl: string;
-  /** The "Then tell your agent: ..." guidance under the install tabs. */
-  tellAgent: ReactNode;
-  /** Optional block above the install tabs (e.g. the onboarding pairing code). */
+  /** The sentence the agent is started on, pairing code already appended. */
+  prompt: string;
+  /** What the agent can do once connected, shown under the launch step. */
+  capabilities?: ReactNode;
+  /** Optional block above the steps (e.g. the onboarding pairing code). */
   pairing?: ReactNode;
 }
 
 /**
- * The install-instructions body of the connect-agent flow, as three ordered steps:
- * install the server, authorize it, then talk to the agent. The order is the whole
- * point - installing happens in a terminal before the agent is running, and the
- * OAuth approval is a step people miss and then report the tools as broken - so the
- * pairing block and the "tell your agent" line land last, not first.
+ * The install-instructions body of the connect-agent flow: pick your client, then two
+ * copyable commands - install-and-authorize, then start the agent on the job.
+ *
+ * Authorization is deliberately not a step of its own. It used to be, as prose sitting
+ * directly under a copy button, and it was skipped near-universally: people copy the box
+ * and move on, then read the resulting empty tool list as a broken integration. So the
+ * `mcp login` call lives inside the block they were going to copy anyway.
+ *
+ * The two commands are two blocks rather than one, and that split is load-bearing:
+ * `claude mcp login` holds a readline on stdin while it waits for the browser callback,
+ * so a third line pasted with it is consumed as an answer to "Or paste the redirect URL
+ * here" instead of running.
  *
  * Rendered inside {@link ConnectAgentDialog} and, for the MCP-first onboarding,
  * directly on the page (no dialog) - so `AGENT_TABS` stays a single source of truth
  * across both surfaces.
  */
-export function ConnectAgentInstall({ serverName, endpoint, docsUrl, tellAgent, pairing }: ConnectAgentInstallProps) {
-  const url = mcpEndpointUrl(endpoint);
+export function ConnectAgentInstall({
+  serverName,
+  endpoint,
+  docsUrl,
+  prompt,
+  capabilities,
+  pairing,
+}: ConnectAgentInstallProps) {
+  const snippetInput: InstallSnippetInput = { url: mcpEndpointUrl(endpoint), serverName, prompt };
   return (
     <div className="flex flex-col gap-7">
-      <Step index={1} title="Install the Autonoma MCP">
-        <Tabs defaultValue="claude">
-          <TabsList>
-            {AGENT_TABS.map((tab) => (
-              <TabsTrigger key={tab.id} value={tab.id}>
-                {tab.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+      {pairing}
+
+      {/* One Tabs around both steps, not one per step: the client choice decides how you
+          install AND how you launch, so picking "Cursor" at the top must carry down. */}
+      <Tabs defaultValue="claude">
+        <TabsList>
           {AGENT_TABS.map((tab) => (
-            <TabsContent key={tab.id} value={tab.id} className="flex flex-col gap-2">
-              <p className="text-2xs leading-relaxed text-text-secondary">{tab.instruction}</p>
-              {tab.location != null && <p className="font-mono text-2xs text-text-secondary">{tab.location}</p>}
-              <CopyableCode code={tab.snippet(url, serverName)} />
-            </TabsContent>
+            <TabsTrigger key={tab.id} value={tab.id}>
+              {tab.label}
+            </TabsTrigger>
           ))}
-        </Tabs>
-      </Step>
+        </TabsList>
+        {AGENT_TABS.map((tab) => (
+          <TabsContent key={tab.id} value={tab.id} className="flex flex-col gap-7">
+            <Step index={1} title="Install and sign in">
+              <p className="text-2xs leading-relaxed text-text-secondary">{tab.installInstruction}</p>
+              {tab.location != null && <p className="font-mono text-2xs text-text-secondary">{tab.location}</p>}
+              <CopyableCode code={tab.install(snippetInput)} />
+            </Step>
 
-      <Step index={2} title="Authorize Autonoma">
-        <p className="text-2xs leading-relaxed text-text-secondary">
-          The first time your agent calls an Autonoma tool it opens a browser to sign in - approve it, or every tool
-          fails. You can also do it up front: in Claude Code run{" "}
-          <span className="font-mono text-text-primary">/mcp</span> and authenticate{" "}
-          <span className="font-mono text-text-primary">{serverName}</span>; in Cursor or Windsurf, sign in from their
-          MCP settings.
-        </p>
-      </Step>
-
-      <Step index={3} title={pairing != null ? "Pair your app" : "Ask your agent"}>
-        {pairing}
-        <p className="text-2xs leading-relaxed text-text-secondary">{tellAgent}</p>
-      </Step>
+            <Step index={2} title="Start your agent">
+              <p className="text-2xs leading-relaxed text-text-secondary">{tab.launchInstruction}</p>
+              <CopyableCode code={tab.launch?.(snippetInput) ?? prompt} />
+              {capabilities != null && <p className="text-2xs leading-relaxed text-text-secondary">{capabilities}</p>}
+            </Step>
+          </TabsContent>
+        ))}
+      </Tabs>
 
       <a
         href={docsUrl}
@@ -261,7 +354,11 @@ function CopyableCode({ code }: { code: string }) {
 
   return (
     <div className="relative">
-      <pre className="overflow-x-auto border border-border-dim bg-surface-void p-3 pr-11 font-mono text-2xs text-text-primary">
+      {/* Wraps rather than scrolls: the install line runs past the panel width, and a command
+          whose tail is off-screen reads as broken - which is the opposite of the reassurance
+          someone needs before pasting it into a terminal. Soft wraps are not copied, so the
+          clipboard still gets the exact command. */}
+      <pre className="whitespace-pre-wrap border border-border-dim bg-surface-void p-3 pr-11 font-mono text-2xs text-text-primary [overflow-wrap:anywhere]">
         {code}
       </pre>
       <Button

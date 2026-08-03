@@ -45,4 +45,16 @@ describe("unauthorizedGuidance", () => {
     it("names the surface so an agent handed a bare URL learns what it hit", () => {
         expect(unauthorizedGuidance({ surface: "mcp" }).resource).toContain("MCP");
     });
+
+    /**
+     * The failure this covers: an agent installs the server mid-session, gets a 401 on the
+     * first tool call, and silently retries forever - because nothing told it that the fix
+     * is outside its own process and belongs to the user.
+     */
+    it("tells an agent to hand the problem to the user, and that a restart is part of the fix", () => {
+        const guidance = unauthorizedGuidance({ surface: "mcp" });
+
+        expect(guidance.ifYouCannotAuthenticate).toContain("user");
+        expect(guidance.ifYouCannotAuthenticate).toContain("restart");
+    });
 });

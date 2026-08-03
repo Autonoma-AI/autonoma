@@ -22,7 +22,7 @@ function agentSetupCopy(appId: string, origin?: OnboardingOrigin): McpFirstCopy 
   return {
     heading: "Set up with a coding agent",
     blurb:
-      "Install the Autonoma MCP from your terminal, authorize it when your agent asks, then give your agent the pairing code. It reads your repo, works out how your previews and test data should work, and sets it up while you watch here.",
+      "Two commands in your terminal: install the Autonoma MCP and sign in, then start your agent. It reads your repo, works out how your previews and test data should work, and sets it up while you watch here.",
     manualLabel: "Answer a few questions instead",
     // Keep the origin on the escape hatch: the questionnaire uses it to skip the
     // questions arriving from that marketplace already answers.

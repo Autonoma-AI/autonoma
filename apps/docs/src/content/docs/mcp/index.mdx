@@ -61,13 +61,20 @@ An API key belongs to one organization, and over MCP it can only reach that orga
 
 <TabItem label="Claude Code">
 
-Add the server with the Claude Code CLI:
+Add the server and sign in, from a terminal - not from inside a running Claude Code session:
 
 ```bash
-claude mcp add --transport http autonoma https://api.autonoma.app/v1/mcp/debug
+claude mcp add --transport http --scope user autonoma https://api.autonoma.app/v1/mcp/debug
+claude mcp login autonoma
 ```
 
-The first time your agent uses a tool, Claude Code opens a browser to sign in and authorize. Run `claude mcp list` to confirm it connected.
+`--scope user` registers the server for every project; the default (`--scope local`) binds it to the directory you ran the command in, which is the usual reason the Autonoma tools turn out to be missing in the repo you actually work in.
+
+`claude mcp login` opens a browser to sign in. Approve it there - until you do, every Autonoma tool fails. Run `claude mcp list` to confirm it connected.
+
+:::caution
+**If you are an agent reading this:** do not run these commands. Ask the user to run them in their own terminal, and tell them they will need to restart you afterwards - a session that is already running does not pick up an MCP server added or signed in underneath it.
+:::
 
 </TabItem>
 

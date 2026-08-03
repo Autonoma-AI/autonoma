@@ -57,9 +57,9 @@ export function FixWithAgentButton({
         serverName={DEBUG_MCP_SERVER_NAME}
         endpoint="debug"
         docsUrl={DEBUG_MCP_DOCS_URL}
-        tellAgent={
+        prompt={instruction}
+        capabilities={
           <>
-            Then, from your repo, tell your agent: <span className="font-mono text-text-primary">{instruction}</span>.{" "}
             <NameTheMcpNote serverName={DEBUG_MCP_SERVER_NAME} /> {capabilities}
           </>
         }

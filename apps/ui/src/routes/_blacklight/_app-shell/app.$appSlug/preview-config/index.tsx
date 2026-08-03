@@ -92,13 +92,10 @@ function ConfigureWithAgentPanel() {
         serverName={DEBUG_MCP_SERVER_NAME}
         endpoint="debug"
         docsUrl={DEBUG_MCP_DOCS_URL}
-        tellAgent={
+        prompt={`use the ${DEBUG_MCP_SERVER_NAME} MCP to tell me why my preview failed`}
+        capabilities={
           <>
-            Then, from your repo, ask your agent about the preview - e.g.{" "}
-            <span className="font-mono text-text-primary">
-              use the {DEBUG_MCP_SERVER_NAME} MCP to tell me why my preview failed
-            </span>{" "}
-            or{" "}
+            Ask it anything about the preview - e.g.{" "}
             <span className="font-mono text-text-primary">
               fix my preview deploy with the {DEBUG_MCP_SERVER_NAME} MCP
             </span>

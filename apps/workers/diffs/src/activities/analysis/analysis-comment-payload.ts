@@ -431,8 +431,10 @@ function buildHandoffPrompt(issues: AnalysisCommentIssue[], context: AnalysisCom
     const header = [
         `Fix the following bug(s) Autonoma found in pull request ${context.repoFullName}#${context.prNumber} (commit ${context.commitSha.slice(0, 7)}).`,
         "Each issue gives what the app should have done, what it actually did, a hedged suspected cause with the file:line evidence behind it, and a link to the run that reproduces it. The suspected cause is a lead, not a verdict - confirm it against the code before changing anything. Apply the fixes, then re-run the affected flows to confirm.",
-        // The in-app links below need an Autonoma login; the MCP is the auth-free channel for an agent.
-        `Live issues via MCP: connect the Autonoma MCP (\`claude mcp add --transport http autonoma https://api.autonoma.app/v1/mcp/debug\`, or your client's MCP config) and call \`get_analysis(repoFullName="${context.repoFullName}", prNumber=${context.prNumber})\` for these issues + evidence live; it also exposes this PR's deploy status and build/app logs.`,
+        // The in-app links below need an Autonoma login; the MCP is the channel an agent can read
+        // these issues through. `--scope user` matters: the default (`local`) binds the server to
+        // whatever directory the command ran in, and the tools then appear to be missing.
+        `Live issues via MCP: connect the Autonoma MCP, then call \`get_analysis(repoFullName="${context.repoFullName}", prNumber=${context.prNumber})\` for these issues + evidence live; it also exposes this PR's deploy status and build/app logs. If it is not connected, do not install it yourself: ask the user to run \`claude mcp add --transport http --scope user autonoma https://api.autonoma.app/v1/mcp/debug\` then \`claude mcp login autonoma\` in their own terminal (or use their client's MCP config), and tell them to restart you afterwards - a running session does not pick up a server added or signed in underneath it. Without a browser, send an Autonoma API key as \`Authorization: Bearer <key>\` instead.`,
     ].join("\n\n");
     const rendered = issues.map((issue, index) => renderIssueForPrompt(issue, index + 1, context));
     return [header, ...rendered, `Full report (login required): ${buildPrUrl(context)}`].join("\n\n");
