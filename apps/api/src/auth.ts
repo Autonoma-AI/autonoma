@@ -56,7 +56,12 @@ const AUTH_BASE_URL = env.BETTER_AUTH_URL ?? APP_URL;
 // origin, APP_URL) - wrong when MCP clients connect to the dedicated `api.<host>`
 // origin off CloudFront, since a strict client rejects a resource that doesn't
 // match the host it dialed. Falls back to the API's own origin when unset.
-const MCP_RESOURCE_URL = env.MCP_RESOURCE_URL ?? AUTH_BASE_URL;
+//
+// Exported because the agent discovery catalog advertises the same origin. Re-deriving
+// the fallback chain there would let the two disagree in exactly the environments where
+// the UI and API origins diverge, and a catalog pointing at the wrong host sends agents
+// somewhere their OAuth handshake is then rejected.
+export const MCP_RESOURCE_URL = env.MCP_RESOURCE_URL ?? AUTH_BASE_URL;
 const isProduction = env.NODE_ENV === "production";
 
 function decodeIdTokenPayload(idToken: string): {

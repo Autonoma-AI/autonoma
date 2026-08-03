@@ -1,3 +1,4 @@
+import { aiCatalog } from "@autonoma/agent-guidance";
 import { analytics } from "@autonoma/analytics";
 import { logger } from "@autonoma/logger";
 import { isPreviewOrigin } from "@autonoma/types";
@@ -7,6 +8,7 @@ import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from "better-a
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { applicationSetupHttpRouter } from "./application-setup/application-setup-http.router";
+import { MCP_RESOURCE_URL } from "./auth";
 import { autonomaSdkHttpRouter } from "./autonoma-sdk/autonoma-sdk-http.router";
 import { auth, createContext, storageProvider } from "./context";
 import { demoHttpRouter } from "./demo/demo-http.router";
@@ -105,6 +107,16 @@ export function createApiApp() {
     app.use("/.well-known/oauth-*", cors(corsOptions));
     app.get("/.well-known/oauth-authorization-server", (c) => oAuthDiscoveryMetadata(auth)(c.req.raw));
     app.get("/.well-known/oauth-protected-resource", (c) => oAuthProtectedResourceMetadata(auth)(c.req.raw));
+
+    // Agentic Resource Discovery: one fetch that tells an agent every surface we offer it,
+    // so it does not need to already know our URLs to find them. CORS-enabled and cached,
+    // since registries and browser-based agents both fetch it. Generated rather than static
+    // because the URLs are per-environment - an alpha deployment advertises its own.
+    app.use("/.well-known/ai-catalog.json", cors(corsOptions));
+    app.get("/.well-known/ai-catalog.json", (c) => {
+        c.header("Cache-Control", "public, max-age=3600");
+        return c.json(aiCatalog({ apiUrl: MCP_RESOURCE_URL }));
+    });
 
     // Domain-ownership proof for the OpenAI Apps directory submission - see
     // OPENAI_APPS_CHALLENGE_TOKEN in env.ts.

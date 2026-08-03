@@ -19,6 +19,20 @@ import { unauthorizedGuidance } from "@autonoma/agent-guidance";
 return c.json(unauthorizedGuidance({ appUrl, docsUrl, surface: "mcp" }), 401);
 ```
 
+## The discovery catalog
+
+`aiCatalog()` builds the [Agentic Resource Discovery](https://agenticresourcediscovery.org/) document
+served at `/.well-known/ai-catalog.json`: one fetch that tells an agent every surface we offer it, so
+it does not have to already know our URLs to find them.
+
+It is generated rather than checked in as a static file because the URLs are environment-specific - a
+per-PR alpha deployment has to advertise its own endpoints, not production's. The UI's nginx proxies
+the path through to the API so the brand domain answers it too, since an agent looking for us tries
+`autonoma.app`, not `api.autonoma.app`.
+
+The spec is a v0.9 draft, so the envelope may move. `packages/agent-guidance/test/ai-catalog.test.ts`
+pins the required fields.
+
 ## What this is not
 
 It does not decide status codes or headers. The MCP 401 keeps its `WWW-Authenticate` challenge
