@@ -132,13 +132,13 @@ function GridBackground() {
  * Catches errors thrown while rendering a step - notably a suspense query that
  * rejects when a user deep-links / refreshes onto a step before its
  * prerequisites are met, or with a stale appId. Without this, the throw bubbles
- * to TanStack's default error page and replaces the whole onboarding UI. Keyed
- * by step in the layout so navigating to another step clears the error.
+ * to TanStack's default error page and replaces the whole onboarding UI.
+ *
+ * Recovers only by remounting - there is no reset path - so the layout keys it on
+ * both the step and a retry counter: navigating to another step clears the error,
+ * and so does "Try again" when the retry lands back on the same step.
  */
-class OnboardingStepErrorBoundary extends Component<
-  { children: ReactNode; onStartOver: () => void },
-  { error?: Error }
-> {
+class OnboardingStepErrorBoundary extends Component<{ children: ReactNode; onRetry: () => void }, { error?: Error }> {
   override state: { error?: Error } = {};
 
   static getDerivedStateFromError(error: Error) {
@@ -154,9 +154,9 @@ class OnboardingStepErrorBoundary extends Component<
             <h2 className="text-lg font-medium text-text-primary">We couldn't load this step</h2>
             <p className="font-mono text-2xs text-text-secondary">{this.state.error.message}</p>
           </div>
-          <Button variant="outline" size="sm" className="gap-2" onClick={this.props.onStartOver}>
+          <Button variant="outline" size="sm" className="gap-2" onClick={this.props.onRetry}>
             <ArrowCounterClockwiseIcon size={14} />
-            Start over
+            Try again
           </Button>
         </div>
       );
@@ -181,10 +181,27 @@ function OnboardingLayout() {
   const agentConfiguring = agentSession?.effectiveHolder === "agent";
   const [confirmReset, setConfirmReset] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  // Part of the error boundary's key. The boundary clears its error only by
+  // remounting, and a retry usually resolves back to the step that threw, so the
+  // step id alone would leave the key unchanged and the retry would do nothing.
+  const [retryNonce, setRetryNonce] = useState(0);
   const deleteApp = useDeleteApplication();
 
   function goToSetup() {
     void navigate({ to: "/onboarding", search: buildOnboardingSearch("add-app") });
+  }
+
+  // Retry the step that threw. Keeping `appId` (and letting the step fall back to
+  // the persisted backend step) is what makes this a resume: dropping it lands on
+  // "add-app" with no application in context, where the create branch asks the user
+  // to make a second application and offers to delete the one they already have.
+  function retryCurrentStep() {
+    setRetryNonce((nonce) => nonce + 1);
+    if (appId == null) {
+      goToSetup();
+      return;
+    }
+    void navigate({ to: "/onboarding", search: buildOnboardingSearch(undefined, appId) });
   }
 
   // Reset deletes the current (half-onboarded) app and returns to the name
@@ -321,7 +338,7 @@ function OnboardingLayout() {
         }}
       >
         <div className="mx-auto flex min-h-full w-full max-w-7xl flex-col justify-center px-6 py-10 pb-16 sm:px-10 sm:py-12 lg:px-14 lg:py-14">
-          <OnboardingStepErrorBoundary key={currentStepId} onStartOver={goToSetup}>
+          <OnboardingStepErrorBoundary key={`${currentStepId}:${retryNonce}`} onRetry={retryCurrentStep}>
             {renderStep()}
           </OnboardingStepErrorBoundary>
         </div>

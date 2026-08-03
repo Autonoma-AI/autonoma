@@ -200,10 +200,6 @@ function EnvironmentsTable() {
   const [query, setQuery] = useState("");
   const [organizationId, setOrganizationId] = useState("");
 
-  if (environments.length === 0) {
-    return <EmptyState message="No active preview environments" />;
-  }
-
   // Distinct organizations that actually have active environments, sorted by
   // name - so the filter only lists orgs with something to show.
   const organizations = [
@@ -212,11 +208,18 @@ function EnvironmentsTable() {
 
   const filtered = filterEnvironments(environments, query, organizationId);
   // One batched liveness poll across every app URL on the page (read-only, no wake).
+  // Must stay above the empty early return below: the environments query refetches,
+  // so a hook declared after that return changes the hook count when the first
+  // environment appears and throws React #310.
   const { data: liveness } = usePreviewLiveness(
     filtered
       .flatMap((environment) => environment.apps.map((app) => app.url))
       .filter((url): url is string => url != null),
   );
+
+  if (environments.length === 0) {
+    return <EmptyState message="No active preview environments" />;
+  }
 
   return (
     <div className="flex flex-col gap-3">

@@ -452,6 +452,11 @@ function AttentionMenu({
 function DeploySection({ applicationId, showLogs }: { applicationId: string; showLogs: boolean }) {
   const { data } = usePreviewReadiness(applicationId);
   const { diagnostics, previewUrl, services } = data;
+  // Must stay above the mode early returns below. `usePreviewReadiness` polls, and
+  // `mode` is absent until a preview path is picked - when an agent picks one the
+  // poll flips it under a mounted fiber, so a hook declared after those returns
+  // changes the hook count mid-render and throws React #310.
+  const [logSourceOverride, setLogSourceOverride] = useState<PreviewLogSource | undefined>(undefined);
 
   // Before a path is picked the agent is still reading the repo, and there is
   // nothing to deploy either way - a Deploy panel here would show an idle status
@@ -506,7 +511,6 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
   // switching tabs themselves. A "failed" deploy keeps the build tab (the terminal
   // failure marker is on the build stream; the app stream is empty on a build/platform
   // failure). An explicit tab pick always wins.
-  const [logSourceOverride, setLogSourceOverride] = useState<PreviewLogSource | undefined>(undefined);
   const logSource: PreviewLogSource = logSourceOverride ?? (isReady || appRollingOut ? "app" : "build");
 
   return (

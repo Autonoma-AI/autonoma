@@ -34,8 +34,15 @@ interface OnboardingSearchOverrides {
  * Builds the full search object for the `/onboarding` route. Every onboarding
  * navigation must spell out all search keys, so this centralizes the `undefined`
  * defaults and lets call sites pass only the step (and any focus overrides).
+ *
+ * An undefined `step` means "resume": the route falls back to the application's
+ * persisted backend step instead of pinning the view to a requested one.
  */
-export function buildOnboardingSearch(step: OnboardingStep, appId?: string, overrides: OnboardingSearchOverrides = {}) {
+export function buildOnboardingSearch(
+    step: OnboardingStep | undefined,
+    appId?: string,
+    overrides: OnboardingSearchOverrides = {},
+) {
     return {
         step,
         appId,
