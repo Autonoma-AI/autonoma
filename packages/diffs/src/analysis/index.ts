@@ -21,7 +21,7 @@ export type { PreviewAppLogsInput } from "./logs/preview-app-logs";
 // The classifier: one AgentLoop run per test run, ending in the terminal `finish` tool's RunVerdict.
 // `ClassifierAgent` is the entry point, so its prompt builder, system prompt and loop class stay internal -
 // exporting them would offer a way to drive the pieces without the agent that sequences them.
-export { VerdictForModel, toRunVerdict } from "./classify/verdict-schema";
+export { VerdictForModel } from "./classify/verdict-schema";
 export { ClassifierAgent } from "./classify/classifier-agent";
 export type { ClassifierAgentConfig } from "./classify/classifier-agent";
 export type { ClassifierInput, PreviewAccess, RunArtifacts } from "./classify/types";

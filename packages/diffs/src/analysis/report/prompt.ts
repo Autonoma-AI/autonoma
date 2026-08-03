@@ -48,6 +48,8 @@ Handle each existing issue at most once.
 - severity: your call for a real user (critical/high/medium/low).
 - expected/actual + a narrative that walks the reader through what happened and why it is wrong, grounded in the evidence you inspected.
 - primaryFindingSlug: of the slugs this issue covers, the ONE whose run demonstrates the problem most directly. A reader is sent to that run to watch it happen, so choose on clarity of the reproduction - not list order, and not the test with the longest trace.
+- suspectedCause, primaryScreenshotAssetId: pass null when you have nothing grounded to put there. An environment or scenario issue usually has no code-level cause, and a fault that blocked the run before the app loaded has no frame worth featuring - null is the right answer, and an empty string is not a way to say it.
+- expectedBehavior is a HIGHER bar: it is dropped from the issue entirely when null, and it is the first thing a reader looks for. State it unless the correct behavior genuinely cannot be determined - saying so explicitly beats leaving the reader nothing.
 
 # finish takes TWO pieces of prose, for two different readers.
 - reportMarkdown: the full report, read on a web page that renders Markdown and resolves your inline tokens.

@@ -1,4 +1,4 @@
-import { AgentTool, FixableToolError } from "@autonoma/ai";
+import { AgentTool, declinable, FixableToolError } from "@autonoma/ai";
 import { causeMessage } from "@autonoma/errors";
 import { z } from "zod";
 import { truncateOutput } from "../../../agents/tools/truncate-output";
@@ -7,10 +7,9 @@ import type { PreviewAccess } from "../types";
 const MAX_CHARS = 16_000;
 
 const previewEnvInputSchema = z.object({
-    filter: z
-        .string()
-        .optional()
-        .describe("optional case-insensitive substring to filter var names, e.g. a provider name or 'KEY'"),
+    filter: declinable(z.string().min(1)).describe(
+        "case-insensitive substring to filter var names by, e.g. a provider name or 'KEY'. Pass null to list every var.",
+    ),
 });
 
 type PreviewEnvInput = z.infer<typeof previewEnvInputSchema>;

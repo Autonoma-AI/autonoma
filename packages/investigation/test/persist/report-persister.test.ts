@@ -33,7 +33,7 @@ function sampleReportData(): InvestigationReportData {
                 stepCount: 5,
                 runSteps: ["click add", "assert total FAILED"],
                 videoUrl: "s3://bucket/video.webm",
-                finalScreenshotUrl: "s3://bucket/shot.png",
+                keyScreenshotUrl: "s3://bucket/shot.png",
             },
             {
                 id: "login",

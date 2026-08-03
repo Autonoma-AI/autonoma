@@ -96,7 +96,9 @@ function parseFinding(id: string, heading: string, rawBody: string): Investigati
     const confidence = verdict?.[3];
     const planFidelity = verdict?.[4];
 
-    const finalScreenshotUrl = body.match(/\[final screenshot\]\(([^)]+)\)/)?.[1];
+    // `final screenshot` is the persisted link label, not a description of the frame - reports already written
+    // carry it, so renaming it here would silently stop parsing every historical report.
+    const keyScreenshotUrl = body.match(/\[final screenshot\]\(([^)]+)\)/)?.[1];
     const videoUrl = body.match(/\[run video\]\(([^)]+)\)/)?.[1];
 
     // "What happened" is the prose between the (verdict/media) preamble and the first structured marker.
@@ -137,7 +139,7 @@ function parseFinding(id: string, heading: string, rawBody: string): Investigati
         evidence: parseEvidence(rootEvidence),
         plan: planBlock != null ? (extractFenced(`\`\`\`\n${planBlock}\n\`\`\``) ?? planBlock) : undefined,
         videoUrl,
-        finalScreenshotUrl,
+        keyScreenshotUrl,
     };
 }
 

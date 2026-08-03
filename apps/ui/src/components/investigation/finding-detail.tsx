@@ -204,14 +204,14 @@ function FindingBody({
 }
 
 function MediaPanel({ finding }: { finding: InvestigationFinding }) {
-  if (finding.finalScreenshotUrl == null && finding.videoUrl == null) return null;
+  if (finding.keyScreenshotUrl == null && finding.videoUrl == null) return null;
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      {finding.finalScreenshotUrl != null && (
+      {finding.keyScreenshotUrl != null && (
         <figure className="flex flex-col gap-1">
           <img
-            src={finding.finalScreenshotUrl}
+            src={finding.keyScreenshotUrl}
             alt="Screenshot captured during the run for this finding"
             className="w-full rounded-lg border border-border-dim"
           />

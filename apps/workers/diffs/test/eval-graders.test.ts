@@ -23,6 +23,7 @@ function createdTest(overrides: Partial<CreatedTest> = {}): CreatedTest {
         folderName: "Checkout",
         description: "A shopper applying a valid promo code at checkout sees the order total drop by the discount.",
         plan: "Apply a promo code at checkout and verify the discount.",
+        scenarioId: undefined,
         coverageJustification: "No existing test exercises the promo-code field added by this diff.",
         ...overrides,
     };

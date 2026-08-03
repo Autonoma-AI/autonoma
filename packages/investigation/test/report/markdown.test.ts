@@ -16,7 +16,7 @@ describe("buildReportMarkdown", () => {
                     runSuccess: false,
                     stepCount: 5,
                     videoUrl: "https://s3/video",
-                    finalScreenshotUrl: "https://s3/shot",
+                    keyScreenshotUrl: "https://s3/shot",
                     verdicts: [
                         {
                             model: "investigation",

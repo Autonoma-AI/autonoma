@@ -116,7 +116,7 @@ export function toTestReport(result: InvestigationTestResult): TestReport {
         runTrace: result.runTrace,
         verdicts: [modelVerdict],
         videoUrl: result.videoUrl,
-        finalScreenshotUrl: result.finalScreenshotUrl,
+        keyScreenshotUrl: result.keyScreenshotUrl,
         scenarioDiagnosis: result.scenarioDiagnosis,
     };
 }

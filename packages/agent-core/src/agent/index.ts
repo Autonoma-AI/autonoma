@@ -24,4 +24,5 @@ export {
 } from "./tools/agent-tool";
 export { ReportResultTool, FinishTool, type FinishToolParameters } from "./tools/agent-result";
 export { FixableToolError, FatalToolError } from "./tools/tool-errors";
+export { declinable } from "./declinable";
 export { logStepContent } from "./log-step";

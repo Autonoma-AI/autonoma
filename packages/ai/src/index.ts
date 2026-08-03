@@ -69,6 +69,7 @@ export {
     type FinishToolParameters,
     FixableToolError,
     FatalToolError,
+    declinable,
     logStepContent,
     type CompactionResult,
     type MessageCompactor,

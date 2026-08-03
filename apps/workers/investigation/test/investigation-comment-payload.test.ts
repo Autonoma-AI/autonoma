@@ -75,7 +75,7 @@ describe("buildInvestigationCommentPayload", () => {
 
     it("omits the replay link for a client bug with no recording clip", async () => {
         const payload = await buildInvestigationCommentPayload(
-            [result("no-clip", "client_bug", { finalScreenshotUrl: "s3://b/shot.png" })],
+            [result("no-clip", "client_bug", { keyScreenshotUrl: "s3://b/shot.png" })],
             context,
             async (url) => `signed:${url}`,
         );

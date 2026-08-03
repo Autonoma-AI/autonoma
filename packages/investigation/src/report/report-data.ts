@@ -104,7 +104,7 @@ function findingFromVerdict(id: string, test: TestReport, verdict: ReportableVer
         runSteps: test.runSteps,
         runTrace: test.runTrace,
         videoUrl: test.videoUrl,
-        finalScreenshotUrl: test.finalScreenshotUrl,
+        keyScreenshotUrl: test.keyScreenshotUrl,
     };
 }
 
@@ -122,7 +122,7 @@ function findingFromError(id: string, test: TestReport, error: string | undefine
         runSteps: test.runSteps,
         runTrace: test.runTrace,
         videoUrl: test.videoUrl,
-        finalScreenshotUrl: test.finalScreenshotUrl,
+        keyScreenshotUrl: test.keyScreenshotUrl,
     };
 }
 

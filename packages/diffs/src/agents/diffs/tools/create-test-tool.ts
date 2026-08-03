@@ -1,4 +1,4 @@
-import { AgentTool, FixableToolError } from "@autonoma/ai";
+import { AgentTool, declinable, FixableToolError } from "@autonoma/ai";
 import { z } from "zod";
 import type { DiffsAgentLoop } from "../diffs-agent-loop";
 
@@ -38,14 +38,11 @@ export const createTestSchema = z.object({
                 "generator can turn directly into steps - not a high-level summary. This is the final plan; there " +
                 "is no later refinement of the wording before it runs.",
         ),
-    scenarioId: z
-        .string()
-        .optional()
-        .describe(
-            "Id of the scenario whose seeded data this test depends on (obtained from `list_scenarios` / " +
-                "`read_scenario`). Provide when the test needs preconditions like an authenticated user or " +
-                "pre-existing records. Omit for tests that start from a fresh, unauthenticated state.",
-        ),
+    scenarioId: declinable(z.string().min(1)).describe(
+        "Id of the scenario whose seeded data this test depends on (obtained from `list_scenarios` / " +
+            "`read_scenario`). Provide when the test needs preconditions like an authenticated user or " +
+            "pre-existing records. Pass null for tests that start from a fresh, unauthenticated state.",
+    ),
     coverageJustification: z
         .string()
         .min(1)
@@ -78,7 +75,7 @@ class UnknownScenarioError extends FixableToolError {
     constructor(public readonly scenarioId: string) {
         super(
             `Scenario "${scenarioId}" not found. Call \`list_scenarios\` to see available ` +
-                `scenarios, or omit scenarioId if the test does not need seeded data.`,
+                `scenarios, or pass null for scenarioId if the test does not need seeded data.`,
         );
     }
 }

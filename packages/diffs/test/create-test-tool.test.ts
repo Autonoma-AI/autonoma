@@ -1,17 +1,21 @@
 import { describe, expect, it } from "vitest";
+import type { z } from "zod";
 import { CreateTestTool, MIN_DESCRIPTION_LENGTH, createTestSchema } from "../src/agents/diffs/tools/create-test-tool";
 import { type ToolEnvelope, executeTool } from "./execute-tool";
 import { makeDiffsLoop } from "./test-loops";
 
+type CreateTestWireInput = z.input<typeof createTestSchema>;
+
 const meaningfulDescription =
     "A shopper applying a valid promo code at checkout sees the order total drop by the discount amount.";
 
-function validInput(overrides: { description?: string; coverageJustification?: string } = {}) {
+function validInput(overrides: { description?: string; coverageJustification?: string } = {}): CreateTestWireInput {
     return {
         name: "Checkout promo flow",
         folderName: "All Tests",
         description: overrides.description ?? meaningfulDescription,
         plan: "Apply a promo code at checkout and assert the discounted total.",
+        scenarioId: null,
         coverageJustification:
             overrides.coverageJustification ?? "No existing test exercises the promo-code field this diff adds.",
     };

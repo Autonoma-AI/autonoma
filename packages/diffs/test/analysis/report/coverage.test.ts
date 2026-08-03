@@ -21,8 +21,11 @@ function content(findingSlugs: string[]): AuthoredIssueContent {
         title: "t",
         kind: "bug",
         severity: "high",
+        expectedBehavior: undefined,
         actualBehavior: "a",
         narrativeMarkdown: "n",
+        suspectedCause: undefined,
+        primaryScreenshotAssetId: undefined,
         findingSlugs,
         // The designated reproduction must be one of the covered slugs; coverage only reads the list.
         primaryFindingSlug: findingSlugs[0] ?? "",

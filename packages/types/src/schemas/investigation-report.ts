@@ -93,7 +93,9 @@ export const investigationFindingSchema = z.object({
     /** Browser-openable HTTPS URL of the dead-time-stripped mp4 recording, signed on read. When present, the
      *  finding page shows an Optimized/Original toggle; absent for runs recorded before the optimizer landed. */
     optimizedVideoUrl: z.string().optional(),
-    finalScreenshotUrl: z.string().optional(),
+    /** Browser-openable HTTPS URL of the frame the classifier chose (`keyStepIndex`), signed on read. Absent when
+     *  it chose none, in which case the finding deliberately shows no still. */
+    keyScreenshotUrl: z.string().optional(),
     /** Present instead of the verdict fields when the model failed to classify this test. */
     error: z.string().optional(),
     /**

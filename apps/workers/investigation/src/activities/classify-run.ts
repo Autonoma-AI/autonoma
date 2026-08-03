@@ -174,7 +174,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             runTrace: deriveRunTrace(generation.attempts),
             verdict,
             videoUrl: generation.videoUrl ?? undefined,
-            finalScreenshotUrl: keyScreenshot ?? undefined,
+            keyScreenshotUrl: keyScreenshot ?? undefined,
             clipUrl,
         };
     });

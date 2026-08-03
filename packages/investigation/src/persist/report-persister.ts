@@ -136,7 +136,7 @@ export class InvestigationReportPersister {
             evidence: finding.evidence,
             // In InvestigationReportData these carry the raw s3:// keys (the API signs them on read), not URLs.
             videoKey: finding.videoUrl,
-            screenshotKey: finding.finalScreenshotUrl,
+            screenshotKey: finding.keyScreenshotUrl,
             error: finding.error,
             // Set only on a MERGED finding: the tests it now represents (its own slug + the absorbed ones).
             coveredSlugs: finding.coveredSlugs,

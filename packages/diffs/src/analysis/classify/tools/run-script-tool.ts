@@ -1,4 +1,4 @@
-import { AgentTool, FixableToolError } from "@autonoma/ai";
+import { AgentTool, declinable, FixableToolError } from "@autonoma/ai";
 import { causeMessage } from "@autonoma/errors";
 import { z } from "zod";
 import { truncateOutput } from "../../../agents/tools/truncate-output";
@@ -8,10 +8,9 @@ const MAX_CHARS = 24_000;
 
 const runScriptInputSchema = z.object({
     script: z.string().describe("ESM Node script body. Print findings with console.log. Top-level await is allowed."),
-    packages: z
-        .array(z.string())
-        .optional()
-        .describe("npm packages to install first, e.g. ['pg'] or ['firebase-admin']"),
+    packages: declinable(z.array(z.string().min(1)).min(1)).describe(
+        "npm packages to install first, e.g. ['pg'] or ['firebase-admin']. Pass null when the script needs none.",
+    ),
 });
 
 type RunScriptInput = z.infer<typeof runScriptInputSchema>;

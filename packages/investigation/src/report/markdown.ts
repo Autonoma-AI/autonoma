@@ -44,7 +44,7 @@ export interface TestReport {
     runTrace?: InvestigationRunStep[];
     verdicts: ModelVerdict[];
     videoUrl?: string;
-    finalScreenshotUrl?: string;
+    keyScreenshotUrl?: string;
     /** How a scenario failure should be repaired (present for diagnosed scenario_issue results). */
     scenarioDiagnosis?: ReportableScenarioDiagnosis;
 }
@@ -153,7 +153,7 @@ function renderObservedIssues(verdict: ReportableVerdict): string[] {
 /** One verdict, in the UI-emulating layout: one-liner -> summary -> remediation -> collapsible deep dive. */
 function renderVerdict(test: TestReport, verdict: ReportableVerdict): string[] {
     const links = [
-        test.finalScreenshotUrl != null ? `[final screenshot](${test.finalScreenshotUrl})` : undefined,
+        test.keyScreenshotUrl != null ? `[final screenshot](${test.keyScreenshotUrl})` : undefined,
         test.videoUrl != null ? `[run video](${test.videoUrl})` : undefined,
     ].filter((link): link is string => link != null);
 

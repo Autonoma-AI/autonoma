@@ -1,16 +1,14 @@
 import { ReportResultTool } from "@autonoma/ai";
-import type { RunVerdict } from "../schema";
+import { RunVerdict } from "../schema";
 import type { ClassifierAgentLoop } from "./classifier-agent-loop";
-import { VerdictForModel, toRunVerdict } from "./verdict-schema";
+import { VerdictForModel } from "./verdict-schema";
 
 /**
  * The classifier's terminal tool: the model fills the flat verdict schema and the loop finishes.
  *
- * Deliberately gate-free - it normalizes ({@link toRunVerdict} pipes the flat model shape into the
- * discriminated {@link RunVerdict}) and nothing else. Zod is the ONLY contract here: there is no evidence
- * check, no re-run-discipline check, no "you did not call prior_runs" retry. Verdict discipline lives in
- * the prompt, which is where it can explain itself; a structural gate would only teach the model to satisfy
- * the gate. Revisit that only with production evidence of false positives surviving to a finding.
+ * Deliberately gate-free: Zod is the only contract, with no evidence or re-run-discipline check on top. Verdict
+ * discipline lives in the prompt, which is where it can explain itself; a structural gate would only teach the
+ * model to satisfy the gate. Revisit that only with production evidence of false positives reaching a finding.
  */
 export class VerdictTool extends ReportResultTool<VerdictForModel, RunVerdict, ClassifierAgentLoop> {
     constructor() {
@@ -23,6 +21,6 @@ export class VerdictTool extends ReportResultTool<VerdictForModel, RunVerdict, C
     }
 
     async buildResult(input: VerdictForModel): Promise<RunVerdict> {
-        return toRunVerdict(input);
+        return RunVerdict.parse(input);
     }
 }

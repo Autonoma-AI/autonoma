@@ -34,7 +34,7 @@ const bugs: AutonomaCommentBug[] = await Promise.all(
         title: finding.headline,
         href: `${reportBase}/${finding.id}`,
         replayHref: `${reportBase}/${finding.id}`,
-        screenshotUrl: await sign(finding.finalScreenshotUrl),
+        screenshotUrl: await sign(finding.keyScreenshotUrl),
         description: finding.whatHappened,
         remediation: finding.remediation,
         evidence: finding.evidence.map((item) => ({

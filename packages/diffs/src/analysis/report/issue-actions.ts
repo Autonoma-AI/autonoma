@@ -1,4 +1,4 @@
-import { FixableToolError } from "@autonoma/ai";
+import { declinable, FixableToolError } from "@autonoma/ai";
 import { suspectedCauseSchema } from "@autonoma/types";
 import { z } from "zod";
 import { reporterIssueKindSchema, reporterIssueSeveritySchema } from "./types";
@@ -17,10 +17,9 @@ export const authoredIssueContentSchema = z.object({
         "The class of problem: `bug` (the app misbehaves), `environment` (a preview key/flag/service is wrong), or `scenario` (the seeded data/auth is missing or wrong).",
     ),
     severity: reporterIssueSeveritySchema.describe("How severe the problem is for a real user."),
-    expectedBehavior: z
-        .string()
-        .optional()
-        .describe("What the app should have done. Omit only when it genuinely cannot be stated."),
+    expectedBehavior: declinable(z.string().min(1)).describe(
+        "What the app should have done. Pass null only when it genuinely cannot be stated.",
+    ),
     actualBehavior: z.string().min(1).describe("What the app actually did, grounded in the evidence you inspected."),
     narrativeMarkdown: z
         .string()
@@ -32,17 +31,12 @@ export const authoredIssueContentSchema = z.object({
         .array(z.string())
         .min(1)
         .describe("Every one of THIS job's finding slugs that manifests this problem (at least one)."),
-    suspectedCause: suspectedCauseSchema
-        .optional()
-        .describe(
-            "The hedged, code-level cause (explanation + file:line references you read via `bash`). Each reference is validated against the checked-out repo at persist time - a reference whose file/lines/snippet does not match is dropped, so only code you actually read survives. Omit for environment/scenario issues or when you could not ground a cause.",
-        ),
-    primaryScreenshotAssetId: z
-        .string()
-        .optional()
-        .describe(
-            "The assetId of the fetched screenshot that best shows the problem, to feature as the issue's hero. Must be an id you fetched via `fetch_evidence`; an unfetched/unknown id is dropped.",
-        ),
+    suspectedCause: declinable(suspectedCauseSchema).describe(
+        "The hedged, code-level cause (explanation + file:line references you read via `bash`). Each reference is validated against the checked-out repo at persist time - a reference whose file/lines/snippet does not match is dropped, so only code you actually read survives. Pass null for environment/scenario issues or when you could not ground a cause; a guess you did not read is worse than nothing.",
+    ),
+    primaryScreenshotAssetId: declinable(z.string().min(1)).describe(
+        "The assetId of the fetched screenshot that best shows the problem, to feature as the issue's hero. Must be an id you fetched via `fetch_evidence`; an unfetched/unknown id is dropped. Pass null when this run has no screenshot worth featuring - a contained fault that blocked the run before the browser loaded usually has none.",
+    ),
     primaryFindingSlug: z
         .string()
         .min(1)

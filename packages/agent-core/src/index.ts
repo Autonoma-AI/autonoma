@@ -27,6 +27,7 @@ export {
     type FinishToolParameters,
     FixableToolError,
     FatalToolError,
+    declinable,
     logStepContent,
 } from "./agent";
 

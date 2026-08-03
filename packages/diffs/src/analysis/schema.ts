@@ -54,10 +54,11 @@ const verdictBase = z.object({
     headline: z.string().describe("ONE sentence: the takeaway, with the key `code`/file if relevant."),
     evidence: z.array(Evidence),
     /**
-     * The 1-indexed trace step whose captured screenshot MOST clearly shows this finding to a human reviewer -
-     * the frame to feature in the report. Deliberately the agent's call, not the failed step: an assertion can
-     * be wrong, and the real defect is often most visible a step earlier/later. Absent to fall back to the final
-     * screenshot.
+     * The trace step (its `order`, not a position in the list) whose captured screenshot MOST clearly shows this
+     * finding to a human reviewer - the frame to feature in the report. Deliberately the agent's call, not the
+     * failed step: an assertion can be wrong, and the real defect is often most visible a step earlier/later.
+     * Absent means NO screenshot is shown; there is no fallback to the final frame, which is often a blank or
+     * setup screen that reads as a misleading "failure".
      */
     keyStepIndex: z.number().int().positive().optional(),
 });

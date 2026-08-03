@@ -231,7 +231,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             verdict,
             videoUrl: generation.videoUrl ?? undefined,
             optimizedVideoUrl: generation.optimizedVideoUrl ?? undefined,
-            finalScreenshotUrl: keyScreenshot ?? undefined,
+            keyScreenshotUrl: keyScreenshot ?? undefined,
             clipUrl,
             conversationUrl,
         };

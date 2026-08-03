@@ -248,7 +248,7 @@ async function toBug(
     const findingUrl = `${context.reportBaseUrl}/${encodeURIComponent(result.slug)}`;
     // Prefer the animated GIF clip of the failure (client bugs) over the static final screenshot; both embed
     // as an <img> in the comment, and GitHub renders animated GIFs inline.
-    const mediaKey = result.clipUrl ?? result.finalScreenshotUrl;
+    const mediaKey = result.clipUrl ?? result.keyScreenshotUrl;
     const screenshotUrl = mediaKey != null ? await signScreenshot(mediaKey) : undefined;
     // "Watch replay" is only worth surfacing for a confirmed client bug that actually has a recording clip -
     // otherwise there is no replay to watch and the link is just a duplicate of "See full report". Warnings

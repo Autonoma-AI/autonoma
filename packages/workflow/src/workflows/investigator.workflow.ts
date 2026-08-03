@@ -293,7 +293,7 @@ type ClassifyOutcome =
  * Map the classifier's rich result onto the classification's evidence bundle - the full output the pipeline used to
  * discard. It is persisted onto this iteration's `AnalysisClassification` row, which is what the UI renders (a
  * `client_bug` carries its evidence here, not in any Bug/Issue). Media ride as `s3://` keys (signed on read).
- * Pure shaping; the runner fields (`videoUrl`/`finalScreenshotUrl`/`clipUrl`) are already storage keys despite
+ * Pure shaping; the runner fields (`videoUrl`/`keyScreenshotUrl`/`clipUrl`) are already storage keys despite
  * their names.
  */
 function toClassificationReport(result: InvestigationTestResult): AnalysisClassificationReport {
@@ -317,7 +317,7 @@ function toClassificationReport(result: InvestigationTestResult): AnalysisClassi
         evidence: verdict?.evidence,
         videoKey: result.videoUrl,
         optimizedVideoKey: result.optimizedVideoUrl,
-        screenshotKey: result.finalScreenshotUrl,
+        screenshotKey: result.keyScreenshotUrl,
         clipKey: result.clipUrl,
         conversationUrl: result.conversationUrl,
         error: result.error,

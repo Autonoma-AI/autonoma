@@ -259,7 +259,7 @@ function rowToFinding(row: InvestigationFindingRow): InvestigationFinding {
         runTrace: row.runTrace ?? undefined,
         // Stored s3:// keys; signFindingMedia turns these into browser-openable URLs.
         videoUrl: row.videoKey ?? undefined,
-        finalScreenshotUrl: row.screenshotKey ?? undefined,
+        keyScreenshotUrl: row.screenshotKey ?? undefined,
         error: row.error ?? undefined,
         coveredSlugs: row.coveredSlugs ?? undefined,
     };
@@ -303,7 +303,7 @@ function rowToAnalysisFinding(row: AnalysisFindingRow): AnalysisFindingView | un
         // Stored s3:// keys; signFindingMedia turns these into browser-openable URLs.
         videoUrl: current.videoKey ?? undefined,
         optimizedVideoUrl: current.optimizedVideoKey ?? undefined,
-        finalScreenshotUrl: current.screenshotKey ?? undefined,
+        keyScreenshotUrl: current.screenshotKey ?? undefined,
         error: current.error ?? undefined,
         classifications: row.classifications.map((classification) => ({
             id: classification.id,
@@ -1259,13 +1259,13 @@ export class BranchesService extends Service {
     private async signFindingMedia<T extends InvestigationFinding>(finding: T): Promise<T> {
         const sign = (key: string | undefined) =>
             key != null ? this.storageProvider.getSignedUrl(key, INVESTIGATION_MEDIA_TTL_SECONDS) : undefined;
-        const [finalScreenshotUrl, videoUrl, optimizedVideoUrl, runTrace] = await Promise.all([
-            sign(finding.finalScreenshotUrl),
+        const [keyScreenshotUrl, videoUrl, optimizedVideoUrl, runTrace] = await Promise.all([
+            sign(finding.keyScreenshotUrl),
             sign(finding.videoUrl),
             sign(finding.optimizedVideoUrl),
             finding.runTrace != null ? Promise.all(finding.runTrace.map((step) => this.signStep(step))) : undefined,
         ]);
-        return { ...finding, finalScreenshotUrl, videoUrl, optimizedVideoUrl, runTrace };
+        return { ...finding, keyScreenshotUrl, videoUrl, optimizedVideoUrl, runTrace };
     }
 
     /** Sign one run-trace step's stored screenshot key; the coordinates and labels pass through untouched. */

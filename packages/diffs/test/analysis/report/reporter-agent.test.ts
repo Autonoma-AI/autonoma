@@ -48,6 +48,13 @@ function scriptedModel(calls: ScriptedCall[]): MockLanguageModelV3 {
     });
 }
 
+function issueCall(toolName: string, input: Record<string, unknown>): ScriptedCall {
+    return {
+        toolName,
+        input: { expectedBehavior: null, suspectedCause: null, primaryScreenshotAssetId: null, ...input },
+    };
+}
+
 function finding(slug: string, category: AnalysisVerdict, screenshots: ReporterEvidenceAsset[] = []): ReporterFinding {
     return { slug, category, headline: `${slug} headline`, selfHealed: false, screenshots };
 }
@@ -102,20 +109,17 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
     it("reconciles a bug into an open issue and returns a grounded report", async () => {
         const model = scriptedModel([
             { toolName: "fetch_evidence", input: { assetId: "checkout-final" } },
-            {
-                toolName: "open_issue",
-                input: {
-                    title: "Checkout fails on submit",
-                    kind: "bug",
-                    severity: "high",
-                    expectedBehavior: "the order completes",
-                    actualBehavior: "the submit button 500s",
-                    narrativeMarkdown: "Checkout 500s on submit. ![shot](evidence:checkout-final)",
-                    findingSlugs: ["checkout"],
-                    primaryFindingSlug: "checkout",
-                    primaryScreenshotAssetId: "checkout-final",
-                },
-            },
+            issueCall("open_issue", {
+                title: "Checkout fails on submit",
+                kind: "bug",
+                severity: "high",
+                expectedBehavior: "the order completes",
+                actualBehavior: "the submit button 500s",
+                narrativeMarkdown: "Checkout 500s on submit. ![shot](evidence:checkout-final)",
+                findingSlugs: ["checkout"],
+                primaryFindingSlug: "checkout",
+                primaryScreenshotAssetId: "checkout-final",
+            }),
             {
                 toolName: "finish",
                 input: {
@@ -146,27 +150,24 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
     it("drops an unfetched image, a fabricated code reference, and an unfetched hero at persist time", async () => {
         const model = scriptedModel([
             { toolName: "fetch_evidence", input: { assetId: "checkout-final" } },
-            {
-                toolName: "open_issue",
-                input: {
-                    title: "Checkout bug",
-                    kind: "bug",
-                    severity: "high",
-                    actualBehavior: "500 on submit",
-                    narrativeMarkdown: "Bug. ![a](evidence:checkout-final) and ![b](evidence:checkout-step2)",
-                    findingSlugs: ["checkout"],
-                    primaryFindingSlug: "checkout",
-                    suspectedCause: {
-                        explanation: "the count is read wrong",
-                        codeReferences: [
-                            { file: "src/checkout.ts", lines: "2", snippet: "return items.length;" },
-                            { file: "src/checkout.ts", lines: "2", snippet: "return fabricated();" },
-                        ],
-                    },
-                    // References a screenshot that was never fetched - must not become the hero.
-                    primaryScreenshotAssetId: "checkout-step2",
+            issueCall("open_issue", {
+                title: "Checkout bug",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "500 on submit",
+                narrativeMarkdown: "Bug. ![a](evidence:checkout-final) and ![b](evidence:checkout-step2)",
+                findingSlugs: ["checkout"],
+                primaryFindingSlug: "checkout",
+                suspectedCause: {
+                    explanation: "the count is read wrong",
+                    codeReferences: [
+                        { file: "src/checkout.ts", lines: "2", snippet: "return items.length;" },
+                        { file: "src/checkout.ts", lines: "2", snippet: "return fabricated();" },
+                    ],
                 },
-            },
+                // References a screenshot that was never fetched - must not become the hero.
+                primaryScreenshotAssetId: "checkout-step2",
+            }),
             {
                 toolName: "finish",
                 input: {
@@ -197,24 +198,86 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
         expect(result.reportEvidenceManifest).toEqual([]);
     });
 
+    // Coverage enforces issues only for `bug`-bucket findings, so nothing else would catch an environment issue
+    // that failed to record.
+    it("records an environment issue whose only findings are contained faults with nothing to feature", async () => {
+        const model = scriptedModel([
+            issueCall("open_issue", {
+                title: "Scenario provisioning cannot reach the configured host",
+                kind: "environment",
+                severity: "high",
+                actualBehavior: "every provisioning call to the configured host timed out",
+                narrativeMarkdown: "The preview never came up, so no test could run.",
+                findingSlugs: ["signup"],
+                primaryFindingSlug: "signup",
+                primaryScreenshotAssetId: null,
+            }),
+            {
+                toolName: "finish",
+                input: {
+                    reportMarkdown: "## Report\nThe environment blocked all release validation.",
+                    summary: "The environment blocked every test; nothing about the app was validated.",
+                },
+            },
+        ]);
+        const input = makeInput({ findings: [finding("signup", "environment_failure")] });
+
+        const { result } = await new ReporterAgent({ model }).run(input);
+
+        expect(result.issues).toHaveLength(1);
+        const issue = asOpen(result.issues[0]);
+        expect(issue.content.kind).toBe("environment");
+        expect(issue.content.primaryScreenshot).toBeUndefined();
+        expect(issue.content.expectedBehavior).toBeUndefined();
+        expect(issue.content.suspectedCause).toBeUndefined();
+    });
+
+    it("still rejects a hero assetId no finding offered, and lets the agent retry without one", async () => {
+        const model = scriptedModel([
+            issueCall("open_issue", {
+                title: "Checkout bug",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "500",
+                narrativeMarkdown: "It 500s.",
+                findingSlugs: ["checkout"],
+                primaryFindingSlug: "checkout",
+                primaryScreenshotAssetId: "no-such-asset",
+            }),
+            issueCall("open_issue", {
+                title: "Checkout bug",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "500",
+                narrativeMarkdown: "It 500s.",
+                findingSlugs: ["checkout"],
+                primaryFindingSlug: "checkout",
+            }),
+            { toolName: "finish", input: { reportMarkdown: "final", summary: "One bug: checkout never completes." } },
+        ]);
+        const input = makeInput({ findings: [finding("checkout", "client_bug")] });
+
+        const { result, conversation } = await new ReporterAgent({ model }).run(input);
+
+        expect(JSON.stringify(conversation)).toContain('Unknown screenshot assetId \\"no-such-asset\\"');
+        expect(result.issues).toHaveLength(1);
+    });
+
     it("guarantee 1: rejects finishing until every client_bug finding is covered, then self-corrects", async () => {
         const model = scriptedModel([
             {
                 toolName: "finish",
                 input: { reportMarkdown: "premature", summary: "One bug: checkout never completes." },
             },
-            {
-                toolName: "open_issue",
-                input: {
-                    title: "Checkout bug",
-                    kind: "bug",
-                    severity: "high",
-                    actualBehavior: "500",
-                    narrativeMarkdown: "It 500s.",
-                    findingSlugs: ["checkout"],
-                    primaryFindingSlug: "checkout",
-                },
-            },
+            issueCall("open_issue", {
+                title: "Checkout bug",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "500",
+                narrativeMarkdown: "It 500s.",
+                findingSlugs: ["checkout"],
+                primaryFindingSlug: "checkout",
+            }),
             { toolName: "finish", input: { reportMarkdown: "final", summary: "One bug: checkout never completes." } },
         ]);
         const input = makeInput({ findings: [finding("checkout", "client_bug")] });
@@ -251,35 +314,29 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
 
     it("guarantee 3: rejects finishing until an open issue whose test still failed is carried forward", async () => {
         const model = scriptedModel([
-            {
-                toolName: "open_issue",
-                input: {
-                    title: "A new framing",
-                    kind: "bug",
-                    severity: "high",
-                    actualBehavior: "500",
-                    narrativeMarkdown: "It 500s.",
-                    findingSlugs: ["checkout"],
-                    primaryFindingSlug: "checkout",
-                },
-            },
+            issueCall("open_issue", {
+                title: "A new framing",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "500",
+                narrativeMarkdown: "It 500s.",
+                findingSlugs: ["checkout"],
+                primaryFindingSlug: "checkout",
+            }),
             {
                 toolName: "finish",
                 input: { reportMarkdown: "premature", summary: "One bug: checkout never completes." },
             },
-            {
-                toolName: "carry_forward_issue",
-                input: {
-                    existingIssueId: "iss-2",
-                    title: "Checkout still broken",
-                    kind: "bug",
-                    severity: "high",
-                    actualBehavior: "still 500",
-                    narrativeMarkdown: "Still 500s.",
-                    findingSlugs: ["checkout"],
-                    primaryFindingSlug: "checkout",
-                },
-            },
+            issueCall("carry_forward_issue", {
+                existingIssueId: "iss-2",
+                title: "Checkout still broken",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "still 500",
+                narrativeMarkdown: "Still 500s.",
+                findingSlugs: ["checkout"],
+                primaryFindingSlug: "checkout",
+            }),
             { toolName: "finish", input: { reportMarkdown: "final", summary: "One bug: checkout never completes." } },
         ]);
         const input = makeInput({
@@ -296,44 +353,35 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
 
     it("produces the full set of cross-time outcomes: open, carry-forward, reopen, and resolve", async () => {
         const model = scriptedModel([
-            {
-                toolName: "open_issue",
-                input: {
-                    title: "New bug",
-                    kind: "bug",
-                    severity: "high",
-                    actualBehavior: "broken",
-                    narrativeMarkdown: "New.",
-                    findingSlugs: ["a-new-bug"],
-                    primaryFindingSlug: "a-new-bug",
-                },
-            },
-            {
-                toolName: "carry_forward_issue",
-                input: {
-                    existingIssueId: "iss-open",
-                    title: "Still broken",
-                    kind: "bug",
-                    severity: "high",
-                    actualBehavior: "still broken",
-                    narrativeMarkdown: "Still.",
-                    findingSlugs: ["b-still-broken"],
-                    primaryFindingSlug: "b-still-broken",
-                },
-            },
-            {
-                toolName: "carry_forward_issue",
-                input: {
-                    existingIssueId: "iss-resolved",
-                    title: "Regressed",
-                    kind: "bug",
-                    severity: "high",
-                    actualBehavior: "regressed",
-                    narrativeMarkdown: "Back again.",
-                    findingSlugs: ["d-regressed"],
-                    primaryFindingSlug: "d-regressed",
-                },
-            },
+            issueCall("open_issue", {
+                title: "New bug",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "broken",
+                narrativeMarkdown: "New.",
+                findingSlugs: ["a-new-bug"],
+                primaryFindingSlug: "a-new-bug",
+            }),
+            issueCall("carry_forward_issue", {
+                existingIssueId: "iss-open",
+                title: "Still broken",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "still broken",
+                narrativeMarkdown: "Still.",
+                findingSlugs: ["b-still-broken"],
+                primaryFindingSlug: "b-still-broken",
+            }),
+            issueCall("carry_forward_issue", {
+                existingIssueId: "iss-resolved",
+                title: "Regressed",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "regressed",
+                narrativeMarkdown: "Back again.",
+                findingSlugs: ["d-regressed"],
+                primaryFindingSlug: "d-regressed",
+            }),
             {
                 toolName: "resolve_issue",
                 input: { existingIssueId: "iss-passing", resolvingFindingSlug: "c-fixed", note: "passes now" },

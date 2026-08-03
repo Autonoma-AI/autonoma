@@ -18,7 +18,7 @@ const INPUT: InvestigationReportInput = {
             stepCount: 5,
             runSteps: ["1. [click filter] success", "2. [assert row hidden] failed - ERROR: row still visible"],
             videoUrl: "s3://autonoma-assets/test-generation/run-1/video.webm",
-            finalScreenshotUrl: "s3://autonoma-assets/test-generation/run-1/final-screenshot.png",
+            keyScreenshotUrl: "s3://autonoma-assets/test-generation/run-1/final-screenshot.png",
             verdicts: [
                 {
                     model: "investigation",
@@ -68,7 +68,7 @@ describe("buildReportData", () => {
         expect(finding?.id).toBe("audit-panel");
         expect(finding?.category).toBe("client_bug");
         expect(finding?.headline).toBe("Audit panel shows no rows after the change");
-        expect(finding?.finalScreenshotUrl).toContain("final-screenshot.png");
+        expect(finding?.keyScreenshotUrl).toContain("final-screenshot.png");
         expect(finding?.evidence).toHaveLength(2);
         expect(finding?.evidence[0]?.file).toBe("apps/audit/query.ts");
         // the run trace (the agent's own step-by-step observation log) is carried into the finding so a
@@ -191,7 +191,7 @@ describe("parseReportMarkdown (round-trips the rendered markdown)", () => {
         expect(finding?.remediation).toContain("restore the tenant scope");
         expect(finding?.rootCause).toContain("drops the tenant filter");
         expect(finding?.falsePositiveRisk).toContain("intent was unrelated");
-        expect(finding?.finalScreenshotUrl).toBe("s3://autonoma-assets/test-generation/run-1/final-screenshot.png");
+        expect(finding?.keyScreenshotUrl).toBe("s3://autonoma-assets/test-generation/run-1/final-screenshot.png");
         expect(finding?.videoUrl).toBe("s3://autonoma-assets/test-generation/run-1/video.webm");
         expect(finding?.evidence.length).toBeGreaterThanOrEqual(2);
         const codeEvidence = finding?.evidence.find((e) => e.source === "code");

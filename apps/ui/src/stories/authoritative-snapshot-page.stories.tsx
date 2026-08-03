@@ -136,7 +136,7 @@ const analysisReportData: AnalysisReportFixture = {
           snippet: PLACE_ORDER_SNIPPET,
         },
       ],
-      finalScreenshotUrl: MOCK_SCREENSHOT,
+      keyScreenshotUrl: MOCK_SCREENSHOT,
       stepCount: 14,
       runSuccess: false,
     }),
