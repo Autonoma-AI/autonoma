@@ -1265,7 +1265,7 @@ integrationTestSuite({
                 data: {
                     branchId: prBranch.id,
                     organizationId: orgId,
-                    webDeployment: { create: { url: "https://pr-7.example.com", file: "", organizationId: orgId } },
+                    webDeployment: { create: { url: "https://pr-7.example.com", organizationId: orgId } },
                 },
             });
             await harness.db.branch.update({

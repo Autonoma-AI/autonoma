@@ -23,7 +23,7 @@ const deploymentInclude = {
 type WebSpecificData = {
     architecture: typeof ApplicationArchitecture.WEB;
     url: string;
-    file: string;
+    file?: string;
 };
 
 type MobileSpecificData = {
@@ -141,7 +141,7 @@ export class ApplicationsService extends Service {
                 organizationId,
                 architecture: ApplicationArchitecture.WEB,
                 url: metadata.url ?? "",
-                file: metadata.file ?? "",
+                file: metadata.file,
             });
         }
 
@@ -290,7 +290,6 @@ export class ApplicationsService extends Service {
                         webDeployment: {
                             create: {
                                 url: "",
-                                file: "",
                                 organizationId,
                             },
                         },
@@ -480,9 +479,7 @@ export class ApplicationsService extends Service {
                         create: {
                             deploymentId,
                             url: data.url,
-                            file:
-                                data.file ??
-                                "s3://autonoma-assets/uploads/default-files/cmmaq609e0032seug0dy32tjh/default-file.png",
+                            file: data.file,
                             organizationId,
                         },
                     });

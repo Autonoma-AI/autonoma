@@ -154,7 +154,6 @@ export class DiffsRunPreparer {
                     webDeployment: {
                         create: {
                             url,
-                            file: "",
                             organizationId,
                         },
                     },

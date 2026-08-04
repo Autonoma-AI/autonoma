@@ -39,7 +39,7 @@ export const baseApplication: RouterOutputs["applications"]["list"][number] = {
             webDeployment: {
                 deploymentId: "deployment_fixture_01",
                 url: "https://app.acme.example.com",
-                file: "",
+                file: null,
                 createdAt: FIXTURE_EPOCH,
                 updatedAt: FIXTURE_EPOCH,
                 organizationId: ORG_ID,

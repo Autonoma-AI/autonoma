@@ -123,7 +123,6 @@ export class OnboardingTestHarness implements IntegrationHarness {
                 webDeployment: {
                     create: {
                         url: "https://placeholder.example.com",
-                        file: "",
                         organizationId,
                     },
                 },

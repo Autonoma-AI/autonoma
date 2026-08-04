@@ -448,7 +448,7 @@ model WebDeployment {
   deployment   BranchDeployment @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
 
   url  String
-  file String
+  file String?
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")

@@ -154,7 +154,7 @@ export class TestUpdatesHarness implements IntegrationHarness {
                 branchId,
                 organizationId,
                 webDeployment: {
-                    create: { url: "https://test.example.com", file: "", organizationId },
+                    create: { url: "https://test.example.com", organizationId },
                 },
             },
         });
@@ -198,7 +198,7 @@ export class TestUpdatesHarness implements IntegrationHarness {
                 branchId,
                 organizationId,
                 webDeployment: {
-                    create: { url: "https://test.example.com", file: "", organizationId },
+                    create: { url: "https://test.example.com", organizationId },
                 },
             },
         });

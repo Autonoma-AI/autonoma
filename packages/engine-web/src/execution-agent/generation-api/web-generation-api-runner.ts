@@ -39,11 +39,8 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
         if (webDeployment == null) {
             throw new Error(`Application "${application.name}" has no web deployment`);
         }
-        if (webDeployment.file == null) {
-            throw new Error(`Application "${application.name}" has no default upload file configured`);
-        }
 
-        const file = await this.resolveUploadFilePath(webDeployment.file);
+        const file = await this.resolveUploadFilePath(webDeployment.file ?? undefined);
 
         const rawAuth = scenarioInstance?.auth;
         this.parseLogger.info("Raw scenarioInstance.auth", {
@@ -114,7 +111,13 @@ export class WebGenerationAPIRunner extends GenerationAPIRunner<WebCommandSpec, 
         this.tmpUploadFiles.clear();
     }
 
-    private async resolveUploadFilePath(fileKey: string): Promise<string> {
+    private async resolveUploadFilePath(fileKey?: string): Promise<string | undefined> {
+        // Existing deployments still spell "no upload file" as "" rather than NULL.
+        if (fileKey == null || fileKey.trim().length === 0) {
+            this.uploadLogger.info("No default upload file configured, file pickers will be left untouched");
+            return undefined;
+        }
+
         this.uploadLogger.info("Downloading upload file from S3", { fileKey });
 
         const buffer = await this.storageProvider.download(fileKey);

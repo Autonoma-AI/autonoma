@@ -459,7 +459,7 @@ const WebDeploymentFactory = defineFactory({
                 deploymentId: data.deploymentId,
                 organizationId: data.organizationId,
                 url: data.url ?? "https://autonoma-test.example",
-                file: data.file ?? "index.html",
+                file: data.file,
             },
         });
         return { id: row.deploymentId };

@@ -47,7 +47,7 @@ function buildCreateApplicationFormData(params: {
 
   if (params.architecture === "WEB") {
     metadata.url = params.url;
-    metadata.file = params.file;
+    if (params.file.length > 0) metadata.file = params.file;
   } else {
     metadata.packageUrl = params.packageUrl;
     metadata.photo = params.photo;
@@ -103,7 +103,7 @@ export function CreateApplicationDialog({ open, onOpenChange }: CreateApplicatio
     if (trimmedName.length === 0) return;
 
     if (architecture === "WEB") {
-      if (url.trim().length === 0 || file.trim().length === 0) return;
+      if (url.trim().length === 0) return;
     } else {
       if (packageUrl.length === 0 || photo.trim().length === 0) return;
     }
@@ -129,8 +129,7 @@ export function CreateApplicationDialog({ open, onOpenChange }: CreateApplicatio
   const isUploading = uploadPackage.isPending;
   const isUploadFailed = uploadPackage.isError;
   const isValid =
-    name.trim().length > 0 &&
-    (isWeb ? url.trim().length > 0 && file.trim().length > 0 : packageUrl.length > 0 && photo.trim().length > 0);
+    name.trim().length > 0 && (isWeb ? url.trim().length > 0 : packageUrl.length > 0 && photo.trim().length > 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -190,7 +189,7 @@ export function CreateApplicationDialog({ open, onOpenChange }: CreateApplicatio
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="create-app-file">File (S3 URI)</Label>
+                  <Label htmlFor="create-app-file">Upload file (S3 URI, optional)</Label>
                   <Input
                     id="create-app-file"
                     value={file}

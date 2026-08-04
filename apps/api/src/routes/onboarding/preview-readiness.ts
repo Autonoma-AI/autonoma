@@ -539,7 +539,6 @@ export async function writePreviewUrl(
             create: {
                 deploymentId,
                 url: previewUrl,
-                file: "",
                 organizationId,
             },
             update: { url: previewUrl },
