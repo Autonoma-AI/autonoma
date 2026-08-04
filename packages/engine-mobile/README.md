@@ -2,7 +2,9 @@
 
 Appium-based mobile test execution engine for the Autonoma testing platform. Runs AI-driven end-to-end tests on real iOS and Android devices/emulators using natural language instructions.
 
-This app implements the platform-specific driver interfaces defined in `@autonoma/engine` (the shared execution agent package) by wrapping Appium/WebDriverIO calls. The core agent loop, command system, and AI primitives all come from shared packages - this app only provides the mobile-specific glue.
+This package implements the platform-specific driver interfaces defined in `@autonoma/engine` (the shared execution agent package) by wrapping Appium/WebDriverIO calls. The core agent loop, command system, and AI primitives all come from shared packages - this package only provides the mobile-specific glue.
+
+It is a library, not a deployable: the image that would link it is `apps/workers/mobile`, which no workflow currently builds or deploys.
 
 ## Tech Stack
 

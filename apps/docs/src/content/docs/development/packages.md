@@ -10,7 +10,7 @@ Every package in `packages/` is a shared library consumed by one or more apps. E
 Internal tooling is deliberately left out - the eval harnesses and their results database exist to measure and improve the agents, and have nothing to do with building or running the product.
 
 :::caution[Mobile is dormant]
-`emulator` and `apps/engine-mobile` are still in the tree and still compile, but they are not part of what ships today - neither has a Dockerfile, and neither has had feature work since June 2026. The product is web-only. They are listed here because the code exists, not because it is a capability you can use.
+`emulator` and `engine-mobile` are still in the tree and still compile, but they are not part of what ships today - the only image that would link them, `workers/mobile`, is never built or deployed by any workflow, and neither package has had feature work since June 2026. The product is web-only. They are listed here because the code exists, not because it is a capability you can use.
 :::
 
 ### agent-core
@@ -99,6 +99,18 @@ Everything is parameterized with generics (`TSpec` for command specs, `TContext`
 **Key exports:** `ExecutionAgent`, `ExecutionAgentRunner`, `AgentCommand`, `CommandRegistry`, driver interfaces (`ScreenDriver`, `MouseDriver`, `KeyboardDriver`, `NavigationDriver`, `ApplicationDriver`)
 
 **When to modify:** Adding new commands to the agent, changing the execution loop, adjusting the system prompt, or modifying how steps are recorded.
+
+### engine-mobile
+
+Appium-based mobile test execution for iOS and Android. Implements the driver interfaces from `engine` using Appium/WebDriver. Uses `@autonoma/device-lock` for Redis-based device allocation. Linked into the `workers/mobile` image.
+
+**When to modify:** Changing mobile-specific test execution behavior, adjusting Appium configuration, or adding support for new device types.
+
+### engine-web
+
+Playwright-based web test execution. Implements the driver interfaces from `engine` using Playwright's API. Handles browser lifecycle, screenshot capture, network idle detection, and video recording. Linked into the `workers/web`, `workers/diffs`, and `workers/investigation` images.
+
+**When to modify:** Changing web-specific test execution behavior, adjusting Playwright configuration, or fixing browser-related issues.
 
 ### errors
 
@@ -237,18 +249,6 @@ The frontend SPA. Built with React 19, Vite, and TanStack Router. Compiled to st
 
 **When to modify:** Adding new pages, changing the UI, or adjusting frontend behavior.
 
-### engine-web
-
-Playwright-based web test execution. Implements the driver interfaces from `packages/engine` using Playwright's API. Handles browser lifecycle, screenshot capture, network idle detection, and video recording.
-
-**When to modify:** Changing web-specific test execution behavior, adjusting Playwright configuration, or fixing browser-related issues.
-
-### engine-mobile
-
-Appium-based mobile test execution for iOS and Android. Implements the same driver interfaces using Appium/WebDriver. Uses `@autonoma/device-lock` for Redis-based device allocation.
-
-**When to modify:** Changing mobile-specific test execution behavior, adjusting Appium configuration, or adding support for new device types.
-
 ### previewkit
 
 Preview environments. Builds each app in a pull request, provisions the databases and extra services it needs, deploys the whole stack to its own Kubernetes namespace, and tears it down when the PR closes.
@@ -292,11 +292,13 @@ Background job services, each deployed as a separate Docker image:
 The general dependency flow (simplified):
 
 ```
-apps (api, ui, engines, jobs)
+apps (api, ui, workers, jobs)
  |
  +-- packages/types        (shared schemas - used by almost everything)
  +-- packages/db           (database - used by api, jobs)
- +-- packages/engine       (execution core - used by engines)
+ +-- packages/engine-web   (Playwright execution - used by workers/web, diffs, investigation)
+ +-- packages/engine-mobile (Appium execution - used by workers/mobile)
+ +-- packages/engine       (execution core - used by the engine packages)
  +-- packages/ai           (AI primitives - used by engine, jobs)
  +-- packages/try          (error handling - used by everything)
  +-- packages/logger       (logging - used by everything)

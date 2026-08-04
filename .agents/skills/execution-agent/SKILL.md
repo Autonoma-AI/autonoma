@@ -36,7 +36,7 @@ packages/engine/src/
 └── replay-engine/     # replay
 ```
 
-Web and mobile apps (`apps/engine-web`, `apps/engine-mobile`) only implement the platform interfaces; all agent logic stays here.
+Web and mobile packages (`packages/engine-web`, `packages/engine-mobile`) only implement the platform interfaces; all agent logic stays here.
 
 ## Command Model
 

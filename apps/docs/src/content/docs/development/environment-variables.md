@@ -209,7 +209,7 @@ The workflow package also reads:
 
 ## Engine - Web (Playwright)
 
-**Source:** `apps/engine-web/src/platform/env.ts` and `apps/engine-web/src/execution-agent/env.ts`
+**Source:** `packages/engine-web/src/platform/env.ts` and `packages/engine-web/src/execution-agent/env.ts`
 
 The web engine extends the AI, database, logger, and storage environments. All variables from those sections apply.
 
@@ -222,7 +222,7 @@ The web engine extends the AI, database, logger, and storage environments. All v
 
 ## Engine - Mobile (Appium)
 
-**Source:** `apps/engine-mobile/src/platform/env.ts`
+**Source:** `packages/engine-mobile/src/platform/env.ts`
 
 The mobile engine extends the AI, database, logger, and storage environments. All variables from those sections apply.
 

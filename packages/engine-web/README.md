@@ -1,6 +1,8 @@
 # @autonoma/engine-web
 
-Playwright-based web test execution engine for the Autonoma testing platform. This app implements the platform-specific driver interfaces defined in `@autonoma/engine` (execution-agent) using Playwright, enabling AI-driven end-to-end web testing on Chromium browsers.
+Playwright-based web test execution engine for the Autonoma testing platform. This package implements the platform-specific driver interfaces defined in `@autonoma/engine` (execution-agent) using Playwright, enabling AI-driven end-to-end web testing on Chromium browsers.
+
+It is a library, not a deployable: the images that link it are `apps/workers/web`, `apps/workers/diffs`, and `apps/workers/investigation`.
 
 ## Tech Stack
 
@@ -100,7 +102,7 @@ Additionally, environment variables are inherited from shared packages (`@autono
 
 ## Architecture Notes
 
-- **Platform-agnostic core.** All AI agent logic, command abstractions, and the execution loop live in `@autonoma/engine`. This app only provides Playwright-specific driver implementations.
+- **Platform-agnostic core.** All AI agent logic, command abstractions, and the execution loop live in `@autonoma/engine`. This package only provides Playwright-specific driver implementations.
 - **WebContext** bundles all Playwright drivers (screen, mouse, keyboard, clipboard, application, navigation) into a single object the agent commands operate on.
 - **Remote browser support.** In production, the engine connects to a remote Chromium instance via WebSocket rather than launching a local browser.
 - **Synthetic cursor.** Playwright dispatches mouse events straight into the renderer over CDP, so no recording or screenshot ever contains a real pointer. `cursor-overlay.ts` injects a cosmetic one (`context.addInitScript`, so it survives navigations and new tabs) that glides to each target and leaves a ring on every click. Three constraints shape it: it never moves the real pointer (gliding a live one would drag it across intervening elements and pop hover menus that swallow the click); nothing animates while it is at rest (the reviewer's video is resampled to 1 fps and `mpdecimate`-decimated, and constant motion would defeat that); and `ScreenDriver.screenshot` hides it, because the step screenshot the UI renders is captured *before* the agent picks its command, making a drawn pointer one action stale there - the UI draws its own marker from the step result instead. The init script is shipped as a **string**, not a function: Playwright serialises init scripts with `Function.prototype.toString`, and esbuild's keep-names rewrite (`__name(...)`) does not exist in the page, so a serialised function throws at document start and the overlay silently never mounts.

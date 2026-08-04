@@ -18,8 +18,6 @@ root/
 │   ├── docs/             # Astro Starlight documentation site
 │   ├── ui/               # Vite + React 19 SPA (port 3000)
 │   ├── cli/              # @autonoma-ai/planner - npm-published test-planner CLI (tsup-bundled)
-│   ├── engine-web/       # Playwright-based web test execution
-│   ├── engine-mobile/    # Appium-based mobile test execution (iOS + Android)
 │   └── jobs/
 │       ├── reviewer/     # Post-test AI validation using video recordings
 │       └── notifier/     # SNS/SQS → Slack/email notifications
@@ -29,6 +27,8 @@ root/
 │   ├── db/               # Prisma schema + generated client (PostgreSQL)
 │   ├── types/            # Shared Zod schemas, TypeScript types, constants
 │   ├── engine/           # Shared engine: execution agent, commands, driver interfaces
+│   ├── engine-web/       # Playwright-based web test execution
+│   ├── engine-mobile/    # Appium-based mobile test execution (iOS + Android)
 │   ├── device-lock/      # Redis-based distributed device locking
 │   ├── blacklight/          # Shared UI component library (Radix + Tailwind + CVA)
 │   └── utils/            # Logger (Sentry), storage, image, k8s helpers
@@ -606,9 +606,9 @@ The `@autonoma/ai` package provides the **sharp-free** AI core used across the p
 
 ---
 
-## Engine Apps
+## Engine Packages
 
-### `apps/engine-web/`
+### `packages/engine-web/`
 
 Playwright-based web test execution. Implements the driver interfaces from `@autonoma/execution-agent`:
 - Playwright page methods for `ScreenDriver`, `MouseDriver`, `KeyboardDriver`, `NavigationDriver`
@@ -616,7 +616,7 @@ Playwright-based web test execution. Implements the driver interfaces from `@aut
 - Playwright native recording or FFmpeg for `VideoRecorder`
 - Page screenshot polling for `ImageStream`
 
-### `apps/engine-mobile/`
+### `packages/engine-mobile/`
 
 Appium-based mobile test execution (iOS + Android). Implements the same driver interfaces:
 - Appium/WebDriver methods for all drivers
@@ -624,7 +624,7 @@ Appium-based mobile test execution (iOS + Android). Implements the same driver i
 - Uses `@autonoma/device-lock` for Redis-based device allocation
 - Deep links / app intents for `NavigationDriver`
 
-**Both engines are completely separate Docker images.** They share all logic from `@autonoma/execution-agent` and `@autonoma/ai` but never share a Docker image.
+**Both engines are libraries, not deployables.** They share all logic from `@autonoma/engine` and `@autonoma/ai`, and are linked into the worker images that run them - `apps/workers/web` (plus `diffs` and `investigation`) for web, `apps/workers/mobile` for mobile. Web and mobile never end up in the same image.
 
 ---
 
@@ -634,7 +634,7 @@ Appium-based mobile test execution (iOS + Android). Implements the same driver i
 2. **Types flow through tRPC.** No manual API types on frontend.
 3. **Shared validation.** Zod schemas in `types` used by both API and frontend.
 4. **Static frontend.** No SSR. React SPA compiled to static files.
-5. **Engines are separate images.** Web and mobile never share a Docker image.
+5. **Engines are packages, consumed by workers.** `@autonoma/engine-web` and `@autonoma/engine-mobile` are libraries; the deployables are the worker images that link them. Web and mobile never share a Docker image.
 6. **Jobs are separate images.** Each job type has its own Dockerfile.
 7. **One concern per package.** db = schema, types = contracts, engine = execution logic, ai = AI primitives, api = HTTP layer.
 9. **Constructor injection.** No DI framework.
@@ -645,7 +645,7 @@ Appium-based mobile test execution (iOS + Android). Implements the same driver i
 14. **PostHog for analytics.** Backend: use `@autonoma/analytics` singleton. Frontend: see the `ui-conventions` skill.
 15. **Use `@autonoma/blacklight` for all frontend components.** Radix + Tailwind + CVA. See design skills for guidelines.
 16. **Routers are thin, controllers hold logic.** Each tRPC router delegates to controller files in `controllers/<routerName>/`. One file per procedure.
-17. **Platform-agnostic agent core.** All execution logic lives in the `@autonoma/engine` package (`packages/engine`); platform apps only implement driver interfaces. See the `execution-agent` skill.
+17. **Platform-agnostic agent core.** All execution logic lives in the `@autonoma/engine` package (`packages/engine`); the platform packages (`packages/engine-web`, `packages/engine-mobile`) only implement driver interfaces. See the `execution-agent` skill.
 18. **AI primitives in `packages/ai` (sharp-free core) and `packages/visual-ai` (screenshot-driven).** Agent abstraction, model registry, and structured generation live in `@autonoma/ai`; visual checkers and point/object detection live in `@autonoma/visual-ai` (depends on `@autonoma/image` -> `sharp`). Never duplicate AI logic in platform apps. See the `ai-utils` skill.
 19. **Frontend conventions in the `ui-conventions` skill.** React patterns, data fetching, mutations, route loaders, and analytics are documented there.
 20. **Proactively update documentation.** When changing public-facing APIs, environment factory, or user-facing behavior, update the corresponding docs in `apps/docs/`.

@@ -26,11 +26,11 @@
         },
         {
             "name": "engine-web",
-            "path": "apps/engine-web",
+            "path": "packages/engine-web",
         },
         {
             "name": "engine-mobile",
-            "path": "apps/engine-mobile",
+            "path": "packages/engine-mobile",
         },
         {
             "name": "worker-diffs",
