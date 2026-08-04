@@ -76,7 +76,7 @@ export function aiCatalog({ apiUrl, docsUrl, hostIdentifier }: AiCatalogInput): 
                 type: MCP_SERVER_MEDIA_TYPE,
                 url: `${api}/v1/mcp/onboarding`,
                 description:
-                    "Configure a new application's preview environment: choose how previews are built, apply configuration, trigger a deploy, and validate the test-data SDK. Authenticate with an API key or OAuth. " +
+                    "Run a new application's whole onboarding: choose how previews are built, apply configuration, trigger a deploy, validate the test-data SDK, and take the app live so Autonoma starts reviewing its pull requests. Authenticate with an API key or OAuth. " +
                     `Docs: ${docs}/mcp/configure-preview/`,
             },
             {

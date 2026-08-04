@@ -15,9 +15,16 @@ import { z } from "zod";
 import { env } from "../env";
 import { INSTALL_STATE_TTL_MS, createInstallState } from "../github/github-state";
 import type { Services } from "../routes/build-services";
+import { isStepAtOrPast } from "../routes/onboarding/onboarding-step-order";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import type { VercelDeploymentSummary } from "../vercel-marketplace/vercel-project-api";
 import { deprecatedBuildNotice } from "./deprecated-build-notice";
+import {
+    describeAlreadyLive,
+    describeUnfinishedStep,
+    describeUnverifiedPreview,
+    describeWentLive,
+} from "./finish-onboarding-guidance";
 import type { McpAnalytics } from "./mcp-analytics";
 import type { McpPrincipal } from "./mcp-principal";
 import { recipeConflictResult } from "./recipe-conflict-result";
@@ -97,7 +104,7 @@ Control: you hold the config while you work; the UI is read-only. If get_session
 /** Autonoma builds the preview, so the build/service/env config lives here. */
 const PREVIEWKIT_PLAYBOOK = `This app uses **Autonoma-hosted previews**: Autonoma builds and hosts them, so the build, services, env and deploy all go through these tools.
 
-Your tools here: get_config, apply_config, request_env, trigger_deploy, get_session_status, get_target_logs. The signal tools (get_signal_setup, get_signal_status, confirm_signal_setup) are for apps on their own pipeline and do not apply - ignore them.
+Your tools here: get_config, apply_config, request_env, trigger_deploy, get_session_status, get_target_logs, finish_onboarding. The signal tools (get_signal_setup, get_signal_status, confirm_signal_setup) are for apps on their own pipeline and do not apply - ignore them.
 
 Loop until the preview is up:
 1. get_config(applicationId) - read the current preview config.
@@ -106,6 +113,7 @@ Loop until the preview is up:
 4. trigger_deploy(applicationId) - deploy the base preview environment (environment 0). It deploys the app's configured deploy branch. Pick that branch deliberately rather than defaulting to a name: if unset it uses the repo's default branch (whatever it is named), which is the right choice when the user is working on it. But you typically run from the user's local checkout, which may sit on a different branch - check it (e.g. \`git rev-parse --abbrev-ref HEAD\`). If it is NOT the repo default (e.g. a branch they made to integrate Autonoma), ASK the user whether to deploy that branch or the default, then set their answer with apply_config's \`branch\` field (that does NOT deploy on its own) before trigger_deploy. Do not steer toward any particular branch without cause.
 5. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, KEEP POLLING: wait ~30s (sleep, if your client can) and call it again, for as long as it takes - a user can be several minutes away from a key they have to go dig up, and until you poll again you have no idea whether they answered. Nothing else tells you: they set the values in the Autonoma UI, so a quiet chat means nothing either way. (If they do say in the chat that they are done, great - poll once to pick it up and carry on.) When the request clears, check lastEnvResolution: the user may have SKIPPED keys they don't have (skippedKeys) - adapt the config to live without them (default, drop, or rework) instead of re-requesting.
 6. A ready status only means the pod health check passes - it does NOT mean the app works. Before declaring the preview done, verify it yourself: exercise the main flow against the preview URL (curl it, or a small Playwright script if the user has Playwright - log in, load data, hit a few real routes), then call get_session_status again and READ the app's runtime logs in recentLogs. If the logs show the app erroring behind the healthy page (crashed queries, missing env, stack traces), fix the cause and redeploy. If you cannot exercise the flow yourself, ask the user to click through the app once and then read the logs.
+7. finish_onboarding(applicationId) - take the app live once you have verified the preview. Until you do, Autonoma reviews no pull requests and holds back the comments it would have posted. Do this as soon as the preview is good: it does not wait on the SDK handler or the scenario recipes below, which you carry on with afterwards.
 
 Which app hosts the Autonoma SDK: set \`sdk_implemented: true\` on the app whose code serves the Environment Factory handler (the \`/api/autonoma\` route) - every scenario up/down is sent there. Set it on exactly one app, in the same apply_config call as the rest of the topology, as soon as you know where the handler lives. It is INDEPENDENT of \`primary\`: a full-stack app (Next.js, Rails, Django) is both the app the agents browse and the SDK host, so it carries both flags; a split topology marks the frontend \`primary\` and the API service \`sdk_implemented\`. Leave it unset and Autonoma falls back to the primary app, which makes every up 404 when the handler actually lives on another service.
 
@@ -125,10 +133,11 @@ const EXTERNAL_DEPLOYS_PLAYBOOK = `This app uses **its own pipeline** for previe
 4. If one pull request deploys several services (frontend, API, database), signal only the one Autonoma should browse. Every signal overwrites the stored preview URL, so signalling all of them means whichever deploy finishes last wins - and that may be the API rather than the frontend.
 5. get_signal_status(applicationId) - poll until \`signalReceived\` is true. That is the ONLY confirmation the wiring works. Prove it with a real run of their pipeline (push the branch, let it deploy) rather than a hand-written curl: a curl you wrote proves your curl works, not that their pipeline calls us.
 6. confirm_signal_setup(applicationId) - once a signal has landed, mark setup done so onboarding advances.
+7. finish_onboarding(applicationId) - take the app live. Until you do, Autonoma records preview URLs but reviews no pull requests. This one goes live on trust: Autonoma cannot verify your wiring reviews per-PR until a real PR signal arrives, so open a pull request afterwards and check get_signal_status reports \`prReviewsConfirmed\`.
 
 \`prReviewsConfirmed\` in get_signal_status turns true the first time a signal arrives carrying a prNumber. Until that happens the app records preview URLs but never reviews a pull request, so do not call the wiring finished on a main-branch signal alone.
 
-Your tools here: get_signal_setup, get_signal_status, confirm_signal_setup, plus the scenario/recipe tools once a preview URL exists.
+Your tools here: get_signal_setup, get_signal_status, confirm_signal_setup, finish_onboarding, plus the scenario/recipe tools once a preview URL exists.
 
 There is no config to write, no deploy to trigger and no build logs to read: apply_config, trigger_deploy, request_env and get_target_logs only apply to Autonoma-hosted previews and will refuse if you call them here.`;
 
@@ -252,7 +261,11 @@ function describeSignalNextStep(status: { signalReceived: boolean; prReviewsConf
             "update a PR and poll again."
         );
     }
-    return "Signals are landing and one carried a pull request, so per-PR reviews are wired. Call confirm_signal_setup if you have not already.";
+    return (
+        "Signals are landing and one carried a pull request, so per-PR reviews are wired. Call confirm_signal_setup " +
+        "if you have not already, then finish_onboarding to take the app live - until that runs, Autonoma reviews " +
+        "nothing."
+    );
 }
 
 /**
@@ -938,6 +951,91 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             }),
     );
 
+    server.registerTool(
+        "finish_onboarding",
+        {
+            title: "Finish onboarding and go live",
+            description:
+                "Take this app from a verified preview all the way to live - the last two steps of onboarding, the " +
+                "ones the Autonoma UI otherwise walks a human through. Call it once the preview is up " +
+                "AND you have verified it yourself (get_session_status reports `ready`, and you have exercised the " +
+                "app against the preview URL rather than trusting a health check). It advances `preview_verified` " +
+                "-> `diff_trigger` -> `completed` in a single call, because nothing in between is yours to " +
+                "decide: the per-PR review loop is automatic on Autonoma-hosted previews and driven by your signal " +
+                "on their own pipeline, so the middle step is a screen that explains it, not a choice. Going live is " +
+                "what turns pull-request reviews ON - until it happens Autonoma stays silent and holds back the " +
+                "comments it would have posted (they are re-run for open pull requests when you finish, so nothing " +
+                "is lost). It does NOT wait on the Autonoma SDK handler or the scenario recipes: that is separate, " +
+                "app-level work you carry on with afterwards, so do not hold onboarding open for it. Too early, this " +
+                "refuses and names the step the app IS on plus the exact call that moves it forward; already live, " +
+                "it says so and changes nothing. Returns the step it landed on, the transitions it made, and what " +
+                "happens next on this app's path. Pass a short `description` - the user watches it on the activity " +
+                "feed.",
+            inputSchema: { applicationId: z.string(), description: activityDescription },
+        },
+        async ({ applicationId, description }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "finish_onboarding",
+                    message: description ?? "Finishing onboarding and going live",
+                    toolArguments: {},
+                },
+                async (org) => {
+                    // Reading readiness is what stamps a preview that has come up as
+                    // `preview_verified` - no other call does - so the step below is only
+                    // current once this has run. It also carries the diagnostics that make
+                    // a refusal actionable ("your preview is failed", not "wrong step").
+                    const readiness = await services.onboarding.getPreviewReadiness(applicationId, org);
+                    const before = await services.onboarding.getState(applicationId);
+
+                    if (before.step === "completed") {
+                        return {
+                            step: before.step,
+                            live: true,
+                            alreadyLive: true,
+                            transitions: [],
+                            previewSource: previewSourceOf(before.previewEnvironmentMode ?? undefined),
+                            previewUrl: before.previewUrl ?? undefined,
+                            message: describeAlreadyLive(),
+                        };
+                    }
+                    // Thrown rather than returned so the activity row the user is watching
+                    // reads as failed, and the agent gets an isError result instead of a
+                    // success payload it has to inspect to notice nothing happened.
+                    if (!isStepAtOrPast(before.step, "preview_verified")) {
+                        throw new BadRequestError(describeUnfinishedStep(before.step, readiness.diagnostics.status));
+                    }
+                    // A verified app whose preview is rebuilding keeps its step but loses
+                    // its readiness, and the manager's own guard for that says only
+                    // "Preview environment is not ready yet".
+                    if (before.step === "preview_verified" && readiness.diagnostics.status !== "ready") {
+                        throw new BadRequestError(describeUnverifiedPreview(readiness.diagnostics.status));
+                    }
+
+                    const transitions: string[] = [];
+                    // Only from `preview_verified`. The manager resolves this transition
+                    // against the earliest step that implements it, so calling it from
+                    // `diff_trigger` would push the app back a step instead of failing.
+                    if (before.step === "preview_verified") {
+                        await services.onboarding.completePreviewOnboarding(applicationId, org);
+                        transitions.push("preview_verified -> diff_trigger");
+                    }
+                    const after = await services.onboarding.goLive(applicationId, org);
+                    transitions.push("diff_trigger -> completed");
+                    return {
+                        step: after.step,
+                        live: after.step === "completed",
+                        alreadyLive: false,
+                        transitions,
+                        previewSource: previewSourceOf(after.previewEnvironmentMode ?? undefined),
+                        previewUrl: after.previewUrl ?? undefined,
+                        message: describeWentLive(after.previewEnvironmentMode ?? undefined),
+                    };
+                },
+            ),
+    );
+
     // ─── existing_deploys path, on Vercel: connecting the Marketplace integration ────
 
     server.registerTool(
@@ -1197,8 +1295,9 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         step: status.step,
                         message:
                             "This deployment is now the preview Autonoma tests against. Onboarding has advanced - " +
-                            "no confirm step is needed here. Next: the Autonoma SDK handler and the scenario " +
-                            "recipes; list_dry_run_targets lists this project's Vercel deployments as targets.",
+                            "no confirm step is needed here. Next: finish_onboarding to take the app live, then " +
+                            "the Autonoma SDK handler and the scenario recipes; list_dry_run_targets lists this " +
+                            "project's Vercel deployments as targets.",
                     };
                 },
             ),

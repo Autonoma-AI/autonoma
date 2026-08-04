@@ -136,7 +136,7 @@ Watch for two separate milestones:
 
 Your agent can do all of this - read how your pipeline actually deploys, write the call into the right step, open a pull request, and poll Autonoma until it sees a real signal land. Take **Set up with a coding agent** during onboarding and hand it the pairing code.
 
-See [Set up a preview with a coding agent](/mcp/configure-preview/) for the install and the tools it uses on this path: `get_signal_setup`, `get_signal_status`, and `confirm_signal_setup`.
+See [Set up a preview with a coding agent](/mcp/configure-preview/) for the install and the tools it uses on this path: `get_signal_setup`, `get_signal_status`, `confirm_signal_setup`, and `finish_onboarding` to take the app live.
 
 ## After the preview is connected
 
