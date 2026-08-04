@@ -65,16 +65,16 @@ export function mcpEndpointUrl(path: McpEndpoint): string {
 const CLAUDE_PERMISSION_FLAG = "--dangerously-skip-permissions";
 
 /**
- * Heads the Claude Code install block. Shell comments, so they survive the two ways this
- * actually reaches people - a copy-paste and a screenshot handed to an agent - and both
- * of those are the failure being warned about: `claude mcp add` run from inside a running
- * agent writes config the current session never reloads, and `claude mcp login` run
- * without a TTY aborts with "stdin isn't a terminal".
+ * Heads the Claude Code block. Shell comments, so they survive the two ways this actually
+ * reaches people - a copy-paste and a screenshot handed to an agent - and both of those
+ * are the failure being warned about: `claude mcp add` run from inside a running agent
+ * writes config the current session never reloads, and `claude mcp login` run without a
+ * TTY aborts with "stdin isn't a terminal".
  *
- * The last two lines address the agent directly. An agent handed these commands runs
- * them, sees them succeed, and reports success - leaving the user with a session that
- * still has no Autonoma tools and no idea why. It cannot fix that itself; the only
- * useful thing it can do is say so, so the copied text tells it to.
+ * The last two lines address the agent directly. An agent handed this runs it, sees it
+ * succeed, and reports success - leaving the user with a session that still has no
+ * Autonoma tools and no idea why. It cannot fix that itself; the only useful thing it can
+ * do is say so, so the copied text tells it to.
  *
  * Pre-wrapped to roughly the block's width. The `#` only starts each logical line, so a
  * line long enough to soft-wrap puts uncommented-looking text under it, and the block
@@ -82,8 +82,8 @@ const CLAUDE_PERMISSION_FLAG = "--dangerously-skip-permissions";
  */
 const TERMINAL_ONLY_NOTE = [
   "# Run in a terminal, not inside a running agent.",
-  "# Agent reading this: don't run these. Ask the user to run them, then",
-  "# have them restart you - a running session won't see the new server.",
+  "# Agent reading this: don't run it. Ask the user to run it, then have",
+  "# them restart you - a running session won't see the new server.",
 ].join("\n");
 
 /**
@@ -105,71 +105,112 @@ interface InstallSnippetInput {
   prompt: string;
 }
 
+/** One thing the user does, with the block of text it is done to. */
+interface AgentStep {
+  title: string;
+  /** What the user does with this step's code. */
+  instruction: string;
+  /** File / place the code goes (shown above it). */
+  location?: string;
+  code: string;
+}
+
 interface AgentTab {
   id: string;
   label: string;
   /**
-   * Install AND authorize this client, as one copyable block. Authorization is not a
-   * separate step it can be: left as prose next to a copy button it gets skipped, and
-   * the user reads the resulting missing tools as a broken MCP.
+   * Everything this client needs, in order. Claude Code is a single step, because for a
+   * CLI client every part of it is the same act - typing one line into one terminal - and
+   * splitting that into "install", "authorize" and "launch" made people stop after the
+   * first box and read the missing tools as a broken MCP. Editor clients genuinely are two
+   * steps: their config goes in a file, and the prompt goes in the chat window.
    */
-  install: (input: InstallSnippetInput) => string;
-  /** File / place the install snippet goes (shown above the code). */
-  location?: string;
-  /** What the user does with the install snippet. */
-  installInstruction: string;
-  /**
-   * Start the agent on the prompt. Undefined for clients driven from an editor rather
-   * than a CLI, where the user opens the app and pastes the prompt themselves.
-   */
-  launch?: (input: InstallSnippetInput) => string;
-  /** What the user does at the launch step. */
-  launchInstruction: string;
+  steps: (input: InstallSnippetInput) => AgentStep[];
 }
 
 const AGENT_TABS: AgentTab[] = [
   {
     id: "claude",
     label: "Claude Code",
-    installInstruction: "Installs the server and signs you in - a browser opens, approve it there.",
-    // `--scope user` and not the default (`local`): the default binds the server to the
-    // directory the command happened to run in, so someone who pastes this into whatever
-    // terminal is already open registers it against their home directory and then finds no
-    // Autonoma tools in their project. That failure looks exactly like "they never authorized".
-    install: ({ url, serverName }) =>
-      [
-        TERMINAL_ONLY_NOTE,
-        `claude mcp add --transport http --scope user ${serverName} ${url}`,
-        `claude mcp login ${serverName}`,
-      ].join("\n"),
-    launchInstruction: "Once the browser confirms, run this from your project to start the agent on the job.",
-    launch: ({ prompt }) => `claude ${CLAUDE_PERMISSION_FLAG} "${shellQuote(prompt)}"`,
+    steps: ({ url, serverName, prompt }) => [
+      {
+        title: "Run this in your project folder",
+        instruction:
+          "Open a new terminal in your project folder and run this. A browser opens to sign in - approve it there, and your agent starts on the job.",
+        // Three commands, but ONE shell line - the `; \` continuations are load-bearing, not
+        // cosmetic. `claude mcp login` holds a readline on stdin while it waits for the
+        // browser callback, so a launch command on a line of its own under it is swallowed as
+        // an answer to "Or paste the redirect URL here" instead of running; continued, the
+        // shell has consumed all three before the first one starts. `;` rather than `&&`
+        // because `claude mcp add` exits 1 when the server is already registered - the normal
+        // case on every surface after the first - and `&&` would strand exactly the people who
+        // did nothing wrong.
+        //
+        // `--scope user` and not the default (`local`): the default binds the server to the
+        // directory the command happened to run in, so someone who pastes this into whatever
+        // terminal is already open registers it against their home directory and then finds no
+        // Autonoma tools in their project. That failure looks exactly like "they never authorized".
+        code: [
+          TERMINAL_ONLY_NOTE,
+          `claude mcp add --transport http --scope user ${serverName} ${url}; \\`,
+          `claude mcp login ${serverName}; \\`,
+          `claude ${CLAUDE_PERMISSION_FLAG} "${shellQuote(prompt)}"`,
+        ].join("\n"),
+      },
+    ],
   },
   {
     id: "cursor",
     label: "Cursor",
-    location: "~/.cursor/mcp.json",
-    installInstruction:
-      "Add this to your Cursor MCP config and restart Cursor, then open MCP settings and sign in to the server.",
-    install: ({ url, serverName }) => JSON.stringify({ mcpServers: { [serverName]: { url } } }, null, 2),
-    launchInstruction: "Then open Cursor in your project and paste this to the agent:",
+    steps: ({ url, serverName, prompt }) => [
+      {
+        title: "Install and sign in",
+        instruction:
+          "Add this to your Cursor MCP config and restart Cursor, then open MCP settings and sign in to the server.",
+        location: "~/.cursor/mcp.json",
+        code: JSON.stringify({ mcpServers: { [serverName]: { url } } }, null, 2),
+      },
+      {
+        title: "Start your agent",
+        instruction: "Then open Cursor in your project and paste this to the agent:",
+        code: prompt,
+      },
+    ],
   },
   {
     id: "windsurf",
     label: "Windsurf",
-    location: "~/.codeium/windsurf/mcp_config.json",
-    installInstruction:
-      "Add this to your Windsurf MCP config and refresh MCP servers in Cascade, then sign in to the server there.",
-    install: ({ url, serverName }) => JSON.stringify({ mcpServers: { [serverName]: { serverUrl: url } } }, null, 2),
-    launchInstruction: "Then open Windsurf in your project and paste this to the agent:",
+    steps: ({ url, serverName, prompt }) => [
+      {
+        title: "Install and sign in",
+        instruction:
+          "Add this to your Windsurf MCP config and refresh MCP servers in Cascade, then sign in to the server there.",
+        location: "~/.codeium/windsurf/mcp_config.json",
+        code: JSON.stringify({ mcpServers: { [serverName]: { serverUrl: url } } }, null, 2),
+      },
+      {
+        title: "Start your agent",
+        instruction: "Then open Windsurf in your project and paste this to the agent:",
+        code: prompt,
+      },
+    ],
   },
   {
     id: "other",
     label: "Other",
-    installInstruction:
-      "Run this in your terminal before you open your agent, or add the equivalent entry to its MCP config. It opens a browser to sign in.",
-    install: ({ url }) => `npx -y mcp-remote ${url}`,
-    launchInstruction: "Then open your agent in your project and paste this to it:",
+    steps: ({ url, prompt }) => [
+      {
+        title: "Install and sign in",
+        instruction:
+          "Run this in your terminal before you open your agent, or add the equivalent entry to its MCP config. It opens a browser to sign in.",
+        code: `npx -y mcp-remote ${url}`,
+      },
+      {
+        title: "Start your agent",
+        instruction: "Then open your agent in your project and paste this to it:",
+        code: prompt,
+      },
+    ],
   },
 ];
 
@@ -260,18 +301,14 @@ export interface ConnectAgentInstallProps {
 }
 
 /**
- * The install-instructions body of the connect-agent flow: pick your client, then two
- * copyable commands - install-and-authorize, then start the agent on the job.
+ * The install-instructions body of the connect-agent flow: pick your client, then run what
+ * it shows you - one terminal line for Claude Code, a config entry plus a prompt for the
+ * editor clients.
  *
  * Authorization is deliberately not a step of its own. It used to be, as prose sitting
- * directly under a copy button, and it was skipped near-universally: people copy the box
- * and move on, then read the resulting empty tool list as a broken integration. So the
- * `mcp login` call lives inside the block they were going to copy anyway.
- *
- * The two commands are two blocks rather than one, and that split is load-bearing:
- * `claude mcp login` holds a readline on stdin while it waits for the browser callback,
- * so a third line pasted with it is consumed as an answer to "Or paste the redirect URL
- * here" instead of running.
+ * directly under the command, and it was skipped near-universally: people ran the box and
+ * moved on, then read the resulting empty tool list as a broken integration. So the
+ * `mcp login` call lives inside the line they were going to run anyway.
  *
  * Rendered inside {@link ConnectAgentDialog} and, for the MCP-first onboarding,
  * directly on the page (no dialog) - so `AGENT_TABS` stays a single source of truth
@@ -302,17 +339,7 @@ export function ConnectAgentInstall({
         </TabsList>
         {AGENT_TABS.map((tab) => (
           <TabsContent key={tab.id} value={tab.id} className="flex flex-col gap-7">
-            <Step index={1} title="Install and sign in">
-              <p className="text-2xs leading-relaxed text-text-secondary">{tab.installInstruction}</p>
-              {tab.location != null && <p className="font-mono text-2xs text-text-secondary">{tab.location}</p>}
-              <CopyableCode code={tab.install(snippetInput)} />
-            </Step>
-
-            <Step index={2} title="Start your agent">
-              <p className="text-2xs leading-relaxed text-text-secondary">{tab.launchInstruction}</p>
-              <CopyableCode code={tab.launch?.(snippetInput) ?? prompt} />
-              {capabilities != null && <p className="text-2xs leading-relaxed text-text-secondary">{capabilities}</p>}
-            </Step>
+            <TabSteps steps={tab.steps(snippetInput)} capabilities={capabilities} />
           </TabsContent>
         ))}
       </Tabs>
@@ -330,13 +357,36 @@ export function ConnectAgentInstall({
   );
 }
 
-/** One numbered step of the connect flow: a boxed index, a title, and its body. */
-function Step({ index, title, children }: { index: number; title: string; children: ReactNode }) {
+/**
+ * A client's steps, with the capabilities blurb under the last one. Numbered only when
+ * there is more than one - a lone "1" in a box promises a step 2 that never comes.
+ */
+function TabSteps({ steps, capabilities }: { steps: AgentStep[]; capabilities?: ReactNode }) {
+  return (
+    <>
+      {steps.map((step, position) => (
+        <Step key={step.title} index={steps.length > 1 ? position + 1 : undefined} title={step.title}>
+          <p className="text-2xs leading-relaxed text-text-secondary">{step.instruction}</p>
+          {step.location != null && <p className="font-mono text-2xs text-text-secondary">{step.location}</p>}
+          <CodeBlock code={step.code} />
+          {capabilities != null && position === steps.length - 1 && (
+            <p className="text-2xs leading-relaxed text-text-secondary">{capabilities}</p>
+          )}
+        </Step>
+      ))}
+    </>
+  );
+}
+
+/** One step of the connect flow: an optional boxed index, a title, and its body. */
+function Step({ index, title, children }: { index?: number; title: string; children: ReactNode }) {
   return (
     <div className="flex gap-3">
-      <span className="flex size-5 shrink-0 items-center justify-center border border-border-mid font-mono text-3xs text-text-secondary">
-        {index}
-      </span>
+      {index != null && (
+        <span className="flex size-5 shrink-0 items-center justify-center border border-border-mid font-mono text-3xs text-text-secondary">
+          {index}
+        </span>
+      )}
       <div className="flex min-w-0 flex-1 flex-col gap-2.5">
         <h3 className="font-mono text-2xs font-bold uppercase tracking-widest text-text-primary">{title}</h3>
         {children}
@@ -345,16 +395,26 @@ function Step({ index, title, children }: { index: number; title: string; childr
   );
 }
 
-function CopyableCode({ code }: { code: string }) {
+function CodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
 
   function copy() {
-    void navigator.clipboard.writeText(code).then(() => setCopied(true));
+    // `navigator.clipboard` is undefined in insecure contexts, and the write can reject
+    // (permissions, unfocused document) - handle both so the failure logs instead of
+    // surfacing as an unhandled rejection, and the check stays false.
+    if (navigator.clipboard == null) {
+      console.warn("Clipboard API unavailable; cannot copy the install command");
+      return;
+    }
+    navigator.clipboard
+      .writeText(code)
+      .then(() => setCopied(true))
+      .catch((err) => console.warn("Failed to copy the install command", err));
   }
 
   return (
     <div className="relative">
-      {/* Wraps rather than scrolls: the install line runs past the panel width, and a command
+      {/* Wraps rather than scrolls: the command runs past the panel width, and a command
           whose tail is off-screen reads as broken - which is the opposite of the reassurance
           someone needs before pasting it into a terminal. Soft wraps are not copied, so the
           clipboard still gets the exact command. */}

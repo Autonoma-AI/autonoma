@@ -24,7 +24,7 @@ export function ConfigureWithAgentModal({ applicationId }: { applicationId: stri
         onOpenChange={setOpen}
         applicationId={applicationId}
         title="Configure with a coding agent"
-        description="Two commands in your terminal: install the Autonoma MCP and sign in, then start your agent. It configures and deploys your preview while you watch here."
+        description="Connect Autonoma's MCP to your coding agent and start it on the job. It configures and deploys your preview while you watch here."
         instruction={AGENT_CONFIGURE_INSTRUCTION}
       />
     </>

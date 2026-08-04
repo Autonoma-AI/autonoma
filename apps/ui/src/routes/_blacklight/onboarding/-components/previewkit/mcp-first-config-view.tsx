@@ -8,7 +8,6 @@ import {
   ONBOARDING_MCP_DOCS_URL,
   ONBOARDING_MCP_SERVER_NAME,
 } from "components/connect-agent-dialog";
-import { CopyPromptButton } from "components/copy-prompt-button";
 import { useCreateAgentPairing } from "lib/onboarding/onboarding-api";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useEffect, useRef, useState } from "react";
@@ -56,7 +55,7 @@ function configCopy(appId: string): McpFirstCopy {
   return {
     heading: "Configure with a coding agent",
     blurb:
-      "Two commands in your terminal: install the Autonoma MCP and sign in, then start your agent. It configures and deploys your preview while you watch here - no scripts, no YAML.",
+      "Connect Autonoma's MCP to your coding agent and start it on the job. It configures and deploys your preview while you watch here - no scripts, no YAML.",
     manualLabel: "Configure manually",
     manualSearch: buildOnboardingSearch("previewkit-config", appId, { configStep: "apps" }),
     prompt: agentConfigurePrompt,
@@ -202,9 +201,8 @@ function PairingCodeBlock({
           </Button>
         </div>
       ) : (
-        <div className="relative flex items-center justify-center border border-border-mid bg-surface-void px-12 py-6">
+        <div className="flex items-center justify-center border border-border-mid bg-surface-void px-12 py-6">
           <span className="font-mono text-4xl tracking-[0.3em] text-primary">{code}</span>
-          <CopyPromptButton prompt={agentConfigurePrompt(code)} />
         </div>
       )}
     </div>

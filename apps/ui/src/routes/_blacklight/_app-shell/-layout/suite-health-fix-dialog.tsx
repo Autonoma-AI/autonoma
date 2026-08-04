@@ -24,11 +24,11 @@ interface FixDialogProps {
  * "Put the suite back in order": hand every unresolved failure to a coding agent in one prompt.
  *
  * Built on the shared {@link ConnectAgentDialog} rather than as a dialog of its own. Connecting an agent is the
- * same three steps everywhere - install, authorize, then talk to it - and the authorize step in particular is the
- * one people skip and then report the tools as broken. A second hand-rolled version of it would drift from this
- * one, and the per-client install snippets would have to be maintained twice.
+ * same work everywhere - install, authorize, then talk to it - and the authorize part in particular is the one
+ * people skip and then report the tools as broken. A second hand-rolled version of it would drift from this one,
+ * and the per-client install snippets would have to be maintained twice.
  *
- * All this surface adds is the third step's content: the prompt, behind one button.
+ * All this surface adds is what to say once connected: the prompt, behind one button.
  */
 export function SuiteHealthFixDialog({ health, open, onOpenChange }: FixDialogProps) {
   return (

@@ -4,7 +4,6 @@ import { useActiveOrg } from "lib/query/auth.queries";
 import { useEffect, useRef, type ReactNode } from "react";
 import { agentMcpPrompt } from "./agent-mcp-prompt";
 import { ConnectAgentDialog, ONBOARDING_MCP_DOCS_URL, ONBOARDING_MCP_SERVER_NAME } from "./connect-agent-dialog";
-import { CopyPromptButton } from "./copy-prompt-button";
 
 /**
  * What the dialog says above the install steps on every surface that is NOT the first
@@ -12,7 +11,7 @@ import { CopyPromptButton } from "./copy-prompt-button";
  * leads with "the same one" instead of introducing it from scratch.
  */
 export const ONBOARDING_AGENT_DIALOG_DESCRIPTION =
-  "Autonoma's onboarding MCP - the same one that configures previews. Two commands: install and sign in, then start your agent on the job. Skip the first if you already have it installed.";
+  "Autonoma's onboarding MCP - the same one that configures previews. Run this in your project to connect it and start your agent on the job. If you already have it installed, running it again is harmless.";
 
 export interface ConnectOnboardingAgentDialogProps {
   open: boolean;
@@ -87,7 +86,6 @@ export function ConnectOnboardingAgentDialog({
           code={code}
           pending={createPairing.isPending}
           error={createPairing.isError}
-          prompt={prompt}
           onRetry={() => mintPairing({ applicationId })}
         />
       }
@@ -99,13 +97,15 @@ export interface AgentPairingCodeProps {
   code?: string;
   pending: boolean;
   error: boolean;
-  /** The full prompt the copy button puts on the clipboard - the code alone is useless to paste. */
-  prompt: string;
   onRetry: () => void;
 }
 
-/** The pairing code block shown inside a connect-agent dialog (or a skeleton / retry while it mints). */
-export function AgentPairingCode({ code, pending, error, prompt, onRetry }: AgentPairingCodeProps) {
+/**
+ * The pairing code block shown inside a connect-agent dialog (or a skeleton / retry while
+ * it mints). Read-only: the code is already inside the command below it, so there is
+ * nothing here worth copying on its own.
+ */
+export function AgentPairingCode({ code, pending, error, onRetry }: AgentPairingCodeProps) {
   if (pending) return <Skeleton className="h-16 w-full" />;
   if (error || code == null) {
     return (
@@ -118,10 +118,9 @@ export function AgentPairingCode({ code, pending, error, prompt, onRetry }: Agen
     );
   }
   return (
-    <div className="relative flex flex-col items-center gap-1 border border-border-dim bg-surface-raised p-4">
+    <div className="flex flex-col items-center gap-1 border border-border-dim bg-surface-raised p-4">
       <span className="text-2xs uppercase tracking-wide text-text-secondary">Pairing code</span>
       <span className="font-mono text-3xl tracking-[0.3em] text-primary">{code}</span>
-      <CopyPromptButton prompt={prompt} />
     </div>
   );
 }

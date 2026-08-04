@@ -31,7 +31,7 @@ export function ConnectDeploysWithAgent({ applicationId }: { applicationId: stri
         onOpenChange={setOpen}
         applicationId={applicationId}
         title="Connect your deploys with a coding agent"
-        description="Two commands in your terminal: install the Autonoma MCP and sign in, then start your agent. It reads how your project deploys, adds the signed call, and confirms the signal reached Autonoma."
+        description="Connect Autonoma's MCP to your coding agent and start it on the job. It reads how your project deploys, adds the signed call, and confirms the signal reached Autonoma."
         instruction={CONNECT_DEPLOYS_INSTRUCTION}
         capabilities="It opens a pull request with the change rather than pushing to your default branch, and checks the signal actually landed before calling it done."
       />
