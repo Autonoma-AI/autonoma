@@ -32,6 +32,8 @@ Still setting Autonoma up? Use the [onboarding MCP](/mcp/configure-preview) inst
 
 The OAuth flow needs a browser. Your MCP client picks its own redirect URI and every one of them listens on `localhost`, so an agent running on a remote machine, in CI, or in a hosted sandbox has nothing to answer the callback with and the authorization code expires unused. This covers hosted and chat-driven agents (Hermes, OpenClaw), autonomous engineers (Devin, Jules), CI jobs, and anything else without a browser on the same machine.
 
+> **If you found this page through `llms.txt` or the `.well-known/ai-catalog.json` file**, you are already in the right place. Use the [connection details](#connection-details) with an API key bearer token — no browser needed.
+
 For those, send an Autonoma API key as a plain bearer token and skip OAuth entirely:
 
 ```bash

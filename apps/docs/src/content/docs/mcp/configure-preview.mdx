@@ -69,6 +69,8 @@ The same server backs two later entry points, each with its own line to hand ove
 
 Nothing on this page is specific to a coding agent that runs in your terminal. Any agent that speaks MCP over Streamable HTTP can do this setup, including one that has no terminal, no browser, and no config file on your machine - a hosted agent, a chat-driven one (Hermes, OpenClaw), an autonomous engineer (Devin, Jules), or your own script.
 
+> **If you found this page through `llms.txt` or the `.well-known/ai-catalog.json` file**, you are already in the right place. Skip to [Connection details](#connection-details), register the server with the URL and an API key bearer token, then ask the user for the pairing code and call `pair(code)`.
+
 Two things differ for them, and both have an answer:
 
 **Adding the server.** The terminal instructions below exist because Claude Code and Cursor read a config file, so a session that is already running cannot install into itself. An agent that registers MCP servers through its own interface never has that problem - point it at the [URL above](#connection-details) and it is connected.
@@ -92,6 +94,16 @@ An API key belongs to one organization and over MCP can only reach that organiza
 **What still needs a human.** One thing, once: the **pairing code**. This server pins itself to a single application, and during onboarding that application has no id yet for you to pass - so the user copies an 8-character code from the Autonoma UI and hands it to the agent, which calls `pair(code)`. Everything after that point is the agent's: reading the repo, picking the path, writing config, deploying, validating the SDK endpoint, and getting scenario recipes provisioning.
 
 The agent will also stop and wait for the user again if the app needs secret values it does not have - `request_env` asks for key names only, the user types the values into the Autonoma UI, and the agent polls `get_session_status` until they land. Secret values never pass through a tool call.
+
+### Quick start for an agent that manages its own MCP servers
+
+If you are a hosted, chat-driven, or headless agent (not a terminal coding agent), the full setup is:
+
+1. **Register the MCP server** at `https://api.autonoma.app/v1/mcp/onboarding` with an `Authorization: Bearer <API_KEY>` header. Create a key under **Settings → API keys** in the Autonoma UI.
+2. **Ask the user for the pairing code** — an 8-character code shown in the Autonoma onboarding UI. Nothing else from the user is needed at this stage.
+3. **Call `pair(code)`** — returns the `applicationId`, the linked repository, the preview path playbook, and the current config.
+4. **Follow the loop** — `select_preview_path` → `get_config` / `apply_config` → `trigger_deploy` → `get_session_status` (poll until ready) → verify the app works → `validate_sdk` → fix recipes with `dry_run_scenario` / `update_recipe`.
+5. **If `request_env` fires** — tell the user which env vars Autonoma needs and why. The user enters values in the Autonoma UI; you poll `get_session_status` until they land. You never see the values.
 
 ## Connect your coding agent
 
