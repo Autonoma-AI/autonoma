@@ -8,12 +8,13 @@ import type { MergeGateService } from "../github/merge-gate.service";
 import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
 import type { Services } from "../routes/build-services";
 import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
-import { deprecatedBuildNotice } from "./deprecated-build-notice";
 import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
 import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
 import { resolveDryRunTargetUrl } from "./resolve-dry-run-target";
+import type { McpTarget, McpTargetInput } from "./resolve-mcp-target";
 import type { RepoContext } from "./resolve-repo-context";
+import { registerSharedReadTools } from "./shared-read-tools";
 import { jsonResult, toToolResult, unavailableResult } from "./tool-result";
 
 /** Ceiling on log lines a single tail tool can request. */
@@ -88,6 +89,8 @@ export interface DebugMcpDeps {
      * application is found or the user is not a member of its org.
      */
     resolveRepoContext: (repoFullName: string) => Promise<RepoContext>;
+    /** Resolves either identity form for the tools shared with the onboarding server. */
+    resolveTarget: (input: McpTargetInput) => Promise<McpTarget>;
     /** List the repos the authenticated user can debug (across their orgs). */
     listRepos: () => Promise<{ repos: { repoFullName: string; organization: string }[]; truncated: boolean }>;
     /** Records a `mcp.tool_called` PostHog event per tool invocation, per customer org. */
@@ -155,7 +158,7 @@ function noAnalysisResult(repoFullName: string, prNumber: number) {
  */
 export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
     const logger = rootLogger.child({ name: "debugMcpServer" });
-    const { services, resolveRepoContext, listRepos, analytics, userId, mergeGate } = deps;
+    const { services, resolveRepoContext, resolveTarget, listRepos, analytics, userId, mergeGate } = deps;
 
     const server = new McpServer({ name: "autonoma-debug", version: "0.1.0" }, { instructions: DEBUG_INSTRUCTIONS });
 
@@ -668,32 +671,6 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
     );
 
     server.registerTool(
-        "get_config",
-        {
-            title: "Read the full preview config",
-            description:
-                "Read the FULL preview config document: every app, service (databases, caches, side-containers), " +
-                "and hook - no secret values. Read this first when you need to change the SHAPE of the preview " +
-                "(add or remove an app or a service), then edit the document and send it back with apply_config. For " +
-                "a build/wiring tweak to ONE existing service, edit_previewkit_config is simpler and doesn't need the " +
-                "whole document. The config is per-app, so this takes only repoFullName.",
-            inputSchema: { repoFullName: repoPrInput.repoFullName },
-            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-        },
-        async ({ repoFullName }) =>
-            analytics.track("get_config", async () => {
-                logger.info("get_config", { extra: { repoFullName } });
-                try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
-                    const result = await services.previewkitWrite.getConfig(applicationId, organizationId);
-                    return jsonResult({ ...result, deprecatedBuilds: deprecatedBuildNotice(result.document) });
-                } catch (err) {
-                    return toToolResult(err);
-                }
-            }),
-    );
-
-    server.registerTool(
         "apply_config",
         {
             title: "Save the full preview config",
@@ -742,65 +719,6 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                         organizationId,
                     });
                     return jsonResult(result);
-                } catch (err) {
-                    return toToolResult(err);
-                }
-            }),
-    );
-
-    server.registerTool(
-        "list_scenarios",
-        {
-            title: "List the app's scenarios",
-            description:
-                "List this app's scenarios - the named test-data states its tests depend on (e.g. 'logged-in admin " +
-                "with one open invoice') - and whether each has a recipe. A recipe is the JSON your deployed Autonoma " +
-                "SDK follows to create that scenario's entities in your own database before a test runs, so a test " +
-                "that fails on missing or wrong seed data is a recipe problem, not an app problem. Use a returned " +
-                "scenarioId with get_recipe / dry_run_scenario / update_recipe.",
-            inputSchema: { repoFullName: repoPrInput.repoFullName },
-            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-        },
-        async ({ repoFullName }) =>
-            analytics.track("list_scenarios", async () => {
-                logger.info("list_scenarios", { extra: { repoFullName } });
-                try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
-                    const scenarios = await services.scenarios.listScenarios(applicationId, organizationId);
-                    return jsonResult({
-                        scenarios: scenarios.map((scenario) => ({
-                            id: scenario.id,
-                            name: scenario.name,
-                            isDisabled: scenario.isDisabled,
-                            hasRecipe: scenario.activeRecipeVersionId != null,
-                        })),
-                    });
-                } catch (err) {
-                    return toToolResult(err);
-                }
-            }),
-    );
-
-    server.registerTool(
-        "get_recipe",
-        {
-            title: "Read a scenario's recipe",
-            description:
-                "Read a scenario's active recipe - the `create` graph your SDK endpoint uses to build that " +
-                "scenario's entities. Returns `fixtureJson: null` when the scenario has no recipe yet. Edit it and " +
-                "try it with dry_run_scenario before saving anything. " +
-                "`liveRecipeVersion` is the recipe test runs on main actually seed: versions are pinned per " +
-                "snapshot, so if `isLiveRecipeInSync` is false the `fixtureJson` above is NOT what production " +
-                "provisions - compare the two before concluding anything about why a run saw the wrong data.",
-            inputSchema: { repoFullName: repoPrInput.repoFullName, scenarioId: z.string().min(1) },
-            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-        },
-        async ({ repoFullName, scenarioId }) =>
-            analytics.track("get_recipe", async () => {
-                logger.info("get_recipe", { extra: { repoFullName, scenarioId } });
-                try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
-                    return jsonResult(await services.scenarios.getRecipe(applicationId, organizationId, scenarioId));
                 } catch (err) {
                     return toToolResult(err);
                 }
@@ -864,30 +782,6 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                         await resolveDryRunTargetUrl(services, applicationId, organizationId, target),
                     );
                     return jsonResult(result);
-                } catch (err) {
-                    return toToolResult(err);
-                }
-            }),
-    );
-
-    server.registerTool(
-        "list_dry_run_targets",
-        {
-            title: "List the previews a dry run can target",
-            description:
-                "List the preview environments a scenario dry run can be pointed at - this app's open PR previews " +
-                "and its main deployment - with whether each is deployed yet. Use a returned target `id` as " +
-                "dry_run_scenario's `target` to test a recipe against a SPECIFIC preview; without one the dry run " +
-                "uses the app's stored SDK endpoint, which is not necessarily the PR you are working on.",
-            inputSchema: { repoFullName: repoPrInput.repoFullName },
-            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-        },
-        async ({ repoFullName }) =>
-            analytics.track("list_dry_run_targets", async () => {
-                logger.info("list_dry_run_targets", { extra: { repoFullName } });
-                try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
-                    return jsonResult(await services.onboarding.listSdkDryRunTargets(applicationId, organizationId));
                 } catch (err) {
                     return toToolResult(err);
                 }
@@ -1044,6 +938,12 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             contents: [{ uri: uri.href, text: DEBUG_INSTRUCTIONS, mimeType: "text/markdown" }],
         }),
     );
+
+    registerSharedReadTools(server, {
+        services,
+        analytics,
+        resolveTarget,
+    });
 
     return server;
 

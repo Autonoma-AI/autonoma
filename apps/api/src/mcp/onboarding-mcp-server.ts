@@ -26,6 +26,7 @@ import type { McpPrincipal } from "./mcp-principal";
 import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
 import { resolveDryRunTarget, resolveDryRunTargetUrl } from "./resolve-dry-run-target";
 import { resolveMcpTarget } from "./resolve-mcp-target";
+import { registerSharedReadTools } from "./shared-read-tools";
 import { describeError, errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
 import {
     VERCEL_PLAYBOOK,
@@ -733,31 +734,6 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     return { linkedRepository: match.fullName, step: "preview_environment" };
                 },
             ),
-    );
-
-    server.registerTool(
-        "get_config",
-        {
-            title: "Read the preview config",
-            description: "Read the current preview config document for an app (Autonoma-hosted previews only).",
-            inputSchema: { applicationId: z.string() },
-        },
-        async ({ applicationId }) =>
-            analytics.track("get_config", async () => {
-                try {
-                    const organizationId = await resolveOrg(applicationId);
-                    const config = await services.onboarding.getPreviewkitConfig(applicationId, organizationId);
-                    return jsonResult({
-                        document: config.document,
-                        configExists: config.saved,
-                        deployBranch: config.deployBranch,
-                        deprecatedBuilds: deprecatedBuildNotice(config.document),
-                    });
-                } catch (err) {
-                    logger.warn("get_config failed", { applicationId, err });
-                    return toToolResult(err);
-                }
-            }),
     );
 
     server.registerTool(
@@ -1555,61 +1531,6 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     );
 
     server.registerTool(
-        "list_scenarios",
-        {
-            title: "List scenarios",
-            description:
-                "List the app's scenarios (named test-data states a test depends on) and whether each already has a " +
-                "recipe. Use a returned scenarioId with get_recipe / update_recipe / dry_run_scenario. A recipe is the " +
-                "JSON your deployed Autonoma SDK follows to create that scenario's entities in the app's own database.",
-            inputSchema: { applicationId: z.string() },
-        },
-        async ({ applicationId }) =>
-            analytics.track("list_scenarios", async () => {
-                try {
-                    const organizationId = await resolveOrg(applicationId);
-                    const scenarios = await services.scenarios.listScenarios(applicationId, organizationId);
-                    return jsonResult({
-                        scenarios: scenarios.map((scenario) => ({
-                            id: scenario.id,
-                            name: scenario.name,
-                            isDisabled: scenario.isDisabled,
-                            hasRecipe: scenario.activeRecipeVersionId != null,
-                        })),
-                    });
-                } catch (err) {
-                    logger.warn("list_scenarios failed", { applicationId, err });
-                    return toToolResult(err);
-                }
-            }),
-    );
-
-    server.registerTool(
-        "get_recipe",
-        {
-            title: "Read a scenario recipe",
-            description:
-                "Read a scenario's current recipe - the JSON `create` graph (plus `variables`) your SDK endpoint uses " +
-                "to build that scenario's entities in the app's database. Edit it and send it back with update_recipe. " +
-                "Returns `fixtureJson: null` when the scenario has no recipe yet. " +
-                "`liveRecipeVersion` is the recipe test runs on main actually seed: versions are pinned per snapshot, " +
-                "so if `isLiveRecipeInSync` is false the `fixtureJson` above is NOT what production provisions.",
-            inputSchema: { applicationId: z.string(), scenarioId: z.string() },
-        },
-        async ({ applicationId, scenarioId }) =>
-            analytics.track("get_recipe", async () => {
-                try {
-                    const organizationId = await resolveOrg(applicationId);
-                    const recipe = await services.scenarios.getRecipe(applicationId, organizationId, scenarioId);
-                    return jsonResult(recipe);
-                } catch (err) {
-                    logger.warn("get_recipe failed", { applicationId, scenarioId, err });
-                    return toToolResult(err);
-                }
-            }),
-    );
-
-    server.registerTool(
         "update_recipe",
         {
             title: "Update a scenario recipe",
@@ -1653,30 +1574,6 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         baseFingerprint,
                     }),
             ),
-    );
-
-    server.registerTool(
-        "list_dry_run_targets",
-        {
-            title: "List the previews a dry run can target",
-            description:
-                "List the preview environments a scenario dry run can be pointed at - the app's open PR " +
-                "previews and its main deployment - with which one Autonoma auto-detected as the SDK " +
-                "implementation PR and whether each is deployed yet. Use a returned target `id` with " +
-                "dry_run_scenario's `target` when you need to test against a specific preview (typically the " +
-                "PR that carries your SDK handler) rather than whatever endpoint the app currently has stored.",
-            inputSchema: { applicationId: z.string() },
-        },
-        async ({ applicationId }) =>
-            analytics.track("list_dry_run_targets", async () => {
-                try {
-                    const organizationId = await resolveOrg(applicationId);
-                    return jsonResult(await services.onboarding.listSdkDryRunTargets(applicationId, organizationId));
-                } catch (err) {
-                    logger.warn("list_dry_run_targets failed", { applicationId, err });
-                    return toToolResult(err);
-                }
-            }),
     );
 
     server.registerTool(
@@ -1994,6 +1891,17 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             contents: [{ uri: uri.href, text: VERCEL_PLAYBOOK, mimeType: "text/markdown" }],
         }),
     );
+
+    registerSharedReadTools(server, {
+        services,
+        analytics,
+        resolveTarget: (input) =>
+            resolveMcpTarget(
+                { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
+                principal,
+                input,
+            ),
+    });
 
     return server;
 }

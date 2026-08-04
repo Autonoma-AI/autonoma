@@ -14,6 +14,7 @@ import { listAccessibleRepos } from "./list-accessible-repos";
 import { McpAnalytics } from "./mcp-analytics";
 import { type McpCredential, type McpPrincipal, resolveMcpPrincipal } from "./mcp-principal";
 import { buildOnboardingMcpServer } from "./onboarding-mcp-server";
+import { resolveMcpTarget } from "./resolve-mcp-target";
 import { resolveRepoContext } from "./resolve-repo-context";
 
 const logger = rootLogger.child({ name: "mcpHttpRouter" });
@@ -117,6 +118,12 @@ mcpHttpRouter.all("/debug", (c) => {
         return buildDebugMcpServer({
             services,
             resolveRepoContext: resolveRepoCtx,
+            resolveTarget: (input) =>
+                resolveMcpTarget(
+                    { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
+                    principal,
+                    input,
+                ),
             listRepos: () => listAccessibleRepos(services.github, principal),
             analytics: mcpAnalytics,
             userId: principal.userId,
