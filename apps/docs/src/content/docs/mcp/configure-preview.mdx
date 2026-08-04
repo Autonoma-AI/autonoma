@@ -36,13 +36,15 @@ This is a different server from the [debugging MCP](/mcp). This one covers the w
 You connect this server from inside onboarding, because it pins itself to the app you are setting up:
 
 1. In Autonoma, start onboarding your app and open the **preview environment** step. It shows what to run for your client, plus a short **pairing code**.
-2. **Run it in a new terminal, in your project folder** - not from inside a running coding agent. For Claude Code that is one line: it registers the server, opens a browser to authorize it, and starts your agent on the job. Until you authorize in the browser, every Autonoma tool fails.
+2. **Run it in a new terminal, in your project folder** - not from inside a terminal agent that is already running. For Claude Code that is one line: it registers the server, opens a browser to authorize it, and starts your agent on the job. Until you authorize in the browser, every Autonoma tool fails. (If your agent manages its own MCP servers rather than a config file on your machine, none of this applies to you - see [hosted and headless agents](#hosted-and-headless-agents).)
 3. The line the UI shows carries your pairing code: `claude --dangerously-skip-permissions "set up my preview environments with the autonoma-onboarding MCP, code <your code>"`. Say the server's name verbatim - an agent with several MCPs connected cannot tell which one "set up my previews" means, and will guess. "The Autonoma MCP" is not specific enough either, since Autonoma has two.
 
-:::caution
-Run it yourself, in a real terminal. Handing it to an already-running agent does not work: `claude mcp add` writes config the running session never reloads, so the agent reports success and then finds no Autonoma tools, and `claude mcp login` needs a terminal to complete the sign-in.
+:::caution[Do not paste these commands into a terminal agent that is already running]
+This is about the commands, not about agents. `claude mcp add` writes a config file the running session never reloads, so the agent reports success and then finds no Autonoma tools, and `claude mcp login` needs a terminal to complete the browser sign-in.
 
-**If you are an agent reading this:** do not run these commands. Ask the user to run them in their own terminal, and tell them they will need to restart you afterwards - a session that is already running does not pick up an MCP server added or signed in underneath it.
+**If you are a terminal coding agent reading this** (Claude Code, Cursor, Windsurf, Codex - anything configured by a file on the user's machine): do not run these commands. Ask the user to run them in their own terminal, and tell them they will need to restart you afterwards.
+
+**If you add MCP servers to your own configuration** - a hosted or chat-driven agent, or anything running without a browser - you are not affected by any of this and you can do this setup yourself. Register the server, authenticate with an API key, and ask the user only for the pairing code. See [hosted and headless agents](#hosted-and-headless-agents).
 :::
 
 ![The preview environment step in Autonoma, titled "Set up with a coding agent", under the line "Connect Autonoma's MCP to your coding agent and start it on the job. It reads your repo, works out how your previews and test data should work, and sets it up while you watch here." The pairing code EKQGGK85 sits in a panel above tabs for Claude Code, Cursor, Windsurf and Other. One step follows, "Run this in your project folder": "Open a new terminal in your project folder and run this. A browser opens to sign in - approve it there, and your agent starts on the job." Under it a single shell block with a copy button, headed by the comment "Run in a terminal, not inside a running agent. Agent reading this: don't run it. Ask the user to run it, then have them restart you - a running session won't see the new server", chains three commands across continuation lines: "claude mcp add --transport http --scope user autonoma-onboarding https://api.autonoma.app/v1/mcp/onboarding; \", "claude mcp login autonoma-onboarding; \" and 'claude --dangerously-skip-permissions "set up my preview environments with the autonoma-onboarding MCP, code EKQGGK85"'. On the right an outlined wireframe cube labelled "Autonoma Agent" reads "waiting to pair". Along the bottom, smaller text reads "Rather wire it up yourself? Answer a few questions instead"](/img/mcp/configure-preview-ui.png)
@@ -63,9 +65,33 @@ The same server backs two later entry points, each with its own line to hand ove
 | **Transport** | Streamable HTTP |
 | **Authentication** | OAuth - your client opens a browser to sign in to Autonoma and authorize; no API key or token to paste. An agent with no browser can send an [API key](/mcp/#headless-agents-and-ci) instead. |
 
+## Hosted and headless agents
+
+Nothing on this page is specific to a coding agent that runs in your terminal. Any agent that speaks MCP over Streamable HTTP can do this setup, including one that has no terminal, no browser, and no config file on your machine - a hosted agent, a chat-driven one (Hermes, OpenClaw), an autonomous engineer (Devin, Jules), or your own script.
+
+Two things differ for them, and both have an answer:
+
+**Adding the server.** The terminal instructions below exist because Claude Code and Cursor read a config file, so a session that is already running cannot install into itself. An agent that registers MCP servers through its own interface never has that problem - point it at the [URL above](#connection-details) and it is connected.
+
+**Signing in.** OAuth needs a browser, and every MCP client's redirect URI listens on `localhost`, so an agent on a remote machine has nothing to answer the callback with. Skip OAuth and send an Autonoma API key as a bearer token instead:
+
+```bash
+curl https://api.autonoma.app/v1/mcp/onboarding \
+  -H "Authorization: Bearer $AUTONOMA_API_KEY" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+Most clients let you set a static header on a server. Create a key under **Settings → API keys**; the same key works for the debugging MCP, the REST API, and the planner CLI.
+
 :::note
-An API key gets an agent past the sign-in, but this server still pins itself to one application with a pairing code you copy from the Autonoma UI, so onboarding is not fully hands-off yet. A key can only pair with an application in the organization it was created for.
+An API key belongs to one organization and over MCP can only reach that organization, even if you belong to several. If a key cannot see an app, check it was created in the organization that owns it.
 :::
+
+**What still needs a human.** One thing, once: the **pairing code**. This server pins itself to a single application, and during onboarding that application has no id yet for you to pass - so the user copies an 8-character code from the Autonoma UI and hands it to the agent, which calls `pair(code)`. Everything after that point is the agent's: reading the repo, picking the path, writing config, deploying, validating the SDK endpoint, and getting scenario recipes provisioning.
+
+The agent will also stop and wait for the user again if the app needs secret values it does not have - `request_env` asks for key names only, the user types the values into the Autonoma UI, and the agent polls `get_session_status` until they land. Secret values never pass through a tool call.
 
 ## Connect your coding agent
 
@@ -131,7 +157,9 @@ Refresh MCP servers from Cascade's settings, then complete the browser sign-in.
 
 <TabItem label="Other clients">
 
-Any MCP client that speaks Streamable HTTP can connect with the [connection details](#connection-details) above. For a client that only supports STDIO, bridge to the remote server with [`mcp-remote`](https://github.com/geelen/mcp-remote):
+Any MCP client that speaks Streamable HTTP can connect with the [connection details](#connection-details) above. If it has no browser to complete the sign-in, send an API key instead - see [hosted and headless agents](#hosted-and-headless-agents).
+
+For a client that only supports STDIO, bridge to the remote server with [`mcp-remote`](https://github.com/geelen/mcp-remote):
 
 ```json
 {

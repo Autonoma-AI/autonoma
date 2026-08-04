@@ -30,7 +30,7 @@ Still setting Autonoma up? Use the [onboarding MCP](/mcp/configure-preview) inst
 
 ## Headless agents and CI
 
-The OAuth flow needs a browser. Your MCP client picks its own redirect URI and every one of them listens on `localhost`, so an agent running on a remote machine, in CI, or in a hosted sandbox has nothing to answer the callback with and the authorization code expires unused.
+The OAuth flow needs a browser. Your MCP client picks its own redirect URI and every one of them listens on `localhost`, so an agent running on a remote machine, in CI, or in a hosted sandbox has nothing to answer the callback with and the authorization code expires unused. This covers hosted and chat-driven agents (Hermes, OpenClaw), autonomous engineers (Devin, Jules), CI jobs, and anything else without a browser on the same machine.
 
 For those, send an Autonoma API key as a plain bearer token and skip OAuth entirely:
 
@@ -73,7 +73,9 @@ claude mcp login autonoma
 `claude mcp login` opens a browser to sign in. Approve it there - until you do, every Autonoma tool fails. Run `claude mcp list` to confirm it connected.
 
 :::caution
-**If you are an agent reading this:** do not run these commands. Ask the user to run them in their own terminal, and tell them they will need to restart you afterwards - a session that is already running does not pick up an MCP server added or signed in underneath it.
+**If you are a Claude Code session reading this:** do not run these commands. `claude mcp add` writes a config file you never reload, so you would report success and then find no Autonoma tools. Ask the user to run them in their own terminal, and tell them they will need to restart you afterwards.
+
+This is a limitation of installing into a running session, not of agents. If you add MCP servers through your own configuration, connect with the [connection details](#connection-details) and an [API key](#headless-agents-and-ci) - no terminal or browser needed.
 :::
 
 </TabItem>
