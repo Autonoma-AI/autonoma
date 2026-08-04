@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Services } from "../routes/build-services";
-import { deprecatedBuildNotice } from "./deprecated-build-notice";
+import { applyReadyConfig } from "./apply-ready-config";
 import type { McpAnalytics } from "./mcp-analytics";
 import { targetInputFields, toTargetInput } from "./mcp-target-input";
 import type { McpTarget, McpTargetInput } from "./resolve-mcp-target";
@@ -35,7 +35,12 @@ export function registerSharedReadTools(server: McpServer, { services, analytics
                 "and hook - no secret values. Read this first when you need to change the SHAPE of the preview " +
                 "(add or remove an app or a service), then edit the document and send it back with apply_config. " +
                 "For a build/wiring tweak to ONE existing service, edit_previewkit_config is simpler and does not " +
-                "need the whole document. The config is per-application, so no PR number is involved.",
+                "need the whole document. `document` is what is STORED, which for an app onboarded before the " +
+                "framework presets were retired can carry a build method apply_config no longer accepts. When that " +
+                "is the case an `applyReady` block is returned: edit and send `applyReady.document` instead - it is " +
+                "the same config with those builds rewritten as the supported equivalent, and `applyReady.guidance` " +
+                "says what to tell the user. There is ONE config per application: it is shared by the base " +
+                "environment and every pull request, so no PR number is involved here and none can narrow it.",
             inputSchema: targetInputFields,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
@@ -50,7 +55,7 @@ export function registerSharedReadTools(server: McpServer, { services, analytics
                         document: config.document,
                         configExists: config.saved,
                         deployBranch: config.deployBranch,
-                        deprecatedBuilds: deprecatedBuildNotice(config.document),
+                        applyReady: applyReadyConfig(config.document),
                     });
                 } catch (err) {
                     return toToolResult(err);
@@ -93,8 +98,12 @@ export function registerSharedReadTools(server: McpServer, { services, analytics
             title: "Read a scenario's recipe",
             description:
                 "Read one scenario's current recipe - the JSON `create` graph and `variables` your SDK handler " +
-                "turns into rows. Returns a `fingerprint`; pass it to update_recipe so a write that races another " +
-                "editor is rejected rather than overwriting them.",
+                "turns into rows - as `fixtureJson`. Returns a top-level `fingerprint`; ALWAYS pass it to " +
+                "update_recipe as `baseFingerprint`, or the write is unconditional and silently overwrites whatever " +
+                "another editor saved in the meantime. `liveRecipeVersion` is the version main's active snapshot " +
+                "pins, which is what production runs actually seed: when `isLiveRecipeInSync` is false it carries " +
+                "its own `fixtureJson` and what you read above is NOT what runs today; when true it is the same " +
+                "recipe and is not repeated.",
             inputSchema: { ...targetInputFields, scenarioId: z.string().min(1) },
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
@@ -115,7 +124,10 @@ export function registerSharedReadTools(server: McpServer, { services, analytics
             title: "List previews a dry run can target",
             description:
                 "The previews a scenario dry run can be pointed at - open PR previews and the base environment - " +
-                "with which one Autonoma detected as the SDK implementation PR, and whether each is deployed yet.",
+                "with which one Autonoma detected as the SDK implementation PR, and whether each is deployed yet. " +
+                "`availability` is read from what each preview's last deploy recorded, never probed, so check " +
+                "`freshness`: a `ready` target whose deploy is `stale` may no longer be serving, and a dry run " +
+                "against it will fail on an unreachable host rather than on your recipe.",
             inputSchema: targetInputFields,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },

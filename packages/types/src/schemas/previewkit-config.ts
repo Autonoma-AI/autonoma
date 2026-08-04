@@ -621,22 +621,6 @@ export type BuildFramework = Build["framework"];
 /** An app's build strategy as any authoring surface may write it: `dockerfile` or `runtime`. */
 export type AuthoredBuild = z.infer<typeof authoredBuildSchema>;
 
-/**
- * The apps in a stored document still on a retired framework preset, in document
- * order. They deploy fine, but no authoring surface can express one, so a caller
- * that means to save the document back (the config editor, an MCP agent that read
- * it with `get_config`) has to convert them first. Empty for a modern document.
- */
-export function deprecatedBuildApps(
-    config: PreviewConfig,
-): Array<{ app: string; framework: DeprecatedBuildFramework }> {
-    return config.apps.flatMap((app) => {
-        const framework = app.build?.framework;
-        if (framework == null || !isDeprecatedBuildFramework(framework)) return [];
-        return [{ app: app.name, framework }];
-    });
-}
-
 export type ConfigIssueSeverity = "error" | "warning";
 
 export type ConfigIssueCode =

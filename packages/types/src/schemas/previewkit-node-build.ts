@@ -1,7 +1,24 @@
-import type { Build } from "../config/schema";
+/**
+ * What the retired node-family build presets (node / next / vite / bun) actually
+ * run: the package-manager strategy table plus the install / build / start
+ * commands each preset resolves to.
+ *
+ * It sits beside the schema rather than in previewkit because two places need
+ * the same answer - previewkit's Dockerfile generator lowering a stored preset,
+ * and `toAuthorableDocument` writing that preset out as an equivalent `runtime`
+ * build so a document read over MCP can be saved again. Two copies would drift
+ * into two different meanings for `framework: "next"`.
+ */
+
+import type { Build } from "./previewkit-config";
 
 /** A node-family framework preset (node / next / vite / bun) - the discriminated arms that use a node package manager. */
-type NodeFrameworkBuild = Exclude<Build, { framework: "dockerfile" | "runtime" }>;
+export type NodeFrameworkBuild = Exclude<Build, { framework: "dockerfile" | "runtime" }>;
+
+/** Narrows a stored build block to {@link NodeFrameworkBuild}, so the exclusion is stated in one place. */
+export function isNodeFrameworkBuild(build: Build): build is NodeFrameworkBuild {
+    return build.framework !== "dockerfile" && build.framework !== "runtime";
+}
 
 /** The resolved install / build / run / bootstrap commands for a node-family build (bare, without the `RUN`/`CMD` prefix). */
 export interface NodeBuildCommands {

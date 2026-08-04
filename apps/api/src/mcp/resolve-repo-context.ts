@@ -1,8 +1,9 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
-import type { ListedRepository } from "../github/github-installation.service";
+import type { RepositoryListing } from "../github/github-installation.service";
 import type { McpPrincipal } from "./mcp-principal";
+import { describeError } from "./tool-result";
 
 /** The org + linked application an MCP tool call acts in, resolved from the `repoFullName` it names. */
 export interface RepoContext {
@@ -15,7 +16,7 @@ export interface RepoContext {
 export interface RepoContextDeps {
     db: PrismaClient;
     /** `GitHubInstallationService.listRepositories` - the repos one org's installation can see. */
-    listRepositories: (organizationId: string) => Promise<ListedRepository[]>;
+    listRepositories: (organizationId: string) => Promise<RepositoryListing>;
 }
 
 /**
@@ -53,28 +54,38 @@ export async function resolveRepoContext(
     }
 
     // Fallback: the repo string maps to an org/app only through the org's installation repo list (an Application
-    // stores the numeric id, not "owner/repo"). Each org's list is an independent GitHub App call, so fan them
-    // out; a stale/missing installation yields [] and is skipped.
+    // stores the numeric id, not "owner/repo"). Each org's list is an independent GitHub App call, so fan them out.
     const perOrg = await Promise.all(
         userOrgIds.map(async (organizationId) => {
             try {
-                return { organizationId, repos: await listRepositories(organizationId) };
+                return { organizationId, listing: await listRepositories(organizationId) };
             } catch (err) {
                 logger.warn("Failed to list installation repos while resolving repo context", {
                     organizationId,
                     extra: { repoFullName, err },
                 });
-                return { organizationId, repos: [] as ListedRepository[] };
+                return { organizationId, listing: { repos: [], unavailable: describeError(err) } };
             }
         }),
     );
 
     const candidates: RepoContext[] = [];
-    for (const { organizationId, repos } of perOrg) {
-        const match = repos.find((repo) => repo.fullName === repoFullName && repo.applicationId != null);
+    const unreadable: string[] = [];
+    for (const { organizationId, listing } of perOrg) {
+        if (listing.unavailable != null) unreadable.push(listing.unavailable);
+        const match = listing.repos.find((repo) => repo.fullName === repoFullName && repo.applicationId != null);
         if (match?.applicationId != null) {
             candidates.push({ organizationId, applicationId: match.applicationId, githubRepositoryId: match.id });
         }
+    }
+
+    // An org whose installation could not be read might well be the one holding this repo, so
+    // "no accessible application" would be a guess. Name the installation problem instead.
+    if (candidates.length === 0 && unreadable.length > 0) {
+        throw new NotFoundError(
+            `Could not determine whether ${repoFullName} belongs to one of your organizations, because Autonoma ` +
+                `could not read an organization's repositories from GitHub. ${unreadable.join(" ")}`,
+        );
     }
 
     return pickSingleCandidate(candidates, repoFullName, logger);

@@ -18,13 +18,14 @@ import type { Services } from "../routes/build-services";
 import { isStepAtOrPast } from "../routes/onboarding/onboarding-step-order";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import type { VercelDeploymentSummary } from "../vercel-marketplace/vercel-project-api";
-import { deprecatedBuildNotice } from "./deprecated-build-notice";
+import { applyReadyConfig } from "./apply-ready-config";
 import {
     describeAlreadyLive,
     describeUnfinishedStep,
     describeUnverifiedPreview,
     describeWentLive,
 } from "./finish-onboarding-guidance";
+import { DEFAULT_LOG_BYTES, logMaxBytesSchema, unknownServiceMessage } from "./log-tail-bounds";
 import type { McpAnalytics } from "./mcp-analytics";
 import type { McpPrincipal } from "./mcp-principal";
 import { recipeConflictResult } from "./recipe-conflict-result";
@@ -622,7 +623,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         currentConfig: config.document,
                         configExists: config.saved,
                         deployBranch: config.deployBranch,
-                        deprecatedBuilds: deprecatedBuildNotice(config.document),
+                        applyReady: applyReadyConfig(config.document),
                     });
                 } catch (err) {
                     logger.warn("pair failed", { err });
@@ -665,15 +666,16 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         );
                     }
 
-                    const repositories = await services.github.listRepositories(organizationId);
-                    const linked = repositories.find((repo) => repo.applicationId === applicationId);
+                    const listing = await services.github.listRepositories(organizationId);
+                    if (listing.unavailable != null) return errorResult(listing.unavailable);
+                    const linked = listing.repos.find((repo) => repo.applicationId === applicationId);
                     return jsonResult({
                         connected: true,
                         account: installation.accountLogin,
                         linkedRepository: linked?.fullName,
                         // Only repos the installation can see are linkable. Granting access to more is
                         // also a browser step, hence the settings link rather than a tool.
-                        availableRepositories: repositories
+                        availableRepositories: listing.repos
                             .filter((repo) => repo.applicationId == null)
                             .map((repo) => repo.fullName),
                         grantAccessToMoreUrl: `https://github.com/apps/${services.github.getSlug()}/installations/new`,
@@ -707,7 +709,9 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     toolArguments: { repoFullName },
                 },
                 async (organizationId) => {
-                    const repositories = await services.github.listRepositories(organizationId);
+                    const listing = await services.github.listRepositories(organizationId);
+                    if (listing.unavailable != null) throw new ConflictError(listing.unavailable);
+                    const repositories = listing.repos;
                     // `linkRepository` deliberately supports re-linking, so nothing below would stop an
                     // agent repointing a connected app at a different repository. On every path that
                     // starts in the UI the app is already linked before an agent can pair, so that is
@@ -1494,9 +1498,13 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "dry run fails. Pick `source`: 'build' for a preview that never came up, 'app' for one that " +
                 "deployed but errors when Autonoma calls it (an SDK handler that throws lands here). Previews are " +
                 "multi-service; omit `app` for all services (the result's `services` lists which produced output) " +
-                "or pass one name to narrow. `from` picks the window - 'tail' (newest, default) for a failure, " +
-                "'head' for startup - and `filter` is a case-insensitive substring pre-filter. Empty `lines` with " +
-                "`available: true` means the window genuinely had no output. Logs persist ~30 days and outlive the " +
+                "or pass one name to narrow - a name the preview does not have is an ERROR listing the real names, " +
+                "so an empty result is never a typo. `from` picks the window - 'tail' (newest, default) for a " +
+                "failure, 'head' for startup - and `filter` is a case-insensitive substring pre-filter. Empty " +
+                "`lines` with `available: true` means the window genuinely had no output. The result is capped by " +
+                "BYTES as well as by `limit`, because one build-log line is a whole output chunk: when `truncated` " +
+                "is true, `dropped` says how many whole lines were cut and from which end, so narrow with `filter` " +
+                "or raise `maxBytes` rather than assuming you saw everything. Logs persist ~30 days and outlive the " +
                 "environment, so they still answer 'why did that preview fail' after it is torn down.",
             inputSchema: {
                 applicationId: z.string(),
@@ -1510,10 +1518,11 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 limit: z.number().int().min(1).max(MAX_TARGET_LOG_LINES).optional(),
                 filter: z.string().optional().describe("Case-insensitive substring pre-filter."),
                 from: z.enum(["head", "tail"]).optional(),
+                maxBytes: logMaxBytesSchema(),
             },
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        async ({ applicationId, target, source, app, limit, filter, from }) =>
+        async ({ applicationId, target, source, app, limit, filter, from, maxBytes }) =>
             analytics.track("get_target_logs", async () => {
                 logger.info("get_target_logs", { applicationId, extra: { target, source } });
                 try {
@@ -1537,6 +1546,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         limit: limit ?? DEFAULT_TARGET_LOG_LINES,
                         filter,
                         from,
+                        maxBytes: maxBytes ?? DEFAULT_LOG_BYTES,
                     });
                     if (result == null) {
                         return unavailableResult(
@@ -1544,6 +1554,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                                 "or the logs have aged out (retained ~30 days).",
                         );
                     }
+                    if (result.unknownService != null) return errorResult(unknownServiceMessage(result.unknownService));
                     return jsonResult(result);
                 } catch (err) {
                     logger.warn("get_target_logs failed", { applicationId, extra: { target, source }, err });

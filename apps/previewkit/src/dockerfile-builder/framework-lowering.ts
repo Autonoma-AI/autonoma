@@ -1,7 +1,6 @@
-import { previewkitRuntimeImage } from "@autonoma/types";
+import { nodeBuildCommands, previewkitRuntimeImage } from "@autonoma/types";
 import type { Build } from "../config/schema";
 import { mirrorDockerHubImage } from "../deployer/image-mirror";
-import { nodeBuildCommands } from "./node-package-manager";
 import type { GenerateDockerfileContext, RawSpec } from "./raw-spec";
 
 /**

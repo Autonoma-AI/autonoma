@@ -52,19 +52,29 @@ const APPLY_CONFIG_DESCRIPTION =
     "Save the FULL preview config document - the path for structural changes a single-app patch cannot express: " +
     "adding or removing an app, or a service (a database, cache, or side-container). Read the current document with " +
     "get_config first, edit it, and send the whole thing back.\n\n" +
-    "Omit prNumber to save the application's BASE config, which is what onboarding and any later change to the " +
-    "app's shape want; `branch` sets which branch that base preview deploys from. Pass prNumber to apply the " +
-    "document to ONE pull request's environment instead, which redeploys it unless `apply` is false.";
+    "THE CONFIG IS PER APPLICATION, NOT PER PULL REQUEST. There is exactly one saved document, and every " +
+    "environment deploys from it: the base environment and every open pull request, including ones you are not " +
+    "working on. Whatever you send here becomes that one document. Per-environment configuration is a known " +
+    "limitation and may come later; today there is no way to give one pull request a different config, and nothing " +
+    "in this tool scopes a change to one.\n\n" +
+    "`prNumber` therefore chooses only WHICH environment is redeployed with the newly saved document (unless " +
+    "`apply` is false) - it does not scope the save. Omit it to save without redeploying a pull request; `branch` " +
+    "then sets which branch the base preview deploys from. If the user wanted a change that affects only their PR, " +
+    "say that is not possible rather than sending it and implying it was.";
 
 /**
  * `apply_config`, registered once for both servers.
  *
  * It previously existed on each under the same name doing materially different things: the
- * debug copy applied a document to one PR's environment, the onboarding copy saved the base
- * config and set its deploy branch. An agent got whichever its connection happened to provide.
+ * debug copy redeployed one PR's environment after saving, the onboarding copy saved and set
+ * the deploy branch. An agent got whichever its connection happened to provide.
  *
- * One tool now, with `prNumber` selecting between them - matching the convention elsewhere in
- * the codebase, where a missing PR number means the main/base environment.
+ * One tool now, with `prNumber` selecting between them. What it does NOT select is what gets
+ * written: an Application has a single `PreviewkitConfig` row that every environment deploys
+ * from, so both paths save the same document and a PR-scoped preview config is not
+ * representable. The tool's description says so outright, because the parameter shape reads
+ * like it should scope the write and an agent that believes that would report a local change
+ * while having altered main and every other open PR.
  */
 export function registerSharedApplyConfig(
     server: McpServer,
@@ -83,7 +93,11 @@ export function registerSharedApplyConfig(
                     .int()
                     .min(1)
                     .optional()
-                    .describe("Apply to this pull request's environment. Omit to save the application's base config."),
+                    .describe(
+                        "Redeploy this pull request's environment with the saved document. It does NOT scope the " +
+                            "save: the document is the application's, shared by every environment. Omit it to save " +
+                            "without redeploying a pull request.",
+                    ),
                 branch: z
                     .string()
                     .min(1)
@@ -109,8 +123,10 @@ export function registerSharedApplyConfig(
                 try {
                     const { applicationId, organizationId } = await resolveTarget(toTargetInput(target));
 
-                    // A PR's environment is a live deploy target, not the application's saved shape,
-                    // so it never touches the base config or the deploy branch.
+                    // Both branches save the SAME per-application document; a preview config
+                    // cannot be scoped to one environment. `prNumber` only picks the redeploy:
+                    // this branch redeploys that PR's environment, the other one leaves every
+                    // environment on its current deploy and can also set the deploy branch.
                     if (prNumber != null) {
                         const repoFullName = "repoFullName" in target ? target.repoFullName : undefined;
                         if (repoFullName == null) {

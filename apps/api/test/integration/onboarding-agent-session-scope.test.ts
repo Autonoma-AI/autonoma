@@ -79,7 +79,7 @@ apiTestSuite({
             });
 
             const target = await resolveMcpTarget(
-                { db: harness.db, listRepositories: () => Promise.resolve([]) },
+                { db: harness.db, listRepositories: () => Promise.resolve({ repos: [] }) },
                 principal,
                 { applicationId: seedResult.otherAppId },
             );
@@ -99,9 +99,13 @@ apiTestSuite({
 
             // The user IS a member of the app's org, so only the key's scope can reject this.
             await expect(
-                resolveMcpTarget({ db: harness.db, listRepositories: () => Promise.resolve([]) }, principal, {
-                    applicationId: seedResult.otherAppId,
-                }),
+                resolveMcpTarget(
+                    { db: harness.db, listRepositories: () => Promise.resolve({ repos: [] }) },
+                    principal,
+                    {
+                        applicationId: seedResult.otherAppId,
+                    },
+                ),
             ).rejects.toThrow(NotFoundError);
         });
 
@@ -137,7 +141,8 @@ apiTestSuite({
             // disambiguate rather than picking one - so the assertion below never runs.
             const deps = {
                 db: harness.db,
-                listRepositories: (orgId: string) => Promise.resolve(orgId === harness.organizationId ? listed : []),
+                listRepositories: (orgId: string) =>
+                    Promise.resolve({ repos: orgId === harness.organizationId ? listed : [] }),
             };
 
             const byId = await resolveMcpTarget(deps, principal, { applicationId: app.id });

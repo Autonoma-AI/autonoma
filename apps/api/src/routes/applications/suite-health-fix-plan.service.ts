@@ -276,8 +276,8 @@ export class SuiteHealthFixPlanService extends Service {
         if (preview != null) return preview.repoFullName;
 
         try {
-            const repos = await this.github.listRepositories(organizationId);
-            return repos.find((repo) => repo.applicationId === applicationId)?.fullName;
+            const listing = await this.github.listRepositories(organizationId);
+            return listing.repos.find((repo) => repo.applicationId === applicationId)?.fullName;
         } catch (err) {
             this.logger.warn("Could not resolve repo full name from GitHub; prompt will ask the agent to", {
                 application: { applicationId },

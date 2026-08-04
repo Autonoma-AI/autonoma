@@ -19,6 +19,8 @@ export * from "./api-key";
 export * from "./secrets";
 export * from "./previewkit-builtins";
 export * from "./previewkit-config";
+export * from "./previewkit-node-build";
+export * from "./previewkit-authorable-config";
 export * from "./previewkit-runtimes";
 export * from "./previewkit-redeploy-app";
 export * from "./previewkit-service-suggestion";

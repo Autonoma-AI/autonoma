@@ -48,7 +48,8 @@ export interface OnboardingGithubRepository {
 }
 
 export interface OnboardingGithubService {
-    listRepositories(orgId: string): Promise<OnboardingGithubRepository[]>;
+    /** The org installation's repos, or `unavailable` when GitHub could not be read (never a silently short list). */
+    listRepositories(orgId: string): Promise<{ repos: OnboardingGithubRepository[]; unavailable?: string }>;
     linkRepository(orgId: string, applicationId: string, githubRepoId: number): Promise<void>;
     /** Resolves a branch's head SHA; used to validate a chosen deploy branch exists. Rejects (404) when it doesn't. */
     getBranchHead(orgId: string, repoId: number, branchName: string): Promise<string>;

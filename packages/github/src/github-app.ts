@@ -100,7 +100,9 @@ export class OctokitGitHubApp implements GitHubApp {
     }
 
     async getInstallationClient(installationId: number): Promise<GitHubInstallationClient> {
-        const octokit = await this.app.getInstallationOctokit(installationId);
+        const octokit = await this.app.getInstallationOctokit(installationId).catch((err: unknown) => {
+            throw installationUnavailable(installationId, this.slug, err);
+        });
         return new OctokitGitHubInstallationClient(octokit, installationId, this.etagStore);
     }
 
@@ -114,4 +116,37 @@ export class OctokitGitHubApp implements GitHubApp {
     async verifyWebhook(body: string, signature: string): Promise<boolean> {
         return this.app.webhooks.verify(body, signature);
     }
+}
+
+/**
+ * Thrown when GitHub refuses to mint an access token for an installation we still
+ * have on record. Its own message is a bare "Not Found" plus a link to the REST
+ * reference for the token endpoint, which reads as an Autonoma bug to everyone
+ * who sees it - including a coding agent driving the MCP, which is where it
+ * surfaces most. This one names the cause and the single thing that fixes it.
+ */
+export class GitHubInstallationUnavailableError extends Error {
+    constructor(
+        readonly installationId: number,
+        message: string,
+        options?: { cause?: unknown },
+    ) {
+        super(message, options);
+        this.name = "GitHubInstallationUnavailableError";
+    }
+}
+
+function installationUnavailable(installationId: number, appSlug: string, cause: unknown): Error {
+    appLogger.warn("Could not mint an installation token; the GitHub App installation is gone or suspended", {
+        extra: { installationId, cause: cause instanceof Error ? cause.message : String(cause) },
+    });
+    return new GitHubInstallationUnavailableError(
+        installationId,
+        `GitHub would not issue an access token for the Autonoma GitHub App installation (id ${installationId}) on ` +
+            `this organization, so Autonoma currently cannot read anything from its repositories. The installation ` +
+            `was almost certainly removed, suspended, or had its repository access revoked on GitHub. Reinstall the ` +
+            `"${appSlug}" GitHub App for this organization (or re-grant it access to the repository) at ` +
+            `https://github.com/settings/installations, then retry. Nothing on the Autonoma side needs changing.`,
+        { cause },
+    );
 }

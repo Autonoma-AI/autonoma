@@ -11,7 +11,7 @@ import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 const installFixtures: TrpcFixtures = {
   github: {
     getInstallation: null,
-    listRepositories: [],
+    listRepositories: { repos: [] },
     getConfig: { installUrl: "https://github.com/apps/autonoma-ai/installations/new" },
   },
   applications: { list: [] },
@@ -37,7 +37,7 @@ const noRepoAccessFixtures: TrpcFixtures = {
       settingsUrl: "https://github.com/apps/autonoma-ai/installations/new",
       appSlug: "autonoma-ai",
     },
-    listRepositories: [],
+    listRepositories: { repos: [] },
     getConfig: { installUrl: "https://github.com/apps/autonoma-ai/installations/new" },
   },
   applications: { list: [] },

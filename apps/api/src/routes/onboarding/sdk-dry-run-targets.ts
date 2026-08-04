@@ -3,6 +3,7 @@ import { NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { previewConfigSchema, resolveSdkAppName } from "@autonoma/types";
 import { z } from "zod";
+import { type DeployFreshness, deployFreshness } from "../../previewkit/deploy-freshness";
 import { buildSdkUrl } from "./sdk-url";
 
 export type SdkDryRunTargetSource = "previewkit" | "external" | "vercel";
@@ -42,6 +43,13 @@ export interface SdkDryRunTarget {
     /** Absent until the preview has deployed (availability "building"/"failed"/"no_preview"). */
     previewUrl?: string;
     sdkUrl?: string;
+    /**
+     * How far `availability` can be trusted, from the age of the last deploy. It is
+     * derived from what the deploy pipeline recorded and never re-probed, so a
+     * "ready" target whose preview was torn down out of band still reads ready.
+     * Absent for targets Autonoma does not deploy itself.
+     */
+    freshness?: DeployFreshness;
     requiresSharedSecretInput: boolean;
     /** True when this is the auto-detected "SDK implementation" PR (by title convention). */
     isAutoDetected: boolean;
@@ -127,6 +135,7 @@ interface PreviewkitTargetInfo {
     /** Absent while the env is still building (urls fill in at deploy time). */
     previewUrl?: string;
     sdkAppName?: string;
+    freshness: DeployFreshness;
 }
 
 function buildPreviewkitTargetInfo(
@@ -138,6 +147,7 @@ function buildPreviewkitTargetInfo(
         headSha: string;
         status: string;
         error: string | null;
+        deployedAt: Date | null;
         urls: unknown;
         resolvedConfig: unknown;
     },
@@ -153,6 +163,10 @@ function buildPreviewkitTargetInfo(
         headSha: environment.headSha,
         status: environment.status,
         error: environment.error ?? undefined,
+        freshness: deployFreshness({
+            status: environment.status,
+            deployedAt: environment.deployedAt ?? undefined,
+        }),
     };
 
     const configuredAppName = sdkAppNameFromConfig(environment.resolvedConfig, environment.id, logger);
@@ -233,6 +247,7 @@ export async function listSdkDryRunTargets(
                       headSha: true,
                       status: true,
                       error: true,
+                      deployedAt: true,
                       resolvedConfig: true,
                   },
                   orderBy: { updatedAt: "desc" },
@@ -283,6 +298,7 @@ export async function listSdkDryRunTargets(
             headSha: mainPreviewkitTarget.headSha,
             previewUrl: mainPreviewkitTarget.previewUrl,
             sdkUrl: mainPreviewkitTarget.previewUrl != null ? buildSdkUrl(mainPreviewkitTarget.previewUrl) : undefined,
+            freshness: mainPreviewkitTarget.freshness,
             requiresSharedSecretInput: false,
             isAutoDetected: false,
         });
@@ -335,6 +351,7 @@ export async function listSdkDryRunTargets(
                 headSha: previewkitTarget.headSha,
                 previewUrl: previewkitTarget.previewUrl,
                 sdkUrl: previewkitTarget.previewUrl != null ? buildSdkUrl(previewkitTarget.previewUrl) : undefined,
+                freshness: previewkitTarget.freshness,
                 requiresSharedSecretInput: false,
                 isAutoDetected,
             });

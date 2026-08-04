@@ -5,7 +5,6 @@ import {
     connectionTargets,
     connectionTokens,
     DEPRECATED_BUILD_FRAMEWORKS,
-    deprecatedBuildApps,
     previewConfigSchema,
     topologyRepositories,
     validatePreviewConfigSemantics,
@@ -199,25 +198,6 @@ describe("authoringPreviewConfigSchema build block", () => {
         }
         expect(frameworks).toContain('"const":"runtime"');
         expect(frameworks).toContain('"const":"dockerfile"');
-    });
-});
-
-describe("deprecatedBuildApps", () => {
-    it("names every app still on a retired preset, and nothing else", () => {
-        const parsed = previewConfigSchema.parse({
-            version: 2,
-            apps: [
-                { name: "legacy", repository: "acme/web", port: 3000, build: { framework: "next" } },
-                {
-                    name: "modern",
-                    repository: "acme/web",
-                    port: 3001,
-                    build: { framework: "runtime", runtime: "node", entrypoint: "npm start" },
-                },
-                { name: "bare", repository: "acme/web", port: 3002 },
-            ],
-        });
-        expect(deprecatedBuildApps(parsed)).toEqual([{ app: "legacy", framework: "next" }]);
     });
 });
 

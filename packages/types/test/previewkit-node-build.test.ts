@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nodeBuildCommands } from "../../src/dockerfile-builder/node-package-manager";
+import { nodeBuildCommands } from "../src/schemas/previewkit-node-build";
 
 describe("nodeBuildCommands (root/turbo)", () => {
     it("invokes the turbo binary via pnpm exec", () => {

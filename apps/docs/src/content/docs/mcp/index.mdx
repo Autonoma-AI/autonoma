@@ -258,7 +258,7 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | `get_app_logs` | repo, PR | Runtime (stdout/stderr) log lines, from the `tail` (a crash) or `head` (startup) |
 | `get_endpoints` | repo, PR | The preview URL, a suggested SDK URL, and one entry per service (internal services like a database report `url: null` with a reason) |
 | `get_secret_status` | repo | The full env-var surface per app: topology connections (with template values) and secret-backed vars (declared build secrets + runtime secrets), with masked length and a fingerprint only, plus which declared build secrets are missing |
-| `get_config` | repo | The full active preview config document (apps, services - no secret values), for read-edit-write of the whole shape via `apply_config` |
+| `get_config` | repo | The app's full active preview config document (apps, services - no secret values), for read-edit-write of the whole shape via `apply_config`. Apps onboarded before the framework build presets were retired also get an `applyReady` document: the same config with those builds rewritten as the supported equivalent, so what you read can be sent back |
 | `list_scenarios` | repo | The app's scenarios - the named test-data states its tests depend on - and whether each has a recipe |
 | `get_recipe` | repo, scenarioId | A scenario's active recipe: the `create` graph your SDK builds those entities from |
 
@@ -272,10 +272,10 @@ Every issue `get_analysis` returns carries a `kind`, and the kind decides where 
 
 | Tool | Input | Returns |
 | --- | --- | --- |
-| `set_secret` | repo, PR, app, key, value? | Sets (or, without a value, removes) a secret env var's value and applies it - rebuilds if it's a build secret, restarts otherwise. Values are stored encrypted and never returned |
-| `edit_previewkit_config` | repo, PR, app, fields | Changes structural config for one service (path, Dockerfile, port, health check, build-secret keys, connections) and rebuilds it. Only the fields you pass change; never sets a secret value |
-| `apply_config` | repo, PR, document, apply? | Saves a FULL config document (call `get_config` first, edit it, send the whole thing back) and, unless `apply:false`, redeploys the whole environment. The path for reshaping the preview: adding or removing an app or a service (a database, cache, side-container) - things a single-service edit can't express |
-| `wait_for_deploy` | repo, PR, app? | Blocks (up to ~45s, then re-callable) until the deploy settles (ready or failed) and returns the outcome plus the last few log lines, so you can see progress and keep debugging after a `set_secret`, `edit_previewkit_config`, or `apply_config` rebuild |
+| `set_secret` | repo, PR, app, key, value? | Sets (or, without a value, removes) a secret env var's value for the app and applies it - rebuilds if it's a build secret, restarts otherwise. Stored per app, not per PR. Values are stored encrypted and never returned |
+| `edit_previewkit_config` | repo, PR, app, fields | Changes structural config for one service (path, Dockerfile, port, health check, build-secret keys, connections) and rebuilds it. Only the fields you pass change; never sets a secret value. Saved to the app's one config, so it applies to every environment |
+| `apply_config` | repo, PR, document, apply? | Saves a FULL config document (call `get_config` first, edit it, send the whole thing back) and, unless `apply:false`, redeploys the environment. The path for reshaping the preview: adding or removing an app or a service (a database, cache, side-container) - things a single-service edit can't express. The document is the app's, shared by every environment; `PR` picks which one redeploys |
+| `wait_for_deploy` | repo, PR, app? | Blocks (up to ~45s, then re-callable) until the deploy settles (ready or failed) and returns the outcome plus the last few log lines, so you can see progress and keep debugging after a `set_secret`, `edit_previewkit_config`, or `apply_config` rebuild. `outcome` is `deployed`, `in_progress` (call again), or `idle` - nothing was deploying, so stop |
 | `dry_run_scenario` | repo, scenarioId, recipe?, save?, target? | Runs a recipe against your deployed SDK (`up` then `down`). Pass a `recipe` to try an edit **without storing it**; pass `save: true` to promote it, which happens only if the run passes; pass a `target` to run against a specific preview instead of the app's stored endpoint |
 | `list_dry_run_targets` | repo | The previews a dry run can be pointed at - the app's open PR previews and its main deployment, with whether each is deployed yet. Use a returned `id` as `dry_run_scenario`'s `target` |
 | `update_recipe` | repo, scenarioId, recipe, baseFingerprint? | Saves a recipe as the active one. Validated on save and rejected with the exact problems. Pass the `fingerprint` from `get_recipe` so a write that races another editor is rejected with their version rather than overwriting it. Affects every future run of that scenario |
@@ -283,8 +283,12 @@ Every issue `get_analysis` returns carries a `kind`, and the kind decides where 
 The write tools split cleanly by what they change, so your agent never has to guess which to use:
 
 - A **secret value** (an API key, token, or password) - `set_secret`. It stores the value and applies the minimal action itself: a rebuild if the key is a declared build secret (baked into the image at build), a restart otherwise. You do not tell it which; it reads your config.
-- **How one service is built or wired** (build path, Dockerfile, port, health check, which keys are injected at build, topology connections) - `edit_previewkit_config`. It saves a new config revision and rebuilds that one service.
-- **The shape of the preview** (add or remove an app or a service like a database or cache) - `get_config` then `apply_config`. It saves the full document and redeploys the whole environment, since a topology change touches more than one service.
+- **How one service is built or wired** (build path, Dockerfile, port, health check, which keys are injected at build, topology connections) - `edit_previewkit_config`. It saves the change and rebuilds that one service.
+- **The shape of the preview** (add or remove an app or a service like a database or cache) - `get_config` then `apply_config`. It saves the full document and redeploys the environment, since a topology change touches more than one service.
+
+:::caution[Config and secrets are per app, not per pull request]
+Your app has **one** preview config and one set of secret values, and every environment deploys from them - the base environment and each open pull request alike. So a config edit or a `set_secret` made while debugging one PR also changes main and every other open PR. The `prNumber` these tools take chooses only which environment is rebuilt with the saved change; it does not scope the change, and nothing else does either. Per-environment configuration is a known limitation we may lift later. If you need a setting that applies to one pull request only, that is not something Autonoma can do today.
+:::
 
 ### Fixing test data
 
@@ -309,7 +313,7 @@ Two different things can be wrong, and they iterate at very different speeds. Th
 
 By default a dry run hits the SDK endpoint the app currently has configured, which is not necessarily the preview for the PR you are working on. When your handler change is already deployed to its own PR preview, `list_dry_run_targets` plus `dry_run_scenario`'s `target` runs against that preview directly - so you can test a handler change without waiting for it to become the app's configured endpoint.
 
-They all apply asynchronously, so the loop is: **fix** with `set_secret` / `edit_previewkit_config` / `apply_config`, **confirm** with `wait_for_deploy` (which streams a short log tail and tells you `settled: false` if the rebuild is still running so you can call it again), then re-read if it failed.
+They all apply asynchronously, so the loop is: **fix** with `set_secret` / `edit_previewkit_config` / `apply_config`, **confirm** with `wait_for_deploy` (which streams a short log tail and returns `outcome: "in_progress"` while the rebuild is still running, so you call it again - or `outcome: "idle"` when nothing was deploying at all, so you stop), then re-read if it failed.
 
 :::caution[Secrets are never exposed]
 The MCP never returns a secret's value - not through `get_secret_status`, not through `set_secret`, not anywhere. To let your agent check whether a set value matches one it already holds, both return a non-reversible **fingerprint** (the first 12 hex chars of SHA-256 of the value) instead: your agent computes `sha256(value).hex.slice(0, 12)` on its candidate and compares. The value never leaves Autonoma; only whether it matches can be inferred.

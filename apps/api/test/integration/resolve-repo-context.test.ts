@@ -30,7 +30,7 @@ function fakeLister(reposByOrg: Record<string, ListedRepository[]>) {
     const calls: string[] = [];
     const list = (organizationId: string) => {
         calls.push(organizationId);
-        return Promise.resolve(reposByOrg[organizationId] ?? []);
+        return Promise.resolve({ repos: reposByOrg[organizationId] ?? [] });
     };
     return { list, calls };
 }

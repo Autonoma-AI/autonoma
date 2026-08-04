@@ -23,7 +23,7 @@ interface FakeRepo {
 /** Narrow in-memory stand-ins for the GitHub + Applications services the manager consumes. */
 function buildTopologyServices(harness: OnboardingTestHarness, orgId: string, repos: FakeRepo[]) {
     const github = {
-        listRepositories: vi.fn(async () => repos),
+        listRepositories: vi.fn(async () => ({ repos })),
         linkRepository: vi.fn(async (organizationId: string, applicationId: string, githubRepoId: number) => {
             await harness.db.application.update({
                 where: { id: applicationId },

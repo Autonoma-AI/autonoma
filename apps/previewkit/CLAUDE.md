@@ -216,9 +216,11 @@ then `buildkit-builder.ts` `dispatchBuild` runs them:
       Every runtime is Debian-family (apt); the strategy tables keep the door open for another base OS.
       `dockerfile-builder/` is split by concern: `raw-spec.ts` (the `RawSpec` primitive + the one
       `renderDockerfile`), `framework-lowering.ts` + `runtime-lowering.ts` (both lower a `build` into a
-      `RawSpec`), and the `os-toolbelt.ts` (apt) + `node-package-manager.ts` (npm/pnpm/yarn/bun)
-      strategy tables. Adding a runtime is a catalog entry; adding a package manager or base OS is one
-      strategy entry - never a new branch in the generator.
+      `RawSpec`), and the `os-toolbelt.ts` (apt) strategy table. The npm/pnpm/yarn/bun table lives in
+      `@autonoma/types` (`previewkit-node-build.ts`) next to the schema, because the API's MCP needs the
+      same command defaults to express a retired preset as a `runtime` build (`toAuthorableDocument`) -
+      one definition of what `framework: next` means, not two. Adding a runtime is a catalog entry;
+      adding a package manager or base OS is one strategy entry - never a new branch in the generator.
 2. **Bare Dockerfile (no `build` block)** - the app's `dockerfile` field, or a `Dockerfile` on disk at
    the app path, is built through the same BuildKit Dockerfile path (`buildWithBuildctl`). There is no
    autodetection: an app with neither a `build` block nor any Dockerfile fails the deploy with an

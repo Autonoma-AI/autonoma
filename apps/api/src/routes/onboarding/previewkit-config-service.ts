@@ -409,8 +409,15 @@ export class PreviewkitConfigService {
         const github = this.options.github;
         if (github == null) return undefined;
         try {
-            const repos = await github.listRepositories(organizationId);
-            return new Map(repos.map((repo) => [repo.fullName, repo]));
+            const listing = await github.listRepositories(organizationId);
+            if (listing.unavailable != null) {
+                this.logger.warn("Installation repositories are unavailable", {
+                    organizationId,
+                    extra: { reason: listing.unavailable },
+                });
+                return undefined;
+            }
+            return new Map(listing.repos.map((repo) => [repo.fullName, repo]));
         } catch (err) {
             this.logger.warn("Failed to list installation repositories", { organizationId, err });
             return undefined;

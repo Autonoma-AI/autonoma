@@ -241,7 +241,7 @@ async function callStartAnalysis(
                 await resolveMcpPrincipal(harness.db, { userId: harness.userId }),
                 repo,
             ),
-        listRepos: () => Promise.resolve({ repos: [], truncated: false }),
+        listRepos: () => Promise.resolve({ repos: [], truncated: false, unreadable: [] }),
         analytics: new McpAnalytics(new PostHogAnalytics(), "debug", harness.userId),
         userId: harness.userId,
         mergeGate,

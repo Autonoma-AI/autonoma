@@ -373,6 +373,50 @@ apiTestSuite({
             expect(edits[1]?.fixtureJson).toMatchObject({ create: { User: [{ name: "Historic" }] } });
         });
 
+        test("getRecipe hands back the fingerprint updateRecipe needs, at the top level", async ({ harness }) => {
+            const { service, scenario, app } = await createFixture(harness, "Scenario Recipe Fingerprint");
+            const read = await service.getRecipe(app.id, harness.organizationId, scenario.id);
+
+            expect(read.fingerprint).toEqual(expect.any(String));
+
+            // A write based on it lands, and one based on the value read before it does not -
+            // so the top-level field is genuinely the concurrency token, not a lookalike.
+            await service.updateRecipe({
+                applicationId: app.id,
+                organizationId: harness.organizationId,
+                scenarioId: scenario.id,
+                fixtureJson: JSON.stringify(makeRecipe({ description: "based on the top-level fingerprint" })),
+                source: "MCP",
+                baseFingerprint: read.fingerprint ?? undefined,
+            });
+
+            const after = await service.getRecipe(app.id, harness.organizationId, scenario.id);
+            expect(after.fixtureJson).toMatchObject({ description: "based on the top-level fingerprint" });
+            await expect(
+                service.updateRecipe({
+                    applicationId: app.id,
+                    organizationId: harness.organizationId,
+                    scenarioId: scenario.id,
+                    fixtureJson: JSON.stringify(makeRecipe({ description: "stale" })),
+                    source: "MCP",
+                    baseFingerprint: read.fingerprint ?? undefined,
+                }),
+            ).rejects.toBeInstanceOf(RecipeConflictError);
+        });
+
+        test("getRecipe does not repeat the recipe when the live version is the one it just returned", async ({
+            harness,
+        }) => {
+            const { service, scenario, app } = await createFixture(harness, "Scenario Recipe No Duplicate");
+            const read = await service.getRecipe(app.id, harness.organizationId, scenario.id);
+
+            expect(read.fixtureJson).toMatchObject({ description: "standard" });
+            expect(read.isLiveRecipeInSync).toBe(true);
+            // In sync, the live version is byte-identical to what `fixtureJson` already carries.
+            expect(read.liveRecipeVersion?.fixtureJson).toBeNull();
+            expect(read.liveRecipeVersion?.fingerprint).toBe(read.fingerprint);
+        });
+
         test("updateRecipe rejects a write whose base has moved on, and hands back both sides", async ({ harness }) => {
             const { service, scenario, app } = await createFixture(harness, "Scenario Recipe Conflict");
             const base = await service.getRecipe(app.id, harness.organizationId, scenario.id);

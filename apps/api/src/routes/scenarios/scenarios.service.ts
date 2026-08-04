@@ -416,8 +416,16 @@ export class ScenariosService extends Service {
                 : null,
         ]);
 
+        const isLiveRecipeInSync =
+            liveRecipeVersion != null && liveRecipeVersion.fingerprint === scenario.activeRecipeVersion?.fingerprint;
+
         return {
             fixtureJson: scenario.activeRecipeVersion?.fixtureJson ?? null,
+            // Also at the top level because this is the value `updateRecipe` takes as
+            // `baseFingerprint`: a caller that has to reach into `activeRecipeVersion`
+            // for it can omit it by accident, and an omitted baseFingerprint is an
+            // unconditional write that silently drops the concurrency check.
+            fingerprint: scenario.activeRecipeVersion?.fingerprint ?? null,
             activeRecipeVersion:
                 scenario.activeRecipeVersion != null
                     ? {
@@ -438,13 +446,14 @@ export class ScenariosService extends Service {
                           id: liveRecipeVersion.id,
                           snapshotId: liveRecipeVersion.snapshotId,
                           fingerprint: liveRecipeVersion.fingerprint,
-                          fixtureJson: liveRecipeVersion.fixtureJson,
+                          // Only carried when it DIFFERS from `fixtureJson` above. In sync
+                          // the two are byte-identical, and a recipe is large enough that
+                          // returning it twice is a meaningful cost for no information.
+                          fixtureJson: isLiveRecipeInSync ? null : liveRecipeVersion.fixtureJson,
                           updatedAt: liveRecipeVersion.updatedAt,
                       }
                     : null,
-            isLiveRecipeInSync:
-                liveRecipeVersion != null &&
-                liveRecipeVersion.fingerprint === scenario.activeRecipeVersion?.fingerprint,
+            isLiveRecipeInSync,
         };
     }
 

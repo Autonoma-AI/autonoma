@@ -4,11 +4,14 @@ import type { PreviewkitEnvironmentsService } from "./previewkit-environments.se
 
 /** Default number of tail lines returned when a caller does not specify one. */
 const DEFAULT_TAIL_LINES = 200;
-// Aggregate cap on the bytes returned in one tail. Individual lines are never
-// truncated - a huge one-line JSON blob comes back whole - but if the total
-// exceeds this budget, whole lines are dropped from the far end (the oldest when
-// tailing, the newest when reading from the head) and `truncated` is set, so a
-// pathological volume can't blow up memory or a model's context.
+// Aggregate cap on the bytes returned in one tail when the caller names no
+// budget of its own. Individual lines are never truncated - a huge one-line JSON
+// blob comes back whole - but if the total exceeds the budget, whole lines are
+// dropped from the far end (the oldest when tailing, the newest when reading
+// from the head) and `truncated` is set, so a pathological volume can't blow up
+// memory. This is a memory ceiling, not a readability one: a caller feeding the
+// result to a model passes a far smaller `maxBytes`, because a "line" here is a
+// whole buildkit chunk and a few hundred of them run to tens of kilobytes.
 const MAX_TOTAL_LOG_BYTES = 1_000_000;
 
 /** The `LokiLogStore` capability this service needs; narrowed so tests can inject a fake. */
@@ -42,6 +45,14 @@ export interface PreviewLogsResult {
     services: string[];
     /** True when whole lines were dropped to stay under the total byte budget (line content is never cut). */
     truncated?: boolean;
+    /** How many whole lines were dropped, and from which end - so truncation is a fact, not a silent omission. */
+    dropped?: { lines: number; from: "oldest" | "newest"; budgetBytes: number };
+    /**
+     * Set when `app` named a service this environment does not have. Loki answers a
+     * mis-scoped query with silence, so without this an empty result reads as "the
+     * window had no output" - which is what a typo looks like too.
+     */
+    unknownService?: { requested: string; known: string[] };
 }
 
 /**
@@ -74,10 +85,17 @@ export class PreviewkitLogsService {
         filter?: string;
         /** Which end of the stream to read: "tail" (newest, default) or "head" (from the run's start). */
         from?: "head" | "tail";
+        /** Aggregate byte budget for the returned lines. Defaults to the memory ceiling. */
+        maxBytes?: number;
     }): Promise<PreviewLogsResult | undefined> {
         const { repoFullName, prNumber, source, callerOrgId, app, filter, from } = params;
         const limit = params.limit ?? DEFAULT_TAIL_LINES;
-        this.logger.info("Tailing preview logs", { repoFullName, prNumber, extra: { source, limit, app, from } });
+        const maxBytes = params.maxBytes ?? MAX_TOTAL_LOG_BYTES;
+        this.logger.info("Tailing preview logs", {
+            repoFullName,
+            prNumber,
+            extra: { source, limit, app, from, maxBytes },
+        });
 
         const store = source === "app" ? this.appLogStore : this.buildLogStore;
         if (store == null) {
@@ -89,6 +107,24 @@ export class PreviewkitLogsService {
         // which the tool maps to a not-found - distinct from a configured-but-empty tail.
         if (target == null) return undefined;
 
+        // Checked before the query rather than after an empty one: a service that
+        // exists but was quiet must stay distinguishable from one that never existed.
+        if (app != null && !target.serviceNames.includes(app)) {
+            this.logger.info("Preview log query named an unknown service", {
+                repoFullName,
+                prNumber,
+                extra: { source, app, known: target.serviceNames },
+            });
+            return {
+                available: false,
+                source,
+                reason: `This preview has no service named "${app}".`,
+                lines: [],
+                services: [],
+                unknownService: { requested: app, known: target.serviceNames },
+            };
+        }
+
         const entries = await store.readLastN(target.namespace, limit, { app, filter, from });
         const allLines: PreviewLogLine[] = entries.map((entry) => ({
             timestampNs: entry.id,
@@ -97,7 +133,8 @@ export class PreviewkitLogsService {
             stream: entry.event.stream,
             kind: entry.event.kind,
         }));
-        const { lines, truncated } = applyByteBudget(allLines, from ?? "tail", MAX_TOTAL_LOG_BYTES);
+        const end = from ?? "tail";
+        const { lines, truncated } = applyByteBudget(allLines, end, maxBytes);
         const services = [...new Set(lines.map((line) => line.app).filter((app): app is string => app != null))].sort();
 
         this.logger.info("Preview logs read", {
@@ -105,7 +142,20 @@ export class PreviewkitLogsService {
             prNumber,
             extra: { source, lineCount: lines.length, truncated, serviceCount: services.length },
         });
-        return { available: true, source, lines, services, truncated };
+        return {
+            available: true,
+            source,
+            lines,
+            services,
+            truncated,
+            dropped: truncated
+                ? {
+                      lines: allLines.length - lines.length,
+                      from: end === "head" ? "newest" : "oldest",
+                      budgetBytes: maxBytes,
+                  }
+                : undefined,
+        };
     }
 }
 

@@ -19,6 +19,7 @@ import {
     toAppBuildOutcomeMap,
 } from "../routes/deployments/preview-summary";
 import { Service } from "../routes/service";
+import { type DeployFreshness, deployFreshness } from "./deploy-freshness";
 
 /** Main-branch preview environments are stored under PR number 0. */
 const MAIN_BRANCH_PREVIEW_ENVIRONMENT_NUMBER = 0;
@@ -107,6 +108,13 @@ export interface PreviewDeploySignals {
     logs?: string[];
     /** Deterministic, rule-based findings (missing_env_var / user_setup / autonoma_error) - no AI, safe to trust. */
     findings?: PreviewDiagnosisFinding[];
+    /**
+     * How far the recorded state can be trusted, from the age of the last deploy.
+     * Every other signal here is what the deploy pipeline last wrote, so a healthy
+     * verdict on a long-dead environment is otherwise indistinguishable from a
+     * healthy verdict on a live one.
+     */
+    freshness?: DeployFreshness;
 }
 
 /** Resolved environment, or a reason it can't be diagnosed yet. */
@@ -248,6 +256,10 @@ export class PreviewkitDiagnosisService extends Service {
             config: summarizeConfig(environment.resolvedConfig),
             logs,
             findings,
+            freshness: deployFreshness({
+                status: environment.status,
+                deployedAt: environment.deployedAt ?? undefined,
+            }),
         };
     }
 

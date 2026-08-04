@@ -1,4 +1,10 @@
-export { OctokitGitHubApp, type GitHubApp, type GitHubAppCredentials, type GitHubAppInstallation } from "./github-app";
+export {
+    GitHubInstallationUnavailableError,
+    OctokitGitHubApp,
+    type GitHubApp,
+    type GitHubAppCredentials,
+    type GitHubAppInstallation,
+} from "./github-app";
 export {
     OctokitGitHubInstallationClient,
     parseRepoFullName,

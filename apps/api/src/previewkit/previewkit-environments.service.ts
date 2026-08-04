@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
+import { previewConfigSchema } from "@autonoma/types";
 import { sleep } from "@autonoma/utils/sleep";
 
 /** Env statuses at which a deploy has settled (nothing more will happen without a new trigger). */
@@ -12,6 +13,18 @@ const DEFAULT_WAIT_MS = 45_000;
 const MAX_WAIT_MS = 55_000;
 /** Poll interval while waiting for a terminal state. */
 const WAIT_POLL_MS = 4_000;
+/**
+ * How long a terminal target must have sat untouched before a wait calls it idle
+ * rather than "still in progress".
+ *
+ * A rebuild is triggered by creating a Kubernetes Job and nothing writes the
+ * environment row until that Job's runner starts, so a target can legitimately
+ * be terminal-and-unchanged for a while right after a write - which is exactly
+ * the case the change-since-baseline requirement exists to protect. Generous
+ * enough to cover the runner's node provisioning, while an environment last
+ * touched days ago is unambiguous.
+ */
+const IDLE_QUIET_PERIOD_MS = 15 * 60_000;
 
 export interface PreviewkitEnvironmentStatus {
     repoFullName: string;
@@ -99,11 +112,20 @@ export class PreviewkitEnvironmentsService {
                 callerOrgId != null
                     ? { repoFullName, prNumber, organizationId: callerOrgId }
                     : { repoFullName, prNumber },
-            select: { namespace: true, status: true },
+            select: {
+                namespace: true,
+                status: true,
+                resolvedConfig: true,
+                appInstances: { select: { appName: true }, orderBy: { appName: "asc" } },
+            },
         });
 
         if (row == null) return undefined;
-        return { namespace: row.namespace, status: row.status };
+        return {
+            namespace: row.namespace,
+            status: row.status,
+            serviceNames: environmentServiceNames(row.appInstances, row.resolvedConfig),
+        };
     }
 
     /**
@@ -111,12 +133,18 @@ export class PreviewkitEnvironmentsService {
      * so a client's agent can trigger a rebuild/restart and then block until it can
      * keep debugging. When `appName` is given (the case after set_secret /
      * edit_previewkit_config, which redeploy one service) it watches that app
-     * instance; otherwise it watches the environment. "Settled" requires a terminal
-     * status AND a change since the call began - so a still-`ready` app whose rebuild
-     * job has not yet flipped it is not mistaken for done. Returns `settled: false`
-     * with the current snapshot when the budget elapses; the agent calls again to
-     * keep waiting. Returns undefined when no such environment exists (mapped to
-     * "unavailable" by the tool).
+     * instance; otherwise it watches the environment.
+     *
+     * A `deployed` outcome requires a terminal status AND a change since the call
+     * began, so a still-`ready` app whose rebuild job has not yet flipped it is not
+     * mistaken for done. That alone would never terminate on an environment where
+     * nothing was triggered, so a target that was already terminal and has not
+     * changed for {@link IDLE_QUIET_PERIOD_MS} comes back `idle`: settled, with
+     * nothing in flight, so the caller stops instead of waiting on a deploy that
+     * does not exist. Only `in_progress` asks to be called again.
+     *
+     * Returns undefined when no such environment exists (mapped to "unavailable" by
+     * the tool).
      */
     async waitForDeploy(params: {
         repoFullName: string;
@@ -134,14 +162,15 @@ export class PreviewkitEnvironmentsService {
 
         const deadline = Date.now() + budgetMs;
         let latest = baseline;
-        while (!isSettled(latest, baseline)) {
+        while (!hasDeployed(latest, baseline)) {
             if (Date.now() >= deadline) {
-                this.logger.info("Preview deploy still in progress at budget", {
+                const outcome = deployOutcomeAtBudget(latest, Date.now());
+                this.logger.info("Preview deploy wait reached its budget", {
                     repoFullName,
                     prNumber,
-                    extra: { appName, status: latest.watchedStatus },
+                    extra: { appName, status: latest.watchedStatus, outcome },
                 });
-                return toWaitResult(latest, false);
+                return toWaitResult(latest, outcome);
             }
             await sleep(WAIT_POLL_MS);
             const next = await this.readDeployProgress(repoFullName, prNumber, appName, callerOrgId);
@@ -154,7 +183,7 @@ export class PreviewkitEnvironmentsService {
             prNumber,
             extra: { appName, status: latest.watchedStatus },
         });
-        return toWaitResult(latest, true);
+        return toWaitResult(latest, "deployed");
     }
 
     /** Reads the env + (optional) watched app-instance snapshot used to decide settlement. */
@@ -205,8 +234,8 @@ export class PreviewkitEnvironmentsService {
     }
 }
 
-/** Internal snapshot the wait loop compares across polls. */
-interface DeployProgress {
+/** Snapshot the wait loop compares across polls; exported for {@link deployOutcomeAtBudget}'s tests. */
+export interface DeployProgress {
     envStatus: string;
     envError?: string;
     urls: Record<string, string>;
@@ -217,9 +246,19 @@ interface DeployProgress {
     watchedIsApp: boolean;
 }
 
+/**
+ * What a wait ended on:
+ * - "deployed": the watched target reached a terminal status during (or since) this wait.
+ * - "idle": it was already terminal and untouched long enough that nothing is deploying.
+ * - "in_progress": the budget elapsed with a deploy still plausibly running.
+ */
+export type WaitForDeployOutcome = "deployed" | "idle" | "in_progress";
+
 export interface WaitForDeployResult {
-    /** True once the watched target reached a terminal status (and changed since the wait began). */
+    /** True when nothing more is happening - a deploy finished, or none was running. Only "in_progress" is false. */
     settled: boolean;
+    /** Which of the two settled cases this is, or that the wait ran out of budget. */
+    outcome: WaitForDeployOutcome;
     /** The overall environment status. */
     status: string;
     /** The watched app instance's status, when an app was named. */
@@ -227,27 +266,55 @@ export interface WaitForDeployResult {
     error?: string;
     urls: Record<string, string>;
     apps: Array<{ name: string; status: string; error?: string; url?: string }>;
-    /** Present when not settled: tells the agent it can call wait_for_deploy again to keep waiting. */
+    /** When the watched target last changed - the evidence behind an "idle" outcome. */
+    lastChangedAt: Date;
+    /** What the outcome means for the caller's next move. */
     reason?: string;
 }
 
 /** Whether the watched target is in a terminal state that also post-dates the wait's baseline. */
-function isSettled(latest: DeployProgress, baseline: DeployProgress): boolean {
-    const terminal = latest.watchedIsApp
-        ? TERMINAL_APP_STATUSES.has(latest.watchedStatus)
-        : TERMINAL_ENV_STATUSES.has(latest.watchedStatus);
-    return terminal && latest.watchedUpdatedAt > baseline.watchedUpdatedAt;
+function hasDeployed(latest: DeployProgress, baseline: DeployProgress): boolean {
+    return isTerminal(latest) && latest.watchedUpdatedAt > baseline.watchedUpdatedAt;
 }
 
-function toWaitResult(progress: DeployProgress, settled: boolean): WaitForDeployResult {
+function isTerminal(progress: DeployProgress): boolean {
+    return progress.watchedIsApp
+        ? TERMINAL_APP_STATUSES.has(progress.watchedStatus)
+        : TERMINAL_ENV_STATUSES.has(progress.watchedStatus);
+}
+
+/**
+ * How to describe a wait that used its whole budget without seeing a change. Pure
+ * so the idle/in-progress boundary is unit-testable without a clock or a database.
+ */
+export function deployOutcomeAtBudget(
+    progress: DeployProgress,
+    now: number,
+): Exclude<WaitForDeployOutcome, "deployed"> {
+    const quiet = now - progress.watchedUpdatedAt >= IDLE_QUIET_PERIOD_MS;
+    return isTerminal(progress) && quiet ? "idle" : "in_progress";
+}
+
+const OUTCOME_REASONS: Record<Exclude<WaitForDeployOutcome, "deployed">, string> = {
+    idle:
+        "Nothing is deploying - this environment was already in a terminal state and has not changed since well " +
+        "before this call. Calling wait_for_deploy again will return the same thing; trigger a deploy first if you " +
+        "expected one. `lastChangedAt` says how long it has been this way, and a long-untouched preview may no " +
+        "longer be serving even though its status says ready.",
+    in_progress: "Still in progress - call wait_for_deploy again to keep waiting.",
+};
+
+function toWaitResult(progress: DeployProgress, outcome: WaitForDeployOutcome): WaitForDeployResult {
     return {
-        settled,
+        settled: outcome !== "in_progress",
+        outcome,
         status: progress.envStatus,
         appStatus: progress.watchedIsApp ? progress.watchedStatus : undefined,
         error: progress.envError,
         urls: progress.urls,
         apps: progress.apps,
-        reason: settled ? undefined : "Still in progress - call wait_for_deploy again to keep waiting.",
+        lastChangedAt: new Date(progress.watchedUpdatedAt),
+        reason: outcome === "deployed" ? undefined : OUTCOME_REASONS[outcome],
     };
 }
 
@@ -255,6 +322,28 @@ function toWaitResult(progress: DeployProgress, settled: boolean): WaitForDeploy
 export interface PreviewkitStreamTarget {
     namespace: string;
     status: string;
+    /**
+     * Every service name this environment declares - apps and infra services alike.
+     * Log queries narrow by one of these, and Loki cannot tell a name that produced
+     * no output from a name that does not exist, so the caller checks against this.
+     */
+    serviceNames: string[];
+}
+
+/**
+ * The service names an environment declares: its per-app instance rows
+ * (authoritative) plus anything the resolved config names, so an app whose
+ * instance row was never written and infra services (a database, a cache) are
+ * both included.
+ */
+function environmentServiceNames(appInstances: Array<{ appName: string }>, resolvedConfig: unknown): string[] {
+    const names = new Set(appInstances.map((instance) => instance.appName));
+    const parsed = previewConfigSchema.safeParse(resolvedConfig);
+    if (parsed.success) {
+        for (const app of parsed.data.apps) names.add(app.name);
+        for (const service of parsed.data.services) names.add(service.name);
+    }
+    return [...names].sort();
 }
 
 /** Maps a `previewkit_environment` row to the public status shape. Pure; unit-tested. */

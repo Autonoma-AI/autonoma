@@ -4,9 +4,12 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { MergeGateService } from "../github/merge-gate.service";
+import { type DeployFreshness, deployFreshness } from "../previewkit/deploy-freshness";
 import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
 import type { Services } from "../routes/build-services";
 import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
+import type { AccessibleRepos, UnreadableOrganization } from "./list-accessible-repos";
+import { DEFAULT_LOG_BYTES, logMaxBytesSchema, unknownServiceMessage } from "./log-tail-bounds";
 import type { McpAnalytics } from "./mcp-analytics";
 import { recipeConflictResult } from "./recipe-conflict-result";
 import type { McpTarget, McpTargetInput } from "./resolve-mcp-target";
@@ -61,10 +64,13 @@ Recommended flow when a PREVIEW fails to build or deploy (for a test or app fail
 5. Call get_secret_status(repoFullName) to see the full env-var surface per app: topology connections (with their template values) and secret-backed vars (declared build secrets + registered runtime secrets), including which declared build secrets are missing. Secret VALUES are never returned - only presence and masked length.
 6. Apply the fix. Three kinds:
    - A missing secret VALUE (an API key, token, password): call set_secret(repoFullName, prNumber, app, key, value). It stores the value and rebuilds or restarts the service automatically.
-   - How ONE existing service is built or wired (build path, Dockerfile, port, health check, which keys are injected at build, topology connections): call edit_previewkit_config(repoFullName, prNumber, app, ...the fields to change). It saves a new config revision and rebuilds the service.
-   - The SHAPE of the preview (add or remove an app, add or remove a service like a database or a redis cache): call get_config(repoFullName) to read the full document, edit it, and send it back with apply_config(repoFullName, prNumber, document). It redeploys the whole environment.
+   - How ONE existing service is built or wired (build path, Dockerfile, port, health check, which keys are injected at build, topology connections): call edit_previewkit_config(repoFullName, prNumber, app, ...the fields to change). It saves the change and rebuilds the service.
+   - The SHAPE of the preview (add or remove an app, add or remove a service like a database or a redis cache): call get_config(repoFullName) to read the full document, edit it, and send it back with apply_config(repoFullName, prNumber, document). It redeploys the environment.
    For anything in your source (code, a committed Dockerfile), edit this repo and push - Autonoma re-runs on the new commit.
-7. set_secret, edit_previewkit_config, and apply_config trigger the rebuild/restart asynchronously. Call wait_for_deploy(repoFullName, prNumber, app) to block until it settles, then re-check status/logs. If it returns settled:false, the deploy is still running - call it again.
+
+7. set_secret, edit_previewkit_config, and apply_config trigger the rebuild/restart asynchronously. Call wait_for_deploy(repoFullName, prNumber, app) to block until it settles, then re-check status/logs. Only outcome "in_progress" means call it again; "idle" means nothing was deploying, so stop rather than polling a deploy that never started.
+
+Configuration is PER APPLICATION, not per pull request. Both config tools write the one document that the base environment and every open pull request deploy from, so a change made while debugging one PR changes main and every other PR as well. Their prNumber argument selects only which environment is rebuilt with the saved document - it does not scope the change, and nothing else does either. Per-environment configuration is a known limitation that may come later. Treat a config edit as a change to the whole project: say so before you make one, and if the user wanted something that applies to their PR alone, tell them it is not possible rather than doing it anyway and calling it local. A secret VALUE is the same - set_secret stores it for the application, not for one PR.
 
 Live vs. forensic surface: get_deploy_status, get_endpoints, and wait_for_deploy read the LIVE environment, which Autonoma tears down after testing - once it is gone they return status: "unavailable". The LOGS (get_build_logs, get_app_logs) are different: they persist ~30 days independent of the live environment. So an "unavailable" deploy status does NOT mean the logs are gone. For a post-mortem of a past deploy ("why did this PR's last preview fail?"), call the log tools directly even when status is unavailable.
 
@@ -91,7 +97,7 @@ export interface DebugMcpDeps {
     /** Resolves either identity form for the tools shared with the onboarding server. */
     resolveTarget: (input: McpTargetInput) => Promise<McpTarget>;
     /** List the repos the authenticated user can debug (across their orgs). */
-    listRepos: () => Promise<{ repos: { repoFullName: string; organization: string }[]; truncated: boolean }>;
+    listRepos: () => Promise<AccessibleRepos>;
     /** Records a `mcp.tool_called` PostHog event per tool invocation, per customer org. */
     analytics: McpAnalytics;
     /** The authenticated MCP caller's user id, stored as `reportedBy` on a `report_false_positive` candidate. */
@@ -168,7 +174,10 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             description:
                 "List the repos ('owner/repo') you can debug - every repo linked to an Autonoma application in " +
                 "an organization you belong to. Call this when you don't already know the repoFullName (e.g. it " +
-                "isn't inferable from this repo's git remote) so you can pick one. Takes no arguments.",
+                "isn't inferable from this repo's git remote) so you can pick one. Takes no arguments. A " +
+                "non-empty `unreadable` means one of your organizations could not be read from GitHub and its repos " +
+                "are MISSING here - do not tell the user a repo is not onboarded on the strength of this list " +
+                "alone; the other tools still work on a repo you can name.",
             inputSchema: {},
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
@@ -177,6 +186,12 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 logger.info("list_apps");
                 try {
                     const result = await listRepos();
+                    if (result.unreadable.length > 0 && result.repos.length === 0) {
+                        return errorResult(unreadableOrgsMessage(result.unreadable));
+                    }
+                    if (result.unreadable.length > 0) {
+                        return jsonResult({ ...result, warning: unreadableOrgsMessage(result.unreadable) });
+                    }
                     return jsonResult(result);
                 } catch (err) {
                     return toToolResult(err);
@@ -190,7 +205,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             title: "Get preview deploy status",
             description:
                 "Per-service deploy status for a PR's preview environment: overall health, each service's " +
-                "status/endpoint/build outcome, and the latest build. Start here when a preview is broken.",
+                "status/endpoint/build outcome, and the latest build. Start here when a preview is broken. The " +
+                "status is what the last deploy recorded, not a live probe, so read `freshness`: `stale: true` " +
+                "means the deploy is old enough that a 'ready' here may describe a preview that no longer exists.",
             inputSchema: repoPrInput,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
@@ -201,7 +218,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                     const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
                     const summary = await tryPreviewSummary(applicationId, prNumber, organizationId);
                     if (summary == null) return noLiveEnvResult(repoFullName, prNumber);
-                    return jsonResult(summary);
+                    return jsonResult({ ...summary, freshness: summaryFreshness(summary) });
                 } catch (err) {
                     return toToolResult(err);
                 }
@@ -219,7 +236,9 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "exposed) - the entry carries a `reason`, so a service count higher than the number of URLs is " +
                 "expected, not a bug. Use the URLs to hit the deployed app directly. A preview that scaled to zero " +
                 "returns a 503 or times out on the first request while it wakes - retry after a few seconds before " +
-                "concluding the app is down.",
+                "concluding the app is down. These URLs are read from the last deploy's record and are not probed: " +
+                "`freshness.stale` means the deploy is old enough that they may no longer resolve at all (a 404 for " +
+                "an unknown host, as opposed to a cold start's 503).",
             inputSchema: repoPrInput,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
@@ -247,6 +266,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                         // is the primary app only in a single-app / full-stack project.
                         sdkUrl: derivePreviewSdkUrl(summary.sdkAppUrl ?? summary.primaryUrl, undefined),
                         endpoints,
+                        freshness: summaryFreshness(summary),
                     });
                 } catch (err) {
                     return toToolResult(err);
@@ -260,24 +280,29 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             title: "Get preview build logs",
             description:
                 "Build-log lines for a PR's preview. Previews are multi-service; omit `app` to get all services " +
-                "(the result's `services` field lists which produced output), or pass one service name to narrow. " +
-                "`from` picks the window: 'tail' (newest, default) for where a build failed, or 'head' for the start " +
-                "of the build. `filter` is a case-insensitive substring pre-filter. An empty `lines` with " +
-                "`available: true` means the window genuinely had no output. Logs persist ~30 days and remain " +
-                "readable after the preview is torn down - you can pull a past deploy's build logs even when " +
-                "get_deploy_status reports the environment is gone.",
+                "(the result's `services` field lists which produced output), or pass one service name to narrow - " +
+                "a name the preview does not have is an ERROR listing the real names, so an empty result is never " +
+                "a typo. `from` picks the window: 'tail' (newest, default) for where a build failed, or 'head' for " +
+                "the start of the build. `filter` is a case-insensitive substring pre-filter. An empty `lines` with " +
+                "`available: true` means the window genuinely had no output. The result is capped by BYTES as well " +
+                "as by `limit`, because one build-log line is a whole output chunk: when `truncated` is true, " +
+                "`dropped` says how many whole lines were cut and from which end, so narrow with `filter` or raise " +
+                "`maxBytes` rather than assuming you saw everything. One window can also span several build " +
+                "attempts. Logs persist ~30 days and remain readable after the preview is torn down - you can pull " +
+                "a past deploy's build logs even when get_deploy_status reports the environment is gone.",
             inputSchema: {
                 ...repoPrInput,
                 app: appNameSchema(),
                 limit: logLimitSchema(),
                 filter: logFilterSchema(),
                 from: logFromSchema(),
+                maxBytes: logMaxBytesSchema(),
             },
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        async ({ repoFullName, prNumber, app, limit, filter, from }) =>
+        async ({ repoFullName, prNumber, app, limit, filter, from, maxBytes }) =>
             analytics.track("get_build_logs", () =>
-                tailLogs("build", { repoFullName, prNumber, app, limit, filter, from }),
+                tailLogs("build", { repoFullName, prNumber, app, limit, filter, from, maxBytes }),
             ),
     );
 
@@ -288,23 +313,28 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             description:
                 "Runtime (stdout/stderr) log lines for a PR's preview. Previews are multi-service (e.g. 'web' + " +
                 "'db'); omit `app` to get all services (the result's `services` field lists which produced output), " +
-                "or pass one service name to narrow. `from` picks the window: 'tail' (newest, default) for a crash, " +
-                "or 'head' for startup. `filter` is a case-insensitive substring pre-filter. An empty `lines` with " +
-                "`available: true` means the window genuinely had no output. Use when a service built but errors at " +
-                "runtime. Like build logs, these persist ~30 days and remain readable after the preview is torn down, " +
-                "so they work for a post-mortem even when get_deploy_status reports no environment.",
+                "or pass one service name to narrow. A name the preview does not have is an ERROR listing the real " +
+                "names, so an empty result is never a typo. `from` picks the window: 'tail' (newest, default) for a " +
+                "crash, or 'head' for startup. `filter` is a case-insensitive substring pre-filter. An empty `lines` " +
+                "with `available: true` means the window genuinely had no output. The result is capped by BYTES as " +
+                "well as by `limit`: when `truncated` is true, `dropped` says how many whole lines were cut and from " +
+                "which end, so narrow with `filter` or raise `maxBytes` rather than assuming you saw everything. Use " +
+                "when a service built but errors at runtime. Like build logs, these persist ~30 days and remain " +
+                "readable after the preview is torn down, so they work for a post-mortem even when get_deploy_status " +
+                "reports no environment.",
             inputSchema: {
                 ...repoPrInput,
                 app: appNameSchema(),
                 limit: logLimitSchema(),
                 filter: logFilterSchema(),
                 from: logFromSchema(),
+                maxBytes: logMaxBytesSchema(),
             },
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        async ({ repoFullName, prNumber, app, limit, filter, from }) =>
+        async ({ repoFullName, prNumber, app, limit, filter, from, maxBytes }) =>
             analytics.track("get_app_logs", () =>
-                tailLogs("app", { repoFullName, prNumber, app, limit, filter, from }),
+                tailLogs("app", { repoFullName, prNumber, app, limit, filter, from, maxBytes }),
             ),
     );
 
@@ -317,8 +347,11 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "service's state, the latest build outcome, a rule-based failure classification, the " +
                 "config's env-key surface (never secret values), and error-shaped log lines. Also includes " +
                 "deterministic `findings` (categorized missing_env_var / user_setup / autonoma_error) you can trust " +
-                'as a starting point. `status: "ok"` means no failure was detected. Use when get_deploy_status shows ' +
-                "a failure and you want the full evidence in one call.",
+                'as a starting point. `status: "ok"` means no FAILURE was detected in what the last deploy recorded ' +
+                "- it is not a health check, and nothing here is probed live. `freshness.stale` says the last " +
+                'deploy is old enough that an "ok" may be describing a preview that has since been torn down, so ' +
+                "read it before reporting a preview healthy. Use when get_deploy_status shows a failure and you " +
+                "want the full evidence in one call.",
             inputSchema: repoPrInput,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
@@ -559,8 +592,10 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
         {
             title: "Set or remove a secret env var",
             description:
-                "Set (or, by omitting `value`, remove) the VALUE of a secret env var for one service of a PR's " +
-                "preview - an API key, token, password, or any variable whose value should not live in the repo. The " +
+                "Set (or, by omitting `value`, remove) the VALUE of a secret env var for one service - an API key, " +
+                "token, password, or any variable whose value should not live in the repo. Like the config, secrets " +
+                "are stored PER APPLICATION and per service, never per pull request: every environment gets this " +
+                "value, and `prNumber` names only which environment is rebuilt or restarted to pick it up. The " +
                 "value is stored encrypted and never returned. This is the fix for a missing env var. You do NOT say " +
                 "whether it's a build-time or runtime var: the tool reads your config and applies the minimal action " +
                 "itself - it rebuilds the service if the key is a declared build secret (the value is baked into the " +
@@ -605,16 +640,22 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
         {
             title: "Edit the preview config",
             description:
-                "Change the STRUCTURAL preview config for one service of a PR's preview: its build `path`, " +
-                "`dockerfile`, `port`, `healthCheck`, the env-var keys injected at build time (`buildSecrets`), or its " +
-                "topology `connections` (non-secret env wired to other services - values are templates like " +
-                '"{{db.url}}"). Only the fields you pass are changed; the rest are kept. Saves a new config revision ' +
-                "and, unless `apply` is false, rebuilds the service against it (pass apply:false to stage several " +
-                "edits, then apply the last). It never sets a secret VALUE - use set_secret for an API key, token, or " +
-                "password. This edits ONE existing service in place - to ADD or REMOVE a service (a database, a redis " +
-                "cache, a side-container) or an app, use get_config + apply_config instead. Rule of thumb: a secret " +
-                "value -> set_secret; how one service is built or wired -> here; reshape the preview -> apply_config. " +
-                "The rebuild is async - call wait_for_deploy(repoFullName, prNumber, app) afterward to block until it settles.",
+                "Change the STRUCTURAL preview config for one service: its build `path`, `dockerfile`, `port`, " +
+                "`healthCheck`, the env-var keys injected at build time (`buildSecrets`), or its topology " +
+                '`connections` (non-secret env wired to other services - values are templates like "{{db.url}}"). ' +
+                "Only the fields you pass are changed; the rest are kept. It never sets a secret VALUE - use " +
+                "set_secret for an API key, token, or password.\n\n" +
+                "THE CONFIG IS PER APPLICATION, NOT PER PULL REQUEST. The edit is saved to the application's one " +
+                "config document, which the base environment and every open pull request deploy from - so this " +
+                "changes main and every other PR too. Per-environment configuration is a known limitation and may " +
+                "come later; there is no way today to change how one PR's preview is built. `prNumber` names only " +
+                "which environment gets rebuilt with the saved edit (unless `apply` is false, which stages several " +
+                "edits to roll out on the last). If the user wanted a change scoped to their PR, say it is not " +
+                "possible instead of making it and calling it local.\n\n" +
+                "This edits ONE existing service in place - to ADD or REMOVE a service (a database, a redis cache, a " +
+                "side-container) or an app, use get_config + apply_config instead. Rule of thumb: a secret value -> " +
+                "set_secret; how one service is built or wired -> here; reshape the preview -> apply_config. The " +
+                "rebuild is async - call wait_for_deploy(repoFullName, prNumber, app) afterward to block until it settles.",
             inputSchema: {
                 ...repoPrInput,
                 app: requiredAppNameSchema(),
@@ -678,11 +719,14 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 "outcome - so after set_secret or edit_previewkit_config trigger a rebuild, you can wait here and " +
                 "then keep debugging. Pass the `app` you just changed to watch that service's rebuild (recommended); " +
                 "omit it to watch the whole environment (e.g. after a fresh deploy). It waits server-side up to ~45s " +
-                "per call; if it returns `settled: false` the deploy is still in progress - call it again to keep " +
-                "waiting. When `settled: true`, check `appStatus`/`status` (a *_failed status) and, if it failed, use " +
-                "get_build_logs / get_app_logs / diagnose_deploy to find out why. Each response also carries the " +
-                "last few log lines (`recentLogs`) from the phase-relevant stream, so you can see it is progressing " +
-                "(and, on failure, often the cause) without a separate log call.",
+                "per call and returns one of three `outcome`s. `deployed`: a deploy finished during the wait - check " +
+                "`appStatus`/`status` for a *_failed status and, if it failed, use get_build_logs / get_app_logs / " +
+                "diagnose_deploy to find out why. `idle`: nothing was deploying at all (the environment was already " +
+                "terminal and long untouched, see `lastChangedAt`) - STOP, calling again returns the same thing, and " +
+                "trigger a deploy first if you expected one. `in_progress`: the budget ran out with a deploy still " +
+                "running - call again to keep waiting. `settled` is false only for `in_progress`. Each response also " +
+                "carries the last few log lines (`recentLogs`) from the phase-relevant stream, so you can see it is " +
+                "progressing (and, on failure, often the cause) without a separate log call.",
             inputSchema: {
                 ...repoPrInput,
                 app: appNameSchema(),
@@ -838,6 +882,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             limit?: number;
             filter?: string;
             from?: "head" | "tail";
+            maxBytes?: number;
         },
     ) {
         logger.info(`get_${source}_logs`, { extra: { repoFullName: input.repoFullName, prNumber: input.prNumber } });
@@ -852,6 +897,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                 limit: input.limit ?? DEFAULT_LOG_LINES,
                 filter: input.filter,
                 from: input.from,
+                maxBytes: input.maxBytes ?? DEFAULT_LOG_BYTES,
             });
             if (result == null) {
                 return unavailableResult(
@@ -859,6 +905,7 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
                         `have deployed, or its logs have aged out (retained ~30 days).`,
                 );
             }
+            if (result.unknownService != null) return errorResult(unknownServiceMessage(result.unknownService));
             return jsonResult(result);
         } catch (err) {
             return toToolResult(err);
@@ -892,6 +939,27 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             return undefined;
         }
     }
+}
+
+/** How far a preview summary's recorded status can be trusted, from the age of its last deploy. */
+function summaryFreshness(summary: { status: string; deployedAt: Date | null }): DeployFreshness {
+    return deployFreshness({ status: summary.status, deployedAt: summary.deployedAt ?? undefined });
+}
+
+/**
+ * One message for a discovery listing that is missing organizations. Returned as
+ * an error when nothing could be listed at all, and as a `warning` alongside a
+ * partial list otherwise - because a short list that reads as complete is what
+ * makes an agent report a repo as not onboarded when it is.
+ */
+function unreadableOrgsMessage(unreadable: UnreadableOrganization[]): string {
+    const details = unreadable.map((entry) => `${entry.organization}: ${entry.reason}`).join("\n");
+    return (
+        `This list is INCOMPLETE - Autonoma could not read ${unreadable.length === 1 ? "an organization" : "some organizations"} ` +
+        `you belong to, so any repository they hold is missing from it:\n${details}\n` +
+        `Every other tool is keyed by repo name and still works on those repositories, so if you already know the ` +
+        `repo (e.g. from this checkout's git remote), use it rather than concluding it is not onboarded.`
+    );
 }
 
 function appNameSchema() {

@@ -303,6 +303,43 @@ integrationTestSuite({
             expect(loaded.document.services.map((s) => s.name)).toContain("to-delete-cache");
         });
 
+        test("apply_config's prNumber picks the redeploy, it does not scope the write", async ({
+            harness,
+            seedResult: { orgId, config },
+        }) => {
+            const appId = await harness.createApp(orgId);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, seedDocument());
+            const trigger = fakeRedeployer();
+            const service = new PreviewkitWriteService(config, fakeSecretWriter(), trigger);
+
+            const { document } = await service.getConfig(appId, orgId);
+            const [firstApp] = document.apps;
+            if (firstApp == null) throw new Error("seed document must have an app");
+            const prScopedService: PreviewConfig["services"][number] = {
+                name: "meant-for-one-pr",
+                recipe: "redis",
+                options: {},
+                setup_tasks: [],
+                resources: firstApp.resources,
+            };
+
+            await service.applyConfig({
+                applicationId: appId,
+                repoFullName: REPO_FULL_NAME,
+                prNumber: PR_NUMBER,
+                document: { ...document, services: [...document.services, prScopedService] },
+                apply: true,
+                organizationId: orgId,
+            });
+
+            // Read back the way every other environment resolves its config - by application,
+            // with no PR anywhere - and the "PR-scoped" service is there. There is one document
+            // per application, so a write made while debugging one PR is the whole app's.
+            const applicationConfig = await service.getConfig(appId, orgId);
+            expect(applicationConfig.document.services.map((service) => service.name)).toContain("meant-for-one-pr");
+        });
+
         test("apply_config with apply:false saves but does not deploy", async ({
             harness,
             seedResult: { orgId, config },

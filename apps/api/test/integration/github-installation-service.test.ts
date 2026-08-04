@@ -146,8 +146,9 @@ apiTestSuite({
                 data: { githubRepositoryId: 2001 },
             });
 
-            const repos = await harness.services.github.listRepositories(harness.organizationId);
+            const { repos, unavailable } = await harness.services.github.listRepositories(harness.organizationId);
             expect(repos).toHaveLength(2);
+            expect(unavailable).toBeUndefined();
 
             const linkedRepo = repos.find((r) => r.id === 2001);
             expect(linkedRepo?.applicationId).toBe(app.id);
@@ -156,9 +157,13 @@ apiTestSuite({
             expect(unlinkedRepo?.applicationId).toBeUndefined();
         });
 
-        test("listRepositories returns empty array when no installation", async ({ harness }) => {
-            const repos = await harness.services.github.listRepositories("nonexistent-org-id");
-            expect(repos).toEqual([]);
+        test("listRepositories reports an empty, complete list when the org has no installation", async ({
+            harness,
+        }) => {
+            const listing = await harness.services.github.listRepositories("nonexistent-org-id");
+            // An org that connected nothing HAS no repositories - that is an answer, not a
+            // failed read, so callers must not warn that the list might be short.
+            expect(listing).toEqual({ repos: [] });
         });
 
         test("linkRepository sets githubRepositoryId on application", async ({

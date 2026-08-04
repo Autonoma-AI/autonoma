@@ -1,19 +1,34 @@
 import type { PrismaClient } from "@autonoma/db";
 import { Prisma } from "@autonoma/db";
 import { ConflictError, NotFoundError } from "@autonoma/errors";
-import type {
-    Commit,
-    GitHubApp,
-    ListPullRequestsResult,
-    PullRequest,
-    PullRequestCommit,
-    Repository,
+import {
+    type Commit,
+    type GitHubApp,
+    GitHubInstallationUnavailableError,
+    type ListPullRequestsResult,
+    type PullRequest,
+    type PullRequestCommit,
+    type Repository,
 } from "@autonoma/github";
 import { Service } from "../routes/service";
 
 export interface ListedRepository extends Repository {
     applicationId: string | undefined;
     applicationName: string | undefined;
+}
+
+/**
+ * One organization's installation repositories, or why they could not be read.
+ *
+ * The listing used to degrade to a bare `[]` on any GitHub failure, which every
+ * caller then rendered as "this org has no repositories" - a short list that
+ * looks complete. `unavailable` makes the difference representable, so a caller
+ * can say the list is incomplete instead of quietly dropping repos the user owns.
+ */
+export interface RepositoryListing {
+    repos: ListedRepository[];
+    /** Set when the installation could not be read: `repos` is empty and is NOT the org's real repository set. */
+    unavailable?: string;
 }
 
 /** Bound for the GitHub repo listing - a stale/uninstalled app can hang the token mint. */
@@ -317,13 +332,22 @@ export class GitHubInstallationService extends Service {
         return commit;
     }
 
-    async listRepositories(orgId: string): Promise<ListedRepository[]> {
+    /**
+     * The repositories this org's GitHub App installation can see, each tagged with
+     * the Autonoma application it is linked to. Never throws: a missing or broken
+     * installation comes back as an empty list with `unavailable` explaining why, so
+     * a caller can tell "no repositories" from "we could not look".
+     */
+    async listRepositories(orgId: string): Promise<RepositoryListing> {
         this.logger.info("Listing repositories", { orgId });
 
         const installation = await this.db.gitHubInstallation.findUnique({
             where: { organizationId: orgId },
         });
-        if (installation == null) return [];
+        // No installation means the org connected no repositories, and unlinking one clears
+        // every application's repo id with it - so an empty list here is the complete answer,
+        // not a failed read. `unavailable` is reserved for GitHub refusing to tell us.
+        if (installation == null) return { repos: [] };
 
         try {
             const repos = await withTimeout(
@@ -347,20 +371,22 @@ export class GitHubInstallationService extends Service {
                 linkedApps.map((app) => [app.githubRepositoryId!, { id: app.id, name: app.name }]),
             );
 
-            return repos.map((repo) => {
-                const linkedApp = appByRepoId.get(repo.id);
-                return {
-                    ...repo,
-                    applicationId: linkedApp?.id,
-                    applicationName: linkedApp?.name,
-                };
-            });
+            return {
+                repos: repos.map((repo) => {
+                    const linkedApp = appByRepoId.get(repo.id);
+                    return {
+                        ...repo,
+                        applicationId: linkedApp?.id,
+                        applicationName: linkedApp?.name,
+                    };
+                }),
+            };
         } catch (err) {
             this.logger.warn("Failed to list installation repositories - installation may be stale or uninstalled", {
                 installationId: installation.installationId,
                 error: err instanceof Error ? err.message : String(err),
             });
-            return [];
+            return { repos: [], unavailable: describeListingFailure(err) };
         }
     }
 
@@ -491,8 +517,29 @@ export class GitHubInstallationService extends Service {
             where: { organizationId: orgId },
         });
 
-        if (installation == null) throw new NotFoundError("No GitHub installation found");
+        if (installation == null) {
+            throw new NotFoundError(
+                "This organization has no GitHub App installation on record, so Autonoma cannot reach its " +
+                    "repositories. Install the Autonoma GitHub App on the organization and retry.",
+            );
+        }
 
         return this.githubApp.getInstallationClient(installation.installationId);
     }
+}
+
+/**
+ * A reason a caller can act on for a failed repository listing. A revoked or
+ * uninstalled app already carries one; anything else (a timeout, a GitHub
+ * outage) gets a generic line rather than a raw Octokit message, which names an
+ * endpoint the reader has no way to connect to their situation.
+ */
+function describeListingFailure(err: unknown): string {
+    if (err instanceof GitHubInstallationUnavailableError) return err.message;
+    const detail = err instanceof Error ? err.message : String(err);
+    return (
+        `Autonoma could not read this organization's repositories from GitHub, so its repository list is ` +
+        `incomplete: ${detail}. This is usually transient - retry shortly. If it persists, check the Autonoma ` +
+        `GitHub App is still installed on the organization at https://github.com/settings/installations.`
+    );
 }

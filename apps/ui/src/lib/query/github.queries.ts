@@ -33,6 +33,9 @@ export function useGithubRepositories() {
     // focus refetch actually fire rather than serve a still-fresh cache.
     return useSuspenseQuery({
         ...trpc.github.listRepositories.queryOptions(),
+        // The listing also reports when GitHub could not be read at all; the repo
+        // pickers only render repositories, so they take the list.
+        select: (listing) => listing.repos,
         staleTime: GITHUB_REPOSITORY_REFRESH_STALE_TIME_MS,
         refetchOnWindowFocus: true,
     });
