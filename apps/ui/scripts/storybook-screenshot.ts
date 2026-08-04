@@ -24,6 +24,8 @@ interface CliOptions {
     viewport: { width: number; height: number };
     fullPage: boolean;
     settleMs: number;
+    /** CSS selector to hover before capturing, for states that only exist under a pointer. */
+    hover?: string;
     allowUnmocked: boolean;
 }
 
@@ -81,6 +83,11 @@ async function shootStory(
         await page.goto(url, { waitUntil: "networkidle" });
         await page.addStyleTag({ content: DISABLE_MOTION_CSS });
         await page.evaluate(() => document.fonts.ready);
+        // A real pointer, not a synthetic one: tooltips and other hover-only states are driven
+        // by pointer events that testing-library's `hover` does not reproduce faithfully.
+        if (options.hover != null) {
+            await page.hover(options.hover);
+        }
         await page.waitForTimeout(options.settleMs);
 
         const file = path.join(options.outDir, `${storyId}.png`);
@@ -101,6 +108,7 @@ function parseCliOptions(): CliOptions {
             viewport: { type: "string" },
             "full-page": { type: "boolean" },
             "settle-ms": { type: "string" },
+            hover: { type: "string" },
             "allow-unmocked": { type: "boolean" },
         },
     });
@@ -119,6 +127,7 @@ function parseCliOptions(): CliOptions {
         viewport: parseViewport(values.viewport),
         fullPage: values["full-page"] ?? false,
         settleMs: values["settle-ms"] != null ? Number(values["settle-ms"]) : DEFAULT_SETTLE_MS,
+        hover: values.hover,
         allowUnmocked: values["allow-unmocked"] ?? false,
     };
 }

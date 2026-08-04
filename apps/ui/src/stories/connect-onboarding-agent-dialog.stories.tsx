@@ -8,6 +8,7 @@ import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { AGENT_INSTRUCTIONS } from "lib/onboarding/agent-instructions";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import type { RouterOutputs } from "lib/trpc";
+import { userEvent, within } from "storybook/test";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
 
@@ -61,5 +62,33 @@ export const DryRunStep: Story = {
         deployed SDK without saving them, and fix the SDK handler in your repo.
       </>
     ),
+  },
+};
+
+/**
+ * The remote-agent tab: the one client that cannot complete OAuth, so the block carries a
+ * credential instead. The key is masked here and on screen everywhere - it is created and
+ * substituted only when the block is copied.
+ */
+export const RemoteAgent: Story = {
+  args: SdkStep.args,
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await userEvent.click(await screen.findByRole("tab", { name: /remote agent/i }));
+  },
+};
+
+/**
+ * The remote-agent tab's hint, open. The label alone cannot say why a separate path exists,
+ * and the answer is the list of agents that land on it.
+ */
+export const RemoteAgentTooltip: Story = { args: SdkStep.args };
+
+/** The Codex tab, which reaches the remote server through the mcp-remote bridge. */
+export const Codex: Story = {
+  args: SdkStep.args,
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await userEvent.click(await screen.findByRole("tab", { name: /codex/i }));
   },
 };

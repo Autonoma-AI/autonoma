@@ -164,3 +164,5 @@ Roughly 25 images across the whole docs site, over half of them zoomed crops or 
 | P9, P13, P14 | Config stepper, finish-fork card, add-app dialog on `preview-environments/index.md` | The overview now points at the agent path in prose; revisit whether it also needs its own images |
 | E1 | Dry run **after** a run, with per-scenario results | Results live in component state behind a mutation, so it needs a `play` function. Feasible - `finish-setup-sdk.stories.tsx` now has a working `play` to copy - but a mixed pass/fail row set needs the tRPC handler to vary by input |
 | E4 | Scenarios → Webhook calls tab | Route needs 7+ fixtures |
+
+| `/img/mcp/remote-agent-tab.png` | `components-connectonboardingagentdialog--remote-agent` | 1120x900, trimmed then padded 30px to `#0a0a0a` | The Remote agent tab, which is where a browserless agent gets its credential. Re-shoot when the tab strip or that block changes. |

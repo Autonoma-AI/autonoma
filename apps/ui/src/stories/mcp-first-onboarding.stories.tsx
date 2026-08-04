@@ -4,6 +4,7 @@ import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import type { RouterOutputs } from "lib/trpc";
 import { ConnectionCube } from "../routes/_blacklight/onboarding/-components/previewkit/mcp-first-config-view";
+import { userEvent, within } from "storybook/test";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
 
@@ -97,4 +98,16 @@ export const ConnectedCube: StoryObj<typeof ConnectionCube> = {
       </div>
     </div>
   ),
+};
+
+/**
+ * The same onboarding screen on its Remote agent tab. The connect UI is one shared component,
+ * so the tab reaches every surface that offers an agent - this is the one a user meets first.
+ */
+export const WaitingRemoteAgent: Story = {
+  ...Waiting,
+  play: async ({ canvasElement }) => {
+    const screen = within(canvasElement.ownerDocument.body);
+    await userEvent.click(await screen.findByRole("tab", { name: /remote agent/i }));
+  },
 };

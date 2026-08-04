@@ -32,6 +32,8 @@ Still setting Autonoma up? Use the [onboarding MCP](/mcp/configure-preview) inst
 
 The OAuth flow needs a browser. Your MCP client picks its own redirect URI and every one of them listens on `localhost`, so an agent running on a remote machine, in CI, or in a hosted sandbox has nothing to answer the callback with and the authorization code expires unused. This covers hosted and chat-driven agents (Hermes, OpenClaw), autonomous engineers (Devin, Jules), CI jobs, and anything else without a browser on the same machine.
 
+**If you are one of those agents:** use the **Remote agent** tab on Autonoma's connect screen. It is the configuration built for you - one block carrying the endpoint, an API key, and the instruction to start on. And whatever tab a user copied from, the block already ends with the same fallback in a comment, so a browser sign-in you cannot complete is never a dead end: take the `Authorization: Bearer` header from the comment and carry on.
+
 > **If you found this page through `llms.txt` or the `.well-known/ai-catalog.json` file**, you are already in the right place. Use the [connection details](#connection-details) with an API key bearer token — no browser needed.
 
 For those, send an Autonoma API key as a plain bearer token and skip OAuth entirely:
@@ -51,7 +53,11 @@ npx -y mcp-remote https://api.autonoma.app/v1/mcp/debug \
   --header "Authorization: Bearer ${AUTONOMA_API_KEY}"
 ```
 
-Create a key under **Settings → API keys**. The same key works for the onboarding MCP, the REST API, and the planner CLI.
+You do not have to create one by hand. Every "connect a coding agent" panel in Autonoma has a **Remote agent** tab, and copying its block creates a key and puts it in what you copied. The key is never displayed, so nothing leaks to a screenshot or a screen share; revoke it under **Settings → API keys** when the agent is done with it.
+
+The other tabs carry the same key too, as a trailing comment you do not see on screen. That is deliberate: the tab you pick says which client you run, not which machine it runs on, so a Codex command copied to a machine you SSH into still authenticates rather than stalling on a sign-in nobody can complete.
+
+The same key works for the onboarding MCP, the REST API, and the planner CLI.
 
 :::note
 An API key belongs to one organization, and over MCP it can only reach that organization - even if you belong to several. An OAuth token is scoped to you rather than to one org, so it resolves the organization per call from the repository a tool names. If a key seems unable to see a repo, check it was created in the organization that owns it.
@@ -73,6 +79,13 @@ claude mcp login autonoma
 `--scope user` registers the server for every project; the default (`--scope local`) binds it to the directory you ran the command in, which is the usual reason the Autonoma tools turn out to be missing in the repo you actually work in.
 
 `claude mcp login` opens a browser to sign in. Approve it there - until you do, every Autonoma tool fails. Run `claude mcp list` to confirm it connected.
+
+With no browser on the machine, drop the `login` line entirely and register an [API key](#headless-agents-and-ci) as a header - there is no sign-in left to complete:
+
+```bash
+claude mcp add --transport http --scope user autonoma https://api.autonoma.app/v1/mcp/debug \
+  --header "Authorization: Bearer $AUTONOMA_API_KEY"
+```
 
 :::caution
 **If you are a Claude Code session reading this:** do not run these commands. `claude mcp add` writes a config file you never reload, so you would report success and then find no Autonoma tools. Ask the user to run them in their own terminal, and tell them they will need to restart you afterwards.
@@ -97,7 +110,18 @@ Add the server to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` in your pr
 }
 ```
 
-Reload Cursor, then complete the browser sign-in when prompted from **Settings → MCP**.
+Reload Cursor, then complete the browser sign-in when prompted from **Settings → MCP**. To skip that sign-in, add an [API key](#headless-agents-and-ci) as a header on the server:
+
+```json
+{
+  "mcpServers": {
+    "autonoma": {
+      "url": "https://api.autonoma.app/v1/mcp/debug",
+      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
+    }
+  }
+}
+```
 
 </TabItem>
 
@@ -136,7 +160,18 @@ Add the server to `~/.codeium/windsurf/mcp_config.json`:
 }
 ```
 
-Refresh MCP servers from Cascade's settings, then complete the browser sign-in.
+Refresh MCP servers from Cascade's settings, then complete the browser sign-in. To skip that sign-in, add an [API key](#headless-agents-and-ci) as a header alongside `serverUrl`:
+
+```json
+{
+  "mcpServers": {
+    "autonoma": {
+      "serverUrl": "https://api.autonoma.app/v1/mcp/debug",
+      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
+    }
+  }
+}
+```
 
 </TabItem>
 
@@ -149,6 +184,15 @@ Codex reaches remote servers through the `mcp-remote` bridge, which also handles
 [mcp_servers.autonoma]
 command = "npx"
 args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/debug"]
+```
+
+With no browser to complete that flow, pass an [API key](#headless-agents-and-ci) through the bridge instead:
+
+```toml
+# ~/.codex/config.toml
+[mcp_servers.autonoma]
+command = "npx"
+args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/debug", "--header", "Authorization: Bearer ${AUTONOMA_API_KEY}"]
 ```
 
 </TabItem>
