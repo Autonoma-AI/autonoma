@@ -13,11 +13,9 @@ export const env = createEnv({
         GITHUB_APP_PRIVATE_KEY: base64PrivateKey,
         GITHUB_APP_WEBHOOK_SECRET: z.string().min(1),
         GITHUB_APP_SLUG: z.string().min(1),
-        // Merged analysis pipeline (classifier re-homed from the investigation worker). Kept OPTIONAL so a
-        // deployment with the analysis kill switch thrown still boots; createModelSession throws a clear error if
-        // the classifier key is missing, failing the analysis run rather than the whole worker.
-        // The native-OpenAI classifier key (injected into the model session). The OpenRouter/Gemini/Groq keys are
-        // read by @autonoma/ai from its own env (smart-visual runs via OpenRouter).
+        // The native-OpenAI key the analysis model session is built from. OPTIONAL so the worker still boots
+        // without it: createModelSession throws at call time instead, failing one analysis run rather than the
+        // whole worker. The OpenRouter/Gemini/Groq keys are read by @autonoma/ai from its own env.
         OPENAI_API_KEY: z.string().min(1).optional(),
         INVESTIGATION_CLASSIFIER_MODEL: z.string().default("gpt-5.6-luna"),
         // The `analyze_video` model, overridable so a bad video model can be reverted (e.g. to

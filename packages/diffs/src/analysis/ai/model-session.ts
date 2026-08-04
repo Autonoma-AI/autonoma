@@ -22,8 +22,10 @@ import {
  *   provider because it fails structured output through OpenRouter).
  * - `reporter`: the Reporter agent's model - it must BOTH read screenshots (vision) AND reason across
  *   findings/issues/time, so it sits at a stronger native OpenAI gpt-5.6 tier.
+ * - `impact`: the Impact Analysis selector (`DiffsAgent`) - a text-only codebase-exploration loop over the diff
+ *   and the suite, deciding which tests the run investigates at all. Native OpenAI, like the classifier.
  */
-export type InvestigationModelName = "smart-video" | "classifier" | "reporter";
+export type InvestigationModelName = "smart-video" | "classifier" | "reporter" | "impact";
 
 export interface InvestigationModelConfig {
     openaiApiKey: string;
@@ -31,6 +33,8 @@ export interface InvestigationModelConfig {
     classifierModelId?: string;
     /** Override the Reporter model id (default gpt-5.6-terra - the stronger vision+reasoning tier). */
     reporterModelId?: string;
+    /** Override the Impact Analysis model id (default gpt-5.6-luna). */
+    impactModelId?: string;
     /** Override the `analyze_video` model id (default minimax/minimax-m3), to revert without a code change. */
     videoModelId?: string;
 }
@@ -49,17 +53,18 @@ export interface ModelSession {
 type OpenAIProvider = ReturnType<typeof createOpenAI>;
 
 /**
- * One native-OpenAI classifier model, bundling the two things that vary per model: how to instantiate it
+ * One native-OpenAI model, bundling the two things that vary per model: how to instantiate it
  * (Responses API vs Chat Completions) and its published pricing - the same way @autonoma/ai's {@link ModelEntry}
  * keeps createModel and pricing together so they can never drift apart.
  */
-interface ClassifierModel {
+interface NativeOpenAIModel {
     createModel: (openai: OpenAIProvider) => LanguageModel;
     pricing: CostFunction;
 }
 
 const DEFAULT_CLASSIFIER_MODEL = "gpt-5.6-luna";
 const DEFAULT_REPORTER_MODEL = "gpt-5.6-terra";
+const DEFAULT_IMPACT_MODEL = "gpt-5.6-luna";
 const DEFAULT_VIDEO_MODEL = "minimax/minimax-m3";
 
 /**
@@ -75,9 +80,9 @@ const VIDEO_MODELS: Record<string, ModelEntry> = {
 /**
  * Native-OpenAI models, keyed by id. Each entry declares its API surface and pricing together; add
  * an entry (or update its rate) when a model is swapped in or its published price changes. Prices are USD per
- * 1M tokens. Shared by the `classifier` and `reporter` capability keys, which each resolve one id from here.
+ * 1M tokens. Every native-OpenAI capability key resolves one id from here.
  */
-const CLASSIFIER_MODELS: Record<string, ClassifierModel> = {
+const NATIVE_OPENAI_MODELS: Record<string, NativeOpenAIModel> = {
     "gpt-5.5": {
         createModel: (openai) => openai.chat("gpt-5.5"),
         pricing: inputCacheCostFunction({ inputCostPerM: 5, cachedInputCostPerM: 0.5, outputCostPerM: 30 }),
@@ -94,8 +99,8 @@ const CLASSIFIER_MODELS: Record<string, ClassifierModel> = {
 
 /**
  * Open a metered model session. Reuses @autonoma/ai's ModelRegistry (providers, middleware, monitoring,
- * cost tracking) for the shared OpenRouter-routed vision models, and registers a LOCAL native-OpenAI entry
- * for the gpt-5.6-luna classifier (investigation-specific, so it stays out of the shared registry). The OpenAI
+ * cost tracking) for the shared OpenRouter-routed vision models, and registers LOCAL native-OpenAI entries
+ * for the reasoning capabilities (analysis-specific, so they stay out of the shared registry). The OpenAI
  * key is injected; OpenRouter/Gemini/Groq keys are read by @autonoma/ai from its own env.
  */
 export function openModelSession(config: InvestigationModelConfig): ModelSession {
@@ -106,12 +111,14 @@ export function openModelSession(config: InvestigationModelConfig): ModelSession
         "classifier",
     );
     const reporterEntry = resolveNativeEntry(openai, config.reporterModelId ?? DEFAULT_REPORTER_MODEL, "reporter");
+    const impactEntry = resolveNativeEntry(openai, config.impactModelId ?? DEFAULT_IMPACT_MODEL, "impact");
 
     const registry = new ModelRegistry<InvestigationModelName>({
         models: {
             "smart-video": resolveVideoEntry(config.videoModelId ?? DEFAULT_VIDEO_MODEL),
             classifier: classifierEntry,
             reporter: reporterEntry,
+            impact: impactEntry,
         },
     });
     const costCollector = new CostCollector();
@@ -125,10 +132,10 @@ export function openModelSession(config: InvestigationModelConfig): ModelSession
 
 /** Resolve one native-OpenAI capability key to a {@link ModelEntry}, throwing a clear error on an unknown id. */
 function resolveNativeEntry(openai: OpenAIProvider, modelId: string, capability: string): ModelEntry {
-    const model = CLASSIFIER_MODELS[modelId];
+    const model = NATIVE_OPENAI_MODELS[modelId];
     if (!model) {
         throw new Error(
-            `Unknown ${capability} model id "${modelId}". Valid ids: ${Object.keys(CLASSIFIER_MODELS).join(", ")}`,
+            `Unknown ${capability} model id "${modelId}". Valid ids: ${Object.keys(NATIVE_OPENAI_MODELS).join(", ")}`,
         );
     }
     return {

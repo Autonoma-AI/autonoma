@@ -12,9 +12,8 @@ const COMPACTION_KEEP_RECENT_TOOL_RESULTS = 2;
 /**
  * The compaction policy every long-running agent in this package shares.
  *
- * One definition rather than a copy per agent: the three that use it (classifier, Reporter, healing) are meant
- * to behave identically here, and three copies of a pair of magic numbers drift the moment one is tuned in
- * isolation - silently, since nothing fails when they disagree.
+ * One definition rather than a copy per agent: they are meant to behave identically here, and copies of a pair
+ * of magic numbers drift the moment one is tuned in isolation - silently, since nothing fails when they disagree.
  */
 export function sharedCompactor(): AgentConfig<unknown>["compactor"] {
     return {

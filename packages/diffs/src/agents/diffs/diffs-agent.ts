@@ -7,6 +7,7 @@ import { PLAN_AUTHORING_GUIDE } from "../../healing";
 import { readPrChangedFiles, readPrCommitSubjects } from "../../pr-range";
 import type { ScenarioIndex } from "../../scenario-index";
 import type { ScenarioRecipeData } from "../../scenario-recipe";
+import { sharedCompactor } from "../compaction";
 import {
     buildCodebaseTools,
     ListFlowsTool,
@@ -158,6 +159,7 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
             systemPrompt: SYSTEM_PROMPT,
             tools,
             reportTool: this.resultTool,
+            compactor: sharedCompactor(),
             codebase: input.codebase,
             flowIndex: input.flowIndex,
             existingTests: input.existingTests,

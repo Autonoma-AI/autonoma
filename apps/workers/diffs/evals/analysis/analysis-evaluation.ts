@@ -1,7 +1,8 @@
-import { DiffsAgent, openModelSession, summarizeSessionCost } from "@autonoma/diffs";
+import { DiffsAgent, summarizeSessionCost } from "@autonoma/diffs";
 import { Evaluation, type LoadedCase, type RunCaseHelpers } from "@autonoma/evals";
 import { logger as rootLogger } from "@autonoma/logger";
 import { expect } from "vitest";
+import { createModelSession } from "../../src/services";
 import { type CodebaseCoords, DiffsJudge, ensureCachedCheckout, UnfetchableShaError } from "../framework";
 import { type AnalysisFrontmatter, checkAnalysisResult } from "./analysis-frontmatter";
 import { type AnalysisCaseInput, rehydrateAnalysisInput } from "./analysis-input";
@@ -68,8 +69,8 @@ export class AnalysisEvaluation extends Evaluation<AnalysisCase> {
 
         const codebase = await this.rehydrateCodebase(coords, helpers, testCase.name);
 
-        const session = openModelSession();
-        const model = session.getModel({ model: "smart-visual", tag: "analysis-impact" });
+        const session = createModelSession();
+        const model = session.getModel({ model: "impact", tag: "analysis-impact" });
         const agent = new DiffsAgent({ model });
 
         this.logger.info("Running diffs agent for eval case", { extra: { case: testCase.name } });
