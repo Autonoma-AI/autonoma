@@ -14,8 +14,20 @@ const LABEL_ORGANIZATION = "previewkit.dev/organization";
 const LABEL_GATEKEEPER_MANAGED = "gatekeeper.dev/managed";
 const ANN_GATEKEEPER_ROUTES = "gatekeeper.dev/routes";
 const ANN_GATEKEEPER_IDLE_TIMEOUT = "gatekeeper.dev/idle-timeout";
+// Workload-level (not namespace-level): Gatekeeper's sleep stamps each managed
+// workload's replica count here before scaling it to zero, and its wake reads
+// it back (missing/invalid means 1). Deployer.sleepWorkloads applies the same
+// patch so a previewkit-initiated sleep stays wakeable.
+const ANN_GATEKEEPER_WAKE_REPLICAS = "gatekeeper.dev/wake-replicas";
 
-export { LABEL_GATEKEEPER_MANAGED, LABEL_MANAGED_BY, LABEL_ORGANIZATION, LABEL_PR_NUMBER, LABEL_REPO };
+export {
+    ANN_GATEKEEPER_WAKE_REPLICAS,
+    LABEL_GATEKEEPER_MANAGED,
+    LABEL_MANAGED_BY,
+    LABEL_ORGANIZATION,
+    LABEL_PR_NUMBER,
+    LABEL_REPO,
+};
 
 /** One Gatekeeper route target: the in-namespace Service serving a hostname. */
 export interface GatekeeperRoute {

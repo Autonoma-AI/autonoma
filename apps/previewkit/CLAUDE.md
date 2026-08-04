@@ -80,10 +80,19 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 - `env.ts` - all env vars (`createEnv`); extends `@autonoma/logger/env`.
 - `pipeline/preview-pipeline.ts` - the deploy steps the runner drives (`prepare` / `build` /
   `deployEnvironment` / `finalize` / `fail` / `restartApp`), per-app build loop (`buildOneApp`),
-  final-outcome computation, PR-comment payload. A deploy can die before step 6 writes the per-app
+  final-outcome computation, PR-comment payload. Previews are ALL-OR-NOTHING: `build` throws when
+  any app is skipped (unresolvable dependency branch) or any build fails, and `deployEnvironment`
+  throws unless every app comes up - a `ready` environment always means 100% of its apps are
+  serving, and anything less is a `failed` deploy (which also blocks the diffs trigger and every
+  other agent run, since those gate on full readiness). A deploy can die before step 6 writes the per-app
   terminal states (a failed pre-deploy hook or setup task is the common case), so `fail` also calls
   `failInFlightApps` - an app row left `built`/`deploying` under a `failed` environment reads as
-  "still building" in every rollup that treats the app rows as the source of truth. A failed
+  "still building" in every rollup that treats the app rows as the source of truth. `fail` also
+  scales the namespace's previewkit-managed workloads to zero (`Deployer.sleepWorkloads`, the same
+  wake-replicas merge patch Gatekeeper's idle sleep applies): a failed environment gets no traffic,
+  and one that failed before the Gatekeeper handoff is not Gatekeeper-managed, so its infra pods
+  would otherwise run until the PR closes. Nothing is deleted - PVCs, Services, Secrets and the
+  namespace stay, and a Gatekeeper wake or the next deploy restores the workloads. A failed
   POST-deploy hook stays non-fatal but is returned as a PR-comment warning instead of vanishing
   into Sentry.
 - `builder/` - image builds. `builder.ts` (interfaces: `Builder`, `BuildRequest`, `BuildResult`,
@@ -109,7 +118,9 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
   event's repo); `resolve-target-branch.ts` + `resolve-dependency-checkout.ts` pick each repo's
   branch/commit (convention, else its `repositories[]` `fallback_branch`), and
   `enrich-repository-shas.ts` stamps the deployed `sha` per repo onto `resolvedConfig`. A repo with
-  no resolvable branch skips its apps (recorded `skipped`) instead of failing the deploy. Two
+  no resolvable branch records its apps `skipped` (with the reason) and then FAILS the full deploy
+  before any image builds - previews are all-or-nothing, so an app that can never come up makes the
+  preview unpublishable. Two
   independent secret read paths:
     - **Build-time values** go through `secrets/build-secret-source.ts` (`build_secrets:`
       build args). Postgres only - there is no AWS fallback here, so a

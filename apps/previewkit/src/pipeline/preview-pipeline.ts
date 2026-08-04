@@ -308,8 +308,9 @@ export class PreviewPipeline {
     /**
      * Step 2 - resolve config, clone primary + dependency repos, merge configs,
      * snapshot the resolved config, and build every app image to ECR. Temp dirs
-     * are cloned and torn down entirely within this step. Throws when every
-     * build fails.
+     * are cloned and torn down entirely within this step. Previews are
+     * all-or-nothing, so a full deploy throws when any app is skipped (its
+     * repository has no resolvable branch) or any build fails.
      */
     async build(
         event: PullRequestEvent,
@@ -419,10 +420,10 @@ export class PreviewPipeline {
                 new Map(dependencyEntries.map((entry) => [entry.plan.repo, entry.sha])),
             );
             // Apps whose repository has no resolvable branch cannot build or
-            // deploy this round: they are recorded `skipped`, excluded from the
-            // build set, and - having no image - the deployer skips them too.
-            // Their hooks are skipped in deployEnvironment, and the readiness
-            // rollup counts them as not ready.
+            // deploy this round: they are recorded `skipped` with the reason.
+            // A full deploy then fails fast below - a preview is all-or-nothing,
+            // and an app that can never come up makes it unpublishable - while a
+            // scoped rebuild fails only when the target itself is skipped.
             const skippedRepos = new Set(skippedPlans.map((plan) => plan.repo.toLowerCase()));
             const skipReasonByRepo = new Map(
                 skippedPlans.map((plan) => [
@@ -480,6 +481,14 @@ export class PreviewPipeline {
                             })),
                         ),
                     );
+                    // No partial previews: an app that can never come up makes the
+                    // preview unpublishable, so fail now - before any image builds
+                    // or infra spend. The rows above keep each reason queryable.
+                    const reasons = skippedApps
+                        .map((a) => skippedAppReasons[a.name])
+                        .filter((reason) => reason != null)
+                        .join("; ");
+                    throw new Error(`Preview cannot be complete: ${reasons}`);
                 }
             }
             logger.info("Build step 4/6 enriched config + snapshotted + seeded app rows", {
@@ -552,7 +561,10 @@ export class PreviewPipeline {
             for (const [name, outcome] of Object.entries(appBuilds)) {
                 if (outcome.status === "success") imageTags[name] = outcome.imageTag;
             }
-            const allBuildsFailed = Object.values(appBuilds).every((o) => o.status === "failed");
+            const failedBuildApps = Object.entries(appBuilds)
+                .filter(([, outcome]) => outcome.status === "failed")
+                .map(([name]) => name);
+            const anyBuildFailed = failedBuildApps.length > 0;
             logger.info("Build step 5/6 finished building images for all apps", {
                 repo: repoFullName,
                 pr: prNumber,
@@ -570,7 +582,7 @@ export class PreviewPipeline {
                 repo: repoFullName,
                 pr: prNumber,
                 namespace,
-                allBuildsFailed,
+                failedBuildApps,
             });
             // Skip the env-level build row when scoped: PreviewkitBuild is keyed
             // by (environment, headSha) and already exists for this env from the
@@ -581,10 +593,10 @@ export class PreviewPipeline {
                     recordBuildFinished({
                         namespace,
                         headSha,
-                        status: allBuildsFailed ? "failed" : "building",
+                        status: anyBuildFailed ? "failed" : "building",
                         durationMs: buildDurationMs,
                         appBuilds,
-                        error: allBuildsFailed ? "All app builds failed" : undefined,
+                        error: anyBuildFailed ? `App builds failed: ${failedBuildApps.join(", ")}` : undefined,
                     }),
                 );
             }
@@ -602,11 +614,15 @@ export class PreviewPipeline {
                 namespace,
             });
 
-            // A per-app rebuild never fails the whole environment: a failed target
-            // build is recorded on its instance row and the deploy step records
-            // its terminal state. Only a full deploy throws when every app failed.
-            if (allBuildsFailed && !isScoped) {
-                throw new Error("All app builds failed; see per-app build outcomes for details");
+            // No partial previews: one failed build fails the whole deploy (the
+            // per-app rows above carry each verdict, so nothing is lost). A
+            // per-app rebuild still never fails the environment - its target's
+            // failure is recorded on the instance row instead.
+            if (anyBuildFailed && !isScoped) {
+                throw new Error(
+                    `App builds failed: ${failedBuildApps.join(", ")}; ` +
+                        "a preview deploys only when every app builds - see per-app build outcomes for details",
+                );
             }
 
             logger.info("Build phase complete", {
@@ -659,7 +675,8 @@ export class PreviewPipeline {
     /**
      * Step 3 - deploy infra, run pre-deploy hooks, deploy apps wave-by-wave, run
      * post-deploy hooks, restart crash-looped apps, and mark the env ready. Returns
-     * flat, comment-ready result rows. Throws when no app comes up.
+     * flat, comment-ready result rows. Previews are all-or-nothing: throws unless
+     * every app comes up, so a returned result is always fully ready.
      */
     async deployEnvironment(
         input: DeployPreviewEnvironmentInput,
@@ -873,8 +890,17 @@ export class PreviewPipeline {
         });
 
         signal?.throwIfAborted();
-        if (readyCount === 0) {
-            throw new Error(`No apps deployed successfully (0/${totalCount}); see per-app outcomes for details`);
+        // No partial previews: every app must be ready or the deploy fails as a
+        // whole - the failure finalizer then marks the environment failed and
+        // scales its workloads to zero. The per-app terminal states are already
+        // persisted above, so each app's own verdict survives the throw.
+        if (readyCount < totalCount) {
+            const notReadyApps = finalOutcomes.filter((o) => o.status !== "ok").map((o) => o.name);
+            throw new Error(
+                `Preview environment incomplete: ${readyCount}/${totalCount} apps ready (not ready: ` +
+                    `${notReadyApps.join(", ")}); a preview is only published when every app is ready - ` +
+                    "see per-app outcomes for details",
+            );
         }
 
         logger.info("Deploy step 7/7 marking environment ready", {
@@ -1314,13 +1340,28 @@ export class PreviewPipeline {
         // step 6 writes the per-app terminal states (a failed pre-deploy hook or
         // database setup task is the common case): an app row left in flight keeps
         // the status rollups reading the environment as building.
+        // Alongside them, the namespace's workloads are scaled to zero: a failed
+        // environment gets no traffic to justify its pods, and one that failed
+        // before the Gatekeeper handoff is not Gatekeeper-managed, so its infra
+        // pods would otherwise run until the PR closes. The sleep uses the same
+        // wake-replicas patch as Gatekeeper's own idle loop, so a wake request or
+        // the next deploy restores everything - nothing is deleted.
         await Promise.all([
             this.deployer
                 .updateStatus(repoFullName, prNumber, { status: "failed", phase: "failed", error })
                 .catch((e) => logger.error("Failed to record failed status", e)),
             recordSafe(() => recordPhaseChanged({ namespace, status: "failed", phase: "failed", error })),
             recordSafe(() => failInFlightApps(namespace, error)),
+            this.deployer
+                .sleepWorkloads(namespace)
+                .catch((e) => logger.error("Failed to scale failed environment's workloads to zero", e, { namespace })),
         ]);
+        // The failure reason goes into the log stream itself, so a log tail (the
+        // MCP get_build_logs / wait_for_deploy recentLogs, and the dashboard
+        // viewer) ends with WHY - not just a bare "failed" marker. The fail-fast
+        // paths (a skipped app, a partial build/deploy) otherwise leave a stream
+        // whose last lines are a sibling's successful output.
+        void this.logSink?.append(namespace, { kind: "log", message: `Deploy failed: ${error}` });
         void this.logSink?.append(namespace, { kind: "status", message: "failed" });
         void this.logSink?.seal(namespace);
         logger.info("Fail step 1/3 recorded failed status", { repo: repoFullName, pr: prNumber, namespace });

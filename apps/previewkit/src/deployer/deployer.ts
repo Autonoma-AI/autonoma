@@ -11,7 +11,13 @@ import type { RuntimeSecrets } from "../secrets/runtime-secrets";
 import { EnvInjector } from "./env-injector";
 import { mirrorDockerHubImage } from "./image-mirror";
 import { isConflict, isNotFound } from "./k8s-errors";
-import { type GatekeeperRoute, NamespaceManager, type NamespaceAnnotations } from "./namespace-manager";
+import {
+    ANN_GATEKEEPER_WAKE_REPLICAS,
+    type GatekeeperRoute,
+    LABEL_MANAGED_BY,
+    NamespaceManager,
+    type NamespaceAnnotations,
+} from "./namespace-manager";
 import { buildNetworkPolicies } from "./network-policy-factory";
 import { findTerminalPodFailure, summarizePodStates } from "./pod-failure";
 import { PostgresRestorer } from "./postgres-restorer";
@@ -52,6 +58,14 @@ export interface DeployResult {
     urls: Record<string, string>;
     appOutcomes: Record<string, AppDeployOutcome>;
     bypassToken: string;
+}
+
+/** One workload sleepWorkloads scales to zero, with its kind-specific patch call. */
+interface SleepTarget {
+    kind: "Deployment" | "StatefulSet";
+    name: string;
+    replicas: number;
+    patch: (body: object) => Promise<unknown>;
 }
 
 /**
@@ -249,18 +263,22 @@ export class Deployer {
 
         // 7. Deploy apps wave by wave; apps within each wave are deployed in parallel.
         //    Each app is its own failure domain — one app's failure (build skip
-        //    or K8s apply error) does not stop other apps from deploying. Wave
-        //    ordering is preserved purely as a hint: depends_on still controls
-        //    *when* an app is attempted, but a downstream app is attempted even
-        //    if its upstream failed (the user prefers a partial preview over
-        //    none — see the per-app independence design discussion).
+        //    or K8s apply error) does not stop other apps from deploying, so a
+        //    single run surfaces every app's verdict instead of just the first
+        //    failure. Previews are still all-or-nothing: the pipeline fails the
+        //    deploy unless every app comes up (see deployEnvironment's readiness
+        //    guard). Wave ordering is preserved purely as a hint: depends_on
+        //    controls *when* an app is attempted, but a downstream app is
+        //    attempted even if its upstream failed, for the same diagnostics.
         return { namespace, secretsByApp, bypassToken };
     }
 
     /**
      * Phase 2: deploy app images wave by wave. Accepts the `InfraDeployResult`
      * from `deployInfra`. Each app is its own failure domain — one app's
-     * failure (build skip or K8s apply error) does not stop other apps.
+     * failure (build skip or K8s apply error) does not stop other apps, so one
+     * run reports every app's verdict; the pipeline then fails the deploy
+     * unless all of them are ready.
      */
     async deployApps(opts: DeployOptions, infraResult: InfraDeployResult): Promise<DeployResult> {
         const { repoFullName, prNumber, headSha, config, imageTags } = opts;
@@ -489,6 +507,91 @@ export class Deployer {
                 });
             }
         }
+    }
+
+    /**
+     * Scales every previewkit-managed workload (Deployments + StatefulSets) in
+     * the namespace to zero, recording each one's replica count on the
+     * gatekeeper.dev/wake-replicas annotation first - the same merge patch the
+     * central Gatekeeper's idle sleep applies - so a request through Gatekeeper
+     * wakes them back to their saved counts, and the next deploy's apply
+     * restores them regardless. The failure finalizer calls this: a failed
+     * environment gets no traffic to justify its pods, and one that failed
+     * before the Gatekeeper handoff is not Gatekeeper-managed at all, so
+     * without this its infra pods would run until the PR closes. Nothing else
+     * is touched - PVCs, Services, Secrets and the namespace all stay.
+     * Best-effort per workload: a failed patch is logged and never stops the
+     * rest.
+     */
+    async sleepWorkloads(namespace: string): Promise<void> {
+        const labelSelector = `${LABEL_MANAGED_BY}=previewkit`;
+        logger.info("Scaling namespace workloads to zero", { namespace });
+        const mergePatch = k8s.setHeaderOptions("Content-Type", k8s.PatchStrategy.MergePatch);
+        const [deployments, statefulSets] = await Promise.all([
+            this.appsApi.listNamespacedDeployment({ namespace, labelSelector }),
+            this.appsApi.listNamespacedStatefulSet({ namespace, labelSelector }),
+        ]);
+
+        // An absent spec.replicas means the Kubernetes default of 1, never 0 -
+        // the same reading Gatekeeper applies before its own sleep.
+        const targets: SleepTarget[] = [
+            ...deployments.items.flatMap((dep): SleepTarget[] => {
+                const name = dep.metadata?.name;
+                if (name == null) return [];
+                return [
+                    {
+                        kind: "Deployment",
+                        name,
+                        replicas: dep.spec?.replicas ?? 1,
+                        patch: (body) => this.appsApi.patchNamespacedDeployment({ name, namespace, body }, mergePatch),
+                    },
+                ];
+            }),
+            ...statefulSets.items.flatMap((sts): SleepTarget[] => {
+                const name = sts.metadata?.name;
+                if (name == null) return [];
+                return [
+                    {
+                        kind: "StatefulSet",
+                        name,
+                        replicas: sts.spec?.replicas ?? 1,
+                        patch: (body) => this.appsApi.patchNamespacedStatefulSet({ name, namespace, body }, mergePatch),
+                    },
+                ];
+            }),
+        ];
+
+        // The patches are independent, so they run concurrently; each failure is
+        // logged and never stops a sibling's scale-down.
+        const running = targets.filter((target) => target.replicas > 0);
+        const outcomes = await Promise.all(
+            running.map(async (target) => {
+                const body = {
+                    metadata: { annotations: { [ANN_GATEKEEPER_WAKE_REPLICAS]: String(target.replicas) } },
+                    spec: { replicas: 0 },
+                };
+                try {
+                    await target.patch(body);
+                    logger.info("Scaled workload to zero", {
+                        namespace,
+                        kind: target.kind,
+                        name: target.name,
+                        wakeReplicas: target.replicas,
+                    });
+                    return true;
+                } catch (err) {
+                    logger.warn("Failed to scale workload to zero", {
+                        namespace,
+                        kind: target.kind,
+                        name: target.name,
+                        err,
+                    });
+                    return false;
+                }
+            }),
+        );
+        const scaled = outcomes.filter((ok) => ok).length;
+        logger.info("Finished scaling namespace workloads to zero", { namespace, scaled, managed: targets.length });
     }
 
     async teardown(repoFullName: string, prNumber: number): Promise<void> {

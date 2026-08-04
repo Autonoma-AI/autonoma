@@ -27,7 +27,7 @@ Every app from the same connected repository shares it.
 
 For the repository you open pull requests against, the answer is obvious: the pull request's own branch. For a connected repository it isn't - the pull request's branch usually doesn't exist there. **Branch matching** is the single rule that decides which branch of every connected repository Autonoma builds for a given pull request.
 
-If the branch it picks doesn't exist in the connected repository, Autonoma always falls back to that repository's **fallback branch**, so a preview never fails just because a connected repository has no matching branch.
+If the branch it picks doesn't exist in the connected repository, Autonoma always falls back to that repository's **fallback branch**, so a preview never fails just because a connected repository has no matching branch. If the fallback branch doesn't exist either, the deploy fails: previews are all-or-nothing, and an app whose source can't be resolved can never come up.
 
 | Branch matching | For a PR on branch `feature/x`, a connected repository builds... |
 | --- | --- |

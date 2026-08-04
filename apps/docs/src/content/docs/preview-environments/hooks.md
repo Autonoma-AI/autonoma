@@ -26,7 +26,8 @@ not save without it.
 A pre-deploy hook runs before the apps start. A post-deploy hook runs once **its own** app is ready -
 not once every app is. Two things follow that are easy to get wrong:
 
-- A post-deploy hook whose app never came up is **skipped silently**.
+- A post-deploy hook whose app never came up is **skipped silently** (the deploy itself then fails,
+  since a preview only publishes when every app is ready).
 - A failing post-deploy hook does **not** fail the deploy. It is reported as a warning on the PR
   comment and the preview is still published, so a smoke test here will not gate anything.
 

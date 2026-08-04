@@ -743,7 +743,7 @@ integrationTestSuite({
             expect(env!.urls).toEqual({ web: "https://web-new", api: "https://api" });
         });
 
-        test("recordAppRedeployOutcome drops a failed app's url but keeps the env ready via siblings", async ({
+        test("recordAppRedeployOutcome drops a failed app's url and degrades the env to failed", async ({
             harness,
         }) => {
             const organizationId = await harness.createInstallationForOwner("acme");
@@ -775,9 +775,11 @@ integrationTestSuite({
             });
 
             const env = await harness.db.previewkitEnvironment.findUnique({ where: { namespace: ns } });
-            // web's url is removed; api remains and keeps the env ready.
+            // web's url is removed; api's survives, but previews are
+            // all-or-nothing, so one failed app degrades the whole env.
             expect(env!.urls).toEqual({ api: "https://api" });
-            expect(env!.status).toBe("ready");
+            expect(env!.status).toBe("failed");
+            expect(env!.error).toContain("web: CrashLoopBackOff");
 
             const web = await harness.db.previewkitAppInstance.findFirstOrThrow({ where: { appName: "web" } });
             expect(web.status).toBe("deploy_failed");

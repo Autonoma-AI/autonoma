@@ -49,6 +49,7 @@ function createPipeline() {
             bypassToken: "bypass-token",
         }),
         updateStatus: vi.fn().mockResolvedValue(undefined),
+        sleepWorkloads: vi.fn().mockResolvedValue(undefined),
         getNamespaceName: vi.fn().mockReturnValue(namespace),
         getDomain: vi.fn().mockReturnValue("preview.example.com"),
         getSecret: vi.fn().mockReturnValue("secret"),
@@ -137,6 +138,43 @@ describe("PreviewPipeline deploy hook failures", () => {
         // The tail of the hook log carries the actual reason, collapsed onto one line.
         expect(result.warnings[0]).toContain("migration 003 failed: relation exists");
         expect(result.warnings[0]).not.toContain("\n");
+    });
+
+    it("fails the deploy when only some apps come up (previews are all-or-nothing)", async () => {
+        const { pipeline, deployer } = createPipeline();
+        deployer.deployApps.mockResolvedValue({
+            namespace,
+            urls: { web: "https://web.preview", api: "https://api.preview" },
+            appOutcomes: {
+                web: { status: "ok", url: "https://web.preview" },
+                api: { status: "failed", url: "https://api.preview", error: "readiness timeout" },
+            },
+            bypassToken: "bypass-token",
+        });
+
+        const input: DeployPreviewEnvironmentInput = {
+            ...deployInput({ pre_deploy: [], post_deploy: [] }),
+            mergedConfigJson: JSON.stringify({
+                version: 2,
+                apps: [
+                    { name: "web", repository: "acme/web", port: 3000 },
+                    { name: "api", repository: "acme/web", port: 4000 },
+                ],
+                services: [],
+                hooks: { pre_deploy: [], post_deploy: [] },
+            }),
+            imageTags: {
+                web: "registry.example.com/acme/web:web",
+                api: "registry.example.com/acme/web:api",
+            },
+            buildOutcomes: {
+                web: { status: "success", imageTag: "registry.example.com/acme/web:web", durationMs: 1 },
+                api: { status: "success", imageTag: "registry.example.com/acme/web:api", durationMs: 1 },
+            },
+        };
+
+        await expect(pipeline.deployEnvironment(input)).rejects.toThrow(/1\/2 apps ready \(not ready: api\)/);
+        expect(recordEnvironmentReady).not.toHaveBeenCalled();
     });
 
     it("leaves no app row in flight after a failed deploy", async () => {

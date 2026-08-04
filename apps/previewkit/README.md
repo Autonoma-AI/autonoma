@@ -43,7 +43,9 @@ On PR close, the entire namespace is deleted.
 
 Previewkit deploys from the Application's **preview config** - a `PreviewkitConfig` row holding the preview config document, authored from the Autonoma dashboard (e.g. the PreviewKit onboarding topology builder). The config is latest-only: there is one row per Application, overwritten in place on every save (no revision history), and every deploy and redeploy resolves the current document. An Application with no config opts out: its pull requests are skipped.
 
-The document carries the whole topology: every app names the repository it builds from (`apps[].repository`, an `owner/repo` full name - mandatory even for single-repo projects). Any repository other than the Application's own is a **multirepo dependency**: it is cloned for source at the branch the branch convention resolves to, but is not a separate Application. A dependency repo whose branch cannot be resolved skips its apps (recorded as `skipped` rows) rather than failing the deploy.
+The document carries the whole topology: every app names the repository it builds from (`apps[].repository`, an `owner/repo` full name - mandatory even for single-repo projects). Any repository other than the Application's own is a **multirepo dependency**: it is cloned for source at the branch the branch convention resolves to, but is not a separate Application. A dependency repo whose branch cannot be resolved (neither the convention branch nor its `fallback_branch` exists) records its apps as `skipped` rows and fails the deploy - previews are all-or-nothing, and an app that can never come up makes the preview unpublishable.
+
+Previews are **all-or-nothing**: a deploy succeeds only when every app in the topology builds and becomes ready. One failed build or one app that never passes readiness fails the whole deploy - the environment is marked `failed`, its workloads are scaled to zero, and the PR comment reports which apps failed. There is no partially-ready state, so a `ready` preview (and anything that consumes one, like an Autonoma review) always means the complete topology is serving.
 
 ## Config document
 
@@ -521,6 +523,12 @@ label and routes by the `gatekeeper.dev/routes` annotation, so no per-app Ingres
 Namespace annotations also store state (comment ID, last deployed SHA) so the service is stateless.
 
 On PR close, the entire namespace is deleted, cascading to all resources.
+
+When a deploy fails, the namespace is kept (so logs, data, and the next push's redeploy all still
+have somewhere to land) but its previewkit-managed workloads are scaled to zero immediately using
+the same `gatekeeper.dev/wake-replicas` patch the central Gatekeeper's idle sleep applies - a
+failed environment does not hold compute while it waits for a fix. PVCs, Services, and Secrets are
+untouched, and a Gatekeeper wake or the next deploy restores the workloads.
 
 ## Deploying Previewkit
 

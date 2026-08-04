@@ -497,23 +497,22 @@ export async function recordAppRedeployOutcome(namespace: string, update: AppSta
         }
 
         // Recompute the env status from every app row (after this app's write).
-        // Mirrors the full deploy's "partial success still counts as ready"
-        // semantics: ready iff at least one app is ready; only an all-down
-        // environment is `failed`.
+        // Mirrors the full deploy's all-or-nothing semantics: ready iff EVERY
+        // app is ready. A redeploy that leaves one app down degrades the whole
+        // environment to `failed`, so nothing downstream (readiness rollups,
+        // agent-run gates) can read a partially-serving env as ready.
         const instances = await tx.previewkitAppInstance.findMany({
             where: { environmentId: envRow.id },
             select: { appName: true, status: true, error: true },
         });
-        const anyReady = instances.some((i) => i.status === "ready");
-        const status: PreviewkitStatus = anyReady ? "ready" : "failed";
+        const allReady = instances.every((i) => i.status === "ready");
+        const status: PreviewkitStatus = allReady ? "ready" : "failed";
 
         // A `failed` env must always carry an error per the status-API contract.
         // Writing `undefined` here leaves the prior value untouched, so a once-healthy
         // env could go `failed` with a stale/empty error. Derive one from the failed
         // app rows (or this app's own error) so the failure is never silent.
-        const failureError = anyReady
-            ? null
-            : (deriveEnvError(instances) ?? update.error ?? "All apps failed to deploy");
+        const failureError = allReady ? null : (deriveEnvError(instances) ?? update.error ?? "Not every app is ready");
 
         await tx.previewkitEnvironment.update({
             where: { id: envRow.id },
