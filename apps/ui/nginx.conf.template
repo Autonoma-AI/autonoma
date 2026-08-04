@@ -23,10 +23,14 @@ server {
         add_header Link '</.well-known/ai-catalog.json>; rel="ai-catalog"; type="application/json"' always;
     }
 
-    # The service worker must never be cached hard, or clients get pinned to an
-    # old precache manifest and never see new deploys.
+    # We no longer ship a service worker, but a browser that registered the old one
+    # still polls this path, and a registration only goes away if the update fetch
+    # 404s. Without this it would hit the SPA fallback below and get 200 text/html,
+    # which fails the update as a MIME error and leaves the stale worker installed -
+    # serving a precache of assets this deploy has already deleted. Keep the 404
+    # until old registrations can be assumed gone.
     location = /sw.js {
-        add_header Cache-Control "no-cache";
+        return 404;
     }
 
     # DO NOT rely on this /v1/ same-origin proxy from application code. Frontend

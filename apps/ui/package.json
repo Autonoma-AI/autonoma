@@ -67,7 +67,6 @@
         "tsx": "catalog:",
         "typescript": "catalog:",
         "vite": "^8.0.16",
-        "vite-plugin-pwa": "^1.3.0",
         "vite-tsconfig-paths": "^6.1.1",
         "vitest": "catalog:"
     }

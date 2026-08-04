@@ -4,7 +4,6 @@ import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
-import { VitePWA } from "vite-plugin-pwa";
 import tsconfigPaths from "vite-tsconfig-paths";
 
 function readApiPort(): string {
@@ -69,16 +68,6 @@ export default defineConfig({
             },
         }),
         tsconfigPaths(),
-        // The PWA is being retired. We previously shipped an autoUpdate service
-        // worker, so users who already loaded the app have one registered. Simply
-        // dropping the plugin would leave that stale worker in place, pinning them
-        // to an old cached build. `selfDestroying` ships a service worker (at the
-        // same /sw.js path the browser already polls) that unregisters itself and
-        // clears its caches on the next visit. Once this has propagated to clients,
-        // the plugin and this block should be removed entirely in a follow-up.
-        VitePWA({
-            selfDestroying: true,
-        }),
     ],
     envDir: path.resolve(import.meta.dirname, "..", ".."),
     build: {
