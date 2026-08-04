@@ -42,6 +42,7 @@ import {
   ONBOARDING_AGENT_DIALOG_DESCRIPTION,
 } from "components/connect-onboarding-agent-dialog";
 import { NameTheMcpNote } from "components/name-the-mcp-note";
+import { NoVercelDeploymentsNotice } from "components/no-vercel-deployments-notice";
 import { useAuth } from "lib/auth";
 import { type DryRunOutcome, formatDryRunError } from "lib/format-dry-run-error";
 import { AGENT_INSTRUCTIONS } from "lib/onboarding/agent-instructions";
@@ -651,7 +652,15 @@ function formatVercelDeploymentLabel(deployment: {
  */
 function VercelSdkValidationSection({ applicationId, selectedTargetId, onSelectTarget }: SdkStepProps) {
   const { data: state } = useOnboardingState(applicationId);
-  const { data: deployments, isLoading, refetch: refetchDeployments } = useVercelDeployments(applicationId);
+  const {
+    data: deployments,
+    isLoading,
+    isFetching,
+    error,
+    refetch: refetchDeployments,
+  } = useVercelDeployments(applicationId);
+  // Cached - SdkStepBody already read it to route to this Vercel body.
+  const { data: projects } = useAvailableVercelProjects(applicationId);
   const discover = useDiscoverVercelDeploymentTarget();
   // A Vercel deployment IS the dry-run target (its id is the target id), so the
   // selection is the shared target owned by FinishSetupSteps - the dry-run step
@@ -726,9 +735,13 @@ function VercelSdkValidationSection({ applicationId, selectedTargetId, onSelectT
         {isLoading ? (
           <p className="text-sm text-text-secondary">Loading deployments...</p>
         ) : !hasDeployments ? (
-          <p className="text-sm text-text-secondary">
-            No ready deployments found yet for this project. Deploy your SDK branch on Vercel and it will appear here.
-          </p>
+          <NoVercelDeploymentsNotice
+            projectName={projects?.linkedProject?.name}
+            errorMessage={error?.message}
+            isChecking={isFetching}
+            onCheckAgain={() => void refetchDeployments()}
+            hint="Deploy the branch that has your SDK endpoint - that is the build this validation needs."
+          />
         ) : (
           <Select
             value={selectedDeploymentId ?? ""}

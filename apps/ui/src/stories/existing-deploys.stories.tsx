@@ -40,15 +40,15 @@ const deployments: RouterOutputs["onboarding"]["listVercelDeployments"] = [
 ];
 
 /**
- * The mid-build state: the redeploy returned a new deployment id and the
- * readiness poll keeps answering BUILDING, so the page stays in the wait state
- * the story is here to show.
+ * A linked Vercel project whose redeploy keeps answering BUILDING, so any story
+ * that picks a deployment stays in the wait state. Pass `[]` for the blocked
+ * case where the project has no READY deployment to pick in the first place.
  */
-function buildingFixtures(): TrpcFixtures {
+function vercelFixtures(readyDeployments = deployments): TrpcFixtures {
   return {
     onboarding: {
       listAvailableVercelProjects: linkedProjects,
-      listVercelDeployments: deployments,
+      listVercelDeployments: readyDeployments,
       // No signal accepted yet - this is what used to make the preview-status
       // panel read "no deployment selected" while the build was running.
       getDeploymentSignalStatus: {},
@@ -133,7 +133,36 @@ type Story = StoryObj<typeof meta>;
 /** A linked project with deployments to choose from, before anything is picked. */
 export const DeploymentPicker: Story = {
   args: { appId: APP_ID, initialProvider: "vercel" },
-  parameters: { msw: { handlers: [trpcHandler(buildingFixtures())] } },
+  parameters: { msw: { handlers: [trpcHandler(vercelFixtures())] } },
+};
+
+/**
+ * The linked project has no READY deployment, so the picker can't be shown at
+ * all - the step is blocked until a build finishes, which is what the red notice
+ * says (and why it carries the retry).
+ */
+export const NoReadyDeployments: Story = {
+  args: { appId: APP_ID, initialProvider: "vercel" },
+  parameters: { msw: { handlers: [trpcHandler(vercelFixtures([]))] } },
+};
+
+/**
+ * The deployment list can't be read at all - a linked project whose Marketplace
+ * token was revoked answers this way for every deployment call. The picker shows
+ * the failure, and the gate below has to agree with it rather than tell the user
+ * to pick from a list that isn't there.
+ */
+export const DeploymentsUnavailable: Story = {
+  args: { appId: APP_ID, initialProvider: "vercel" },
+  parameters: {
+    msw: {
+      handlers: [
+        trpcHandler(vercelFixtures([]), {
+          "onboarding.listVercelDeployments": "Vercel installation has no access token",
+        }),
+      ],
+    },
+  },
 };
 
 /**
@@ -143,7 +172,7 @@ export const DeploymentPicker: Story = {
  */
 export const BuildingPreview: Story = {
   args: { appId: APP_ID, initialProvider: "vercel" },
-  parameters: { msw: { handlers: [trpcHandler(buildingFixtures())] } },
+  parameters: { msw: { handlers: [trpcHandler(vercelFixtures())] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const picker = await canvas.findByRole("combobox", { name: /Select a deployment/ }, { timeout: 10_000 });

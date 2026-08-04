@@ -18,6 +18,7 @@ import { PlugsIcon } from "@phosphor-icons/react/Plugs";
 import { SealCheckIcon } from "@phosphor-icons/react/SealCheck";
 import { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { NoVercelDeploymentsNotice } from "components/no-vercel-deployments-notice";
 import { formatDate } from "lib/format";
 import {
   useAvailableVercelProjects,
@@ -80,6 +81,19 @@ export function ExistingDeploysPage({
   // the wait, having never set the secret or committed the workflow.
   const canContinue = selectedProvider === "vercel" ? vercelProjectLinked && previewUrlSet : previewUrlSet;
   const isBuildingPreview = !previewUrlSet && buildPhase != null;
+  // Shares the picker's query (same key), so the gate below can stop telling the
+  // user to select a deployment when the picker is showing a blocker instead.
+  const deploymentsQuery = useVercelDeployments(appId ?? "", selectedProvider === "vercel" && vercelProjectLinked);
+  const hasNoDeployments = deploymentsQuery.data?.length === 0;
+  const deploymentsLoadFailed = deploymentsQuery.isError;
+  const gateState: GateState = {
+    provider: selectedProvider,
+    previewUrlSet,
+    isBuildingPreview,
+    vercelProjectLinked,
+    hasNoDeployments,
+    deploymentsLoadFailed,
+  };
 
   function goToVerify() {
     void navigate({ to: "/onboarding", search: buildOnboardingSearch("deploy-verify", appId) });
@@ -191,9 +205,7 @@ export function ExistingDeploysPage({
             </div>
           ) : (
             <p className="mt-3 text-sm text-text-secondary">
-              {isBuildingPreview
-                ? "Waiting for the redeployed preview to finish building."
-                : "Select a deployment above to use as the onboarding preview target."}
+              {previewStatusDetail({ isBuildingPreview, hasNoDeployments, deploymentsLoadFailed })}
             </p>
           )}
         </section>
@@ -211,13 +223,11 @@ export function ExistingDeploysPage({
             <BrailleSpinner animation="orbit" size="sm" className="mt-1 shrink-0 text-primary-ink" />
           )}
           <div className="min-w-0">
-            <p className="text-sm font-medium text-text-primary">
-              {gateHeadline(selectedProvider, previewUrlSet, isBuildingPreview, vercelProjectLinked)}
-            </p>
+            <p className="text-sm font-medium text-text-primary">{gateHeadline(gateState)}</p>
             <p className="mt-0.5 max-w-2xl truncate text-2xs text-text-secondary">
               {previewUrlSet && signalStatusQuery.data?.previewUrl != null
                 ? signalStatusQuery.data.previewUrl
-                : gateDetail(selectedProvider, isBuildingPreview, vercelProjectLinked)}
+                : gateDetail(gateState)}
             </p>
           </div>
         </div>
@@ -239,34 +249,64 @@ export function ExistingDeploysPage({
   );
 }
 
+interface GateState {
+  provider: OnboardingSignalProvider;
+  previewUrlSet: boolean;
+  isBuildingPreview: boolean;
+  vercelProjectLinked: boolean;
+  /** The linked Vercel project answered with an empty deployment list. */
+  hasNoDeployments: boolean;
+  /** The deployment list could not be read at all, so the picker is showing the failure. */
+  deploymentsLoadFailed: boolean;
+}
+
 /** The one-line state of the gate, shown in the sticky bar. */
-function gateHeadline(
-  provider: OnboardingSignalProvider,
-  previewUrlSet: boolean,
-  isBuildingPreview: boolean,
-  vercelProjectLinked: boolean,
-): string {
+function gateHeadline({
+  provider,
+  previewUrlSet,
+  isBuildingPreview,
+  vercelProjectLinked,
+  hasNoDeployments,
+  deploymentsLoadFailed,
+}: GateState): string {
   if (previewUrlSet) return provider === "vercel" ? "Deployment selected" : "Signal received";
   if (provider === "vercel") {
     if (!vercelProjectLinked) return "Link a Vercel project";
-    return isBuildingPreview ? "Building your preview" : "Select a deployment";
+    if (isBuildingPreview) return "Building your preview";
+    if (deploymentsLoadFailed) return "Couldn't load deployments";
+    return hasNoDeployments ? "No deployment to select" : "Select a deployment";
   }
   return "Waiting for your first signal";
 }
 
 /** The supporting line under {@link gateHeadline}; replaced by the preview URL once one exists. */
-function gateDetail(
-  provider: OnboardingSignalProvider,
-  isBuildingPreview: boolean,
-  vercelProjectLinked: boolean,
-): string {
+function gateDetail({
+  provider,
+  isBuildingPreview,
+  vercelProjectLinked,
+  hasNoDeployments,
+  deploymentsLoadFailed,
+}: GateState): string {
   if (provider === "vercel") {
     if (!vercelProjectLinked) return "Continue unlocks once a project is linked and a deployment picked.";
-    return isBuildingPreview
-      ? "This unlocks as soon as your preview finishes building."
-      : "Pick a deployment above to use as the onboarding preview target.";
+    if (isBuildingPreview) return "This unlocks as soon as your preview finishes building.";
+    if (deploymentsLoadFailed) return "Autonoma couldn't read this project's deployments - retry with Check again.";
+    if (hasNoDeployments) return "Deploy the project on Vercel first - the first finished build becomes the target.";
+    return "Pick a deployment above to use as the onboarding preview target.";
   }
   return "Nothing has reached the deployment signal endpoint yet - this updates on its own, no need to refresh.";
+}
+
+/** The Vercel preview-status panel's supporting line while no deployment has been picked. */
+function previewStatusDetail({
+  isBuildingPreview,
+  hasNoDeployments,
+  deploymentsLoadFailed,
+}: Pick<GateState, "isBuildingPreview" | "hasNoDeployments" | "deploymentsLoadFailed">): string {
+  if (isBuildingPreview) return "Waiting for the redeployed preview to finish building.";
+  if (deploymentsLoadFailed) return "Autonoma couldn't read this project's deployments - retry with Check again above.";
+  if (hasNoDeployments) return "Deploy the project on Vercel - the first finished build becomes the preview target.";
+  return "Select a deployment above to use as the onboarding preview target.";
 }
 
 function VercelConnectSection({ appId }: { appId: string }) {
@@ -388,7 +428,10 @@ function VercelDeploymentPickerSection({
   appId: string;
   onPhaseChange: (phase: BuildPhase | undefined) => void;
 }) {
-  const { data: deployments, isLoading } = useVercelDeployments(appId);
+  const { data: deployments, isLoading, isFetching, error, refetch } = useVercelDeployments(appId);
+  // Served from the cache the parent already filled - only used to name the
+  // project in the empty state.
+  const { data: projects } = useAvailableVercelProjects(appId);
   const redeploy = useRedeployVercelDeployment();
   const selectDeployment = useSelectVercelDeployment();
   const [selectedDeploymentId, setSelectedDeploymentId] = useState<string | undefined>(undefined);
@@ -439,7 +482,13 @@ function VercelDeploymentPickerSection({
       {isLoading ? (
         <p className="mt-4 text-sm text-text-secondary">Loading deployments...</p>
       ) : deployments == null || deployments.length === 0 ? (
-        <p className="mt-4 text-sm text-text-secondary">No ready deployments found yet for this project.</p>
+        <NoVercelDeploymentsNotice
+          className="mt-4"
+          projectName={projects?.linkedProject?.name}
+          errorMessage={error?.message}
+          isChecking={isFetching}
+          onCheckAgain={() => void refetch()}
+        />
       ) : (
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <div className="min-w-80">

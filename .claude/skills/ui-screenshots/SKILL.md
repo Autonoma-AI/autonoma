@@ -74,7 +74,19 @@ aws s3 presign "s3://autonoma-assets/pr-ui-previews/pr-<PR_NUMBER>/pages-mypage-
   --expires-in 604800 --region us-east-1
 ```
 
-Links live 7 days (presign max); the objects themselves are auto-deleted after 30 days by a lifecycle rule on the `pr-ui-previews/` prefix. Both are fine - screenshots matter at review time, and GitHub's image proxy caches them.
+**`--expires-in 604800` is a ceiling, not a promise: the URL dies with the role session that signed it - about an hour here.** SSO presigns carry an `ASIA...` key id and an `X-Amz-Security-Token`, and once that session lapses the object answers `400 ExpiredToken`. The trap is that this is invisible locally: the CLI silently refreshes the session, so `aws sts get-caller-identity` and fresh uploads keep working long after every URL you already handed out went dead. Only long-lived IAM user keys get the full 7 days.
+
+**GitHub's image proxy is what makes this survivable, but only if it fetches while the URL is still valid.** Rendering rewrites each image to `camo.githubusercontent.com/<hash>/<hex-encoded-url>`, and camo caches a successful fetch for a year (`cache-control: public, max-age=31536000`). Nobody has to open the PR in that first hour - **you** warm it, immediately after editing the body:
+
+```bash
+gh api repos/<org>/<repo>/pulls/<PR_NUMBER> -H "Accept: application/vnd.github.html+json" --jq '.body_html' \
+  | grep -o '<img src="https://camo[^"]*"' | sed 's/<img src="//; s/"$//' \
+  | while read -r u; do curl -s -o /dev/null -w '%{http_code} %{content_type}\n' "$u"; done
+```
+
+Every line must be `200 image/png`; re-fetch one with `-D -` and look for `x-cache: HIT` to confirm the bytes are cached. **Skip this and the screenshots die within the hour** - camo's first fetch then lands on the expired URL, returns `502 Error Fetching Resource`, and the PR shows a broken-image glyph with the alt text as a link. Note that `curl`ing the S3 URL yourself proves nothing about that: it is camo, not the reviewer's browser, that has to reach S3.
+
+Recovering from a cold 502: re-presign (the objects are still there - a lifecycle rule on `pr-ui-previews/` deletes them after 30 days - so no re-shoot, no re-upload), replace the marker section, then warm. A new signature means a new camo hash, so the cached failure is not in the way. The bucket is private, so there is no unsigned fallback: a plain `https://autonoma-assets.s3...` URL is a 403. If an image has to render forever, commit it instead, the way the root README does.
 
 Then edit the PR **description** (not a comment), maintaining an idempotent section - replace it wholesale if it already exists:
 
@@ -88,7 +100,7 @@ Then edit the PR **description** (not a comment), maintaining an idempotent sect
 
 Wrap the presigned URL in `<angle brackets>` - it contains `&` characters that break bare markdown links. Update with `gh pr edit <PR_NUMBER> --body-file <file>`.
 
-On re-runs (new commits changed the UI again): re-shoot, re-upload to the same keys, re-presign (URLs change), and replace the marker section in the description.
+On re-runs (new commits changed the UI again): re-shoot, re-upload to the same keys, re-presign (URLs change), replace the marker section in the description, and warm camo again - a new URL is a new camo hash, so the old cached bytes do not carry over.
 
 ## The root README's screenshots
 

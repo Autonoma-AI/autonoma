@@ -13,20 +13,29 @@ export type TrpcFixtures = {
 };
 
 /**
+ * Procedures that should answer with an error instead of data, keyed by dotted
+ * path: `{ "onboarding.listVercelDeployments": "Failed to list Vercel
+ * deployments" }`. This is how a story renders a failure state on purpose -
+ * simply omitting the fixture also errors, but logs `[storybook-fixtures]`,
+ * which fails the screenshot script. Takes precedence over `fixtures`.
+ */
+export type TrpcErrors = Record<string, string>;
+
+/**
  * MSW handler answering every tRPC HTTP request (httpBatchLink and httpLink,
  * GET queries and POST mutations) from the fixture tree. Inputs are ignored
  * on purpose - a story fixture pins one response per procedure. Unmocked
  * procedures return a tRPC error and log a `[storybook-fixtures]` console
  * error so missing mocks are loud in the story and in screenshot runs.
  */
-export function trpcHandler(fixtures: TrpcFixtures) {
+export function trpcHandler(fixtures: TrpcFixtures, errors: TrpcErrors = {}) {
     return http.all("*/v1/trpc/*", ({ request }) => {
         const url = new URL(request.url);
         const trpcPath = url.pathname.replace(/^.*\/v1\/trpc\//, "");
         const procedures = trpcPath.split(",").filter((p) => p.length > 0);
         const isBatch = url.searchParams.get("batch") === "1";
 
-        const results = procedures.map((procedure) => resolveProcedure(fixtures, procedure));
+        const results = procedures.map((procedure) => resolveProcedure(fixtures, errors, procedure));
         return HttpResponse.json(isBatch ? results : results[0]);
     });
 }
@@ -36,23 +45,32 @@ interface TrpcResponseEnvelope {
     error?: ReturnType<typeof superjson.serialize>;
 }
 
-function resolveProcedure(fixtures: TrpcFixtures, procedure: string): TrpcResponseEnvelope {
+function resolveProcedure(fixtures: TrpcFixtures, errors: TrpcErrors, procedure: string): TrpcResponseEnvelope {
+    const pinnedError = errors[procedure];
+    if (pinnedError != null) return errorEnvelope(pinnedError, procedure);
+
     const resolution = walkFixtureTree(fixtures, procedure.split("."));
     if (!resolution.found) {
         console.error(`[storybook-fixtures] no fixture for tRPC procedure "${procedure}"`);
-        // The whole envelope value is transformer-encoded, exactly like the
-        // real server does - a raw error object breaks the client's superjson
-        // deserialize with "Unable to transform response from server".
-        return {
-            error: superjson.serialize({
-                message: `No fixture for tRPC procedure "${procedure}"`,
-                code: -32603,
-                data: { code: "INTERNAL_SERVER_ERROR", httpStatus: 500, path: procedure },
-            }),
-        };
+        return errorEnvelope(`No fixture for tRPC procedure "${procedure}"`, procedure);
     }
 
     return { result: { data: superjson.serialize(resolution.value) } };
+}
+
+/**
+ * The whole envelope value is transformer-encoded, exactly like the real server
+ * does - a raw error object breaks the client's superjson deserialize with
+ * "Unable to transform response from server".
+ */
+function errorEnvelope(message: string, procedure: string): TrpcResponseEnvelope {
+    return {
+        error: superjson.serialize({
+            message,
+            code: -32603,
+            data: { code: "INTERNAL_SERVER_ERROR", httpStatus: 500, path: procedure },
+        }),
+    };
 }
 
 interface FixtureResolution {

@@ -32,6 +32,8 @@ export function useOnboardingStateOptional(applicationId: string) {
 const AGENT_SESSION_ACTIVE_POLL_MS = 2000;
 /** Slow poll while the human holds it: still fast enough to notice the agent taking over, without steady 2s traffic. */
 const AGENT_SESSION_IDLE_POLL_MS = 8000;
+/** Poll while the linked Vercel project has no READY deployment, so a finishing build appears without a reload. */
+const EMPTY_DEPLOYMENTS_POLL_MS = 20_000;
 
 /** Polls the agentic-onboarding session (control state, pending request, activity stream). */
 export function useAgentSession(applicationId: string) {
@@ -138,10 +140,24 @@ export function useLinkVercelProject() {
     });
 }
 
-/** Real deployments for the linked Vercel project, used to pick an onboarding preview URL directly. */
-export function useVercelDeployments(applicationId: string) {
+/**
+ * Real deployments for the linked Vercel project, used to pick an onboarding
+ * preview URL directly. Pass `enabled: false` where no project is linked - the
+ * backend rejects that with "No Vercel project linked to this application", and
+ * a disabled observer still reads whatever another caller already fetched.
+ */
+export function useVercelDeployments(applicationId: string, enabled = true) {
     return useQuery(
-        trpc.onboarding.listVercelDeployments.queryOptions({ applicationId }, { enabled: applicationId.length > 0 }),
+        trpc.onboarding.listVercelDeployments.queryOptions(
+            { applicationId },
+            {
+                enabled: enabled && applicationId.length > 0,
+                // Only READY deployments are listed, so an empty list usually means a
+                // build is still running - poll until one lands instead of making the
+                // user reload. React Query pauses the interval in unfocused tabs.
+                refetchInterval: (query) => (query.state.data?.length === 0 ? EMPTY_DEPLOYMENTS_POLL_MS : false),
+            },
+        ),
     );
 }
 

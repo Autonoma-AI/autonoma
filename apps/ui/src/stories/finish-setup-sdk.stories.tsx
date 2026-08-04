@@ -282,6 +282,31 @@ function sdkStepFixtures(
   };
 }
 
+/** A Vercel-linked app, so the SDK step renders the Vercel deployment picker instead of the BYO flow. */
+const linkedVercelProject: RouterOutputs["onboarding"]["listAvailableVercelProjects"] = {
+  connected: true,
+  projects: [],
+  connectUrl: "https://vercel.com/integrations/autonoma/new",
+  linkedProject: { id: "prj_fixture_01", name: "acme-web" },
+};
+
+/** The Vercel SDK step with nothing to validate against: the project has no READY deployment. */
+function vercelNoDeploymentsFixtures(): TrpcFixtures {
+  return {
+    onboarding: {
+      getState: makeOnboardingState(),
+      listSdkDryRunTargets: readyTargets,
+      prepareSdkTarget: { status: "ready" },
+      listAvailableVercelProjects: linkedVercelProject,
+      listVercelDeployments: [],
+    },
+    github: { getCommit: headCommit },
+    applicationSetups: { artifactStatus },
+    applications: { list: [baseApplication], getSharedSecret: { sharedSecret: "your_shared_secret_here" } },
+    ...sidebarFixtures,
+  };
+}
+
 /**
  * The CLI step: nothing uploaded yet, so the page opens on it and the checklist
  * reads as pending. The step mints its own API token + generation id through
@@ -506,6 +531,15 @@ export const TargetFailed: Story = {
       ],
     },
   },
+};
+
+/**
+ * The Vercel path with no READY deployment: the validation target picker has
+ * nothing to offer, so the step is blocked and says so in red.
+ */
+export const VercelNoReadyDeployments: Story = {
+  args: { path: PATH },
+  parameters: { msw: { handlers: appShellHandlers(vercelNoDeploymentsFixtures()) } },
 };
 
 export const TargetNoPreview: Story = {
