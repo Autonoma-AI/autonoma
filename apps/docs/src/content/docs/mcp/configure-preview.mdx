@@ -17,7 +17,11 @@ This is the default way to set Autonoma up, and the alternative to answering a q
 An app gets its previews one of two ways, and they need completely different work:
 
 - **[Autonoma-hosted](/preview-environments/)** - Autonoma builds and hosts a preview per pull request. The agent writes the build, services and env config, and deploys through these tools.
-- **[Your own pipeline](/preview-environments/your-own-deploys/)** - your project already builds previews. Autonoma deploys nothing; the agent wires your pipeline to tell Autonoma when a preview is live.
+- **[Your own pipeline](/preview-environments/your-own-deploys/)** - your project already builds previews. Autonoma deploys nothing; the agent connects those previews so Autonoma knows when one is live.
+
+On your own pipeline there are two ways Autonoma learns a preview is live, and the agent is told which applies rather than assuming. If your project is on **Vercel**, Autonoma's Marketplace integration already reports every deployment, so the agent connects the project instead of writing anything - and connecting is also what makes a deployment-protected preview reachable at all. Every other host is a signed webhook the agent wires into your pipeline.
+
+Being on Vercel does not commit you to reusing your own previews. Plenty of Vercel projects pick Autonoma-hosted previews deliberately, because an Autonoma-hosted preview gets its own database and a test run cannot leave rows in whatever your Vercel previews point at. The agent is told to decide on that isolation trade-off, not on where you happen to deploy - and if it picks Autonoma-hosted for a Vercel project, the Vercel tools stand down and it follows the hosted playbook.
 
 Choosing between them is a question about where test data lands, and it is the one the questionnaire asks you to self-assess: *is all your data tenant-scoped?* An agent sitting in your repo can read the schema and answer it from evidence. So it picks, with `select_preview_path`, and tells you which it chose and why - you can still change it in the UI.
 
@@ -166,7 +170,26 @@ Everything after that depends on the path.
 5. **Watch and iterate** - `get_session_status` returns the deploy status, the preview URL, diagnostics, and a `recentLogs` tail (build logs on failure, app logs when ready). The agent polls it, reads the diagnostics and logs if the preview fails, fixes the config, and deploys again - until it comes up.
 6. **Verify beyond the health check** - a ready preview can still be broken (the health-check page renders while API routes crash). The agent is instructed to exercise the main flow against the preview URL and then read the app's runtime logs in `recentLogs` - not just declare done because the status says ready.
 
-### If your own pipeline builds it
+### If your own pipeline builds it, on Vercel
+
+There is nothing to write here. Autonoma's Vercel Marketplace integration reports every deployment already, so the work is connecting the project.
+
+Being on Vercel is not itself a reason to take this path. It is still your own pipeline, so [where the test data lands](/preview-environments/your-own-deploys/#which-path-to-pick) is the question that decides it - and a Vercel preview points at your project's own database by default, commonly the same one production uses, unless you have wired per-preview database branching. The agent is told to check that your schema is tenant-scoped before continuing here, and to go back and pick Autonoma-hosted if it is not.
+
+3. **Read the connection state** - `get_vercel_setup` returns whether your organization has the Autonoma Vercel integration installed, which projects can be linked, which one is linked already, and that project's ready deployments. It also returns a `nextStep` naming the exact call to make, so the agent does not have to infer the sequence.
+4. **Link the project** - `link_vercel_project` connects the Vercel project to the app. The agent picks the candidate whose `matchesRepository` is true - the project building the same GitHub repo - and asks you if none matches, rather than guessing from a name. Linking is the step everything else depends on: it applies the deployment-protection bypass, without which Autonoma cannot reach a protected preview, and adopts the `AUTONOMA_SHARED_SECRET` Vercel injected into your project so your SDK handler's signature matches.
+5. **Get a deployment to point at** - the agent is told to *make* one rather than reuse an old one. The next thing it does is add your Autonoma SDK handler on its own branch, and Vercel builds a preview for every branch pushed, so it pushes that branch and uses its preview. That deployment is the only one that actually contains the handler, so onboarding never has to be re-pointed later, and a fresh build already carries the injected `AUTONOMA_SHARED_SECRET`, so nothing needs rebuilding.
+
+   To reuse an existing deployment instead, the agent **asks you which** - the same question this screen's dropdown asks, over the same list - and then `create_vercel_deployment` rebuilds your choice so it picks up the shared secret. It will not take a production deployment on its own initiative.
+6. **Wait, then commit it** - `get_vercel_deployment_status` polls until ready, telling a still-building deployment apart from a terminal `ERROR` or `CANCELED` so a failed build ends the wait instead of extending it. `select_vercel_deployment` then makes it the preview Autonoma tests against, which advances onboarding on its own - there is no signal to wait for and no confirm step.
+
+:::caution
+Whatever is selected here is where every scenario run creates and deletes its test data, through that deployment's own database. That is why the agent will not point Autonoma at a production deployment on its own initiative - and why you should not either, unless test data in your production database is genuinely acceptable to you.
+:::
+
+If your organization has not installed the integration at all, the agent cannot do it for you: it hands you the install link from `get_vercel_setup` and polls until you have.
+
+### If your own pipeline builds it, anywhere else
 
 There is no config to write, nothing to deploy and no build logs to read - `apply_config`, `trigger_deploy`, `request_env` and `get_target_logs` all refuse on this path rather than doing something surprising. The work is wiring one signed call:
 
@@ -175,9 +198,9 @@ There is no config to write, nothing to deploy and no build logs to read - `appl
 5. **Prove it fired** - `get_signal_status` is the only confirmation the wiring works, so the agent triggers a real deploy and polls. It is told a hand-written `curl` proves nothing about your pipeline. It also watches `prReviewsConfirmed`: until a signal carries a `prNumber`, your app records preview URLs but no pull request is ever reviewed.
 6. **Confirm** - `confirm_signal_setup` advances onboarding, once a signal has actually landed.
 
-### Then, on both paths
+### Then, whichever path you took
 
-7. **Validate your SDK endpoint** - once the preview is up, Autonoma needs the environment factory you implement at `/api/autonoma`. You will usually write it on its own pull request (conventionally titled `feat: autonoma-sdk`), and each pull request gets its own preview. `list_dry_run_targets` lists them - your main preview plus every open PR - and flags the one Autonoma detected as the SDK pull request. `validate_sdk` then points at that target, calls your handler's `discover`, and stores the schema it returns. If it fails, the error is your handler's own, and `get_target_logs` reads that specific preview's build or runtime logs for the stack trace behind it. (`get_session_status` only ever reports your main preview, so it will not show you a pull request's preview.)
+7. **Validate your SDK endpoint** - once the preview is up, Autonoma needs the environment factory you implement at `/api/autonoma`. You will usually write it on its own pull request (conventionally titled `feat: autonoma-sdk`), and each pull request gets its own preview. `list_dry_run_targets` lists them - your main preview plus every open PR - and flags the one Autonoma detected as the SDK pull request. `validate_sdk` then points at that target, calls your handler's `discover`, and stores the schema it returns - on an Autonoma-hosted preview and on a Vercel deployment alike. (The one target it cannot validate is a preview from your own non-Vercel pipeline: that needs the signing secret your pipeline signs with, and no tool here accepts a secret value, so the agent hands that step back to you in the UI.) If it fails, the error is your handler's own, and `get_target_logs` reads that specific preview's build or runtime logs for the stack trace behind it. (`get_session_status` only ever reports your main preview, so it will not show you a pull request's preview.)
 
 8. **Fix the test-data recipes** - a scenario is a named app state a test depends on (e.g. "logged-in admin with one open invoice"), and its recipe is the JSON your deployed Autonoma SDK follows to create those entities in the app's own database. Before onboarding finishes a recipe often does not work yet. The agent lists scenarios with `list_scenarios`, reads one with `get_recipe`, and tests an edit end-to-end with `dry_run_scenario` (which calls your SDK `up` to create the entities, then `down` to remove them). Passing the edited `recipe` to `dry_run_scenario` runs it **without storing it**, so the agent can loop on the real SDK error without ever leaving a half-finished recipe in place; it promotes the one that passes with `save: true`, or saves directly with `update_recipe`.
 
@@ -222,7 +245,12 @@ Some tools apply to only one path; called on the other they return an error nami
 | `request_env` | applicationId, keys, appName | Asks you to enter secret values in the UI (keys only - the agent never sees the values) |
 | `trigger_deploy` | applicationId | Deploys the configured deploy branch (repo default unless overridden) as the preview |
 | `get_session_status` | applicationId | The single polling tool: control state, any pending request, deploy status, preview URL, diagnostics, and a `recentLogs` tail - build logs while building, the app's runtime logs once ready, both on failure |
-| `get_signal_setup` | applicationId | Your own pipeline: the deployment-signal contract - endpoint, `applicationId`, shared secret, every body field, and a starter workflow to adapt |
+| `get_vercel_setup` | applicationId | Vercel: the state of the connection - whether your organization has the integration installed, which projects can be linked (with `matchesRepository` flagging the one building this repo), which is linked, its ready deployments, and a `nextStep` naming the call to make |
+| `link_vercel_project` | applicationId, vercelProjectId | Vercel: links the project to this app. Applies the deployment-protection bypass and adopts the `AUTONOMA_SHARED_SECRET` Vercel injected into your project. Reversible - you can unlink in the UI |
+| `create_vercel_deployment` | applicationId, vercelDeploymentId | Vercel: **deploys your project**, rebuilding an existing deployment so it picks up the injected shared secret - a real build on your Vercel account. Only needed when reusing an old deployment; a freshly pushed branch already carries the secret. Returns a **new** deployment id to poll and select, not the one passed in. The agent asks you which deployment to reuse, and never takes production unprompted |
+| `get_vercel_deployment_status` | applicationId, vercelDeploymentId | Vercel: build state of one deployment, for waiting out that build. Distinguishes still-building from a terminal `ERROR` / `CANCELED`, so a failed build ends the poll loop |
+| `select_vercel_deployment` | applicationId, vercelDeploymentId | Vercel: commits a ready deployment as the preview Autonoma tests against, advancing onboarding. A still-building deployment is rejected |
+| `get_signal_setup` | applicationId | Your own pipeline, off Vercel: the deployment-signal contract - endpoint, `applicationId`, shared secret, every body field, and a starter workflow to adapt. Refuses when a Vercel project is linked, since the integration already reports deployments |
 | `get_signal_status` | applicationId | Your own pipeline: whether a signed signal has landed, the URL it carried, and whether one has ever carried a `prNumber` (`prReviewsConfirmed`) - which is what per-PR reviews need |
 | `confirm_signal_setup` | applicationId | Your own pipeline: marks the wiring done so onboarding advances, once a signal has actually landed |
 | `list_scenarios` | applicationId | Lists the app's scenarios (named test-data states) and whether each already has a recipe |

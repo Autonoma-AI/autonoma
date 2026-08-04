@@ -54,9 +54,20 @@ export interface VercelDeploymentStatusResult {
     ready: boolean;
 }
 
-export interface AvailableVercelProject {
+export interface LinkedVercelProject {
     id: string;
     name: string;
+}
+
+export interface AvailableVercelProject extends LinkedVercelProject {
+    /**
+     * The Vercel project builds the same GitHub repo this application is linked
+     * to. Names drift (a Vercel project is often renamed, or several share a
+     * prefix), so this is the only trustworthy way to identify the right project
+     * without a human recognising it - it is what lets an agent link one instead
+     * of guessing.
+     */
+    matchesRepository: boolean;
 }
 
 export interface ListAvailableVercelProjectsResult {
@@ -66,7 +77,7 @@ export interface ListAvailableVercelProjectsResult {
     /** "Connect a new Vercel project" redirect target, or undefined if VERCEL_INTEGRATION_URL isn't configured. */
     connectUrl: string | undefined;
     /** Set when this application already has a Vercel project linked. */
-    linkedProject: AvailableVercelProject | undefined;
+    linkedProject: LinkedVercelProject | undefined;
 }
 
 function buildVercelConnectUrl(): string | undefined {
@@ -99,7 +110,7 @@ export class OnboardingVercelCapabilityService {
 
         const app = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
-            select: { id: true },
+            select: { id: true, githubRepositoryId: true },
         });
         if (app == null) throw new OnboardingApplicationNotFoundError(applicationId);
 
@@ -135,9 +146,15 @@ export class OnboardingVercelCapabilityService {
 
         const unlinkedProjects = await this.db.vercelProject.findMany({
             where: { vercelInstallationId: installation.id, connection: null },
-            select: { vercelProjectId: true, name: true },
+            select: { vercelProjectId: true, name: true, githubRepositoryId: true },
         });
-        const projects = unlinkedProjects.map((p) => ({ id: p.vercelProjectId, name: p.name }));
+        const projects = unlinkedProjects.map((p) => ({
+            id: p.vercelProjectId,
+            name: p.name,
+            // Both sides are nullable, so an app with no linked repo must not
+            // "match" every project whose repo we also failed to record.
+            matchesRepository: app.githubRepositoryId != null && p.githubRepositoryId === app.githubRepositoryId,
+        }));
 
         this.logger.info("Listed available Vercel projects", { applicationId, count: projects.length });
         return { connected: true, projects, connectUrl, linkedProject: undefined };
@@ -170,6 +187,17 @@ export class OnboardingVercelCapabilityService {
         });
         if (project == null) {
             throw new BadRequestError("Vercel project not found - it must be connected on Vercel's side first");
+        }
+        // Re-linking the project this app already has is a no-op, not a conflict.
+        // The caller asked for a state the system is already in, and failing here
+        // reads as "someone else took this project" while naming the caller's own
+        // application - which is how a retry after a partial failure dead-ends.
+        if (project.connection?.applicationId === app.id) {
+            this.logger.info("Vercel project already linked to this application; nothing to do", {
+                applicationId,
+                vercelProjectId,
+            });
+            return;
         }
         if (project.connection != null) {
             throw new ConflictError(
@@ -236,10 +264,17 @@ export class OnboardingVercelCapabilityService {
      * PreviewKit/external targets instead of failing the whole finish-setup page.
      */
     async listDryRunTargets(applicationId: string, organizationId: string): Promise<SdkDryRunTarget[]> {
-        const access = await this.tryGetLinkedProjectAccess(applicationId, organizationId);
-        if (access == null) return [];
-
+        // Resolving access is inside the guard, not before it: a linked project
+        // whose installation has no usable access token (revoked, or never
+        // stored) throws there, and that throw used to escape - taking the whole
+        // target listing down with it, PreviewKit and external targets included,
+        // on both the finish-setup page and the MCP. Degrading to "no Vercel
+        // targets" is what the contract above promises and what callers can
+        // actually work with.
         try {
+            const access = await this.tryGetLinkedProjectAccess(applicationId, organizationId);
+            if (access == null) return [];
+
             const deployments = await listVercelDeploymentsFromApi(
                 access.vercelProjectId,
                 undefined,
@@ -253,7 +288,7 @@ export class OnboardingVercelCapabilityService {
         } catch (err) {
             this.logger.warn("Failed to list Vercel deployments for dry-run targets; omitting them", {
                 applicationId,
-                extra: { vercelProjectId: access.vercelProjectId, err },
+                err,
             });
             return [];
         }

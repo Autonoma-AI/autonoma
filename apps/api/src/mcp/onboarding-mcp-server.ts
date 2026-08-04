@@ -1,6 +1,6 @@
 import { needsHuman } from "@autonoma/agent-guidance";
 import type { OnboardingPreviewEnvironmentMode, PrismaClient } from "@autonoma/db";
-import { ConflictError, NotFoundError } from "@autonoma/errors";
+import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
 import {
     type AgentLogEntry,
@@ -18,6 +18,7 @@ import { env } from "../env";
 import { INSTALL_STATE_TTL_MS, createInstallState } from "../github/github-state";
 import type { Services } from "../routes/build-services";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
+import type { VercelDeploymentSummary } from "../vercel-marketplace/vercel-project-api";
 import { deprecatedBuildNotice } from "./deprecated-build-notice";
 import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
@@ -26,6 +27,14 @@ import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-re
 import { resolveDryRunTarget, resolveDryRunTargetUrl } from "./resolve-dry-run-target";
 import { resolveMcpTarget } from "./resolve-mcp-target";
 import { describeError, errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
+import {
+    VERCEL_PLAYBOOK,
+    type VercelState,
+    describeVercelBuildNextStep,
+    describeVercelNextStep,
+    describeVercelState,
+    isVercelPath,
+} from "./vercel-onboarding-guidance";
 
 /**
  * How many recent log lines get_session_status returns per source. Enough to carry
@@ -64,8 +73,10 @@ const SHARED_PREAMBLE = `Autonoma runs your end-to-end tests against a preview d
 
 An app gets its previews one of two ways, and they need completely different work from you:
 - **Autonoma-hosted** - Autonoma builds and hosts a preview per pull request. You write the build, services and env config here and deploy through these tools.
-- **Their own pipeline** - the project already builds previews. Autonoma deploys NOTHING; you wire that pipeline to tell Autonoma when a preview is live.
+- **Their own pipeline** - the project already builds previews. Autonoma deploys NOTHING; you connect those previews so Autonoma knows when one is live.
 Do not guess which one: pair(code) returns \`previewSource\` and the full playbook for it. Follow the playbook it gives you.
+
+On their own pipeline there are two ways Autonoma learns a preview is live, and the playbook you get names which applies - do not assume the webhook. If the project is on **Vercel**, Autonoma's Marketplace integration reports deployments already, and the work is connecting the project (get_vercel_setup); hand-writing a signed webhook there produces previews Autonoma cannot even reach, because linking the project is also what applies the deployment-protection bypass. Every other host is the signed webhook (get_signal_setup).
 
 Which to pick is a question about where test data lands, and the two options are NOT equally safe. An Autonoma-hosted preview gets its own database, so a run creates and destroys data in an environment nothing else shares. Their own previews point at a real database - commonly staging, sometimes production - so a run writes into it, and anything it creates that no tenant owns STAYS there. Picture a marketplace with no per-preview database: a test run creates listings, and real users see them.
 - No preview environments today - Autonoma-hosted, since there is nothing to connect to.
@@ -78,6 +89,8 @@ Start every session by pairing - and pair FIRST, before you analyze the repo, re
 2. Call pair(code) with it IMMEDIATELY, as your very first action - then do any repo analysis you need. That claims the app for you and returns its applicationId, how it gets its previews, and the playbook to follow. Use that applicationId for every other tool.
 3. CHECK YOU ARE IN THE RIGHT REPO. pair returns \`repository\` - the repo this app is linked to. Confirm your working directory is that repo (\`git remote get-url origin\`) BEFORE you read a single file. An agent run from the wrong checkout will happily analyze an unrelated codebase and pick a path from evidence that has nothing to do with the app. If it does not match, stop and tell the user rather than guessing.
 4. If pair reports \`previewSource: "not-chosen-yet"\`, the choice is yours to make: read the repo (does it already build previews? is every table owned by a tenant you could delete whole?), pick using the trade-off above, and call select_preview_path. Do that from evidence in the code rather than by asking the user to self-assess - you can read the schema, they are guessing. Tell them what you picked and why. Only fall back to asking if the repo genuinely does not say.
+
+Every playbook is also readable on demand, without pairing, so a long session that has pushed one out of context can re-read it instead of guessing: \`autonoma://autonoma-hosted-playbook\`, \`autonoma://vercel-playbook\`, \`autonoma://own-pipeline-playbook\`. Read the one pair() named, not the one you remember.
 
 Control: you hold the config while you work; the UI is read-only. If get_session_status (or any write) reports the user took over (standDown / paused), STOP configuring and let them - do not fight for control. They can hand it back with "Resume with Claude" and you re-claim on your next call. If you go idle for a while the UI hands control back automatically; just resume when the user asks.`;
 
@@ -120,7 +133,7 @@ Your tools here: get_signal_setup, get_signal_status, confirm_signal_setup, plus
 There is no config to write, no deploy to trigger and no build logs to read: apply_config, trigger_deploy, request_env and get_target_logs only apply to Autonoma-hosted previews and will refuse if you call them here.`;
 
 /** SDK endpoint + scenario recipes - identical once a preview URL exists, whichever path produced it. */
-const SDK_AND_RECIPES = `The SDK (environment factory): once the preview is up, the app needs ONE POST endpoint at \`/api/autonoma\` that creates and tears down a scenario's test data. The user implements it in their repo - conventionally on a PR titled "feat: autonoma-sdk", so they iterate on a branch instead of pushing to main - and every preview of that PR is its own environment. list_dry_run_targets(applicationId) lists them (the base \`main\` preview plus each open PR) and flags the one auto-detected as the SDK PR; work against that target, not against main. Then validate_sdk(applicationId, target) calls the handler's \`discover\` and stores the schema it returns - do this before any dry run. When it fails, the returned error is the handler's own; get_target_logs(applicationId, target, source:"app") is where the stack trace behind it lives. Note that get_session_status ONLY ever reports the base preview, so on this phase it tells you nothing about the PR you are validating - use list_dry_run_targets for that target's deploy state and get_target_logs for its output.
+const SDK_AND_RECIPES = `The SDK (environment factory): once the preview is up, the app needs ONE POST endpoint at \`/api/autonoma\` that creates and tears down a scenario's test data. The user implements it in their repo - conventionally on a PR titled "feat: autonoma-sdk", so they iterate on a branch instead of pushing to main - and every preview of that PR is its own environment. On Vercel, make that branch BEFORE you pick the deployment onboarding points at, not after: Vercel builds a preview for every branch pushed, and that preview is the only one that will contain the handler, so pointing onboarding at it means never having to re-point it later (and a fresh build already carries the injected shared secret, so nothing needs rebuilding). The Vercel playbook's step 4 is this same instruction from the other side. list_dry_run_targets(applicationId) lists them (the base \`main\` preview plus each open PR) and flags the one auto-detected as the SDK PR; work against that target, not against main. Then validate_sdk(applicationId, target) calls the handler's \`discover\` and stores the schema it returns - do this before any dry run. When it fails, the returned error is the handler's own; get_target_logs(applicationId, target, source:"app") is where the stack trace behind it lives. Note that get_session_status ONLY ever reports the base preview, so on this phase it tells you nothing about the PR you are validating - use list_dry_run_targets for that target's deploy state and get_target_logs for its output.
 
 Scenario recipes (test data): a scenario is a named app state a test depends on (e.g. "logged-in admin with one open invoice"); its recipe is the JSON your deployed Autonoma SDK follows to create those entities in the app's OWN database at test time. Before onboarding finishes the recipe often does not work yet, so fix it here: list_scenarios(applicationId) shows the app's scenarios and which already have a recipe; get_recipe(scenarioId) reads one; update_recipe(scenarioId, recipe) saves a corrected version (the recipe's \`name\` must stay the scenario's name - this EDITS an existing scenario, it does not create one; the recipe shape is validated on save and an invalid one is rejected with the exact bad field paths, so read them and resend); dry_run_scenario(scenarioId, recipe?) runs a recipe end-to-end against the deployed app (calls the SDK \`up\` to create the entities, then \`down\` to tear them back down) and, on failure, returns which phase failed (recipe/up/down) and the SDK's error - pass your edited \`recipe\` to try it WITHOUT storing it, which is how you iterate. This needs the app deployed with its SDK URL + signing secret configured, so get the preview up first. A scaled-to-zero preview 503s on the first call while it wakes; dry_run_scenario rides through that warm-up automatically, so give the first run ~a minute before concluding anything is wrong (and if it still comes back with a cold-start/503, just call it again - it is waking).
 
@@ -144,10 +157,11 @@ function previewSourceOf(
  * mode is known. An app that has not chosen yet gets both, since the user is
  * about to pick one in the UI and the agent should recognise either.
  */
-function playbookFor(mode: OnboardingPreviewEnvironmentMode | undefined): string {
+function playbookFor(mode: OnboardingPreviewEnvironmentMode | undefined, vercel: VercelState): string {
+    const external = isVercelPath(vercel) ? VERCEL_PLAYBOOK : EXTERNAL_DEPLOYS_PLAYBOOK;
     if (mode === "previewkit") return PREVIEWKIT_PLAYBOOK;
-    if (mode === "existing_deploys") return EXTERNAL_DEPLOYS_PLAYBOOK;
-    return `This app has not picked a path yet, so picking it is your first job: read the repo, decide with the trade-off in the preamble, and call select_preview_path. Both playbooks follow so you can see what each commits you to.\n\n${PREVIEWKIT_PLAYBOOK}\n\n${EXTERNAL_DEPLOYS_PLAYBOOK}`;
+    if (mode === "existing_deploys") return external;
+    return `This app has not picked a path yet, so picking it is your first job: read the repo, decide with the trade-off in the preamble, and call select_preview_path. Both playbooks follow so you can see what each commits you to.\n\n${PREVIEWKIT_PLAYBOOK}\n\n${external}`;
 }
 
 /** Everything the onboarding MCP tools need: the service graph and the authenticated user. */
@@ -176,7 +190,17 @@ interface GuardedWriteParams {
      * not. Checked BEFORE claiming the app, so a wrong-path call does not take
      * control or open an activity entry it will only fail out of.
      */
-    requires?: { source: OnboardingPreviewEnvironmentMode; useInstead: string };
+    requires?: {
+        source: OnboardingPreviewEnvironmentMode;
+        useInstead: string;
+        /**
+         * Redirect to use when the app turns out to be on Vercel. Without it a
+         * previewkit-only tool sends every customer-pipeline app to the webhook
+         * tools - and `get_signal_setup` refuses a linked Vercel project, so the
+         * agent is bounced between two tools that each point at the other.
+         */
+        useInsteadOnVercel?: string;
+    };
 }
 
 /**
@@ -242,17 +266,21 @@ function describeSignalNextStep(status: { signalReceived: boolean; prReviewsConf
 }
 
 /**
- * The refusal an Autonoma-hosted-only tool returns for an app on the customer's own
- * deploys. Names the tool to use instead: an agent told only "not supported"
- * tends to retry with different arguments, whereas a redirect moves it onto the
- * right playbook.
+ * The refusal a path-specific tool returns when the app is on the other path.
+ * Names the tool to use instead: an agent told only "not supported" tends to
+ * retry with different arguments, whereas a redirect moves it onto the right
+ * playbook. Phrased from `requires` rather than fixed, since the guard runs in
+ * both directions - config/deploy/env tools refuse on the customer's own
+ * pipeline, and the signal/Vercel tools refuse on Autonoma-hosted previews.
  */
-function wrongPathResult(tool: string, useInstead: string): CallToolResult {
-    return errorResult(
-        `${tool} only applies to Autonoma-hosted previews. This app builds its previews on its own pipeline, so there ` +
-            `is no Autonoma-side config, deploy or build log here. Use ${useInstead} instead, and re-read the ` +
-            `playbook that pair returned.`,
-    );
+function wrongPathResult(tool: string, requires: OnboardingPreviewEnvironmentMode, useInstead: string): CallToolResult {
+    const explanation =
+        requires === "previewkit"
+            ? `${tool} only applies to Autonoma-hosted previews. This app builds its previews on its own pipeline, so ` +
+              "there is no Autonoma-side config, deploy or build log here."
+            : `${tool} only applies to previews the project builds itself. Autonoma hosts this app's previews, so ` +
+              "there is no external pipeline or Vercel project to connect.";
+    return errorResult(`${explanation} Use ${useInstead} instead, and re-read the playbook that pair returned.`);
 }
 
 /** The result a write tool returns when the human has taken over - the agent must stand down. */
@@ -341,6 +369,118 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     }
 
     /**
+     * The linked project's READY deployments, or an empty list when Vercel could
+     * not be reached.
+     *
+     * Listing deployments is a convenience on top of the connection state, and it
+     * is the only part of it that depends on a third party being up and the
+     * installation's token still being valid. Letting it throw turns a revoked
+     * token or a Vercel blip into a hard failure of whatever tool asked - which,
+     * on `link_vercel_project`, reports an already-committed link as an error and
+     * strands the agent (its retry then hits "already linked"). So it degrades:
+     * callers get the connection state either way, and `unavailable` is what they
+     * tell the agent instead of pretending the project has no deployments.
+     */
+    async function tryListVercelDeployments(
+        applicationId: string,
+        organizationId: string,
+    ): Promise<{ deployments: VercelDeploymentSummary[]; unavailable?: string }> {
+        try {
+            return { deployments: await services.onboarding.listVercelDeployments(applicationId, organizationId) };
+        } catch (err) {
+            logger.warn("Could not list Vercel deployments; returning the connection state without them", {
+                applicationId,
+                err,
+            });
+            return { deployments: [], unavailable: describeError(err) };
+        }
+    }
+
+    /**
+     * Which SDK-validation path a dry-run target needs.
+     *
+     * The Autonoma UI branches three ways here and so must this: a PreviewKit
+     * preview is provisioned and discovered by us, a Vercel deployment is
+     * discovered against the secret we adopted from the installation, and a
+     * bring-your-own URL needs a signing secret only the user holds. Routing
+     * everything through the managed path made the other two fail with "not
+     * managed by PreviewKit" - a message that describes our dispatch rather than
+     * anything the agent can act on.
+     */
+    async function resolveSdkValidationRoute(
+        applicationId: string,
+        organizationId: string,
+        targetId: string,
+    ): Promise<{ route: "managed" | "vercel" } | { route: "unsupported"; message: string }> {
+        const { targets } = await services.onboarding.listSdkDryRunTargets(applicationId, organizationId);
+        const target = targets.find((candidate) => candidate.id === targetId);
+        if (target == null) {
+            return {
+                route: "unsupported",
+                message:
+                    `No SDK target "${targetId}". Call list_dry_run_targets and use one of the ids it returns - ` +
+                    "they change as previews come and go, so do not reuse one from earlier in the session.",
+            };
+        }
+        if (target.source === "vercel") return { route: "vercel" };
+        // A BYO target's signing secret never passes through this MCP - there is no
+        // tool that accepts a secret value - so this one genuinely has to be a
+        // human action rather than a gap to fill later.
+        if (target.source === "external") {
+            return {
+                route: "unsupported",
+                message:
+                    `SDK target "${targetId}" is a preview from the project's own pipeline, and validating it needs ` +
+                    "the signing secret their pipeline signs with. Secret VALUES never pass through this MCP, so " +
+                    "you cannot do this step: ask the user to validate this target in the Autonoma UI (the SDK " +
+                    "step of finish setup), where they enter the secret themselves. Once it is validated, " +
+                    "list_scenarios and dry_run_scenario work here as normal.",
+            };
+        }
+        return { route: "managed" };
+    }
+
+    /**
+     * The refusal a READ-ONLY bring-your-own-deploys tool returns on an
+     * Autonoma-hosted app, or undefined to carry on. `guardedWrite`'s `requires`
+     * covers the write tools; the read tools bypass it entirely, and a read that
+     * answers happily is worse than a write that refuses - it hands the agent a
+     * next step the write will then reject.
+     */
+    async function refuseIfAutonomaHosted(
+        applicationId: string,
+        organizationId: string,
+        tool: string,
+        useInstead: string,
+    ): Promise<CallToolResult | undefined> {
+        const mode = await services.onboarding.getPreviewEnvironmentMode(applicationId, organizationId);
+        // Unset means undecided - let it through, same as the write guard, so an
+        // agent can look before it commits to a path.
+        if (mode !== "previewkit") return undefined;
+        return wrongPathResult(tool, "existing_deploys", useInstead);
+    }
+
+    /**
+     * How far along this app's Vercel connection is, used to pick which
+     * bring-your-own-deploys playbook to hand over. DB-only (no Vercel API call),
+     * so it is cheap enough to resolve on every pair / path decision.
+     *
+     * Best-effort: an app whose Vercel state cannot be read falls back to "not on
+     * Vercel". That degrades to the webhook playbook, which is wrong but merely
+     * more work - whereas failing here would break pairing, the one call that has
+     * to succeed.
+     */
+    async function resolveVercelState(applicationId: string, organizationId: string): Promise<VercelState> {
+        try {
+            const projects = await services.onboarding.listAvailableVercelProjects(applicationId, organizationId);
+            return { installed: projects.connected, linked: projects.linkedProject != null };
+        } catch (err) {
+            logger.warn("Could not resolve Vercel state; assuming this app is not on Vercel", { applicationId, err });
+            return { installed: false, linked: false };
+        }
+    }
+
+    /**
      * Best-effort: record which coding agent is driving from the MCP `clientInfo`
      * handshake, so the UI can name it ("Cursor is configuring...") instead of
      * assuming one. Undefined when the client did not report it (or the handshake
@@ -376,7 +516,13 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     // Unset means the user has not chosen yet - let it through rather
                     // than block an agent on a path that is still undecided.
                     if (mode != null && mode !== requires.source) {
-                        return wrongPathResult(tool, requires.useInstead);
+                        // Only on the refusal path, so the happy path pays nothing for it.
+                        const useInstead =
+                            requires.useInsteadOnVercel != null &&
+                            isVercelPath(await resolveVercelState(applicationId, organizationId))
+                                ? requires.useInsteadOnVercel
+                                : requires.useInstead;
+                        return wrongPathResult(tool, requires.source, useInstead);
                     }
                 }
                 const claim = await session.claimForAgent(applicationId);
@@ -431,7 +577,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     // there is none, and before a path is picked there is only a default,
                     // and handing either over invites the agent to start "fixing" a
                     // document instead of doing the actual next thing.
-                    const [repository, config] = await Promise.all([
+                    const [repository, config, vercel] = await Promise.all([
                         services.github.getApplicationRepository(organizationId, view.applicationId).catch((err) => {
                             logger.warn("pair could not resolve the app repository", {
                                 applicationId: view.applicationId,
@@ -442,6 +588,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         mode === "previewkit"
                             ? services.onboarding.getPreviewkitConfig(view.applicationId, organizationId)
                             : undefined,
+                        resolveVercelState(view.applicationId, organizationId),
                     ]);
                     const repoFields = {
                         repository: repository?.fullName,
@@ -455,18 +602,20 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                             paired: true,
                             applicationId: view.applicationId,
                             previewSource: previewSourceOf(mode),
+                            vercel: describeVercelState(vercel, mode),
                             step: view.step,
                             ...repoFields,
-                            playbook: playbookFor(mode),
+                            playbook: playbookFor(mode, vercel),
                         });
                     }
                     return jsonResult({
                         paired: true,
                         applicationId: view.applicationId,
                         previewSource: previewSourceOf(mode),
+                        vercel: describeVercelState(vercel, mode),
                         step: view.step,
                         ...repoFields,
-                        playbook: playbookFor(mode),
+                        playbook: playbookFor(mode, vercel),
                         currentConfig: config.document,
                         configExists: config.saved,
                         deployBranch: config.deployBranch,
@@ -625,7 +774,12 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "tenant-scoped - an Autonoma-hosted preview gets its own database, so a run cannot leave rows behind " +
                 "in whatever staging or production database their existing previews point at. Prefer " +
                 "`their-pipeline` when previews already exist AND the data is tenant-scoped, since that is far less " +
-                "to change. Say WHY in `reason` - the user is watching, and this is a decision they would otherwise " +
+                "to change. Deploying on Vercel does NOT by itself decide this - the data-isolation trade-off above " +
+                "does. A Vercel project is a perfectly normal `autonoma-hosted` app, and people choose that " +
+                "deliberately for the per-preview database; pick `their-pipeline` only if the same tenant-scoping " +
+                "test passes. If you do pick `their-pipeline` for a Vercel project, the playbook that comes back " +
+                "names the Vercel tools rather than the webhook. Say WHY in " +
+                "`reason` - the user is watching, and this is a decision they would otherwise " +
                 "have answered a questionnaire to make. Returns the playbook for the path you chose; follow it next.",
             inputSchema: {
                 applicationId: z.string(),
@@ -650,10 +804,15 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 async (org) => {
                     const mode: OnboardingPreviewEnvironmentMode =
                         path === "autonoma-hosted" ? "previewkit" : "existing_deploys";
-                    await services.onboarding.selectPreviewEnvironmentMode(applicationId, org, mode);
+                    // Independent: the Vercel state is the org's installation and this
+                    // app's project link, none of which the mode write touches.
+                    const [, vercel] = await Promise.all([
+                        services.onboarding.selectPreviewEnvironmentMode(applicationId, org, mode),
+                        resolveVercelState(applicationId, org),
+                    ]);
                     return {
                         previewSource: previewSourceOf(mode),
-                        playbook: playbookFor(mode),
+                        playbook: playbookFor(mode, vercel),
                         message:
                             "Path chosen. Follow the playbook above - and tell the user which you picked and why, " +
                             "since they can still change it in the Autonoma UI.",
@@ -706,7 +865,11 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 {
                     applicationId,
                     tool: "apply_config",
-                    requires: { source: "previewkit", useInstead: "get_signal_setup" },
+                    requires: {
+                        source: "previewkit",
+                        useInstead: "get_signal_setup",
+                        useInsteadOnVercel: "get_vercel_setup",
+                    },
                     message: description ?? "Saving preview config",
                     toolArguments:
                         branch != null ? { apps: document.apps.length, branch } : { apps: document.apps.length },
@@ -763,7 +926,11 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 {
                     applicationId,
                     tool: "request_env",
-                    requires: { source: "previewkit", useInstead: "their own pipeline's secret store" },
+                    requires: {
+                        source: "previewkit",
+                        useInstead: "their own pipeline's secret store",
+                        useInsteadOnVercel: "the project's own environment variables in Vercel",
+                    },
                     message: description ?? `Requesting ${keys.length} env value(s) from the user`,
                     toolArguments: { keys, appName },
                 },
@@ -806,6 +973,8 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     requires: {
                         source: "previewkit",
                         useInstead: "get_signal_status (their pipeline does the deploying)",
+                        useInsteadOnVercel:
+                            "create_vercel_deployment / select_vercel_deployment (Vercel does the deploying)",
                     },
                     message: description ?? "Deploying preview (default branch)",
                     toolArguments: {},
@@ -870,6 +1039,272 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             }),
     );
 
+    // ─── existing_deploys path, on Vercel: connecting the Marketplace integration ────
+
+    server.registerTool(
+        "get_vercel_setup",
+        {
+            title: "Read the Vercel connection state",
+            description:
+                "For apps that deploy on Vercel: how far the Autonoma Vercel integration has got, and what to do " +
+                "next. Returns whether the ORG has the integration installed, the projects that can be linked to " +
+                "this app, the project already linked, and - once one is - that project's READY deployments to " +
+                "choose a preview from. This is the Vercel equivalent of get_signal_setup: on Vercel there is no " +
+                "webhook to write, because the integration already reports every deployment. Read `nextStep`, which " +
+                "names the exact call to make from here.",
+            inputSchema: { applicationId: z.string() },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        },
+        async ({ applicationId }) =>
+            analytics.track("get_vercel_setup", async () => {
+                try {
+                    const organizationId = await resolveOrg(applicationId);
+                    // Read-only, so it never reaches guardedWrite's path check - and
+                    // without this it would hand an Autonoma-hosted app a `nextStep`
+                    // telling it to link a project, which the write tools then refuse.
+                    // Being on Vercel and choosing Autonoma-hosted previews is a normal
+                    // combination (people pick it for the per-preview database), so this
+                    // has to read as "wrong tool", not "something is misconfigured".
+                    const refusal = await refuseIfAutonomaHosted(
+                        applicationId,
+                        organizationId,
+                        "get_vercel_setup",
+                        "get_config / apply_config / trigger_deploy",
+                    );
+                    if (refusal != null) return refusal;
+                    const projects = await services.onboarding.listAvailableVercelProjects(
+                        applicationId,
+                        organizationId,
+                    );
+                    // Only worth a Vercel API round-trip once a project is linked -
+                    // unlinked, there is no project whose deployments we could list.
+                    const { deployments, unavailable } =
+                        projects.linkedProject != null
+                            ? await tryListVercelDeployments(applicationId, organizationId)
+                            : { deployments: [], unavailable: undefined };
+                    return jsonResult({
+                        installed: projects.connected,
+                        connectUrl: projects.connectUrl,
+                        // Explicit rather than omitted-when-absent: an agent reading a
+                        // missing key cannot tell "not linked" from "field not returned".
+                        projectLinked: projects.linkedProject != null,
+                        linkedProject: projects.linkedProject,
+                        linkableProjects: projects.projects,
+                        deployments,
+                        deploymentsUnavailable: unavailable,
+                        nextStep: describeVercelNextStep(projects, deployments.length, unavailable),
+                    });
+                } catch (err) {
+                    logger.warn("get_vercel_setup failed", { applicationId, err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "link_vercel_project",
+        {
+            title: "Link a Vercel project to this app",
+            description:
+                "Link one of the Vercel projects from get_vercel_setup's `linkableProjects` to this app. Choose the " +
+                "candidate whose `matchesRepository` is true - it builds the same GitHub repo the app is linked to. " +
+                "If none matches, ASK the user which project it is rather than guessing from the name; linking the " +
+                "wrong project points Autonoma's tests at someone else's app. This is the step that makes everything " +
+                "else work: it applies the deployment-protection bypass header (without which Autonoma cannot reach " +
+                "a protected preview at all) and adopts the AUTONOMA_SHARED_SECRET Vercel already injected into the " +
+                "project, so the SDK handler's signature matches what Autonoma verifies. Reversible - the user can " +
+                "unlink in the Autonoma UI. Pass a short `description`; the user watches it on the activity feed.",
+            inputSchema: {
+                applicationId: z.string(),
+                vercelProjectId: z
+                    .string()
+                    .min(1)
+                    .describe("A project `id` from get_vercel_setup's `linkableProjects`."),
+                description: activityDescription,
+            },
+        },
+        async ({ applicationId, vercelProjectId, description }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "link_vercel_project",
+                    requires: { source: "existing_deploys", useInstead: "apply_config / trigger_deploy" },
+                    message: description ?? "Linking the Vercel project",
+                    toolArguments: { vercelProjectId },
+                },
+                async (org) => {
+                    await services.onboarding.linkVercelProject(applicationId, org, vercelProjectId);
+                    // Best-effort: the link is already committed, so a Vercel hiccup
+                    // here must not report it as a failure - the agent would retry and
+                    // hit "already linked", with no way to tell that it had won.
+                    const { deployments, unavailable } = await tryListVercelDeployments(applicationId, org);
+                    return {
+                        linked: true,
+                        deployments,
+                        deploymentsUnavailable: unavailable,
+                        message:
+                            unavailable != null
+                                ? "Linked - that part is done and does not need repeating. Autonoma could not " +
+                                  "reach Vercel to list this project's deployments, so continue with " +
+                                  "get_vercel_setup once Vercel is reachable; do NOT call link_vercel_project again."
+                                : "Linked. Vercel now reports this project's deployments to Autonoma, and protected " +
+                                  "previews are reachable. Next: pick a deployment from `deployments` and call " +
+                                  "create_vercel_deployment on it, so it rebuilds with the project's current env.",
+                    };
+                },
+            ),
+    );
+
+    server.registerTool(
+        "create_vercel_deployment",
+        {
+            title: "Create a Vercel deployment",
+            description:
+                "Rebuild an EXISTING Vercel deployment so it picks up the injected AUTONOMA_SHARED_SECRET, then " +
+                "use it as the preview Autonoma tests against. Only for reusing an old deployment. You usually do " +
+                "not need this: pushing the branch you are about to write the SDK handler on makes Vercel build a " +
+                "preview for it, and a fresh build already carries the secret - select that one directly instead. " +
+                "This really deploys: it CREATES a new deployment, a live build on their Vercel account, billable " +
+                "to them, reachable at a new URL, and it cannot be undone from here. Never call it to 'refresh' " +
+                "anything. " +
+                "Do not choose the source deployment yourself - ask the user which of get_vercel_setup's " +
+                "`deployments` to use, the same question the Autonoma UI asks over the same list. Never pick a " +
+                "`target: production` one on your own initiative: rebuilding it deploys their LIVE site, and what " +
+                "you select becomes the target of every scenario run, pointing test-data creation and teardown at " +
+                "their live database. " +
+                "The new deployment has its own " +
+                "id and URL, so poll and select THAT id, not the one you passed " +
+                "in. It only starts the build; poll get_vercel_deployment_status until ready, then call " +
+                "select_vercel_deployment. Pass a short `description`; the user watches it on the activity feed.",
+            inputSchema: {
+                applicationId: z.string(),
+                vercelDeploymentId: z
+                    .string()
+                    .min(1)
+                    .describe("A deployment `id` from get_vercel_setup's `deployments`."),
+                description: activityDescription,
+            },
+        },
+        async ({ applicationId, vercelDeploymentId, description }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "create_vercel_deployment",
+                    requires: { source: "existing_deploys", useInstead: "trigger_deploy" },
+                    message: description ?? "Deploying a fresh Vercel build to test against",
+                    toolArguments: { vercelDeploymentId },
+                },
+                async (org) => {
+                    const result = await services.onboarding.redeployVercelDeployment(
+                        applicationId,
+                        org,
+                        vercelDeploymentId,
+                    );
+                    return {
+                        deploymentId: result.deploymentId,
+                        url: result.url,
+                        readyState: result.readyState,
+                        message:
+                            `Building as a NEW deployment (${result.deploymentId}) - the id you passed in is not ` +
+                            "the one to continue with. Poll get_vercel_deployment_status with this new id every " +
+                            "~30s until `ready` is true (a Vercel build takes minutes), then call " +
+                            "select_vercel_deployment with it.",
+                    };
+                },
+            ),
+    );
+
+    server.registerTool(
+        "get_vercel_deployment_status",
+        {
+            title: "Poll a Vercel build",
+            description:
+                "Build state of one Vercel deployment, for waiting out a redeploy. `ready` is true once Vercel " +
+                "reports READY; `readyState` carries Vercel's own string (QUEUED / BUILDING / READY / ERROR / " +
+                "CANCELED) so an errored build is distinguishable from one still going. Poll ~30s apart and keep " +
+                "going - nothing else will tell you the build finished. On ERROR or CANCELED, stop polling and read " +
+                "the build output in Vercel's dashboard: Vercel builds these, so Autonoma holds no logs for them.",
+            inputSchema: {
+                applicationId: z.string(),
+                vercelDeploymentId: z
+                    .string()
+                    .min(1)
+                    .describe("The NEW deployment id returned by create_vercel_deployment."),
+            },
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+        },
+        async ({ applicationId, vercelDeploymentId }) =>
+            analytics.track("get_vercel_deployment_status", async () => {
+                try {
+                    const organizationId = await resolveOrg(applicationId);
+                    const refusal = await refuseIfAutonomaHosted(
+                        applicationId,
+                        organizationId,
+                        "get_vercel_deployment_status",
+                        "get_session_status",
+                    );
+                    if (refusal != null) return refusal;
+                    const status = await services.onboarding.getVercelDeploymentStatus(
+                        applicationId,
+                        organizationId,
+                        vercelDeploymentId,
+                    );
+                    return jsonResult({
+                        readyState: status.readyState,
+                        ready: status.ready,
+                        url: status.url,
+                        nextStep: describeVercelBuildNextStep(status.ready, status.readyState),
+                    });
+                } catch (err) {
+                    logger.warn("get_vercel_deployment_status failed", { applicationId, err });
+                    return toToolResult(err);
+                }
+            }),
+    );
+
+    server.registerTool(
+        "select_vercel_deployment",
+        {
+            title: "Use a Vercel deployment as the preview",
+            description:
+                "Commit a READY Vercel deployment as the preview Autonoma tests against. Pass the id " +
+                "create_vercel_deployment returned, once get_vercel_deployment_status reports `ready`; a " +
+                "still-building deployment is rejected. Know what this commits: every scenario run creates and " +
+                "deletes rows through this deployment, in whatever database it talks to - so never commit a " +
+                "`production` deployment without the user having explicitly agreed to it. This advances " +
+                "onboarding on its own - on Vercel there is no " +
+                "confirm_signal_setup and no signal to wait for, because the integration reports deployments " +
+                "already. Pass a short `description`; the user watches it on the activity feed.",
+            inputSchema: {
+                applicationId: z.string(),
+                vercelDeploymentId: z.string().min(1).describe("A READY deployment id."),
+                description: activityDescription,
+            },
+        },
+        async ({ applicationId, vercelDeploymentId, description }) =>
+            guardedWrite(
+                {
+                    applicationId,
+                    tool: "select_vercel_deployment",
+                    requires: { source: "existing_deploys", useInstead: "trigger_deploy" },
+                    message: description ?? "Selecting the Vercel preview",
+                    toolArguments: { vercelDeploymentId },
+                },
+                async (org) => {
+                    await services.onboarding.selectVercelDeployment(applicationId, org, vercelDeploymentId);
+                    const status = await services.onboarding.getExternalSignalStatus(applicationId, org);
+                    return {
+                        previewUrl: status.previewUrl,
+                        step: status.step,
+                        message:
+                            "This deployment is now the preview Autonoma tests against. Onboarding has advanced - " +
+                            "no confirm step is needed here. Next: the Autonoma SDK handler and the scenario " +
+                            "recipes; list_dry_run_targets lists this project's Vercel deployments as targets.",
+                    };
+                },
+            ),
+    );
+
     // ─── existing_deploys path: wiring the customer's own pipeline ────
 
     server.registerTool(
@@ -882,16 +1317,19 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "body field, and a starter GitHub Actions workflow. The workflow is a TEMPLATE, not a requirement: it " +
                 "hangs off GitHub's `deployment_status` event, which many pipelines never emit. Read how the project " +
                 "actually deploys and make the same signed call from whatever step knows a preview is live. Send " +
-                "`branch` and `prNumber` together to get per-PR reviews - one without the other is dropped.",
+                "`branch` and `prNumber` together to get per-PR reviews - one without the other is dropped. NOT for " +
+                "projects on Vercel: the Autonoma Vercel integration reports deployments already, so use " +
+                "get_vercel_setup there instead.",
             inputSchema: { applicationId: z.string() },
         },
         async ({ applicationId }) =>
             analytics.track("get_signal_setup", async () => {
                 try {
                     const organizationId = await resolveOrg(applicationId);
-                    const [status, secret] = await Promise.all([
+                    const [status, secret, vercel] = await Promise.all([
                         services.onboarding.getExternalSignalStatus(applicationId, organizationId),
                         services.applications.getSharedSecret(applicationId, organizationId),
+                        resolveVercelState(applicationId, organizationId),
                     ]);
                     if (status.previewEnvironmentMode === "previewkit") {
                         return errorResult(
@@ -899,7 +1337,30 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                                 "pipeline to send. Use get_config / apply_config / trigger_deploy instead.",
                         );
                     }
+                    // A linked Vercel project settles it: the integration reports every
+                    // deployment already, so a hand-written signal would be a second,
+                    // worse path - and would not fix reaching a protected preview, which
+                    // only the link does. Refused rather than warned, because the secret
+                    // handed over below is exactly the trap: it looks right, and fails at
+                    // runtime against the one Vercel injected into their project.
+                    if (vercel.linked) {
+                        return errorResult(
+                            "This app has a Vercel project linked, so Vercel already tells Autonoma about every " +
+                                "deployment - there is no webhook to write here, and writing one would not make a " +
+                                "protection-enabled preview reachable. Use get_vercel_setup instead.",
+                        );
+                    }
                     return jsonResult({
+                        // Not a refusal: an org can run the Vercel integration for other
+                        // projects and still deploy THIS app somewhere else. But an agent
+                        // that lands here by default would build a webhook the integration
+                        // was going to make unnecessary, so say so before it starts.
+                        vercelNotice: vercel.installed
+                            ? "This org has the Autonoma Vercel integration installed, but no Vercel project is " +
+                              "linked to this app. If this project deploys on Vercel, STOP and use get_vercel_setup " +
+                              "- linking is what makes protected previews reachable, and no webhook substitutes " +
+                              "for it. Continue here only if this app genuinely deploys somewhere else."
+                            : undefined,
                         endpoint: signalEndpoint(),
                         applicationId,
                         sharedSecret: secret.sharedSecret,
@@ -941,7 +1402,25 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             analytics.track("get_signal_status", async () => {
                 try {
                     const organizationId = await resolveOrg(applicationId);
-                    const status = await services.onboarding.getExternalSignalStatus(applicationId, organizationId);
+                    const [status, vercel] = await Promise.all([
+                        services.onboarding.getExternalSignalStatus(applicationId, organizationId),
+                        resolveVercelState(applicationId, organizationId),
+                    ]);
+                    // On Vercel nobody sends a signal, so `signalReceived: false` is the
+                    // steady state rather than a problem. Left unqualified it reads as
+                    // broken wiring and sends the agent off to fix a webhook that should
+                    // not exist.
+                    if (isVercelPath(vercel)) {
+                        return jsonResult({
+                            previewSource: previewSourceOf(status.previewEnvironmentMode),
+                            step: status.step,
+                            previewUrl: status.previewUrl,
+                            nextStep:
+                                "This app is on Vercel, where the Marketplace integration reports deployments " +
+                                "directly - no pipeline sends a signal here, so signal status does not apply and " +
+                                "its absence is not a fault. Use get_vercel_setup for the real state of this path.",
+                        });
+                    }
                     // Projected field by field rather than spread: the row carries the
                     // internal `previewEnvironmentMode` enum, and an agent that sees a
                     // value repeats it to the user.
@@ -982,6 +1461,19 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     requires: { source: "existing_deploys", useInstead: "trigger_deploy" },
                 },
                 async (org) => {
+                    // On Vercel there is nothing to confirm: select_vercel_deployment
+                    // already advanced the app to preview_verified, and that state does
+                    // not implement this transition - so the call would fail with a state
+                    // mismatch rather than telling the agent it had already finished. The
+                    // Autonoma UI skips this step for Vercel for the same reason.
+                    if (isVercelPath(await resolveVercelState(applicationId, org))) {
+                        throw new ConflictError(
+                            "Nothing to confirm on Vercel: the integration reports deployments itself, and " +
+                                "select_vercel_deployment already advanced onboarding. If you have selected a " +
+                                "deployment, this step is done - carry on with the SDK handler and the scenario " +
+                                "recipes.",
+                        );
+                    }
                     await services.onboarding.confirmExistingDeploysSetup(applicationId, org);
                     const status = await services.onboarding.getExternalSignalStatus(applicationId, org);
                     return {
@@ -1197,7 +1689,11 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                 "`discover`, and on success stores the endpoint plus the model schema it returned. Run this BEFORE " +
                 "dry_run_scenario - a dry run against an unvalidated endpoint just fails on the same thing twice. " +
                 "Name the preview with a target `id` from list_dry_run_targets, normally the PR carrying the SDK " +
-                "handler. A `redeploy_started` result is not a failure: the preview is being rebuilt to mount " +
+                "handler. Works on an Autonoma-hosted preview and on a Vercel deployment alike - it routes by where " +
+                "the target's preview comes from. A preview from the project's own pipeline (neither of those) is " +
+                "the one case it cannot do: validating that needs the signing secret their pipeline signs with, and " +
+                "no tool here accepts a secret value, so it returns an error naming the UI step the user does " +
+                "instead. A `redeploy_started` result is not a failure: the preview is being rebuilt to mount " +
                 "freshly-provisioned secrets, so poll list_dry_run_targets until that target reads `ready` again " +
                 "and call validate_sdk once more. A failure returns the handler's own error - read it, then " +
                 "get_target_logs(target, source:'app') for the stack trace behind it, fix the handler in the repo, " +
@@ -1230,6 +1726,44 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     toolArguments: { target },
                 },
                 async (org) => {
+                    // Dispatch on where the target's preview comes from, the same way the
+                    // Autonoma UI does. The managed path below resolves the target through
+                    // PreviewKit and rejects anything else outright, so without this a
+                    // Vercel target - the only kind a Vercel app has - failed with "not
+                    // managed by PreviewKit", which reads as a broken setup rather than
+                    // the wrong code path.
+                    const dispatch = await resolveSdkValidationRoute(applicationId, org, target);
+                    // Thrown, not returned: guardedWrite wraps whatever the work returns
+                    // in a success result, so handing it an error result nests one inside
+                    // the other and the agent sees a JSON blob that is not flagged as a
+                    // failure. Throwing lets the usual catch render it and marks the
+                    // activity-feed entry as errored.
+                    if (dispatch.route === "unsupported") throw new BadRequestError(dispatch.message);
+                    if (dispatch.route === "vercel") {
+                        const vercelResult = await services.onboarding.discoverVercelDeploymentTarget(
+                            applicationId,
+                            org,
+                            target,
+                            allowSelfHeal,
+                        );
+                        if (vercelResult.status === "redeploy_started") {
+                            return {
+                                status: "redeploy_started",
+                                message:
+                                    "The deployment rejected our signature because it was built before the shared " +
+                                    "secret existed, so Vercel is building a fresh one. Poll " +
+                                    `get_vercel_deployment_status with ${vercelResult.deploymentId} until it is ` +
+                                    "ready, then call validate_sdk again with that id and allowSelfHeal: false. A " +
+                                    "rejection that survives the rebuild is a real failure to report.",
+                            };
+                        }
+                        return {
+                            status: "discovered",
+                            message:
+                                "The SDK handler answered and its schema is stored. Next: the scenario recipes - " +
+                                "list_scenarios, then dry_run_scenario against this same target.",
+                        };
+                    }
                     // Preparing writes the preview's AUTONOMA_* secrets; when that mounts
                     // something new it redeploys, and the pod has to roll before discover
                     // can succeed. Returning here (rather than discovering into a
@@ -1385,9 +1919,12 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         content: {
                             type: "text",
                             text:
-                                `Wire my existing deploy pipeline to Autonoma. ${pairingStep} the playbook below ` +
-                                `until a signal has actually landed - do not call it done on an untested workflow.` +
-                                `\n\n${SHARED_PREAMBLE}\n\n${EXTERNAL_DEPLOYS_PLAYBOOK}\n\n${SDK_AND_RECIPES}`,
+                                `Connect my existing deploys to Autonoma. ${pairingStep} the playbook below that ` +
+                                `applies - pair() tells you which, and they are not interchangeable. On Vercel the ` +
+                                `integration reports deployments already and the work is connecting the project; ` +
+                                `anywhere else you wire a signed signal and must not call it done on an untested ` +
+                                `workflow.` +
+                                `\n\n${SHARED_PREAMBLE}\n\n${VERCEL_PLAYBOOK}\n\n${EXTERNAL_DEPLOYS_PLAYBOOK}\n\n${SDK_AND_RECIPES}`,
                         },
                     },
                 ],
@@ -1411,8 +1948,8 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
         }),
     );
 
-    // Both playbooks are readable without pairing, so an agent can see what the
-    // work looks like before it holds an app - and so one that pairs into the
+    // Every playbook is readable without pairing, so an agent can see what the
+    // work looks like before it holds an app - and so one that pairs into a
     // less common path can re-read it without hunting through chat history.
     server.registerResource(
         "autonoma-hosted-playbook",
@@ -1431,14 +1968,30 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
         "own-pipeline-playbook",
         "autonoma://own-pipeline-playbook",
         {
-            title: "Your own pipeline playbook",
+            title: "Your own pipeline playbook (signed webhook)",
             description:
                 "How to wire a customer's own deploy pipeline to signal Autonoma when a preview is live, and how to " +
-                "prove the signal lands.",
+                "prove the signal lands. For every host EXCEPT Vercel - see the Vercel playbook for those.",
             mimeType: "text/markdown",
         },
         (uri) => ({
             contents: [{ uri: uri.href, text: EXTERNAL_DEPLOYS_PLAYBOOK, mimeType: "text/markdown" }],
+        }),
+    );
+
+    server.registerResource(
+        "vercel-playbook",
+        "autonoma://vercel-playbook",
+        {
+            title: "Vercel previews playbook",
+            description:
+                "How to connect a Vercel project so its deployments become the previews Autonoma tests against - " +
+                "the other half of the customer's-own-deploys path, where the Marketplace integration replaces the " +
+                "signed webhook. Covers when this path is safe at all, and which deployment to point onboarding at.",
+            mimeType: "text/markdown",
+        },
+        (uri) => ({
+            contents: [{ uri: uri.href, text: VERCEL_PLAYBOOK, mimeType: "text/markdown" }],
         }),
     );
 
