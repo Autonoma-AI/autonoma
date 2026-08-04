@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.260804.1](https://github.com/Autonoma-AI/agent/compare/v1.260803.3...v1.260804.1) (2026-08-04)
+
+
+### Features
+
+* **analysis:** run impact analysis on gpt-5.6-luna ([#2085](https://github.com/Autonoma-AI/agent/issues/2085)) ([8fa4caf](https://github.com/Autonoma-AI/agent/commit/8fa4cafc2cfafe59dbc34d739fe62a644f762f9a))
+* **api:** let an agent drive the GitHub connection ([#2098](https://github.com/Autonoma-AI/agent/issues/2098)) ([39dc235](https://github.com/Autonoma-AI/agent/commit/39dc235a715b1e597fb35f457c3471d6c77bd717))
+* **api:** let an agent finish onboarding ([#2133](https://github.com/Autonoma-AI/agent/issues/2133)) ([a55bc47](https://github.com/Autonoma-AI/agent/commit/a55bc4784b8b4c051a0471153a1c7cab9c2a5de9))
+* **api:** support the Vercel path in the onboarding MCP ([#2107](https://github.com/Autonoma-AI/agent/issues/2107)) ([551da45](https://github.com/Autonoma-AI/agent/commit/551da455314a84b8f3f0138d4e10c4169dccfa6b))
+* **deployment:** pin alpha-build.yml workloads to a spot-only Karpenter pool ([#2132](https://github.com/Autonoma-AI/agent/issues/2132)) ([7584599](https://github.com/Autonoma-AI/agent/commit/7584599f92af04e18d7668e7ae178c163ce83343))
+* **previewkit:** all-or-nothing previews + scale failed environments to zero ([#2138](https://github.com/Autonoma-AI/agent/issues/2138)) ([920779e](https://github.com/Autonoma-AI/agent/commit/920779e5143fb9a297b5d44070268fc720a9f104))
+* **terraform:** declare the runners EKS cluster ([#2134](https://github.com/Autonoma-AI/agent/issues/2134)) ([8bf5117](https://github.com/Autonoma-AI/agent/commit/8bf51170e86ba68e941588ce476abed38f884b13))
+* **terraform:** move state to S3 and add plan-on-PR CI ([#2096](https://github.com/Autonoma-AI/agent/issues/2096)) ([bd5a949](https://github.com/Autonoma-AI/agent/commit/bd5a949f9a2335ef7655a3763e7b6f57fc61b724))
+* **ui:** let an agent on another machine authenticate ([#2137](https://github.com/Autonoma-AI/agent/issues/2137)) ([8d7c1ff](https://github.com/Autonoma-AI/agent/commit/8d7c1fffd1b9ebaeddbd7db4abbfd17678b35bfd))
+* **ui:** page the pull-request lists 25 at a time ([#2108](https://github.com/Autonoma-AI/agent/issues/2108)) ([31e403f](https://github.com/Autonoma-AI/agent/commit/31e403ff56eda479f905b6514855cfeffa7d47ef))
+* vercel demo app ([#2023](https://github.com/Autonoma-AI/agent/issues/2023)) ([10e24c8](https://github.com/Autonoma-AI/agent/commit/10e24c82cc72e5e874cad77a21223f35949f3c92))
+
+
+### Bug Fixes
+
+* **api:** make the discovery catalog pass an ARD validator ([#2101](https://github.com/Autonoma-AI/agent/issues/2101)) ([7c4b4c1](https://github.com/Autonoma-AI/agent/commit/7c4b4c10fef49505bb07682fedcbcf4be8e74dcf))
+* **engine-web:** make WebDeployment.file nullable and ignore it when absent ([#2153](https://github.com/Autonoma-AI/agent/issues/2153)) ([c24a5ca](https://github.com/Autonoma-AI/agent/commit/c24a5ca70bfbaec2a3386025413e3deb8fd64e4e))
+* **monitoring:** require 10m of NotReady before NodeNotReady pages ([#2118](https://github.com/Autonoma-AI/agent/issues/2118)) ([7f3310a](https://github.com/Autonoma-AI/agent/commit/7f3310ad1c174be175f04077d9a20f3ae709d3c6))
+* **onboarding:** lead with the coding agent for Vercel-origin users ([#2104](https://github.com/Autonoma-AI/agent/issues/2104)) ([4fcde6e](https://github.com/Autonoma-AI/agent/commit/4fcde6e1e8a81ba4053d8bf55938004d7a3a7f2c))
+* **terraform:** harden main-vpc security groups, reconcile with concurrent AWS changes ([#2097](https://github.com/Autonoma-AI/agent/issues/2097)) ([5708831](https://github.com/Autonoma-AI/agent/commit/57088310d0b3461869d63016e109707061a3d532))
+* **terraform:** plan as a read-only role so CI can refresh state ([#2135](https://github.com/Autonoma-AI/agent/issues/2135)) ([846dba4](https://github.com/Autonoma-AI/agent/commit/846dba427156f7c6f24813fcfec57ecb58a9a1e1))
+* **terraform:** stop main-vpc route tables from showing spurious plan diffs ([#2117](https://github.com/Autonoma-AI/agent/issues/2117)) ([b75ba0b](https://github.com/Autonoma-AI/agent/commit/b75ba0b8947008c908c38ccf3d79fa3909a7ac67))
+* **ui:** collapse the Claude Code MCP block to one command ([#2110](https://github.com/Autonoma-AI/agent/issues/2110)) ([e637782](https://github.com/Autonoma-AI/agent/commit/e637782dae69fc843ca65c23f76088797245d3d2))
+* **ui:** hide the app sidebar on the finish-setup flow ([#2152](https://github.com/Autonoma-AI/agent/issues/2152)) ([630b130](https://github.com/Autonoma-AI/agent/commit/630b130149894b9e628a1c2cdd15ac9adafa4286))
+* **ui:** make the MCP install block install, authorize, and launch ([#2105](https://github.com/Autonoma-AI/agent/issues/2105)) ([c640b98](https://github.com/Autonoma-AI/agent/commit/c640b9888a1573d2a75d93a62e5594fb55f8564d))
+* **ui:** surface an empty Vercel deployment list as a blocker with a retry ([#2006](https://github.com/Autonoma-AI/agent/issues/2006)) ([4e4dd31](https://github.com/Autonoma-AI/agent/commit/4e4dd318a201ac7198a2a072841651ace75262c3))
+
+
+### Performance Improvements
+
+* **api:** count assigned tests instead of listing them ([#2103](https://github.com/Autonoma-AI/agent/issues/2103)) ([5aad2c2](https://github.com/Autonoma-AI/agent/commit/5aad2c2805afa8eb495360a06169c95612308ad3))
+* **ui:** collapse the app-shell query waterfall from three waves to two ([#2128](https://github.com/Autonoma-AI/agent/issues/2128)) ([38c3f42](https://github.com/Autonoma-AI/agent/commit/38c3f4241f8da4940c7dce236003bdd26014d190))
+
 ## [1.260803.3](https://github.com/Autonoma-AI/agent/compare/v1.260803.2...v1.260803.3) (2026-08-03)
 
 
