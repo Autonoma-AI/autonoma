@@ -25,7 +25,19 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
   const activeOrganizationId = session.session.activeOrganizationId;
   if (activeOrganizationId == null) throw redirect({ to: "/pending" });
 
-  const organizations = await ensureOrganizationsData(queryClient);
+  // Every app-scoped query on the page is blocked on an id from the application list, and the list
+  // needs nothing from the org reads below - so it starts here instead of three round trips down.
+  // Started rather than awaited so the redirect checks keep their original order: the read at the
+  // bottom resolves from this fetch. It rides the same batched request as `orgStatus`.
+  //
+  // The session read above deliberately stays serial. Firing org-scoped reads before we know a
+  // session exists would turn every signed-out visit to an app URL into a pair of reported 401s.
+  void queryClient.prefetchQuery(trpc.applications.list.queryOptions());
+
+  const [organizations, orgStatus] = await Promise.all([
+    ensureOrganizationsData(queryClient),
+    ensureOrgStatusData(queryClient),
+  ]);
 
   const activeOrganization =
     organizations.find((org) => org.id === activeOrganizationId) ??
@@ -36,11 +48,13 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
     throw redirect({ to: "/login", search: { error: undefined } });
   }
 
-  const orgStatus = await ensureOrgStatusData(queryClient);
   if (orgStatus === "pending" && !isAdmin) throw redirect({ to: "/pending" });
   if (orgStatus === "rejected" && !isAdmin) throw redirect({ to: "/rejected" });
 
-  const applications = await queryClient.fetchQuery(trpc.applications.list.queryOptions());
+  // `ensureQueryData`, not `fetchQuery`: the prefetch above already applied the staleness check, so
+  // this only has to read its result. `fetchQuery` would re-check and fire a second identical
+  // request the moment the prefetch settled first.
+  const applications = await queryClient.ensureQueryData(trpc.applications.list.queryOptions());
 
   // Admins must keep access to /admin even when the active org has no
   // applications - it is the only place to switch orgs. Without this exemption

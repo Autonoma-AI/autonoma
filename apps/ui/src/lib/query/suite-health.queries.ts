@@ -1,4 +1,4 @@
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { type QueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { UNBATCHED, trpc } from "lib/trpc";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 
@@ -18,6 +18,15 @@ export function useSuiteHealth() {
         ...trpc.applications.suiteHealth.queryOptions({ applicationId: currentApp.id }, UNBATCHED),
         refetchInterval: REFETCH_INTERVAL_MS,
     });
+}
+
+/**
+ * Warms the meter from an app route loader. Fire-and-forget rather than an `ensure*`: the meter is
+ * sidebar furniture and must never hold up the page, and {@link useSuiteHealth} resolves from the
+ * fetch this starts. Keeps `UNBATCHED` so it does not join the loader's batch - see {@link UNBATCHED}.
+ */
+export function prefetchSuiteHealth(queryClient: QueryClient, applicationId: string): void {
+    void queryClient.prefetchQuery(trpc.applications.suiteHealth.queryOptions({ applicationId }, UNBATCHED));
 }
 
 /**
