@@ -1,21 +1,19 @@
 import { NotFoundError } from "@autonoma/errors";
 import { ANALYSIS_RUN_SOURCE } from "@autonoma/github/check";
 import { logger as rootLogger } from "@autonoma/logger";
-import { ScenarioRecipeSchema } from "@autonoma/types";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { MergeGateService } from "../github/merge-gate.service";
 import type { PreviewLogLine } from "../previewkit/previewkit-logs.service";
 import type { Services } from "../routes/build-services";
 import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
-import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
-import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
-import { resolveDryRunTargetUrl } from "./resolve-dry-run-target";
+import { recipeConflictResult } from "./recipe-conflict-result";
 import type { McpTarget, McpTargetInput } from "./resolve-mcp-target";
 import type { RepoContext } from "./resolve-repo-context";
 import { registerSharedApplyConfig, type WriteGuard } from "./shared-apply-config";
 import { registerSharedReadTools } from "./shared-read-tools";
+import { registerSharedRecipeTools } from "./shared-recipe-tools";
 import { errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
 
 /** Ceiling on log lines a single tail tool can request. */
@@ -672,111 +670,6 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
     );
 
     server.registerTool(
-        "dry_run_scenario",
-        {
-            title: "Test a scenario recipe against the deployed app",
-            description:
-                "Run a recipe end-to-end against the app's configured SDK endpoint: `up` to create the entities, " +
-                "then `down` to tear them back down. On failure it returns which phase failed (recipe/up/down) and " +
-                "the SDK's own error. " +
-                "ITERATE HERE rather than saving between attempts: pass your edited `recipe` and it is provisioned " +
-                "WITHOUT being stored, so the recipe your test runs use keeps working while you experiment and a " +
-                "wrong guess costs nothing. Loop edit -> dry_run_scenario(recipe) as many times as you need, then " +
-                "pass `save: true` on the run that passes (it saves only after a clean up/down, so a recipe you have " +
-                "not seen work cannot be promoted). Omit `recipe` to run whatever is stored. " +
-                "By default this hits the SDK endpoint currently configured for the app, which is not necessarily this " +
-                "PR's preview - pass `target` (from list_dry_run_targets) to run against a specific one, which is what " +
-                "you want when the PR carries your SDK handler. A scaled-to-zero preview " +
-                "503s while it wakes; the tool rides through that warm-up, so give the first run extra time.",
-            inputSchema: {
-                repoFullName: repoPrInput.repoFullName,
-                scenarioId: z.string().min(1),
-                recipe: ScenarioRecipeSchema.optional().describe(
-                    "A candidate recipe to run INSTEAD of the stored one. Not persisted unless `save` is true.",
-                ),
-                save: z
-                    .boolean()
-                    .optional()
-                    .describe(
-                        "Make `recipe` the active recipe, but only if this run passes. Ignored without `recipe`.",
-                    ),
-                target: z
-                    .string()
-                    .optional()
-                    .describe(
-                        "A target `id` from list_dry_run_targets - the preview to provision against. Omit to use " +
-                            "the app's currently configured SDK endpoint, which is NOT necessarily this PR's.",
-                    ),
-            },
-            // Destructive because `save: true` promotes the candidate to the active recipe -
-            // the same production mutation update_recipe performs. This server has no mutex
-            // or activity feed, so the annotation is the only chance a client gets to prompt.
-            annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
-        },
-        async ({ repoFullName, scenarioId, recipe, save = false, target }) =>
-            analytics.track("dry_run_scenario", async () => {
-                logger.info("dry_run_scenario", {
-                    extra: { repoFullName, scenarioId, candidate: recipe != null, save },
-                });
-                try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
-                    const result = await services.scenarios.dryRun(
-                        applicationId,
-                        organizationId,
-                        scenarioId,
-                        dryRunOptions(recipe, save),
-                        await resolveDryRunTargetUrl(services, applicationId, organizationId, target),
-                    );
-                    return jsonResult(result);
-                } catch (err) {
-                    return toToolResult(err);
-                }
-            }),
-    );
-
-    server.registerTool(
-        "update_recipe",
-        {
-            title: "Save a scenario's recipe",
-            description:
-                "Replace a scenario's recipe with a corrected version and make it active. " +
-                "THIS AFFECTS EVERY FUTURE TEST RUN of this scenario, not just yours - the app is live, so treat it " +
-                "like a database migration rather than a local edit. Prefer proving the recipe first with " +
-                "dry_run_scenario(recipe), then promoting it with `save: true` on the run that passed; reach for this " +
-                "tool directly only when you already know the recipe is right. The recipe's `name` must stay the " +
-                "scenario's existing name - this EDITS a scenario, it does not create one. It is validated on save " +
-                "(shape, `_ref` targets, and tokens that would not resolve) and rejected with the exact problems, so " +
-                "read them, fix them, and resend. Pass `baseFingerprint` from get_recipe so a write that " +
-                "races another editor is rejected with their version rather than overwriting it.",
-            inputSchema: {
-                repoFullName: repoPrInput.repoFullName,
-                scenarioId: z.string().min(1),
-                recipe: ScenarioRecipeSchema,
-                baseFingerprint: baseFingerprintInput,
-            },
-            annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
-        },
-        async ({ repoFullName, scenarioId, recipe, baseFingerprint }) =>
-            analytics.track("update_recipe", async () => {
-                logger.info("update_recipe", { extra: { repoFullName, scenarioId, scenario: recipe.name } });
-                try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
-                    const result = await services.scenarios.updateRecipe({
-                        applicationId,
-                        organizationId,
-                        scenarioId,
-                        fixtureJson: JSON.stringify(recipe),
-                        source: "MCP",
-                        baseFingerprint,
-                    });
-                    return jsonResult(result);
-                } catch (err) {
-                    return recipeConflictResult(err) ?? toToolResult(err);
-                }
-            }),
-    );
-
-    server.registerTool(
         "wait_for_deploy",
         {
             title: "Wait for a preview deploy to settle",
@@ -902,11 +795,15 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             }
             return jsonResult(await work(organizationId));
         } catch (err) {
-            return toToolResult(err);
+            // A losing recipe race is not a failure the agent should give up on - hand back the
+            // merge inputs, exactly as the guarded mount does inside guardedWrite.
+            return recipeConflictResult(err) ?? toToolResult(err);
         }
     };
 
     registerSharedApplyConfig(server, { services, analytics, resolveTarget, guard: runUnguarded });
+
+    registerSharedRecipeTools(server, { services, analytics, resolveTarget, guard: runUnguarded, userId });
 
     registerSharedReadTools(server, {
         services,

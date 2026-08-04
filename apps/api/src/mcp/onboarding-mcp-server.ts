@@ -8,7 +8,6 @@ import {
     DEPLOYMENT_SIGNAL_BODY_FIELDS,
     isProtectedPreviewkitEnvKey,
     type OnboardingAgentPendingRequest,
-    ScenarioRecipeSchema,
 } from "@autonoma/types";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -19,14 +18,14 @@ import type { Services } from "../routes/build-services";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import type { VercelDeploymentSummary } from "../vercel-marketplace/vercel-project-api";
 import { deprecatedBuildNotice } from "./deprecated-build-notice";
-import { dryRunOptions } from "./dry-run-options";
 import type { McpAnalytics } from "./mcp-analytics";
 import type { McpPrincipal } from "./mcp-principal";
-import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
-import { resolveDryRunTarget, resolveDryRunTargetUrl } from "./resolve-dry-run-target";
+import { recipeConflictResult } from "./recipe-conflict-result";
+import { resolveDryRunTarget } from "./resolve-dry-run-target";
 import { resolveMcpTarget } from "./resolve-mcp-target";
 import { registerSharedApplyConfig } from "./shared-apply-config";
 import { registerSharedReadTools } from "./shared-read-tools";
+import { registerSharedRecipeTools } from "./shared-recipe-tools";
 import { describeError, errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
 import {
     VERCEL_PLAYBOOK,
@@ -219,16 +218,6 @@ function describePendingRequest(pending: OnboardingAgentPendingRequest | undefin
         "long as it takes - they answer in the Autonoma UI, so this call is the only thing that will tell you the " +
         "values are set."
     );
-}
-
-/**
- * The activity-feed line for a dry run when the agent gave no description. The user is
- * watching to know whether their recipe is being changed, so trying an unsaved candidate
- * and promoting one must not read the same.
- */
-function describeDryRun(hasCandidate: boolean, save: boolean): string {
-    if (!hasCandidate) return "Testing the saved scenario recipe";
-    return save ? "Testing an edited recipe, saving it if it passes" : "Testing an edited recipe (not saved)";
 }
 
 /**
@@ -1465,52 +1454,6 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     );
 
     server.registerTool(
-        "update_recipe",
-        {
-            title: "Update a scenario recipe",
-            description:
-                "Replace a scenario's recipe with a corrected version and make it the active one. The recipe's `name` " +
-                "must stay the scenario's existing name - this EDITS an existing scenario, it does not create one (the " +
-                "scenario and an initial recipe come from the planner upload). Every value in `create` must be " +
-                "concrete except two built-in tokens, which need no declaration: `{{testRunId}}` (the id of this " +
-                "provisioning run, the same value your SDK receives as the request's `testRunId`) and " +
-                "`{{testRunShortId}}` (an 8-character hash of it, for columns too short for a UUID). Use them wherever " +
-                "a value must be unique per run; any OTHER `{{token}}` is rejected. The recipe is validated on save - " +
-                "an invalid shape, a `_ref` matching no `_alias`, or a token that cannot resolve is rejected with the " +
-                "exact problem, so read it, fix it, and resend. After saving, call dry_run_scenario to run it " +
-                "against the deployed app and confirm it actually creates the entities; loop update_recipe -> " +
-                "dry_run_scenario until it passes. Pass a short `description` of what you changed - the user watches it " +
-                "on the activity feed.",
-            inputSchema: {
-                applicationId: z.string(),
-                scenarioId: z.string(),
-                recipe: ScenarioRecipeSchema,
-                baseFingerprint: baseFingerprintInput,
-                description: activityDescription,
-            },
-        },
-        async ({ applicationId, scenarioId, recipe, baseFingerprint, description }) =>
-            guardedWrite(
-                {
-                    applicationId,
-                    tool: "update_recipe",
-                    message: description ?? `Updating recipe for scenario "${recipe.name}"`,
-                    toolArguments: { scenarioId, scenario: recipe.name },
-                },
-                (org) =>
-                    services.scenarios.updateRecipe({
-                        applicationId,
-                        organizationId: org,
-                        scenarioId,
-                        fixtureJson: JSON.stringify(recipe),
-                        source: "MCP",
-                        actorUserId: userId,
-                        baseFingerprint,
-                    }),
-            ),
-    );
-
-    server.registerTool(
         "validate_sdk",
         {
             title: "Validate the app's Autonoma SDK endpoint",
@@ -1632,69 +1575,6 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                             "this same target to confirm the scenarios provision.",
                     };
                 },
-            ),
-    );
-
-    server.registerTool(
-        "dry_run_scenario",
-        {
-            title: "Test a scenario recipe",
-            description:
-                "Run a scenario's recipe end-to-end against the deployed app: calls your SDK endpoint `up` to create " +
-                "the entities in the app's database, then `down` to tear them back down. This is how you confirm a " +
-                "recipe works before onboarding completes. On failure it returns which phase failed (recipe/up/down) " +
-                "and the SDK's error. " +
-                "ITERATE HERE, do not save between attempts: pass your edited recipe as `recipe` and it is provisioned " +
-                "WITHOUT being stored, so a wrong guess never becomes the recipe that future test runs use. Loop " +
-                "dry_run_scenario(recipe) -> read the error -> edit -> dry_run_scenario(recipe) as many times as you " +
-                "need, then pass `save: true` on the run that passes to make it the active recipe (it is saved only if " +
-                "the whole up/down cycle succeeded, so a failing recipe can never be promoted). Omit `recipe` entirely " +
-                "to run whatever is currently stored. Requires the app deployed with " +
-                "its SDK URL + signing secret configured - get the preview up first. Cold starts are handled for you: a " +
-                "scaled-to-zero ('serverless') preview 503s on the first hit while it wakes, so this tool waits through " +
-                "that warm-up (a bounded retry, ~30s) before running - allow the first run extra time rather than " +
-                "treating a slow response as a hang, and you normally never see the 503. Only if the preview is STILL " +
-                "cold after that wait does it return `success:false` with `coldStart:true` and a plain-English note " +
-                "(not a raw 503); then just call dry_run_scenario again, the environment is waking. Pass a short " +
-                "`description` - the user watches it on the activity feed.",
-            inputSchema: {
-                applicationId: z.string(),
-                scenarioId: z.string(),
-                recipe: ScenarioRecipeSchema.optional().describe(
-                    "A candidate recipe to run INSTEAD of the stored one. Not persisted unless `save` is true.",
-                ),
-                save: z
-                    .boolean()
-                    .optional()
-                    .describe(
-                        "Make `recipe` the active recipe, but only if this run passes. Ignored without `recipe`.",
-                    ),
-                target: z
-                    .string()
-                    .optional()
-                    .describe(
-                        "A target `id` from list_dry_run_targets - the preview to provision against. Omit to use " +
-                            "the app's currently configured SDK endpoint.",
-                    ),
-                description: activityDescription,
-            },
-        },
-        async ({ applicationId, scenarioId, recipe, save = false, target, description }) =>
-            guardedWrite(
-                {
-                    applicationId,
-                    tool: "dry_run_scenario",
-                    message: description ?? describeDryRun(recipe != null, save),
-                    toolArguments: { scenarioId, candidate: recipe != null, save, target: target ?? null },
-                },
-                async (org) =>
-                    services.scenarios.dryRun(
-                        applicationId,
-                        org,
-                        scenarioId,
-                        dryRunOptions(recipe, save, userId),
-                        await resolveDryRunTargetUrl(services, applicationId, org, target),
-                    ),
             ),
     );
 
@@ -1829,6 +1709,19 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     registerSharedApplyConfig(server, {
         services,
         analytics,
+        resolveTarget: (input) =>
+            resolveMcpTarget(
+                { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
+                principal,
+                input,
+            ),
+        guard: (params, work) => guardedWrite(params, work),
+    });
+
+    registerSharedRecipeTools(server, {
+        services,
+        analytics,
+        userId,
         resolveTarget: (input) =>
             resolveMcpTarget(
                 { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
