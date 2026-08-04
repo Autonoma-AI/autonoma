@@ -133,7 +133,9 @@ mcpHttpRouter.all("/debug", (c) => {
 mcpHttpRouter.all("/onboarding", (c) => {
     const { principal } = c.get("mcpAuth");
     const mcpAnalytics = new McpAnalytics(analytics, "onboarding", principal.userId);
-    return serveMcp(c, ({ services }) => buildOnboardingMcpServer({ services, principal, analytics: mcpAnalytics }));
+    return serveMcp(c, ({ services, db }) =>
+        buildOnboardingMcpServer({ services, db, principal, analytics: mcpAnalytics }),
+    );
 });
 
 /**

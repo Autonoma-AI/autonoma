@@ -218,39 +218,6 @@ export class OnboardingAgentSessionService {
     }
 
     /**
-     * Resolves the org a paired agent's per-call `applicationId` acts in and
-     * verifies the OAuth user is a member - the same boundary as pairing, applied
-     * to every subsequent stateless tool call (the MCP server is stateless, so
-     * the app is named per call). Probe-safe: an unknown app and one outside the
-     * principal's organizations both throw the same NotFoundError.
-     *
-     * The principal carries the caller's authorized organizations - already narrowed to a
-     * single one when the credential is an API key, and already stripped of the demo org.
-     * Authorization is that list, so this never has to reason about the credential itself.
-     */
-    async resolveOrgForMember(applicationId: string, principal: McpPrincipal): Promise<string> {
-        // One query on the hot path (every tool call): the app must exist, be enabled, AND
-        // belong to an org the principal may act in. Unknown app and out-of-reach app both
-        // resolve to null, so the caller can't probe which.
-        const application = await this.db.application.findFirst({
-            where: {
-                id: applicationId,
-                disabled: false,
-                organizationId: { in: principal.organizationIds },
-            },
-            select: { organizationId: true },
-        });
-        if (application == null) {
-            this.logger.warn("No enabled app in the agent's authorized organizations", {
-                userId: principal.userId,
-                applicationId,
-            });
-            throw new NotFoundError(`No application found for ${applicationId}`);
-        }
-        return application.organizationId;
-    }
-
-    /**
      * Ensures the agent still holds the config before a write, refreshing the
      * heartbeat. Returns `paused_by_user` WITHOUT mutating when the human has
      * explicitly taken over (Stop), so the caller stands down. An idle release

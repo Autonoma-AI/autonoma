@@ -3,6 +3,7 @@ import { ApplicationArchitecture } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { expect } from "vitest";
 import { resolveMcpPrincipal } from "../../src/mcp/mcp-principal";
+import { resolveMcpTarget } from "../../src/mcp/resolve-mcp-target";
 import { RateLimiterService } from "../../src/rate-limit/rate-limiter.service";
 import { OnboardingAgentSessionService } from "../../src/routes/onboarding/onboarding-agent-session.service";
 import { apiTestSuite } from "../api-test";
@@ -14,7 +15,7 @@ import { apiTestSuite } from "../api-test";
  * cover the credential-to-boundary step as well as the enforcement.
  */
 apiTestSuite({
-    name: "Onboarding agent session org scoping",
+    name: "MCP target resolution and org scoping",
     seed: async ({ harness }) => {
         await harness.db.member.create({
             data: { userId: harness.userId, organizationId: harness.organizationId, role: "owner" },
@@ -71,33 +72,78 @@ apiTestSuite({
             expect(principal.organizationIds).toEqual([]);
         });
 
-        test("resolveOrgForMember allows an app inside the credential's organization", async ({
-            harness,
-            seedResult,
-        }) => {
-            const service = new OnboardingAgentSessionService(harness.db, new RateLimiterService(harness.db));
+        test("resolveMcpTarget allows an app inside the credential's organization", async ({ harness, seedResult }) => {
             const principal = await resolveMcpPrincipal(harness.db, {
                 userId: harness.userId,
                 organizationId: seedResult.otherOrgId,
             });
 
-            const organizationId = await service.resolveOrgForMember(seedResult.otherAppId, principal);
+            const target = await resolveMcpTarget(
+                { db: harness.db, listRepositories: () => Promise.resolve([]) },
+                principal,
+                { applicationId: seedResult.otherAppId },
+            );
 
-            expect(organizationId).toBe(seedResult.otherOrgId);
+            expect(target.organizationId).toBe(seedResult.otherOrgId);
+            expect(target.applicationId).toBe(seedResult.otherAppId);
         });
 
-        test("resolveOrgForMember refuses an app outside the credential's organization", async ({
+        test("resolveMcpTarget refuses an app outside the credential's organization", async ({
             harness,
             seedResult,
         }) => {
-            const service = new OnboardingAgentSessionService(harness.db, new RateLimiterService(harness.db));
             const principal = await resolveMcpPrincipal(harness.db, {
                 userId: harness.userId,
                 organizationId: harness.organizationId,
             });
 
             // The user IS a member of the app's org, so only the key's scope can reject this.
-            await expect(service.resolveOrgForMember(seedResult.otherAppId, principal)).rejects.toThrow(NotFoundError);
+            await expect(
+                resolveMcpTarget({ db: harness.db, listRepositories: () => Promise.resolve([]) }, principal, {
+                    applicationId: seedResult.otherAppId,
+                }),
+            ).rejects.toThrow(NotFoundError);
+        });
+
+        test("both identity forms resolve to the same application", async ({ harness }) => {
+            // The whole point of the shared resolver: an agent mid-onboarding has an
+            // applicationId from a pairing code, an agent in a checkout has a remote. Seven
+            // tool names differed across the two servers on this field alone.
+            const repoFullName = "acme/both-forms";
+            const githubRepositoryId = 90901;
+            const app = await harness.db.application.create({
+                data: {
+                    name: "Both Forms App",
+                    slug: `both-forms-${randomBytes(4).toString("hex")}`,
+                    architecture: ApplicationArchitecture.WEB,
+                    organizationId: harness.organizationId,
+                    githubRepositoryId,
+                },
+            });
+            const listed = [
+                {
+                    id: githubRepositoryId,
+                    name: "both-forms",
+                    fullName: repoFullName,
+                    defaultBranch: "main",
+                    private: true,
+                    applicationId: app.id,
+                    applicationName: app.name,
+                },
+            ];
+            const principal = await resolveMcpPrincipal(harness.db, { userId: harness.userId });
+            // Per-org, like the real listRepositories. A stub that returns the same repo for
+            // every org makes it look linked in two of them, and resolution refuses to
+            // disambiguate rather than picking one - so the assertion below never runs.
+            const deps = {
+                db: harness.db,
+                listRepositories: (orgId: string) => Promise.resolve(orgId === harness.organizationId ? listed : []),
+            };
+
+            const byId = await resolveMcpTarget(deps, principal, { applicationId: app.id });
+            const byRepo = await resolveMcpTarget(deps, principal, { repoFullName });
+
+            expect(byRepo).toEqual(byId);
         });
 
         test("pairAgent refuses a code for an app outside the credential's organization", async ({

@@ -1,5 +1,5 @@
 import { needsHuman } from "@autonoma/agent-guidance";
-import type { OnboardingPreviewEnvironmentMode } from "@autonoma/db";
+import type { OnboardingPreviewEnvironmentMode, PrismaClient } from "@autonoma/db";
 import { ConflictError, NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
 import {
@@ -24,6 +24,7 @@ import type { McpAnalytics } from "./mcp-analytics";
 import type { McpPrincipal } from "./mcp-principal";
 import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
 import { resolveDryRunTarget, resolveDryRunTargetUrl } from "./resolve-dry-run-target";
+import { resolveMcpTarget } from "./resolve-mcp-target";
 import { describeError, errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
 
 /**
@@ -152,6 +153,7 @@ function playbookFor(mode: OnboardingPreviewEnvironmentMode | undefined): string
 /** Everything the onboarding MCP tools need: the service graph and the authenticated user. */
 export interface OnboardingMcpDeps {
     services: Services;
+    db: PrismaClient;
     /** The authenticated caller and the complete set of orgs it may act in. */
     principal: McpPrincipal;
     /** Records a `mcp.tool_called` PostHog event per tool invocation, attributed to the resolved org. */
@@ -274,7 +276,7 @@ function pausedResult(): CallToolResult {
  */
 export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     const logger = rootLogger.child({ name: "onboardingMcpServer" });
-    const { services, principal, analytics } = deps;
+    const { services, db, principal, analytics } = deps;
     const userId = principal.userId;
     const session = services.onboardingAgentSession;
 
@@ -289,9 +291,14 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
      * `mcp.tool_called` event is attributed to the customer org. Use this in every
      * tool instead of calling the service directly.
      */
-    const resolveOrg = analytics.observeOrgResolution((applicationId) =>
-        session.resolveOrgForMember(applicationId, principal),
-    );
+    const resolveOrg = analytics.observeOrgResolution(async (applicationId) => {
+        const target = await resolveMcpTarget(
+            { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
+            principal,
+            { applicationId },
+        );
+        return target.organizationId;
+    });
 
     /**
      * The recent log tail attached to get_session_status so a polling agent can see
