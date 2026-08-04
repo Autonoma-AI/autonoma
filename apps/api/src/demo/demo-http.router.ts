@@ -9,6 +9,7 @@ import { auth, redisClient } from "../context";
 import { env } from "../env";
 import { RateLimiterService } from "../rate-limit/rate-limiter.service";
 import { setSessionActiveOrg } from "../routes/auth/set-session-active-org";
+import { DemoEntrySourceStore } from "./demo-entry-source.store";
 import { ParkedSessionStore } from "./parked-session.store";
 import { resolveReturnPath } from "./resolve-return-path";
 
@@ -35,15 +36,16 @@ const DEMO_USER_NAME = "Demo";
 const DEMO_ENTRY_RATE_LIMIT = { max: 30, windowMs: 60_000 };
 
 /**
- * Where the visitor clicked through from, carried as `?source=` by in-app entry points.
- * Anything unrecognised (including the marketing site, which sends nothing) counts as
- * the public landing CTA.
+ * Where the visitor clicked through from, carried as `?source=` by in-app entry points and
+ * external listings. Anything unrecognised (including the marketing site, which sends
+ * nothing) counts as the public landing CTA.
  */
-const DEMO_ENTRY_SOURCES: ReadonlySet<string> = new Set(["onboarding"]);
+const DEMO_ENTRY_SOURCES: ReadonlySet<string> = new Set(["onboarding", "vercel-marketplace"]);
 const DEFAULT_DEMO_ENTRY_SOURCE = "public";
 
 const rateLimiter = new RateLimiterService(db);
 const parkedSessions = new ParkedSessionStore(redisClient);
+const entrySources = new DemoEntrySourceStore(redisClient);
 
 export const demoHttpRouter = new Hono();
 
@@ -110,16 +112,22 @@ demoHttpRouter.get("/", async (c) => {
     }
     await setSessionCookie(c, demoSession.token, demoSession.expiresAt);
 
+    // Recorded for every visitor, not just ones with a prior session to park - a
+    // first-time visitor from an external listing still needs the banner to know where
+    // they came from for the rest of the demo session.
+    const source = resolveEntrySource(c.req.query("source"));
+    await entrySources.set(demoSession.token, source, demoSession.expiresAt);
+
     logger.info("Demo session minted", {
         userId: demoUserId,
         organizationId: demoOrgId,
-        extra: { parkedPriorSession: priorSession != null },
+        extra: { parkedPriorSession: priorSession != null, source },
     });
     // Attribute the entry to the real visitor when we have one, so an in-app click lands
     // on their profile rather than merging into the shared demo user with every stranger.
     analytics.capture(priorSession?.userId ?? demoUserId, "demo.entered", {
         organizationId: demoOrgId,
-        source: resolveEntrySource(c.req.query("source")),
+        source,
         canReturnToAccount: priorSession != null,
     });
     return c.redirect(env.APP_URL);

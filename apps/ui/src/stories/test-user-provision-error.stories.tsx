@@ -52,6 +52,7 @@ const meta = {
               isDemo: false,
               canReturnToAccount: false,
               mergeGateEnabled: false,
+              vercelMarketplaceEntry: false,
             },
           },
           deployments: {

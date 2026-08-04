@@ -17,6 +17,7 @@ import type { PipelineWorkflows } from "@autonoma/workflow";
 import type Redis from "ioredis";
 import { ApplicationSetupService } from "../application-setup/application-setup.service";
 import type { Auth } from "../auth";
+import { DemoEntrySourceStore } from "../demo/demo-entry-source.store";
 import { ParkedSessionStore } from "../demo/parked-session.store";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
@@ -211,7 +212,7 @@ export function buildServices({
 
     return {
         admin: new AdminService(conn, auth, githubApp),
-        auth: new AuthService(conn, new ParkedSessionStore(redisClient)),
+        auth: new AuthService(conn, new ParkedSessionStore(redisClient), new DemoEntrySourceStore(redisClient)),
         apiKeys: apiKeysService,
         branches: branchesService,
         bugs: new BugsService(conn, storageProvider, analytics, env.APP_URL),

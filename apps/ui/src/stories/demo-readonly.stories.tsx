@@ -22,6 +22,7 @@ const demoFixtures: TrpcFixtures = {
       isDemo: true,
       canReturnToAccount: false,
       mergeGateEnabled: false,
+      vercelMarketplaceEntry: false,
     },
   },
 };
@@ -61,6 +62,34 @@ export const BannerWithReturn: Story = {
             isDemo: true,
             canReturnToAccount: true,
             mergeGateEnabled: false,
+            vercelMarketplaceEntry: false,
+          },
+        },
+      }),
+    },
+  },
+};
+
+/**
+ * The banner for a visitor who entered via Vercel's marketplace listing: the sign-up CTA
+ * gives way to a link back to the listing, since a listing page can't push a direct
+ * external sign-up.
+ */
+export const BannerWithVercelInstall: Story = {
+  args: { path: `/app/${baseApplication.slug}` },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...demoFixtures,
+        auth: {
+          activeOrg: {
+            id: "org_fixture_01",
+            name: "Northwind Bank",
+            slug: "northwind",
+            isDemo: true,
+            canReturnToAccount: false,
+            mergeGateEnabled: false,
+            vercelMarketplaceEntry: true,
           },
         },
       }),

@@ -91,6 +91,7 @@ const previewConfigFixtures: TrpcFixtures = {
       isDemo: false,
       canReturnToAccount: false,
       mergeGateEnabled: false,
+      vercelMarketplaceEntry: false,
     },
   },
   branches: {
