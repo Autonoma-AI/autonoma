@@ -5,6 +5,7 @@ dist/
 .turbo/
 *.tsbuildinfo
 .api-port
+.pnpm-store/
 
 # Prisma 7 generated client
 packages/db/src/generated/

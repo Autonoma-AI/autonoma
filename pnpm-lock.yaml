@@ -109,8 +109,8 @@ catalogs:
       specifier: ^17.3.1
       version: 17.3.1
     hono:
-      specifier: ^4.12.31
-      version: 4.12.31
+      specifier: ^4.12.34
+      version: 4.12.34
     jose:
       specifier: ^6.2.3
       version: 6.2.3
@@ -262,10 +262,10 @@ importers:
         version: 1.6.14(@better-auth/core@1.6.25(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@opentelemetry/api@1.9.0)(better-call@1.3.7(zod@4.3.6))(jose@6.2.3)(kysely@0.28.17)(nanostores@1.3.0))(ioredis@5.9.3)
       '@hono/mcp':
         specifier: 'catalog:'
-        version: 0.3.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(hono-rate-limiter@0.5.3(hono@4.12.31)(unstorage@1.17.5(ioredis@5.9.3)))(hono@4.12.31)(zod@4.3.6)
+        version: 0.3.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(hono-rate-limiter@0.5.3(hono@4.12.34)(unstorage@1.17.5(ioredis@5.9.3)))(hono@4.12.34)(zod@4.3.6)
       '@hono/node-server':
         specifier: ^2.0.12
-        version: 2.0.12(hono@4.12.31)
+        version: 2.0.12(hono@4.12.34)
       '@kubernetes/client-node':
         specifier: 'catalog:'
         version: 1.4.0
@@ -301,7 +301,7 @@ importers:
         version: 17.3.1
       hono:
         specifier: 'catalog:'
-        version: 4.12.31
+        version: 4.12.34
       ioredis:
         specifier: ^5.9.3
         version: 5.9.3
@@ -1288,7 +1288,7 @@ importers:
         version: link:../db
       hono:
         specifier: 'catalog:'
-        version: 4.12.31
+        version: 4.12.34
     devDependencies:
       dotenv:
         specifier: 'catalog:'
@@ -9326,12 +9326,12 @@ packages:
       unstorage:
         optional: true
 
-  hono@4.12.31:
-    resolution: {integrity: sha512-zJIHFrl6bq3RDd2YusFNCDlM8qUprxKswyi/OPzPyzKDdyBXDqWx8bZlZ7R+saTdSTatUmb3O7K4SspGPaEOQg==}
-    engines: {node: '>=16.9.0'}
-
   hono@4.12.32:
     resolution: {integrity: sha512-XcuyW9qE2kJn07PkecMOBd5Vq/hMy7mmGw+idz1yblbg9N17ijJODrvPkn7/dwL3Kulj8LcRJ69DLOWf91dRUg==}
+    engines: {node: '>=16.9.0'}
+
+  hono@4.12.34:
+    resolution: {integrity: sha512-GqXJqY/xJkJmuloTrnV1ZEXG3fqte+VjkUqoRNZXcrUidiUOP4fMSIHHY4tsqZBK++kVyWmt/AAfSUuy57/eSA==}
     engines: {node: '>=16.9.0'}
 
   hpagent@1.2.0:
@@ -14856,11 +14856,11 @@ snapshots:
       protobufjs: 7.6.5
       yargs: 17.7.3
 
-  '@hono/mcp@0.3.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(hono-rate-limiter@0.5.3(hono@4.12.31)(unstorage@1.17.5(ioredis@5.9.3)))(hono@4.12.31)(zod@4.3.6)':
+  '@hono/mcp@0.3.0(@modelcontextprotocol/sdk@1.29.0(zod@4.3.6))(hono-rate-limiter@0.5.3(hono@4.12.34)(unstorage@1.17.5(ioredis@5.9.3)))(hono@4.12.34)(zod@4.3.6)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(zod@4.3.6)
-      hono: 4.12.31
-      hono-rate-limiter: 0.5.3(hono@4.12.31)(unstorage@1.17.5(ioredis@5.9.3))
+      hono: 4.12.34
+      hono-rate-limiter: 0.5.3(hono@4.12.34)(unstorage@1.17.5(ioredis@5.9.3))
       pkce-challenge: 5.0.1
       zod: 4.3.6
 
@@ -14868,9 +14868,13 @@ snapshots:
     dependencies:
       hono: 4.12.32
 
-  '@hono/node-server@2.0.12(hono@4.12.31)':
+  '@hono/node-server@1.19.17(hono@4.12.34)':
     dependencies:
-      hono: 4.12.31
+      hono: 4.12.34
+
+  '@hono/node-server@2.0.12(hono@4.12.34)':
+    dependencies:
+      hono: 4.12.34
 
   '@img/colour@1.1.0': {}
 
@@ -15354,7 +15358,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.3.6)':
     dependencies:
-      '@hono/node-server': 1.19.17(hono@4.12.32)
+      '@hono/node-server': 1.19.17(hono@4.12.34)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -15364,7 +15368,7 @@ snapshots:
       eventsource-parser: 3.1.0
       express: 5.2.1
       express-rate-limit: 8.5.2(express@5.2.1)
-      hono: 4.12.32
+      hono: 4.12.34
       jose: 6.2.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -21008,15 +21012,15 @@ snapshots:
 
   highlight.js@11.11.1: {}
 
-  hono-rate-limiter@0.5.3(hono@4.12.31)(unstorage@1.17.5(ioredis@5.9.3)):
+  hono-rate-limiter@0.5.3(hono@4.12.34)(unstorage@1.17.5(ioredis@5.9.3)):
     dependencies:
-      hono: 4.12.31
+      hono: 4.12.34
     optionalDependencies:
       unstorage: 1.17.5(ioredis@5.9.3)
 
-  hono@4.12.31: {}
-
   hono@4.12.32: {}
+
+  hono@4.12.34: {}
 
   hpagent@1.2.0: {}
 
