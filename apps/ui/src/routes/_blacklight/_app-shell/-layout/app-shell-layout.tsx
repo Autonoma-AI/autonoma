@@ -10,7 +10,7 @@ import {
   useToastManager,
 } from "@autonoma/blacklight";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
-import { Link, useLocation } from "@tanstack/react-router";
+import { Link, useLocation, useMatchRoute } from "@tanstack/react-router";
 import { useAuth, useAuthClient } from "lib/auth";
 import { toastManager } from "lib/toast-manager";
 import { type ReactNode, useState } from "react";
@@ -45,7 +45,7 @@ function MinimalLayout({ children }: { children: ReactNode }) {
           <img src="/logo.svg" alt="Autonoma" className="h-5 w-auto" />
         </Link>
         <div className="flex items-center gap-2">
-          <span className="font-mono text-2xs text-text-tertiary">{user?.name ?? user?.email ?? "User"}</span>
+          <span className="font-mono text-2xs text-text-secondary">{user?.name ?? user?.email ?? "User"}</span>
           <Button
             variant="ghost"
             size="icon-xs"
@@ -86,18 +86,28 @@ function AppShellToasts() {
 export function AppShellLayout({ children }: { children: ReactNode }) {
   const { isAdmin } = useAuth();
   const { pathname } = useLocation();
+  const matchRoute = useMatchRoute();
   const { items: appNavItems } = useAppNav();
   const isAdminPage = pathname === "/admin" || pathname.startsWith("/admin/");
   const [collapsed, setCollapsed] = useSidebarCollapsed();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
+  // Finish setup is a linear task the app can't run generations without, and its
+  // own stepper is the only progress that matters there. The app nav beside it
+  // reads as a competing second set of steps and invites wandering off mid-flow,
+  // so the page keeps the minimal chrome (logo + sign out) and its own "Back to
+  // home" link as the way out.
+  const isFinishSetupPage = matchRoute({ to: "/app/$appSlug/finish-setup" }) !== false;
+
   const hasAppNav = appNavItems.length > 0;
-  const hasNav = hasAppNav || (isAdminPage && isAdmin);
+  const hasNav = (hasAppNav || (isAdminPage && isAdmin)) && !isFinishSetupPage;
 
   if (!hasNav) {
     return (
       <ToastProvider toastManager={toastManager}>
-        <MinimalLayout>{children}</MinimalLayout>
+        <TooltipProvider>
+          <MinimalLayout>{children}</MinimalLayout>
+        </TooltipProvider>
         <AppShellToasts />
         <DemoModal />
       </ToastProvider>
