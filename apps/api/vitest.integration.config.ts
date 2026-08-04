@@ -23,6 +23,10 @@ export default defineConfig({
             // are unnecessary; passing them as base64 PEM is awkward in test fixtures.
             LOCAL_DEV: "true",
             BETTER_AUTH_SECRET: "test-secret",
+            // Needed to build absolute links (packages/types app-links). Previously only ever
+            // present via a developer's .env below, so the suite passed locally and threw
+            // "Invalid URL" anywhere without one - which nothing noticed while it never ran in CI.
+            APP_URL: "https://autonoma.app",
             ...config({ path: join(__dirname, "../../.env") }).parsed,
             TESTING: "true",
             SENTRY_ENV: "test",

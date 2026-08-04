@@ -8,6 +8,7 @@ import type { AnalysisRunTrigger, RequestRunOutcome, RequestRunParams } from "..
 import { MergeGateService } from "../../src/github/merge-gate.service";
 import { buildDebugMcpServer } from "../../src/mcp/debug-mcp-server";
 import { McpAnalytics } from "../../src/mcp/mcp-analytics";
+import { resolveMcpPrincipal } from "../../src/mcp/mcp-principal";
 import { resolveRepoContext } from "../../src/mcp/resolve-repo-context";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
@@ -234,10 +235,10 @@ async function callStartAnalysis(
 ) {
     const server = buildDebugMcpServer({
         services: harness.services,
-        resolveRepoContext: (repo) =>
+        resolveRepoContext: async (repo) =>
             resolveRepoContext(
                 { db: harness.db, listRepositories: (orgId) => harness.services.github.listRepositories(orgId) },
-                harness.userId,
+                await resolveMcpPrincipal(harness.db, { userId: harness.userId }),
                 repo,
             ),
         listRepos: () => Promise.resolve({ repos: [], truncated: false }),

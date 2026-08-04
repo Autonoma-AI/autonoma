@@ -214,6 +214,35 @@ jobs:
         # test - just 1000 mock-model iterations that should finish in milliseconds when not starved).
         run: pnpm turbo run test --continue --concurrency=4
 
+  integration-tests:
+    name: Integration tests
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    if: github.event.pull_request.draft == false && github.event.action != 'edited'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: useblacksmith/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # No turbo cache step: test:integration is `"cache": false` in turbo.json, so there is
+      # nothing to restore and a green run never lets a later commit skip the suite.
+      #
+      # Docker is already on the runner; each suite brings its own containers up and down.
+      # @autonoma/k8s is excluded because it needs a kind cluster and has its own job above.
+      # Serialized: the suites contend for Docker, and each already disables file parallelism.
+      - name: Integration test
+        run: pnpm turbo run test:integration --continue --concurrency=1 --filter='!@autonoma/k8s'
+
   build:
     name: Build
     runs-on: blacksmith-4vcpu-ubuntu-2404

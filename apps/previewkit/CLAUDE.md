@@ -410,9 +410,9 @@ The runner drains the sink's buffer before it exits.
       `--key-id <id>` to choose the id.
 - `pnpm --filter @autonoma/previewkit test:integration` - Testcontainers (real Postgres). Needs Docker running.
     - Integration tests import `src/env.ts`, which (even under `TESTING=true`, which only skips the
-      logger env) still requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY` (base64-encoded PEM - the
-      value must decode to a real PEM, so mint a throwaway with
-      `openssl genrsa 2048 | base64`), and `PREVIEW_URL_SECRET`.
+      logger env) still requires `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY` (base64-encoded PEM) and
+      `PREVIEW_URL_SECRET`. `vitest.integration.config.ts` supplies all three - the private key is a
+      throwaway minted per run - so the suite needs nothing from a developer's environment.
 - DB schema changes: edit `packages/db/prisma/schema.prisma` -> `pnpm db:migrate` -> `pnpm db:generate`.
   Prisma's generated migration for an enum-value rename is destructive; prefer `ALTER TYPE ... RENAME VALUE`.
 - `scripts/apply-standard-resources.sh [--apply] [--namespace NS]` - retrofit running preview namespaces to the
