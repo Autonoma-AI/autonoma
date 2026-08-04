@@ -1,7 +1,7 @@
 import { NotFoundError } from "@autonoma/errors";
 import { ANALYSIS_RUN_SOURCE } from "@autonoma/github/check";
 import { logger as rootLogger } from "@autonoma/logger";
-import { authoringPreviewConfigSchema, ScenarioRecipeSchema } from "@autonoma/types";
+import { ScenarioRecipeSchema } from "@autonoma/types";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { MergeGateService } from "../github/merge-gate.service";
@@ -14,8 +14,9 @@ import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-re
 import { resolveDryRunTargetUrl } from "./resolve-dry-run-target";
 import type { McpTarget, McpTargetInput } from "./resolve-mcp-target";
 import type { RepoContext } from "./resolve-repo-context";
+import { registerSharedApplyConfig, type WriteGuard } from "./shared-apply-config";
 import { registerSharedReadTools } from "./shared-read-tools";
-import { jsonResult, toToolResult, unavailableResult } from "./tool-result";
+import { errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
 
 /** Ceiling on log lines a single tail tool can request. */
 const MAX_LOG_LINES = 1000;
@@ -671,61 +672,6 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
     );
 
     server.registerTool(
-        "apply_config",
-        {
-            title: "Save the full preview config",
-            description:
-                "Save the FULL preview config document (read it with get_config first, edit it, send the whole " +
-                "document back). This is how you change the SHAPE of the preview that a single-service edit can't: add " +
-                "or remove an app, or add or remove a service (a database, a cache like redis, or a side-container). " +
-                "Validated on save; an invalid document returns the errors to fix. Never include secret VALUES - " +
-                "declare secret keys in an app's build_secrets and set values with set_secret. An app's `build` is " +
-                "either `runtime` (pick a language runtime, write a bash build_script and a single-line entrypoint) " +
-                "or `dockerfile` (build a Dockerfile committed in the repo); if get_config handed you an app still " +
-                "on an older framework preset, convert it to `runtime` before saving. If a scenario up 404s, check " +
-                "`sdk_implemented`: it marks the app serving the `/api/autonoma` handler (exactly one app, independent " +
-                "of `primary`), and without it the up is sent to the primary app, which has no handler in a split " +
-                "front/API topology. Unless `apply` is " +
-                "false, redeploys the WHOLE environment against the new document (a topology change touches more than " +
-                "one service). Rule of thumb: reshape the preview -> here; tweak one existing service's build/wiring " +
-                "-> edit_previewkit_config; a secret value -> set_secret. The redeploy is async - call " +
-                "wait_for_deploy(repoFullName, prNumber) afterward to block until it settles.",
-            inputSchema: {
-                ...repoPrInput,
-                document: authoringPreviewConfigSchema,
-                apply: z.boolean().optional(),
-            },
-            annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
-        },
-        async ({ repoFullName, prNumber, document, apply }) =>
-            analytics.track("apply_config", async () => {
-                logger.info("apply_config", {
-                    extra: {
-                        repoFullName,
-                        prNumber,
-                        apps: document.apps.length,
-                        services: document.services.length,
-                        apply,
-                    },
-                });
-                try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
-                    const result = await services.previewkitWrite.applyConfig({
-                        applicationId,
-                        repoFullName,
-                        prNumber,
-                        document,
-                        apply: apply ?? true,
-                        organizationId,
-                    });
-                    return jsonResult(result);
-                } catch (err) {
-                    return toToolResult(err);
-                }
-            }),
-    );
-
-    server.registerTool(
         "dry_run_scenario",
         {
             title: "Test a scenario recipe against the deployed app",
@@ -938,6 +884,29 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             contents: [{ uri: uri.href, text: DEBUG_INSTRUCTIONS, mimeType: "text/markdown" }],
         }),
     );
+
+    // No mutex on this surface: these applications are live, and nobody is sitting on a
+    // config form for them the way someone is during onboarding.
+    const runUnguarded: WriteGuard = async ({ applicationId, organizationId, tool, requires }, work) => {
+        try {
+            // No mutex here, but the path constraint is the tool's, not the mount's: saving a
+            // preview config still means nothing for an app whose own pipeline builds them.
+            if (requires != null) {
+                const mode = await services.onboarding.getPreviewEnvironmentMode(applicationId, organizationId);
+                if (mode != null && mode !== requires.source) {
+                    return errorResult(
+                        `${tool} only applies to Autonoma-hosted previews. This app builds its previews on its own ` +
+                            `pipeline, so there is no Autonoma-side config here. Use ${requires.useInstead} instead.`,
+                    );
+                }
+            }
+            return jsonResult(await work(organizationId));
+        } catch (err) {
+            return toToolResult(err);
+        }
+    };
+
+    registerSharedApplyConfig(server, { services, analytics, resolveTarget, guard: runUnguarded });
 
     registerSharedReadTools(server, {
         services,

@@ -6,7 +6,6 @@ import {
     type AgentLogEntry,
     buildDeploymentSignalWorkflow,
     DEPLOYMENT_SIGNAL_BODY_FIELDS,
-    authoringPreviewConfigSchema,
     isProtectedPreviewkitEnvKey,
     type OnboardingAgentPendingRequest,
     ScenarioRecipeSchema,
@@ -26,6 +25,7 @@ import type { McpPrincipal } from "./mcp-principal";
 import { baseFingerprintInput, recipeConflictResult } from "./recipe-conflict-result";
 import { resolveDryRunTarget, resolveDryRunTargetUrl } from "./resolve-dry-run-target";
 import { resolveMcpTarget } from "./resolve-mcp-target";
+import { registerSharedApplyConfig } from "./shared-apply-config";
 import { registerSharedReadTools } from "./shared-read-tools";
 import { describeError, errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
 import {
@@ -793,72 +793,6 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                             "Path chosen. Follow the playbook above - and tell the user which you picked and why, " +
                             "since they can still change it in the Autonoma UI.",
                     };
-                },
-            ),
-    );
-
-    server.registerTool(
-        "apply_config",
-        {
-            title: "Save the preview config",
-            description:
-                "Save the FULL preview config document (read it with get_config first, edit it, send the whole " +
-                "document back). Validated on save; an invalid document returns the errors to fix. Never include " +
-                "secret values - declare secret keys as build_secrets and set their values via request_env. " +
-                "An app's `build` is either `runtime` (pick a language runtime, write a bash build_script and a " +
-                "single-line entrypoint) or `dockerfile` (build a Dockerfile committed in the repo) - those are the " +
-                "only two methods, and the only two the user can edit in the Autonoma UI. If get_config handed you a " +
-                "document whose app still uses an older framework preset, convert it to `runtime` before saving. " +
-                "Services do not auto-inject env into apps: wire each app to the databases/services it uses via " +
-                "connections, e.g. { key: 'DATABASE_URL', value: '{{db.url}}' } ({{name.property}} tokens resolve " +
-                "at deploy time; {{service.url}} is the full connection string). " +
-                "Mark the app that serves the Autonoma SDK handler (`/api/autonoma`) with `sdk_implemented: true` - " +
-                "scenario up/down goes to that app's URL. Exactly one app; independent of `primary`, so a full-stack " +
-                "app sets both, while a split front/API topology marks the frontend `primary` and the API " +
-                "`sdk_implemented`. " +
-                "Optionally pass `branch` to set which branch the base preview (environment 0) deploys from. If unset it uses the " +
-                "repo's default branch (whatever it is named) - don't steer toward a branch name without cause. Set it " +
-                "when the user is working on a different branch (check their checkout's current branch and ask which " +
-                "to use). Validated against GitHub, so a typo is rejected. " +
-                "Setting the branch here does NOT deploy - trigger_deploy does. " +
-                "Pass a short `description` of what this save does - the user watches it on the activity feed.",
-            inputSchema: {
-                applicationId: z.string(),
-                document: authoringPreviewConfigSchema,
-                branch: z
-                    .string()
-                    .min(1)
-                    .optional()
-                    .describe(
-                        "Branch the base preview (environment 0) deploys from. Omit to use the repo's default branch; set it " +
-                            "when the user is working on a different branch (ask them which to use).",
-                    ),
-                description: activityDescription,
-            },
-        },
-        async ({ applicationId, document, branch, description }) =>
-            guardedWrite(
-                {
-                    applicationId,
-                    tool: "apply_config",
-                    requires: {
-                        source: "previewkit",
-                        useInstead: "get_signal_setup",
-                        useInsteadOnVercel: "get_vercel_setup",
-                    },
-                    message: description ?? "Saving preview config",
-                    toolArguments:
-                        branch != null ? { apps: document.apps.length, branch } : { apps: document.apps.length },
-                },
-                async (org) => {
-                    const saved = await services.onboarding.savePreviewkitConfig(applicationId, org, document);
-                    if (branch == null) return saved;
-                    const { branch: deployBranch } = await services.onboarding.setDeployBranch(
-                        applicationId,
-                        org,
-                        branch,
-                    );
-                    return { ...saved, deployBranch };
                 },
             ),
     );
@@ -1891,6 +1825,18 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             contents: [{ uri: uri.href, text: VERCEL_PLAYBOOK, mimeType: "text/markdown" }],
         }),
     );
+
+    registerSharedApplyConfig(server, {
+        services,
+        analytics,
+        resolveTarget: (input) =>
+            resolveMcpTarget(
+                { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
+                principal,
+                input,
+            ),
+        guard: (params, work) => guardedWrite(params, work),
+    });
 
     registerSharedReadTools(server, {
         services,
