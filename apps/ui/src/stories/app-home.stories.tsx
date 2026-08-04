@@ -186,3 +186,35 @@ export const ManyPullRequests: Story = {
     },
   },
 };
+
+/**
+ * The previewkit side is live but the three deepening steps (SDK, artifacts, dry run) are not done.
+ * Home renders its pull requests and problems like any other app; the sidebar's "Finish setup" entry
+ * is what carries the outstanding work.
+ */
+export const SetupIncomplete: Story = {
+  args: { path: `/app/${baseApplication.slug}` },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...dashboardFixtures,
+        branches: { ...dashboardFixtures.branches, list: PAGED_PRS },
+        onboarding: { getState: makeUnfinishedOnboardingState() },
+      }),
+    },
+  },
+};
+
+function makeUnfinishedOnboardingState() {
+  return {
+    ...makeCompletedOnboardingState(),
+    lastDiscoveredAt: null,
+    lastDiscoveredModels: null,
+    dryRunPassedAt: null,
+    sdkConfigured: false,
+    dryRunPassed: false,
+    artifactsUploaded: false,
+    hasContent: false,
+    setupComplete: false,
+  };
+}

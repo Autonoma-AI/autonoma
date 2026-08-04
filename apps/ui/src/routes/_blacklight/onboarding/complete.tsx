@@ -42,7 +42,11 @@ function CompletePageContent({ appId }: { appId?: string }) {
 
     const timer = setTimeout(() => {
       if (application != null) {
-        void navigate({ to: "/app/$appSlug", params: { appSlug: application.slug }, replace: true });
+        void navigate({
+          to: "/app/$appSlug/finish-setup",
+          params: { appSlug: application.slug },
+          replace: true,
+        });
         return;
       }
       void navigate({ to: "/", replace: true });
@@ -81,13 +85,13 @@ function CompletePageContent({ appId }: { appId?: string }) {
         <h1 className="mt-4 text-5xl font-medium tracking-tight text-text-primary">You're live</h1>
 
         <p className="mt-5 max-w-md text-base leading-relaxed text-text-secondary">
-          Open a pull request and Autonoma will review the change on its preview environment. Deepen coverage anytime
-          from Finish setup - implement the SDK and upload test artifacts.
+          Open a pull request and Autonoma will review the change on its preview environment. Next, finish setup -
+          implement the SDK and upload test artifacts so it can provision real test data.
         </p>
 
         {application != null ? (
           <Link
-            to="/app/$appSlug"
+            to="/app/$appSlug/finish-setup"
             params={{ appSlug: application.slug }}
             className={buttonVariants({
               variant: "accent",
@@ -96,7 +100,7 @@ function CompletePageContent({ appId }: { appId?: string }) {
             aria-label="onboarding-complete-start-now"
           >
             <SparkleIcon size={18} weight="bold" />
-            Start now
+            Finish setup
           </Link>
         ) : (
           <Link

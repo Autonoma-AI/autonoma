@@ -142,6 +142,51 @@ function withPreviewPath(mode: "previewkit" | "existing_deploys" | undefined, ve
   };
 }
 
+/**
+ * The agent is done: the preview is verified and the screen collapses to its
+ * summary plus the one forward action. This is the hand-off out of previewkit -
+ * Continue goes straight to Finish setup.
+ */
+function withReadyPreview(): TrpcFixtures {
+  const onboarding = configuringFixtures.onboarding ?? {};
+  const session = onboarding.getAgentSession;
+  const readiness = onboarding.getPreviewReadiness;
+  return {
+    ...configuringFixtures,
+    onboarding: {
+      ...onboarding,
+      getAgentSession:
+        session == null
+          ? session
+          : {
+              ...session,
+              step: "preview_verified",
+              previewVerificationStatus: "ready",
+              logs: session.logs.map((entry) =>
+                entry.status === "running"
+                  ? { ...entry, status: "done", message: "Deployed the preview off main" }
+                  : entry,
+              ),
+            },
+      getPreviewReadiness:
+        readiness == null
+          ? readiness
+          : {
+              ...readiness,
+              diagnostics: {
+                status: "ready",
+                actions: [],
+                logs: { available: true, repoFullName: "acme/storefront", prNumber: 0 },
+              },
+              services: [
+                { name: "web", status: "ready" },
+                { name: "db", status: "ready" },
+              ],
+            },
+    },
+  };
+}
+
 /** The same session with its last activity pushed well past the stalled threshold. */
 function withStalledHeartbeat(): TrpcFixtures {
   const fixtures = withPreviewPath("existing_deploys");
@@ -220,6 +265,19 @@ export const OwnPipelineVercel: Story = {
   parameters: {
     msw: {
       handlers: appShellHandlers(withPreviewPath("existing_deploys", "acme-web")),
+    },
+  },
+};
+
+/**
+ * The end of the agent-driven preview flow: the preview is verified and Continue
+ * is the only thing left to press. It lands on Finish setup, not the app home.
+ */
+export const PreviewReady: Story = {
+  args: { applicationId: baseApplication.id },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers(withReadyPreview()),
     },
   },
 };

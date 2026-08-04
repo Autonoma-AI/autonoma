@@ -1,14 +1,10 @@
 import { Skeleton } from "@autonoma/blacklight";
 import { createFileRoute } from "@tanstack/react-router";
-import { useOnboardingState } from "lib/onboarding/onboarding-api";
 import { toPageParam } from "lib/page-param";
-import { ensureAPIQueryData } from "lib/query/api-queries";
 import { ensureMainOpenProblemsData } from "lib/query/branches.queries";
 import { ensureLatestPullRequestsData } from "lib/query/latest-prs.queries";
-import { trpc } from "lib/trpc";
 import { Suspense } from "react";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
-import { FinishSetupPrompt } from "./-home/finish-setup-prompt";
 import { HomeHeader } from "./-home/home-header";
 import { MainProblemsRail, MainProblemsRailSkeleton } from "./-home/main-problems-rail";
 import { OpenPrsList, OpenPrsListSkeleton } from "./-home/open-prs-list";
@@ -27,7 +23,6 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/")({
     await Promise.all([
       ensureLatestPullRequestsData(context.queryClient, app.id, prs),
       ensureMainOpenProblemsData(context.queryClient, app.id),
-      ensureAPIQueryData(context.queryClient, trpc.onboarding.getState.queryOptions({ applicationId: app.id })),
     ]);
   },
   component: HomePage,
@@ -43,33 +38,15 @@ function HomePage() {
       <HomeHeader appName={app.name} architecture={app.architecture} />
 
       <Suspense fallback={<Skeleton className="m-6 flex-1" />}>
-        <HomeBody appId={app.id} appSlug={app.slug} appName={app.name} />
+        <HomeBody />
       </Suspense>
     </div>
   );
 }
 
-/**
- * Until the three compulsory finish-setup steps are done, Home leads with the
- * Finish setup prompt instead of the PR list / problems rail - Autonoma can't run
- * test generations without them.
- */
-function HomeBody({ appId, appSlug, appName }: { appId: string; appSlug: string; appName: string }) {
-  const { data: state } = useOnboardingState(appId);
+function HomeBody() {
   const { prs = 1 } = Route.useSearch();
   const navigate = Route.useNavigate();
-
-  if (!state.setupComplete) {
-    return (
-      <FinishSetupPrompt
-        appName={appName}
-        appSlug={appSlug}
-        sdkConfigured={state.sdkConfigured}
-        artifactsUploaded={state.artifactsUploaded}
-        dryRunPassed={state.dryRunPassed}
-      />
-    );
-  }
 
   return (
     <div className="flex min-h-0 flex-1">

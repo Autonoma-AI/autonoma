@@ -155,8 +155,10 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
 
   // A ready agent-driven preview is the end of preview onboarding, but nothing
   // advances the flow on its own - the agent holds the config and the user is
-  // read-only. Mirror the manual deploy-verify screen: hand the user the forward
-  // action (complete onboarding -> land on the app) once the preview is live.
+  // read-only. So hand the user the forward action once the preview is live, and
+  // land it on Finish setup: the SDK / artifacts / dry-run work is what actually
+  // comes next, and routing through the app home only asks for the same click
+  // again.
   function continueOnboarding() {
     const application = applications.find((app) => app.id === applicationId);
     if (application == null) {
@@ -169,7 +171,11 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
         onSuccess: async () => {
           setLastApp(application.slug);
           await router.invalidate();
-          void navigate({ to: "/app/$appSlug", params: { appSlug: application.slug }, replace: true });
+          void navigate({
+            to: "/app/$appSlug/finish-setup",
+            params: { appSlug: application.slug },
+            replace: true,
+          });
         },
       },
     );
@@ -321,7 +327,8 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
           <Separator />
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="font-mono text-2xs text-text-secondary">
-              Preview verified. Continue to start generating tests against it - or Take over to tweak the config first.
+              Preview verified. Continue to finish setup - the SDK and test artifacts Autonoma needs before it can
+              generate tests against it. Or Take over to tweak the config first.
             </p>
             <Button variant="accent" className="gap-2" onClick={continueOnboarding} disabled={complete.isPending}>
               {complete.isPending ? "Continuing…" : "Continue"}
