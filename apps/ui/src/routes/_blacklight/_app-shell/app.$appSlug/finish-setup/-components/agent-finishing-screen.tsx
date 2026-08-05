@@ -1,6 +1,5 @@
-import { Button } from "@autonoma/blacklight";
+import { BrailleSpinner, Button } from "@autonoma/blacklight";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
-import { CircleDashedIcon } from "@phosphor-icons/react/CircleDashed";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { agentDisplayName } from "lib/onboarding/agent-display-name";
@@ -75,13 +74,23 @@ export function AgentFinishingScreen({ applicationId, progress }: AgentFinishing
   );
 }
 
+/**
+ * One thing the platform is waiting to confirm.
+ *
+ * Outstanding rows spin rather than sit as a static outline. This panel can go
+ * unchanged for many minutes - the SDK handoff alone runs that long - and a
+ * motionless icon through all of it reads as stalled, which is the one thing it
+ * must not say while an agent is working. Every outstanding row spins, not just
+ * whichever is "current": the work does not complete top to bottom (the SDK lands
+ * before the test suite), so there is no current row to single out.
+ */
 function ProgressRow({ done, label }: { done: boolean; label: string }) {
   return (
     <div className="flex items-center gap-2.5">
       {done ? (
         <CheckCircleIcon size={16} weight="fill" className="shrink-0 text-status-success" />
       ) : (
-        <CircleDashedIcon size={16} className="shrink-0 text-text-secondary" />
+        <BrailleSpinner animation="braille" size="sm" className="shrink-0 text-text-secondary" />
       )}
       <span className={done ? "text-sm text-text-primary" : "text-sm text-text-secondary"}>{label}</span>
     </div>
