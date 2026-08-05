@@ -20,6 +20,7 @@ export interface AppConfig {
     autonomaApiUrl: string;
     autonomaApiToken?: string;
     autonomaGenerationId?: string;
+    autonomaApplicationId?: string;
     // Step-04 handoff presets. `agent` picks the interactive agent (e.g. "claude");
     // `permissionMode` presets its autonomy. Both come from CLI flags.
     agent?: string;
@@ -95,6 +96,7 @@ export function loadConfig(args: {
         autonomaApiUrl: resolveApiUrl(env.AUTONOMA_API_URL),
         autonomaApiToken: env.AUTONOMA_API_TOKEN,
         autonomaGenerationId: env.AUTONOMA_GENERATION_ID,
+        autonomaApplicationId: env.AUTONOMA_APPLICATION_ID,
         agent: args.agent,
         permissionMode: args.permissionMode,
     };

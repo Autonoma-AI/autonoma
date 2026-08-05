@@ -52,6 +52,7 @@ catalog:
   '@trpc/react-query': ^11.10.0
   '@trpc/server': ^11.10.0
   '@trpc/tanstack-react-query': ^11.10.0
+  superjson: ^2.2.6
   '@types/node': ^25.2.3
   '@types/react': ^19.2.14
   '@types/react-dom': ^19.2.3

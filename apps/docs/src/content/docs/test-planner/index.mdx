@@ -9,13 +9,13 @@ description: The planner is a CLI that reads your codebase and generates a compl
 
 ## Run it
 
-You launch the planner from the **Finish setup → Upload test artifacts** step in the dashboard, which hands you a ready-to-paste command with your token and generation id baked in:
+You launch the planner from the **Finish setup → Upload test artifacts** step in the dashboard, which hands you a ready-to-paste command with your token, generation id and application id baked in:
 
 ```bash
-AUTONOMA_SHARED_SECRET=... AUTONOMA_DISTINCT_ID=... AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... npx @autonoma-ai/planner@latest
+AUTONOMA_SHARED_SECRET=... AUTONOMA_DISTINCT_ID=... AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... AUTONOMA_APPLICATION_ID=... npx @autonoma-ai/planner@latest
 ```
 
-![The Upload test artifacts step in Autonoma. A "Finish setup" stepper reads 0 of 3 complete, with step 1 "CLI - upload test artifacts" active and steps 2 "SDK" and 3 "Dry run" ahead of it. The step explains that the planner runs in your repo, generates your test suite and uploads it, and that nothing is committed to your repo. Under a label reading "Run in your terminal" sits a command block prefixed with a shell prompt, holding the full npx line with your shared secret, distinct id, API token and generation id filled in, and beneath it a bright lime "Copy command" button; clicking anywhere in the block copies it too. Below that, a row labelled "Waiting for uploads" carries a 0/4 count and four pending chips - recipe.json, qa-tests/, AUTONOMA.md and scenarios.md - each with an empty circle, and each revealing what the file is on hover](/img/test-planner/upload-artifacts.png)
+![The Upload test artifacts step in Autonoma. A "Finish setup" stepper reads 0 of 3 complete, with step 1 "CLI - upload test artifacts" active and steps 2 "SDK" and 3 "Dry run" ahead of it. The step explains that the planner runs in your repo, generates your test suite and uploads it, and that nothing is committed to your repo. Under a label reading "Run in your terminal" sits a command block prefixed with a shell prompt, holding the full npx line with your shared secret, distinct id, API token, generation id and application id filled in, and beneath it a bright lime "Copy command" button; clicking anywhere in the block copies it too. Below that, a row labelled "Waiting for uploads" carries a 0/4 count and four pending chips - recipe.json, qa-tests/, AUTONOMA.md and scenarios.md - each with an empty circle, and each revealing what the file is on hover](/img/test-planner/upload-artifacts.png)
 
 Hit **Copy command**, then paste it into your terminal. The four chips under it are how you watch the upload land: the count climbs and each one fills in as the planner sends it. Hover a chip to see what that file is.
 

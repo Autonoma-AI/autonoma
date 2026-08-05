@@ -14,6 +14,11 @@ const ENV_SCHEMA = {
     AUTONOMA_API_URL: z.string().optional(),
     AUTONOMA_API_TOKEN: z.string().optional(),
     AUTONOMA_GENERATION_ID: z.string().optional(),
+    // The Autonoma application this run belongs to. Unlike AUTONOMA_GENERATION_ID
+    // (which identifies one setup's uploads) this identifies the app itself, and is
+    // what the onboarding calls - reading state, minting a pairing code for an agent
+    // this CLI spawns - are keyed by.
+    AUTONOMA_APPLICATION_ID: z.string().optional(),
     AUTONOMA_POSTHOG_KEY: z.string().optional(),
     AUTONOMA_POSTHOG_HOST: z.string().optional(),
     AUTONOMA_DISTINCT_ID: z.string().optional(),

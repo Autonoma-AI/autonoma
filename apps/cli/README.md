@@ -137,6 +137,7 @@ If the upload credentials are not set, the CLI just leaves the artifacts on disk
 | `OPENROUTER_MODEL` | no | Override the default model (OpenRouter-style model id, forwarded by the proxy). |
 | `AUTONOMA_API_URL` | no | Base URL of the Autonoma API. Defaults to `https://autonoma.app`; override to target an alpha/preview host. |
 | `AUTONOMA_GENERATION_ID` | for upload | The setup id artifacts are uploaded against. Injected by onboarding. |
+| `AUTONOMA_APPLICATION_ID` | no | The application this run belongs to. Lets the CLI read onboarding state (so it can skip work the app has already had done) and mint pairing codes for the coding agents it hands off to. Injected by onboarding. |
 | `AUTONOMA_SHARED_SECRET` | no | Per-application secret used to sign SDK/webhook requests. Injected by onboarding. |
 | `AUTONOMA_DISTINCT_ID` | no | PostHog identity so CLI events join the signup funnel. Injected by onboarding. |
 | `DONT_TRACK` | no | Set to `1`/`true` to disable all telemetry - events, log shipping and session replay. |

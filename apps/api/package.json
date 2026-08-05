@@ -62,7 +62,7 @@
         "jose": "catalog:",
         "js-yaml": "^4.3.0",
         "resend": "^6.10.0",
-        "superjson": "^2.2.6",
+        "superjson": "catalog:",
         "zod": "catalog:",
         "zod-form-data": "^3.0.1"
     },

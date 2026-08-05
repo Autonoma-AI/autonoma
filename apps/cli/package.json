@@ -37,6 +37,7 @@
     "dependencies": {
         "@openrouter/ai-sdk-provider": "^2.10.0",
         "@t3-oss/env-core": "catalog:",
+        "@trpc/client": "catalog:",
         "ai": "catalog:",
         "cross-spawn": "^7.0.6",
         "glob": "^13.0.6",
@@ -45,11 +46,13 @@
         "ink": "^7.1.1",
         "minimatch": "^10.2.5",
         "react": "catalog:",
+        "superjson": "catalog:",
         "which": "^5.0.0",
         "zod": "catalog:"
     },
     "devDependencies": {
         "@ai-sdk/openai": "catalog:",
+        "@autonoma/api": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@octokit/app": "catalog:",
         "@types/cross-spawn": "^6.0.6",

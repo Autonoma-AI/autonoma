@@ -1576,6 +1576,10 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
           user != null ? `AUTONOMA_DISTINCT_ID=${user.id}` : undefined,
           `AUTONOMA_API_TOKEN=${setup.apiKey}`,
           `AUTONOMA_GENERATION_ID=${setup.setupId}`,
+          // Identifies the app itself, not this setup's uploads: it is what lets the CLI
+          // read onboarding state (and skip phases already done) and mint pairing codes
+          // for the coding agents it hands off to.
+          `AUTONOMA_APPLICATION_ID=${applicationId}`,
         ].filter((pair): pair is string => pair != null)
       : undefined;
 
