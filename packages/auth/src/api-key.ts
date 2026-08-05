@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { PrismaClient } from "@autonoma/db";
 
 export interface ApiKeyContext {
@@ -46,18 +46,4 @@ export async function verifyApiKey(
     void db.apiKey.update({ where: { id: apiKey.id }, data: { lastRequest: new Date() } });
 
     return { userId: apiKey.userId, organizationId: apiKey.organizationId };
-}
-
-/**
- * Constant-time string equality. Wraps `timingSafeEqual` to handle the
- * pre-condition that the two buffers must be the same length - returns
- * false safely when lengths differ rather than throwing.
- *
- * Exported so the service-secret verifier can reuse it.
- */
-export function constantTimeEqual(a: string, b: string): boolean {
-    const aBuf = Buffer.from(a, "utf8");
-    const bBuf = Buffer.from(b, "utf8");
-    if (aBuf.length !== bBuf.length) return false;
-    return timingSafeEqual(aBuf, bBuf);
 }

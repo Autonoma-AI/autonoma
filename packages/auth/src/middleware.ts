@@ -2,7 +2,6 @@ import { unauthorizedGuidance } from "@autonoma/agent-guidance";
 import type { PrismaClient } from "@autonoma/db";
 import type { MiddlewareHandler } from "hono";
 import { verifyApiKey } from "./api-key";
-import { verifyServiceSecret } from "./service-secret";
 
 /**
  * What's set on the Hono context after `requireApiKey` succeeds. Routes
@@ -11,20 +10,6 @@ import { verifyServiceSecret } from "./service-secret";
  */
 export interface UserAuthVariables {
     user: { userId: string; organizationId: string };
-}
-
-/**
- * Discriminated identity set by `requireApiKeyOrService`.
- *   - "service": the caller authenticated with the shared secret. No org
- *     context - the route handler must establish org scoping from the
- *     request body / path.
- *   - "user":    the caller authenticated with an API key tied to a user
- *     within an organization.
- */
-export type AuthCaller = { kind: "service" } | { kind: "user"; userId: string; organizationId: string };
-
-export interface CallerAuthVariables {
-    authCaller: AuthCaller;
 }
 
 export interface RequireApiKeyOptions {
@@ -43,9 +28,7 @@ export interface RequireApiKeyOptions {
  * (missing header, unknown key, expired, disabled) returns 401 with a body
  * explaining how to authenticate, so a headless caller can act on it.
  *
- * Use this for routes that only allow human API keys. For routes that
- * also accept the autonoma-to-previewkit service secret, see
- * `requireApiKeyOrService`.
+ * Every authenticated caller carries an organization, so routes scope unconditionally.
  */
 export function requireApiKey(options: RequireApiKeyOptions): MiddlewareHandler<{ Variables: UserAuthVariables }> {
     return async (c, next) => {
@@ -54,74 +37,5 @@ export function requireApiKey(options: RequireApiKeyOptions): MiddlewareHandler<
         if (ctx == null) return c.json(unauthorizedGuidance({ appUrl: options.appUrl, surface: "api" }), 401);
         c.set("user", { userId: ctx.userId, organizationId: ctx.organizationId });
         return next();
-    };
-}
-
-export interface RequireServiceSecretOptions {
-    /** When `undefined`, the middleware unconditionally 401s. Lets callers
-     *  pass an optional env value through without a separate null check. */
-    secret: string | undefined;
-}
-
-/**
- * Service-secret-only middleware. For service-to-service endpoints with
- * no human user behind the call (e.g. autonoma's internal triggers). No
- * context variables are written - the route handler reads everything it
- * needs from the request body.
- */
-export function requireServiceSecret(options: RequireServiceSecretOptions): MiddlewareHandler {
-    return async (c, next) => {
-        if (!verifyServiceSecret(c.req.header("authorization"), options.secret)) {
-            // Deliberately bare, unlike the API-key middlewares: this surface accepts only the
-            // shared service secret, so telling the caller to go create an API key would send
-            // them down a path that cannot work here.
-            return c.json({ error: "Unauthorized" }, 401);
-        }
-        return next();
-    };
-}
-
-export interface RequireApiKeyOrServiceOptions {
-    db: PrismaClient;
-    /** Optional. When unset, the service-secret path is disabled and only
-     *  API-key callers will succeed. */
-    serviceSecret: string | undefined;
-    /**
-     * Canonical app origin, so the 401 body can point at the API-keys screen. Optional because
-     * the guidance falls back to the canonical public host; pass it so per-environment deploys
-     * send the caller to their own settings page rather than production's.
-     */
-    appUrl?: string;
-}
-
-/**
- * Bearer middleware that accepts either path:
- *   1. The shared service secret (constant-time compared).
- *   2. An API key in the `apiKey` table.
- *
- * On success, sets `c.var.authCaller` to the discriminated `AuthCaller`.
- * Routes branch on `c.var.authCaller.kind` to decide whether to apply
- * org scoping (user callers) or trust the request body (service callers).
- */
-export function requireApiKeyOrService(
-    options: RequireApiKeyOrServiceOptions,
-): MiddlewareHandler<{ Variables: CallerAuthVariables }> {
-    return async (c, next) => {
-        const authorization = c.req.header("authorization");
-
-        if (verifyServiceSecret(authorization, options.serviceSecret)) {
-            c.set("authCaller", { kind: "service" });
-            return next();
-        }
-
-        const ctx = await verifyApiKey(options.db, authorization);
-        if (ctx != null) {
-            c.set("authCaller", { kind: "user", userId: ctx.userId, organizationId: ctx.organizationId });
-            return next();
-        }
-
-        // This variant also accepts API keys, so it is a headless-agent entry point too and
-        // owes the same explanation as `requireApiKey`.
-        return c.json(unauthorizedGuidance({ appUrl: options.appUrl, surface: "api" }), 401);
     };
 }

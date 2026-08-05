@@ -17,7 +17,7 @@ const logger = rootLogger.child({ name: "mcpHttpRouter" });
 /**
  * What the MCP auth middleware sets on the Hono context. Routes type their env with
  * `Hono<{ Variables: McpAuthVariables }>` so `c.var.mcpAuth` is inferred, matching
- * `UserAuthVariables` / `CallerAuthVariables` in `@autonoma/auth`.
+ * `UserAuthVariables` in `@autonoma/auth`.
  *
  * The credential is already resolved to its authorization boundary here: routes and tools
  * take the principal, never a bare user id, so the breadth of the credential cannot be lost

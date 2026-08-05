@@ -1,4 +1,4 @@
-import { type AuthCaller, type CallerAuthVariables, requireApiKeyOrService } from "@autonoma/auth";
+import { requireApiKey, type UserAuthVariables } from "@autonoma/auth";
 import { db } from "@autonoma/db";
 import { ConflictError, InsufficientPreviewCreditsError, NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
@@ -48,23 +48,20 @@ const LOG_STREAM_POLL_MS = 1000;
 const LOG_STREAM_HEARTBEAT_TICKS = 15;
 const TERMINAL_STATUSES = new Set(["ready", "failed", "torn_down"]);
 
-// Auth for the native routes. Previewkit is the auth authority for the forwarded
-// (heavy) routes, but the native routes terminate here, so the API must
-// authenticate them itself - same middleware Previewkit used, applying per-caller
-// org-scoping (API-key callers -> their org; the service secret -> no narrowing).
-const requireAuth = requireApiKeyOrService({ db, serviceSecret: env.PREVIEWKIT_SERVICE_SECRET, appUrl: env.APP_URL });
+// Auth for the native routes: they terminate here, so the API authenticates them itself. Every caller is an API
+// key tied to an organization, so every read and write below is scoped to it.
+const requireAuth = requireApiKey({ db, appUrl: env.APP_URL });
 
 /**
- * Auth for the browser-facing build-log stream: accept a logged-in app session
- * cookie first (so the SPA can stream without shipping an API key), then fall
- * back to `requireApiKeyOrService` for programmatic / service callers. A session
- * caller is recorded as a `user` AuthCaller so the same org-scoping applies.
+ * Auth for the browser-facing build-log stream: accept a logged-in app session cookie first (so the SPA can stream
+ * without shipping an API key), then fall back to the API key. Either way the caller carries the organization the
+ * stream is scoped to.
  */
-const requireStreamAuth: MiddlewareHandler<{ Variables: CallerAuthVariables }> = async (c, next) => {
+const requireStreamAuth: MiddlewareHandler<{ Variables: UserAuthVariables }> = async (c, next) => {
     const session = await auth.api.getSession({ headers: c.req.raw.headers });
     const organizationId = session?.session?.activeOrganizationId;
     if (session?.user != null && organizationId != null) {
-        c.set("authCaller", { kind: "user", userId: session.user.id, organizationId });
+        c.set("user", { userId: session.user.id, organizationId });
         return next();
     }
     return requireAuth(c, next);
@@ -76,16 +73,14 @@ const redeployAppRequestSchema = z.object({
 });
 
 /**
- * Request body for `POST /environments` - mirrors Previewkit's deploy schema.
- *
- * `cloneUrl` and `baseRef` are deprecated and ignored: the build clones via the installation token from
- * `repoFullName`, and nothing reads the base ref. Still accepted so existing callers keep working; drop them
- * once no client sends them.
+ * `organizationId`, `cloneUrl` and `baseRef` are deprecated: the organization is the caller's (a value that
+ * disagrees is refused, not ignored), the build clones via the installation token from `repoFullName`, and
+ * nothing reads the base ref. Still accepted so existing callers keep working.
  */
 const deployRequestSchema = z.object({
     repoFullName: z.string().regex(/^[^/]+\/[^/]+$/, "must be 'owner/repo'"),
     prNumber: z.number().int().positive(),
-    organizationId: z.string().min(1),
+    organizationId: z.string().min(1).optional(),
     githubRepositoryId: z.number().int().positive(),
     headSha: z.string().min(1),
     headRef: z.string().min(1),
@@ -106,14 +101,14 @@ const deployRequestSchema = z.object({
  *    workflow directly (`PreviewkitTriggerService`) - the Previewkit worker executes
  *    the pipeline.
  */
-export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>()
+export const previewkitHttpRouter = new Hono<{ Variables: UserAuthVariables }>()
     // ─── Native: environment status (DB-backed) ───────────────────────
     .get("/environments/:owner/:repo/:pr", requireAuth, async (c) => {
         const pr = parseEnvironmentNumber(c.req.param("pr"));
         if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
 
         const repoFullName = `${c.req.param("owner")}/${c.req.param("repo")}`;
-        const status = await environmentsService.getStatus(repoFullName, pr, callerOrgId(c.var.authCaller));
+        const status = await environmentsService.getStatus(repoFullName, pr, c.var.user.organizationId);
         if (status == null) return c.json({ error: "Environment not found" }, 404);
         return c.json(status);
     })
@@ -146,7 +141,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         if (store == null) return c.json({ error: "Log streaming is not configured." }, 503);
 
         const repoFullName = `${c.req.param("owner")}/${c.req.param("repo")}`;
-        const orgId = callerOrgId(c.var.authCaller);
+        const orgId = c.var.user.organizationId;
         const target = await environmentsService.resolveStreamTarget(repoFullName, pr, orgId);
         if (target == null) return c.json({ error: "Environment not found" }, 404);
 
@@ -234,7 +229,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
     .get("/secrets/:applicationId/:app", requireAuth, async (c) => {
         const applicationId = c.req.param("applicationId");
         const app = c.req.param("app");
-        const keys = await secretsService.list(applicationId, app, callerOrgId(c.var.authCaller));
+        const keys = await secretsService.list(applicationId, app, c.var.user.organizationId);
         return c.json({ applicationId, app, keys });
     })
     .put("/secrets/:applicationId/:app", requireAuth, async (c) => {
@@ -252,7 +247,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         if (!validation.ok) return c.json({ error: validation.error }, 400);
 
         try {
-            await secretsService.upsert(applicationId, app, validation.items, callerOrgId(c.var.authCaller));
+            await secretsService.upsert(applicationId, app, validation.items, c.var.user.organizationId);
         } catch (err) {
             if (err instanceof NotFoundError) return c.json({ error: err.message }, 404);
             throw err;
@@ -277,12 +272,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         }
 
         try {
-            await secretsService.upsert(
-                applicationId,
-                app,
-                [{ key, value: body.value }],
-                callerOrgId(c.var.authCaller),
-            );
+            await secretsService.upsert(applicationId, app, [{ key, value: body.value }], c.var.user.organizationId);
         } catch (err) {
             if (err instanceof NotFoundError) return c.json({ error: err.message }, 404);
             throw err;
@@ -295,7 +285,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         const app = c.req.param("app");
         const key = c.req.param("key");
 
-        const deleted = await secretsService.delete(applicationId, app, key, callerOrgId(c.var.authCaller));
+        const deleted = await secretsService.delete(applicationId, app, key, c.var.user.organizationId);
         if (!deleted) return c.json({ error: `Secret '${key}' not found` }, 404);
 
         return c.json({ applicationId, app, key, status: "deleted" });
@@ -307,14 +297,14 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         const parsed = deployRequestSchema.safeParse(body);
         if (!parsed.success) return c.json({ error: "Invalid request body", details: parsed.error.issues }, 400);
 
-        const orgId = callerOrgId(c.var.authCaller);
-        if (orgId != null && orgId !== parsed.data.organizationId) {
+        const organizationId = c.var.user.organizationId;
+        if (parsed.data.organizationId != null && parsed.data.organizationId !== organizationId) {
             return c.json({ error: "organizationId does not match the caller's organization" }, 403);
         }
 
         const { repoFullName, prNumber } = parsed.data;
         try {
-            await previewkitTriggerService.startRun(parsed.data);
+            await previewkitTriggerService.startRun({ ...parsed.data, organizationId });
         } catch (error) {
             return lifecycleErrorResponse(c, error, { repoFullName, prNumber });
         }
@@ -332,10 +322,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
     .post("/applications/:applicationId/0", requireAuth, async (c) => {
         const applicationId = c.req.param("applicationId");
         try {
-            const result = await previewkitTriggerService.startMainBranchRun(
-                applicationId,
-                callerOrgId(c.var.authCaller),
-            );
+            const result = await previewkitTriggerService.startMainBranchRun(applicationId, c.var.user.organizationId);
             return c.json(
                 {
                     accepted: true,
@@ -356,15 +343,12 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         const pr = parseEnvironmentNumber(c.req.param("pr"));
         if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
 
-        const organizationId = c.req.query("organizationId");
-        if (organizationId == null || organizationId === "") {
-            return c.json({ error: "organizationId query param is required" }, 400);
-        }
-        // A `githubRepositoryId` query param is accepted and ignored: teardown addresses the environment by
-        // (repo, PR). Deprecated, so it is neither required nor validated.
-
-        const orgId = callerOrgId(c.var.authCaller);
-        if (orgId != null && orgId !== organizationId) {
+        // `organizationId` and `githubRepositoryId` query params are accepted and deprecated. The organization is
+        // the caller's; teardown addresses the environment by (repo, PR). A supplied organization that disagrees
+        // with the caller's is refused rather than ignored.
+        const organizationId = c.var.user.organizationId;
+        const declaredOrgId = c.req.query("organizationId");
+        if (declaredOrgId != null && declaredOrgId !== "" && declaredOrgId !== organizationId) {
             return c.json({ error: "organizationId does not match the caller's organization" }, 403);
         }
 
@@ -385,7 +369,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         try {
             await previewkitTriggerService.startRunForRedeploy(
                 { repoFullName, prNumber: pr },
-                { organizationId: callerOrgId(c.var.authCaller) },
+                { organizationId: c.var.user.organizationId },
             );
         } catch (error) {
             return lifecycleErrorResponse(c, error, { repoFullName, prNumber: pr });
@@ -420,7 +404,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         const repoFullName = `${c.req.param("owner")}/${c.req.param("repo")}`;
         try {
             await previewkitTriggerService.redeployApp({ repoFullName, prNumber: pr }, app, mode, {
-                organizationId: callerOrgId(c.var.authCaller),
+                organizationId: c.var.user.organizationId,
             });
         } catch (error) {
             return lifecycleErrorResponse(c, error, { repoFullName, prNumber: pr, app });
@@ -436,10 +420,6 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
     .get("/open", previewFrontDoor)
     .get("/open/", previewFrontDoor)
     .get("/openapi.json", (c) => c.json(openApiSpec));
-
-function callerOrgId(caller: AuthCaller): string | undefined {
-    return caller.kind === "user" ? caller.organizationId : undefined;
-}
 
 /** Maps trigger-service errors to the same statuses Previewkit's own routes used. */
 function lifecycleErrorResponse(c: Context, error: unknown, logContext: Record<string, string | number>): Response {

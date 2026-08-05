@@ -64,23 +64,18 @@ export class PreviewkitEnvironmentsService {
     }
 
     /**
-     * Status for one (repo, PR) preview environment, or undefined if none exists.
-     * Org-scopes user callers so one org cannot read another org's status / URLs /
-     * errors: a foreign environment is indistinguishable from "not found". Service
-     * callers (callerOrgId == null) are trusted and not narrowed.
+     * Status for one (repo, PR) preview environment, or undefined if none exists. Org-scoped, so one org cannot
+     * read another's status / URLs / errors: a foreign environment is indistinguishable from "not found".
      */
     async getStatus(
         repoFullName: string,
         prNumber: number,
-        callerOrgId: string | undefined,
+        callerOrgId: string,
     ): Promise<PreviewkitEnvironmentStatus | undefined> {
         this.logger.info("Reading previewkit environment status", { repoFullName, prNumber });
 
         const row = await this.db.previewkitEnvironment.findFirst({
-            where:
-                callerOrgId != null
-                    ? { repoFullName, prNumber, organizationId: callerOrgId }
-                    : { repoFullName, prNumber },
+            where: { repoFullName, prNumber, organizationId: callerOrgId },
             select: {
                 status: true,
                 phase: true,
@@ -105,13 +100,10 @@ export class PreviewkitEnvironmentsService {
     async resolveStreamTarget(
         repoFullName: string,
         prNumber: number,
-        callerOrgId: string | undefined,
+        callerOrgId: string,
     ): Promise<PreviewkitStreamTarget | undefined> {
         const row = await this.db.previewkitEnvironment.findFirst({
-            where:
-                callerOrgId != null
-                    ? { repoFullName, prNumber, organizationId: callerOrgId }
-                    : { repoFullName, prNumber },
+            where: { repoFullName, prNumber, organizationId: callerOrgId },
             select: {
                 namespace: true,
                 status: true,
@@ -150,7 +142,7 @@ export class PreviewkitEnvironmentsService {
         repoFullName: string;
         prNumber: number;
         appName?: string;
-        callerOrgId: string | undefined;
+        callerOrgId: string;
         timeoutMs?: number;
     }): Promise<WaitForDeployResult | undefined> {
         const { repoFullName, prNumber, appName, callerOrgId } = params;
@@ -191,13 +183,10 @@ export class PreviewkitEnvironmentsService {
         repoFullName: string,
         prNumber: number,
         appName: string | undefined,
-        callerOrgId: string | undefined,
+        callerOrgId: string,
     ): Promise<DeployProgress | undefined> {
         const row = await this.db.previewkitEnvironment.findFirst({
-            where:
-                callerOrgId != null
-                    ? { repoFullName, prNumber, organizationId: callerOrgId }
-                    : { repoFullName, prNumber },
+            where: { repoFullName, prNumber, organizationId: callerOrgId },
             select: {
                 status: true,
                 phase: true,

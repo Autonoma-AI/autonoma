@@ -64,7 +64,8 @@ export const openApiSpec = {
             "Public Previewkit surface, served by the autonoma API under /v1/previewkit/*. " +
             "Per-app secrets and environment status are served natively by the API; " +
             "deploy / main-branch deploy / teardown / redeploy run Previewkit's Kubernetes + BuildKit pipeline. " +
-            "Every route requires an Authorization: Bearer header (autonoma API key, or the service shared secret for internal callers).",
+            "Every route requires an Authorization: Bearer header carrying an autonoma API key, which identifies " +
+            "the organization the request is scoped to.",
     },
     servers: [{ url: "/", description: "autonoma API host" }],
     security: [{ bearerAuth: [] }],
@@ -317,7 +318,7 @@ export const openApiSpec = {
                 type: "http",
                 scheme: "bearer",
                 description:
-                    "Autonoma API key (`Authorization: Bearer <key>`) for external callers, or the service shared secret for internal autonoma calls.",
+                    "Autonoma API key (`Authorization: Bearer <key>`). The key identifies the organization every request is scoped to.",
             },
         },
         schemas: {

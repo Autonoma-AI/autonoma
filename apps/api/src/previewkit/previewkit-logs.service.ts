@@ -79,7 +79,7 @@ export class PreviewkitLogsService {
         repoFullName: string;
         prNumber: number;
         source: PreviewLogSource;
-        callerOrgId: string | undefined;
+        callerOrgId: string;
         app?: string;
         limit?: number;
         filter?: string;

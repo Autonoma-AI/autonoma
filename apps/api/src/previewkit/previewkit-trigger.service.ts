@@ -387,7 +387,10 @@ export class PreviewkitTriggerService extends Service {
         });
     }
 
-    /** Deploys the main branch into environment 0, resolving its head on GitHub first. */
+    /**
+     * Deploys the main branch into environment 0, resolving its head on GitHub first. An undefined `callerOrgId`
+     * reaches every organization's applications, and only the admin tRPC surface passes it.
+     */
     async startMainBranchRun(applicationId: string, callerOrgId: string | undefined): Promise<MainBranchDeployResult> {
         this.logger.info("Triggering main-branch preview deploy", { applicationId });
 

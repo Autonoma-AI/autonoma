@@ -46,7 +46,7 @@ export class PreviewkitSecretsService {
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
-    async list(applicationId: string, appName: string, callerOrgId: string | undefined): Promise<SecretSummary[]> {
+    async list(applicationId: string, appName: string, callerOrgId: string): Promise<SecretSummary[]> {
         this.logger.info("Listing secrets", { applicationId, appName });
 
         const app = await this.findApplication(applicationId, callerOrgId);
@@ -70,7 +70,7 @@ export class PreviewkitSecretsService {
      * An app drops out of this list when its last key is deleted, because a bundle
      * is its rows and there is nothing left to name.
      */
-    async listApps(applicationId: string, callerOrgId: string | undefined): Promise<string[]> {
+    async listApps(applicationId: string, callerOrgId: string): Promise<string[]> {
         this.logger.info("Listing secret app bundles", { applicationId });
 
         const app = await this.findApplication(applicationId, callerOrgId);
@@ -104,7 +104,7 @@ export class PreviewkitSecretsService {
         applicationId: string,
         appName: string,
         items: SecretItem[],
-        callerOrgId: string | undefined,
+        callerOrgId: string,
     ): Promise<PreviewkitSecretsUpsertResult> {
         if (items.length === 0) {
             throw new Error("Refusing to upsert: items must contain at least one entry");
@@ -129,7 +129,7 @@ export class PreviewkitSecretsService {
         applicationId: string,
         appName: string,
         key: string,
-        callerOrgId: string | undefined,
+        callerOrgId: string,
     ): Promise<string | undefined> {
         this.logger.info("Reading secret value", { applicationId, appName, extra: { key } });
 
@@ -140,12 +140,7 @@ export class PreviewkitSecretsService {
     }
 
     /** Returns whether the key was there to remove. */
-    async delete(
-        applicationId: string,
-        appName: string,
-        key: string,
-        callerOrgId: string | undefined,
-    ): Promise<boolean> {
+    async delete(applicationId: string, appName: string, key: string, callerOrgId: string): Promise<boolean> {
         this.logger.info("Deleting secret", { applicationId, appName, key });
 
         const app = await this.findApplication(applicationId, callerOrgId);
@@ -157,20 +152,13 @@ export class PreviewkitSecretsService {
     }
 
     /**
-     * Resolves the Application referenced in the URL, narrowed by the
-     * caller's org when set. Returning `null` when the org doesn't match
-     * is what makes 404 / "[]" responses indistinguishable from "doesn't
-     * exist", so the API never leaks cross-org existence.
-     *
-     * `callerOrgId == null` indicates a service-secret caller (autonoma
-     * internal): we trust the URL and don't narrow by org.
+     * Resolves the Application referenced in the URL, narrowed to the caller's org. Returning `null` rather than
+     * throwing is what makes 404 / "[]" responses indistinguishable from "doesn't exist", so the API never leaks
+     * cross-org existence.
      */
-    private async findApplication(
-        applicationId: string,
-        callerOrgId: string | undefined,
-    ): Promise<SecretBundleOwner | null> {
+    private async findApplication(applicationId: string, callerOrgId: string): Promise<SecretBundleOwner | null> {
         return this.prisma.application.findFirst({
-            where: callerOrgId != null ? { id: applicationId, organizationId: callerOrgId } : { id: applicationId },
+            where: { id: applicationId, organizationId: callerOrgId },
             select: { id: true, name: true, organization: { select: { slug: true } } },
         });
     }

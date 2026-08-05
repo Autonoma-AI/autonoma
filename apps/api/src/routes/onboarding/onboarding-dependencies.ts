@@ -14,20 +14,15 @@ export interface OnboardingPreviewkitClient {
 }
 
 export interface OnboardingPreviewkitSecretsService {
-    list(applicationId: string, appName: string, callerOrgId: string | undefined): Promise<SecretSummary[]>;
+    list(applicationId: string, appName: string, callerOrgId: string): Promise<SecretSummary[]>;
     upsert(
         applicationId: string,
         appName: string,
         items: SecretItem[],
-        callerOrgId: string | undefined,
+        callerOrgId: string,
     ): Promise<PreviewkitSecretsUpsertResult | void>;
-    delete(applicationId: string, appName: string, key: string, callerOrgId: string | undefined): Promise<boolean>;
-    getValue?(
-        applicationId: string,
-        appName: string,
-        key: string,
-        callerOrgId: string | undefined,
-    ): Promise<string | undefined>;
+    delete(applicationId: string, appName: string, key: string, callerOrgId: string): Promise<boolean>;
+    getValue?(applicationId: string, appName: string, key: string, callerOrgId: string): Promise<string | undefined>;
 }
 
 export interface OnboardingRepoIntrospection {

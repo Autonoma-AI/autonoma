@@ -171,7 +171,7 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 ## The public surface lives in apps/api
 
 The whole `/v1/previewkit/*` HTTP surface is implemented natively in
-`apps/api/src/previewkit/previewkit-http.router.ts` (auth at the edge with `requireApiKeyOrService`,
+`apps/api/src/previewkit/previewkit-http.router.ts` (auth at the edge with `requireApiKey`,
 per-caller org-scoping). Previewkit itself serves nothing over HTTP.
 
 - **Reads:** environment status (`PreviewkitEnvironmentsService` - DB), live log stream
@@ -188,8 +188,9 @@ per-caller org-scoping). Previewkit itself serves nothing over HTTP.
   `PATCH /environments/:owner/:repo/:pr/apps/:app`):
   preflight + org-scoping in `PreviewkitTriggerService` (`previewkit-trigger.service.ts`, mirrors
   `diffs-trigger.service.ts`), then a deploy starts `analysisRunWorkflow` while teardown / per-app redeploy
-  launch their Kubernetes Job directly (PreviewkitJobLauncher, `@autonoma/k8s/previewkit-jobs`). `PREVIEWKIT_SERVICE_SECRET`
-  remains in the API env - it authenticates the native routes.
+  launch their Kubernetes Job directly (PreviewkitJobLauncher, `@autonoma/k8s/previewkit-jobs`). Every native route
+  authenticates with an Autonoma API key, which is what scopes the request to an organization; there is no
+  service-secret path and therefore no unscoped caller.
 
 The admin "active environments" page reads the DB directly:
 

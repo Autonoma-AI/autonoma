@@ -13,8 +13,8 @@
 # only the API and UI are needed to exercise core product flows. The API still
 # dispatches Temporal workflows; workers consume them from the shared Temporal service.
 #
-# Server-side secrets used only at runtime (PREVIEWKIT_SERVICE_SECRET,
-# RESEND_API_KEY, ENGINE_BILLING_SECRET, AWS_REGION, etc.) are not declared
+# Server-side secrets used only at runtime (RESEND_API_KEY,
+# ENGINE_BILLING_SECRET, AWS_REGION, etc.) are not declared
 # in this file. Register them in the same Secrets Manager bundle so they are
 # mounted at runtime alongside the build_secrets defined below.
 #

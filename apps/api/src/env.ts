@@ -7,9 +7,6 @@ import { env as storageEnv } from "@autonoma/storage/env";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
-// `previewkitJobsEnv` carries what the previewkit Job launcher needs - NAMESPACE, DATABASE_URL, SENTRY_ENV and
-// PREVIEWKIT_SECRETS_CMK. Extending it rather than redeclaring those keeps this API and the general worker, the
-// two processes that launch runner Jobs, unable to disagree about which database or CMK a runner is handed.
 export const env = createEnv({
     extends: [loggerEnv, dbEnv, storageEnv, billingEnv, previewkitJobsEnv],
     server: {
@@ -151,9 +148,6 @@ export const env = createEnv({
         // org whose setting is enabled actually get blocked. Two gates (this env switch + the per-org setting) so
         // a flip is deliberate, per-org, and instantly reversible for the whole fleet.
         PREVIEWKIT_BILLING_ENABLED: z.stringbool().default(false),
-        // Shared secret for incoming service-to-service calls: authenticates the native /v1/previewkit/*
-        // routes (requireApiKeyOrService) via `Authorization: Bearer <secret>`.
-        PREVIEWKIT_SERVICE_SECRET: z.string().min(1).optional(),
         // VPC-internal Grafana Loki backing the previewkit log streams
         // (GET .../logs/stream, both ?source=build and ?source=app). Build
         // logs are pushed by the previewkit worker (its LOKI_URL); app
