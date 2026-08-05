@@ -15,11 +15,11 @@ const previewEnvironmentModeInput = z.enum(["previewkit", "existing_deploys"]);
 export const onboardingRouter = router({
     getState: protectedProcedure
         .input(applicationIdInput)
-        .query(({ ctx, input }) => ctx.services.onboarding.getState(input.applicationId)),
+        .query(({ ctx, input }) => ctx.services.onboarding.getState(input.applicationId, ctx.organizationId)),
 
     getLogs: protectedProcedure
         .input(applicationIdInput)
-        .query(({ ctx, input }) => ctx.services.onboarding.getLogs(input.applicationId)),
+        .query(({ ctx, input }) => ctx.services.onboarding.getLogs(input.applicationId, ctx.organizationId)),
 
     configureAndDiscoverScenarios: writeProcedure
         .input(
@@ -296,7 +296,9 @@ export const onboardingRouter = router({
     // pending request, agent activity stream, and step/verification status.
     getAgentSession: protectedProcedure
         .input(applicationIdInput)
-        .query(({ ctx, input }) => ctx.services.onboardingAgentSession.getForUi(input.applicationId)),
+        .query(({ ctx, input }) =>
+            ctx.services.onboardingAgentSession.getForUi(input.applicationId, ctx.organizationId),
+        ),
 
     // Mint the pairing code the user hands to their coding agent.
     createAgentPairing: writeProcedure

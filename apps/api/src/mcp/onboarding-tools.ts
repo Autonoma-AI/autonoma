@@ -824,7 +824,7 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                     // fetch the view and the deploy readiness together - independent reads.
                     await session.heartbeatIfAgentHeld(applicationId);
                     const [view, readiness] = await Promise.all([
-                        session.getForUi(applicationId),
+                        session.getForUi(applicationId, organizationId),
                         services.onboarding.getPreviewReadiness(applicationId, organizationId),
                     ]);
                     // Needs readiness.diagnostics (status + the log-stream handle), so it
@@ -885,7 +885,7 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                     // current once this has run. It also carries the diagnostics that make
                     // a refusal actionable ("your preview is failed", not "wrong step").
                     const readiness = await services.onboarding.getPreviewReadiness(applicationId, org);
-                    const before = await services.onboarding.getState(applicationId);
+                    const before = await services.onboarding.getState(applicationId, org);
 
                     if (before.step === "completed") {
                         return {

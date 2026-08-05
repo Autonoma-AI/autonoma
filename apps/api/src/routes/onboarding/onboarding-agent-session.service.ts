@@ -13,6 +13,7 @@ import { z } from "zod";
 import type { McpPrincipal } from "../../mcp/mcp-principal";
 import type { RateLimitPolicy, RateLimiterService } from "../../rate-limit/rate-limiter.service";
 import { isAgentDrivenApplication, isAgentSessionStale } from "./agent-session-liveness";
+import { assertApplicationInOrg } from "./assert-application-in-org";
 
 /** How long a pairing code the UI shows the user stays valid. Single-use regardless. */
 const PAIRING_TTL_MS = 15 * 60 * 1000;
@@ -116,11 +117,7 @@ export class OnboardingAgentSessionService {
             PAIR_CREATE_RATE_LIMIT,
             "Too many pairing-code requests; wait a minute and try again.",
         );
-        const app = await this.db.application.findFirst({
-            where: { id: applicationId, organizationId },
-            select: { id: true },
-        });
-        if (app == null) throw new NotFoundError("Application not found");
+        await assertApplicationInOrg(this.db, applicationId, organizationId);
 
         const expiresAt = new Date(Date.now() + PAIRING_TTL_MS);
         for (let attempt = 0; attempt < PAIRING_CODE_MAX_ATTEMPTS; attempt++) {
@@ -274,7 +271,7 @@ export class OnboardingAgentSessionService {
      */
     async stopForHuman(applicationId: string, organizationId: string): Promise<void> {
         this.logger.info("Human taking over onboarding config", { applicationId, organizationId });
-        await this.assertAppInOrg(applicationId, organizationId);
+        await assertApplicationInOrg(this.db, applicationId, organizationId);
         // Do NOT touch agentLastActivityAt: a paused session must not read as active.
         await this.db.onboardingState.updateMany({
             where: { applicationId },
@@ -288,7 +285,7 @@ export class OnboardingAgentSessionService {
      */
     async resumeForAgent(applicationId: string, organizationId: string): Promise<void> {
         this.logger.info("Handing onboarding config back to the agent", { applicationId, organizationId });
-        await this.assertAppInOrg(applicationId, organizationId);
+        await assertApplicationInOrg(this.db, applicationId, organizationId);
         await this.db.onboardingState.updateMany({
             where: { applicationId },
             data: { agentHolder: "agent", agentLastActivityAt: new Date() },
@@ -324,7 +321,7 @@ export class OnboardingAgentSessionService {
             organizationId,
             extra: { skippedKeys },
         });
-        await this.assertAppInOrg(applicationId, organizationId);
+        await assertApplicationInOrg(this.db, applicationId, organizationId);
 
         if (skippedKeys != null && skippedKeys.length > 0) {
             const state = await this.db.onboardingState.findUnique({
@@ -400,7 +397,17 @@ export class OnboardingAgentSessionService {
      * `effectiveHolder` / `stale` (so the form knows whether to lock) and the
      * activity stream. Returns undefined when the app has no onboarding state.
      */
-    async getForUi(applicationId: string): Promise<AgentSessionView | undefined> {
+    async getForUi(applicationId: string, organizationId: string): Promise<AgentSessionView | undefined> {
+        await assertApplicationInOrg(this.db, applicationId, organizationId);
+        return this.readView(applicationId);
+    }
+
+    /**
+     * The view itself, unauthorized. Private on purpose: every caller either came
+     * through {@link getForUi} or has already established the org (pairing, which
+     * checked membership before it consumed the code).
+     */
+    private async readView(applicationId: string): Promise<AgentSessionView | undefined> {
         const state = await this.db.onboardingState.findUnique({
             where: { applicationId },
             select: {
@@ -462,7 +469,9 @@ export class OnboardingAgentSessionService {
     }
 
     private async requireView(applicationId: string): Promise<AgentSessionView> {
-        const view = await this.getForUi(applicationId);
+        // Reads the view directly: the only caller is pairing, which has already
+        // checked the principal's membership of this app's organization.
+        const view = await this.readView(applicationId);
         if (view == null) throw new NotFoundError("Onboarding state not found");
         return view;
     }
@@ -491,15 +500,6 @@ export class OnboardingAgentSessionService {
                 data: { agentLogs: logs, agentLastActivityAt: new Date() },
             });
         });
-    }
-
-    /** Verify the app belongs to the caller's org (authorization for UI-invoked mutations). */
-    private async assertAppInOrg(applicationId: string, organizationId: string): Promise<void> {
-        const app = await this.db.application.findFirst({
-            where: { id: applicationId, organizationId },
-            select: { id: true },
-        });
-        if (app == null) throw new NotFoundError("Application not found");
     }
 
     /** Validate the stored request at the boundary; a malformed one degrades to "nothing pending". */

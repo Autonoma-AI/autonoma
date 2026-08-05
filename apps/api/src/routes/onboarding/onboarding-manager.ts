@@ -13,6 +13,7 @@ import {
 import { z } from "zod";
 import { isGithubNotFound, normalizeBranchName } from "../../github/git-ref";
 import { computeArtifactStatus } from "../app-generations/artifact-status";
+import { assertApplicationInOrg } from "./assert-application-in-org";
 import {
     type DeploymentSignalInput,
     isCommitSha,
@@ -1076,6 +1077,20 @@ export class OnboardingManager {
             throw new Error(`No state handler for step "${step}"`);
         }
         return new stateConstructor(applicationId, this.db, deps);
+    }
+
+    /**
+     * Authorize a read: the application must belong to the caller's organization.
+     *
+     * Reads that take an `applicationId` and nothing else are only safe when an
+     * internal caller has already established the org - after a write that
+     * authorized, or behind the MCP's `resolveOrg`. Anything reachable from an
+     * untrusted caller has to come through here first, or an id alone is enough to
+     * read another organization's app. A missing app and a foreign app throw the
+     * same error, so this cannot be used to probe which ids exist.
+     */
+    async assertApplicationInOrg(applicationId: string, organizationId: string): Promise<void> {
+        await assertApplicationInOrg(this.db, applicationId, organizationId);
     }
 
     private async ensureApplicationHasRepository(applicationId: string, organizationId: string): Promise<void> {

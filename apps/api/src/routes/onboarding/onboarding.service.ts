@@ -7,11 +7,22 @@ export class OnboardingService extends Service {
         super();
     }
 
-    async getState(applicationId: string) {
+    /**
+     * Onboarding state for an app the caller's organization owns.
+     *
+     * Org-scoped like every write below it, and for the same reason: the row it
+     * returns carries this app's preview and production URLs, its last discovery
+     * error and its live pairing code. `manager.getState` takes an id alone because
+     * its other callers have already authorized - this is the one that has not.
+     */
+    async getState(applicationId: string, organizationId: string) {
+        await this.manager.assertApplicationInOrg(applicationId, organizationId);
         return this.manager.getState(applicationId);
     }
 
-    async getLogs(applicationId: string) {
+    /** The agent activity stream for an app the caller's organization owns. */
+    async getLogs(applicationId: string, organizationId: string) {
+        await this.manager.assertApplicationInOrg(applicationId, organizationId);
         return this.manager.getLogs(applicationId);
     }
 
