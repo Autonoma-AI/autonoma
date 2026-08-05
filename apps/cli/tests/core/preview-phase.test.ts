@@ -30,6 +30,7 @@ function fakeClient(steps: string[]): FakeClient {
                 last = queue.length > 1 ? (queue.shift() ?? last) : (queue[0] ?? last);
                 return Promise.resolve({ step: last });
             },
+            refreshPreviewReadiness: () => Promise.resolve(),
             createAgentPairing: () => {
                 fake.pairings++;
                 return Promise.resolve("ABCD2345");
@@ -107,8 +108,89 @@ describe("runPreviewPhase", () => {
         });
 
         expect(client.pairings).toBe(1);
-        // "the Autonoma MCP" would be ambiguous to an agent holding several servers.
+        // Word for word what the web app hands out for this job. That wording is the
+        // one people have validated by running it themselves, and an interactive run
+        // here is the same act with the registration and the code done for them - so
+        // this asserts equality, not a prefix. "the Autonoma MCP" would also be
+        // ambiguous to an agent holding several servers.
         expect(agent.launches[0]?.message).toBe("set up my preview environments with the autonoma MCP, code ABCD2345");
+    });
+
+    // Headless runs use print mode, where asking a question IS ending the turn. Both
+    // early exits seen in practice - stopping to ask, and calling "I tried" done -
+    // have to be pre-empted in the prompt, because there is nobody to recover them.
+    test("tells a headless agent what to do instead of asking, and when it is finished", async () => {
+        const client = fakeClient(["preview_verified"]);
+        const agent = fakeLauncher();
+
+        await runPreviewPhase({
+            client: client.client,
+            applicationId: APP_ID,
+            launcher: agent.launcher,
+            permissionMode: "bypassPermissions",
+            mcpUrl: MCP_URL,
+            interactive: false,
+            timing: TIMING,
+        });
+
+        const message = agent.launches[0]?.message ?? "";
+        expect(message).toContain("set up my preview environments with the autonoma MCP, code ABCD2345");
+        expect(message).toContain("no human to answer you");
+        expect(message).toContain("finished when the preview is verified");
+        expect(message).toContain("Never report success you have not confirmed");
+    });
+
+    // Reading readiness is what stamps a verified preview; the step alone only reports
+    // what someone else stamped. Without this a good preview that comes up after the
+    // agent stops polling is never noticed.
+    test("refreshes readiness before it reads the step", async () => {
+        const order: string[] = [];
+        const client = {
+            getOnboardingState: () => {
+                order.push("state");
+                return Promise.resolve({ step: "preview_verified" });
+            },
+            refreshPreviewReadiness: () => {
+                order.push("readiness");
+                return Promise.resolve();
+            },
+            createAgentPairing: () => Promise.resolve("ABCD2345"),
+        };
+        const agent = fakeLauncher();
+
+        await runPreviewPhase({
+            client,
+            applicationId: APP_ID,
+            launcher: agent.launcher,
+            permissionMode: "bypassPermissions",
+            mcpUrl: MCP_URL,
+            interactive: false,
+            timing: TIMING,
+        });
+
+        expect(order).toEqual(["readiness", "state"]);
+    });
+
+    // A readiness call that fails must not lose the step read behind it.
+    test("still reads the step when the readiness refresh fails", async () => {
+        const client = {
+            getOnboardingState: () => Promise.resolve({ step: "preview_verified" }),
+            refreshPreviewReadiness: () => Promise.reject(new Error("ECONNRESET")),
+            createAgentPairing: () => Promise.resolve("ABCD2345"),
+        };
+        const agent = fakeLauncher();
+
+        const outcome = await runPreviewPhase({
+            client,
+            applicationId: APP_ID,
+            launcher: agent.launcher,
+            permissionMode: "bypassPermissions",
+            mcpUrl: MCP_URL,
+            interactive: false,
+            timing: TIMING,
+        });
+
+        expect(outcome).toEqual({ kind: "verified" });
     });
 
     test("carries the registration's env through to the spawned agent", async () => {
@@ -152,7 +234,10 @@ describe("runPreviewPhase", () => {
         expect(agent.launches[0]?.watch).toBeTypeOf("function");
     });
 
-    test("a headless run needs no watcher - it exits on its own", async () => {
+    // A headless agent is no safer to wait on than an interactive one: observed
+    // finishing the work and then continuing to potter, with the run blocked behind
+    // it. Onboarding state ends the handoff in both modes.
+    test("watches for completion headlessly too", async () => {
         const client = fakeClient(["preview_verified"]);
         const agent = fakeLauncher();
 
@@ -166,7 +251,7 @@ describe("runPreviewPhase", () => {
             timing: TIMING,
         });
 
-        expect(agent.launches[0]?.watch).toBeUndefined();
+        expect(agent.launches[0]?.watch).toBeTypeOf("function");
     });
 
     test("reports verified once onboarding says the preview is up", async () => {
@@ -259,6 +344,7 @@ describe("watchForPreviewPhase", () => {
     test("survives a failed poll", async () => {
         let calls = 0;
         const flaky = {
+            refreshPreviewReadiness: () => Promise.resolve(),
             getOnboardingState: () => {
                 calls++;
                 if (calls === 1) return Promise.reject(new Error("ECONNRESET"));

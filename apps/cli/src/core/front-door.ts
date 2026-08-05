@@ -7,6 +7,7 @@ import {
     DEFAULT_PERMISSION_MODE,
     parsePermissionMode,
     selectLauncher,
+    selectPermissionMode,
     type AgentLauncher,
     type PermissionMode,
 } from "./coding-agent";
@@ -85,7 +86,14 @@ export async function runPreviewHandoff(deps: PreviewHandoffDeps): Promise<Previ
         return { kind: "no-agent" };
     }
 
-    const permissionMode: PermissionMode = parsePermissionMode(config.permissionMode) ?? DEFAULT_PERMISSION_MODE;
+    // Asked, not assumed - the same question the SDK handoff puts to the user later in
+    // the run, so one run never asks about autonomy at one handoff and decides it
+    // silently at the other. A `--permission-mode` flag answers it up front; headless
+    // there is nobody to ask.
+    const preset = parsePermissionMode(config.permissionMode);
+    const permissionMode: PermissionMode = interactive
+        ? await selectPermissionMode(preset)
+        : (preset ?? DEFAULT_PERMISSION_MODE);
 
     suspend();
     try {

@@ -205,11 +205,12 @@ describe("ClaudeLauncher.registerMcpServer", () => {
     }
 
     test("registers at user scope and carries the bearer header when given a token", async () => {
-        stdouts.set("mcp get", "Status: Connected");
+        stdouts.set("mcp get", `Status: Connected\n  URL: ${SPEC.url}`);
 
         const registration = await claude().registerMcpServer({ ...SPEC, apiToken: "ask_test" });
 
-        expect(spawnCalls[0]?.args).toEqual([
+        const add = spawnCalls.find((call) => commandKey(call.args) === "mcp add");
+        expect(add?.args).toEqual([
             "mcp",
             "add",
             "--transport",
@@ -228,7 +229,7 @@ describe("ClaudeLauncher.registerMcpServer", () => {
     // A token means there is nothing to sign in to, and a browser is exactly what a
     // headless run cannot open.
     test("never signs in when a token was supplied", async () => {
-        stdouts.set("mcp get", "Status: Needs authentication");
+        stdouts.set("mcp get", `Status: Needs authentication\n  URL: ${SPEC.url}`);
 
         await claude().registerMcpServer({ ...SPEC, apiToken: "ask_test" });
 
@@ -236,7 +237,7 @@ describe("ClaudeLauncher.registerMcpServer", () => {
     });
 
     test("signs in through the browser when there is no token and the server is unauthorized", async () => {
-        stdouts.set("mcp get", "Status: Needs authentication");
+        stdouts.set("mcp get", `Status: Needs authentication\n  URL: ${SPEC.url}`);
 
         await claude().registerMcpServer(SPEC);
 
@@ -247,7 +248,7 @@ describe("ClaudeLauncher.registerMcpServer", () => {
     });
 
     test("skips the sign-in when the server is already connected", async () => {
-        stdouts.set("mcp get", "Status: Connected");
+        stdouts.set("mcp get", `Status: Connected\n  URL: ${SPEC.url}`);
 
         await claude().registerMcpServer(SPEC);
 
@@ -258,9 +259,23 @@ describe("ClaudeLauncher.registerMcpServer", () => {
     // `mcp add` exits non-zero for it. `get` is the real verdict.
     test("tolerates an add that fails when the server is registered anyway", async () => {
         exitCodes.set("mcp add", 1);
-        stdouts.set("mcp get", "Status: Connected");
+        stdouts.set("mcp get", `Status: Connected\n  URL: ${SPEC.url}`);
 
         await expect(claude().registerMcpServer(SPEC)).resolves.toEqual({ env: {} });
+        expect(spawnCalls.map((call) => commandKey(call.args))).not.toContain("mcp remove");
+    });
+
+    // `mcp add` will not update an existing registration, so one left from another
+    // environment would be inherited in silence and the agent would drive the wrong
+    // Autonoma. Seen for real: a server registered against beta, then a run against
+    // production.
+    test("replaces a registration that points at a different host", async () => {
+        stdouts.set("mcp get", "Status: Connected\n  URL: https://api.other.test/v1/mcp");
+
+        await claude().registerMcpServer(SPEC);
+
+        const commands = spawnCalls.map((call) => commandKey(call.args));
+        expect(commands).toEqual(["mcp get", "mcp remove", "mcp add", "mcp get"]);
     });
 
     test("fails when the server is not registered afterwards", async () => {
@@ -272,7 +287,7 @@ describe("ClaudeLauncher.registerMcpServer", () => {
     });
 
     test("fails when the browser sign-in does not complete", async () => {
-        stdouts.set("mcp get", "Status: Needs authentication");
+        stdouts.set("mcp get", `Status: Needs authentication\n  URL: ${SPEC.url}`);
         exitCodes.set("mcp login", 1);
 
         await expect(claude().registerMcpServer(SPEC)).rejects.toThrow(/could not sign in/);

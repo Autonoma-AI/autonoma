@@ -313,6 +313,17 @@ export class ClaudeLauncher extends BaseLauncher {
         // `mcp add` exits non-zero when the server is already registered, which is the
         // normal case on every run after the first. `get` is what actually answers
         // whether the client has it, so the add's exit code is a hint, not a verdict.
+        //
+        // But an existing registration is only useful if it points where this run does.
+        // `mcp add` will not update one, so a registration left over from another
+        // environment would be reused in silence and the agent would work against the
+        // wrong Autonoma. Replace it rather than inherit it.
+        const existing = await this.runCommand(["mcp", "get", spec.name]);
+        if (existing.code === 0 && !existing.stdout.includes(spec.url)) {
+            debugLog("Replacing an MCP registration that points elsewhere", { server: spec.name, url: spec.url });
+            await this.runCommand(["mcp", "remove", spec.name, "-s", "user"]);
+        }
+
         await this.runCommand(add);
         const registered = await this.runCommand(["mcp", "get", spec.name]);
         if (registered.code !== 0) {

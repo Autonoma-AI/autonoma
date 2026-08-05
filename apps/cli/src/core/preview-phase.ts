@@ -17,12 +17,33 @@ const PHASE_EXIT_GRACE_MS = 15_000;
 const KILL_ESCALATION_MS = 10_000;
 
 /**
- * What the agent is started on. Names the server literally rather than "the Autonoma
- * MCP": an agent holding several servers cannot resolve a generic name - it picks one
- * and commits to it. Matches the sentence the web app hands out for the same job.
+ * Appended only when there is no human on the other end.
+ *
+ * A headless agent runs in print mode, where asking a question IS ending the turn -
+ * there is no "wait for the human" state to return from. So the two things that end
+ * a run early both have to be pre-empted: stopping to ask, and treating "I tried" as
+ * "I am done". Both were observed: an agent stopped to ask which secrets to set, and
+ * reported the preview verified while the deploy had in fact failed.
  */
-function previewPrompt(code: string): string {
-    return `set up my preview environments with the ${MCP_SERVER_NAME} MCP, code ${code}`;
+const HEADLESS_GUIDANCE =
+    " You are running with no human to answer you, so where you would ask a question, choose the " +
+    "safer option and say which you chose. You are not finished when you have tried - you are " +
+    "finished when the preview is verified. If a deploy fails, read its logs, fix the cause and " +
+    "deploy again. Never report success you have not confirmed.";
+
+/**
+ * What the agent is started on.
+ *
+ * The instruction itself is WORD FOR WORD the sentence the web app hands out for this
+ * job, and must stay that way: it is the one wording validated by people running it by
+ * hand, and the interactive path here is the same act with the registration and the
+ * pairing code done for them. Names the server literally rather than "the Autonoma
+ * MCP" for the same reason the web app does - an agent holding several servers cannot
+ * resolve a generic name, it picks one and commits to it.
+ */
+function previewPrompt(code: string, interactive: boolean): string {
+    const instruction = `set up my preview environments with the ${MCP_SERVER_NAME} MCP, code ${code}`;
+    return interactive ? instruction : `${instruction}.${HEADLESS_GUIDANCE}`;
 }
 
 /**
@@ -33,6 +54,8 @@ function previewPrompt(code: string): string {
  */
 export interface OnboardingReader {
     getOnboardingState(applicationId: string): Promise<{ step: string }>;
+    /** Re-checks readiness, which is what stamps a preview that has come up. */
+    refreshPreviewReadiness(applicationId: string): Promise<void>;
     createAgentPairing(applicationId: string): Promise<string>;
 }
 
@@ -105,18 +128,19 @@ export async function runPreviewPhase(deps: PreviewPhaseDeps): Promise<PreviewPh
     p.log.info("Your agent is setting up your preview environment - watch it work, and steer it if you want to.");
 
     await deps.launcher.launch({
-        message: previewPrompt(code),
+        message: previewPrompt(code, deps.interactive),
         permissionMode: deps.permissionMode,
         interactive: deps.interactive,
         env: registration.env,
-        // An interactive session never exits on its own, so onboarding state is what
-        // says "done" and reclaims the terminal. Headless runs exit by themselves.
-        watch: deps.interactive
-            ? (proc) => watchForPreviewPhase(deps.client, deps.applicationId, proc, timing)
-            : undefined,
+        // Both modes, not just interactive. An interactive session plainly never exits
+        // on its own - it sits open after its final message - but a headless one is no
+        // safer to wait on: observed in practice finishing the actual work and then
+        // continuing to potter, with the run blocked behind it. Onboarding state is
+        // what says "done", so it ends the handoff either way.
+        watch: (proc) => watchForPreviewPhase(deps.client, deps.applicationId, proc, timing),
     });
 
-    const state = await deps.client.getOnboardingState(deps.applicationId);
+    const state = await readVerifiedState(deps.client, deps.applicationId);
     if (isStepAtOrPast(state.step, PREVIEW_DONE_STEP)) {
         p.log.success("Your preview environment is up.");
         captureLog("info", "Preview phase complete", { source: "preview_phase", step: state.step });
@@ -139,7 +163,7 @@ export async function runPreviewPhase(deps: PreviewPhaseDeps): Promise<PreviewPh
  * one tick must not kill a working agent session, and the next tick answers anyway.
  */
 export function watchForPreviewPhase(
-    client: Pick<OnboardingReader, "getOnboardingState">,
+    client: Pick<OnboardingReader, "getOnboardingState" | "refreshPreviewReadiness">,
     applicationId: string,
     proc: KillableProcess,
     timing: PhaseWatchTiming = DEFAULT_TIMING,
@@ -148,8 +172,7 @@ export function watchForPreviewPhase(
     let killTimer: ReturnType<typeof setTimeout> | undefined;
 
     const poll = setInterval(() => {
-        void client
-            .getOnboardingState(applicationId)
+        void readVerifiedState(client, applicationId)
             .then((state) => {
                 if (!isStepAtOrPast(state.step, PREVIEW_DONE_STEP) || graceTimer != null) return;
                 debugLog("Preview verified while the agent runs; scheduling terminal reclaim", { step: state.step });
@@ -169,4 +192,21 @@ export function watchForPreviewPhase(
         if (graceTimer != null) clearTimeout(graceTimer);
         if (killTimer != null) clearTimeout(killTimer);
     };
+}
+
+/**
+ * The step, having first given the platform a chance to notice a preview that came
+ * up. Reading readiness is what stamps `preview_verified`; the step on its own only
+ * reports what someone else already stamped, so a preview that goes ready after the
+ * agent stops polling would never be seen. A failed refresh is not fatal - the step
+ * is still worth reading, and the next poll asks again.
+ */
+async function readVerifiedState(
+    client: Pick<OnboardingReader, "getOnboardingState" | "refreshPreviewReadiness">,
+    applicationId: string,
+): Promise<{ step: string }> {
+    await client.refreshPreviewReadiness(applicationId).catch((err: unknown) => {
+        debugLog("Could not refresh preview readiness", { err });
+    });
+    return client.getOnboardingState(applicationId);
 }

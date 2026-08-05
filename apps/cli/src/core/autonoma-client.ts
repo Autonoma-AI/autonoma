@@ -71,6 +71,20 @@ export class AutonomaClient {
     }
 
     /**
+     * Re-check whether this app's preview environment is up.
+     *
+     * Called for its SIDE EFFECT as much as its answer: reading readiness is what
+     * stamps a preview that has come up as `preview_verified`, and nothing else does.
+     * `getOnboardingState` only reports the step someone else already stamped, so a
+     * preview that goes ready after the agent stops polling would never be noticed by
+     * a caller watching the step alone.
+     */
+    async refreshPreviewReadiness(applicationId: string): Promise<void> {
+        debugLog("Refreshing preview readiness", { applicationId });
+        await this.trpc.onboarding.getPreviewReadiness.query({ applicationId });
+    }
+
+    /**
      * Mint a single-use pairing code for a coding agent this CLI is about to spawn.
      * Codes expire, so mint one per handoff rather than reusing an earlier one.
      */
