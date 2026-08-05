@@ -26,6 +26,12 @@ export interface RawSpec {
     install: string[];
     /** `RUN` lines after the build-arg `ENV` lines. */
     build: string[];
+    /**
+     * WORKDIR to switch to after the build steps - the app's own directory in a
+     * root (monorepo) build, so the CMD and any deploy-time command override run
+     * there. Undefined when the main `workdir` is already the app.
+     */
+    appWorkdir?: string;
     /** The `CMD` payload (shell form), without the `CMD` prefix. */
     start: string;
 }
@@ -51,6 +57,13 @@ export interface GenerateDockerfileContext {
      * app-context and runtime builds, which never filter.
      */
     turboFilter?: string;
+    /**
+     * Repo-relative app path for a root-context blueprint build: the runtime
+     * lowering copies the repo to /workspace and WORKDIRs here before CMD. Only
+     * the blueprint pipeline passes it - the hand-authored build model renders
+     * exactly as before without it.
+     */
+    appPath?: string;
 }
 
 /** Renders a {@link RawSpec} into a single-stage Dockerfile string. */
@@ -84,6 +97,10 @@ export function renderDockerfile(spec: RawSpec, ctx: GenerateDockerfileContext):
 
     for (const line of spec.build) {
         lines.push(line, "");
+    }
+
+    if (spec.appWorkdir != null) {
+        lines.push(`WORKDIR ${spec.appWorkdir}`, "");
     }
 
     lines.push(`EXPOSE ${ctx.port}`);

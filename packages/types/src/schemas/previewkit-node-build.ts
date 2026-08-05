@@ -1,7 +1,7 @@
 /**
  * What the retired node-family build presets (node / next / vite / bun) actually
- * run: the package-manager strategy table plus the install / build / start
- * commands each preset resolves to.
+ * run: the install / build / start commands each preset resolves to, driven by
+ * the shared package-manager strategy table in `previewkit-node-pm.ts`.
  *
  * It sits beside the schema rather than in previewkit because two places need
  * the same answer - previewkit's Dockerfile generator lowering a stored preset,
@@ -11,6 +11,7 @@
  */
 
 import type { Build } from "./previewkit-config";
+import { PREVIEWKIT_NODE_PM_CATALOG, type PreviewkitNodePmSpec } from "./previewkit-node-pm";
 
 /** A node-family framework preset (node / next / vite / bun) - the discriminated arms that use a node package manager. */
 export type NodeFrameworkBuild = Exclude<Build, { framework: "dockerfile" | "runtime" }>;
@@ -29,40 +30,6 @@ export interface NodeBuildCommands {
     run: string;
 }
 
-interface NodeToolStrategy {
-    /** CLI prefix (`pnpm`, `bun`, ...). */
-    cli: string;
-    /** Bootstrap command needed before install (corepack for pnpm/yarn), or undefined. */
-    bootstrap?: string;
-    /** Default install command. */
-    install: string;
-    /**
-     * Prefix that invokes the local `turbo` binary for this package manager. Not
-     * uniform: `${cli} turbo` runs the binary for pnpm/yarn but is invalid for npm
-     * (`npm turbo` is not a command) and wrong for bun (`bun turbo` runs a script).
-     * The turbo args (`run build --filter=...`) are appended to this prefix; npm's
-     * trailing `--` forwards them past `npm exec`.
-     */
-    turbo: string;
-}
-
-/**
- * Node package-manager strategies. npm ships with node and bun ships in its own
- * image, so neither needs a bootstrap; pnpm/yarn activate through corepack.
- * Adding a manager is one entry here, not a branch in the generator.
- */
-const NODE_TOOLS = {
-    npm: { cli: "npm", install: "npm ci", turbo: "npm exec turbo --" },
-    pnpm: {
-        cli: "pnpm",
-        bootstrap: "corepack enable",
-        install: "pnpm install --frozen-lockfile",
-        turbo: "pnpm exec turbo",
-    },
-    yarn: { cli: "yarn", bootstrap: "corepack enable", install: "yarn install --frozen-lockfile", turbo: "yarn turbo" },
-    bun: { cli: "bun", install: "bun install", turbo: "bunx turbo" },
-} satisfies Record<string, NodeToolStrategy>;
-
 /**
  * Resolves the install / build / run / bootstrap commands for a node-family build
  * from its package manager, framework, and build context - each defaulted here
@@ -76,7 +43,8 @@ const NODE_TOOLS = {
  * build is a programming error, not a user misconfiguration.
  */
 export function nodeBuildCommands(build: NodeFrameworkBuild, turboFilter?: string): NodeBuildCommands {
-    const tool: NodeToolStrategy = build.framework === "bun" ? NODE_TOOLS.bun : NODE_TOOLS[build.package_manager];
+    const tool: PreviewkitNodePmSpec =
+        build.framework === "bun" ? PREVIEWKIT_NODE_PM_CATALOG.bun : PREVIEWKIT_NODE_PM_CATALOG[build.package_manager];
     const root = build.build_context === "root";
     return {
         bootstrap: tool.bootstrap,
@@ -86,13 +54,13 @@ export function nodeBuildCommands(build: NodeFrameworkBuild, turboFilter?: strin
     };
 }
 
-function defaultBuildCommand(tool: NodeToolStrategy, root: boolean, turboFilter?: string): string {
+function defaultBuildCommand(tool: PreviewkitNodePmSpec, root: boolean, turboFilter?: string): string {
     if (!root) return `${tool.cli} run build`;
     return `${tool.turbo} run build ${requireTurboFilter(turboFilter)}`;
 }
 
 function defaultRunCommand(
-    tool: NodeToolStrategy,
+    tool: PreviewkitNodePmSpec,
     root: boolean,
     framework: NodeFrameworkBuild["framework"],
     turboFilter?: string,

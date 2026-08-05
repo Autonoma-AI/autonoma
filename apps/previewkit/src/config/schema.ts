@@ -1,5 +1,6 @@
 export {
     STANDARD_RESOURCES,
+    blueprintToBuild,
     isSameRepository,
     previewConfigSchema,
     declaredSdkAppName,
@@ -8,6 +9,8 @@ export {
     trustedPreviewConfigSchema,
     type AppConfig,
     type AppRole,
+    type Blueprint,
+    type BlueprintFacts,
     type Build,
     type BranchConvention,
     type ContainerResources,

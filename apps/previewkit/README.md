@@ -153,7 +153,37 @@ An app may carry an optional `build` block that selects a build strategy explici
 
 Every runtime is a Debian-family (`apt`) image, so the generator installs one common toolbelt (`git`, `curl`, `jq`, `rg`, `make`, `ssh`, ...) plus per-runtime setup (e.g. `corepack` for node, `uv` for python, `composer` for php), and switches the shell to bash. The generated image clones the repo to `/workspace/<app>`.
 
+<<<<<<< HEAD
+**Blueprint block (`blueprint`) - the additive deploy model:**
+
+As an additive alternative to `build`, an app may set a `blueprint` and let Previewkit supply the build instead of hand-authoring a `build` block. `blueprint` and `build` are mutually exclusive. A blueprint is **either** a preset selection **or** a bring-your-own Dockerfile (the two shapes are mutually exclusive - setting fields from both is rejected):
+
+_Preset mode_ - pick a preset and let Previewkit derive the build/run settings. Presets (`nextjs`, `nuxt`, `sveltekit`, `remix`, `hono`, `express`, `astro`, `vite`, `django`, `fastapi`, `python`, `rails`, `ruby`, `node`, `static`) live in `packages/types/src/schemas/previewkit-presets.ts`.
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `preset` | Yes | | One of the catalog presets; selects the toolchain + default build/run commands and output |
+| `version` | No | preset default | Runtime version override (e.g. node `"20"`) |
+| `install_command` / `build_command` / `run_command` | No | preset default | Override the derived commands |
+| `output_directory` | No | preset default | For static presets: the built directory to serve |
+| `build_context` | No | `app` | `root` builds from the repo root for a monorepo (any preset - see below) |
+
+_Dockerfile mode_ - bring your own committed Dockerfile, built as-is (the blueprint counterpart of `build.framework: dockerfile`).
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `dockerfile` | Yes | | Path to the Dockerfile, always relative to the app dir |
+| `target` | No | | Stage to build in a multi-stage Dockerfile |
+| `build_context` | No | `app` | `root` builds from the repo root (see below) |
+
+**Monorepos.** By default a blueprint builds from the app's own directory, so an app that imports sibling workspace packages sets `build_context: root` to build from the repo root instead. The axis is uniform - it works the same for every preset and for dockerfile mode:
+- **Preset + `root`** - commands run in the app directory. Node presets install at the repo root with the package manager detected from the `packageManager` field or lockfile (npm/pnpm/yarn; a bun lockfile falls back to npm) and build through turbo's `--filter` when the repo has a `turbo.json` (topological dependency builds); without turbo, the app's own build script runs in its directory. Python/ruby presets install and build in the app directory - uv/bundler resolve their workspace from a member natively.
+- **Dockerfile + `root`** - your workspace-aware Dockerfile builds from the repo root; the `dockerfile` path stays app-relative.
+
+The existing `build`/`framework` model stays fully supported - `blueprint` is a separate, additive path we will migrate to over time. Interim: a preset blueprint is lowered to an equivalent `runtime` build (one path-aware template for app and root contexts alike) and built by the current generator; a dockerfile blueprint is built directly from your file.
+=======
 **Retired framework presets** (`node`, `next`, `vite`, `bun`) generate a single-stage Dockerfile from a node/bun base image, with `package_manager` (`npm` | `pnpm` | `yarn`, default `pnpm`), `node_version` (default `22`, absent for `bun`), `build_context`, and optional `install_command` / `build_command` / `run_command` overrides; with `build_context: root` the build/run commands default to `turbo run build`/`turbo run start` filtered by the app's real workspace `package.json` name (path filter fallback). They are `runtime` with the base image and commands prefilled, and no editor renders one, so they can no longer be **authored**: `previewConfigSchema` still parses them and previewkit still builds them, but `authoringPreviewConfigSchema` - what the config editor and the MCP `apply_config` tools validate against - rejects them. Documents saved before the retirement keep deploying unchanged until someone converts the app to `runtime` (install + build commands into `build_script`, run command into `entrypoint`).
+>>>>>>> origin/main
 
 **Service fields:**
 
@@ -361,9 +391,15 @@ Requires a wildcard DNS record `*.preview.example.com` pointing to your ingress 
 
 Previewkit builds each app with BuildKit without a Docker daemon. Every app-build attempt creates an isolated privileged rootful buildkitd Kubernetes Job, connects `buildctl` directly to its ready pod, and deletes the Job when the attempt settles. Each Job's local cache is empty, but every build imports from and exports back to a rolling per-app registry cache (`--import-cache`/`--export-cache type=registry`, one stable tag per app shared across every PR and commit), so a cold Job can still reuse layers a previous build already pushed. The build model is deterministic - every build is a Dockerfile build, and there is no autodetection:
 
+<<<<<<< HEAD
+1. **Generated Dockerfile** -- if the app has a `blueprint` (preset mode) or a `build` block with a framework preset (`node` / `next` / `vite` / `bun`) or the `runtime` escape hatch, previewkit synthesizes a single-stage Dockerfile and builds it via `buildctl`.
+2. **User Dockerfile** -- if the app has a `blueprint` (dockerfile mode) or `build.framework: dockerfile`, or a bare `dockerfile` field, or a `Dockerfile` exists in the app directory, it is built with [BuildKit](https://github.com/moby/buildkit) via `buildctl`. For a multi-stage Dockerfile, set `build.target` (with `build.framework: dockerfile`) to pick the stage to build, like `docker build --target` -- otherwise BuildKit builds the **last** stage, which builds the wrong service when a Dockerfile ends with a worker/sidecar stage after the deployable one.
+3. **Neither** -- the deploy fails with an actionable error naming the app. Add a `blueprint`, a `build` block, or a Dockerfile.
+=======
 1. **Generated Dockerfile** -- if the app has a `build` block with the `runtime` escape hatch (or a retired framework preset -- `node` / `next` / `vite` / `bun` -- from before it was retired), previewkit synthesizes a single-stage Dockerfile and builds it via `buildctl`.
 2. **User Dockerfile** -- if the app has `build.framework: dockerfile`, or a bare `dockerfile` field, or a `Dockerfile` exists in the app directory, it is built with [BuildKit](https://github.com/moby/buildkit) via `buildctl`. For a multi-stage Dockerfile, set `build.target` (with `build.framework: dockerfile`) to pick the stage to build, like `docker build --target` -- otherwise BuildKit builds the **last** stage, which builds the wrong service when a Dockerfile ends with a worker/sidecar stage after the deployable one.
 3. **Neither** -- the deploy fails with an actionable error naming the app. Add a `build` block or a Dockerfile.
+>>>>>>> origin/main
 
 All paths push to the configured registry.
 

@@ -192,7 +192,21 @@ Application's main webhook, and sends the `x-previewkit-bypass` header (decrypte
 ## Build strategies (precedence)
 
 Per app, `PreviewPipeline.resolveBuildInputs` (`pipeline/preview-pipeline.ts`) selects the build inputs,
-then `buildkit-builder.ts` `dispatchBuild` runs them:
+then `buildkit-builder.ts` `dispatchBuild` runs them.
+
+An app uses ONE of two mutually-exclusive models: the new `blueprint` or the existing `build`/framework
+union. A `blueprint` is itself either a **preset** selection or a **dockerfile** (bring-your-own),
+mutually exclusive. **`blueprint` takes precedence**: if set, `resolveBuildInputs` lowers it via
+`blueprintToBuild` (packages/types) - a preset blueprint becomes a `runtime` Build run through the same
+generator below (interim: the current single-stage generator; the uniform-builder migration retargets
+it), a dockerfile blueprint becomes a `dockerfile` Build built directly from the file. An additive path
+we will migrate to over time. **Monorepos**: any blueprint (preset or dockerfile) may set `build_context:
+root` - `resolveBuildInputs` detects the repo facts first (`detectBlueprintFacts`: package manager from the
+`packageManager` field/lockfile, turbo presence, repo-relative app path) and builds from the repo root. The
+lowering stays a single path-aware `runtime` template: the build script installs at the root for node (and
+uses turbo's `--filter` when the repo has turbo) or `cd`s into the app for other toolchains, and the
+generator emits a final `WORKDIR` into the app dir so the CMD (and any deploy-time command override) runs
+there. Dockerfile paths are always app-relative. The existing strategies are unchanged:
 
 1. **`build` block (preferred)** - the app's `build` is a discriminated union on `framework` (the
    `previewConfigSchema` in `packages/types`):
@@ -216,8 +230,9 @@ then `buildkit-builder.ts` `dispatchBuild` runs them:
       Every runtime is Debian-family (apt); the strategy tables keep the door open for another base OS.
       `dockerfile-builder/` is split by concern: `raw-spec.ts` (the `RawSpec` primitive + the one
       `renderDockerfile`), `framework-lowering.ts` + `runtime-lowering.ts` (both lower a `build` into a
-      `RawSpec`), and the `os-toolbelt.ts` (apt) strategy table. The npm/pnpm/yarn/bun table lives in
-      `@autonoma/types` (`previewkit-node-build.ts`) next to the schema, because the API's MCP needs the
+      `RawSpec`), and the `os-toolbelt.ts` (apt) strategy table. The npm/pnpm/yarn/bun strategy table
+      lives in `@autonoma/types` (`previewkit-node-pm.ts`, consumed by `previewkit-node-build.ts`'s
+      command resolution and the blueprint lowering) next to the schema, because the API's MCP needs the
       same command defaults to express a retired preset as a `runtime` build (`toAuthorableDocument`) -
       one definition of what `framework: next` means, not two. Adding a runtime is a catalog entry;
       adding a package manager or base OS is one strategy entry - never a new branch in the generator.

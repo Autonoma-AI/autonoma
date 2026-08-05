@@ -20,15 +20,22 @@ const SHELL_BASH = `SHELL ["/bin/bash", "-c"]`;
  * Lowers the raw runtime escape hatch into the raw primitive: the picked runtime's
  * base image (from the catalog, at the user-selected version), a base-tiered
  * toolbelt + per-runtime setup as cached layers, then the user's bash build script
- * (as a heredoc so multi-line survives) and entrypoint. Clones to
- * `/workspace/<app>` to match the sandbox reference.
+ * (as a heredoc so multi-line survives) and entrypoint. App-context builds copy the
+ * app to `/workspace/<app>` to match the sandbox reference; a root (monorepo)
+ * blueprint build copies the whole repo to `/workspace` - its build script
+ * cd-scopes itself - and WORKDIRs into the app before CMD, so the container (and
+ * any deploy-time command override) starts in the app's own directory. Only the
+ * blueprint pipeline passes `ctx.appPath`; the hand-authored build model renders
+ * exactly as before without it.
  */
 export function lowerRuntimeBuild(build: RuntimeBuild, ctx: GenerateDockerfileContext): RawSpec {
     const spec = PREVIEWKIT_RUNTIME_CATALOG[build.runtime];
     const image = previewkitRuntimeImage(build.runtime, build.version);
+    const rootAppPath = build.build_context === "root" ? ctx.appPath : undefined;
     return {
         baseImage: mirrorDockerHubImage(image, ctx.registryMirror),
-        workdir: `/workspace/${ctx.appName}`,
+        workdir: rootAppPath != null ? "/workspace" : `/workspace/${ctx.appName}`,
+        appWorkdir: rootAppPath != null && rootAppPath !== "." ? `/workspace/${rootAppPath}` : undefined,
         bootstrap: [toolbeltInstall(spec.base), ...spec.setup.map((command) => `RUN ${command}`), SHELL_BASH],
         install: [],
         build: build.build_script != null ? [heredocRun(build.build_script)] : [],

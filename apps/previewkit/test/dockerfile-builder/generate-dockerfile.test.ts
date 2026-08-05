@@ -165,6 +165,34 @@ describe("generateDockerfile", () => {
             expect(df).toContain("FROM node:20-bookworm-slim");
         });
 
+        it("copies the repo to /workspace and WORKDIRs into the app for a root blueprint build", () => {
+            const df = generateDockerfile(
+                {
+                    framework: "runtime",
+                    runtime: "node",
+                    build_script: "npm ci\ncd apps/web\nnpm run build",
+                    entrypoint: "npm run start",
+                    build_context: "root",
+                },
+                { ...ctx, appPath: "apps/web" },
+            );
+            expect(df).toContain("WORKDIR /workspace\n");
+            expect(df).not.toContain("WORKDIR /workspace/web");
+            // the final WORKDIR (the CMD cwd) comes after the heredoc build, before EXPOSE.
+            const appWorkdirAt = df.indexOf("WORKDIR /workspace/apps/web");
+            expect(appWorkdirAt).toBeGreaterThan(df.indexOf("RUN <<'AUTONOMA_BUILD_EOF'"));
+            expect(appWorkdirAt).toBeLessThan(df.indexOf("EXPOSE 3000"));
+        });
+
+        it("keeps a root runtime build of the hand-authored build model unchanged (no appPath)", () => {
+            const df = generateDockerfile(
+                { framework: "runtime", runtime: "node", entrypoint: "npm start", build_context: "root" },
+                ctx,
+            );
+            expect(df).toContain("WORKDIR /workspace/web");
+            expect(df).not.toContain("WORKDIR /workspace\n");
+        });
+
         it("builds the bare Debian base image with the apt toolbelt", () => {
             const df = generateDockerfile(
                 {

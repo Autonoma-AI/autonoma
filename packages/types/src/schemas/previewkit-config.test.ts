@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
     authoringPreviewConfigSchema,
+    type BlueprintFacts,
+    blueprintToBuild,
     connectionTargets,
     connectionTokens,
     DEPRECATED_BUILD_FRAMEWORKS,
@@ -11,12 +13,241 @@ import {
     validateHookSteps,
 } from "./previewkit-config";
 
+/** The facts of a standalone app-context build: plain npm repo, no lockfile. */
+const APP_FACTS: BlueprintFacts = { packageManager: "npm", hasLockfile: false, appPath: "." };
+
 function parseWithBuild(build: unknown) {
     return previewConfigSchema.safeParse({
         version: 2,
         apps: [{ name: "web", repository: "acme/web", port: 3000, build }],
     });
 }
+
+function parseWithBlueprint(blueprint: unknown) {
+    return previewConfigSchema.safeParse({
+        version: 2,
+        apps: [{ name: "web", repository: "acme/web", port: 3000, blueprint }],
+    });
+}
+
+describe("previewConfigSchema blueprint block", () => {
+    it("accepts a blueprint selecting a preset", () => {
+        const result = parseWithBlueprint({ preset: "nextjs" });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.apps[0]?.blueprint).toMatchObject({ preset: "nextjs" });
+        }
+    });
+
+    it("accepts per-app overrides", () => {
+        expect(parseWithBlueprint({ preset: "django", version: "3.13", run_command: "gunicorn app:app" }).success).toBe(
+            true,
+        );
+    });
+
+    it("rejects an unknown preset", () => {
+        expect(parseWithBlueprint({ preset: "svelte" }).success).toBe(false);
+    });
+
+    it("rejects an app that sets both build and blueprint", () => {
+        const result = previewConfigSchema.safeParse({
+            version: 2,
+            apps: [
+                {
+                    name: "web",
+                    repository: "acme/web",
+                    port: 3000,
+                    build: { framework: "node" },
+                    blueprint: { preset: "node" },
+                },
+            ],
+        });
+        expect(result.success).toBe(false);
+    });
+
+    it("rejects a run_command with a line break (CMD injection)", () => {
+        expect(parseWithBlueprint({ preset: "node", run_command: "npm start\nRUN rm -rf /" }).success).toBe(false);
+    });
+
+    it("rejects an output_directory with a line break (static-serve CMD injection)", () => {
+        expect(parseWithBlueprint({ preset: "vite", output_directory: "dist\nRUN evil" }).success).toBe(false);
+    });
+
+    it("rejects an install_command line equal to the reserved heredoc delimiter", () => {
+        expect(
+            parseWithBlueprint({ preset: "node", install_command: "npm ci\nAUTONOMA_BUILD_EOF\nrm -rf /" }).success,
+        ).toBe(false);
+    });
+
+    it("rejects a build_command line equal to the reserved heredoc delimiter", () => {
+        expect(parseWithBlueprint({ preset: "node", build_command: "make\nAUTONOMA_BUILD_EOF" }).success).toBe(false);
+    });
+
+    it("accepts a bring-your-own dockerfile blueprint", () => {
+        const result = parseWithBlueprint({ dockerfile: "./Dockerfile" });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.apps[0]?.blueprint).toEqual({ dockerfile: "./Dockerfile" });
+        }
+    });
+
+    it("accepts a dockerfile blueprint with a target stage", () => {
+        expect(parseWithBlueprint({ dockerfile: "./Dockerfile", target: "prod" }).success).toBe(true);
+    });
+
+    it("rejects a dockerfile blueprint with an empty path", () => {
+        expect(parseWithBlueprint({ dockerfile: "" }).success).toBe(false);
+    });
+
+    it("rejects a blueprint that mixes preset and dockerfile", () => {
+        expect(parseWithBlueprint({ preset: "node", dockerfile: "./Dockerfile" }).success).toBe(false);
+    });
+
+    it("accepts build_context root on a node preset (monorepo)", () => {
+        expect(parseWithBlueprint({ preset: "nextjs", build_context: "root" }).success).toBe(true);
+    });
+
+    it("accepts build_context root on a dockerfile blueprint", () => {
+        expect(parseWithBlueprint({ dockerfile: "apps/web/Dockerfile", build_context: "root" }).success).toBe(true);
+    });
+
+    it("accepts build_context root on a non-node preset (uniform monorepo axis)", () => {
+        expect(parseWithBlueprint({ preset: "django", build_context: "root" }).success).toBe(true);
+    });
+
+    it("rejects a non-numeric version for a node preset (an un-pullable node tag)", () => {
+        // node:<version>-bookworm-slim - "20-alpine" would render node:20-alpine-bookworm-slim.
+        expect(parseWithBlueprint({ preset: "nextjs", version: "20-alpine" }).success).toBe(false);
+        expect(parseWithBlueprint({ preset: "nextjs", version: "22-slim", build_context: "root" }).success).toBe(false);
+    });
+
+    it("accepts a bare node version for a node preset", () => {
+        expect(parseWithBlueprint({ preset: "nextjs", version: "22.5" }).success).toBe(true);
+    });
+});
+
+// blueprintToBuild returns a runtime | dockerfile Build; the preset cases below all
+// lower to runtime, so narrow to expose the runtime-only fields (entrypoint, build_script).
+function lowerToRuntime(
+    blueprint: Parameters<typeof blueprintToBuild>[0],
+    port: number,
+    facts: BlueprintFacts = APP_FACTS,
+) {
+    const build = blueprintToBuild(blueprint, port, facts);
+    if (build.framework !== "runtime") throw new Error(`expected a runtime build, got ${build.framework}`);
+    return build;
+}
+
+describe("blueprintToBuild", () => {
+    it("lowers a node preset to a runtime build with an npm-prefixed script", () => {
+        const build = lowerToRuntime({ preset: "nextjs" }, 3000);
+        expect(build).toMatchObject({ framework: "runtime", runtime: "node", entrypoint: "npm run start" });
+        expect(build.build_script).toContain("npm install");
+        expect(build.build_script).toContain("npm run build");
+    });
+
+    it("lowers a python preset to a runtime build (uv install, no npm prefix)", () => {
+        const build = lowerToRuntime({ preset: "django" }, 8000);
+        expect(build).toMatchObject({ framework: "runtime", runtime: "python" });
+        expect(build.build_script).toContain("uv sync");
+        expect(build.entrypoint).toContain("manage.py runserver");
+    });
+
+    it("lowers a static preset to an in-image static file server", () => {
+        const build = lowerToRuntime({ preset: "vite" }, 80);
+        expect(build.runtime).toBe("node");
+        expect(build.entrypoint).toBe("npx --yes serve dist -s -l 80");
+    });
+
+    it("lowers a JS Express API to an install-only runtime build (no build step)", () => {
+        const build = lowerToRuntime({ preset: "express" }, 3000);
+        expect(build).toMatchObject({ framework: "runtime", runtime: "node", entrypoint: "npm run start" });
+        expect(build.build_script).toBe("npm install");
+    });
+
+    it("honors command/version overrides", () => {
+        const build = lowerToRuntime(
+            { preset: "node", version: "20", build_command: "make", run_command: "node server.js" },
+            3000,
+        );
+        expect(build.version).toBe("20");
+        expect(build.entrypoint).toBe("node server.js");
+        expect(build.build_script).toContain("make");
+    });
+
+    it("lowers a dockerfile blueprint to a dockerfile build, used as-is", () => {
+        const build = blueprintToBuild({ dockerfile: "./Dockerfile", target: "prod" }, 3000, APP_FACTS);
+        expect(build).toEqual({
+            framework: "dockerfile",
+            dockerfile: "./Dockerfile",
+            target: "prod",
+            build_context: "app",
+        });
+    });
+
+    it("carries a dockerfile blueprint's root context into the dockerfile build", () => {
+        const facts: BlueprintFacts = { packageManager: "npm", hasLockfile: false, appPath: "apps/web" };
+        const build = blueprintToBuild({ dockerfile: "./Dockerfile", build_context: "root" }, 3000, facts);
+        expect(build).toEqual({
+            framework: "dockerfile",
+            dockerfile: "./Dockerfile",
+            build_context: "root",
+        });
+    });
+
+    it("uses the detected package manager for an app-context node build", () => {
+        const facts: BlueprintFacts = { packageManager: "pnpm", hasLockfile: true, appPath: "." };
+        const build = lowerToRuntime({ preset: "nextjs" }, 3000, facts);
+        expect(build.build_script).toBe("corepack enable\npnpm install --frozen-lockfile\npnpm run build");
+        expect(build.entrypoint).toBe("pnpm run start");
+    });
+
+    it("builds a root node build through turbo when the repo has turbo", () => {
+        const facts: BlueprintFacts = {
+            packageManager: "pnpm",
+            hasLockfile: true,
+            appPath: "apps/web",
+            turboFilter: "--filter=@acme/web",
+        };
+        const build = lowerToRuntime({ preset: "nextjs", build_context: "root" }, 3000, facts);
+        expect(build.build_context).toBe("root");
+        expect(build.build_script).toBe(
+            "corepack enable\npnpm install --frozen-lockfile\npnpm exec turbo run build --filter=@acme/web",
+        );
+        expect(build.entrypoint).toBe("pnpm run start");
+    });
+
+    it("cd-scopes a root node build without turbo (root install, app-dir build)", () => {
+        const facts: BlueprintFacts = { packageManager: "npm", hasLockfile: true, appPath: "apps/web" };
+        const build = lowerToRuntime({ preset: "node", build_context: "root" }, 3000, facts);
+        expect(build.build_script).toBe("npm ci\ncd apps/web\nnpm run build");
+    });
+
+    it("cd-scopes a non-node root build into the app dir", () => {
+        const facts: BlueprintFacts = { packageManager: "npm", hasLockfile: false, appPath: "apps/api" };
+        const build = lowerToRuntime({ preset: "django", build_context: "root" }, 8000, facts);
+        expect(build).toMatchObject({ framework: "runtime", runtime: "python", build_context: "root" });
+        expect(build.build_script).toBe("cd apps/api\nuv sync");
+        expect(build.entrypoint).toContain("manage.py runserver");
+    });
+
+    it("cd-scopes an overridden build_command in a root build instead of turbo", () => {
+        const facts: BlueprintFacts = {
+            packageManager: "pnpm",
+            hasLockfile: true,
+            appPath: "apps/web",
+            turboFilter: "--filter=@acme/web",
+        };
+        const build = lowerToRuntime(
+            { preset: "nextjs", build_context: "root", build_command: "run build:preview" },
+            3000,
+            facts,
+        );
+        expect(build.build_script).toBe(
+            "corepack enable\npnpm install --frozen-lockfile\ncd apps/web\npnpm run build:preview",
+        );
+    });
+});
 
 describe("previewConfigSchema build block", () => {
     it("defaults package_manager, node_version, and build_context for a node framework", () => {

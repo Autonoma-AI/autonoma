@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { isReservedPreviewkitEnvKey } from "./previewkit-builtins";
-import { PREVIEWKIT_RUNTIME_IDS } from "./previewkit-runtimes";
+import { type BlueprintNodePm, PREVIEWKIT_NODE_PM_CATALOG } from "./previewkit-node-pm";
+import {
+    PREVIEWKIT_PRESET_IDS,
+    previewkitPresetDefaultVersion,
+    previewkitPresetSpec,
+    type PreviewkitPresetSpec,
+} from "./previewkit-presets";
+import { PREVIEWKIT_RUNTIME_IDS, type PreviewkitRuntime } from "./previewkit-runtimes";
 import { SecretKeySchema } from "./secrets";
 
 export interface ContainerResources {
@@ -212,6 +219,36 @@ const buildContextSchema = z.enum(["app", "root"]).default("app");
  */
 export const PREVIEWKIT_BUILD_SCRIPT_HEREDOC = "AUTONOMA_BUILD_EOF";
 
+// Shared safety guards for user-supplied values baked into the generated Dockerfile.
+// The `runtime` build arm and the additive `blueprint` overrides feed the same
+// generator, so they must enforce the same guards - defined once here, applied on both.
+
+// A value rendered verbatim into a single-line `CMD` (an entrypoint, or a path
+// interpolated into one): a line break would close the CMD and inject a bogus
+// Dockerfile instruction (e.g. "npm start\nRUN rm -rf /").
+function singleLineCommand(label: string) {
+    return z
+        .string()
+        .min(1)
+        .regex(/^[^\r\n]+$/, `${label} must be a single line (no line breaks)`);
+}
+
+// A value baked into the `build_script` heredoc: a line equal to the delimiter would
+// close the heredoc early and inject the rest as Dockerfile instructions.
+function heredocSafeScript(label: string) {
+    return z
+        .string()
+        .min(1)
+        .refine(
+            (value) => !value.split("\n").includes(PREVIEWKIT_BUILD_SCRIPT_HEREDOC),
+            `${label} cannot contain a line equal to "${PREVIEWKIT_BUILD_SCRIPT_HEREDOC}" (reserved heredoc delimiter)`,
+        );
+}
+
+// A safe image-tag charset so a user-picked version can never break out of the
+// generated `FROM` line.
+const imageTagSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "must be a valid image tag");
+
 /**
  * Framework presets retired from the authoring surface. They generate a
  * Dockerfile from install / build / run commands defaulted per framework, which
@@ -282,31 +319,14 @@ const authoredBuildArms = [
         // older toolchain is not forced onto our default (which would defeat the
         // escape hatch). Constrained to a safe tag charset so it can never break
         // out of the generated `FROM` line.
-        version: z
-            .string()
-            .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/, "must be a valid image tag")
-            .optional(),
+        version: imageTagSchema.optional(),
         // Both are raw bash. `build_script` bakes into the image (cached); the
         // entrypoint is the container start command. `build_script` is optional
         // (some apps need no build step); `entrypoint` is required - the
         // container has to start somehow. `app.command` still overrides it at
         // deploy time.
-        build_script: z
-            .string()
-            .min(1)
-            .refine(
-                (script) => !script.split("\n").includes(PREVIEWKIT_BUILD_SCRIPT_HEREDOC),
-                `build script cannot contain a line equal to "${PREVIEWKIT_BUILD_SCRIPT_HEREDOC}" (reserved heredoc delimiter)`,
-            )
-            .optional(),
-        // The entrypoint is baked verbatim into a single-line `CMD`, so a newline
-        // would break out of the CMD and inject a bogus Dockerfile instruction
-        // (e.g. "npm start\nnode server.js"). Constrain it to one line; use a
-        // start script referenced from here if you need multiple commands.
-        entrypoint: z
-            .string()
-            .min(1, "entrypoint is required")
-            .regex(/^[^\r\n]+$/, "entrypoint must be a single line (no line breaks)"),
+        build_script: heredocSafeScript("build script").optional(),
+        entrypoint: singleLineCommand("entrypoint"),
         build_context: buildContextSchema,
     }),
 ] as const;
@@ -328,6 +348,200 @@ export const authoredBuildSchema = z.discriminatedUnion("framework", authoredBui
  * reading and deploying.
  */
 const storedBuildSchema = z.discriminatedUnion("framework", [...authoredBuildArms, ...deprecatedBuildArms]);
+
+/**
+ * The `blueprint` deploy model: the additive way to deploy an app, an alternative to
+ * hand-authoring a `build` block. It is a SEPARATE app property from `build`, and the
+ * two are mutually exclusive (see the appSchema superRefine). A blueprint is EITHER:
+ * - a preset selection (from the catalog in packages/types previewkit-presets.ts) plus
+ *   optional overrides - lowered to an equivalent `runtime` Build and built by the
+ *   existing single-stage generator (interim; the uniform-builder migration retargets
+ *   it later), or
+ * - a bring-your-own `dockerfile` - built as-is with no generation (the blueprint
+ *   counterpart of build.framework "dockerfile").
+ * Both routes go through {@link blueprintToBuild}. Each variant is `.strict()` so a
+ * config that mixes the two (e.g. `preset` + `dockerfile`) is a clear error rather than
+ * a silently-stripped field.
+ */
+const presetBlueprintSchema = z
+    .object({
+        preset: z.enum(PREVIEWKIT_PRESET_IDS),
+        // Overridable per app; each defaults from the preset (version from the runtime catalog).
+        version: imageTagSchema.optional(),
+        // These overrides flow into the generated Dockerfile via blueprintToBuild, so they
+        // carry the same guards as the `runtime` build arm: install/build concatenate into
+        // the build_script heredoc; run_command and output_directory reach the single-line CMD.
+        install_command: heredocSafeScript("install_command").optional(),
+        build_command: heredocSafeScript("build_command").optional(),
+        run_command: singleLineCommand("run_command").optional(),
+        // For static presets: the built output directory to serve (defaults to the preset's).
+        output_directory: singleLineCommand("output_directory").optional(),
+        // Monorepo: `root` builds from the repo root so sibling workspace packages resolve.
+        // Works for every preset: commands run in the app directory; node installs at the
+        // repo root (workspace linking) and builds through turbo's `--filter` when the repo
+        // has turbo. Absent = app context; no default is stamped in.
+        build_context: buildContextSchema.removeDefault().optional(),
+    })
+    .strict()
+    .superRefine((blueprint, ctx) => {
+        const toolchain = previewkitPresetSpec(blueprint.preset).toolchain;
+        // A node preset's version becomes the node image tag (node:<version>-bookworm-slim), so it
+        // must be a bare node version - the same nodeVersionRegex the node build arm enforces.
+        // imageTagSchema alone would let a value like "20-alpine" through to an un-pullable tag
+        // that only fails at image-pull time.
+        if (toolchain === "node" && blueprint.version != null && !nodeVersionRegex.test(blueprint.version)) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "version must look like 22, 22.5, or 22.5.0 for a node preset",
+                path: ["version"],
+            });
+        }
+    });
+
+const dockerfileBlueprintSchema = z
+    .object({
+        // Path to a committed Dockerfile, built as-is - ALWAYS relative to the app dir,
+        // whatever the build context (the pipeline resolves it against the context).
+        // `target` selects a stage in a multi-stage build.
+        dockerfile: z.string().min(1, "dockerfile path is required"),
+        target: z.string().min(1).optional(),
+        // Monorepo: `root` builds from the repo root (so a workspace-aware Dockerfile can reach
+        // sibling packages); `app` (absent) builds from the app dir.
+        build_context: buildContextSchema.removeDefault().optional(),
+    })
+    .strict();
+
+const blueprintSchema = z.union([presetBlueprintSchema, dockerfileBlueprintSchema]);
+
+type PresetBlueprint = z.infer<typeof presetBlueprintSchema>;
+export type Blueprint = z.infer<typeof blueprintSchema>;
+
+/**
+ * Facts about the checked-out repo that the pure blueprint lowering cannot read
+ * itself - detected by the previewkit pipeline (which has the clone on disk) and
+ * passed into {@link blueprintToBuild}, so this module stays filesystem-free.
+ */
+export interface BlueprintFacts {
+    /**
+     * Node package manager for the build context - from the `packageManager` field
+     * or the lockfile; npm when neither exists. bun is excluded (the node runtime
+     * image does not ship it; bun apps use the `build` model's bun framework).
+     */
+    packageManager: BlueprintNodePm;
+    /** Whether the build context has that manager's lockfile (strict installs require one). */
+    hasLockfile: boolean;
+    /** Repo-relative app path; "." when the app is the build context itself (all app-context builds). */
+    appPath: string;
+    /** Resolved turbo `--filter=<spec>`; present only for a root build of a turbo repo. */
+    turboFilter?: string;
+}
+
+// Interim install command per non-node toolchain, prepended to the generated build
+// script (node's is derived from the detected package manager). python uses uv,
+// ruby bundler.
+const BLUEPRINT_TOOLCHAIN_INSTALL: Partial<Record<PreviewkitRuntime, string>> = {
+    python: "uv sync",
+    ruby: "bundle install",
+};
+
+// Preset build/run commands are package-manager script fragments ("run build") built
+// for the future uniform-builder model; the interim generator runs raw bash, so a
+// node fragment gets the detected CLI as a prefix. Full commands (e.g. "node build")
+// pass through.
+function materializeNodeCommand(command: string, cli: string): string {
+    return command.startsWith("run ") ? `${cli} ${command}` : command;
+}
+
+/** The install lines for a node build: PM bootstrap (corepack) plus the lockfile-appropriate install. */
+function nodeInstallLines(facts: BlueprintFacts): string[] {
+    const tool = PREVIEWKIT_NODE_PM_CATALOG[facts.packageManager];
+    const install = facts.hasLockfile ? tool.install : tool.installNoLockfile;
+    return tool.bootstrap != null ? [tool.bootstrap, install] : [install];
+}
+
+/**
+ * Composes the bash build script for a preset blueprint: dependency install plus the
+ * build command. The script starts at the build context root and commands run in the
+ * app directory, so a root (monorepo) build `cd`s into the app - except that node
+ * installs at the repo root (workspace linking) and builds through turbo's `--filter`
+ * when the repo has turbo (topological dependency builds). uv/bundler resolve their
+ * workspace from a member directory natively, so non-node toolchains just `cd` first.
+ */
+function blueprintBuildScript(
+    blueprint: PresetBlueprint,
+    spec: PreviewkitPresetSpec,
+    facts: BlueprintFacts,
+): string | undefined {
+    const needsCd = blueprint.build_context === "root" && facts.appPath !== ".";
+    const lines: string[] = [];
+
+    if (spec.toolchain === "node") {
+        lines.push(...(blueprint.install_command != null ? [blueprint.install_command] : nodeInstallLines(facts)));
+        const rawBuild = blueprint.build_command ?? spec.buildCommand;
+        if (rawBuild.length > 0) {
+            const tool = PREVIEWKIT_NODE_PM_CATALOG[facts.packageManager];
+            if (facts.turboFilter != null && blueprint.build_command == null) {
+                lines.push(`${tool.turbo} run build ${facts.turboFilter}`);
+            } else {
+                if (needsCd) lines.push(`cd ${facts.appPath}`);
+                lines.push(materializeNodeCommand(rawBuild, tool.cli));
+            }
+        }
+    } else {
+        if (needsCd) lines.push(`cd ${facts.appPath}`);
+        const install = blueprint.install_command ?? BLUEPRINT_TOOLCHAIN_INSTALL[spec.toolchain];
+        if (install != null) lines.push(install);
+        const rawBuild = blueprint.build_command ?? spec.buildCommand;
+        if (rawBuild.length > 0) lines.push(rawBuild);
+    }
+    return lines.length > 0 ? lines.join("\n") : undefined;
+}
+
+function blueprintEntrypoint(
+    blueprint: PresetBlueprint,
+    spec: PreviewkitPresetSpec,
+    port: number,
+    cli: string,
+): string {
+    if (blueprint.run_command != null) return blueprint.run_command;
+    if (spec.output.mode === "static") {
+        const dir = blueprint.output_directory ?? spec.output.dir;
+        return `npx --yes serve ${dir} -s -l ${port}`;
+    }
+    return spec.toolchain === "node" ? materializeNodeCommand(spec.runCommand, cli) : spec.runCommand;
+}
+
+/**
+ * Lowers a `blueprint` into a `build` the pipeline can build. A bring-your-own
+ * `dockerfile` blueprint becomes a `dockerfile` Build (used as-is); a preset blueprint
+ * always becomes a `runtime` Build for the existing single-stage generator - one
+ * lowering target for app and root (monorepo) contexts alike. The container starts in
+ * the app directory (the generator WORKDIRs a root build into `facts.appPath`), so the
+ * entrypoint never needs path scoping.
+ */
+export function blueprintToBuild(
+    blueprint: Blueprint,
+    port: number,
+    facts: BlueprintFacts,
+): Extract<Build, { framework: "runtime" | "dockerfile" }> {
+    if ("dockerfile" in blueprint) {
+        return {
+            framework: "dockerfile",
+            dockerfile: blueprint.dockerfile,
+            target: blueprint.target,
+            build_context: blueprint.build_context ?? "app",
+        };
+    }
+    const spec = previewkitPresetSpec(blueprint.preset);
+    return {
+        framework: "runtime",
+        runtime: spec.toolchain,
+        version: blueprint.version ?? previewkitPresetDefaultVersion(blueprint.preset),
+        build_script: blueprintBuildScript(blueprint, spec, facts),
+        entrypoint: blueprintEntrypoint(blueprint, spec, port, PREVIEWKIT_NODE_PM_CATALOG[facts.packageManager].cli),
+        build_context: blueprint.build_context ?? "app",
+    };
+}
 
 /**
  * A runtime environment variable whose value is wired to the topology. Unlike a
@@ -376,39 +590,53 @@ const connectionSchema = z.object({
  * Every other validation rule is identical across the variants.
  */
 function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allowCustomResources: boolean) {
-    const appSchema = z.object({
-        name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
-        repository: z
-            .string()
-            .regex(repoFullNameRegex, "Must be an owner/repo full name")
-            .describe(
-                "The owner/repo full name of the GitHub repository this app builds from. Mandatory even in " +
-                    "single-repo setups. Any value other than the application's own repository makes this app a " +
-                    "multirepo dependency: that repo is cloned at the branch the branch_convention (or its " +
-                    "repositories[] fallback_branch) resolves to.",
-            ),
-        path: z.string().default("."),
-        build_context: z.string().optional(),
-        dockerfile: z.string().optional(),
-        build: build.optional(),
-        // The AWS-secret keys to also inject at build time (Docker build args).
-        // Runtime secret values live in AWS Secrets Manager, never in this document.
-        build_secrets: z.array(z.string()).default([]),
-        port: z.number().int().positive(),
-        // Non-secret variables wired to the topology, resolved at deploy time.
-        // All user-typed values are secrets (AWS), so they never appear here.
-        connections: z.array(connectionSchema).default([]),
-        command: z.string().optional(),
-        health_check: z.string().optional(),
-        primary: z.boolean().optional(),
-        // This app serves the Environment Factory handler (`/api/autonoma`), so
-        // scenario up/down calls go to its preview URL. Independent of `primary`:
-        // a full-stack app (Next.js, Rails) is both the browsed frontend and the
-        // SDK host, while a split topology mounts the handler on its API service.
-        sdk_implemented: z.boolean().optional(),
-        resources: buildResourcesSchema("app", allowCustomResources),
-        depends_on: z.array(z.string()).optional(),
-    });
+    const appSchema = z
+        .object({
+            name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),
+            repository: z
+                .string()
+                .regex(repoFullNameRegex, "Must be an owner/repo full name")
+                .describe(
+                    "The owner/repo full name of the GitHub repository this app builds from. Mandatory even in " +
+                        "single-repo setups. Any value other than the application's own repository makes this app a " +
+                        "multirepo dependency: that repo is cloned at the branch the branch_convention (or its " +
+                        "repositories[] fallback_branch) resolves to.",
+                ),
+            path: z.string().default("."),
+            build_context: z.string().optional(),
+            dockerfile: z.string().optional(),
+            build: build.optional(),
+            // The preset-based deploy model, mutually exclusive with `build` (enforced
+            // by the superRefine below). Lowered to a `runtime` Build by the generator.
+            blueprint: blueprintSchema.optional(),
+            // The AWS-secret keys to also inject at build time (Docker build args).
+            // Runtime secret values live in AWS Secrets Manager, never in this document.
+            build_secrets: z.array(z.string()).default([]),
+            port: z.number().int().positive(),
+            // Non-secret variables wired to the topology, resolved at deploy time.
+            // All user-typed values are secrets (AWS), so they never appear here.
+            connections: z.array(connectionSchema).default([]),
+            command: z.string().optional(),
+            health_check: z.string().optional(),
+            primary: z.boolean().optional(),
+            // This app serves the Environment Factory handler (`/api/autonoma`), so
+            // scenario up/down calls go to its preview URL. Independent of `primary`:
+            // a full-stack app (Next.js, Rails) is both the browsed frontend and the
+            // SDK host, while a split topology mounts the handler on its API service.
+            sdk_implemented: z.boolean().optional(),
+            resources: buildResourcesSchema("app", allowCustomResources),
+            depends_on: z.array(z.string()).optional(),
+        })
+        .superRefine((app, ctx) => {
+            if (app.build != null && app.blueprint != null) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message:
+                        "an app cannot set both `build` and `blueprint` - `blueprint` is the preset-based deploy model, `build` is the manual one",
+                    path: ["blueprint"],
+                });
+            }
+        });
 
     const serviceSchema = z.object({
         name: z.string().regex(k8sNameRegex, "Must be a valid Kubernetes name"),

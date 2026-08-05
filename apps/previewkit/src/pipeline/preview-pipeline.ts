@@ -19,7 +19,13 @@ import type {
 import { BuildAbortedError, BuildError, type Builder } from "../builder/builder";
 import { buildPreviewCacheReference, buildPreviewImageReference } from "../builder/image-reference";
 import { loadConfig } from "../config/load-config";
-import { isSameRepository, type AppConfig, type PreviewConfig, trustedPreviewConfigSchema } from "../config/schema";
+import {
+    type AppConfig,
+    blueprintToBuild,
+    isSameRepository,
+    type PreviewConfig,
+    trustedPreviewConfigSchema,
+} from "../config/schema";
 import {
     type AppBuildOutcome,
     type AppStateUpdate,
@@ -38,6 +44,7 @@ import { type EnvInjector, type PublicUrlInfo } from "../deployer/env-injector";
 import { runHookJob } from "../deployer/hook-job-runner";
 import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
 import { resolveSdkAppUrl } from "../diffs/resolve-sdk-app-url";
+import { detectBlueprintFacts } from "../dockerfile-builder/detect-blueprint-facts";
 import { generateDockerfile } from "../dockerfile-builder/generate-dockerfile";
 import { resolveBuildTurboFilter } from "../dockerfile-builder/resolve-build-turbo-filter";
 import { env } from "../env";
@@ -1563,6 +1570,35 @@ export class PreviewPipeline {
         generatedDockerfile?: string;
     } {
         const appDir = path.resolve(repoDir, app.path);
+
+        // The `blueprint` (preset-based) deploy model takes precedence over `build`;
+        // the schema makes them mutually exclusive. It is lowered to a `runtime`
+        // Build and built by the existing single-stage generator (interim path).
+        if (app.blueprint != null) {
+            const facts = detectBlueprintFacts(app.blueprint, repoDir, app.path);
+            const build = blueprintToBuild(app.blueprint, app.port, facts);
+            // `root` (monorepo) builds from the repo root so sibling workspace packages resolve.
+            const contextPath = build.build_context === "root" ? repoDir : appDir;
+            // A bring-your-own Dockerfile blueprint is built as-is - no generation. Its path is
+            // app-relative and the builder resolves against the context, so a root build joins
+            // the app path back in.
+            if (build.framework === "dockerfile") {
+                const dockerfile =
+                    build.build_context === "root"
+                        ? path.posix.join(facts.appPath, build.dockerfile)
+                        : build.dockerfile;
+                return { contextPath, dockerfile, target: build.target };
+            }
+            const generatedDockerfile = generateDockerfile(build, {
+                registryMirror: this.dockerHubMirror,
+                npmRegistryMirror: this.npmRegistryMirror,
+                buildArgs: resolvedBuildArgs,
+                port: app.port,
+                appName: app.name,
+                appPath: facts.appPath,
+            });
+            return { contextPath, generatedDockerfile };
+        }
 
         if (app.build != null) {
             const build = app.build;
