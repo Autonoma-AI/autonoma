@@ -116,6 +116,11 @@ export class OnboardingService extends Service {
         return this.manager.goLive(applicationId, organizationId);
     }
 
+    /** Take a verified preview all the way to live, idempotently. */
+    async takeLive(applicationId: string, organizationId: string) {
+        return this.manager.takeLive(applicationId, organizationId);
+    }
+
     async configureAndDiscoverScenarios(
         applicationId: string,
         organizationId: string,

@@ -291,6 +291,13 @@ export const onboardingRouter = router({
         .input(applicationIdInput)
         .mutation(({ ctx, input }) => ctx.services.onboarding.goLive(input.applicationId, ctx.organizationId)),
 
+    // A verified preview all the way to live, in one idempotent call. The planner CLI
+    // uses this once its preview phase confirms, rather than leaving the transition to
+    // a coding agent it is about to stop.
+    takeLive: onboardingWriteProcedure
+        .input(applicationIdInput)
+        .mutation(({ ctx, input }) => ctx.services.onboarding.takeLive(input.applicationId, ctx.organizationId)),
+
     // --- Agentic onboarding (coding agent drives previewkit config over MCP) ---
 
     // Poll target for the "Claude is configuring" UI: holder/effectiveHolder,

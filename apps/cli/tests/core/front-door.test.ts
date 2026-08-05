@@ -50,6 +50,26 @@ function plan() {
     return { client, applicationId: "app_1", phase: "preview" as const };
 }
 
+/**
+ * The calls the preview phase and the go-live step make, and nothing else. Reports
+ * the preview already verified so the phase returns rather than polling.
+ */
+function previewClient({ failTakeLive = false } = {}) {
+    const takeLiveCalls: string[] = [];
+    return {
+        takeLiveCalls,
+        createAgentPairing: () => Promise.resolve("ABCD2345"),
+        refreshPreviewReadiness: () => Promise.resolve(),
+        getOnboardingState: () => Promise.resolve({ step: "preview_verified" }),
+        takeAppLive: (applicationId: string) => {
+            takeLiveCalls.push(applicationId);
+            return failTakeLive
+                ? Promise.reject(new Error("network"))
+                : Promise.resolve({ alreadyLive: false, step: "completed" });
+        },
+    };
+}
+
 function stubApi(phase: keyof typeof STATE_BY_PHASE): void {
     vi.stubGlobal("fetch", (url: string | URL) => {
         const procedure = new URL(url.toString()).pathname.replace("/v1/trpc/", "");
@@ -144,6 +164,41 @@ describe("runPreviewHandoff", () => {
         });
 
         expect(result).toEqual({ kind: "no-agent" });
+    });
+
+    // The regression this exists for: the preview phase stops the agent the moment the
+    // platform reports the preview verified, which is the moment the agent would have
+    // gone live. Left to the agent, a run finished every step with the app still not
+    // being reviewed.
+    test("takes the app live once the preview is verified", async () => {
+        stubApi("preview");
+        const client = previewClient();
+
+        const result = await runPreviewHandoff({
+            plan: { client, applicationId: "app_1" },
+            config: config(),
+            nonInteractive: true,
+            launchers: [launcher("claude", true)],
+        });
+
+        expect(result.kind).toBe("verified");
+        expect(client.takeLiveCalls).toEqual(["app_1"]);
+    });
+
+    // Going live is the last thing a run does and the least of what it produced. A
+    // network blip there must not lose the suite the run just generated.
+    test("does not fail the run when going live does", async () => {
+        stubApi("preview");
+        const client = previewClient({ failTakeLive: true });
+
+        const result = await runPreviewHandoff({
+            plan: { client, applicationId: "app_1" },
+            config: config(),
+            nonInteractive: true,
+            launchers: [launcher("claude", true)],
+        });
+
+        expect(result.kind).toBe("verified");
     });
 });
 

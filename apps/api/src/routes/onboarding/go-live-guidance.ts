@@ -1,5 +1,5 @@
 import type { OnboardingPreviewEnvironmentMode, OnboardingStep } from "@autonoma/db";
-import type { PreviewDiagnosticsStatus } from "../routes/onboarding/preview-readiness";
+import type { PreviewDiagnosticsStatus } from "./preview-readiness";
 
 /**
  * What `go_live` tells an agent, in each of the situations it can be

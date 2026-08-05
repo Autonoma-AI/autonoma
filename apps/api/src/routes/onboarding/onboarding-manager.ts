@@ -20,6 +20,7 @@ import {
     parseDeploymentSignalBody,
     verifySignature,
 } from "./deployment-signal";
+import { describeUnfinishedStep, describeUnverifiedPreview } from "./go-live-guidance";
 import { OnboardingAnalytics, type DeploymentSignalEvent, type OnboardingActor } from "./onboarding-analytics";
 import type { OnboardingManagerOptions, OnboardingPreviewkitSecretsService } from "./onboarding-dependencies";
 import {
@@ -74,6 +75,23 @@ const INITIAL_STEP: OnboardingState["step"] = "github";
 export type DiscoverVercelDeploymentTargetResult =
     | { status: "discovered" }
     | { status: "redeploy_started"; deploymentId: string };
+
+/**
+ * What taking an app live did, for a caller that has to report it.
+ *
+ * `transitions` is empty when the app was already live, which is the same thing
+ * `alreadyLive` says - kept separate because a caller usually renders one and logs
+ * the other.
+ */
+export interface TakeLiveResult {
+    step: OnboardingStep;
+    /** True when the call changed nothing because the app was live already. */
+    alreadyLive: boolean;
+    /** The step changes this call made, in order, for an activity feed or a log. */
+    transitions: string[];
+    /** The onboarding state as it stands now. */
+    state: Awaited<ReturnType<OnboardingManager["getState"]>>;
+}
 
 /** The application an accepted deployment signal is reported against. */
 interface SignalledApplication {
@@ -613,6 +631,18 @@ export class OnboardingManager {
     async completePreviewOnboarding(applicationId: string, organizationId: string) {
         this.logger.info("Completing preview onboarding", { applicationId, organizationId });
         const readiness = await this.getPreviewReadiness(applicationId, organizationId);
+        return this.completeVerifiedPreview(applicationId, readiness);
+    }
+
+    /**
+     * The transition itself, against a readiness the caller has already read.
+     *
+     * Reading readiness is not free - it upserts, rebuilds diagnostics, and can reach
+     * out to the preview - and it is also what STAMPS a preview that has come up, so a
+     * caller that has to inspect readiness before deciding cannot skip it. Taking it as
+     * an argument lets {@link takeLive} decide and transition on one read instead of two.
+     */
+    private async completeVerifiedPreview(applicationId: string, readiness: PreviewReadiness) {
         if (readiness.diagnostics.status !== "ready") {
             throw new ConflictError("Preview environment is not ready yet");
         }
@@ -633,6 +663,56 @@ export class OnboardingManager {
         await state.goLive();
         await this.activatePendingSnapshot(applicationId, organizationId);
         return this.getState(applicationId);
+    }
+
+    /**
+     * Take a verified preview all the way to live, in one idempotent call.
+     *
+     * Both callers that do this - the MCP's `go_live` tool and the planner CLI once
+     * its preview phase confirms - need the same two transitions behind the same three
+     * guards. Kept here rather than at either caller so "what going live means" cannot
+     * come to mean two different things, and so a caller cannot half-do it.
+     *
+     * Idempotent on purpose. The CLI calls it every run without first asking whether
+     * an agent already did, and an app that is already live returns `alreadyLive`
+     * rather than erroring or moving backwards.
+     */
+    async takeLive(applicationId: string, organizationId: string): Promise<TakeLiveResult> {
+        this.logger.info("Taking the app live", { applicationId, organizationId });
+
+        // Reading readiness is what stamps a preview that has come up as
+        // `preview_verified` - no other call does - so the step read below is only
+        // current once this has run. It also carries the diagnostics that make a
+        // refusal actionable ("your preview is failed", not "wrong step").
+        const readiness = await this.getPreviewReadiness(applicationId, organizationId);
+        const before = await this.getState(applicationId);
+
+        if (before.step === "completed") {
+            this.logger.info("App is already live", { applicationId });
+            return { step: before.step, alreadyLive: true, transitions: [], state: before };
+        }
+        if (!isStepAtOrPast(before.step, "preview_verified")) {
+            throw new BadRequestError(describeUnfinishedStep(before.step, readiness.diagnostics.status));
+        }
+        // A verified app whose preview is rebuilding keeps its step but loses its
+        // readiness, and the state machine's own guard for that says only "Preview
+        // environment is not ready yet".
+        if (before.step === "preview_verified" && readiness.diagnostics.status !== "ready") {
+            throw new BadRequestError(describeUnverifiedPreview(readiness.diagnostics.status));
+        }
+
+        const transitions: string[] = [];
+        // Only from `preview_verified`. `loadStateOrEarlier` resolves a transition
+        // against the earliest step that implements it, so calling this from
+        // `diff_trigger` would push the app BACK a step instead of failing.
+        if (before.step === "preview_verified") {
+            await this.completeVerifiedPreview(applicationId, readiness);
+            transitions.push("preview_verified -> diff_trigger");
+        }
+        const after = await this.goLive(applicationId, organizationId);
+        transitions.push("diff_trigger -> completed");
+
+        return { step: after.step, alreadyLive: false, transitions, state: after };
     }
 
     async acceptDeploymentSignal(input: DeploymentSignalInput) {

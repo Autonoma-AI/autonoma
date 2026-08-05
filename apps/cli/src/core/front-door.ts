@@ -15,7 +15,7 @@ import { debugLog } from "./debug";
 import { resume, suspend } from "./interrupt";
 import { captureLog } from "./logs";
 import { resolveEntryPhase, type OnboardingPhase } from "./onboarding-phase";
-import { runPreviewPhase, type PreviewPhaseOutcome } from "./preview-phase";
+import { runPreviewPhase, type OnboardingReader, type PreviewPhaseOutcome } from "./preview-phase";
 
 /** What a run has left to do, and what it needs to do it. */
 export interface FrontDoorPlan {
@@ -75,8 +75,18 @@ async function claimHoldForRun(client: AutonomaClient, applicationId: string, ph
     }
 }
 
+/**
+ * What the preview handoff needs of the Autonoma client, and no more: the calls the
+ * preview phase makes, plus taking the app live once it confirms. `AutonomaClient`
+ * satisfies it structurally, so nothing is threaded or cast at the real call site -
+ * and the handoff can be exercised without standing up the whole client.
+ */
+export interface PreviewHandoffClient extends OnboardingReader {
+    takeAppLive(applicationId: string): Promise<{ alreadyLive: boolean; step: string }>;
+}
+
 export interface PreviewHandoffDeps {
-    plan: FrontDoorPlan;
+    plan: { client: PreviewHandoffClient; applicationId: string };
     config: AppConfig;
     nonInteractive: boolean;
     /** Test seam: inject launchers instead of probing PATH. */
@@ -124,8 +134,9 @@ export async function runPreviewHandoff(deps: PreviewHandoffDeps): Promise<Previ
         : (preset ?? DEFAULT_PERMISSION_MODE);
 
     suspend();
+    let outcome: PreviewPhaseOutcome;
     try {
-        return await runPreviewPhase({
+        outcome = await runPreviewPhase({
             client: plan.client,
             applicationId: plan.applicationId,
             launcher,
@@ -136,6 +147,38 @@ export async function runPreviewHandoff(deps: PreviewHandoffDeps): Promise<Previ
         });
     } finally {
         resume();
+    }
+
+    if (outcome.kind === "verified") await takeAppLive(plan);
+    return outcome;
+}
+
+/**
+ * Turn pull-request reviews on, now that the preview is confirmed.
+ *
+ * The agent is told to do this itself, and on the web path it does. It cannot here:
+ * the preview phase stops the agent the moment the platform reports the preview
+ * verified, which is the exact moment the agent would have gone live. Left to it, a
+ * run finishes every step and the app is still not being reviewed - which is what a
+ * front-door run did until this call existed.
+ *
+ * Never fatal. The suite is generated and the SDK wired up regardless, and an app
+ * left one step short is finished from the web in one click - losing the whole run
+ * over it would be the worse failure.
+ */
+async function takeAppLive(plan: { client: PreviewHandoffClient; applicationId: string }): Promise<void> {
+    try {
+        const { alreadyLive } = await plan.client.takeAppLive(plan.applicationId);
+        p.log.success(
+            alreadyLive ? "Autonoma is reviewing your pull requests." : "Autonoma is now reviewing your pull requests.",
+        );
+    } catch (err) {
+        debugLog("Could not take the app live", { err });
+        captureLog("warn", "Could not take the app live", { source: "front_door" });
+        p.log.warn(
+            "Your preview is up, but Autonoma is not reviewing your pull requests yet - take the app live in the " +
+                "Autonoma app to finish.",
+        );
     }
 }
 

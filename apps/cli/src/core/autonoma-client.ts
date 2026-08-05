@@ -91,6 +91,28 @@ export class AutonomaClient {
     }
 
     /**
+     * Take the app live: from a verified preview through to Autonoma reviewing its
+     * pull requests. Idempotent, and called without asking whether anyone already did.
+     *
+     * The CLI does this itself rather than leaving it to the coding agent, for the
+     * same reason it makes the SDK and dry-run calls itself: no judgement is involved,
+     * and asking an agent to make it is one more way for it not to happen. Here that
+     * is not hypothetical - the preview phase stops the agent as soon as the platform
+     * reports the preview verified, which is the exact moment the agent would have
+     * gone live. Left to the agent, an app finishes a whole run one step short.
+     */
+    async takeAppLive(applicationId: string): Promise<{ alreadyLive: boolean; step: string }> {
+        debugLog("Taking the app live", { applicationId });
+        const result = await this.trpc.onboarding.takeLive.mutate({ applicationId });
+        captureLog("info", "Took the app live", {
+            source: "onboarding",
+            step: result.step,
+            already_live: result.alreadyLive,
+        });
+        return { alreadyLive: result.alreadyLive, step: result.step };
+    }
+
+    /**
      * Mint a single-use pairing code for a coding agent this CLI is about to spawn.
      * Codes expire, so mint one per handoff rather than reusing an earlier one.
      */

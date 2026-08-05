@@ -4,7 +4,7 @@ import {
     describeUnfinishedStep,
     describeUnverifiedPreview,
     describeWentLive,
-} from "../../../src/mcp/go-live-guidance";
+} from "../../../../src/routes/onboarding/go-live-guidance";
 
 describe("describeUnfinishedStep", () => {
     // The wall this closes: the state machine's own rejection is `Cannot go live

@@ -14,16 +14,10 @@ import { z } from "zod";
 import { env } from "../env";
 import { INSTALL_STATE_TTL_MS, createInstallState } from "../github/github-state";
 import type { Services } from "../routes/build-services";
-import { isStepAtOrPast } from "../routes/onboarding/onboarding-step-order";
+import { describeAlreadyLive, describeWentLive } from "../routes/onboarding/go-live-guidance";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import type { VercelDeploymentSummary } from "../vercel-marketplace/vercel-project-api";
 import { applyReadyConfig } from "./apply-ready-config";
-import {
-    describeAlreadyLive,
-    describeUnfinishedStep,
-    describeUnverifiedPreview,
-    describeWentLive,
-} from "./go-live-guidance";
 import { DEFAULT_LOG_BYTES, logMaxBytesSchema, unknownServiceMessage } from "./log-tail-bounds";
 import type { McpAnalytics } from "./mcp-analytics";
 import type { McpPrincipal } from "./mcp-principal";
@@ -898,55 +892,20 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                     toolArguments: {},
                 },
                 async (org) => {
-                    // Reading readiness is what stamps a preview that has come up as
-                    // `preview_verified` - no other call does - so the step below is only
-                    // current once this has run. It also carries the diagnostics that make
-                    // a refusal actionable ("your preview is failed", not "wrong step").
-                    const readiness = await services.onboarding.getPreviewReadiness(applicationId, org);
-                    const before = await services.onboarding.getState(applicationId, org);
-
-                    if (before.step === "completed") {
-                        return {
-                            step: before.step,
-                            live: true,
-                            alreadyLive: true,
-                            transitions: [],
-                            previewSource: previewSourceOf(before.previewEnvironmentMode ?? undefined),
-                            previewUrl: before.previewUrl ?? undefined,
-                            message: describeAlreadyLive(),
-                        };
-                    }
-                    // Thrown rather than returned so the activity row the user is watching
-                    // reads as failed, and the agent gets an isError result instead of a
-                    // success payload it has to inspect to notice nothing happened.
-                    if (!isStepAtOrPast(before.step, "preview_verified")) {
-                        throw new BadRequestError(describeUnfinishedStep(before.step, readiness.diagnostics.status));
-                    }
-                    // A verified app whose preview is rebuilding keeps its step but loses
-                    // its readiness, and the manager's own guard for that says only
-                    // "Preview environment is not ready yet".
-                    if (before.step === "preview_verified" && readiness.diagnostics.status !== "ready") {
-                        throw new BadRequestError(describeUnverifiedPreview(readiness.diagnostics.status));
-                    }
-
-                    const transitions: string[] = [];
-                    // Only from `preview_verified`. The manager resolves this transition
-                    // against the earliest step that implements it, so calling it from
-                    // `diff_trigger` would push the app back a step instead of failing.
-                    if (before.step === "preview_verified") {
-                        await services.onboarding.completePreviewOnboarding(applicationId, org);
-                        transitions.push("preview_verified -> diff_trigger");
-                    }
-                    const after = await services.onboarding.goLive(applicationId, org);
-                    transitions.push("diff_trigger -> completed");
+                    // The transitions and their guards live on the manager, because the
+                    // planner CLI performs the same act and the two must not drift into
+                    // meaning different things. What is this tool's own is the wording an
+                    // agent reads back.
+                    const result = await services.onboarding.takeLive(applicationId, org);
+                    const mode = result.state.previewEnvironmentMode ?? undefined;
                     return {
-                        step: after.step,
-                        live: after.step === "completed",
-                        alreadyLive: false,
-                        transitions,
-                        previewSource: previewSourceOf(after.previewEnvironmentMode ?? undefined),
-                        previewUrl: after.previewUrl ?? undefined,
-                        message: describeWentLive(after.previewEnvironmentMode ?? undefined),
+                        step: result.step,
+                        live: result.step === "completed",
+                        alreadyLive: result.alreadyLive,
+                        transitions: result.transitions,
+                        previewSource: previewSourceOf(mode),
+                        previewUrl: result.state.previewUrl ?? undefined,
+                        message: result.alreadyLive ? describeAlreadyLive() : describeWentLive(mode),
                     };
                 },
             ),
