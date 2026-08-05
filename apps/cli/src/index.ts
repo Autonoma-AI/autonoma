@@ -13,8 +13,11 @@ import type { AgentResult } from "./core/agent";
 import { track, trackError } from "./core/analytics";
 import { CliArgs } from "./core/cli-args";
 import { BOLD, DIM, PRIMARY, RESET } from "./core/colors";
+import { describeDryRunOutcome } from "./core/dry-run-phase";
 import { formatException, describeKnownError, supportReference, isUserCancellation } from "./core/errors";
+import { describeFinishPhase, runFinishPhase, type FinishPhaseResult } from "./core/finish-phase";
 import { flushTelemetry } from "./core/flush-telemetry";
+import type { FrontDoorPlan } from "./core/front-door";
 import { KNOWN_FLAGS, renderHelp } from "./core/help";
 import { installInterruptHandler, installTerminationDiagnostics, restoreTerminal } from "./core/interrupt";
 import { captureLog } from "./core/logs";
@@ -579,6 +582,37 @@ function ensureAutonomaAuth(): boolean {
     return false;
 }
 
+/**
+ * Run the dry run and read back where the app stands, reporting both.
+ *
+ * Never fatal. The test suite is generated and uploaded by the time this runs, so a
+ * network blip here must not turn a successful run into a failed one - the same
+ * reason the front-door planning degrades rather than throws.
+ */
+async function finishFrontDoorRun(frontDoor: FrontDoorPlan): Promise<FinishPhaseResult | undefined> {
+    try {
+        const result = await runFinishPhase({ client: frontDoor.client, applicationId: frontDoor.applicationId });
+        track("cli_dry_run_finished", { outcome: result.dryRun.kind, live: result.live });
+
+        const problem = describeDryRunOutcome(result.dryRun);
+        if (problem != null) p.log.warn(problem);
+        p.note(describeFinishPhase(result).join("\n"), "Where your app stands");
+        return result;
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        p.log.warn(`Couldn't confirm your scenarios against a preview: ${message}`);
+        p.log.info("Your test suite is uploaded either way - finish the dry run in the Autonoma app.");
+        trackError(err, { source: "finish_phase" });
+        return undefined;
+    }
+}
+
+/** Where to go next, which depends on whether Autonoma is already reviewing this app. */
+function nextStepLine(finish: FinishPhaseResult | undefined): string {
+    if (finish?.live === true) return "Autonoma is reviewing your pull requests - open one to see it work.";
+    return "Next: continue on autonoma.app";
+}
+
 async function main() {
     // Before anything else, arm diagnostics so a SIGTERM/SIGHUP or a swallowed async
     // error leaves a greppable breadcrumb instead of the run just vanishing.
@@ -926,6 +960,12 @@ async function main() {
         }
     }
 
+    // The tail of a front-door run: prove the scenarios provision against a real
+    // preview, then read back what Autonoma makes of this app. Only worth doing on a
+    // complete run - a paused or failed one has no SDK handler to validate and no
+    // scenarios to provision through it.
+    const finish = frontDoor != null && allStepsDone ? await finishFrontDoorRun(frontDoor) : undefined;
+
     const anyFailed = Object.values(state.steps).some((s) => s === "failed");
     getActiveStore()?.finish({ kind: allStepsDone ? "complete" : anyFailed ? "failed" : "paused" });
 
@@ -936,7 +976,7 @@ async function main() {
         const choice = await p.completion({
             title: "Your test suite is ready.",
             stats: await collectRunStats(outputDir),
-            lines: [`Saved in ${displayPath(outputDir)}`, "Next: continue on autonoma.app"],
+            lines: [`Saved in ${displayPath(outputDir)}`, nextStepLine(finish)],
         });
         track("cli_completion_choice", { choice });
         if (choice === "browse") {
@@ -955,7 +995,8 @@ async function main() {
     if (allStepsDone) {
         p.log.success("Your test suite is ready.");
         p.log.info(`Saved in ${displayPath(outputDir)}`);
-        p.log.info("Next: continue on autonoma.app");
+        if (finish != null) for (const line of describeFinishPhase(finish)) p.log.info(line);
+        p.log.info(nextStepLine(finish));
     }
     p.outro("Done");
 }

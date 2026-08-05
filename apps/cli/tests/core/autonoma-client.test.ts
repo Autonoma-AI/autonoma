@@ -74,6 +74,51 @@ describe("AutonomaClient", () => {
         expect(JSON.parse(request?.body ?? "")).toEqual({ json: { applicationId: "app_1" } });
     });
 
+    test("reads the dry-run targets from the onboarding router", async () => {
+        respond = () => trpcOk({ targets: [{ id: "pr-7" }], autoDetectedTargetId: "pr-7" });
+
+        const targets = await client().listDryRunTargets("app_1");
+
+        expect(targets.autoDetectedTargetId).toBe("pr-7");
+        const url = new URL(requests[0]?.url ?? "");
+        expect(url.pathname).toBe("/v1/trpc/onboarding.listSdkDryRunTargets");
+    });
+
+    // The scenarios come from their own router, not from onboarding - a dry run needs
+    // both, and they are two different mounts.
+    test("reads the scenarios from the scenarios router", async () => {
+        respond = () => trpcOk([{ id: "sc_1", name: "logged-in admin" }]);
+
+        const scenarios = await client().listScenarios("app_1");
+
+        expect(scenarios).toEqual([{ id: "sc_1", name: "logged-in admin" }]);
+        const url = new URL(requests[0]?.url ?? "");
+        expect(url.pathname).toBe("/v1/trpc/scenarios.list");
+    });
+
+    test("points a dry run at the target it was given", async () => {
+        respond = () => trpcOk({ success: true, phase: "down" });
+
+        const result = await client().runScenarioDryRun("app_1", "sc_1", "pr-7");
+
+        expect(result.success).toBe(true);
+        expect(requests[0]?.method).toBe("POST");
+        expect(requests[0]?.url).toBe(`${API_URL}/v1/trpc/onboarding.runScenarioDryRun`);
+        expect(JSON.parse(requests[0]?.body ?? "")).toEqual({
+            json: { applicationId: "app_1", scenarioId: "sc_1", targetId: "pr-7" },
+        });
+    });
+
+    test("carries the self-heal decision through to discovery", async () => {
+        respond = () => trpcOk({ status: "discovered" });
+
+        await client().configureAndDiscoverSdkTarget("app_1", "pr-7", false);
+
+        expect(JSON.parse(requests[0]?.body ?? "")).toEqual({
+            json: { applicationId: "app_1", targetId: "pr-7", allowSelfHeal: false },
+        });
+    });
+
     test("claims the config through the same mutation the UI's hand-back control uses", async () => {
         await client().claimAgentHold("app_1");
 

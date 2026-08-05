@@ -173,7 +173,7 @@ Artifacts are written to `~/.autonoma/<project-slug>/`:
 ```
 
 `qa-tests/INDEX.md` is written once, at the end, from the files on disk - so it always matches
-the suite beside it. Alongside the totals it names what the run could *not* deliver: features it
+the suite beside it. Alongside the totals it names what the run could _not_ deliver: features it
 walked without producing a test, and tests the review cycle removed that nothing could put back.
 Both are fixed by re-running the planner.
 
@@ -186,18 +186,46 @@ end of the run, and the setup is then marked complete so the onboarding UI advan
 
 If the upload credentials are not set, the CLI just leaves the artifacts on disk and skips the upload.
 
+## Scenario dry run (when the run started from onboarding)
+
+Once the artifacts are up, the CLI proves the whole thing actually works: it picks the preview
+environment carrying your SDK handler (the pull request the platform recognizes as the SDK's, or
+your main preview), waits for it to deploy, asks the handler to describe your data models, then
+provisions and tears down every scenario against it, one at a time.
+
+The CLI makes those calls itself rather than asking your coding agent to make them, because they
+need no judgement - only the credentials and the app id the run already holds. Your agent keeps
+the work that needs your repo.
+
+Waiting is bounded twice, because "still building" and "no preview at all" are different
+problems. A build gets a generous ceiling (20 minutes - it covers a cold image build). A pull
+request with no preview environment gets a minute, since that state is either a webhook that has
+not caught up yet or a draft pull request that will never get one; the run says which rather
+than reporting a build that never started.
+
+Two kinds of preview it deliberately does not validate, because it cannot: a preview built by
+**your own pipeline** is signed with a secret that never leaves your side, and a **Vercel**
+deployment is validated against the one you picked in the Autonoma app. In both cases the run
+says so and finishes - everything else is done, and the SDK step in the app is where you take it
+from there.
+
+The run closes by reading back what Autonoma makes of your app - test suite uploaded, SDK
+answering, scenarios provisioning, and whether Autonoma is reviewing your pull requests. Going
+live is not something the CLI does: your coding agent takes the app live as soon as its preview
+is verified, and this reports whether that happened.
+
 ## Environment variables
 
-| Variable | Required | Purpose |
-|----------|----------|---------|
-| `AUTONOMA_API_TOKEN` | yes | Autonoma API token. Authenticates the planner, which runs on managed Autonoma credits through our LLM proxy - no LLM key needed. Injected by the Autonoma app; create one at https://autonoma.app/settings/api-keys to run standalone. Also used to upload artifacts. |
-| `OPENROUTER_MODEL` | no | Override the default model (OpenRouter-style model id, forwarded by the proxy). |
-| `AUTONOMA_API_URL` | no | Base URL of the Autonoma API. Defaults to `https://autonoma.app`; override to target an alpha/preview host. |
-| `AUTONOMA_GENERATION_ID` | for upload | The setup id artifacts are uploaded against. Injected by onboarding. |
-| `AUTONOMA_APPLICATION_ID` | no | The application this run belongs to. Lets the CLI read onboarding state (so it can skip work the app has already had done) and mint pairing codes for the coding agents it hands off to. Injected by onboarding. |
-| `AUTONOMA_SHARED_SECRET` | no | Per-application secret used to sign SDK/webhook requests. Injected by onboarding. |
-| `AUTONOMA_DISTINCT_ID` | no | PostHog identity so CLI events join the signup funnel. Injected by onboarding. |
-| `DONT_TRACK` | no | Set to `1`/`true` to disable all telemetry - events, log shipping and session replay. |
+| Variable                  | Required   | Purpose                                                                                                                                                                                                                                                               |
+| ------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AUTONOMA_API_TOKEN`      | yes        | Autonoma API token. Authenticates the planner, which runs on managed Autonoma credits through our LLM proxy - no LLM key needed. Injected by the Autonoma app; create one at https://autonoma.app/settings/api-keys to run standalone. Also used to upload artifacts. |
+| `OPENROUTER_MODEL`        | no         | Override the default model (OpenRouter-style model id, forwarded by the proxy).                                                                                                                                                                                       |
+| `AUTONOMA_API_URL`        | no         | Base URL of the Autonoma API. Defaults to `https://autonoma.app`; override to target an alpha/preview host.                                                                                                                                                           |
+| `AUTONOMA_GENERATION_ID`  | for upload | The setup id artifacts are uploaded against. Injected by onboarding.                                                                                                                                                                                                  |
+| `AUTONOMA_APPLICATION_ID` | no         | The application this run belongs to. Lets the CLI read onboarding state (so it can skip work the app has already had done) and mint pairing codes for the coding agents it hands off to. Injected by onboarding.                                                      |
+| `AUTONOMA_SHARED_SECRET`  | no         | Per-application secret used to sign SDK/webhook requests. Injected by onboarding.                                                                                                                                                                                     |
+| `AUTONOMA_DISTINCT_ID`    | no         | PostHog identity so CLI events join the signup funnel. Injected by onboarding.                                                                                                                                                                                        |
+| `DONT_TRACK`              | no         | Set to `1`/`true` to disable all telemetry - events, log shipping and session replay.                                                                                                                                                                                 |
 
 `AUTONOMA_API_TOKEN` + `AUTONOMA_GENERATION_ID` together enable automatic upload (the endpoint
 defaults to production unless `AUTONOMA_API_URL` is set).
@@ -217,12 +245,12 @@ Three lanes, all to PostHog, all off when `DONT_TRACK=1`:
 All three lanes are indexed by the same identifiers (`core/session.ts`), so one run resolves the same
 way from any of them:
 
-| Attribute | What it identifies |
-|-----------|--------------------|
-| `run_id` / `sessionId` | This CLI invocation. `sessionId` is PostHog's own grouping key, so a run's logs sit together. |
-| `generation_id` | The onboarding setup the run is fulfilling - the join back to an Autonoma record. |
-| `posthogDistinctId` | The person, when the app launched the CLI with an identity; otherwise an anonymous per-machine device id. |
-| `project_slug`, `cli_version`, `node_version` | Which project, which build, which runtime. |
+| Attribute                                     | What it identifies                                                                                        |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `run_id` / `sessionId`                        | This CLI invocation. `sessionId` is PostHog's own grouping key, so a run's logs sit together.             |
+| `generation_id`                               | The onboarding setup the run is fulfilling - the join back to an Autonoma record.                         |
+| `posthogDistinctId`                           | The person, when the app launched the CLI with an identity; otherwise an anonymous per-machine device id. |
+| `project_slug`, `cli_version`, `node_version` | Which project, which build, which runtime.                                                                |
 
 To read one run: filter logs by `service.name = autonoma-planner` and the `generation_id` (or `run_id`)
 you are chasing, ordered earliest-first.

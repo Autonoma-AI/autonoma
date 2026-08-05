@@ -27,6 +27,14 @@ const STEP_ORDER: readonly string[] = [
 export const PREVIEW_DONE_STEP = "preview_verified";
 
 /**
+ * The step at which the app is live - Autonoma reviews pull requests from here on,
+ * and holds back the comments it would have posted until it does. The agent takes an
+ * app there itself once the preview is verified; the CLI only reports whether that
+ * happened.
+ */
+export const LIVE_STEP = "completed";
+
+/**
  * Where a run should start.
  *
  * - `preview` - the app has no verified preview environment yet, so the run opens by
