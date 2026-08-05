@@ -19,8 +19,8 @@ It opens a dialog with three steps:
 
 The prompt is written from your actual findings. It names the real pull requests, the real counts, and the specific tools that fix each kind - so your agent does not have to go rediscover any of it, which is the step that usually fails.
 
-:::caution[Name the right server]
-Autonoma publishes two MCP servers. The prompt asks for `autonoma` - the [debug server](/mcp) - and explicitly rules out `autonoma-onboarding`. An agent holding only the onboarding server has none of these tools. If you have both connected, say which one you mean by name.
+:::caution[Name the server]
+The prompt asks for `autonoma` by name - the [Autonoma MCP](/mcp) - rather than "the Autonoma MCP". An agent with several MCPs connected cannot resolve a generic name and will pick one, so keep the name in whatever you paste.
 :::
 
 ## Where each fix actually lives

@@ -7,7 +7,7 @@ import { targetInputFields, toTargetInput } from "./mcp-target-input";
 import type { McpTarget, McpTargetInput } from "./resolve-mcp-target";
 import { jsonResult, toToolResult } from "./tool-result";
 
-export interface SharedReadToolDeps {
+export interface ReadToolDeps {
     services: Services;
     analytics: McpAnalytics;
     /** Resolves either identity form to the application the call acts on. */
@@ -15,17 +15,11 @@ export interface SharedReadToolDeps {
 }
 
 /**
- * The read tools both MCP servers offered, registered once.
- *
- * They existed on each server under the same name with the same body, differing only in
- * whether they took `applicationId` or `repoFullName` - so an agent connected to both could
- * not tell which `get_config` it was calling, and the docs' only defence was asking people to
- * name the server literally in their prompt. Each now takes either form.
- *
- * Registered on both servers rather than moved to one, so no existing configuration breaks
- * while the two are being merged.
+ * The read tools that serve both jobs. Each takes either identity - the `applicationId` an
+ * onboarding agent holds from `pair`, or the `repoFullName` an agent debugging a pull request
+ * infers from the git remote - so which one an agent has never decides which tools it can call.
  */
-export function registerSharedReadTools(server: McpServer, { services, analytics, resolveTarget }: SharedReadToolDeps) {
+export function registerReadTools(server: McpServer, { services, analytics, resolveTarget }: ReadToolDeps) {
     server.registerTool(
         "get_config",
         {

@@ -3,7 +3,7 @@ import type { SuiteHealth, SuiteHealthFixKind, SuiteHealthFixPlan } from "@auton
 import { suiteHealthFixKindSchema } from "@autonoma/types";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
-import { ConnectAgentDialog, DEBUG_MCP_DOCS_URL, DEBUG_MCP_SERVER_NAME } from "components/connect-agent-dialog";
+import { ConnectAgentDialog, MCP_SERVER_NAME } from "components/connect-agent-dialog";
 import { useSuiteHealthFixPlan } from "lib/query/suite-health.queries";
 import { Suspense, useState } from "react";
 import { SUITE_HEALTH_PRESENTATION } from "./suite-health-copy";
@@ -67,14 +67,11 @@ function FixDialogShell({ health, open, onOpenChange, children }: FixDialogProps
       onOpenChange={onOpenChange}
       title="Put the suite back in order"
       description={`Suite health is ${label} (${health.rank}/5). Hand the unresolved failures to your coding agent - it reads each one through the Autonoma MCP and fixes it wherever the fix lives.`}
-      serverName={DEBUG_MCP_SERVER_NAME}
-      endpoint="debug"
-      docsUrl={DEBUG_MCP_DOCS_URL}
       // The real prompt here runs to a few hundred words naming every affected pull
       // request, so it stays behind the copy button rather than being inlined into a
       // launch command nobody could read. The short sentence gets the agent started;
       // the plan is what the user pastes next.
-      prompt={`use the ${DEBUG_MCP_SERVER_NAME} MCP to fix my suite health`}
+      instruction={`use the ${MCP_SERVER_NAME} MCP to fix my suite health`}
       capabilities={children}
     />
   );

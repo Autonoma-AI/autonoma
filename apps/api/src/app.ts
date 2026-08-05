@@ -178,8 +178,9 @@ export function createApiApp() {
     app.use("/v1/previewkit/*", cors(corsOptions));
     app.route("/v1/previewkit", previewkitHttpRouter);
 
-    // Namespaced resource servers under /v1/mcp/<name> (today: "debug").
-    // CORS so browser-based MCP clients can call the Streamable HTTP endpoint.
+    // The MCP resource server at /v1/mcp, plus the /v1/mcp/<name> addresses that alias it.
+    // CORS so browser-based MCP clients can call the Streamable HTTP endpoint - the `*` matches
+    // the bare /v1/mcp as well as the aliases below it.
     app.use("/v1/mcp/*", cors(corsOptions));
     app.route("/v1/mcp", mcpHttpRouter);
 

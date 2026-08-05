@@ -5,8 +5,8 @@ const KEY = "ask_testkey";
 
 function input(): InstallSnippetInput {
     return {
-        url: "https://api.autonoma.app/v1/mcp/onboarding",
-        serverName: "autonoma-onboarding",
+        url: "https://api.autonoma.app/v1/mcp",
+        serverName: "autonoma",
         prompt: "set up my previews, code ABC123",
         mintKey: () => Promise.resolve(KEY),
     };

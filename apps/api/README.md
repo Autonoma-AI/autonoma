@@ -76,8 +76,30 @@ Hono HTTP server
   ├── /v1/previewkit/**    - Previewkit environments + secrets (secrets/status/schema native; deploy/teardown/redeploy forwarded to Previewkit)
   ├── /v1/setup/**         - test planner setup (API key): setups, events, artifacts, scenario-recipe-versions
   ├── /v1/llm-proxy/**     - managed LLM proxy for the planner CLI (API key): chat/completions
+  ├── /v1/mcp              - MCP server for coding agents (OAuth or API key); /v1/mcp/debug and /v1/mcp/onboarding are aliases
   └── /v1/trpc/*           - tRPC fetch adapter
 ```
+
+### MCP surface (`/v1/mcp`)
+
+One server carries every Autonoma tool: onboarding an application (pinned by a pairing code, keyed by
+`applicationId`) and debugging a reviewed pull request (keyed by `repoFullName`), plus the tools both
+jobs share, which take either identity. `/v1/mcp/debug` and `/v1/mcp/onboarding` are permanent aliases
+serving the same tools - what differs is the guidance a client reads on connect and the `server`
+property on the `mcp.tool_called` analytics event, so usage per address stays distinguishable.
+
+`build-mcp-server.ts` composes the surface from registration functions onto one `McpServer`, so
+"every address serves the same tools" is a property of that file rather than an agreement between
+builders. Those functions are groupings, not surfaces: `registerDebugTools` and
+`registerOnboardingTools` hold the tools only one job uses, and `registerReadTools` /
+`registerApplyConfigTool` / `registerRecipeTools` hold the ones both jobs reach for.
+
+Writes run through `createWriteGuard`, which decides per call whether the write serializes with a
+human. That decision is about the application, not the address: while an agent is driving an
+application's onboarding, a user is watching a read-only config screen, so the write takes the
+`OnboardingAgentSessionService` soft mutex and appears on that screen's activity feed (and stands
+down when the user takes over). On an application nobody is configuring, the same tool just runs.
+`isAgentDrivenApplication` (`routes/onboarding/agent-session-liveness.ts`) holds the rule.
 
 ### Managed LLM proxy (`/v1/llm-proxy`)
 

@@ -7,12 +7,10 @@ import type {
 import { suiteHealthFixKindSchema } from "@autonoma/types";
 
 /**
- * The MCP server names our install snippets register. The prompt must name the debug one verbatim AND rule the
- * other one out: we publish two, "the Autonoma MCP" names both, and an agent holding only the onboarding server
- * has none of the tools below.
+ * The MCP server name our install snippets register. The prompt names it verbatim: an agent holding several MCPs
+ * cannot resolve a prompt that names none of them, and picks one.
  */
 const MCP_SERVER_NAME = "autonoma";
-const ONBOARDING_MCP_SERVER_NAME = "autonoma-onboarding";
 
 /** How many branches the prompt enumerates before collapsing the rest into a count. */
 const MAX_LISTED_BRANCHES = 10;
@@ -62,8 +60,7 @@ export interface SuiteHealthFixPromptInput {
  *
  * Three things it is deliberately opinionated about:
  *
- * - **It names the debug server.** We publish two MCPs and "the Autonoma MCP" names both; an agent holding
- *   `autonoma-onboarding` has none of these tools and will flail.
+ * - **It names the server.** An agent holding several MCPs cannot resolve "the Autonoma MCP" and will pick one.
  * - **Open pull requests first, not oldest first.** A closed pull request needs no fix - at most its logs explain
  *   a failure still live elsewhere - so leading with the oldest sends the agent at work nobody is waiting on.
  * - **Fix shared causes once.** The same failure typically lands on every open pull request at once, so the
@@ -75,9 +72,7 @@ export interface SuiteHealthFixPromptInput {
 export function suiteHealthFixPrompt(input: SuiteHealthFixPromptInput): string {
     const lines: string[] = [];
 
-    lines.push(
-        `Use the \`${MCP_SERVER_NAME}\` MCP - the Autonoma DEBUG server, not \`${ONBOARDING_MCP_SERVER_NAME}\` - to work`,
-    );
+    lines.push(`Use the \`${MCP_SERVER_NAME}\` MCP to work`);
     lines.push("through this. Its tools are how you read each failure and fix it.");
     lines.push("");
     lines.push(`Autonoma reports SUITE HEALTH: ${LEVEL_LABEL[input.level]} for ${subject(input.repoFullName)}.`);

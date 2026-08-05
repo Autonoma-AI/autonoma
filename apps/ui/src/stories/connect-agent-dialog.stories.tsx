@@ -1,9 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { ONBOARDING_MCP_SERVER_NAME } from "components/connect-agent-dialog";
-import {
-  ConnectOnboardingAgentDialog,
-  ONBOARDING_AGENT_DIALOG_DESCRIPTION,
-} from "components/connect-onboarding-agent-dialog";
+import { AGENT_DIALOG_DESCRIPTION, ConnectAgentDialog, MCP_SERVER_NAME } from "components/connect-agent-dialog";
 import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { AGENT_INSTRUCTIONS } from "lib/onboarding/agent-instructions";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
@@ -18,22 +14,22 @@ const pairing: RouterOutputs["onboarding"]["createAgentPairing"] = {
 };
 
 /**
- * The connect-agent dialog every onboarding step hands off to. Both finish-setup steps
- * (SDK, dry run) render it with their own instruction, so the prompt the user copies
- * always names `autonoma-onboarding` - the server they already installed.
+ * The one connect-agent dialog, which every surface hands off to. There is a single server
+ * and a single installation, so what varies between callers is the instruction the agent is
+ * started on and whether an application is pinned with a pairing code.
  */
 const meta = {
-  title: "Components/ConnectOnboardingAgentDialog",
-  component: ConnectOnboardingAgentDialog,
+  title: "Components/ConnectAgentDialog",
+  component: ConnectAgentDialog,
   parameters: { msw: { handlers: appShellHandlers({ onboarding: { createAgentPairing: pairing } }) } },
   args: {
     open: true,
     onOpenChange: () => undefined,
     applicationId: baseApplication.id,
     title: "Debug with a coding agent",
-    description: ONBOARDING_AGENT_DIALOG_DESCRIPTION,
+    description: AGENT_DIALOG_DESCRIPTION,
   },
-} satisfies Meta<typeof ConnectOnboardingAgentDialog>;
+} satisfies Meta<typeof ConnectAgentDialog>;
 
 export default meta;
 
@@ -42,11 +38,11 @@ type Story = StoryObj<typeof meta>;
 /** The SDK step's dialog: validate the environment factory against a preview and fix it. */
 export const SdkStep: Story = {
   args: {
-    instruction: AGENT_INSTRUCTIONS.sdk(ONBOARDING_MCP_SERVER_NAME),
+    instruction: AGENT_INSTRUCTIONS.sdk,
     capabilities: (
       <>
-        <NameTheMcpNote serverName={ONBOARDING_MCP_SERVER_NAME} /> From your repo it validates the endpoint against a
-        preview, reads that preview's runtime logs, and fixes the handler.
+        <NameTheMcpNote /> From your repo it validates the endpoint against a preview, reads that preview's runtime
+        logs, and fixes the handler.
       </>
     ),
   },
@@ -55,11 +51,11 @@ export const SdkStep: Story = {
 /** The dry-run step's dialog: same server, same pairing, a different ask. */
 export const DryRunStep: Story = {
   args: {
-    instruction: AGENT_INSTRUCTIONS.dryRun(ONBOARDING_MCP_SERVER_NAME),
+    instruction: AGENT_INSTRUCTIONS.dryRun,
     capabilities: (
       <>
-        <NameTheMcpNote serverName={ONBOARDING_MCP_SERVER_NAME} /> It can read the recipe, try edits against your
-        deployed SDK without saving them, and fix the SDK handler in your repo.
+        <NameTheMcpNote /> It can read the recipe, try edits against your deployed SDK without saving them, and fix the
+        SDK handler in your repo.
       </>
     ),
   },
@@ -90,5 +86,25 @@ export const Codex: Story = {
   play: async ({ canvasElement }) => {
     const screen = within(canvasElement.ownerDocument.body);
     await userEvent.click(await screen.findByRole("tab", { name: /codex/i }));
+  },
+};
+
+/**
+ * The same dialog without an application to pin: the debugging job, where the agent
+ * identifies the app from the repo it is already sitting in, so there is no pairing code
+ * and no code minted. Everything below the header is identical.
+ */
+export const NoPairing: Story = {
+  args: {
+    applicationId: undefined,
+    title: "Fix with a coding agent",
+    description:
+      "Install the Autonoma MCP in your coding agent. It picks up the repo from your local git and connects automatically - no pairing code to paste.",
+    instruction: `use the ${MCP_SERVER_NAME} MCP to tell me why my preview failed`,
+    capabilities: (
+      <>
+        <NameTheMcpNote /> It reads the repo and PR from your local git.
+      </>
+    ),
   },
 };

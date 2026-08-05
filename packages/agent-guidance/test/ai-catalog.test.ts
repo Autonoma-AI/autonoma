@@ -53,12 +53,15 @@ describe("aiCatalog", () => {
         expect(new Set(identifiers).size).toBe(identifiers.length);
     });
 
-    it("lists both MCP servers, which are the surfaces an agent actually connects to", () => {
+    it("leads with the merged MCP address and still lists the aliases people have configured", () => {
         const catalog = aiCatalog({ apiUrl: "https://api.autonoma.app" });
 
         const mcpUrls = catalog.entries
             .filter((entry) => entry.type === "application/mcp-server+json")
             .map((entry) => entry.url);
+        // First, because an agent handed the catalog picks an entry to connect to and the
+        // aliases exist for configurations that already name them, not for new integrations.
+        expect(mcpUrls[0]).toBe("https://api.autonoma.app/v1/mcp");
         expect(mcpUrls).toContain("https://api.autonoma.app/v1/mcp/debug");
         expect(mcpUrls).toContain("https://api.autonoma.app/v1/mcp/onboarding");
     });

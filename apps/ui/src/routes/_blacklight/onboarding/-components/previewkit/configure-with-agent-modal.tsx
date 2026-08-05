@@ -1,6 +1,6 @@
 import { Button } from "@autonoma/blacklight";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
-import { ConnectOnboardingAgentDialog } from "components/connect-onboarding-agent-dialog";
+import { ConnectAgentDialog } from "components/connect-agent-dialog";
 import { useState } from "react";
 import { AGENT_CONFIGURE_INSTRUCTION } from "./agent-configure-prompt";
 
@@ -19,7 +19,7 @@ export function ConfigureWithAgentModal({ applicationId }: { applicationId: stri
         <RobotIcon weight="bold" />
         Configure with coding agent
       </Button>
-      <ConnectOnboardingAgentDialog
+      <ConnectAgentDialog
         open={open}
         onOpenChange={setOpen}
         applicationId={applicationId}

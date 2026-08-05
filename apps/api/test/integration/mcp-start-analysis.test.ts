@@ -3,10 +3,11 @@ import { PostHogAnalytics } from "@autonoma/analytics";
 import { ApplicationArchitecture } from "@autonoma/db";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { expect } from "vitest";
 import type { AnalysisRunTrigger, RequestRunOutcome, RequestRunParams } from "../../src/github/analysis-run-trigger";
 import { MergeGateService } from "../../src/github/merge-gate.service";
-import { buildDebugMcpServer } from "../../src/mcp/debug-mcp-server";
+import { registerDebugTools } from "../../src/mcp/debug-tools";
 import { McpAnalytics } from "../../src/mcp/mcp-analytics";
 import { resolveMcpPrincipal } from "../../src/mcp/mcp-principal";
 import { resolveRepoContext } from "../../src/mcp/resolve-repo-context";
@@ -226,14 +227,15 @@ async function setActivationGate(
     });
 }
 
-/** Serve the debug MCP over an in-memory transport and call `start_analysis` as a real MCP client would. */
+/** Serve the debug tools over an in-memory transport and call `start_analysis` as a real MCP client would. */
 async function callStartAnalysis(
     harness: APITestHarness,
     mergeGate: MergeGateService,
     repoFullName: string,
     prNumber: number,
 ) {
-    const server = buildDebugMcpServer({
+    const server = new McpServer({ name: "autonoma-debug", version: "0.0.0" });
+    registerDebugTools(server, {
         services: harness.services,
         resolveRepoContext: async (repo) =>
             resolveRepoContext(

@@ -3,11 +3,7 @@ import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { SlidersIcon } from "@phosphor-icons/react/Sliders";
 import { Link, useNavigate } from "@tanstack/react-router";
-import {
-  ConnectAgentInstall,
-  ONBOARDING_MCP_DOCS_URL,
-  ONBOARDING_MCP_SERVER_NAME,
-} from "components/connect-agent-dialog";
+import { ConnectAgentInstall } from "components/connect-agent-dialog";
 import { useCreateAgentPairing } from "lib/onboarding/onboarding-api";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useEffect, useRef, useState } from "react";
@@ -137,9 +133,6 @@ function McpFirstPairing({ appId, connected, copy }: { appId: string; connected:
           </div>
 
           <ConnectAgentInstall
-            serverName={ONBOARDING_MCP_SERVER_NAME}
-            endpoint="onboarding"
-            docsUrl={ONBOARDING_MCP_DOCS_URL}
             prompt={copy.prompt(code)}
             pairing={
               <PairingCodeBlock

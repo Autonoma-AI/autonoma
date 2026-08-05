@@ -12,14 +12,7 @@ import {
 import { z } from "zod";
 import type { McpPrincipal } from "../../mcp/mcp-principal";
 import type { RateLimitPolicy, RateLimiterService } from "../../rate-limit/rate-limiter.service";
-
-/**
- * Idle window before the UI treats the agent as released (soft mutex handed back
- * to the human, form editable). The agent re-claims on its next write, or the
- * window elapses again. The only "lock timeout": no background job, staleness is
- * derived from `agentLastActivityAt` at read time.
- */
-const STALE_AFTER_MS = 30 * 60 * 1000;
+import { isAgentDrivenApplication, isAgentSessionStale } from "./agent-session-liveness";
 
 /** How long a pairing code the UI shows the user stays valid. Single-use regardless. */
 const PAIRING_TTL_MS = 15 * 60 * 1000;
@@ -61,7 +54,7 @@ export interface AgentSessionView {
     holder: $Enums.OnboardingAgentHolder;
     /**
      * Who effectively holds the config right now: `holder`, unless the agent held
-     * it but has been idle past {@link STALE_AFTER_MS}, in which case control is
+     * it but has been idle past the staleness window, in which case control is
      * treated as released to the human (UI editable). Derived, never persisted.
      */
     effectiveHolder: $Enums.OnboardingAgentHolder;
@@ -246,6 +239,27 @@ export class OnboardingAgentSessionService {
         });
     }
 
+    /**
+     * Whether an agent is driving this application's configuration right now -
+     * the question an MCP write asks before deciding to take the soft mutex and
+     * stream itself onto the activity feed. An application with no onboarding
+     * state at all has no session, so it answers false rather than throwing.
+     */
+    async isAgentDriven(applicationId: string): Promise<boolean> {
+        const state = await this.db.onboardingState.findUnique({
+            where: { applicationId },
+            select: { step: true, agentConnectedAt: true, agentLastActivityAt: true },
+        });
+        if (state == null) return false;
+        const driven = isAgentDrivenApplication({
+            step: state.step,
+            agentConnectedAt: state.agentConnectedAt ?? undefined,
+            agentLastActivityAt: state.agentLastActivityAt ?? undefined,
+        });
+        this.logger.info("Resolved agent-driven state", { applicationId, extra: { driven, step: state.step } });
+        return driven;
+    }
+
     /** Refreshes the heartbeat only while the agent holds the config (for read-only agent polling). */
     async heartbeatIfAgentHeld(applicationId: string): Promise<void> {
         await this.db.onboardingState.updateMany({
@@ -403,7 +417,7 @@ export class OnboardingAgentSessionService {
         });
         if (state == null) return undefined;
 
-        const stale = state.agentHolder === "agent" && this.isStale(state.agentLastActivityAt);
+        const stale = state.agentHolder === "agent" && isAgentSessionStale(state.agentLastActivityAt ?? undefined);
         // A request carrying a resolution was already answered (with skips): it is
         // no longer pending - it rides the same column purely to carry the skip
         // outcome to the polling agent.
@@ -486,11 +500,6 @@ export class OnboardingAgentSessionService {
             select: { id: true },
         });
         if (app == null) throw new NotFoundError("Application not found");
-    }
-
-    private isStale(lastActivityAt: Date | null): boolean {
-        if (lastActivityAt == null) return true;
-        return Date.now() - lastActivityAt.getTime() > STALE_AFTER_MS;
     }
 
     /** Validate the stored request at the boundary; a malformed one degrades to "nothing pending". */

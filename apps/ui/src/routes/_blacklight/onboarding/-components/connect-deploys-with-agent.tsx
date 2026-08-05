@@ -1,7 +1,6 @@
 import { Button } from "@autonoma/blacklight";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
-import { ONBOARDING_MCP_SERVER_NAME } from "components/connect-agent-dialog";
-import { ConnectOnboardingAgentDialog } from "components/connect-onboarding-agent-dialog";
+import { ConnectAgentDialog, MCP_SERVER_NAME } from "components/connect-agent-dialog";
 import { useState } from "react";
 
 /**
@@ -9,7 +8,7 @@ import { useState } from "react";
  * the server literally so an agent holding several Autonoma MCPs cannot pick the
  * wrong one - same reason as the config step's instruction.
  */
-const CONNECT_DEPLOYS_INSTRUCTION = `wire my deploy pipeline to Autonoma with the ${ONBOARDING_MCP_SERVER_NAME} MCP`;
+const CONNECT_DEPLOYS_INSTRUCTION = `wire my deploy pipeline to Autonoma with the ${MCP_SERVER_NAME} MCP`;
 
 /**
  * Agentic entry point for the bring-your-own-deploys step. The work here is
@@ -26,7 +25,7 @@ export function ConnectDeploysWithAgent({ applicationId }: { applicationId: stri
         <RobotIcon weight="bold" />
         Wire it up with a coding agent
       </Button>
-      <ConnectOnboardingAgentDialog
+      <ConnectAgentDialog
         open={open}
         onOpenChange={setOpen}
         applicationId={applicationId}

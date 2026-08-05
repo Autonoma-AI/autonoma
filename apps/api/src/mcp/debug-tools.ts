@@ -1,7 +1,7 @@
 import { NotFoundError } from "@autonoma/errors";
 import { ANALYSIS_RUN_SOURCE } from "@autonoma/github/check";
 import { logger as rootLogger } from "@autonoma/logger";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { MergeGateService } from "../github/merge-gate.service";
 import { type DeployFreshness, deployFreshness } from "../previewkit/deploy-freshness";
@@ -11,12 +11,7 @@ import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
 import type { AccessibleRepos, UnreadableOrganization } from "./list-accessible-repos";
 import { DEFAULT_LOG_BYTES, logMaxBytesSchema, unknownServiceMessage } from "./log-tail-bounds";
 import type { McpAnalytics } from "./mcp-analytics";
-import { recipeConflictResult } from "./recipe-conflict-result";
-import type { McpTarget, McpTargetInput } from "./resolve-mcp-target";
 import type { RepoContext } from "./resolve-repo-context";
-import { registerSharedApplyConfig, type WriteGuard } from "./shared-apply-config";
-import { registerSharedReadTools } from "./shared-read-tools";
-import { registerSharedRecipeTools } from "./shared-recipe-tools";
 import { errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
 
 /** Ceiling on log lines a single tail tool can request. */
@@ -36,7 +31,7 @@ const MCP_ACTOR_LOGIN = "autonoma-mcp";
  * broken preview - so a Cursor / Codex / Claude agent that has never heard of
  * Autonoma still knows the recommended flow without a per-client skill.
  */
-const DEBUG_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a per-PR preview deployment of your app and reviews the result. When a preview fails to build or deploy, or a test fails because the app is broken, these tools let you read the live evidence and fix the cause in this repo.
+export const DEBUG_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a per-PR preview deployment of your app and reviews the result. When a preview fails to build or deploy, or a test fails because the app is broken, these tools let you read the live evidence and fix the cause in this repo.
 
 Every tool is keyed by repoFullName ("owner/repo"). You almost never need to ask the user for it:
 - It is this repository's GitHub remote. Infer it from the working directory (e.g. run \`git remote get-url origin\` and parse "owner/repo"). Use that directly.
@@ -86,7 +81,7 @@ const AGENTS_MD_SNIPPET = `## Autonoma
 After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause - get_analysis for the run's issues + evidence (what broke, why, and where the fix lives), and get_deploy_status / diagnose_deploy / get_build_logs / get_app_logs / get_secret_status when a preview fails to build or deploy - fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes, or list_scenarios/get_recipe/dry_run_scenario when a test failed on its seed data rather than on the app), confirm the deploy with wait_for_deploy, then call start_analysis to have Autonoma re-check the PR - before merging. The tools take this repo as "owner/repo" - infer it from the git remote; if unsure, call list_apps.`;
 
 /** Everything a debug MCP tool needs: the service graph and a per-repo org resolver. */
-export interface DebugMcpDeps {
+export interface DebugToolDeps {
     services: Services;
     /**
      * Resolve the organization + linked application a call acts in from the `repoFullName` it names,
@@ -94,8 +89,6 @@ export interface DebugMcpDeps {
      * application is found or the user is not a member of its org.
      */
     resolveRepoContext: (repoFullName: string) => Promise<RepoContext>;
-    /** Resolves either identity form for the tools shared with the onboarding server. */
-    resolveTarget: (input: McpTargetInput) => Promise<McpTarget>;
     /** List the repos the authenticated user can debug (across their orgs). */
     listRepos: () => Promise<AccessibleRepos>;
     /** Records a `mcp.tool_called` PostHog event per tool invocation, per customer org. */
@@ -147,11 +140,11 @@ function noAnalysisResult(repoFullName: string, prNumber: number) {
 }
 
 /**
- * Builds the "debug" MCP server: the client-facing, previewkit-scoped debug surface an agent uses to
- * fix a broken preview. Every tool resolves its org + application from the `repoFullName` it names via
- * `deps.resolveRepoContext` (which verifies the authenticated user is a member) and then
- * reuses an existing org-scoped service - this layer only maps the agent-friendly
- * execution key (repoFullName, and prNumber where per-PR) onto those services.
+ * Registers the previewkit-scoped debug tools: the surface an agent uses to fix a broken preview
+ * on an application that is already live. Every tool resolves its org + application from the
+ * `repoFullName` it names via `deps.resolveRepoContext` (which verifies the authenticated user is
+ * a member) and then reuses an existing org-scoped service - this layer only maps the
+ * agent-friendly execution key (repoFullName, and prNumber where per-PR) onto those services.
  * Resolving per-repo (not a fixed org) is what lets a multi-org user's token work
  * unambiguously. Secret VALUES are never returned; `get_secret_status` reports
  * presence + masked length only.
@@ -161,11 +154,9 @@ function noAnalysisResult(repoFullName: string, prNumber: number) {
  * (legacy, for PRs analyzed before it). They are not alternative views of the same run: a PR has data on one or the
  * other, which is why each one's empty result points at the other rather than reading as "nothing found".
  */
-export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
-    const logger = rootLogger.child({ name: "debugMcpServer" });
-    const { services, resolveRepoContext, resolveTarget, listRepos, analytics, userId, mergeGate } = deps;
-
-    const server = new McpServer({ name: "autonoma-debug", version: "0.1.0" }, { instructions: DEBUG_INSTRUCTIONS });
+export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void {
+    const logger = rootLogger.child({ name: "debugTools" });
+    const { services, resolveRepoContext, listRepos, analytics, userId, mergeGate } = deps;
 
     server.registerTool(
         "list_apps",
@@ -821,41 +812,6 @@ export function buildDebugMcpServer(deps: DebugMcpDeps): McpServer {
             contents: [{ uri: uri.href, text: DEBUG_INSTRUCTIONS, mimeType: "text/markdown" }],
         }),
     );
-
-    // No mutex on this surface: these applications are live, and nobody is sitting on a
-    // config form for them the way someone is during onboarding.
-    const runUnguarded: WriteGuard = async ({ applicationId, organizationId, tool, requires }, work) => {
-        try {
-            // No mutex here, but the path constraint is the tool's, not the mount's: saving a
-            // preview config still means nothing for an app whose own pipeline builds them.
-            if (requires != null) {
-                const mode = await services.onboarding.getPreviewEnvironmentMode(applicationId, organizationId);
-                if (mode != null && mode !== requires.source) {
-                    return errorResult(
-                        `${tool} only applies to Autonoma-hosted previews. This app builds its previews on its own ` +
-                            `pipeline, so there is no Autonoma-side config here. Use ${requires.useInstead} instead.`,
-                    );
-                }
-            }
-            return jsonResult(await work(organizationId));
-        } catch (err) {
-            // A losing recipe race is not a failure the agent should give up on - hand back the
-            // merge inputs, exactly as the guarded mount does inside guardedWrite.
-            return recipeConflictResult(err) ?? toToolResult(err);
-        }
-    };
-
-    registerSharedApplyConfig(server, { services, analytics, resolveTarget, guard: runUnguarded });
-
-    registerSharedRecipeTools(server, { services, analytics, resolveTarget, guard: runUnguarded, userId });
-
-    registerSharedReadTools(server, {
-        services,
-        analytics,
-        resolveTarget,
-    });
-
-    return server;
 
     /**
      * The PR's preview summary, or undefined when its live environment is gone

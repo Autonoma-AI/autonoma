@@ -1,14 +1,19 @@
 ---
-title: Debug a preview with a coding agent (MCP)
-description: Connect your coding agent to Autonoma's debugging MCP server so it can see why a pull request's preview broke - investigation findings, deploy status, logs, diagnosis, and missing secrets - and fix it in your repo.
+title: Connect your coding agent (MCP)
+description: Install Autonoma's MCP server in your coding agent once, and use it for both jobs - setting an app up on Autonoma, and fixing what Autonoma flags on a pull request from inside your repo.
 ---
 
 import Tabs from "../../../components/Tabs.astro"
 import TabItem from "../../../components/TabItem.astro"
 
-<p class="lead">Autonoma runs an MCP server so your coding agent can read a pull request's analysis and live debugging data - what Autonoma flagged and why, deploy status, build and runtime logs, a diagnosis, and which secrets are missing - and fix it from inside your repo, the same way it fixes anything else.</p>
+<p class="lead">Autonoma runs one MCP server. Install it in your coding agent once and it covers both jobs: setting an app up on Autonoma, and fixing what Autonoma flags on a pull request - the analysis and its evidence, deploy status, build and runtime logs, a diagnosis, missing secrets, and your scenario test data.</p>
 
-When Autonoma flags a problem on your PR, the fix usually lives in your codebase. Instead of copying logs out of a dashboard, point your agent at the MCP server and let it pull exactly what it needs.
+Everything on this page is that one installation. What your agent does with it is decided by what you ask for, not by what you connected to:
+
+- **Use it for onboarding** - set an app up: pick how it gets its previews, configure and deploy them (or wire your own pipeline), validate your SDK endpoint, and get your scenario recipes provisioning. You start this from inside Autonoma, which gives your agent a pairing code. → [Set up a preview with a coding agent](/mcp/configure-preview)
+- **Use it for debugging** - once Autonoma is reviewing your pull requests: read what it flagged and why, pull logs and deploy status, fix the cause in your repo, and ask for a re-check. No pairing code - your agent identifies the app from your git remote. → the rest of this page.
+
+You do not install anything twice, and you do not pick a mode. The same tools are there for both.
 
 ## Connection details
 
@@ -16,16 +21,16 @@ Everything below is the same server, just configured per client. When a client a
 
 | Setting | Value |
 | --- | --- |
-| **URL** | `https://api.autonoma.app/v1/mcp/debug` |
+| **URL** | `https://api.autonoma.app/v1/mcp` |
 | **Transport** | Streamable HTTP |
 | **Authentication** | OAuth - your client opens a browser to sign in to Autonoma and authorize; no API key or token to paste. Headless agents can send an [API key](#headless-agents-and-ci) instead. |
 
 :::note
-You need an Autonoma account with your app connected, and a pull request that has a preview environment. The MCP is scoped to your organization - it only ever sees your own deploys, logs, and secret status.
+You need an Autonoma account with your app connected. For the debugging job you also need a pull request that has a preview environment. The MCP is scoped to your organization - it only ever sees your own deploys, logs, and secret status.
 :::
 
 :::note
-Still setting Autonoma up? Use the [onboarding MCP](/mcp/configure-preview) instead - it covers the whole of onboarding, from the preview environment through your SDK endpoint and scenario recipes. This server is for afterwards, once Autonoma is reviewing your pull requests. If you have both connected, say which one you mean by name (`autonoma` here, `autonoma-onboarding` there) - an agent holding both cannot tell "the Autonoma MCP" apart.
+**Already using `/v1/mcp/debug` or `/v1/mcp/onboarding`?** Both still work and are not going away - they are addresses for this same server, carrying the same tools. There is nothing to change. `/v1/mcp` is the one to use for a new setup, and if you have both of the old addresses registered you can drop one: they are the same server twice.
 :::
 
 ## Headless agents and CI
@@ -39,7 +44,7 @@ The OAuth flow needs a browser. Your MCP client picks its own redirect URI and e
 For those, send an Autonoma API key as a plain bearer token and skip OAuth entirely:
 
 ```bash
-curl https://api.autonoma.app/v1/mcp/debug \
+curl https://api.autonoma.app/v1/mcp \
   -H "Authorization: Bearer $AUTONOMA_API_KEY" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
@@ -49,7 +54,7 @@ curl https://api.autonoma.app/v1/mcp/debug \
 Most clients let you set a static header. With `mcp-remote`:
 
 ```bash
-npx -y mcp-remote https://api.autonoma.app/v1/mcp/debug \
+npx -y mcp-remote https://api.autonoma.app/v1/mcp \
   --header "Authorization: Bearer ${AUTONOMA_API_KEY}"
 ```
 
@@ -57,7 +62,7 @@ You do not have to create one by hand. Every "connect a coding agent" panel in A
 
 The other tabs carry the same key too, as a trailing comment you do not see on screen. That is deliberate: the tab you pick says which client you run, not which machine it runs on, so a Codex command copied to a machine you SSH into still authenticates rather than stalling on a sign-in nobody can complete.
 
-The same key works for the onboarding MCP, the REST API, and the planner CLI.
+The same key works for the onboarding tools on this server, the REST API, and the planner CLI.
 
 :::note
 An API key belongs to one organization, and over MCP it can only reach that organization - even if you belong to several. An OAuth token is scoped to you rather than to one org, so it resolves the organization per call from the repository a tool names. If a key seems unable to see a repo, check it was created in the organization that owns it.
@@ -72,7 +77,7 @@ An API key belongs to one organization, and over MCP it can only reach that orga
 Add the server and sign in, from a terminal - not from inside a running Claude Code session:
 
 ```bash
-claude mcp add --transport http --scope user autonoma https://api.autonoma.app/v1/mcp/debug
+claude mcp add --transport http --scope user autonoma https://api.autonoma.app/v1/mcp
 claude mcp login autonoma
 ```
 
@@ -83,7 +88,7 @@ claude mcp login autonoma
 With no browser on the machine, drop the `login` line entirely and register an [API key](#headless-agents-and-ci) as a header - there is no sign-in left to complete:
 
 ```bash
-claude mcp add --transport http --scope user autonoma https://api.autonoma.app/v1/mcp/debug \
+claude mcp add --transport http --scope user autonoma https://api.autonoma.app/v1/mcp \
   --header "Authorization: Bearer $AUTONOMA_API_KEY"
 ```
 
@@ -104,7 +109,7 @@ Add the server to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` in your pr
 {
   "mcpServers": {
     "autonoma": {
-      "url": "https://api.autonoma.app/v1/mcp/debug"
+      "url": "https://api.autonoma.app/v1/mcp"
     }
   }
 }
@@ -116,7 +121,7 @@ Reload Cursor, then complete the browser sign-in when prompted from **Settings �
 {
   "mcpServers": {
     "autonoma": {
-      "url": "https://api.autonoma.app/v1/mcp/debug",
+      "url": "https://api.autonoma.app/v1/mcp",
       "headers": { "Authorization": "Bearer YOUR_API_KEY" }
     }
   }
@@ -135,7 +140,7 @@ For GitHub Copilot's agent mode, add the server to `.vscode/mcp.json`:
   "servers": {
     "autonoma": {
       "type": "http",
-      "url": "https://api.autonoma.app/v1/mcp/debug"
+      "url": "https://api.autonoma.app/v1/mcp"
     }
   }
 }
@@ -154,7 +159,7 @@ Add the server to `~/.codeium/windsurf/mcp_config.json`:
 {
   "mcpServers": {
     "autonoma": {
-      "serverUrl": "https://api.autonoma.app/v1/mcp/debug"
+      "serverUrl": "https://api.autonoma.app/v1/mcp"
     }
   }
 }
@@ -166,7 +171,7 @@ Refresh MCP servers from Cascade's settings, then complete the browser sign-in. 
 {
   "mcpServers": {
     "autonoma": {
-      "serverUrl": "https://api.autonoma.app/v1/mcp/debug",
+      "serverUrl": "https://api.autonoma.app/v1/mcp",
       "headers": { "Authorization": "Bearer YOUR_API_KEY" }
     }
   }
@@ -183,7 +188,7 @@ Codex reaches remote servers through the `mcp-remote` bridge, which also handles
 # ~/.codex/config.toml
 [mcp_servers.autonoma]
 command = "npx"
-args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/debug"]
+args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp"]
 ```
 
 With no browser to complete that flow, pass an [API key](#headless-agents-and-ci) through the bridge instead:
@@ -192,7 +197,7 @@ With no browser to complete that flow, pass an [API key](#headless-agents-and-ci
 # ~/.codex/config.toml
 [mcp_servers.autonoma]
 command = "npx"
-args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/debug", "--header", "Authorization: Bearer ${AUTONOMA_API_KEY}"]
+args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp", "--header", "Authorization: Bearer ${AUTONOMA_API_KEY}"]
 ```
 
 </TabItem>
@@ -206,7 +211,7 @@ Any MCP client that speaks Streamable HTTP can connect with the [connection deta
   "mcpServers": {
     "autonoma": {
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/debug"]
+      "args": ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp"]
     }
   }
 }
@@ -221,6 +226,8 @@ Any MCP client that speaks Streamable HTTP can connect with the [connection deta
 :::caution
 Client config formats change over time. If a snippet above no longer matches, keep the [connection details](#connection-details) and follow your client's current "add an MCP server" instructions.
 :::
+
+That is the whole installation, and it covers both jobs. **Setting an app up?** [Set up a preview with a coding agent](/mcp/configure-preview) picks up from here: the pairing code that pins your app, how your agent chooses the preview path, and what it does on each. The rest of this page is the debugging job.
 
 ## Point your agent at it
 

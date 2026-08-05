@@ -131,7 +131,7 @@ export const REMOTE_AGENT_HINT =
  */
 function remoteAgentBlock({ url, serverName, prompt }: InstallSnippetInput, apiKey: string): string {
     return [
-        `# Autonoma ${serverName} MCP. No sign-in needed - this key authenticates you.`,
+        `# Autonoma MCP - register it as "${serverName}". No sign-in needed - this key authenticates you.`,
         `# URL             ${url}`,
         "# Transport       Streamable HTTP",
         `# Authorization   Bearer ${apiKey}`,

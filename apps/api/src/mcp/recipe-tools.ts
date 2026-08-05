@@ -8,10 +8,10 @@ import { targetInputFields, toTargetInput } from "./mcp-target-input";
 import { baseFingerprintInput } from "./recipe-conflict-result";
 import { resolveDryRunTargetUrl } from "./resolve-dry-run-target";
 import type { McpTarget, McpTargetInput } from "./resolve-mcp-target";
-import type { WriteGuard } from "./shared-apply-config";
 import { toToolResult } from "./tool-result";
+import type { WriteGuard } from "./write-guard";
 
-export interface SharedRecipeToolDeps {
+export interface RecipeToolDeps {
     services: Services;
     analytics: McpAnalytics;
     resolveTarget: (input: McpTargetInput) => Promise<McpTarget>;
@@ -27,15 +27,12 @@ function describeDryRun(hasCandidate: boolean, save: boolean): string {
 }
 
 /**
- * The two scenario-recipe writes, registered once for both servers.
- *
- * Same service calls on either side; they differed only in the identity field, whether the
- * mount held a mutex, and the fact that the debug copies recorded no actor. Both now take
- * either identity, and both record one - a recipe write is attributable either way.
+ * The two scenario-recipe writes. Both take either identity and both record an actor - a
+ * recipe write is attributable whether it came from onboarding or from an editor months later.
  */
-export function registerSharedRecipeTools(
+export function registerRecipeTools(
     server: McpServer,
-    { services, analytics, resolveTarget, guard, userId }: SharedRecipeToolDeps,
+    { services, analytics, resolveTarget, guard, userId }: RecipeToolDeps,
 ) {
     server.registerTool(
         "update_recipe",

@@ -36,11 +36,7 @@ import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { type PreviewLogSource, PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
-import { ONBOARDING_MCP_SERVER_NAME } from "components/connect-agent-dialog";
-import {
-  ConnectOnboardingAgentDialog,
-  ONBOARDING_AGENT_DIALOG_DESCRIPTION,
-} from "components/connect-onboarding-agent-dialog";
+import { AGENT_DIALOG_DESCRIPTION, ConnectAgentDialog } from "components/connect-agent-dialog";
 import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { NoVercelDeploymentsNotice } from "components/no-vercel-deployments-notice";
 import { useAuth } from "lib/auth";
@@ -1245,17 +1241,17 @@ function ExternalSdkStepBody({ applicationId, selectedTargetId, onSelectTarget }
         )}
       </div>
 
-      <ConnectOnboardingAgentDialog
+      <ConnectAgentDialog
         open={agentDialogOpen}
         onOpenChange={setAgentDialogOpen}
         applicationId={applicationId}
         title="Debug with a coding agent"
-        description={ONBOARDING_AGENT_DIALOG_DESCRIPTION}
-        instruction={AGENT_INSTRUCTIONS.sdk(ONBOARDING_MCP_SERVER_NAME)}
+        description={AGENT_DIALOG_DESCRIPTION}
+        instruction={AGENT_INSTRUCTIONS.sdk}
         capabilities={
           <>
-            <NameTheMcpNote serverName={ONBOARDING_MCP_SERVER_NAME} /> From your repo it validates the endpoint against
-            a preview, reads that preview's runtime logs, and fixes the handler.
+            <NameTheMcpNote /> From your repo it validates the endpoint against a preview, reads that preview's runtime
+            logs, and fixes the handler.
           </>
         }
       />
@@ -1465,17 +1461,17 @@ function DryRunList({
         </div>
       </div>
 
-      <ConnectOnboardingAgentDialog
+      <ConnectAgentDialog
         open={agentDialogOpen}
         onOpenChange={setAgentDialogOpen}
         applicationId={applicationId}
         title="Debug with a coding agent"
-        description={ONBOARDING_AGENT_DIALOG_DESCRIPTION}
-        instruction={AGENT_INSTRUCTIONS.dryRun(ONBOARDING_MCP_SERVER_NAME)}
+        description={AGENT_DIALOG_DESCRIPTION}
+        instruction={AGENT_INSTRUCTIONS.dryRun}
         capabilities={
           <>
-            <NameTheMcpNote serverName={ONBOARDING_MCP_SERVER_NAME} /> It can read the recipe, try edits against your
-            deployed SDK without saving them, and fix the SDK handler in your repo.
+            <NameTheMcpNote /> It can read the recipe, try edits against your deployed SDK without saving them, and fix
+            the SDK handler in your repo.
           </>
         }
       />

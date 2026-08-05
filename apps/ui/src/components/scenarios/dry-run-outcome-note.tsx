@@ -1,6 +1,5 @@
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
-import { DEBUG_MCP_SERVER_NAME } from "components/connect-agent-dialog";
 import { FixWithAgentButton } from "components/fix-with-agent-button";
 import type { DryRunOutcome } from "lib/format-dry-run-error";
 import { AGENT_INSTRUCTIONS } from "lib/onboarding/agent-instructions";
@@ -34,7 +33,7 @@ export function DryRunOutcomeNote({ outcome }: { outcome: DryRunOutcome }) {
           <p className="whitespace-pre-wrap break-words font-mono text-3xs text-status-critical/90">{outcome.error}</p>
         )}
         <FixWithAgentButton
-          instruction={AGENT_INSTRUCTIONS.dryRun(DEBUG_MCP_SERVER_NAME)}
+          instruction={AGENT_INSTRUCTIONS.dryRun}
           capabilities="It can read the recipe, try edits against your deployed SDK without saving them, and fix the SDK handler in your repo."
           size="xs"
         />

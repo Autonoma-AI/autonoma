@@ -106,7 +106,7 @@ export const baseSuiteHealthFixPlan: RouterOutputs["applications"]["suiteHealthF
     // is what the copy button puts on the clipboard, so a drifted fixture is a story that lies about the
     // product.
     prompt: [
-        "Use the `autonoma` MCP - the Autonoma DEBUG server, not `autonoma-onboarding` - to work",
+        "Use the `autonoma` MCP to work",
         "through this. Its tools are how you read each failure and fix it.",
         "",
         "Autonoma reports SUITE HEALTH: DEGRADED (1/5) for acme/acme-web.",

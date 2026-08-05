@@ -3,13 +3,12 @@ import type { OnboardingPreviewEnvironmentMode, PrismaClient } from "@autonoma/d
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
 import {
-    type AgentLogEntry,
     buildDeploymentSignalWorkflow,
     DEPLOYMENT_SIGNAL_BODY_FIELDS,
     isProtectedPreviewkitEnvKey,
     type OnboardingAgentPendingRequest,
 } from "@autonoma/types";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { env } from "../env";
@@ -28,12 +27,9 @@ import {
 import { DEFAULT_LOG_BYTES, logMaxBytesSchema, unknownServiceMessage } from "./log-tail-bounds";
 import type { McpAnalytics } from "./mcp-analytics";
 import type { McpPrincipal } from "./mcp-principal";
-import { recipeConflictResult } from "./recipe-conflict-result";
 import { resolveDryRunTarget } from "./resolve-dry-run-target";
 import { resolveMcpTarget } from "./resolve-mcp-target";
-import { registerSharedApplyConfig } from "./shared-apply-config";
-import { registerSharedReadTools } from "./shared-read-tools";
-import { registerSharedRecipeTools } from "./shared-recipe-tools";
+import { resolveVercelState } from "./resolve-vercel-state";
 import { describeError, errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
 import {
     VERCEL_PLAYBOOK,
@@ -43,6 +39,8 @@ import {
     describeVercelState,
     isVercelPath,
 } from "./vercel-onboarding-guidance";
+import type { GuardedWrite, WriteGuard } from "./write-guard";
+import { wrongPathResult } from "./wrong-path-result";
 
 /**
  * How many recent log lines get_session_status returns per source. Enough to carry
@@ -149,7 +147,7 @@ Scenario recipes (test data): a scenario is a named app state a test depends on 
 
 How to iterate on a failing recipe - first tell apart the TWO things that can be wrong, because they iterate very differently. (1) The recipe JSON (a bad \`create\` graph, a wrong field, a \`_ref\` matching no \`_alias\`): iterate with dry_run_scenario(scenarioId, recipe) - it provisions your candidate without storing it, so the app keeps working off its current recipe while you experiment, and a wrong guess costs nothing. The recipe lives on Autonoma, so each attempt takes effect with NO redeploy. When one passes, re-run it with \`save: true\` (or call update_recipe) to make it the active recipe; do NOT save a recipe you have not seen pass. (2) The app's SDK handler code that interprets the recipe and writes to the database (a missing factory for a model, a broken insert): that lives in the app's repo and only changes when the app is REBUILT, and its thrown errors land in get_target_logs(target, source:"app") - read them before guessing. Commit the fix and push it to the branch whose preview you are testing: if you are working a target from list_dry_run_targets, that is the SDK PR's branch, and pushing to it redeploys that preview on its own. If instead you are on the base preview, push to \`deployBranch\` (returned by get_config / pair) and call trigger_deploy to rebuild it, polling get_session_status until it is \`ready\` again. Either way wait for the redeploy BEFORE you dry_run - against a preview that is still building you would just be testing the old code (list_dry_run_targets reports each target's availability). Fastest of all: iterate the SDK handler and recipe LOCALLY first - run the app's Autonoma SDK against a local server + database, exercise the recipe, and confirm the rows actually landed in the DB - then push/update only once it works. A local loop is seconds; a cloud rebuild is minutes.`;
 
-const ONBOARDING_INSTRUCTIONS = `${SHARED_PREAMBLE}
+export const ONBOARDING_INSTRUCTIONS = `${SHARED_PREAMBLE}
 
 ${SDK_AND_RECIPES}`;
 
@@ -174,44 +172,23 @@ function playbookFor(mode: OnboardingPreviewEnvironmentMode | undefined, vercel:
     return `This app has not picked a path yet, so picking it is your first job: read the repo, decide with the trade-off in the preamble, and call select_preview_path. Both playbooks follow so you can see what each commits you to.\n\n${PREVIEWKIT_PLAYBOOK}\n\n${external}`;
 }
 
-/** Everything the onboarding MCP tools need: the service graph and the authenticated user. */
-export interface OnboardingMcpDeps {
+/** Everything the onboarding MCP tools need: the service graph, the authenticated user, and the write guard. */
+export interface OnboardingToolDeps {
     services: Services;
     db: PrismaClient;
     /** The authenticated caller and the complete set of orgs it may act in. */
     principal: McpPrincipal;
     /** Records a `mcp.tool_called` PostHog event per tool invocation, attributed to the resolved org. */
     analytics: McpAnalytics;
+    /** Decides per write whether it serializes with a human on the config screen, and streams it there. */
+    guard: WriteGuard;
 }
 
-/** Identifies a single guarded write for the mutex claim and the activity stream. */
-interface GuardedWriteParams {
-    applicationId: string;
-    /** The MCP tool name, used as the log-entry label and in failure logs. */
-    tool: string;
-    /** Human-readable description shown on the "running" activity row in the UI. */
-    message: string;
-    /** Rendered as dim JSON on the activity row; never carries secret values. */
-    toolArguments?: AgentLogEntry["toolArguments"];
-    /**
-     * Refuse this write when the app gets its previews the other way, naming the
-     * tool to use instead. Config/deploys/env only mean something for previews
-     * Autonoma builds; the signal tools only mean something for previews it does
-     * not. Checked BEFORE claiming the app, so a wrong-path call does not take
-     * control or open an activity entry it will only fail out of.
-     */
-    requires?: {
-        source: OnboardingPreviewEnvironmentMode;
-        useInstead: string;
-        /**
-         * Redirect to use when the app turns out to be on Vercel. Without it a
-         * previewkit-only tool sends every customer-pipeline app to the webhook
-         * tools - and `get_signal_setup` refuses a linked Vercel project, so the
-         * agent is bounced between two tools that each point at the other.
-         */
-        useInsteadOnVercel?: string;
-    };
-}
+/**
+ * A write named by the tool declaring it. The organization is resolved from the `applicationId`
+ * on the way to the guard, so it is the one field the tool does not supply.
+ */
+type OnboardingWrite = Omit<GuardedWrite, "organizationId">;
 
 /**
  * The next move to spell out on a poll that still has a request pending. Agents
@@ -270,52 +247,17 @@ function describeSignalNextStep(status: { signalReceived: boolean; prReviewsConf
 }
 
 /**
- * The refusal a path-specific tool returns when the app is on the other path.
- * Names the tool to use instead: an agent told only "not supported" tends to
- * retry with different arguments, whereas a redirect moves it onto the right
- * playbook. Phrased from `requires` rather than fixed, since the guard runs in
- * both directions - config/deploy/env tools refuse on the customer's own
- * pipeline, and the signal/Vercel tools refuse on Autonoma-hosted previews.
+ * Registers the onboarding tools: the toolset a coding agent uses to configure a preview while
+ * the user watches. The app is pinned by a pairing code (not a repo name); every tool resolves
+ * the org from the per-call `applicationId` and verifies the authenticated user's membership.
+ * Writes go through `deps.guard`, which takes the {@link OnboardingAgentSessionService} soft
+ * mutex whenever this application has an agent driving it - so the UI can watch read-only and
+ * take over. Secret VALUES never pass through any tool.
  */
-function wrongPathResult(tool: string, requires: OnboardingPreviewEnvironmentMode, useInstead: string): CallToolResult {
-    const explanation =
-        requires === "previewkit"
-            ? `${tool} only applies to Autonoma-hosted previews. This app builds its previews on its own pipeline, so ` +
-              "there is no Autonoma-side config, deploy or build log here."
-            : `${tool} only applies to previews the project builds itself. Autonoma hosts this app's previews, so ` +
-              "there is no external pipeline or Vercel project to connect.";
-    return errorResult(`${explanation} Use ${useInstead} instead, and re-read the playbook that pair returned.`);
-}
-
-/** The result a write tool returns when the human has taken over - the agent must stand down. */
-function pausedResult(): CallToolResult {
-    return jsonResult({
-        status: "paused",
-        standDown: true,
-        message:
-            "The user took over configuration in the Autonoma UI. Stop configuring and let them continue. " +
-            "They can hand control back with 'Resume with Claude', after which your next call re-claims it.",
-    });
-}
-
-/**
- * Builds the "onboarding" MCP server: the client-facing toolset a coding agent
- * uses to configure a preview during onboarding. The app is pinned by
- * a pairing code (not a repo name); every tool resolves the org from the
- * per-call `applicationId` and verifies the authenticated user's membership.
- * Writes go through the {@link OnboardingAgentSessionService} soft mutex so the
- * UI can watch read-only and take over. Secret VALUES never pass through any tool.
- */
-export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
-    const logger = rootLogger.child({ name: "onboardingMcpServer" });
-    const { services, db, principal, analytics } = deps;
-    const userId = principal.userId;
+export function registerOnboardingTools(server: McpServer, deps: OnboardingToolDeps): void {
+    const logger = rootLogger.child({ name: "onboardingTools" });
+    const { services, db, principal, analytics, guard } = deps;
     const session = services.onboardingAgentSession;
-
-    const server = new McpServer(
-        { name: "autonoma-onboarding", version: "0.1.0" },
-        { instructions: ONBOARDING_INSTRUCTIONS },
-    );
 
     /**
      * Resolve the org from a tool's `applicationId` (verifying the user's
@@ -465,26 +407,6 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     }
 
     /**
-     * How far along this app's Vercel connection is, used to pick which
-     * bring-your-own-deploys playbook to hand over. DB-only (no Vercel API call),
-     * so it is cheap enough to resolve on every pair / path decision.
-     *
-     * Best-effort: an app whose Vercel state cannot be read falls back to "not on
-     * Vercel". That degrades to the webhook playbook, which is wrong but merely
-     * more work - whereas failing here would break pairing, the one call that has
-     * to succeed.
-     */
-    async function resolveVercelState(applicationId: string, organizationId: string): Promise<VercelState> {
-        try {
-            const projects = await services.onboarding.listAvailableVercelProjects(applicationId, organizationId);
-            return { installed: projects.connected, linked: projects.linkedProject != null };
-        } catch (err) {
-            logger.warn("Could not resolve Vercel state; assuming this app is not on Vercel", { applicationId, err });
-            return { installed: false, linked: false };
-        }
-    }
-
-    /**
      * Best-effort: record which coding agent is driving from the MCP `clientInfo`
      * handshake, so the UI can name it ("Cursor is configuring...") instead of
      * assuming one. Undefined when the client did not report it (or the handshake
@@ -501,51 +423,23 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
     }
 
     /**
-     * Runs one agent write under the config mutex, streaming it as an activity
-     * entry and recording an `mcp.tool_called` event. The steps are a deliberate
-     * gated sequence, not parallelizable: authorize membership first (so a
-     * non-member never mutates), then claim the mutex (standing down if the human
-     * took over), then log-run-finish the work. Generic over the work's result so
-     * the tool's payload stays fully typed.
+     * Runs one onboarding write through the shared guard and records its
+     * `mcp.tool_called` event. Resolving the org first is what authorizes the
+     * caller's membership before anything mutates, and binds the analytics scope
+     * so the event is attributed to the customer org. Generic over the work's
+     * result so the tool's payload stays fully typed.
      */
     async function guardedWrite<T>(
-        { applicationId, tool, message, toolArguments, requires }: GuardedWriteParams,
+        { applicationId, tool, message, toolArguments, requires }: OnboardingWrite,
         work: (organizationId: string) => Promise<T>,
     ): Promise<CallToolResult> {
         return analytics.track(tool, async () => {
             try {
                 const organizationId = await resolveOrg(applicationId);
-                if (requires != null) {
-                    const mode = await services.onboarding.getPreviewEnvironmentMode(applicationId, organizationId);
-                    // Unset means the user has not chosen yet - let it through rather
-                    // than block an agent on a path that is still undecided.
-                    if (mode != null && mode !== requires.source) {
-                        // Only on the refusal path, so the happy path pays nothing for it.
-                        const useInstead =
-                            requires.useInsteadOnVercel != null &&
-                            isVercelPath(await resolveVercelState(applicationId, organizationId))
-                                ? requires.useInsteadOnVercel
-                                : requires.useInstead;
-                        return wrongPathResult(tool, requires.source, useInstead);
-                    }
-                }
-                const claim = await session.claimForAgent(applicationId);
-                if (!claim.claimed) return pausedResult();
-
-                const eventId = await session.startLogEntry(applicationId, tool, message, toolArguments);
-                try {
-                    const result = await work(organizationId);
-                    await session.finishLogEntry(applicationId, eventId, "done");
-                    return jsonResult(result);
-                } catch (err) {
-                    await session.finishLogEntry(applicationId, eventId, "error", describeError(err));
-                    throw err;
-                }
+                return await guard({ applicationId, organizationId, tool, message, toolArguments, requires }, work);
             } catch (err) {
                 logger.warn(`${tool} failed`, { applicationId, err });
-                // A losing race is not a failure the agent should give up on - hand back the
-                // merge inputs instead of an error string. Undefined for anything else.
-                return recipeConflictResult(err) ?? toToolResult(err);
+                return toToolResult(err);
             }
         });
     }
@@ -592,7 +486,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                         mode === "previewkit"
                             ? services.onboarding.getPreviewkitConfig(view.applicationId, organizationId)
                             : undefined,
-                        resolveVercelState(view.applicationId, organizationId),
+                        resolveVercelState(services, view.applicationId, organizationId),
                     ]);
                     const repoFields = {
                         repository: repository?.fullName,
@@ -790,7 +684,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     // app's project link, none of which the mode write touches.
                     const [, vercel] = await Promise.all([
                         services.onboarding.selectPreviewEnvironmentMode(applicationId, org, mode),
-                        resolveVercelState(applicationId, org),
+                        resolveVercelState(services, applicationId, org),
                     ]);
                     return {
                         previewSource: previewSourceOf(mode),
@@ -1331,7 +1225,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     const [status, secret, vercel] = await Promise.all([
                         services.onboarding.getExternalSignalStatus(applicationId, organizationId),
                         services.applications.getSharedSecret(applicationId, organizationId),
-                        resolveVercelState(applicationId, organizationId),
+                        resolveVercelState(services, applicationId, organizationId),
                     ]);
                     if (status.previewEnvironmentMode === "previewkit") {
                         return errorResult(
@@ -1406,7 +1300,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     const organizationId = await resolveOrg(applicationId);
                     const [status, vercel] = await Promise.all([
                         services.onboarding.getExternalSignalStatus(applicationId, organizationId),
-                        resolveVercelState(applicationId, organizationId),
+                        resolveVercelState(services, applicationId, organizationId),
                     ]);
                     // On Vercel nobody sends a signal, so `signalReceived: false` is the
                     // steady state rather than a problem. Left unqualified it reads as
@@ -1468,7 +1362,7 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
                     // not implement this transition - so the call would fail with a state
                     // mismatch rather than telling the agent it had already finished. The
                     // Autonoma UI skips this step for Vercel for the same reason.
-                    if (isVercelPath(await resolveVercelState(applicationId, org))) {
+                    if (isVercelPath(await resolveVercelState(services, applicationId, org))) {
                         throw new ConflictError(
                             "Nothing to confirm on Vercel: the integration reports deployments itself, and " +
                                 "select_vercel_deployment already advanced onboarding. If you have selected a " +
@@ -1815,42 +1709,4 @@ export function buildOnboardingMcpServer(deps: OnboardingMcpDeps): McpServer {
             contents: [{ uri: uri.href, text: VERCEL_PLAYBOOK, mimeType: "text/markdown" }],
         }),
     );
-
-    registerSharedApplyConfig(server, {
-        services,
-        analytics,
-        resolveTarget: (input) =>
-            resolveMcpTarget(
-                { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
-                principal,
-                input,
-            ),
-        guard: (params, work) => guardedWrite(params, work),
-    });
-
-    registerSharedRecipeTools(server, {
-        services,
-        analytics,
-        userId,
-        resolveTarget: (input) =>
-            resolveMcpTarget(
-                { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
-                principal,
-                input,
-            ),
-        guard: (params, work) => guardedWrite(params, work),
-    });
-
-    registerSharedReadTools(server, {
-        services,
-        analytics,
-        resolveTarget: (input) =>
-            resolveMcpTarget(
-                { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
-                principal,
-                input,
-            ),
-    });
-
-    return server;
 }

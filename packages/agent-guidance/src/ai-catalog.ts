@@ -62,21 +62,33 @@ export function aiCatalog({ apiUrl, docsUrl, hostIdentifier }: AiCatalogInput): 
         host: { displayName: "Autonoma", identifier: `did:web:${identifier}` },
         entries: [
             {
+                identifier: `${URN_PREFIX}:${identifier}:mcp:all`,
+                displayName: "Autonoma MCP",
+                type: MCP_SERVER_MEDIA_TYPE,
+                url: `${api}/v1/mcp`,
+                description:
+                    "Every Autonoma tool on one server. Onboard an application: choose how previews are built, apply configuration, trigger a deploy, validate the test-data SDK, and take the app live. Then debug what Autonoma flags on a pull request: analysis findings, preview deploy status, build and runtime logs, secrets, and scenario recipes. Authenticate with an API key or OAuth. " +
+                    `Docs: ${docs}/mcp/`,
+            },
+            // The addresses people already have configured. They serve the same server as
+            // `/v1/mcp` and are not going away, but a fresh integration should use the one above,
+            // so they are listed as aliases rather than as two separate products.
+            {
                 identifier: `${URN_PREFIX}:${identifier}:mcp:debug`,
-                displayName: "Autonoma debugging MCP",
+                displayName: "Autonoma MCP (debugging alias)",
                 type: MCP_SERVER_MEDIA_TYPE,
                 url: `${api}/v1/mcp/debug`,
                 description:
-                    "Read why Autonoma flagged a pull request and fix it: analysis findings, preview deploy status, build and runtime logs, secrets, and scenario recipes. Authenticate with an API key or OAuth. " +
+                    "Alias for the Autonoma MCP above, kept for existing configurations. Same server and same tools; its connect-time guidance leads with debugging a reviewed pull request. New integrations should use /v1/mcp. " +
                     `Docs: ${docs}/mcp/`,
             },
             {
                 identifier: `${URN_PREFIX}:${identifier}:mcp:onboarding`,
-                displayName: "Autonoma onboarding MCP",
+                displayName: "Autonoma MCP (onboarding alias)",
                 type: MCP_SERVER_MEDIA_TYPE,
                 url: `${api}/v1/mcp/onboarding`,
                 description:
-                    "Run a new application's whole onboarding: choose how previews are built, apply configuration, trigger a deploy, validate the test-data SDK, and take the app live so Autonoma starts reviewing its pull requests. Authenticate with an API key or OAuth. " +
+                    "Alias for the Autonoma MCP above, kept for existing configurations. Same server and same tools; its connect-time guidance leads with onboarding a new application. New integrations should use /v1/mcp. " +
                     `Docs: ${docs}/mcp/configure-preview/`,
             },
             {

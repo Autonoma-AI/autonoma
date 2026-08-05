@@ -1,12 +1,9 @@
 ---
 title: Set up a preview with a coding agent (MCP)
-description: Connect your coding agent to Autonoma's onboarding MCP server so it can do your whole setup - picking how your app gets its previews, configuring and deploying it or wiring your own pipeline, validating your SDK endpoint, and getting your scenario recipes provisioning - while you watch read-only in Autonoma.
+description: Point your coding agent at the Autonoma MCP and let it do your whole setup - picking how your app gets its previews, configuring and deploying it or wiring your own pipeline, validating your SDK endpoint, and getting your scenario recipes provisioning - while you watch read-only in Autonoma.
 ---
 
-import Tabs from "../../../components/Tabs.astro"
-import TabItem from "../../../components/TabItem.astro"
-
-<p class="lead">Autonoma runs a second MCP server for onboarding: connect your coding agent and it sets your previews up for you - works out how your app should get them, does the setup either way, asks you for any secrets it needs, and iterates until previews are landing - while you watch, read-only, in the Autonoma UI.</p>
+<p class="lead">Setting an app up is one of the two jobs the [Autonoma MCP](/mcp/) does: connect your coding agent and it sets your previews up for you - works out how your app should get them, does the setup either way, asks you for any secrets it needs, and iterates until previews are landing - while you watch, read-only, in the Autonoma UI.</p>
 
 ![A coding agent plugs into Autonoma and lights up a live preview environment](/img/mcp/configure-preview-hero.jpg)
 
@@ -28,7 +25,7 @@ Choosing between them is a question about where test data lands, and it is the o
 It is told to prefer Autonoma-hosted whenever it is unsure. The two mistakes are not symmetrical: a needless Autonoma-hosted preview costs an environment we build for you anyway, while wrongly reusing your own previews writes test data into a real shared database. The [trade-off is spelled out here](/preview-environments/your-own-deploys/#which-path-to-pick).
 
 :::note
-This is a different server from the [debugging MCP](/mcp). This one covers the whole of onboarding - the preview environment, your SDK endpoint, and your scenario recipes - so it is the only Autonoma MCP you need while setting up. The debugging MCP comes later, once Autonoma is reviewing your pull requests, and is keyed by your repo rather than a pairing code.
+This is the same server you use afterwards, once Autonoma is reviewing your pull requests - see [debugging a flagged pull request](/mcp/#what-your-agent-can-do). One installation covers both. What is specific to onboarding is the pairing code that pins the app being set up; the debugging tools identify an app by its repo instead.
 :::
 
 ## Start from the Autonoma UI
@@ -37,7 +34,7 @@ You connect this server from inside onboarding, because it pins itself to the ap
 
 1. In Autonoma, start onboarding your app and open the **preview environment** step. It shows what to run for your client, plus a short **pairing code**. If your agent is not on this machine, use the **Remote agent** tab - see [hosted and headless agents](#hosted-and-headless-agents).
 2. **Run it in a new terminal, in your project folder** - not from inside a terminal agent that is already running. For Claude Code that is one line: it registers the server, opens a browser to authorize it, and starts your agent on the job. Until you authorize in the browser, every Autonoma tool fails. (If your agent manages its own MCP servers rather than a config file on your machine, none of this applies to you - see [hosted and headless agents](#hosted-and-headless-agents).)
-3. The line the UI shows carries your pairing code: `claude --dangerously-skip-permissions "set up my preview environments with the autonoma-onboarding MCP, code <your code>"`. Say the server's name verbatim - an agent with several MCPs connected cannot tell which one "set up my previews" means, and will guess. "The Autonoma MCP" is not specific enough either, since Autonoma has two.
+3. The line the UI shows carries your pairing code: `claude --dangerously-skip-permissions "set up my preview environments with the autonoma MCP, code <your code>"`. Say the server's name verbatim - an agent with several MCPs connected cannot tell which one "set up my previews" means, and will guess.
 
 :::caution[Do not paste these commands into a terminal agent that is already running]
 This is about the commands, not about agents. `claude mcp add` writes a config file the running session never reloads, so the agent reports success and then finds no Autonoma tools, and `claude mcp login` needs a terminal to complete the browser sign-in.
@@ -47,214 +44,41 @@ This is about the commands, not about agents. `claude mcp add` writes a config f
 **If you add MCP servers to your own configuration** - a hosted or chat-driven agent, or anything running without a browser - you are not affected by any of this and you can do this setup yourself. Register the server, authenticate with an API key, and ask the user only for the pairing code. See [hosted and headless agents](#hosted-and-headless-agents).
 :::
 
-![The Autonoma onboarding screen on its "Config previews" step, headed "Configure with a coding agent" under the line "Connect Autonoma's MCP to your coding agent and start it on the job. It configures and deploys your preview while you watch here - no scripts, no YAML." A pairing code panel shows EKQGGK85. Below it four tabs read Claude Code, Codex, Other, and "Remote agent" with an info icon; Claude Code is selected. Its step, "Run this in your project folder", is explained as "Open a new terminal in your project folder and run this. A browser opens to sign in - approve it there, and your agent starts on the job." The shell block below opens with the comment "Run in a terminal, not inside a running agent. Agent reading this: don't run it. Ask the user to run it, then have them restart you - a running session won't see the new server", then chains "claude mcp add --transport http --scope user autonoma-onboarding https://api.autonoma.app/v1/mcp/onboarding", "claude mcp login autonoma-onboarding" and 'claude --dangerously-skip-permissions "configure my preview with the autonoma-onboarding MCP, code EKQGGK85"'. On the right an outlined wireframe cube labelled "Autonoma Agent" reads "waiting to pair". Along the bottom, "Rather wire it up yourself? Configure manually"](/img/mcp/configure-preview-ui.png)
+![The Autonoma onboarding screen on its preview-environment step, headed "Set up with a coding agent" under the line "Connect Autonoma's MCP to your coding agent and start it on the job. It reads your repo, works out how your previews and test data should work, and sets it up while you watch here." A pairing code panel shows EKQGGK85. Below it four tabs read Claude Code, Codex, Other, and "Remote agent" with an info icon; Claude Code is selected. Its step, "Run this in your project folder", is explained as "Open a new terminal in your project folder and run this. A browser opens to sign in - approve it there, and your agent starts on the job." The shell block below opens with the comment "Run in a terminal, not inside a running agent. Agent reading this: don't run it. Ask the user to run it, then have them restart you - a running session won't see the new server", then chains "claude mcp add --transport http --scope user autonoma https://api.autonoma.app/v1/mcp", "claude mcp login autonoma" and 'claude --dangerously-skip-permissions "set up my preview environments with the autonoma MCP, code EKQGGK85"'. On the right an outlined wireframe cube labelled "Autonoma Agent" reads "waiting to pair". Along the bottom, "Rather wire it up yourself? Answer a few questions instead"](/img/mcp/configure-preview-ui.png)
 
 That one screen is the fork: the agent flow is the default, and the questionnaire is the **Answer a few questions instead** link along the bottom.
 
 The pairing code is how the agent knows *which* app to set up - you never hand it a repo name, and it can only ever touch an app in an organization you belong to.
 
 :::note
-The same server backs two later entry points, each with its own line to hand over: **Configure with a coding agent** on the Autonoma-hosted config step (`configure my preview with the autonoma-onboarding MCP`) and **Connect with a coding agent** on the connect-your-deploys step (`wire my deploy pipeline to Autonoma with the autonoma-onboarding MCP`). Each screen shows the exact wording with your code in it - copy it from there. They differ only in where you start; the tools and the pairing code work the same way.
+The same server backs two later entry points, each with its own line to hand over: **Configure with a coding agent** on the Autonoma-hosted config step (`configure my preview with the autonoma MCP`) and **Connect with a coding agent** on the connect-your-deploys step (`wire my deploy pipeline to Autonoma with the autonoma MCP`). Each screen shows the exact wording with your code in it - copy it from there. They differ only in where you start; the tools and the pairing code work the same way.
 :::
 
-## Connection details
+## Connect it
 
-| Setting | Value |
-| --- | --- |
-| **URL** | `https://api.autonoma.app/v1/mcp/onboarding` |
-| **Transport** | Streamable HTTP |
-| **Authentication** | OAuth - your client opens a browser to sign in to Autonoma and authorize; no API key or token to paste. An agent with no browser can send an [API key](/mcp/#headless-agents-and-ci) instead. |
+Installing is the same one installation as every other Autonoma job, and it is documented once: **[connect your coding agent](/mcp/)** - the connection details, a snippet per client, and the API-key path for an agent with no browser. Do that first if you have not already; if you connected Autonoma for a previous app, you are already done.
 
-## Hosted and headless agents
+Two things are specific to this job:
 
-**If you are Hermes, OpenClaw, Devin, Jules, or any agent that cannot open a browser: this section is for you.** In the Autonoma UI, the connect screen has a **Remote agent** tab - that is the configuration to use, and the block it copies carries an API key so you never reach a sign-in step.
+**The pairing code.** This is the only thing the agent cannot work out for itself. Onboarding pins the server to one application, and that application has no id you could hand over yet - so the Autonoma UI shows an 8-character code, you give it to your agent, and it calls `pair(code)`. Everything after that is the agent's: reading the repo, picking the path, writing config, deploying, validating the SDK endpoint, and getting scenario recipes provisioning.
 
-Nothing on this page is specific to a coding agent that runs in your terminal. Any agent that speaks MCP over Streamable HTTP can do this setup, including one that has no terminal, no browser, and no config file on your machine.
-
-You do not need the Remote agent tab to have been used, either: **every block the connect screen copies already carries the same fallback as a trailing comment** - the endpoint and an `Authorization: Bearer` header. So if you are handed a Claude Code or Codex command and cannot complete its browser sign-in, do not hand it back. Skip the sign-in step, register the server with the header from the comment, and continue.
-
-> **If you found this page through `llms.txt` or the `.well-known/ai-catalog.json` file**, you are already in the right place. Skip to [Connection details](#connection-details), register the server with the URL and an API key bearer token, then ask the user for the pairing code and call `pair(code)`.
-
-Two things differ for them, and both have an answer:
-
-**Adding the server.** The terminal instructions below exist because Claude Code and Cursor read a config file, so a session that is already running cannot install into itself. An agent that registers MCP servers through its own interface never has that problem - point it at the [URL above](#connection-details) and it is connected.
-
-**Signing in.** OAuth needs a browser, and every MCP client's redirect URI listens on `localhost`, so an agent on a remote machine has nothing to answer the callback with. Skip OAuth and send an Autonoma API key as a bearer token instead:
-
-```bash
-curl https://api.autonoma.app/v1/mcp/onboarding \
-  -H "Authorization: Bearer $AUTONOMA_API_KEY" \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-```
-
-![The Autonoma connect panel on its Remote agent tab. Tabs read Claude Code, Codex, Other and "Remote agent" with an info icon; Remote agent is selected. Above them a pairing code panel shows K7QM24. The step is headed "Send this to your agent", explained as "One message with everything it needs. Copying it creates an API key and includes it here - the key is never shown on screen, and you can revoke it any time under Settings, API keys." The block below reads: "# Autonoma autonoma-onboarding MCP. No sign-in needed - this key authenticates you.", "# URL  https://api.autonoma.app/v1/mcp/onboarding", "# Transport  Streamable HTTP", "# Authorization  Bearer ask_" followed by a row of dots standing in for the hidden key, then a blank line and the prompt "use the autonoma-onboarding MCP to validate my Autonoma SDK endpoint and fix it if it fails, code K7QM24".](/img/mcp/remote-agent-tab.png)
-
-Most clients let you set a static header on a server. The onboarding screen gives you one without a detour: pick the **Remote agent** tab and copy its block. Copying is what creates the key, and it lands in your clipboard already inside the block, next to the endpoint and the prompt your agent starts on.
-
-The key is never rendered. That is the point of the tab: this screen gets screenshotted and screen-shared, and a live organization credential should not be sitting in the frame.
-
-You can also create one under **Settings → API keys**, which is where you revoke it later. The same key works for the debugging MCP, the REST API, and the planner CLI.
+**The prompt.** Start your agent on the line the connect screen shows, code included - for example `set up my preview environments with the autonoma MCP, code EKQGGK85`. Say the server's name verbatim: an agent with several MCPs connected cannot tell which one "set up my previews" means, and will guess.
 
 :::note
-An API key belongs to one organization and over MCP can only reach that organization, even if you belong to several. If a key cannot see an app, check it was created in the organization that owns it.
+**If you are a hosted or headless agent** (Hermes, OpenClaw, Devin, Jules, a CI job): everything you need is in [headless agents and CI](/mcp/#headless-agents-and-ci). Register the server with an `Authorization: Bearer <API_KEY>` header, ask the user for the pairing code, call `pair(code)`, then follow the loop below. The **Remote agent** tab on the connect screen copies a block that already carries the endpoint, a key, and the prompt - and every other tab carries the same header as a trailing comment, so a browser sign-in you cannot complete is never a dead end.
 :::
 
-**What still needs a human.** One thing, once: the **pairing code**. This server pins itself to a single application, and during onboarding that application has no id yet for you to pass - so the user copies an 8-character code from the Autonoma UI and hands it to the agent, which calls `pair(code)`. Everything after that point is the agent's: reading the repo, picking the path, writing config, deploying, validating the SDK endpoint, and getting scenario recipes provisioning.
+![The Autonoma connect dialog on its Remote agent tab, headed "Debug with a coding agent" over the line "Autonoma's MCP - the same one that configures previews and debugs pull requests. Run this in your project to connect it and start your agent on the job. If you already have it installed, running it again is harmless." A pairing code panel shows K7QM24. Tabs read Claude Code, Codex, Other and "Remote agent" with an info icon; Remote agent is selected. Its step, "Send this to your agent", is explained as "One message with everything it needs. Copying it creates an API key and includes it here - the key is never shown on screen, and you can revoke it any time under Settings, API keys." The block below reads: '# Autonoma MCP - register it as "autonoma". No sign-in needed - this key authenticates you.', "# URL  https://api.autonoma.app/v1/mcp", "# Transport  Streamable HTTP", "# Authorization  Bearer ask_" followed by a row of dots standing in for the hidden key, then a blank line and the prompt "use the autonoma MCP to validate my Autonoma SDK endpoint and fix it if it fails, code K7QM24". Under it: "Say autonoma by name: an agent with several MCPs connected cannot tell which one you mean."](/img/mcp/remote-agent-tab.png)
 
-The agent will also stop and wait for the user again if the app needs secret values it does not have - `request_env` asks for key names only, the user types the values into the Autonoma UI, and the agent polls `get_session_status` until they land. Secret values never pass through a tool call.
+The agent will also stop and wait for you again if the app needs secret values it does not have - `request_env` asks for key names only, you type the values into the Autonoma UI, and the agent polls `get_session_status` until they land. Secret values never pass through a tool call.
 
-### Quick start for an agent that manages its own MCP servers
+### The loop, for an agent that manages its own MCP servers
 
-If you are a hosted, chat-driven, or headless agent (not a terminal coding agent), the full setup is:
+1. **Register the server** and **ask the user for the pairing code** - an 8-character code shown in the Autonoma onboarding UI. Nothing else from the user is needed at this stage.
+2. **Call `pair(code)`** - returns the `applicationId`, the linked repository, the preview path playbook, and the current config.
+3. **Follow the loop** - `select_preview_path` → `get_config` / `apply_config` → `trigger_deploy` → `get_session_status` (poll until ready) → verify the app works → `finish_onboarding` → `validate_sdk` → fix recipes with `dry_run_scenario` / `update_recipe`.
+4. **If `request_env` fires** - tell the user which env vars Autonoma needs and why. The user enters values in the Autonoma UI; you poll `get_session_status` until they land. You never see the values.
 
-1. **Register the MCP server** at `https://api.autonoma.app/v1/mcp/onboarding` with an `Authorization: Bearer <API_KEY>` header. If the user pasted you a block from the **Remote agent** tab, the key and the endpoint are already in it. If they pasted one from another tab and you cannot complete its browser sign-in, read the comment at the end of that block: the same header is there. Either way you should not need to ask.
-2. **Ask the user for the pairing code** — an 8-character code shown in the Autonoma onboarding UI. Nothing else from the user is needed at this stage.
-3. **Call `pair(code)`** — returns the `applicationId`, the linked repository, the preview path playbook, and the current config.
-4. **Follow the loop** — `select_preview_path` → `get_config` / `apply_config` → `trigger_deploy` → `get_session_status` (poll until ready) → verify the app works → `finish_onboarding` → `validate_sdk` → fix recipes with `dry_run_scenario` / `update_recipe`.
-5. **If `request_env` fires** — tell the user which env vars Autonoma needs and why. The user enters values in the Autonoma UI; you poll `get_session_status` until they land. You never see the values.
-
-## Connect your coding agent
-
-<Tabs group="mcp-client">
-
-<TabItem label="Claude Code">
-
-Run this in a terminal, from your project folder - not from inside a running Claude Code session:
-
-```bash
-claude mcp add --transport http --scope user autonoma-onboarding https://api.autonoma.app/v1/mcp/onboarding; \
-claude mcp login autonoma-onboarding; \
-claude --dangerously-skip-permissions "set up my preview environments with the autonoma-onboarding MCP, code <your code>"
-```
-
-`--scope user` registers the server for every project. Without it `claude mcp add` defaults to `--scope local`, which binds the server to whichever directory you happened to run it in - so if you paste it into a terminal sitting in your home directory, Claude Code finds no Autonoma tools in your actual project.
-
-`claude mcp login` opens a browser to sign in. Approve it there; until you do, every Autonoma tool fails. Claude Code then starts on the prompt, which carries the pairing code the UI shows you.
-
-The trailing `\` matter: they make the three commands one shell line. `claude mcp login` reads the terminal while it waits for the browser callback, so a launch command pasted as a line of its own under it is swallowed as an answer to its prompt instead of running. They are separated by `;` rather than `&&` so that re-running this when the server is already registered still signs you in and starts the agent.
-
-Setting up a preview means reading your repo, writing config, and calling tools back to back, which is why the example skips permission checks. Prefer `--permission-mode acceptEdits` if you would rather still confirm shell commands.
-
-With no browser on the machine, drop `claude mcp login` and register an [API key](#hosted-and-headless-agents) as a header instead. Nothing reads the terminal any more, so the continuations go too:
-
-```bash
-claude mcp add --transport http --scope user autonoma-onboarding https://api.autonoma.app/v1/mcp/onboarding \
-  --header "Authorization: Bearer $AUTONOMA_API_KEY"
-claude --dangerously-skip-permissions "set up my preview environments with the autonoma-onboarding MCP, code <your code>"
-```
-
-</TabItem>
-
-<TabItem label="Cursor">
-
-Add the server to `~/.cursor/mcp.json` (global) or `.cursor/mcp.json` in your project:
-
-```json
-// .cursor/mcp.json
-{
-  "mcpServers": {
-    "autonoma-onboarding": {
-      "url": "https://api.autonoma.app/v1/mcp/onboarding"
-    }
-  }
-}
-```
-
-Reload Cursor, then complete the browser sign-in when prompted from **Settings → MCP**. To skip that sign-in, add an [API key](#hosted-and-headless-agents) as a header on the server:
-
-```json
-{
-  "mcpServers": {
-    "autonoma-onboarding": {
-      "url": "https://api.autonoma.app/v1/mcp/onboarding",
-      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
-    }
-  }
-}
-```
-
-</TabItem>
-
-<TabItem label="Windsurf">
-
-Add the server to `~/.codeium/windsurf/mcp_config.json`:
-
-```json
-// ~/.codeium/windsurf/mcp_config.json
-{
-  "mcpServers": {
-    "autonoma-onboarding": {
-      "serverUrl": "https://api.autonoma.app/v1/mcp/onboarding"
-    }
-  }
-}
-```
-
-Refresh MCP servers from Cascade's settings, then complete the browser sign-in. To skip that sign-in, add an [API key](#hosted-and-headless-agents) as a header alongside `serverUrl`:
-
-```json
-{
-  "mcpServers": {
-    "autonoma-onboarding": {
-      "serverUrl": "https://api.autonoma.app/v1/mcp/onboarding",
-      "headers": { "Authorization": "Bearer YOUR_API_KEY" }
-    }
-  }
-}
-```
-
-</TabItem>
-
-<TabItem label="Codex">
-
-Codex reaches remote servers through the `mcp-remote` bridge, which also handles the OAuth browser flow. Add it to `~/.codex/config.toml`:
-
-```toml
-# ~/.codex/config.toml
-[mcp_servers.autonoma-onboarding]
-command = "npx"
-args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/onboarding"]
-```
-
-With no browser to complete that flow, pass an [API key](#hosted-and-headless-agents) through the bridge instead:
-
-```toml
-# ~/.codex/config.toml
-[mcp_servers.autonoma-onboarding]
-command = "npx"
-args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/onboarding", "--header", "Authorization: Bearer ${AUTONOMA_API_KEY}"]
-```
-
-Then start Codex in your project and paste the line the UI shows you, pairing code included.
-
-</TabItem>
-
-<TabItem label="Other clients">
-
-Any MCP client that speaks Streamable HTTP can connect with the [connection details](#connection-details) above. If it has no browser to complete the sign-in, send an API key instead - see [hosted and headless agents](#hosted-and-headless-agents).
-
-For a client that only supports STDIO, bridge to the remote server with [`mcp-remote`](https://github.com/geelen/mcp-remote):
-
-```json
-{
-  "mcpServers": {
-    "autonoma-onboarding": {
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp/onboarding"]
-    }
-  }
-}
-```
-
-</TabItem>
-
-</Tabs>
-
-:::caution
-Client config formats change over time. If a snippet above no longer matches, keep the [connection details](#connection-details) and follow your client's current "add an MCP server" instructions.
-:::
 
 ## How the agent sets Autonoma up
 

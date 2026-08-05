@@ -1,21 +1,16 @@
 import { unauthorizedGuidance } from "@autonoma/agent-guidance";
 import { analytics } from "@autonoma/analytics";
 import { verifyApiKey } from "@autonoma/auth";
-import { db, type PrismaClient } from "@autonoma/db";
+import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { StreamableHTTPTransport } from "@hono/mcp";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { type Context, Hono } from "hono";
 import { auth, createServiceContext } from "../context";
 import { env } from "../env";
-import type { Services } from "../routes/build-services";
-import { buildDebugMcpServer } from "./debug-mcp-server";
-import { listAccessibleRepos } from "./list-accessible-repos";
+import { buildMcpServer } from "./build-mcp-server";
 import { McpAnalytics } from "./mcp-analytics";
 import { type McpCredential, type McpPrincipal, resolveMcpPrincipal } from "./mcp-principal";
-import { buildOnboardingMcpServer } from "./onboarding-mcp-server";
-import { resolveMcpTarget } from "./resolve-mcp-target";
-import { resolveRepoContext } from "./resolve-repo-context";
+import type { McpSurface } from "./mcp-surface";
 
 const logger = rootLogger.child({ name: "mcpHttpRouter" });
 
@@ -37,18 +32,12 @@ export interface McpAuthVariables {
 }
 type McpEnv = { Variables: McpAuthVariables };
 
-/** The per-request wiring a named MCP server is built from. */
-interface McpServerDeps {
-    services: Services;
-    db: PrismaClient;
-}
-
 /**
  * Resource server for the MCP surface, mounted at `/v1/mcp`. Better Auth is the
  * OAuth authorization server (via the `mcp()` plugin); the auth middleware
  * verifies the bearer access token per request with `auth.api.getMcpSession`
  * (JWT, locally verified - no introspection round-trip) and stashes the session,
- * then each named server gets its own route. Every request is stateless: a fresh
+ * then each address gets its own route. Every request is stateless: a fresh
  * server + transport, org-scoped to the caller.
  */
 export const mcpHttpRouter = new Hono<McpEnv>();
@@ -94,60 +83,25 @@ async function verifyMcpCredential(c: Context<McpEnv>): Promise<McpCredential | 
 }
 
 /**
- * Client bug resolution: resolves org per `repoFullName` a tool names (the token
- * is userId-only, multi-org) and offers repo discovery for when the agent can't
- * infer the remote from the git config. Every tool call is tracked as an
- * `mcp.tool_called` event, attributed to the org the tool resolves.
+ * The address to give out: one server carrying every Autonoma MCP tool - onboarding a new
+ * application and debugging a reviewed pull request alike - so a client configures Autonoma once
+ * rather than picking a surface before it knows which job it is doing.
  */
-mcpHttpRouter.all("/debug", (c) => {
-    const { principal } = c.get("mcpAuth");
-    // The org is discovered deep inside a handler (from the repoFullName a tool
-    // names), so observeRepoContextResolution records it onto the request's
-    // observability context for the analytics event to read back. Resolution reads
-    // the org's GitHub App installation repos, so it needs the per-request
-    // `services.github` (a diffs-only repo has no preview env to shortcut it).
-    const mcpAnalytics = new McpAnalytics(analytics, "debug", principal.userId);
-    return serveMcp(c, ({ services, db }) => {
-        const resolveRepoCtx = mcpAnalytics.observeRepoContextResolution((repoFullName) =>
-            resolveRepoContext(
-                { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
-                principal,
-                repoFullName,
-            ),
-        );
-        return buildDebugMcpServer({
-            services,
-            resolveRepoContext: resolveRepoCtx,
-            resolveTarget: (input) =>
-                resolveMcpTarget(
-                    { db, listRepositories: (orgId) => services.github.listRepositories(orgId) },
-                    principal,
-                    input,
-                ),
-            listRepos: () => listAccessibleRepos(services.github, principal),
-            analytics: mcpAnalytics,
-            userId: principal.userId,
-            mergeGate: services.mergeGate,
-        });
-    });
-});
+mcpHttpRouter.all("/", (c) => serveMcp(c, "mcp"));
 
 /**
- * PreviewKit onboarding: pins its app via a pairing code the user copies from the
- * UI and resolves org per call from the pinned applicationId. Every tool call is
- * tracked as an `mcp.tool_called` event, attributed to the resolved org.
+ * The debugging address, kept forever for the configurations that already point at it. It serves
+ * the same server as `/v1/mcp`; only the connect-time guidance leads with debugging, and calls
+ * stay attributed to the `debug` surface so usage on the old address remains distinguishable.
  */
-mcpHttpRouter.all("/onboarding", (c) => {
-    const { principal } = c.get("mcpAuth");
-    const mcpAnalytics = new McpAnalytics(analytics, "onboarding", principal.userId);
-    return serveMcp(c, ({ services, db }) =>
-        buildOnboardingMcpServer({ services, db, principal, analytics: mcpAnalytics }),
-    );
-});
+mcpHttpRouter.all("/debug", (c) => serveMcp(c, "debug"));
+
+/** The onboarding address, kept for the same reason and on the same terms. */
+mcpHttpRouter.all("/onboarding", (c) => serveMcp(c, "onboarding"));
 
 /**
- * The per-request plumbing shared by every server route: log the call, borrow the
- * fully-wired service graph the tRPC layer builds, build the named server, and pump it
+ * The per-request plumbing shared by every address: log the call, borrow the
+ * fully-wired service graph the tRPC layer builds, build the server for this surface, and pump it
  * over Streamable HTTP.
  *
  * Deliberately `createServiceContext` and not `createContext`: the caller was already
@@ -155,15 +109,20 @@ mcpHttpRouter.all("/onboarding", (c) => {
  * the context. `createContext` would re-run a session lookup and a second `verifyApiKey`
  * (an unindexed scan of `api_key`) plus a user fetch, and then we would throw all of it away.
  */
-async function serveMcp(c: Context<McpEnv>, build: (deps: McpServerDeps) => McpServer) {
+async function serveMcp(c: Context<McpEnv>, surface: McpSurface) {
     const { principal, credential } = c.get("mcpAuth");
     logger.info("Handling MCP request", {
         userId: principal.userId,
-        extra: { path: c.req.path, credential, organizationCount: principal.organizationIds.length },
+        extra: { path: c.req.path, surface, credential, organizationCount: principal.organizationIds.length },
     });
 
     const { services, db } = createServiceContext();
-    const server = build({ services, db });
+    const server = buildMcpServer(surface, {
+        services,
+        db,
+        principal,
+        analytics: new McpAnalytics(analytics, surface, principal.userId),
+    });
     const transport = new StreamableHTTPTransport();
     await server.connect(transport);
 

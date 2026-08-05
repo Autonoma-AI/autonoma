@@ -1,6 +1,6 @@
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { agentMcpPrompt } from "components/agent-mcp-prompt";
-import { ONBOARDING_MCP_SERVER_NAME } from "components/connect-agent-dialog";
+import { MCP_SERVER_NAME } from "components/connect-agent-dialog";
 import { useSelectPreviewEnvironmentMode } from "lib/onboarding/onboarding-api";
 import {
   type OnboardingOrigin,
@@ -16,7 +16,7 @@ export const Route = createFileRoute("/_blacklight/onboarding/preview-environmen
 });
 
 /** What the user hands their agent here: the whole preview setup, path choice included. */
-const SETUP_INSTRUCTION = `set up my preview environments with the ${ONBOARDING_MCP_SERVER_NAME} MCP`;
+const SETUP_INSTRUCTION = `set up my preview environments with the ${MCP_SERVER_NAME} MCP`;
 
 function agentSetupCopy(appId: string, origin?: OnboardingOrigin): McpFirstCopy {
   return {

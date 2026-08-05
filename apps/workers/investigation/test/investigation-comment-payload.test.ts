@@ -104,7 +104,7 @@ describe("buildInvestigationCommentPayload", () => {
         expect(prompt).toContain("app/x.ts:1-2");
         expect(prompt).toContain("+ b");
         // And the auth-free MCP path: connect the MCP + call get_investigation with this repo + PR.
-        expect(prompt).toContain("https://api.autonoma.app/v1/mcp/debug");
+        expect(prompt).toContain("https://api.autonoma.app/v1/mcp");
         expect(prompt).toContain('get_investigation(repoFullName="acme/web", prNumber=42)');
     });
 

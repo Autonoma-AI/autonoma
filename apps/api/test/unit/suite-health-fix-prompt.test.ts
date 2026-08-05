@@ -47,13 +47,11 @@ function cluster(overrides: Partial<SuiteHealthFixCluster> = {}): SuiteHealthFix
 }
 
 describe("suiteHealthFixPrompt", () => {
-    it("names the debug server and rules out the onboarding one", () => {
+    it("names the server on the first line", () => {
         const prompt = suiteHealthFixPrompt(input());
 
-        // We publish two MCPs and "the Autonoma MCP" names both; an agent holding only the onboarding server has
-        // none of these tools. The very first line has to disambiguate.
+        // An agent holding several MCPs cannot resolve a prompt that names none of them, and picks one.
         expect(prompt.split("\n")[0]).toContain("`autonoma`");
-        expect(prompt).toContain("not `autonoma-onboarding`");
     });
 
     it("leads with the open pull requests, not the oldest work", () => {

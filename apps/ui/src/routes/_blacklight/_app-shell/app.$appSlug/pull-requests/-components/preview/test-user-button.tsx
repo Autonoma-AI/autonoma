@@ -28,7 +28,6 @@ import { InfoIcon } from "@phosphor-icons/react/Info";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { UserPlusIcon } from "@phosphor-icons/react/UserPlus";
 import { Link } from "@tanstack/react-router";
-import { DEBUG_MCP_SERVER_NAME } from "components/connect-agent-dialog";
 import { FixWithAgentButton } from "components/fix-with-agent-button";
 import { AGENT_INSTRUCTIONS } from "lib/onboarding/agent-instructions";
 import {
@@ -297,7 +296,7 @@ function ProvisionErrorBanner({ message, previewUrl }: { message: string; previe
       <AlertDescription className="flex flex-col gap-2 break-words">
         {message}
         <FixWithAgentButton
-          instruction={AGENT_INSTRUCTIONS.provision(DEBUG_MCP_SERVER_NAME)}
+          instruction={AGENT_INSTRUCTIONS.provision}
           capabilities="From your repo it reads this preview's runtime logs, replays the seed against your deployed SDK, and fixes the handler or the recipe."
         />
       </AlertDescription>

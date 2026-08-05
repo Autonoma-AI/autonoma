@@ -257,8 +257,8 @@ collect, so it falls through to the trust rate, which we do.
 The "Fix it" modal hands the whole backlog to a coding agent in one prompt, authored server-side from the same
 rows the plan is built from. Three things it is opinionated about, each from a real failure mode:
 
-- **It names the debug server, and rules out the other one.** We publish two MCPs; "the Autonoma MCP" names
-  both, and an agent holding only `autonoma-onboarding` has none of these tools.
+- **It names the server.** An agent holding several MCPs cannot resolve "the Autonoma MCP" and will pick one,
+  so the first line says `autonoma` verbatim.
 - **Open pull requests first, never oldest first.** A closed pull request needs no fix - at most its run
   explains a failure still live elsewhere - so it is listed as reference material under "do NOT go fix these",
   capped shorter than the open list.

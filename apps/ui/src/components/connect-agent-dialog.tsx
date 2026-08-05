@@ -7,6 +7,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  Skeleton,
   Tabs,
   TabsContent,
   TabsList,
@@ -21,9 +22,11 @@ import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { InfoIcon } from "@phosphor-icons/react/Info";
 import { getApiOrigin } from "lib/api-origin";
 import { demoModalStore } from "lib/demo-modal-store";
+import { useCreateAgentPairing } from "lib/onboarding/onboarding-api";
 import { useCreateApiKey } from "lib/query/api-keys.queries";
 import { useActiveOrg } from "lib/query/auth.queries";
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { agentMcpPrompt } from "./agent-mcp-prompt";
 import {
   AGENT_TABS,
   remoteAgentKeyName,
@@ -32,24 +35,24 @@ import {
   type InstallSnippetInput,
 } from "./connect-agent-snippets";
 
-/** The two Autonoma MCP surfaces, addressed by their `/v1/mcp/<path>` suffix. */
-export type McpEndpoint = "onboarding" | "debug";
-
-/** Public docs page for the debug MCP (connect an agent to read/fix a PR's preview). */
-export const DEBUG_MCP_DOCS_URL = "https://docs.autonoma.app/mcp/";
+/** Public docs page for connecting a coding agent - install, pairing, and what the tools do. */
+export const MCP_DOCS_URL = "https://docs.autonoma.app/mcp/";
 
 /**
- * MCP server name the debug install snippets register (keyed by the repo the agent sits
- * in - no pairing code). Every example prompt must say it verbatim: a user who onboarded
- * also has `autonoma-onboarding` connected, and "the Autonoma MCP" names both.
+ * MCP server name every install snippet registers. One name because there is one server:
+ * it carries the onboarding tools and the pull-request debugging tools alike, and which
+ * job an agent is doing is decided by the prompt it is started on, not by what it connected
+ * to. Example prompts still say it verbatim - see {@link NameTheMcpNote}.
  */
-export const DEBUG_MCP_SERVER_NAME = "autonoma";
+export const MCP_SERVER_NAME = "autonoma";
 
-/** MCP server name the onboarding install snippets register (pins an app via a pairing code). */
-export const ONBOARDING_MCP_SERVER_NAME = "autonoma-onboarding";
-
-/** Public docs page for the agentic onboarding flow (install, pairing, tools, secrets). */
-export const ONBOARDING_MCP_DOCS_URL = "https://docs.autonoma.app/mcp/configure-preview";
+/**
+ * What the dialog says above the install steps on a surface where the user has usually
+ * connected this server already, so the copy leads with "the same one" instead of
+ * introducing it from scratch.
+ */
+export const AGENT_DIALOG_DESCRIPTION =
+  "Autonoma's MCP - the same one that configures previews and debugs pull requests. Run this in your project to connect it and start your agent on the job. If you already have it installed, running it again is harmless.";
 
 /**
  * Resolve the Autonoma MCP endpoint the user's coding agent connects to. We point
@@ -63,8 +66,8 @@ export const ONBOARDING_MCP_DOCS_URL = "https://docs.autonoma.app/mcp/configure-
  * server itself stays on APP_URL (the app origin), where the 401 challenge and
  * discovery are anchored. Localhost and per-PR previews reach the API cross-origin at VITE_API_URL.
  */
-export function mcpEndpointUrl(path: McpEndpoint): string {
-  return `${getApiOrigin()}/v1/mcp/${path}`;
+export function mcpEndpointUrl(): string {
+  return `${getApiOrigin()}/v1/mcp`;
 }
 
 export interface ConnectAgentDialogProps {
@@ -72,37 +75,39 @@ export interface ConnectAgentDialogProps {
   onOpenChange: (open: boolean) => void;
   title: string;
   description: string;
-  /** MCP server name the install snippets register (e.g. "autonoma", "autonoma-onboarding"). */
-  serverName: string;
-  endpoint: McpEndpoint;
-  /** Public docs page for this MCP flow. */
-  docsUrl: string;
-  /** The sentence the agent is started on, pairing code already appended. */
-  prompt: string;
+  /**
+   * The sentence the agent is started on - e.g. "use the autonoma MCP to configure my
+   * preview". The pairing code is appended for you when this dialog pins an app.
+   */
+  instruction: string;
+  /**
+   * Pin this application to the agent with a pairing code, for the onboarding job: a code is
+   * minted while the dialog is open and shown above the steps. Omit it for work on an app that
+   * is already live, where the agent identifies the app from the repo it is sitting in.
+   */
+  applicationId?: string;
   /** What the agent can do once connected, shown under the launch step. */
   capabilities?: ReactNode;
-  /** Optional block above the steps (e.g. the onboarding pairing code). */
-  pairing?: ReactNode;
 }
 
 /**
- * The shared "connect your coding agent to the Autonoma MCP" dialog: per-client
- * install snippets, a docs link, and an optional pairing block. Both the
- * onboarding flow (which pins an app with a pairing code) and the preview
- * settings (debug MCP, keyed by the repo the agent already sits in - no pairing)
- * render it.
+ * The one "connect your coding agent to Autonoma" dialog: per-client install snippets, the
+ * prompt to hand over, and a docs link.
+ *
+ * There is one server and one installation, so there is one dialog. The two jobs it does -
+ * onboarding an app, and debugging a pull request Autonoma flagged - differ only in what the
+ * caller asks for: the `instruction` the agent is started on, and whether an `applicationId`
+ * is being pinned with a pairing code. Someone who connected it during onboarding is already
+ * connected for the debugging, which is the point.
  */
 export function ConnectAgentDialog({
   open,
   onOpenChange,
   title,
   description,
-  serverName,
-  endpoint,
-  docsUrl,
-  prompt,
+  instruction,
+  applicationId,
   capabilities,
-  pairing,
 }: ConnectAgentDialogProps) {
   // Connecting a coding agent is an MCP entry point, and the demo org is locked out of the
   // MCP entirely (see the API-side gates). So in the demo, never open this dialog - bounce to
@@ -114,7 +119,28 @@ export function ConnectAgentDialog({
       onOpenChange(false);
     }
   }, [open, isDemo, onOpenChange]);
+
+  const createPairing = useCreateAgentPairing();
+  // Mint on open, and only once per opening: codes are single-use and short-lived, so
+  // a fresh one per visit is right, but a re-render (or React's dev double-mount) must
+  // not churn the code the user is reading. Cleared on close so reopening re-mints.
+  // In the demo we bounce to the sign-up modal above, so never mint - the pairing write
+  // would just be rejected anyway.
+  const mintedFor = useRef<string | undefined>(undefined);
+  const mintPairing = createPairing.mutate;
+  useEffect(() => {
+    if (!open || isDemo || applicationId == null) {
+      mintedFor.current = undefined;
+      return;
+    }
+    if (mintedFor.current === applicationId) return;
+    mintedFor.current = applicationId;
+    mintPairing({ applicationId });
+  }, [open, isDemo, applicationId, mintPairing]);
+
   if (isDemo) return null;
+
+  const code = createPairing.data?.code;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -126,12 +152,18 @@ export function ConnectAgentDialog({
         </DialogHeader>
         <DialogBody>
           <ConnectAgentInstall
-            serverName={serverName}
-            endpoint={endpoint}
-            docsUrl={docsUrl}
-            prompt={prompt}
+            prompt={agentMcpPrompt(instruction, code)}
             capabilities={capabilities}
-            pairing={pairing}
+            pairing={
+              applicationId != null && (
+                <AgentPairingCode
+                  code={code}
+                  pending={createPairing.isPending}
+                  error={createPairing.isError}
+                  onRetry={() => mintPairing({ applicationId })}
+                />
+              )
+            }
           />
         </DialogBody>
       </DialogContent>
@@ -139,12 +171,42 @@ export function ConnectAgentDialog({
   );
 }
 
+/**
+ * The pairing code block shown inside the connect-agent dialog (or a skeleton / retry while
+ * it mints). Read-only: the code is already inside the command below it, so there is
+ * nothing here worth copying on its own.
+ */
+function AgentPairingCode({
+  code,
+  pending,
+  error,
+  onRetry,
+}: {
+  code?: string;
+  pending: boolean;
+  error: boolean;
+  onRetry: () => void;
+}) {
+  if (pending) return <Skeleton className="h-16 w-full" />;
+  if (error || code == null) {
+    return (
+      <div className="flex flex-col items-center gap-2 border border-status-critical/40 bg-surface-raised p-4">
+        <span className="text-2xs text-status-critical">Couldn't generate a pairing code.</span>
+        <Button variant="outline" size="sm" onClick={onRetry}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-col items-center gap-1 border border-border-dim bg-surface-raised p-4">
+      <span className="text-2xs uppercase tracking-wide text-text-secondary">Pairing code</span>
+      <span className="font-mono text-3xl tracking-[0.3em] text-primary">{code}</span>
+    </div>
+  );
+}
+
 export interface ConnectAgentInstallProps {
-  /** MCP server name the install snippets register (e.g. "autonoma", "autonoma-onboarding"). */
-  serverName: string;
-  endpoint: McpEndpoint;
-  /** Public docs page for this MCP flow. */
-  docsUrl: string;
   /** The sentence the agent is started on, pairing code already appended. */
   prompt: string;
   /** What the agent can do once connected, shown under the launch step. */
@@ -167,14 +229,7 @@ export interface ConnectAgentInstallProps {
  * directly on the page (no dialog) - so `AGENT_TABS` stays a single source of truth
  * across both surfaces.
  */
-export function ConnectAgentInstall({
-  serverName,
-  endpoint,
-  docsUrl,
-  prompt,
-  capabilities,
-  pairing,
-}: ConnectAgentInstallProps) {
+export function ConnectAgentInstall({ prompt, capabilities, pairing }: ConnectAgentInstallProps) {
   const createApiKey = useCreateApiKey();
   // One key per visit, not per copy: a user who copies two blocks wanted one credential,
   // and a key list with a row per click is one nobody can audit.
@@ -184,12 +239,12 @@ export function ConnectAgentInstall({
   // read an empty cache and create a live credential each.
   const minting = useRef<Promise<string> | undefined>(undefined);
   const snippetInput: InstallSnippetInput = {
-    url: mcpEndpointUrl(endpoint),
-    serverName,
+    url: mcpEndpointUrl(),
+    serverName: MCP_SERVER_NAME,
     prompt,
     mintKey: () => {
       minting.current ??= createApiKey
-        .mutateAsync({ name: remoteAgentKeyName(serverName) })
+        .mutateAsync({ name: remoteAgentKeyName(MCP_SERVER_NAME) })
         .then((created) => created.key)
         // A failed mint must not poison the ref, or every later copy replays the failure
         // against a key that was never created.
@@ -232,7 +287,7 @@ export function ConnectAgentInstall({
       </Tabs>
 
       <a
-        href={docsUrl}
+        href={MCP_DOCS_URL}
         target="_blank"
         rel="noreferrer"
         className="inline-flex w-fit items-center gap-1.5 text-2xs text-primary hover:underline"
