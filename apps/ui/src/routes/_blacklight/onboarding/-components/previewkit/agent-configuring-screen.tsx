@@ -16,7 +16,6 @@ import {
   TooltipTrigger,
 } from "@autonoma/blacklight";
 import { type AgentLogEntry } from "@autonoma/types";
-import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { BellRingingIcon } from "@phosphor-icons/react/BellRinging";
 import { BellSlashIcon } from "@phosphor-icons/react/BellSlash";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
@@ -31,24 +30,17 @@ import { PlugsConnectedIcon } from "@phosphor-icons/react/PlugsConnected";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
-import { Link, useNavigate, useRouter } from "@tanstack/react-router";
+import { Link, Navigate } from "@tanstack/react-router";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import { PreviewLink } from "components/preview-link";
 import { TabAttention } from "components/tab-attention";
 import { playChime } from "lib/attention/play-chime";
 import { agentDisplayName } from "lib/onboarding/agent-display-name";
-import {
-  useAgentSession,
-  useCompletePreviewOnboarding,
-  usePreviewReadiness,
-  useStopAgent,
-  useSubmitAgentEnv,
-} from "lib/onboarding/onboarding-api";
+import { useAgentSession, usePreviewReadiness, useStopAgent, useSubmitAgentEnv } from "lib/onboarding/onboarding-api";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplications } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { setLastApp } from "../../../_app-shell/-last-app";
 import { PasteEnvDialog } from "../../../_app-shell/app.$appSlug/preview-config/-variables/paste-env-dialog";
 import { DeployRequestIdleIndicator, isPreviewDeployRequestPhase } from "../deploy-request-indicator";
 import { IntegrationTakingShape } from "./integration-taking-shape";
@@ -79,9 +71,6 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
   const { data: session } = useAgentSession(applicationId);
   const { data: applications } = useApplications();
   const stopAgent = useStopAgent();
-  const complete = useCompletePreviewOnboarding();
-  const navigate = useNavigate();
-  const router = useRouter();
   // Once the preview is live the verbose activity (tool calls, the config cards,
   // the deploy logs) has served its purpose, so collapse it to a compact "you're
   // live, continue" card - but keep it one click away for anyone who wants to look.
@@ -143,7 +132,13 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
   // waiting on an answer it asked for in the chat where we cannot see it. Control
   // is not released until STALE_AFTER_MS (30 min) server-side, so without this the
   // user watches a spinner for half an hour with no idea they are the blocker.
-  const stalled = !ready && isStalled(session.agentLastActivityAt);
+  //
+  // Applies just as much once the preview is verified. An agent that stops there
+  // without going live leaves the app one step short, and this screen now waits for
+  // that step rather than offering it - so silence after `ready` is the case where
+  // the user most needs telling, not one to exempt. A run that has actually gone live
+  // never reaches here; it redirects below.
+  const stalled = isStalled(session.agentLastActivityAt);
   // The agent's own words for why it picked this path, already persisted as that
   // tool call's activity message. Promoted out of the feed because it scrolls
   // away, and it is the decision most worth catching if the agent got it wrong.
@@ -154,32 +149,20 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
   // sections and logs fold away).
   const showDetails = !ready || detailsExpanded;
 
-  // A ready agent-driven preview is the end of preview onboarding, but nothing
-  // advances the flow on its own - the agent holds the config and the user is
-  // read-only. So hand the user the forward action once the preview is live, and
-  // land it on Finish setup: the SDK / artifacts / dry-run work is what actually
-  // comes next, and routing through the app home only asks for the same click
-  // again.
-  function continueOnboarding() {
-    const application = applications.find((app) => app.id === applicationId);
-    if (application == null) {
-      toastManager.add({ type: "critical", title: "Application not found" });
-      return;
-    }
-    complete.mutate(
-      { applicationId },
-      {
-        onSuccess: async () => {
-          setLastApp(application.slug);
-          await router.invalidate();
-          void navigate({
-            to: "/app/$appSlug/finish-setup",
-            params: { appSlug: application.slug },
-            replace: true,
-          });
-        },
-      },
-    );
+  // Whoever holds the config advances it, and here that is the agent: the onboarding
+  // MCP's go-live tool moves the app past `preview_verified`, and the agent is told to
+  // call it as soon as the preview is good. So the step moving on is the signal this
+  // screen is finished - follow it, rather than asking the user to click a transition
+  // that has already happened.
+  //
+  // While the preview is ready the step is at `preview_verified` or beyond, so leaving
+  // it is the whole condition. Finish setup rather than the app home, because the SDK /
+  // artifacts / dry-run work is what actually comes next - and that route's own loader
+  // records the app as last-viewed, so nothing needs to be written on the way out.
+  const wentLive = ready && session.step !== "preview_verified";
+  const application = applications.find((app) => app.id === applicationId);
+  if (wentLive && application != null) {
+    return <Navigate to="/app/$appSlug/finish-setup" params={{ appSlug: application.slug }} replace />;
   }
 
   return (
@@ -226,7 +209,7 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
                 : agentHeadline(session.agentClient, session.previewEnvironmentMode)}
           </span>
           <span className="font-mono text-2xs text-text-secondary">
-            {ready ? "You can continue onboarding" : (running?.message ?? "Working…")}
+            {ready ? "Your agent is carrying on from here" : (running?.message ?? "Working…")}
           </span>
         </div>
         <span className="ml-auto font-mono text-2xs text-text-secondary">
@@ -326,15 +309,21 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
       {ready ? (
         <>
           <Separator />
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Never promise work that has stopped: an agent can verify the preview and
+              then go quiet without taking the app live, and this screen waits for that
+              step rather than offering it - so a spinner alone would sit there
+              indefinitely saying something untrue. */}
+          <div className="flex items-center gap-2.5">
+            {stalled ? (
+              <WarningCircleIcon size={14} weight="fill" className="shrink-0 text-status-warn" />
+            ) : (
+              <BrailleSpinner animation="braille" size="sm" className="shrink-0 text-text-secondary" />
+            )}
             <p className="font-mono text-2xs text-text-secondary">
-              Preview verified. Continue to finish setup - the SDK and test artifacts Autonoma needs before it can
-              generate tests against it. Or Take over to tweak the config first.
+              {stalled
+                ? "Preview verified, but your agent has gone quiet without taking the app live. Tell it to continue, or Take over above and finish here yourself."
+                : "Preview verified. Your agent is taking the app live, then moving on to the SDK and test artifacts - this page follows it. Take over above to change the config instead."}
             </p>
-            <Button variant="accent" className="gap-2" onClick={continueOnboarding} disabled={complete.isPending}>
-              {complete.isPending ? "Continuing…" : "Continue"}
-              <ArrowRightIcon weight="bold" />
-            </Button>
           </div>
         </>
       ) : undefined}
