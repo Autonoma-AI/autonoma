@@ -1,13 +1,10 @@
-import { Button, Skeleton } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { SlidersIcon } from "@phosphor-icons/react/Sliders";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ConnectAgentInstall } from "components/connect-agent-dialog";
-import { useCreateAgentPairing } from "lib/onboarding/onboarding-api";
+import { PlannerCommandBlock } from "components/planner-command-block";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
-import { useEffect, useRef, useState } from "react";
-import { agentConfigurePrompt } from "./agent-configure-prompt";
+import { useEffect, useState } from "react";
 import { AgentConfiguringScreen } from "./agent-configuring-screen";
 
 /**
@@ -42,19 +39,16 @@ export interface McpFirstCopy {
   manualLabel: string;
   /** Where the escape hatch - and a released agent - lands. */
   manualSearch: ReturnType<typeof buildOnboardingSearch>;
-  /** The sentence the user pastes into their agent, code included. */
-  prompt: (code?: string) => string;
 }
 
 /** The config step's copy, and the default so existing call sites are unchanged. */
 function configCopy(appId: string): McpFirstCopy {
   return {
-    heading: "Configure with a coding agent",
+    heading: "Run this in your terminal",
     blurb:
-      "Connect Autonoma's MCP to your coding agent and start it on the job. It configures and deploys your preview while you watch here - no scripts, no YAML.",
+      "Paste this into a terminal in your project. It starts your own coding agent on the job - working out how your app builds, configuring the preview and deploying it - and you watch the progress here. No scripts, no YAML, nothing to install.",
     manualLabel: "Configure manually",
     manualSearch: buildOnboardingSearch("previewkit-config", appId, { configStep: "apps" }),
-    prompt: agentConfigurePrompt,
   };
 }
 
@@ -103,21 +97,6 @@ export function McpFirstConfigView({
 }
 
 function McpFirstPairing({ appId, connected, copy }: { appId: string; connected: boolean; copy: McpFirstCopy }) {
-  const createPairing = useCreateAgentPairing();
-
-  // Mint one pairing code as the page opens - the code is shown immediately, no
-  // click. Keyed by the app it minted for: guards React's dev double-mount (and
-  // re-renders) for the same app, yet re-mints if the view stays mounted across an
-  // appId change (else the shown code would stay pinned to the previous app).
-  const mintedFor = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    if (mintedFor.current === appId) return;
-    mintedFor.current = appId;
-    createPairing.mutate({ applicationId: appId });
-  }, [appId, createPairing]);
-
-  const code = createPairing.data?.code;
-
   return (
     <div className="flex flex-col gap-6">
       <div className="relative grid grid-cols-1 border border-primary lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -132,17 +111,7 @@ function McpFirstPairing({ appId, connected, copy }: { appId: string; connected:
             <p className="max-w-xl text-2xs leading-relaxed text-text-secondary">{copy.blurb}</p>
           </div>
 
-          <ConnectAgentInstall
-            prompt={copy.prompt(code)}
-            pairing={
-              <PairingCodeBlock
-                code={code}
-                pending={createPairing.isPending}
-                error={createPairing.isError}
-                onRetry={() => createPairing.mutate({ applicationId: appId })}
-              />
-            }
-          />
+          <PlannerCommandBlock applicationId={appId} />
         </div>
 
         <ConnectionCube connected={connected} />
@@ -163,39 +132,6 @@ function McpFirstPairing({ appId, connected, copy }: { appId: string; connected:
             {copy.manualLabel}
             <ArrowRightIcon size={13} weight="bold" />
           </Link>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** The prominent centered pairing code (or a skeleton / retry while it mints). */
-function PairingCodeBlock({
-  code,
-  pending,
-  error,
-  onRetry,
-}: {
-  code?: string;
-  pending: boolean;
-  error: boolean;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-2.5">
-      <span className="text-center font-mono text-2xs uppercase tracking-widest text-text-secondary">Pairing code</span>
-      {pending ? (
-        <Skeleton className="h-20 w-full" />
-      ) : error || code == null ? (
-        <div className="flex flex-col items-center gap-2 border border-status-critical/40 bg-surface-void p-5">
-          <span className="text-2xs text-status-critical">Couldn't generate a pairing code.</span>
-          <Button variant="outline" size="sm" onClick={onRetry}>
-            Try again
-          </Button>
-        </div>
-      ) : (
-        <div className="flex items-center justify-center border border-border-mid bg-surface-void px-12 py-6">
-          <span className="font-mono text-4xl tracking-[0.3em] text-primary">{code}</span>
         </div>
       )}
     </div>

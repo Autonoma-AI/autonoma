@@ -1,0 +1,91 @@
+import { describe, expect, test } from "vitest";
+import { buildPlannerCommand, buildPlannerCommandForCopy, PLANNER_DOCS_URL } from "./planner-command";
+
+const ENV = {
+    apiToken: "ask_live_token",
+    generationId: "setup_1",
+    applicationId: "app_1",
+    sharedSecret: "shh_live_secret",
+    distinctId: "user_1",
+};
+
+describe("buildPlannerCommand", () => {
+    test("carries every variable a run needs, in a single pasteable line", () => {
+        expect(buildPlannerCommand(ENV)).toBe(
+            "AUTONOMA_SHARED_SECRET=shh_live_secret AUTONOMA_DISTINCT_ID=user_1 AUTONOMA_API_TOKEN=ask_live_token " +
+                "AUTONOMA_GENERATION_ID=setup_1 AUTONOMA_APPLICATION_ID=app_1 npx @autonoma-ai/planner@latest",
+        );
+    });
+
+    test("omits what the app does not have yet rather than emitting an empty value", () => {
+        const command = buildPlannerCommand({
+            apiToken: "ask_live_token",
+            generationId: "setup_1",
+            applicationId: "app_1",
+        });
+
+        expect(command).not.toContain("AUTONOMA_SHARED_SECRET");
+        expect(command).not.toContain("AUTONOMA_DISTINCT_ID");
+        expect(command).toContain("AUTONOMA_APPLICATION_ID=app_1");
+    });
+
+    // A screenshot, a screen share, or someone reading over a shoulder must not be able
+    // to lift a live credential off a screen nobody treats as sensitive.
+    // The connect screen renders before any token exists - it is minted on copy - so
+    // the masked form has to read as a command even with nothing to mask.
+    test("renders as a command when the token has not been minted yet", () => {
+        const shown = buildPlannerCommand({ ...ENV, apiToken: "" }, { masked: true });
+
+        expect(shown).toContain("AUTONOMA_API_TOKEN=");
+        expect(shown).not.toContain("AUTONOMA_API_TOKEN= ");
+        expect(shown).toContain("npx @autonoma-ai/planner@latest");
+    });
+
+    test("masks credential values on screen but not the identifiers", () => {
+        const shown = buildPlannerCommand(ENV, { masked: true });
+
+        expect(shown).not.toContain("ask_live_token");
+        expect(shown).not.toContain("shh_live_secret");
+        // Ids are not credentials, and a masked one makes the command unreadable.
+        expect(shown).toContain("AUTONOMA_GENERATION_ID=setup_1");
+        expect(shown).toContain("AUTONOMA_APPLICATION_ID=app_1");
+        expect(shown).toContain("AUTONOMA_DISTINCT_ID=user_1");
+    });
+
+    test("what reaches the clipboard is the real command", () => {
+        expect(buildPlannerCommandForCopy(ENV)).toContain(buildPlannerCommand(ENV));
+    });
+
+    // The header's audience is an agent that was handed this command in a chat window
+    // and can never see the screen: --non-interactive is the only path it has.
+    // Two agents read this wanting opposite things, and one header serves both. A local
+    // one, pasted into a session the user already had open, must hand the command back
+    // rather than run it: it takes the terminal over and starts an agent of its own, so
+    // running it from inside one nests two agents on one screen.
+    test("tells a local agent to hand the command over instead of running it", () => {
+        const copied = buildPlannerCommandForCopy(ENV);
+
+        expect(copied).toContain("do NOT run");
+        // Named, not only described: a model recognises "you are Claude Code" faster
+        // and more reliably than it reasons about whether a human is beside it.
+        expect(copied).toContain("Claude Code, Codex, Cursor");
+    });
+
+    // A hosted one - Devin, OpenClaw, a CI job - has nobody to hand it to, so the same
+    // header has to send it the other way.
+    test("tells a headless agent to run it itself, non-interactively", () => {
+        const copied = buildPlannerCommandForCopy(ENV);
+
+        expect(copied).toContain("OpenClaw, Hermes, Devin, a CI job");
+        expect(copied).toContain("no human beside you");
+        expect(copied).toContain("--non-interactive");
+        expect(copied).toContain("--help");
+        expect(copied).toContain(PLANNER_DOCS_URL);
+    });
+
+    // None of that guidance is rendered - a human is already reading the screen.
+    test("keeps the guidance out of what the screen shows", () => {
+        expect(buildPlannerCommand(ENV)).not.toContain("--non-interactive");
+        expect(buildPlannerCommand(ENV)).not.toContain("Agent reading this");
+    });
+});

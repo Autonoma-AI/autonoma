@@ -25,6 +25,26 @@ export const applicationSetupsRouter = router({
             services.applicationSetups.artifactStatus(organizationId, input.applicationId),
         ),
 
+    // A query, because resolving a setup mints nothing - which is the point: a screen
+    // can render the command without leaving a live credential behind.
+    resolveCliSetup: protectedProcedure
+        .input(z.object({ applicationId: z.string(), pinnedSetupId: z.string().optional() }))
+        .query(({ ctx: { services, organizationId, user }, input }) =>
+            services.applicationSetups.resolveCliSetup(
+                user.id,
+                organizationId,
+                input.applicationId,
+                input.pinnedSetupId,
+            ),
+        ),
+
+    // Called on COPY, never on render.
+    mintCliToken: writeProcedure
+        .input(z.object({ applicationId: z.string() }))
+        .mutation(({ ctx: { services, organizationId, user }, input }) =>
+            services.applicationSetups.mintCliToken(user.id, organizationId, input.applicationId),
+        ),
+
     prepareCliSetup: writeProcedure
         .input(z.object({ applicationId: z.string(), pinnedSetupId: z.string().optional() }))
         .mutation(({ ctx: { services, organizationId, user }, input }) =>

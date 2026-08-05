@@ -25,9 +25,26 @@ export function useArtifactStatus(applicationId: string) {
 }
 
 /**
- * Mints an upload token + setup so the Finish setup tab can render a working
- * planner CLI command. One server call; the command renders immediately and the
- * token fills in when this resolves.
+ * The setup id a planner command should carry. Mints nothing, so it is safe to run
+ * on render - which is the whole reason it is separate from {@link useMintCliToken}.
+ */
+export function useCliSetupId(applicationId: string) {
+    return useSuspenseQuery(trpc.applicationSetups.resolveCliSetup.queryOptions({ applicationId }));
+}
+
+/**
+ * Mints the token the CLI authenticates with. Call this when the command is COPIED,
+ * never when it is rendered: looking at a screen must not leave a live credential
+ * behind in the organization.
+ */
+export function useMintCliToken() {
+    return useAPIMutation(trpc.applicationSetups.mintCliToken.mutationOptions());
+}
+
+/**
+ * Mints an upload token + setup in one call. Finish setup renders the token in full
+ * rather than masked, so it genuinely needs both at once. New screens should use
+ * {@link useCliSetupId} + {@link useMintCliToken}.
  */
 export function usePrepareCliSetup() {
     return useAPIMutation(trpc.applicationSetups.prepareCliSetup.mutationOptions());

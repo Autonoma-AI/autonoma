@@ -55,18 +55,50 @@ export class ApplicationSetupsService extends Service {
     }
 
     /**
-     * Mint an upload token + resolve the setup so the Finish setup tab can render
-     * a working planner CLI command (`AUTONOMA_API_TOKEN` + `AUTONOMA_GENERATION_ID`).
+     * Resolve the setup a CLI command should target, WITHOUT minting anything.
+     *
+     * Split out from {@link prepareCliSetup} so a screen can render the command
+     * without creating a credential: the setup id is shown in full, so it has to be
+     * real, but the token beside it is masked and is only needed on copy. Minting
+     * both together made every page view create a live organization API key.
      *
      * The setup is REUSED, not recreated: creating a fresh setup per mount would
      * churn the `AUTONOMA_GENERATION_ID`, and since status reads the newest setup an
      * empty new setup would shadow a completed CLI run and reset the step on refresh.
      * So we pin to `setupId` when the caller supplies one (the id persisted in the
      * URL), otherwise reuse the app's latest non-`failed` setup, and only create a
-     * new one when there is nothing usable to reuse.
+     * new one when there is nothing usable to reuse - so this settles at one setup
+     * per app rather than one per visit.
+     */
+    async resolveCliSetup(
+        userId: string,
+        organizationId: string,
+        applicationId: string,
+        pinnedSetupId?: string,
+    ): Promise<{ setupId: string }> {
+        this.logger.info("Resolving CLI setup", { extra: { applicationId, organizationId, pinnedSetupId } });
+        const setupId = await this.resolveReusableSetup(userId, organizationId, applicationId, pinnedSetupId);
+        return { setupId };
+    }
+
+    /**
+     * Mint the token the CLI authenticates with. Called when the command is COPIED,
+     * not when it is rendered - looking at a screen must not leave a live credential
+     * behind in the organization.
+     */
+    async mintCliToken(userId: string, organizationId: string, applicationId: string): Promise<{ apiKey: string }> {
+        this.logger.info("Minting CLI token", { extra: { applicationId, organizationId } });
+        const apiKey = await this.apiKeys.create(userId, organizationId, `planner-${applicationId}`);
+        return { apiKey: apiKey.key };
+    }
+
+    /**
+     * Mint an upload token + resolve the setup in one call.
      *
-     * A fresh API key is still minted each call - keys are cheap and rotatable, and
-     * the key (unlike the setup id) is not what the status/completion logic keys on.
+     * Kept for the Finish setup tab, which renders the token in full rather than
+     * masked and so genuinely needs both at once. New screens should use
+     * {@link resolveCliSetup} plus {@link mintCliToken} instead, so that merely
+     * looking at a command does not create a credential.
      */
     async prepareCliSetup(
         userId: string,

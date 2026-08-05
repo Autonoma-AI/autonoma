@@ -56,6 +56,7 @@ import {
   useVercelDeployments,
   useVercelDeploymentStatus,
 } from "lib/onboarding/onboarding-api";
+import { buildPlannerCommand } from "lib/onboarding/planner-command";
 import { ensureAPIQueryData } from "lib/query/api-queries";
 import {
   useArtifactStatus,
@@ -1569,22 +1570,22 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
   // AUTONOMA_API_TOKEN authenticates the CLI against our managed LLM proxy, so it
   // is now required for the planner to run (not just to upload artifacts). Only
   // surface a runnable command once that token has been provisioned.
-  const envPairs =
+  // Built from the shared source the connect screen also uses: the two screens hand
+  // out the same command, and a variable present on one and missing from the other is
+  // a run that silently does less.
+  const commandEnv =
     setup.status === "ready"
-      ? [
-          sharedSecret != null ? `AUTONOMA_SHARED_SECRET=${sharedSecret}` : undefined,
-          user != null ? `AUTONOMA_DISTINCT_ID=${user.id}` : undefined,
-          `AUTONOMA_API_TOKEN=${setup.apiKey}`,
-          `AUTONOMA_GENERATION_ID=${setup.setupId}`,
-          // Identifies the app itself, not this setup's uploads: it is what lets the CLI
-          // read onboarding state (and skip phases already done) and mint pairing codes
-          // for the coding agents it hands off to.
-          `AUTONOMA_APPLICATION_ID=${applicationId}`,
-        ].filter((pair): pair is string => pair != null)
+      ? {
+          apiToken: setup.apiKey,
+          generationId: setup.setupId,
+          applicationId,
+          sharedSecret,
+          distinctId: user?.id,
+        }
       : undefined;
 
-  const npxCommand = envPairs != null ? `${envPairs.join(" ")} npx @autonoma-ai/planner@latest` : undefined;
-  const uploadCommand = envPairs != null ? `${envPairs.join(" ")} npx @autonoma-ai/planner@latest upload` : undefined;
+  const npxCommand = commandEnv != null ? buildPlannerCommand(commandEnv) : undefined;
+  const uploadCommand = commandEnv != null ? `${buildPlannerCommand(commandEnv)} upload` : undefined;
 
   // One derived list feeds the chips, the count and the heading, so none of them can
   // disagree and no artifact total is hardcoded.
@@ -1664,7 +1665,12 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
         </div>
       )}
 
-      {isAdmin && <AdminManualUpload applicationId={applicationId} setupId={setup.setupId} />}
+      {isAdmin && (
+        <AdminManualUpload
+          applicationId={applicationId}
+          setupId={setup.status === "ready" ? setup.setupId : undefined}
+        />
+      )}
     </div>
   );
 }
@@ -1996,11 +2002,12 @@ async function readAllFiles(fileList: FileList): Promise<ParsedFile[]> {
   return entries.filter((entry) => entry != null);
 }
 
-interface CliSetupState {
-  status: "loading" | "ready" | "error";
-  apiKey?: string;
-  setupId?: string;
-}
+/**
+ * Discriminated, so `ready` is the only shape that carries credentials and carries
+ * them non-optionally. As a flat interface with optional fields, `status === "ready"`
+ * narrowed nothing and a command could be built holding the string "undefined".
+ */
+type CliSetupState = { status: "loading" } | { status: "error" } | { status: "ready"; apiKey: string; setupId: string };
 
 /**
  * Mints an API key + setup once (on mount, via tRPC) so the CLI command can

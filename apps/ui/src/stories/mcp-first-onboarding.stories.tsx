@@ -3,7 +3,6 @@ import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import type { RouterOutputs } from "lib/trpc";
-import { userEvent, within } from "storybook/test";
 import { ConnectionCube } from "../routes/_blacklight/onboarding/-components/previewkit/mcp-first-config-view";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
@@ -60,14 +59,24 @@ const waitingFixtures: TrpcFixtures = {
   onboarding: {
     getState: makeConfiguringState(),
     getAgentSession: waitingSession,
-    createAgentPairing: { code: "EKQGGK85", expiresAt: new Date(FIXTURE_EPOCH.getTime() + 15 * 60 * 1000) },
   },
-  applications: { list: [baseApplication] },
+  applications: {
+    list: [baseApplication],
+    // Deliberately placeholder-shaped, not credential-shaped: this story is the source
+    // of a published screenshot, and a realistic token there teaches readers that
+    // pasting real ones into screenshots is fine.
+    getSharedSecret: { sharedSecret: "your_shared_secret_here" },
+  },
+  applicationSetups: {
+    // Only the setup id is fetched on render now - the token is minted on copy, so a
+    // story that merely renders the screen never needs one.
+    resolveCliSetup: { setupId: "your_generation_id_here" },
+  },
 };
 
 /**
- * The full config-previews onboarding step with the coding-agent (MCP) path as the
- * headline: pairing code + per-client install snippets on the left, the idle gray
+ * The full config-previews onboarding step: ONE planner command on the left - the whole
+ * of setup, credentials masked on screen and real only in the clipboard - the idle gray
  * "Waiting to pair" cube on the right, and the demoted "Configure manually" link.
  */
 const meta = {
@@ -86,6 +95,16 @@ export const Waiting: Story = {
 };
 
 /**
+ * The same step reached from `preview-environment` - the route a first-time user
+ * actually lands on. It renders the identical view but, unlike `previewkit-config`,
+ * has no Suspense boundary of its own, which is why the command block carries one.
+ */
+export const WaitingFromPreviewEnvironment: Story = {
+  args: { path: `/onboarding?step=preview-environment&appId=${baseApplication.id}` },
+  parameters: { msw: { handlers: appShellHandlers(waitingFixtures) } },
+};
+
+/**
  * The connect visual on its own: the lime, glowing "Connected - starting setup"
  * end-state the cube whips into once the agent pairs (a screenshot catches a single
  * frame of the spin-up). The idle gray state is visible in {@link Waiting}.
@@ -98,16 +117,4 @@ export const ConnectedCube: StoryObj<typeof ConnectionCube> = {
       </div>
     </div>
   ),
-};
-
-/**
- * The same onboarding screen on its Remote agent tab. The connect UI is one shared component,
- * so the tab reaches every surface that offers an agent - this is the one a user meets first.
- */
-export const WaitingRemoteAgent: Story = {
-  ...Waiting,
-  play: async ({ canvasElement }) => {
-    const screen = within(canvasElement.ownerDocument.body);
-    await userEvent.click(await screen.findByRole("tab", { name: /remote agent/i }));
-  },
 };

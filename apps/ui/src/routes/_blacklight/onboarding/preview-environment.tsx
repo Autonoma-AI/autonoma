@@ -1,6 +1,4 @@
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { agentMcpPrompt } from "components/agent-mcp-prompt";
-import { MCP_SERVER_NAME } from "components/connect-agent-dialog";
 import { useSelectPreviewEnvironmentMode } from "lib/onboarding/onboarding-api";
 import {
   type OnboardingOrigin,
@@ -15,19 +13,15 @@ export const Route = createFileRoute("/_blacklight/onboarding/preview-environmen
   component: () => <Navigate to="/onboarding" search={buildOnboardingSearch("preview-environment")} />,
 });
 
-/** What the user hands their agent here: the whole preview setup, path choice included. */
-const SETUP_INSTRUCTION = `set up my preview environments with the ${MCP_SERVER_NAME} MCP`;
-
 function agentSetupCopy(appId: string, origin?: OnboardingOrigin): McpFirstCopy {
   return {
-    heading: "Set up with a coding agent",
+    heading: "Run this in your terminal",
     blurb:
-      "Connect Autonoma's MCP to your coding agent and start it on the job. It reads your repo, works out how your previews and test data should work, and sets it up while you watch here.",
+      "Paste this into a terminal in your project. It starts your own coding agent on the job - reading your repo, working out how your previews and test data should work, and setting it up - then generates your test suite. You watch the progress here.",
     manualLabel: "Answer a few questions instead",
     // Keep the origin on the escape hatch: the questionnaire uses it to skip the
     // questions arriving from that marketplace already answers.
     manualSearch: buildOnboardingSearch("preview-environment", appId, { manual: true, origin }),
-    prompt: (code) => agentMcpPrompt(SETUP_INSTRUCTION, code),
   };
 }
 
