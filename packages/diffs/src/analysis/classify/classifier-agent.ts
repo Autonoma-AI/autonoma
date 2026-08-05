@@ -1,4 +1,4 @@
-import { Agent, type LanguageModel, type ModelMessage, type TextGenerator } from "@autonoma/ai";
+import { Agent, TextGenerator, type LanguageModel, type ModelMessage, type RetryConfig } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { sharedCompactor } from "../../agents/compaction";
 import { buildCodebaseTools } from "../../agents/tools/codebase/build-codebase-tools";
@@ -6,7 +6,7 @@ import { ViewStepDetailsTool } from "../../agents/tools/run-evidence/view-step-d
 import type { RunVerdict } from "../schema";
 import { ClassifierAgentLoop } from "./classifier-agent-loop";
 import { describeEvidenceLimits } from "./evidence-limits";
-import { createRecordingReader, runVisionProbes } from "./probes";
+import { runVisionProbes } from "./probes";
 import { CLASSIFIER_SYSTEM_PROMPT, buildClassifierPrompt } from "./prompt";
 import { AnalyzeVideoTool } from "./tools/analyze-video-tool";
 import { AppLogsTool } from "./tools/app-logs-tool";
@@ -15,6 +15,18 @@ import { PriorRunsTool } from "./tools/prior-runs-tool";
 import { RunScriptTool } from "./tools/run-script-tool";
 import type { ClassifierInput } from "./types";
 import { VerdictTool } from "./verdict-tool";
+
+/**
+ * Bounded retry for the vision reads, tighter than the shared default.
+ *
+ * `buildRetry` treats a TIMEOUT as transient, so `maxRetries` multiplies the per-attempt ceiling: the default
+ * policy would let one hung full-recording read spend 33 minutes, past the 30-minute Temporal
+ * `startToCloseTimeout` that is this classifier's only wall clock.
+ */
+const VISION_RETRY: RetryConfig = { maxRetries: 3, initialDelayInMs: 1000, backoffFactor: 2, maxDelayInMs: 10_000 };
+
+/** A full-recording read re-sends the whole video and has been measured from ~10s to well over a minute. */
+const RECORDING_TIMEOUT_MS = 3 * 60_000;
 
 export interface ClassifierAgentConfig {
     /** The reasoning model that drives the loop. */
@@ -58,7 +70,11 @@ export class ClassifierAgent extends Agent<ClassifierInput, RunVerdict, Classifi
     constructor({ model, videoModel }: ClassifierAgentConfig) {
         super();
         this.model = model;
-        this.recordingReader = createRecordingReader(videoModel);
+        this.recordingReader = new TextGenerator({
+            model: videoModel,
+            timeoutMs: RECORDING_TIMEOUT_MS,
+            retry: VISION_RETRY,
+        });
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
@@ -75,17 +91,12 @@ export class ClassifierAgent extends Agent<ClassifierInput, RunVerdict, Classifi
 
         // Deterministic probes FIRST - surface on-screen errors + plan divergence + whether the test's
         // intended OUTCOMES occurred, as fact before the classifier reasons, so none can be missed in
-        // favour of a hypothesis. `buildUserPrompt` is async precisely for this pre-loop work.
-        //
-        // Skipped outright when the run recorded nothing: every probe asks what happened ACROSS the run, which
-        // no other artifact answers, so the prompt says so plainly instead of rendering four empty scans. A
-        // caller holding scans already (a replayed case) hands them over instead, and no recording is read.
+        // favour of a hypothesis.
         const recording = input.run.recording;
         const scans =
-            input.scans ??
-            (recording != null
+            recording != null
                 ? await runVisionProbes({ recording, reader: this.recordingReader, testPlan: input.test.plan })
-                : undefined);
+                : undefined;
         const promptText = buildClassifierPrompt({
             input,
             scans,

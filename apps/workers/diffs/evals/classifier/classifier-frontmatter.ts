@@ -40,12 +40,6 @@ export const classifierFrontmatterSchema = baseFrontmatterSchema.extend({
      */
     expectRewrite: z.boolean().default(true),
     /**
-     * Re-read the recording with live vision probes instead of using the frozen scans. Off by default: frozen
-     * scans make a case cheaper and far steadier, which is what lets `category` mean anything. Turn it on for
-     * a case whose point is to grade the probes themselves, e.g. when swapping the video model.
-     */
-    probes: z.enum(["frozen", "live"]).default("frozen"),
-    /**
      * How many times to classify this case. Above one, EVERY run must satisfy the checks, so this measures
      * whether a verdict is stable rather than whether it is reachable.
      */

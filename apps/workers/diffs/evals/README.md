@@ -208,7 +208,6 @@ capturedCategory: engine_artifact   # what production said when frozen. Provenan
 category: passed                    # the verdict this case ASSERTS (blank at capture, by design)
 planFidelity: exact                 # optional: exact | partial | diverged
 expectRewrite: true                 # a plan_mismatch must carry a revised plan (see below)
-probes: frozen                      # 'live' re-reads the recording instead of using frozen scans
 runs: 1                             # >1 requires EVERY run to pass, which measures stability
 ---
 
@@ -229,6 +228,11 @@ either: whether the cited evidence supports the verdict, and which frame best sh
 finding, are judgements the rubric exists for. Set `expectRewrite: false` for a case
 whose right answer is the empty rewrite, which the self-heal loop reads as "keep this
 test without re-running it" - a real answer a blanket requirement would train away.
+
+**The vision probes run live, every time.** A case stores no scans: the agent reads the
+recording itself on every run, exactly as production does. Each run therefore costs four
+full-recording vision reads on top of the loop, and the probes are one of the places a
+verdict moves between two runs of an unchanged classifier - which is what `runs: N` measures.
 
 **What a replay cannot serve.** The classifier holds two live-infra capabilities that
 no fixture can reproduce: the preview backend (`run_script`, `get_preview_env`) and the
@@ -336,21 +340,17 @@ in `expected.md`, then flip `skip: false`.
 
 **Classifier - what capture recomputes.** Everything the classifier reasons from is
 reassembled through the **same helpers the production activity uses** (the generation
-select, `buildRunArtifacts`, `describeProvision`, the diff stat, the PR metadata), so a
-frozen case cannot quietly diverge from what production classified. Two things are
-recomputed rather than read back:
+select, `buildRunFacts`, `describeProvision`, the diff stat, the PR metadata), so a
+frozen case cannot quietly diverge from what production classified. The one thing
+recomputed rather than read back is **the prior-runs baseline**, bounded to the
+classification's own `createdAt`. Without that bound, runs recorded *after* the
+classification leak into `everPassed` and `mostRecentSuccessDay` - the line deciding
+whether the classifier may blame the PR at all - handing a replay a baseline the original
+could never have seen.
 
-- **The four vision scans.** Only the model's rendered prompt was persisted, so capture
-  re-reads the recording through `captureProbeScans` - the same `smart-video` model and
-  probe prompts a classification uses, so the frozen scans are ones one could have
-  produced. This costs roughly $0.02 per case, once. A run that recorded nothing freezes
-  no scans, and replay runs none either.
-- **The prior-runs baseline**, bounded to the classification's own `createdAt`. Without
-  that bound, runs recorded *after* the classification leak into `everPassed` and
-  `mostRecentSuccessDay` - the line deciding whether the classifier may blame the PR at
-  all - handing a replay a baseline the original could never have seen.
-
-Capture also needs `OPENAI_API_KEY` for the scan re-read, unlike the other commands.
+Classifier capture needs no model credentials and never downloads media: it takes the
+run's facts (`buildRunFacts`, which does no I/O) and writes the recording and final frame
+as storage keys for the evaluation to fetch.
 
 **Baseline snapshot state (Analysis).** Analysis grades against the snapshot as it stood _before_
 this snapshot's pipeline ran. At production time the snapshot's own assignments are still that

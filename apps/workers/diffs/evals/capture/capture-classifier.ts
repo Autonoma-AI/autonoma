@@ -1,14 +1,12 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { InlineMp4VideoUploader } from "@autonoma/ai";
 import { db } from "@autonoma/db";
 import { readPrDiffStat } from "@autonoma/diffs";
-import { PriorRuns, type ProbeScans, captureProbeScans } from "@autonoma/diffs/analysis";
+import { PriorRuns } from "@autonoma/diffs/analysis";
 import { logger as rootLogger } from "@autonoma/logger";
 import { SELF_HEAL_RERUN_REASON } from "@autonoma/types";
-import ffmpeg from "@ffmpeg-installer/ffmpeg";
-import { buildRunArtifacts, describeProvision, loadGenerationRow } from "../../src/activities/classify-run";
+import { buildRunFacts, describeProvision, loadGenerationRow } from "../../src/activities/classify-run";
 import { resolvePrMeta } from "../../src/codebase/pr-meta";
 import { loadSnapshotMeta, resolveGitHubAccess } from "../../src/codebase/snapshot-context";
 import { createGithubApp } from "../../src/create-services";
@@ -29,16 +27,14 @@ export interface CaptureClassifierParams {
 /**
  * Capture a Classifier eval case from a real classification.
  *
- * A case is ONE `AnalysisClassification`, which is what makes a self-heal re-run capturable in its own right:
- * iteration 2 of a finding is a separate row with its own generation and its own `priorPass`, and it exercises
- * a prompt path iteration 1 never reaches.
+ * A case is ONE `AnalysisClassification`: iteration 2 of a finding is a separate row with its own generation
+ * and its own `priorPass`, so a self-heal re-run is capturable in its own right and exercises a prompt path
+ * iteration 1 never reaches.
  *
- * Everything the classifier reasons from is reassembled through the SAME helpers the production activity uses -
- * the generation select, the run artifacts, the provisioning summary, the diff stat, the PR metadata - so a
- * frozen case cannot quietly diverge from what production classified. The two things capture computes rather
- * than reads are the vision scans (re-read through the agent, since only the model's output was persisted, and
- * only as rendered prose) and the prior-runs baseline (bounded to the classification's own timestamp, so runs
- * recorded afterwards cannot leak into it).
+ * Everything the classifier reasons from is reassembled through the SAME helpers the production activity uses,
+ * so a frozen case cannot quietly diverge from what production classified. The one thing capture computes
+ * rather than reads is the prior-runs baseline, bounded to the classification's own timestamp so runs recorded
+ * afterwards cannot leak into it.
  */
 export async function captureClassifier(params: CaptureClassifierParams): Promise<string> {
     const logger = rootLogger.child({ name: "captureClassifier" });
@@ -75,48 +71,10 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
         loadGenerationRow(classification.generationId),
     ]);
 
-    // Imported here, not at module scope: `services` pulls the worker env (GitHub App + OpenAI keys), which
-    // would break the credential-free zero-case no-op if it loaded at collection.
-    const { createModelSession } = await import("../../src/services");
-    const videoModel = createModelSession().getVideoModel({ model: "smart-video", tag: "classifier-capture-video" });
-
     // The one key production would classify from, resolved exactly as `buildRunArtifacts` resolves it: the
     // dead-time-stripped mp4 when the optimizer produced one, the original webm otherwise.
     const videoKey = generation.optimizedVideoUrl ?? generation.videoUrl;
-    const { run } = await buildRunArtifacts(generation, new InlineMp4VideoUploader(ffmpeg.path));
-
-    // `buildRunArtifacts` drops the recording on a failed download OR a failed transcode, warning rather than
-    // throwing - the right trade for a live classification, which would rather proceed blind than not at all.
-    // For a frozen case it is not: the key would still be written, replay would rehydrate a recording from it,
-    // and the agent would fall through to LIVE probes on a case that declares `probes: frozen` - paid,
-    // non-deterministic, and silent. Refuse instead. The failure is transient, so re-running capture fixes it.
-    if (videoKey != null && run.recording == null) {
-        throw new Error(
-            `Generation ${classification.generationId} recorded ${videoKey}, but it could not be downloaded or ` +
-                "transcoded, so this run's vision scans cannot be frozen. See the warning above; capture is " +
-                "retryable.",
-        );
-    }
-
-    const scans: ProbeScans | undefined =
-        run.recording != null
-            ? await captureProbeScans({
-                  videoModel: videoModel.model,
-                  recording: run.recording,
-                  testPlan: generation.testPlan.prompt,
-              })
-            : undefined;
-    if (scans == null) {
-        logger.info("Run produced no recording; freezing a case with no vision scans", {
-            extra: { classificationId },
-        });
-    } else if (Object.values(scans).every((scan) => scan == null)) {
-        // Faithful to a production run whose probes all failed, but a case frozen this way grades the classifier
-        // on four "that scan did not run" notes. Worth re-capturing rather than authoring against.
-        logger.warn("Every vision probe failed; the frozen case carries no usable scans", {
-            extra: { classificationId },
-        });
-    }
+    const run = buildRunFacts(generation);
 
     const priorRuns = new PriorRuns(db);
     const baseline = PriorRuns.formatBaseline(
@@ -142,7 +100,6 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
             videoKey != null ? { key: videoKey, isOptimizedMp4: generation.optimizedVideoUrl != null } : undefined,
         finalScreenshotKey: generation.finalScreenshot ?? undefined,
         baseline,
-        scans,
         productionCapabilities: await resolveProductionCapabilities(github.repoFullName, prMeta.prNumber),
     });
 
@@ -274,7 +231,6 @@ capturedCategory: ${classification.category}
 # planFidelity: exact | partial | diverged
 # expectRewrite: true    # a plan_mismatch must carry a revised plan; false when the
 #                        # right answer is no viable rewrite (the loop keeps the test)
-# probes: frozen         # 'live' re-reads the recording - only for grading the probes
 # runs: 1                # >1 requires EVERY run to pass, which measures stability
 ---
 

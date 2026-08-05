@@ -1,4 +1,4 @@
-import type { RunArtifacts } from "@autonoma/diffs/analysis";
+import type { RunFacts } from "@autonoma/diffs/analysis";
 import { describe, expect, it } from "vitest";
 import {
     type ClassifierCaseSource,
@@ -10,12 +10,11 @@ import {
 /**
  * The frozen corpus lives in a separate private repo, so nothing here can load a real case. What CAN be proven
  * without it is the property the corpus depends on: that freezing an assembled classification and rehydrating
- * it returns the same facts, through JSON, with the live handles correctly stripped and the media reduced to
- * addresses. A silent loss here would not fail loudly - it would quietly grade the classifier on less than it
- * had in production.
+ * it returns the same facts, through JSON, with the media reduced to addresses. A silent loss here would not
+ * fail loudly - it would quietly grade the classifier on less than it had in production.
  */
 
-const RUN: RunArtifacts = {
+const RUN: RunFacts = {
     success: false,
     finishReason: "failed",
     stepCount: 2,
@@ -23,10 +22,6 @@ const RUN: RunArtifacts = {
     reasoning: "the assertion never saw the toast",
     startEpoch: 1_770_000_000,
     endEpoch: 1_770_000_120,
-    // The uploaded handle and the raw frame are the two things a fixture must NOT carry: the handle expires and
-    // the bytes belong in S3. Both are set here so the round-trip can prove they are dropped.
-    recording: { uri: "data:video/mp4;base64,dropped-at-capture", mimeType: "video/mp4" },
-    finalScreenshot: new Uint8Array([1, 2, 3]),
     inspectableSteps: [
         {
             order: 1,
@@ -57,7 +52,6 @@ const SOURCE: ClassifierCaseSource = {
     recording: { key: "gen/abc/video.mp4", isOptimizedMp4: true },
     finalScreenshotKey: "gen/abc/final.png",
     baseline: "Prior runs (most recent 3):\n- ever passed: YES",
-    scans: { errorScan: "NO VISIBLE ERRORS", fidelityScan: "FIDELITY: exact" },
     productionCapabilities: { previewEnv: true, previewScript: true, appLogs: false },
 };
 
@@ -69,11 +63,10 @@ function throughDisk(source: ClassifierCaseSource) {
 
 describe("classifier eval case round-trip", () => {
     it("preserves the classifier's facts through a freeze and a rehydrate", () => {
-        const { coords, input, baseline, scans } = rehydrateClassifierInput(throughDisk(SOURCE));
+        const { coords, input, baseline } = rehydrateClassifierInput(throughDisk(SOURCE));
 
         expect(coords).toEqual(SOURCE.coords);
         expect(baseline).toBe(SOURCE.baseline);
-        expect(scans).toEqual(SOURCE.scans);
         expect(input.test).toEqual(SOURCE.test);
         expect(input.provision).toEqual(SOURCE.provision);
         expect(input.priorPass).toEqual(SOURCE.priorPass);
@@ -90,54 +83,28 @@ describe("classifier eval case round-trip", () => {
         expect(input.headSha).toBe(coords.headSha);
     });
 
-    it("replaces the run's media with addresses instead of carrying bytes", () => {
+    it("stores the run's media as addresses the evaluation fetches", () => {
         const frozen = throughDisk(SOURCE);
 
         expect(frozen.run.recording).toEqual({ key: "gen/abc/video.mp4", isOptimizedMp4: true });
         expect(frozen.run.finalScreenshotKey).toBe("gen/abc/final.png");
-        expect(JSON.stringify(frozen)).not.toContain("dropped-at-capture");
     });
 
-    it("keeps a run that recorded nothing capturable, with no media and no scans", () => {
+    it("keeps a run that recorded nothing capturable, with no media at all", () => {
         const noMedia: ClassifierCaseSource = {
             ...SOURCE,
-            run: { ...RUN, recording: undefined, finalScreenshot: undefined },
             recording: undefined,
             finalScreenshotKey: undefined,
-            scans: undefined,
         };
 
-        const { input, media, scans } = rehydrateClassifierInput(throughDisk(noMedia));
+        const { input, media } = rehydrateClassifierInput(throughDisk(noMedia));
 
         expect(media.recording).toBeUndefined();
         expect(media.finalScreenshotKey).toBeUndefined();
-        expect(scans).toBeUndefined();
         expect(input.run.steps).toEqual(RUN.steps);
     });
 
     it("rejects a case whose recording key is blank rather than freezing an unfetchable address", () => {
         expect(() => serializeClassifierInput({ ...SOURCE, recording: { key: "", isOptimizedMp4: true } })).toThrow();
-    });
-
-    /**
-     * The silent-degradation shape: a recording with no frozen scans passes every field-level check, then makes
-     * the agent read the recording live on a case that declares `probes: frozen` - paid and non-deterministic,
-     * which is what freezing them exists to prevent. It reaches the schema from two directions (a capture whose
-     * video download or transcode failed, both of which warn and continue, and a hand-edited fixture), so the
-     * schema refuses it rather than relying on each writer to remember.
-     */
-    it("refuses a case that has a recording but no frozen scans", () => {
-        expect(() => serializeClassifierInput({ ...SOURCE, scans: undefined })).toThrow(/frozen scans/);
-    });
-
-    it("still accepts a case with neither a recording nor scans", () => {
-        expect(() =>
-            serializeClassifierInput({
-                ...SOURCE,
-                run: { ...RUN, recording: undefined },
-                recording: undefined,
-                scans: undefined,
-            }),
-        ).not.toThrow();
     });
 });

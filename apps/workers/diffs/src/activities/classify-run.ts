@@ -6,6 +6,7 @@ import {
     PreviewEnvironment,
     PriorRuns,
     type RunArtifacts,
+    type RunFacts,
     loadPreviewAppLogs,
     persistInvestigationCosts,
 } from "@autonoma/diffs/analysis";
@@ -361,13 +362,31 @@ export interface BuiltRunArtifacts {
     recordingBytes?: Uint8Array;
 }
 
-/** Build the in-memory run artifacts: derive the step trace from the attempts, fetch media from S3. */
+/**
+ * Derive the run's facts from the generation row - no I/O. Separate from the media fetch below so freezing a
+ * replayable case does not download and transcode a recording it drops.
+ */
+export function buildRunFacts(generation: GenerationRow): RunFacts {
+    const traced = generation.attempts.slice(0, MAX_TRACE_STEPS);
+    const steps = buildStepTrace(traced, generation.createdAt);
+
+    return {
+        success: generation.status === "success",
+        finishReason: generation.status,
+        stepCount: steps.length,
+        steps,
+        reasoning: generation.reasoning ?? undefined,
+        startEpoch: Math.floor(generation.createdAt.getTime() / 1000),
+        endEpoch: Math.floor(generation.updatedAt.getTime() / 1000),
+        inspectableSteps: deriveInspectableSteps(traced),
+        architecture: generation.snapshot.branch.application.architecture,
+    };
+}
+
 export async function buildRunArtifacts(
     generation: GenerationRow,
     uploader: VideoUploader,
 ): Promise<BuiltRunArtifacts> {
-    const traced = generation.attempts.slice(0, MAX_TRACE_STEPS);
-    const steps = buildStepTrace(traced, generation.createdAt);
     const storage = getStorage();
 
     // Prefer the dead-time-stripped mp4 the vision model bills fewer frames for; fall back to the original webm.
@@ -383,19 +402,7 @@ export async function buildRunArtifacts(
             ? await uploadRecording(recordingBytes, generation.optimizedVideoUrl != null, uploader)
             : undefined;
 
-    const run: RunArtifacts = {
-        success: generation.status === "success",
-        finishReason: generation.status,
-        stepCount: steps.length,
-        steps,
-        reasoning: generation.reasoning ?? undefined,
-        startEpoch: Math.floor(generation.createdAt.getTime() / 1000),
-        endEpoch: Math.floor(generation.updatedAt.getTime() / 1000),
-        recording,
-        finalScreenshot,
-        inspectableSteps: deriveInspectableSteps(traced),
-        architecture: generation.snapshot.branch.application.architecture,
-    };
+    const run: RunArtifacts = { ...buildRunFacts(generation), recording, finalScreenshot };
     return { run, recordingBytes };
 
     async function downloadMedia(urlOrKey: string): Promise<Uint8Array | undefined> {

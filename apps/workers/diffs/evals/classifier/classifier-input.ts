@@ -1,5 +1,5 @@
 import { ApplicationArchitecture } from "@autonoma/db";
-import type { ClassifierInput, ProbeScans, RunArtifacts } from "@autonoma/diffs/analysis";
+import type { ClassifierInput, RunFacts } from "@autonoma/diffs/analysis";
 import { overlayPointSchema } from "@autonoma/types";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
@@ -21,14 +21,6 @@ const productionCapabilitiesSchema = z.object({
 });
 
 export type ProductionCapabilities = z.infer<typeof productionCapabilitiesSchema>;
-
-/** The four deterministic vision scans, frozen verbatim. A field is absent when that probe failed. */
-const probeScansSchema = z.object({
-    errorScan: z.string().optional(),
-    fidelityScan: z.string().optional(),
-    visualScan: z.string().optional(),
-    missionScan: z.string().optional(),
-});
 
 /**
  * One traced step as `view_step_details` discloses it. Already key-addressed in production, so it freezes
@@ -79,35 +71,21 @@ const frozenRunSchema = z.object({
  * `baseSha` / `headSha` are deliberately NOT stored twice: the classifier renders them into its prompt and the
  * clone needs them too, and both read the single pair on `codebase`.
  */
-export const classifierCaseInputSchema = z
-    .object({
-        codebase: codebaseCoordsSchema,
-        appSlug: z.string().min(1),
-        prNumber: z.number().int().nonnegative(),
-        test: z.object({ slug: z.string().min(1), plan: z.string(), affectedReason: z.string() }),
-        provision: z.object({ status: z.string(), detail: z.string(), seeded: z.string().optional() }),
-        diffSummary: z.string(),
-        prTitle: z.string().optional(),
-        prBody: z.string().optional(),
-        priorPass: z
-            .object({ category: z.string(), headline: z.string(), rootCause: z.string().optional() })
-            .optional(),
-        run: frozenRunSchema,
-        /** The prior-runs prose, frozen as of the classification so no later run can leak into it. */
-        baseline: z.string(),
-        /** Absent when the run recorded nothing for the probes to read; replay then runs none either. */
-        scans: probeScansSchema.optional(),
-        productionCapabilities: productionCapabilitiesSchema,
-    })
-    .refine((parsed) => parsed.run.recording == null || parsed.scans != null, {
-        // A recording with no frozen scans is the one shape that degrades in silence: the agent falls back to
-        // reading the recording itself, so a case declaring `probes: frozen` quietly spends four paid,
-        // non-deterministic vision reads on every run - the exact thing freezing them exists to prevent. Enforced
-        // in the schema rather than only at capture so it also holds for a hand-edited fixture, which the loader
-        // parses through here.
-        message: "a case with a recording must carry frozen scans, or replay silently falls back to live probes",
-        path: ["scans"],
-    });
+export const classifierCaseInputSchema = z.object({
+    codebase: codebaseCoordsSchema,
+    appSlug: z.string().min(1),
+    prNumber: z.number().int().nonnegative(),
+    test: z.object({ slug: z.string().min(1), plan: z.string(), affectedReason: z.string() }),
+    provision: z.object({ status: z.string(), detail: z.string(), seeded: z.string().optional() }),
+    diffSummary: z.string(),
+    prTitle: z.string().optional(),
+    prBody: z.string().optional(),
+    priorPass: z.object({ category: z.string(), headline: z.string(), rootCause: z.string().optional() }).optional(),
+    run: frozenRunSchema,
+    /** The prior-runs prose, frozen as of the classification so no later run can leak into it. */
+    baseline: z.string(),
+    productionCapabilities: productionCapabilitiesSchema,
+});
 
 export type ClassifierCaseInput = z.infer<typeof classifierCaseInputSchema>;
 
@@ -117,8 +95,8 @@ export type FrozenRunMedia = ClassifierCaseInput["run"];
 /** Everything the classifier takes that is neither a live handle nor a media blob. */
 export type FrozenClassifierInput = Omit<
     ClassifierInput,
-    "codebase" | "screenshotLoader" | "preview" | "loadBaseline" | "loadAppLogs" | "run" | "scans"
-> & { run: Omit<RunArtifacts, "recording" | "finalScreenshot"> };
+    "codebase" | "screenshotLoader" | "preview" | "loadBaseline" | "loadAppLogs" | "run"
+> & { run: RunFacts };
 
 /** What rehydration yields: the git coordinates, the pure input, and the pieces the caller must fetch. */
 export interface RehydratedClassifierInput {
@@ -126,7 +104,6 @@ export interface RehydratedClassifierInput {
     input: FrozenClassifierInput;
     media: FrozenRunMedia;
     baseline: string;
-    scans?: ProbeScans;
 }
 
 /**
@@ -159,7 +136,7 @@ export function rehydrateClassifierInput(parsed: ClassifierCaseInput): Rehydrate
         },
     };
 
-    return { coords: parsed.codebase, input, media: parsed.run, baseline: parsed.baseline, scans: parsed.scans };
+    return { coords: parsed.codebase, input, media: parsed.run, baseline: parsed.baseline };
 }
 
 /** What capture holds when it freezes a case: the assembled classifier facts plus their storage addresses. */
@@ -173,19 +150,16 @@ export interface ClassifierCaseSource {
     prTitle?: string;
     prBody?: string;
     priorPass?: ClassifierInput["priorPass"];
-    /** The artifacts exactly as production assembled them; the byte-carrying fields are dropped here. */
-    run: RunArtifacts;
+    run: RunFacts;
     recording?: { key: string; isOptimizedMp4: boolean };
     finalScreenshotKey?: string;
     baseline: string;
-    scans?: ProbeScans;
     productionCapabilities: ProductionCapabilities;
 }
 
 /**
- * Freeze an assembled classification into the on-disk case shape: drop the recording and final frame in favour
- * of their storage keys, and keep everything else as production assembled it. Validated through the schema so
- * capture can never write a malformed `input.json`.
+ * Freeze an assembled classification into the on-disk case shape, through the schema so capture can never write
+ * a malformed `input.json`.
  */
 export function serializeClassifierInput(source: ClassifierCaseSource): ClassifierCaseInput {
     return classifierCaseInputSchema.parse({
@@ -198,21 +172,8 @@ export function serializeClassifierInput(source: ClassifierCaseSource): Classifi
         prTitle: source.prTitle,
         prBody: source.prBody,
         priorPass: source.priorPass,
-        run: {
-            success: source.run.success,
-            finishReason: source.run.finishReason,
-            stepCount: source.run.stepCount,
-            steps: source.run.steps,
-            reasoning: source.run.reasoning,
-            startEpoch: source.run.startEpoch,
-            endEpoch: source.run.endEpoch,
-            inspectableSteps: source.run.inspectableSteps,
-            architecture: source.run.architecture,
-            recording: source.recording,
-            finalScreenshotKey: source.finalScreenshotKey,
-        },
+        run: { ...source.run, recording: source.recording, finalScreenshotKey: source.finalScreenshotKey },
         baseline: source.baseline,
-        scans: source.scans,
         productionCapabilities: source.productionCapabilities,
     });
 }

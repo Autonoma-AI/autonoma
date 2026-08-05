@@ -1,6 +1,6 @@
 import { InlineMp4VideoUploader, type UploadedVideo } from "@autonoma/ai";
 import { type EvidenceLoader, StorageEvidenceLoader, summarizeSessionCost } from "@autonoma/diffs";
-import { ClassifierAgent, type ProbeScans, type RunVerdict } from "@autonoma/diffs/analysis";
+import { ClassifierAgent, type RunVerdict } from "@autonoma/diffs/analysis";
 import { Evaluation, type LoadedCase, type RunCaseHelpers } from "@autonoma/evals";
 import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
@@ -26,9 +26,8 @@ import {
 export type ClassifierCase = LoadedCase<ClassifierCaseInput, ClassifierFrontmatter>;
 
 /**
- * Per-case timeout. A classification is a tool loop over a real clone plus, when the case asks for live probes,
- * four full-recording vision reads - and `runs: N` multiplies all of it, so the budget is per run rather than
- * per case.
+ * Per-case timeout. A classification is a tool loop over a real clone plus four full-recording vision reads,
+ * and `runs: N` multiplies all of it, so the budget is per run rather than per case.
  */
 const TIMEOUT_PER_RUN_MS = 900_000;
 
@@ -37,8 +36,8 @@ const TIMEOUT_PER_RUN_MS = 900_000;
  *
  * Each case rehydrates the codebase from frozen coords, checks every storage key it references is still
  * downloadable, fetches the run's media, and runs {@link ClassifierAgent} directly - no workflow, no DB, no
- * writes. The prior-runs baseline is served from the frozen prose and the four vision scans from the frozen
- * reads, so a replay touches nothing but git, S3 and the models.
+ * writes. The prior-runs baseline is served from the frozen prose; the recording is read live, so a replay
+ * grades the vision probes alongside the reasoning and touches nothing but git, S3 and the models.
  *
  * The preview backend and the app-log stream are NOT served. The classifier is told as much through its own
  * evidence-limits note, so it caps unprovable claims rather than guessing; each case records in
@@ -95,7 +94,7 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
             helpers.skip("case marked skip: true in expected.md frontmatter");
         }
 
-        const { coords, input, media, baseline, scans } = rehydrateClassifierInput(testCase.input);
+        const { coords, input, media, baseline } = rehydrateClassifierInput(testCase.input);
         const codebase = await this.rehydrateCodebase(coords, helpers, testCase.name);
 
         const evidenceLoader = new StorageEvidenceLoader(S3Storage.createFromEnv());
@@ -128,7 +127,6 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
                 run: { ...input.run, recording, finalScreenshot },
                 codebase,
                 screenshotLoader: evidenceLoader,
-                scans: this.scansFor(testCase.frontmatter, scans),
                 loadBaseline: async () => baseline,
                 preview: undefined,
                 loadAppLogs: undefined,
@@ -172,17 +170,6 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
         });
 
         expect(judgeVerdict.passed, `Judge failed: ${judgeVerdict.reasoning}`).toBe(true);
-    }
-
-    /**
-     * The scans to classify against: the frozen reads, unless the case asked for live probes. Returning
-     * `undefined` is what makes the agent read the recording itself, so `probes: "live"` needs no other switch.
-     *
-     * A `frozen` case cannot reach that fallback by accident - the case schema refuses a recording with no
-     * frozen scans, so the only route here is a case that recorded nothing, which has no probes to run either.
-     */
-    private scansFor(frontmatter: ClassifierFrontmatter, scans: ProbeScans | undefined): ProbeScans | undefined {
-        return frontmatter.probes === "live" ? undefined : scans;
     }
 
     /**

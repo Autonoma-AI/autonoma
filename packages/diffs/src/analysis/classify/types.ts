@@ -2,14 +2,9 @@ import type { UploadedVideo } from "@autonoma/ai";
 import type { ApplicationArchitecture } from "@autonoma/db";
 import type { InspectableStep, ScreenshotLoader } from "../../agents/tools/run-evidence/run-evidence-types";
 import type { Codebase } from "../../codebase";
-import type { ProbeScans } from "./probes";
 
-/**
- * The artifacts of the browser run. The recording and the final frame are held in MEMORY as bytes - the
- * generation activity already stored them in S3, and every classification reads both immediately (the four
- * probes watch the video; the prompt inlines the final frame), so the classifier never touches the filesystem.
- */
-export interface RunArtifacts {
+/** Everything one classification reads off the generation row, with none of the run's media. */
+export interface RunFacts {
     success: boolean;
     finishReason: string;
     stepCount: number;
@@ -17,13 +12,6 @@ export interface RunArtifacts {
     reasoning?: string;
     startEpoch: number;
     endEpoch: number;
-    /**
-     * The run recording, already in the form the vision models take - the worker uploads it through the
-     * uploader its registry entry declares, so nothing here knows or cares whether that is a Files-API URI or
-     * inline base64.
-     */
-    recording?: UploadedVideo;
-    finalScreenshot?: Uint8Array;
     /**
      * Every traced step as `view_step_details` discloses it: the frame keys plus the engine's own record of
      * the step. Identified by the step's `order` exactly as the prompt's trace renders it - NOT by array
@@ -38,6 +26,21 @@ export interface RunArtifacts {
      * `view_step_details` only draws the marker where the two share a coordinate space.
      */
     architecture?: ApplicationArchitecture;
+}
+
+/**
+ * Both media blobs are held in MEMORY as bytes - the generation activity already stored them in S3, and every
+ * classification reads both immediately (the four probes watch the video; the prompt inlines the final frame),
+ * so the classifier never touches the filesystem.
+ */
+export interface RunArtifacts extends RunFacts {
+    /**
+     * The run recording, already in the form the vision models take - the worker uploads it through the
+     * uploader its registry entry declares, so nothing here knows or cares whether that is a Files-API URI or
+     * inline base64.
+     */
+    recording?: UploadedVideo;
+    finalScreenshot?: Uint8Array;
 }
 
 /** Access to the PR's preview environment: its config var names + a read-only script harness against its backend. */
@@ -77,12 +80,6 @@ export interface ClassifierInput {
     baseSha: string;
     headSha: string;
     run: RunArtifacts;
-    /**
-     * The four pre-loop vision scans, when a caller already holds them. Supplied when replaying a frozen case,
-     * so the classification is judged against the exact scans the case was authored against and the replay
-     * spends no vision reads. Absent in production, where the agent reads the recording itself.
-     */
-    scans?: ProbeScans;
     /** Rehydrates one step frame's bytes from its storage key, at `view_step_details` call time. */
     screenshotLoader: ScreenshotLoader;
     /**

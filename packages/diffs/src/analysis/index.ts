@@ -13,9 +13,7 @@ export type { PreviewAppLogsInput } from "./logs/preview-app-logs";
 export { VerdictForModel } from "./classify/verdict-schema";
 export { ClassifierAgent } from "./classify/classifier-agent";
 export type { ClassifierAgentConfig } from "./classify/classifier-agent";
-export type { ClassifierInput, PreviewAccess, RunArtifacts } from "./classify/types";
-export { captureProbeScans } from "./classify/probes";
-export type { ProbeScans } from "./classify/probes";
+export type { ClassifierInput, PreviewAccess, RunArtifacts, RunFacts } from "./classify/types";
 export { summarizeVerdictPlanes } from "./verdict-planes";
 export type { AppHealthVerdict, CoverageCategoryCount, CoverageSummary, TwoPlaneSummary } from "./verdict-planes";
 

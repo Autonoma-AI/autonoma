@@ -5,8 +5,8 @@
  *   tsx evals/capture/capture-classifier-cli.ts <analysisClassificationId> [--name <case-name>] [--force]
  *
  * Run via the `capture:classifier` package script so env is loaded from the repo `.env`. Required env:
- * DATABASE_URL, the GITHUB_APP_* credentials, S3 access, and OPENAI_API_KEY (the vision scans are re-read at
- * capture so the frozen case carries the reads a classification would have seen).
+ * DATABASE_URL and the GITHUB_APP_* credentials. Neither S3 nor a model key: a case addresses its media by
+ * storage key and capture calls no model, so both are the evaluation's business.
  */
 
 import { parseArgs } from "node:util";
