@@ -54,6 +54,31 @@ env vars as a run (`AUTONOMA_API_URL` stays optional - the host defaults to prod
 a recipe submit fails during a run, the full recipe JSON is also printed to stdout so it can be
 recovered even from an ephemeral container.
 
+### Preview environments (when the run starts from onboarding)
+
+A run launched from Autonoma's connect screen begins one step earlier than the pipeline
+below: with the **preview environment**, a real deployment of your app that Autonoma builds
+per pull request and tests against. The CLI registers the Autonoma MCP server with your
+coding agent and then starts a fresh session on the job - registering first is the whole
+trick, because an agent only loads its MCP servers at startup and so can never pick up one
+it registered itself.
+
+The CLI decides this from your app's onboarding status, so it only happens when there is
+something to do:
+
+- Started from the connect screen, with no preview yet: preview environment, then the
+  pipeline.
+- Started from **Finish setup**, or with a preview you set up by hand: straight to the
+  pipeline, exactly as before.
+- No `AUTONOMA_APPLICATION_ID` (a standalone run against any repo): straight to the
+  pipeline, and nothing here applies.
+
+Completion is read from Autonoma, not from your agent - an interactive session does not
+exit when its work is done, and its exit code says nothing about whether a preview
+deployed. That also makes it work the same whether your previews are Autonoma-hosted, on
+Vercel, or from your own pipeline. If the preview does not finish, the run continues to
+generate your test suite and warns you: only scenario dry runs need a live preview.
+
 ### Monorepos
 
 The run starts by mapping your repository - discovering which folder(s) are frontends, which are

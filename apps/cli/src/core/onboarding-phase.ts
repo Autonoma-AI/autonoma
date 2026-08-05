@@ -18,8 +18,13 @@ const STEP_ORDER: readonly string[] = [
     "completed",
 ];
 
-/** The step at which an app's preview environment is up and confirmed. */
-const PREVIEW_DONE_STEP = "preview_verified";
+/**
+ * The step at which an app's preview environment is up and confirmed. Exported
+ * because the preview phase decides "done" against the same line - a second copy
+ * would drift silently, and the drift is invisible: the watcher would simply never
+ * recognize a verified preview and every run would report itself unfinished.
+ */
+export const PREVIEW_DONE_STEP = "preview_verified";
 
 /**
  * Where a run should start.

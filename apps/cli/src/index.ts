@@ -735,20 +735,46 @@ async function main() {
 
     const hasProgress = Object.values(state.steps).some((s) => s === "done" || s === "running");
 
+    // Where this run starts. A run launched from the connect screen still has a
+    // preview environment to set up; one launched from Finish setup (or standalone)
+    // goes straight to the pipeline, which is what the planner has always done.
+    const { planFrontDoor } = await import("./core/front-door");
+    const frontDoor = await planFrontDoor(config);
+    const previewPending = frontDoor?.phase === "preview";
+
     // A fresh, interactive run opens with a welcome. Skipped when resuming, on a
     // targeted --step, or when a prior run left progress (nothing new to greet).
     if (!nonInteractive && !isResuming && !hasProgress) {
         await p.welcome({
-            title: "Let's build your test suite.",
-            lines: [
-                "Autonoma analyzes your codebase - its pages, data models, and user flows - and " +
-                    "generates a full suite of end-to-end test cases that cover them, so you get real " +
-                    "test coverage without writing a single test yourself.",
-                "It takes a little while, and the whole run happens right here so you can watch it work.",
-                "This analysis is free for new accounts.",
-            ],
+            title: previewPending ? "Let's get Autonoma running on your app." : "Let's build your test suite.",
+            lines: previewPending
+                ? [
+                      "First your coding agent sets up a preview environment - a real deployment of your app, " +
+                          "built per pull request, that Autonoma tests against. It reads your repo and works out " +
+                          "how to build and run it.",
+                      "Then Autonoma analyzes your codebase - its pages, data models, and user flows - and " +
+                          "generates a full suite of end-to-end test cases that cover them.",
+                      "It all happens right here, in this terminal, so you can watch and steer it.",
+                  ]
+                : [
+                      "Autonoma analyzes your codebase - its pages, data models, and user flows - and " +
+                          "generates a full suite of end-to-end test cases that cover them, so you get real " +
+                          "test coverage without writing a single test yourself.",
+                      "It takes a little while, and the whole run happens right here so you can watch it work.",
+                      "This analysis is free for new accounts.",
+                  ],
             cta: "Press enter to begin",
         });
+    }
+
+    if (frontDoor != null && previewPending) {
+        const { runPreviewHandoff, describeIncompletePreview } = await import("./core/front-door");
+        const result = await runPreviewHandoff({ plan: frontDoor, config, nonInteractive });
+        track("cli_preview_phase_finished", { outcome: result.kind });
+        const problem = describeIncompletePreview(result);
+        // Never fatal: the knowledge base, scenarios and tests do not need a preview.
+        // Only the dry run does, and that is reported where it happens.
+        if (problem != null) p.log.warn(problem);
     }
 
     if (!isResuming && !nonInteractive && hasProgress) {
