@@ -94,4 +94,23 @@ export class AutonomaClient {
         captureLog("info", "Minted agent pairing code", { source: "onboarding" });
         return code;
     }
+
+    /**
+     * Take the onboarding config mutex for this run, so the web app stops offering the
+     * steps this run is about to do and points the user at their terminal instead.
+     *
+     * This is the same mutation behind the UI's "hand it back to the agent" control:
+     * handing the mutex over is one state change whoever asks for it, and a second
+     * procedure that set the same column would only be a way for the two to drift.
+     *
+     * Unconditional by design - a user starting this run IS the handoff, including
+     * after an earlier take-over. What makes take-over stick is that this is called
+     * once at the start of a run rather than polled, so a user who takes the config
+     * back mid-run keeps it.
+     */
+    async claimAgentHold(applicationId: string): Promise<void> {
+        debugLog("Claiming the onboarding config for this run", { applicationId });
+        await this.trpc.onboarding.resumeAgent.mutate({ applicationId });
+        captureLog("info", "Claimed the onboarding config for this run", { source: "onboarding" });
+    }
 }

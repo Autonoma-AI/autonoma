@@ -74,6 +74,15 @@ describe("AutonomaClient", () => {
         expect(JSON.parse(request?.body ?? "")).toEqual({ json: { applicationId: "app_1" } });
     });
 
+    test("claims the config through the same mutation the UI's hand-back control uses", async () => {
+        await client().claimAgentHold("app_1");
+
+        const request = requests[0];
+        expect(request?.method).toBe("POST");
+        expect(request?.url).toBe(`${API_URL}/v1/trpc/onboarding.resumeAgent`);
+        expect(JSON.parse(request?.body ?? "")).toEqual({ json: { applicationId: "app_1" } });
+    });
+
     test("surfaces an API error rather than resolving with nothing", async () => {
         respond = () =>
             new Response(JSON.stringify({ error: { json: { message: "Application not found", code: -32004 } } }), {

@@ -36,6 +36,7 @@ import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/pr
 import { PreviewLink } from "components/preview-link";
 import { TabAttention } from "components/tab-attention";
 import { playChime } from "lib/attention/play-chime";
+import { agentDisplayName } from "lib/onboarding/agent-display-name";
 import {
   useAgentSession,
   useCompletePreviewOnboarding,
@@ -675,23 +676,6 @@ function ChosenPath({
 function isStalled(lastActivityAt: string | Date | undefined): boolean {
   if (lastActivityAt == null) return false;
   return Date.now() - new Date(lastActivityAt).getTime() > STALLED_AFTER_MS;
-}
-
-/**
- * A friendly name for the driving coding agent from its MCP `clientInfo`. The
- * client-reported name varies ("claude-code", "cursor", "Windsurf", ...), so we
- * match the ones we know and fall back to a neutral label - never assume Claude.
- */
-function agentDisplayName(client?: string): string {
-  if (client == null) return "Your coding agent";
-  const normalized = client.toLowerCase();
-  if (normalized.includes("claude")) return "Claude";
-  if (normalized.includes("cursor")) return "Cursor";
-  if (normalized.includes("codex") || normalized.includes("openai")) return "Codex";
-  if (normalized.includes("windsurf")) return "Windsurf";
-  if (normalized.includes("cline")) return "Cline";
-  if (normalized.includes("copilot")) return "Copilot";
-  return "Your coding agent";
 }
 
 function ToolCallRow({ entry }: { entry: AgentLogEntry }) {

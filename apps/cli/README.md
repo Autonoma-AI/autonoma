@@ -73,6 +73,11 @@ something to do:
 - No `AUTONOMA_APPLICATION_ID` (a standalone run against any repo): straight to the
   pipeline, and nothing here applies.
 
+Once a run is past the preview environment, it tells Autonoma it is driving the app, and
+the web app replaces the setup steps with a note pointing you back at this terminal -
+there is nothing to do in both places at once. "Take over" in the web app hands the steps
+back to you; a run in progress keeps going, so stop it here too.
+
 Completion is read from Autonoma, not from your agent - an interactive session does not
 exit when its work is done, and its exit code says nothing about whether a preview
 deployed. That also makes it work the same whether your previews are Autonoma-hosted, on

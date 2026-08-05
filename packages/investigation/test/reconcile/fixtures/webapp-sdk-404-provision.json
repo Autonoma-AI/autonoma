@@ -1,0 +1,524 @@
+{
+    "id": "webapp-sdk-404-provision",
+    "findings": [
+        {
+            "id": "001-basic-search-metroville",
+            "slug": "001-basic-search-metroville",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "002-search-filter-unit-specs",
+            "slug": "002-search-filter-unit-specs",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "003-search-filter-amenities",
+            "slug": "003-search-filter-amenities",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "016-autocomplete-nonexistent-location",
+            "slug": "016-autocomplete-nonexistent-location",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "saved-search-to-booking",
+            "slug": "saved-search-to-booking",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "saved-search-to-booking-69610877",
+            "slug": "saved-search-to-booking-69610877",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "schedule-booking",
+            "slug": "schedule-booking",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "002-existing-booking-shows-on-favorited-item",
+            "slug": "002-existing-booking-shows-on-favorited-item",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "001-favorites-sheet-lists-favorites",
+            "slug": "001-favorites-sheet-lists-favorites",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "003-unfavorite-from-sheet",
+            "slug": "003-unfavorite-from-sheet",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "004-empty-favorites-state",
+            "slug": "004-empty-favorites-state",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "001-saved-search-sheet-lists-searches",
+            "slug": "001-saved-search-sheet-lists-searches",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "004-delete-saved-search",
+            "slug": "004-delete-saved-search",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "006-saved-search-filter-summary",
+            "slug": "006-saved-search-filter-summary",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "011-keyword-filter",
+            "slug": "011-keyword-filter",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "012-price-min-greater-than-max",
+            "slug": "012-price-min-greater-than-max",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "002-sign-in-valid-credentials-17eb3995",
+            "slug": "002-sign-in-valid-credentials-17eb3995",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "001-sign-in-page-renders-6703b59b",
+            "slug": "001-sign-in-page-renders-6703b59b",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "003-sign-in-wrong-password-898e6ce3",
+            "slug": "003-sign-in-wrong-password-898e6ce3",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "001-happy-path-offer-form-renders",
+            "slug": "001-happy-path-offer-form-renders",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "002-fill-buyer-info-and-price",
+            "slug": "002-fill-buyer-info-and-price",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "007-invalid-email-validation",
+            "slug": "007-invalid-email-validation",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "008-purchase-method-selection",
+            "slug": "008-purchase-method-selection",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "009-price-range-link-to-price-step",
+            "slug": "009-price-range-link-to-price-step",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "017-manual-review-disclaimer",
+            "slug": "017-manual-review-disclaimer",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "016-price-panel-shows-benchmark-positioning",
+            "slug": "016-price-panel-shows-benchmark-positioning",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "001-suggested-price-renders",
+            "slug": "001-suggested-price-renders",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "002-comparisons-table-renders",
+            "slug": "002-comparisons-table-renders",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "003-negotiation-power-bar",
+            "slug": "003-negotiation-power-bar",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "comparisons-to-settlement-management",
+            "slug": "comparisons-to-settlement-management",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "comparisons-to-settlement-management-fbb1e5f6",
+            "slug": "comparisons-to-settlement-management-fbb1e5f6",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        },
+        {
+            "id": "001-finalization-accordion-sections",
+            "slug": "001-finalization-accordion-sections",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Scenario setup failed: the preview environment was unavailable, so the test never ran",
+            "rootCause": "The preview deployment / SDK endpoint was missing or unreachable during provisioning.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 404: Error parsing response: Unexpected token '<', \"<html>"
+                }
+            ]
+        }
+    ],
+    "gold": [
+        {
+            "members": [
+                "001-basic-search-metroville",
+                "002-search-filter-unit-specs",
+                "003-search-filter-amenities",
+                "016-autocomplete-nonexistent-location",
+                "saved-search-to-booking",
+                "saved-search-to-booking-69610877",
+                "schedule-booking",
+                "002-existing-booking-shows-on-favorited-item",
+                "001-favorites-sheet-lists-favorites",
+                "003-unfavorite-from-sheet",
+                "004-empty-favorites-state",
+                "001-saved-search-sheet-lists-searches",
+                "004-delete-saved-search",
+                "006-saved-search-filter-summary",
+                "011-keyword-filter",
+                "012-price-min-greater-than-max",
+                "002-sign-in-valid-credentials-17eb3995",
+                "001-sign-in-page-renders-6703b59b",
+                "003-sign-in-wrong-password-898e6ce3",
+                "001-happy-path-offer-form-renders",
+                "002-fill-buyer-info-and-price",
+                "007-invalid-email-validation",
+                "008-purchase-method-selection",
+                "009-price-range-link-to-price-step",
+                "017-manual-review-disclaimer",
+                "016-price-panel-shows-benchmark-positioning",
+                "001-suggested-price-renders",
+                "002-comparisons-table-renders",
+                "003-negotiation-power-bar",
+                "comparisons-to-settlement-management",
+                "comparisons-to-settlement-management-fbb1e5f6",
+                "001-finalization-accordion-sections"
+            ],
+            "confidence": "high"
+        }
+    ]
+}

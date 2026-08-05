@@ -1,0 +1,1775 @@
+{
+    "id": "webapp-preview-deployment-not-found",
+    "findings": [
+        {
+            "id": "cortex-renamed-to-recall",
+            "slug": "cortex-renamed-to-recall",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview URL returned DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The live preview URL resolved to a Vercel-style `DEPLOYMENT_NOT_FOUND` page before the app could load. Scenario provisioning returned valid auth and seeded data, so the failure is downstream of setup and outside the test plan's target functionality.",
+            "whatHappened": "The browser never loaded the AcmeApp app and remained on a deployment error page through navigation and refresh. None of the planned sidebar, user menu, or “Recall” assertions were exercised. There are no prior successful runs for this test, but this run was blocked by the unavailable preview before the plan could be evaluated.",
+            "evidence": [
+                {
+                    "source": "video",
+                    "detail": "The preview never rendered the AcmeApp app; the final screen was a platform deployment error.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "The trace shows only navigation/refresh actions and no successful interaction with the planned AcmeApp UI.",
+                    "snippet": "1. [navigate] success\n2. [navigate] success\n3. [refresh] success"
+                },
+                {
+                    "source": "run",
+                    "detail": "There is no passing baseline for this generated test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded, so missing auth/data was not the blocker.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nData seeded: Tag=4, User=6, Company=1, Workspace=2, Initiative=5, DiscoveryCycle=6, ..."
+                }
+            ]
+        },
+        {
+            "id": "cortex-full-reset-files",
+            "slug": "cortex-full-reset-files",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "This is a preview availability failure, not a Cortex ingest failure: the request was served by the hosting provider’s error page before the application could load. The intended feature exists in the PR under the new Internal “Recall” route, but the run could not reach it because the preview deployment itself was missing.",
+            "whatHappened": "The browser never reached AcmeApp; every attempted path showed the platform error page. The visible error was `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`, present from 00:00 through the end of the run. There are no prior runs for this test, so the test itself has no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No passing baseline exists for this newly generated test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the hosting provider error page for the entire run; the AcmeApp app never rendered.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation.\nAppearance Time: 00:00\nPersistence: persisted across the entire run"
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot was still the deployment-not-found error page.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "diff",
+                    "detail": "The old Cortex sidebar entry was removed in this PR.",
+                    "snippet": "-              {/* Cortex - admin memory-graph ingestion, superuser only */}\n-              {isSuperuser && (\n-                <SidebarMenuItem>\n-                  <SidebarNavLink\n-                    href={route(routes.CORTEX)}\n-                    icon={Recall}\n-                    label=\"Cortex\"\n-                    trackingOption={SidebarOptions.CORTEX}\n-                  />\n-                </SidebarMenuItem>\n-              )}",
+                    "file": "frontend/components/organisms/AppSidebar/AppSidebar.tsx"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Cortex/Recall feature still exists at the new Internal Recall location.",
+                    "snippet": "<SidebarNavLink\n  href={route(routes.RECALL)}\n  icon={Recall}\n  label={t('recall')}\n  trackingOption={SidebarOptions.CORTEX}\n  size=\"default\"\n/>",
+                    "file": "frontend/components/organisms/AppSidebarV3/parts/SidebarV3InternalNav.tsx"
+                },
+                {
+                    "source": "code",
+                    "detail": "The new Recall page contains the controls the test is trying to exercise.",
+                    "snippet": "<span className=\"text-sm\">Pick specific files</span>\n\nFull reset & re-ingest\n\nconfirmLabel={\n  pendingMode === 'FULL_RESET'\n    ? 'Reset and re-ingest'\n    : 'Start incremental ingest'\n}\n\nsuccessToast('Ingest started', `Run #${run.id} dispatched for ${company?.name ?? `company ${companyId}`}.`);",
+                    "file": "frontend/app/(private)/(internal)/recall/page.tsx"
+                }
+            ]
+        },
+        {
+            "id": "cortex-incremental-ingest",
+            "slug": "cortex-incremental-ingest",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The configured preview URL did not resolve to a live deployment. The browser received the platform error `DEPLOYMENT_NOT_FOUND` immediately on navigation and again after refresh, before authentication, seeded data, or the Cortex UI could be used.",
+            "whatHappened": "The run never reached the AcmeApp application; it loaded a Vercel-style deployment error page instead. Refreshing kept showing `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. There were no prior runs for this test, but the observed blocker is a missing preview deployment rather than the Cortex test flow.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "The run never reached the app; only navigation and refresh occurred.",
+                    "snippet": "1. [navigate] success\n2. [refresh] success"
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser showed the deployment platform error instead of the AcmeApp UI.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded, so this was not a missing-auth or missing-data setup failure.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nData seeded: DiscoveryCycle=6, InsightRun=2, Company=1, User=6, ..."
+                }
+            ]
+        },
+        {
+            "id": "cortex-preview-then-ingest",
+            "slug": "cortex-preview-then-ingest",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment is missing",
+            "rootCause": "The PR preview URL was not serving an application deployment at run time. Because the browser only reached Vercel's `DEPLOYMENT_NOT_FOUND` page, the test never exercised the app, seeded data, or Cortex UI.",
+            "whatHappened": "The run never reached the AcmeApp app; it stopped after repeated navigation attempts. The browser showed `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. There are no prior runs, so this test has no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No prior-run baseline exists for this generated test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before, so you cannot assume it was ever passing."
+                },
+                {
+                    "source": "video",
+                    "detail": "The recording never reached the AcmeApp UI and showed only the deployment-not-found page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nID: iad1::lqjmd-1702806502220-cbaf18c01a77\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screen confirmed the same preview deployment failure.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::dzhgq-1782804574953-926a7a661eae`\n\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                }
+            ]
+        },
+        {
+            "id": "metric-tree-internal-tool-navigation",
+            "slug": "metric-tree-internal-tool-navigation",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment cannot be found",
+            "rootCause": "The preview deployment URL itself was unavailable and rendered a deployment-level 404. The run never loaded the AcmeApp app, login page, sidebar, or Metric Trees page, so no PR behavior was exercised. Because provisioning succeeded, the blocker is the preview deployment availability, not missing scenario data.",
+            "whatHappened": "The browser never loaded the AcmeApp app UI, login page, sidebar, or Metric Trees page. Every navigation or refresh showed a 404: NOT_FOUND page with Code: DEPLOYMENT_NOT_FOUND. This test has no prior runs, so there is no passing baseline, but the run was blocked before the written steps could execute.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline: this test has no passing history to establish that the plan has ever worked before.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the app; the video showed the deployment-level 404 for the entire run.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot still showed the same missing-deployment page.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was not the blocker; auth and seed data were returned before the browser failed to load the preview app.",
+                    "snippet": "status=UP_SUCCESS\nUser=6, Company=1, Workspace=2, Initiative=5, DiscoveryCycle=6"
+                }
+            ]
+        },
+        {
+            "id": "metric-tree-creation-lifecycle",
+            "slug": "metric-tree-creation-lifecycle",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment cannot be found",
+            "rootCause": "The browser was served Vercel's deployment-not-found page before the application loaded. Scenario provisioning succeeded and returned valid auth plus seeded data, so the blocker was the unavailable preview deployment rather than scenario setup or app behavior.",
+            "whatHappened": "The run never reached the AcmeApp Home page or any Metric Trees UI. Every attempted load showed Vercel's `404: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND` page, so no test steps were exercised. Prior runs show this test has never run before, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No passing baseline exists for this test.",
+                    "snippet": "prior_runs: “No prior runs recorded for this test - it has NEVER been executed before”"
+                },
+                {
+                    "source": "video",
+                    "detail": "The app never loaded; the entire run showed Vercel's deployment-not-found page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot confirmed the preview URL was not serving the application.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::6gl6j-1782804725273-594388b5ea97`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario setup was not the blocker because provisioning succeeded and returned auth plus seeded entities.",
+                    "snippet": "Provisioning status: UP_SUCCESS\nValid auth credentials returned: cookies, credentials\nSeeded data included: User=6, Company=1, Workspace=2, Initiative=5, DiscoveryCycle=6"
+                }
+            ]
+        },
+        {
+            "id": "outcome-tracking-insight-drill-down",
+            "slug": "outcome-tracking-insight-drill-down",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The preview URL returned Vercel's deployment-not-found page instead of the AcmeApp app. Because the sidebar, Internal mode switch, Outcome Tracking page, and drawer were never rendered, no app behavior or PR-specific code path was exercised.",
+            "whatHappened": "The run never reached AcmeApp or any written test step. The browser showed `404: NOT_FOUND` / `Code: DEPLOYMENT_NOT_FOUND` across navigation attempts. There are no prior runs for this test, but this failure is blocked earlier by preview availability.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "The browser never loaded the AcmeApp app; the preview URL displayed Vercel's deployment-not-found page throughout the run.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found."
+                },
+                {
+                    "source": "run",
+                    "detail": "The trace only reached browser-level navigation/refresh attempts and did not execute any app UI steps from the written plan.",
+                    "snippet": "1. [navigate] success\n2. [refresh] success\n3. [navigate] success"
+                },
+                {
+                    "source": "run",
+                    "detail": "There is no passing baseline for this test; prior history reports it has never executed before.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                }
+            ]
+        },
+        {
+            "id": "account-health-company-drill-down",
+            "slug": "account-health-company-drill-down",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The preview URL is unavailable at the hosting layer: the browser received `404: NOT_FOUND` with `DEPLOYMENT_NOT_FOUND` before any app route rendered. Because the app never loaded, the PR’s Account Health drill-down behavior and the written test steps were not exercised.",
+            "whatHappened": "The run never reached the AcmeApp UI; every navigation showed a hosted `404: NOT_FOUND` page instead of the app. No user-menu, Internal Mode, Account Health, or company-row interaction occurred. Prior history shows this test has never run before, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline: no passing or failing baseline exists because this was the first recorded execution.",
+                    "snippet": "prior_runs: “No prior runs recorded for this test - it has NEVER been executed before”"
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the AcmeApp app; it displayed a deployment-level missing-preview page throughout the recording.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screenshot also shows the deployment-level 404 page rather than the app UI.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::sn4vt-1782804575102-28a5068dcf46`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was not the immediate blocker: auth and the expected company data were reported as provisioned.",
+                    "snippet": "Scenario status was UP_SUCCESS. Valid auth credentials were returned. Seeded data included Company=1."
+                }
+            ]
+        },
+        {
+            "id": "internal-account-health-settings-edit",
+            "slug": "internal-account-health-settings-edit",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The preview URL resolved to a deployment/platform error page rather than the AcmeApp application. The visible error was `404: NOT_FOUND` with code `DEPLOYMENT_NOT_FOUND`, so the browser was blocked before app code, seeded auth, or the Account Health UI could run.",
+            "whatHappened": "The run never reached AcmeApp: every attempted load showed a platform 404 page instead of the app. No sidebar, Home page, login, or Account Health UI appeared, so none of the written steps executed. Prior history shows this test has never run before, but this failure was caused by the missing preview deployment.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline: this test has never previously passed or failed; there is no validated baseline, but this run was blocked before reaching the app.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The preview URL rendered a platform 404 page instead of AcmeApp, so none of the written Account Health steps were exercised.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning was not the blocker: auth/data setup succeeded, but the browser never reached the app to use it.",
+                    "snippet": "Provisioning status was `UP_SUCCESS` with valid auth credentials and seeded data."
+                }
+            ]
+        },
+        {
+            "id": "sidebar-internal-mode-switch",
+            "slug": "sidebar-internal-mode-switch",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The preview URL was not serving the AcmeApp application. The browser received a deployment-level 404: NOT_FOUND page with code DEPLOYMENT_NOT_FOUND before auth, seeded data, sidebar rendering, or mode-switch code could be exercised.",
+            "whatHappened": "The run never reached the Home page or sidebar; every navigation or refresh showed a hosted deployment error instead. The Internal/Admin mode-switch steps were not exercised at all. Prior history shows this test has never run before, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline: this test has no passing history and has never executed before.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "Video showed no application UI; the browser stayed on a deployment error page across refreshes.",
+                    "snippet": "The Home page and sidebar never appeared, and there was no interaction with the application UI.\nThroughout the entire recording, across multiple refreshes, the only page visible was a deployment error screen.\n\n\"404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: [Unique Request ID]\nThis deployment cannot be found. For more observation and troubleshooting, see our documentation.\""
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screen was a hosted deployment-not-found error, not the AcmeApp app.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::vlvrc-1782804578980-5a60f2af5a0e`\n\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                }
+            ]
+        },
+        {
+            "id": "admin-mode-switch-toggle",
+            "slug": "admin-mode-switch-toggle",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview frontend deployment is missing",
+            "rootCause": "The preview URL used by the runner points to a frontend deployment that Vercel cannot find, so the app never served. Scenario provisioning succeeded and returned valid auth/data, but those credentials were never usable because the browser could not load the deployment at all. This is a preview deployment/URL infrastructure failure, not an application behavior regression.",
+            "whatHappened": "The agent only navigated/refreshed the preview URL and never reached the AcmeApp app UI. The page consistently showed `404: NOT_FOUND` / `Code: DEPLOYMENT_NOT_FOUND`. There are no prior runs for this test, so the failure is blocked before the test plan or scenario data can be evaluated.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this test has no successful history to compare against.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the AcmeApp app and instead showed Vercel's missing deployment page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run only navigated/refreshed the preview URL; it never interacted with the sidebar, user menu, Internal, or Admin controls.",
+                    "snippet": "AcmeApp UI never loaded; the agent performed only navigation/refresh attempts and did not click the sidebar, user menu, `Internal`, or `Admin`."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was not the blocker because valid auth/data were created before the browser failed to load the frontend.",
+                    "snippet": "UP_SUCCESS with valid auth credentials and seeded entities"
+                }
+            ]
+        },
+        {
+            "id": "internal-mode-brand-and-navigation",
+            "slug": "internal-mode-brand-and-navigation",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment is missing",
+            "rootCause": "The preview URL resolved to a deployment-not-found hosting page before any app code, seeded auth, or seeded company data could be exercised. Provisioning was reported as UP_SUCCESS with valid auth and seeded records, so this is a preview deployment/configuration failure rather than a scenario-data issue.",
+            "whatHappened": "The run never reached the AcmeApp app or the Home page; it only interacted with a hosting error page. The screen repeatedly showed 404: NOT_FOUND with Code: DEPLOYMENT_NOT_FOUND. Baseline: prior_runs reports this test has never run before, so the plan is unproven, but the immediate blocker is the missing preview deployment.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline: this test has no successful or failed history, so the plan is unproven, but the run was blocked before the app loaded.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the preview URL serving a hosting-layer deployment error instead of the AcmeApp app.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nID: [Unique Request ID]\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot still showed the same deployment-not-found page after navigation/refresh.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was reported healthy, so the block was not missing seeded auth/data.",
+                    "snippet": "UP_SUCCESS; valid auth credentials were returned and data was seeded, including Company=1, AdminCompany=1, User=6, and related records."
+                }
+            ]
+        },
+        {
+            "id": "conversation-scoring-internal-tool-navigation",
+            "slug": "conversation-scoring-internal-tool-navigation",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment URL returns deployment not found",
+            "rootCause": "The preview web deployment for pr-3699.app.stg.acmeapp.io was not reachable as an active deployment during the run. This failed before any AcmeApp UI rendered, while scenario provisioning had already returned valid auth and seeded data, so the blocker is the preview deployment rather than login or data setup.",
+            "whatHappened": "The browser navigated to the preview URL and refreshed, but it stayed on a deployment error page for the entire run. None of the planned sidebar, Internal menu, Conversation scoring, or Feedbacks tab steps occurred. There are no prior runs for this test, so it has no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline: this test has no passing baseline.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The run/video never reached the AcmeApp app; the deployment error stayed visible for the whole run.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screenshot showed the same deployment-platform error instead of the app UI.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nID: iad1::t47jw-1782843963901-664df50c6925"
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was not the blocker; auth and seeded records were returned successfully.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nseeded data included User=6, Company=1, Conversation=5, AdminConversation=1"
+                }
+            ]
+        },
+        {
+            "id": "conversation-analytics-monitor-tabs",
+            "slug": "conversation-analytics-monitor-tabs",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment URL returns deployment not found",
+            "rootCause": "The tested preview frontend deployment was unavailable at the target URL, so the browser could not load the app shell. Provisioning succeeded and returned auth plus seeded records, which rules out scenario setup as the immediate blocker. Because no product UI rendered, there is no observed Conversation Scoring defect to trace to application code.",
+            "whatHappened": "The run never reached the AcmeApp app or any Conversations analytics step. The browser displayed only `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. Prior history shows this test has never passed before, but this run was blocked by the missing preview deployment before the plan could be exercised.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline shows no successful validation history for this test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed only the deployment-not-found page for the entire run; the AcmeApp app UI never rendered.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot confirms the preview URL returned a Vercel deployment error instead of the app.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning was not the blocker because scenario setup succeeded and returned usable auth/data.",
+                    "snippet": "Scenario status: UP_SUCCESS\nValid auth returned: cookies, credentials\nSeeded data included: Company=1, Conversation=5, DiscoveryCycle=6, InsightRun=2"
+                }
+            ]
+        },
+        {
+            "id": "conversation-scoring-trends-and-feedbacks",
+            "slug": "conversation-scoring-trends-and-feedbacks",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview URL returned DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The preview deployment for this run was unavailable: the browser received a Vercel-style 404 page with Code: DEPLOYMENT_NOT_FOUND. Because the app shell never loaded, the agent could not reach /home, open the user menu, or navigate to Conversation scoring. This is preview infrastructure/deployment availability, not a client-side defect.",
+            "whatHappened": "The run never reached /home or any AcmeApp UI; every navigation/refresh showed a deployment error page. The test has no prior successful runs, so the plan is unvalidated, but this run was blocked before the plan could be exercised. Scenario provisioning returned valid auth and seeded data.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline: this test has no successful baseline and has never been executed before.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The preview never loaded the app; the browser showed a persistent deployment error throughout the run.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded and returned auth plus seeded data, so the blocker was not missing seeded auth/data.",
+                    "snippet": "UP_SUCCESS; valid auth credentials were returned and data was seeded, including:\nCompany=1, User=6, Conversation=5, DiscoveryCycle=6, InsightRun=2"
+                }
+            ]
+        },
+        {
+            "id": "discovery-wizard-area-flow",
+            "slug": "discovery-wizard-area-flow",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The preview alias for pr-3699.app.stg.acmeapp.io was not backed by an active deployment. The failure occurred before any app code, authentication flow, scenario data, or Discoveries wizard UI loaded.",
+            "whatHappened": "The run never reached the AcmeApp app; it only navigated to the preview URL and refreshed. The page showed Vercel's 404 NOT_FOUND / DEPLOYMENT_NOT_FOUND screen both times, and prior_runs reports this test has never executed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows there is no successful history to attribute a regression to this PR.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The preview page never loaded the app and instead showed Vercel's missing-deployment screen.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run trace only navigated and refreshed; no Discovery wizard steps executed.",
+                    "snippet": "1. [navigate] success\n2. [refresh] success"
+                }
+            ]
+        },
+        {
+            "id": "discovery-wizard-process-flow",
+            "slug": "discovery-wizard-process-flow",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment not found",
+            "rootCause": "The preview URL for PR #3699 was not serving an application deployment during the run. The browser received a deployment-level `DEPLOYMENT_NOT_FOUND` page before any frontend route, auth, scenario data, or discovery-cycle code could be exercised.",
+            "whatHappened": "The run never reached the AcmeApp app or the Discoveries wizard; it only performed navigations and refreshes. Every load showed a platform error page, `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. There are no prior runs for this test, so the plan has no passing baseline, but this run was blocked before any step could execute.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline showed this test has no passing history.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the app; every load showed the platform deployment error page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screenshot confirmed the preview URL resolved to a missing deployment rather than the AcmeApp app.",
+                    "snippet": "Error Title: 404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nID: iad1::bxj5k-1782844939298-111ca37608ef\nFooter: This deployment cannot be found. For more information and troubleshooting, see our documentation."
+                }
+            ]
+        },
+        {
+            "id": "discovery-wizard-validation-participants",
+            "slug": "discovery-wizard-validation-participants",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment cannot be found",
+            "rootCause": "The configured preview frontend URL resolved to Vercel's missing-deployment page before any AcmeApp application code executed. Provisioning reportedly succeeded with valid auth and seeded data, so the failure is preview availability/configuration rather than scenario data or the discovery wizard implementation.",
+            "whatHappened": "The run never reached the Discoveries page or any wizard step. From the first navigation through refreshes, the browser showed Vercel's `404: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND` page. There are no prior successful runs for this test, so there is no baseline for the wizard plan.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No passing baseline exists for this test.",
+                    "snippet": "prior_runs: No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The preview never loaded the AcmeApp app; the browser displayed Vercel's deployment-not-found page throughout the run.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot still showed the missing deployment page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nID: iad1::c2pfp-1782844060260-dd0086e924fd"
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was not the blocker; auth and data were reportedly seeded before navigation failed.",
+                    "snippet": "Scenario status: UP_SUCCESS\nSeeded data included: Employee=5, DiscoveryCycle=6"
+                }
+            ]
+        },
+        {
+            "id": "discovery-cycles-create-draft",
+            "slug": "discovery-cycles-create-draft",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment not found",
+            "rootCause": "The live preview URL resolved to a Vercel deployment-not-found page instead of the AcmeApp frontend app. Scenario provisioning succeeded and returned valid auth plus seeded discovery-cycle entities, so the blocker was not missing test data or login setup. Because no app route loaded, the discovery-cycle draft flow was never exercised.",
+            "whatHappened": "The runner only performed navigation and refresh attempts and never reached `/discoveries` or any AcmeApp UI. From the first frame through the end, the browser showed `404: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND`. Prior history has no recorded passes for this test, but this failure is blocked earlier than the test plan because the preview frontend is unreachable.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline showed this is a first run with no historical pass, but the observed blocker occurred before any app behavior could be exercised.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the preview URL resolving to Vercel's deployment-not-found page for the entire run; no AcmeApp UI or `/discoveries` route loaded.",
+                    "snippet": "\"404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nID: [Variable ID Strings]\nThis deployment cannot be found. For more information and troubleshooting, see our documentation.\""
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded and returned auth/data, so the failure was not caused by missing seeded discovery-cycle records.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nData this scenario seeded into the env: ... DiscoveryCycle=6 ..."
+                }
+            ]
+        },
+        {
+            "id": "discovery-cycle-duplicate-from-menu",
+            "slug": "discovery-cycle-duplicate-from-menu",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment URL returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The preview deployment itself was unavailable, so the browser received the hosting platform’s deployment-not-found page before the app loaded. Because the AcmeApp UI never rendered, the discovery-cycle actions menu and duplicate modal were never exercised.",
+            "whatHappened": "The run never reached the Discoveries page or any duplicate-cycle interaction; it stayed on a platform 404 page from the first frame through the end. The visible error was `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. Prior history has no successful baseline because this test has never run before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No successful baseline exists for this test.",
+                    "snippet": "prior_runs: No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screen was the hosting platform's deployment-not-found page, not the app.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::4hbkq-1782844178700-3e09238051b9`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video confirmed the application never initialized and no discovery-cycle actions were attempted.",
+                    "snippet": "The app never loads during this recording.\n\"404: NOT_FOUND\" / \"Code: DEPLOYMENT_NOT_FOUND\"\nNo intended discovery-cycle actions are performed as the application fails to initialize"
+                }
+            ]
+        },
+        {
+            "id": "discovery-duplicate-detail",
+            "slug": "discovery-duplicate-detail",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The live preview URL returned a deployment-not-found error page instead of serving the application. Scenario setup was not the blocker because provisioning returned valid auth and seeded 6 DiscoveryCycle records. No app UI or PR-touched discovery code path loaded, so this is preview availability/configuration failure.",
+            "whatHappened": "The run never reached the AcmeApp app or the Discoveries page; it only performed an initial navigate and refresh. The page showed `404: NOT_FOUND` with `DEPLOYMENT_NOT_FOUND` for the entire recording. There are no prior successful runs for this test, but the failure happened before the plan or scenario data could be exercised.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "The run trace shows the agent never reached or interacted with the app; it only navigated and refreshed.",
+                    "snippet": "1. [navigate] success\n2. [refresh] success"
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed a hosting-level deployment-not-found page for the entire recording.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded and seeded discovery-cycle data, so the blocker was not missing auth or missing scenario data.",
+                    "snippet": "UP_SUCCESS; valid auth credentials returned; DiscoveryCycle=6"
+                }
+            ]
+        },
+        {
+            "id": "discovery-cycles-filter-status",
+            "slug": "discovery-cycles-filter-status",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The preview URL resolved to Vercel’s deployment-not-found page instead of the live app. Scenario provisioning succeeded and seeded discovery-cycle data, but the frontend deployment was unavailable, so no discovery status filter code executed.",
+            "whatHappened": "The browser never reached the AcmeApp app or /discoveries; both recorded actions landed on a Vercel 404 page. The page repeatedly showed DEPLOYMENT_NOT_FOUND, so none of the filter steps or assertions ran. Prior history shows this test has never run before, but the immediate blocker here is the missing preview deployment.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this test has no successful baseline and has never executed before.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The run never reached the app; the preview showed Vercel's missing-deployment page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "video",
+                    "detail": "Multiple load attempts hit the same deployment-not-found state.",
+                    "snippet": "Initial Load … ID: iad1::zf1sl-1723271673181-2bd2d312151e\nFirst Refresh … ID: iad1::gnzt4-1723271679921-13aa090171bc\nSecond Refresh … ID: iad1::ghvmt-1723271685223-d820813e45f5"
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was reported successful, so the immediate blocker was not missing seeded discovery-cycle data.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nDiscoveryCycle=6"
+                }
+            ]
+        },
+        {
+            "id": "discovery-cycles-navigate-to-detail",
+            "slug": "discovery-cycles-navigate-to-detail",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The preview URL resolved to a Vercel missing-deployment page instead of the application, so `/discoveries` could not load. Because the app shell never served, the discovery table and row navigation code were not exercised.",
+            "whatHappened": "The run never reached the Discoveries page or any AcmeApp app UI. Navigation showed a Vercel-style `404: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND` page throughout. Prior-runs showed no passing baseline for this test, but this failure happened before the plan or seeded data could be exercised.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline check found no successful history for this test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the AcmeApp app UI; the run stayed on the deployment error page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screenshot showed the same missing deployment error.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning succeeded, so the blocker was not missing seeded auth/data.",
+                    "snippet": "UP_SUCCESS; valid auth returned; seeded data included DiscoveryCycle=6"
+                }
+            ]
+        },
+        {
+            "id": "discovery-tab-navigation",
+            "slug": "discovery-tab-navigation",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The preview deployment URL was unavailable before the AcmeApp app loaded. Provisioning returned valid auth and seeded discovery-cycle data, but the browser received a platform deployment-not-found page instead of the application, making this a preview availability failure rather than a discovery-tabs defect.",
+            "whatHappened": "The run never reached the AcmeApp app; navigation and refresh showed a platform 404 page with `DEPLOYMENT_NOT_FOUND`. No Discoveries page or discovery-tab interaction occurred. `prior_runs` reports no prior executions, so this test has no passing baseline.",
+            "evidence": [
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the AcmeApp app; the final visible page was the platform deployment error.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::nlrz9-1782874544372-eb186b69ed0f`\n\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video stayed on the Vercel deployment error from start to finish; repeated attempts only changed the request ID and never rendered the app UI.",
+                    "snippet": "00:00-00:28: page remains on the Vercel `DEPLOYMENT_NOT_FOUND` error; no Discoveries page, detail page, or tab interactions appear."
+                },
+                {
+                    "source": "run",
+                    "detail": "Baseline shows this test has no passing history, so there is no validated prior run of the discovery-tab plan.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning succeeded and seeded discovery data, so the blocker was not missing scenario data.",
+                    "snippet": "Scenario status: UP_SUCCESS\nValid auth returned\nSeeded data included: DiscoveryCycle=6"
+                }
+            ]
+        },
+        {
+            "id": "discovery-cycle-insights-dashboard",
+            "slug": "discovery-cycle-insights-dashboard",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The live preview URL returned a platform `DEPLOYMENT_NOT_FOUND` page instead of the AcmeApp app. Because no app code rendered and no test steps could execute, this is a preview deployment availability failure rather than a scenario issue or PR client regression.",
+            "whatHappened": "The browser loaded and refreshed the preview URL but never reached the AcmeApp app. The page showed `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND` throughout, and there are no prior runs for this test.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this test has never previously passed or even run, so the plan/scenario remain unvalidated; however this run was blocked before the app loaded.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the preview URL rendering a platform deployment-not-found error on initial load and after refresh.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot confirmed the browser never reached the AcmeApp application.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::zftxt-1782874729468-7022a8d25911`\n\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                }
+            ]
+        },
+        {
+            "id": "insight-cycle-dashboard-drilldown",
+            "slug": "insight-cycle-dashboard-drilldown",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The PR preview host was not serving an application deployment during the run. The browser received a platform-level DEPLOYMENT_NOT_FOUND 404 before any app code, auth, seeded data, or Discoveries UI could be exercised.",
+            "whatHappened": "The run never reached the AcmeApp UI; every attempted load showed the platform error page. None of the Discoveries/Insights drilldown steps were performed. Prior_runs shows this test has no previous executions, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows no validated passing history for this test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The preview displayed a platform-level deployment error instead of the app.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nID: [varies per refresh]\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Because the AcmeApp app never loaded, none of the written Discoveries/Insights steps were exercised.",
+                    "snippet": "The AcmeApp app never loaded.\nNone of the written test steps were performed."
+                }
+            ]
+        },
+        {
+            "id": "insight-dashboard-multi-run-filter",
+            "slug": "insight-dashboard-multi-run-filter",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The preview frontend URL resolved to a missing deployment, so the browser could not load any app route. Scenario provisioning returned valid auth and seeded `InsightRun=2`, but the failure happened at the deployment layer before auth, data, or the run-filter UI were involved.",
+            "whatHappened": "The run never reached the AcmeApp app or the Insights dashboard. Every navigation and refresh showed a Vercel-style `404: NOT_FOUND` page with code `DEPLOYMENT_NOT_FOUND`. Prior runs show this test has never run before, but the blocker occurred before the test plan or seeded data could be exercised.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline showed no successful history to validate the generated plan, but this run failed before the plan could be exercised.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The browser reached a platform deployment error instead of the AcmeApp app.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::lj286-1782874539857-12cf1acd0432`\n\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video confirmed the application never loaded; no Insights dashboard UI or run-filter interactions appeared.",
+                    "snippet": "The application never loaded; every navigation/refresh remained on the Vercel-style deployment-not-found page."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded, so the blocker was not missing seeded auth or Insight data.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nInsightRun=2\nInsightView=2"
+                }
+            ]
+        },
+        {
+            "id": "insight-table-run-filter-multi-select",
+            "slug": "insight-table-run-filter-multi-select",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment is missing",
+            "rootCause": "The preview frontend deployment for PR #3699 was not accessible at the target URL during the run. The observed page was a hosting/platform deployment error rather than an application-rendered AcmeApp screen, making this a preview infrastructure/configuration failure.",
+            "whatHappened": "The browser never reached AcmeApp or the Insights page; every navigation/refresh showed the hosting provider’s 404 deployment page. The run did not execute the filter steps, so the multi-select run filter behavior was not exercised. Prior history shows this test has never run before, but the blocking failure here is the preview URL itself being unavailable.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-runs baseline shows this test has no successful baseline and has never executed before.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the AcmeApp app; the visible page throughout the run was the hosting provider deployment error.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot showed the same platform-level deployment-not-found page rather than the Insights page.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning itself succeeded and returned relevant seeded records, so the blocker was not missing seeded data.",
+                    "snippet": "Scenario status was UP_SUCCESS; valid auth was returned and data included:\nInsightRun=2\nInsightView=2\nCompany=1\nUser=6"
+                }
+            ]
+        },
+        {
+            "id": "insights-table-column-filters",
+            "slug": "insights-table-column-filters",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment cannot be found",
+            "rootCause": "The preview URL resolved to a missing deployment, so no application bundle or route was served. Scenario provisioning reportedly succeeded with valid auth and seeded entities, but the browser could not reach the app to use that data.",
+            "whatHappened": "The run never reached the AcmeApp app or the Insights page; it only performed initial navigation and refresh attempts. Each attempt showed `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. Prior runs show this test has never executed before, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows no successful or failed history to validate this test against.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the app; the preview deployment page showed a hosting-level missing-deployment error.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was not the blocker; auth and seed data were reported as available before navigation failed.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nData this scenario seeded into the env: Tag=4, User=6, Comment=3, Company=1, ...\nInsightRun=2, InsightView=2, ..."
+                }
+            ]
+        },
+        {
+            "id": "insight-column-native-filter",
+            "slug": "insight-column-native-filter",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment is missing",
+            "rootCause": "The preview URL for PR #3699 was not serving an application deployment. The browser showed `Code: DEPLOYMENT_NOT_FOUND`, which is a preview/deployment availability failure rather than an Insights table filtering issue. Scenario provisioning returned valid auth and seeded data, so the block occurred after setup and before any app behavior could be tested.",
+            "whatHappened": "The runner never reached the AcmeApp app UI; every attempted load showed the hosting provider's 404 page. None of the Insights table filter steps ran because the page remained on `404: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND`. Prior runs show this test has never passed, but this run was blocked by the unavailable preview before the plan or data could be evaluated.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior history shows no successful baseline for this test, but this run failed before the app or test plan could be exercised.",
+                    "snippet": "ever passed: NO\nmost recent prior run 2026-06-27: failed(replay_failed)"
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the AcmeApp UI; the preview displayed the hosting provider's missing-deployment page throughout the run.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot also showed the deployment-not-found page instead of the app.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was successful, so auth/data setup was not the blocker.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nData seeded: Tag=4, User=6, Comment=3, Company=1, Employee=5, Resource=3, Workspace=2, ..."
+                }
+            ]
+        },
+        {
+            "id": "insights-bulk-archiving-and-filter-persistence",
+            "slug": "insights-bulk-archiving-and-filter-persistence",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The preview deployment URL was unavailable, so the application shell and Insights page never served. Provisioning may have returned auth/data, but no app route rendered, so the bulk archive flow was never exercised and no PR-level client defect was observed.",
+            "whatHappened": "The run never reached the AcmeApp app or the Insights page; it only loaded and refreshed the preview URL. Every load showed a hosting error page with `404: NOT_FOUND` and `Code: DEPLOYMENT_NOT_FOUND`. There are no prior runs for this test, so the written test has no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline: this test has no passing history, so there is no validated baseline for the written plan.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The preview never loaded the AcmeApp app; the video showed the hosting error page on initial load and after refreshes.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot still showed the same unavailable-deployment error instead of the Insights page.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                }
+            ]
+        },
+        {
+            "id": "plan-configuration-workflow",
+            "slug": "plan-configuration-workflow",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returned DEPLOYMENT_NOT_FOUND before the app loaded",
+            "rootCause": "The failure occurred before application code, authentication, seeded data, or the Plan configuration drawer could be exercised. The preview URL resolved to a platform host error, `404: NOT_FOUND` with `DEPLOYMENT_NOT_FOUND`, indicating the deployment or alias used by the runner was missing or unreachable. Scenario provisioning had succeeded, so the seeded test data was not the blocker.",
+            "whatHappened": "The run never reached the AcmeApp app; it only completed initial navigation. The browser showed a platform 404 with `Code: DEPLOYMENT_NOT_FOUND`, so none of the Plan configuration steps executed. Prior runs show this test has never passed or failed before, so there is no validated baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline showed no validated pass history for this test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The recording showed a deployment-level 404 before any AcmeApp UI loaded.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nMessage: \"This deployment cannot be found. For more information and troubleshooting, see our documentation.\""
+                },
+                {
+                    "source": "run",
+                    "detail": "The run trace only completed initial navigation; no setup clicks or Plan configuration steps executed.",
+                    "snippet": "1. [navigate] success"
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded and seeded data, so the block was not caused by missing seeded records.",
+                    "snippet": "scenario status: UP_SUCCESS\nCompany=1, Initiative=5, InitiativeProject=1, Workspace=2, User=6"
+                }
+            ]
+        },
+        {
+            "id": "plan-context-management",
+            "slug": "plan-context-management",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The selected preview URL did not resolve to a live deployment, so the browser received Vercel’s `DEPLOYMENT_NOT_FOUND` page before reaching application code. Scenario provisioning returned valid auth and seeded data, which rules out the scenario setup as the immediate blocker.",
+            "whatHappened": "The run never reached the AcmeApp app; it only loaded and refreshed a Vercel-style `404: NOT_FOUND` page. None of the Plans setup or context-file steps ran. Prior runs show this test has never passed before, but this specific failure is the preview deployment being unreachable.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this test had no successful history to establish a validated app-flow baseline.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screen showed the preview URL did not resolve to a live deployment.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::xfg46-1782926479861-405161db9684`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video confirmed the app never loaded and no Plans UI interactions occurred.",
+                    "snippet": "The app never loads.\n404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nMessage: \"This deployment cannot be found. For more information and troubleshooting, see our documentation.\"\nPlans UI: None visible.\nTest Interactions: None."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded, so the blocker was not missing auth or seeded data.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nData this scenario seeded into the env: Tag=4, User=6, Resource=3, Workspace=2, ..."
+                }
+            ]
+        },
+        {
+            "id": "process-library-tree-structure-and-expansion",
+            "slug": "process-library-tree-structure-and-expansion",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns Vercel 404",
+            "rootCause": "The preview frontend URL resolved to Vercel’s platform error page instead of the AcmeApp app. Because the app shell never loaded, the scenario’s valid auth and seeded data were not exercised, and the failure is outside the process table/tree code path.",
+            "whatHappened": "The runner never got past loading the preview URL; no setup or process-library steps executed. The page showed Vercel’s `404: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND` error throughout the run, including after refresh/navigation retries. This test has no prior successful runs, so the plan is unvalidated, but the immediate blocker is the missing preview deployment.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this test has never succeeded or even run before, so the written plan is unvalidated, but the current blocker happened before the app loaded.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The preview showed Vercel's platform 404 instead of the application UI for the entire recording.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning was not the immediate blocker; auth/data setup succeeded, but the frontend deployment was unreachable before those records could be used.",
+                    "snippet": "Provisioning status was UP_SUCCESS and valid auth credentials were returned, with seeded entities including Company=1, User=6, Workspace=2."
+                }
+            ]
+        },
+        {
+            "id": "process-library-confidence-and-evidence-placeholder",
+            "slug": "process-library-confidence-and-evidence-placeholder",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The preview deployment itself was unavailable: the page displayed `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. This blocked the test before auth, scenario data, or the Processes feature could be exercised. The reported `no_scenario` status is secondary because the app shell never served at all.",
+            "whatHappened": "The run never loaded AcmeApp: the preview URL showed a Vercel deployment error for the entire recording. No Processes page UI rendered, and none of the process-creation steps were executed. Prior history shows this test has never run before, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No passing or failing baseline exists for this generated test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The recording showed the preview deployment error instead of the AcmeApp app.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot still showed Vercel's deployment-not-found page.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                }
+            ]
+        },
+        {
+            "id": "process-search-filter",
+            "slug": "process-search-filter",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The preview URL itself was unavailable and rendered a platform deployment error before any app UI loaded. Because the app never served, the seeded auth/data and the Processes table/filter code were not exercised, so the failure cannot be attributed to the PR’s application code.",
+            "whatHappened": "The test never reached the AcmeApp app or the Processes page. The browser only showed a deployment-level `404: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND` page across navigation and refresh attempts. Prior-runs baseline is weak because this test has never run before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows there is no validated prior success for this generated test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "Video showed the browser never reached the app UI.",
+                    "snippet": "The app never loaded during this run.\n00:00 - 00:19: \"404: NOT_FOUND Code: DEPLOYMENT_NOT_FOUND\"\nNo Processes sidebar, search, or filter UI ever appeared."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screenshot was a deployment-level error page, not the AcmeApp app.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                }
+            ]
+        },
+        {
+            "id": "process-edit-metadata",
+            "slug": "process-edit-metadata",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The live preview deployment URL used by the runner did not resolve to an active deployment. The failure occurred at the hosting layer before application code rendered, so it cannot be attributed to the process table, owner picker, scenario seed data, or this PR’s process-editing code.",
+            "whatHappened": "The browser never reached the AcmeApp app or the Processes page. From the first frame through the final refresh, the page showed `404: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND`. `prior_runs` shows this test had never run before, but this failure happened before any test-specific UI or data could matter.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline: this test has no successful baseline and had never executed before.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The preview page showed a hosting-layer deployment error for the whole recording instead of the AcmeApp app.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run trace never reached any app interaction; only navigation and refresh completed.",
+                    "snippet": "1. [navigate] success\n2. [navigate] success\n3. [refresh] success"
+                }
+            ]
+        },
+        {
+            "id": "process-catalog-manage-regions",
+            "slug": "process-catalog-manage-regions",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The configured preview URL did not resolve to a live frontend deployment, so the setup could not reach the sidebar, Processes page, Tree view, or Manage catalog drawer. The failure happened before any application route or PR code path was exercised.",
+            "whatHappened": "The run never reached the AcmeApp app or the Processes page; it only navigated to and refreshed the preview URL. The page showed `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND` throughout. Prior runs show this test has never executed before, so there is no validated baseline for the plan.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline showed no validated history for this test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The preview displayed a deployment-level 404 instead of the AcmeApp app for the whole recording.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "The step trace shows the agent only navigated and refreshed; no catalog-management steps were reached.",
+                    "snippet": "1. [navigate] success\n2. [refresh] success"
+                }
+            ]
+        },
+        {
+            "id": "processes-create-macroprocess",
+            "slug": "processes-create-macroprocess",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment is missing",
+            "rootCause": "The preview URL was not serving an app deployment, so the run could not reach authentication, the sidebar, or the Processes page. Because the app code path was never loaded, this is a preview hosting availability failure rather than an observed client-side regression.",
+            "whatHappened": "The run never reached the AcmeApp app or the Processes page; navigation only displayed the hosting error page. The visible page said `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. Baseline shows this test has never run before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this is a first run with no passing history to compare against.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The recording showed the preview hosting error for the full run instead of the AcmeApp app.",
+                    "snippet": "404 NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot still showed the same deployment-missing page.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                }
+            ]
+        },
+        {
+            "id": "advisor-input-guard-enforcement",
+            "slug": "advisor-input-guard-enforcement",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returned DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The target preview URL resolved to a missing deployment instead of the app shell, blocking the test before Step 1. This is a preview environment availability failure, not a scenario issue, because provisioning reported valid auth credentials and seeded Advisor-related records.",
+            "whatHappened": "The run never reached the AcmeApp home page or Advisor UI. Initial navigation and refreshes showed only a deployment 404 page, and this test has no prior successful runs as a baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows there is no successful history to use as a validated baseline.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never loaded the AcmeApp app; the preview URL showed a deployment-not-found page for the full run.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation.\n\nTimeline:\n00:00 - 00:02: Initial load showed DEPLOYMENT_NOT_FOUND\n00:03 - 00:05: Refresh showed DEPLOYMENT_NOT_FOUND\n00:06 - End: Final state still showed DEPLOYMENT_NOT_FOUND"
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning succeeded and returned seeded Advisor data, so the failure was not caused by missing scenario auth or data.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nAdvisorThread=1\nConversation=5\nUser=6\nCompany=1\nWorkspace=2"
+                }
+            ]
+        },
+        {
+            "id": "advisor-input-guard-blocking",
+            "slug": "advisor-input-guard-blocking",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The preview URL used for this run resolved to Vercel’s deployment-not-found page before any app code or seeded data could be used. Because the app never served, the input-guard classifier, chat UI, and seeded Advisor data were not exercised. This is a preview deployment/configuration failure rather than a Advisor product defect.",
+            "whatHappened": "The agent never reached the Advisor page; every navigation/refresh showed the same Vercel 404 deployment screen. Prior history shows this test has passed before, most recently on 2026-06-29, so the plan/scenario had a valid baseline. The failure is a fresh preview availability problem, not an exercised app regression.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline shows the test and scenario have succeeded before.",
+                    "snippet": "ever passed: YES - passed 2/5 of recent runs; most recent success on 2026-06-29.\nrecent: 2026-06-29:failed(replay_failed), 2026-06-29:success, 2026-06-29:success, 2026-06-29:failed(replay_failed), 2026-06-26:failed(replay_failed)"
+                },
+                {
+                    "source": "video",
+                    "detail": "The full video showed the preview never loaded and stayed on Vercel's deployment error.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "The runner only performed navigation/refresh attempts and never executed the Advisor steps.",
+                    "snippet": "stepsTaken: 4\n1. [navigate] success\n2. [navigate] success\n3. [refresh] success\n4. [navigate] success"
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was healthy, so the failure is not missing auth/data.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nData seeded: ... Conversation=5, DiscoveryCycle=6, AdvisorThread=1"
+                }
+            ]
+        },
+        {
+            "id": "advisor-input-guard-short-circuits-blocked-messages",
+            "slug": "advisor-input-guard-short-circuits-blocked-messages",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The preview URL served Vercel's deployment-not-found page instead of the AcmeApp app. Because the application shell never loaded, the test could not exercise the Advisor input guard or its persistence behavior. This is a preview availability/configuration failure, not evidence of a Advisor product regression.",
+            "whatHappened": "The run never reached the Advisor page; it only navigated to and refreshed a full-page deployment error. Prior history shows this test has passed before, with the most recent success on 2026-06-29, so the plan/scenario had a valid baseline. No sidebar, onboarding modal, chat input, or transcript was rendered.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline shows this test has succeeded before, so the written plan/scenario had a valid historical baseline.",
+                    "snippet": "ever passed: YES - passed 3/5 of recent runs; most recent success on 2026-06-29.\nrecent: 2026-06-29:failed(replay_failed), 2026-06-29:failed(engine_error), 2026-06-29:success, 2026-06-29:success, 2026-06-25:success"
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the preview never loaded the AcmeApp app and instead stayed on Vercel's deployment-not-found page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot confirmed the same deployment error; no app shell, sidebar, Advisor page, chat input, or transcript was visible.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::jxcwm-1782947409235-4507c55d4b29`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                }
+            ]
+        },
+        {
+            "id": "advisor-history-preserved-after-block",
+            "slug": "advisor-history-preserved-after-block",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment cannot be found",
+            "rootCause": "The configured preview URL resolved to a deployment-missing hosting page instead of the AcmeApp application. Scenario provisioning was healthy, with valid auth returned and one `AdvisorThread` seeded, so the failure occurred outside the scenario data setup. Because the app never loaded, no Advisor behavior was observed or attributable to PR application code.",
+            "whatHappened": "The run never reached the Advisor UI; every attempted navigation showed the hosting error page instead. Prior runs show this test has never passed or even run before. Scenario provisioning succeeded, so the blocker was the missing preview deployment rather than test data.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows there is no successful baseline for this generated test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The preview showed Vercel's deployment-missing page instead of the app for the whole run.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::hrdst-1782947516045-43896db1f9a2`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video analysis confirmed the application never loaded and no Advisor UI or test steps were reached.",
+                    "snippet": "Did the app load? No. The application failed to load at any point during the run.\nExact error text:\n404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nMessage: \"This deployment cannot be found. For more information and troubleshooting, see our documentation.\"\nAdvisor UI / Test Steps: No Advisor UI, application interface, or test steps were reached."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded, so the observed block was not missing seeded auth or Advisor data.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nAdvisorThread=1"
+                }
+            ]
+        },
+        {
+            "id": "advisor-input-guard-block",
+            "slug": "advisor-input-guard-block",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The PR preview URL resolved to a missing deployment instead of the AcmeApp frontend. Because no application UI loaded, the test did not exercise the Advisor input guard, seeded auth/data, or any PR behavior.",
+            "whatHappened": "The test never reached AcmeApp’s Home page or Advisor UI. The entire run stayed on a hosting error page showing 404: NOT_FOUND and Code: DEPLOYMENT_NOT_FOUND; prior runs show this test has passed before, including successes on 2026-06-29.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline: this test has succeeded before, so the plan/scenario were recently valid.",
+                    "snippet": "ever passed: YES - passed 2/4 of recent runs; most recent success on 2026-06-29."
+                },
+                {
+                    "source": "video",
+                    "detail": "Full-run video showed the app never loaded and no Home/Advisor interactions occurred.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screenshot confirmed the preview URL resolved to Vercel's missing-deployment page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nID: iad1::nzgn9-1782947415816-a82761ed536a\n\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                }
+            ]
+        },
+        {
+            "id": "advisor-standard-business-query",
+            "slug": "advisor-standard-business-query",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment is missing",
+            "rootCause": "The targeted preview deployment was not found by the hosting platform, so the frontend app never loaded. Scenario provisioning succeeded and seeded the expected entity types, including `BusinessCase=5` and `AdvisorThread=1`, which rules out missing auth or missing seeded data as the immediate blocker. No PR behavior was exercised.",
+            "whatHappened": "The browser never reached AcmeApp or the Advisor page; every navigation showed a platform 404 page. The run stopped before any test step could interact with the app. Prior runs show this test has never passed, but this run’s blocker is the preview deployment itself being unavailable.",
+            "evidence": [
+                {
+                    "source": "screenshot",
+                    "detail": "Final screen showed the hosting platform deployment error instead of the AcmeApp app.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video never reached the app; the deployment error was visible for the whole run.",
+                    "snippet": "The browser never reached the AcmeApp app or Advisor page.\nThe error is present from the first frame (00:00) and persists throughout the entire video until the end (00:27).\nThere were no app UI elements visible and no test interactions occurred."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded, so auth/data setup was not the blocker.",
+                    "snippet": "Scenario provisioning for this run: status=UP_SUCCESS\nValid auth credentials WERE returned\nData seeded: BusinessCase=5, AdvisorThread=1, Conversation=5, Initiative=5, User=6, Company=1"
+                },
+                {
+                    "source": "run",
+                    "detail": "Prior runs establish no passing baseline, but this run failed before exercising the test or PR code.",
+                    "snippet": "ever passed: NO\nrecent: 2026-06-29:failed(replay_failed), 2026-06-29:failed(replay_failed), 2026-06-29:failed(replay_failed), 2026-06-28:failed(scenario_setup), 2026-06-26:failed(replay_failed)"
+                }
+            ]
+        },
+        {
+            "id": "advisor-basic-chat-and-persistence",
+            "slug": "advisor-basic-chat-and-persistence",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment cannot be found",
+            "rootCause": "The configured preview URL served Vercel’s deployment-not-found page before any AcmeApp route, login, sidebar, or Advisor UI loaded. Scenario provisioning returned valid auth and seeded chat-related records, so the failure is a preview deployment availability problem rather than a scenario-data issue.",
+            "whatHappened": "The run never reached the AcmeApp UI or the Advisor setup step; every navigation showed a deployment-level 404 page. The visible error was `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. Prior runs show this test has never passed, so there is no validated baseline for the chat or persistence behavior.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior runs provide no validated passing baseline for this generated Advisor test.",
+                    "snippet": "ever passed: NO - it has never succeeded in recorded history.\nrecent: 2026-06-29:failed(replay_failed), 2026-06-28:failed(replay_failed), ..."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded, including auth and Advisor-related data, so the block was not missing seeded data.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nData this scenario seeded into the env: ... Conversation=5 ... AdvisorThread=1"
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser only saw Vercel's deployment-not-found page instead of the app.",
+                    "snippet": "00:00 - 00:02: 404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\n\n00:17 - 00:25: 404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\n\nFooter text:\n\"This deployment cannot be found. For more information and troubleshooting, see our documentation.\""
+                }
+            ]
+        },
+        {
+            "id": "advisor-send-message",
+            "slug": "advisor-send-message",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment is missing",
+            "rootCause": "The preview URL itself was unavailable, returning a deployment-not-found hosting page before the app loaded. Scenario setup was healthy, with valid auth and seeded Advisor data, so this is an environment/deployment availability problem rather than a data or client-code failure.",
+            "whatHappened": "The run never reached the AcmeApp UI or the Advisor page; navigation showed a hosting error page instead. The visible error was `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. There is no passing baseline because prior runs show this test has never executed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No passing baseline exists for this generated test.",
+                    "snippet": "prior_runs: No prior runs recorded for this test - it has NEVER been executed before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the AcmeApp app; the preview host displayed a deployment-not-found page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot showed the same hosting error, confirming the app UI was unavailable at the end of the run.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::jsvfv-1782947411536-1dc46ac7b8b8`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was not the blocker; auth/data setup succeeded and included the expected Advisor data.",
+                    "snippet": "UP_SUCCESS\nAdvisorThread=1\nConversation=5\nUser=6\nCompany=1"
+                }
+            ]
+        },
+        {
+            "id": "advisor-switch-and-send",
+            "slug": "advisor-switch-and-send",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment is missing",
+            "rootCause": "The preview URL was not serving an application deployment. The browser only reached the platform error page saying the deployment could not be found, so the scripted Advisor chat steps were never exercised.",
+            "whatHappened": "The run never reached the AcmeApp app or the Advisor page. From the first frame through the end, the browser showed 404: NOT_FOUND / DEPLOYMENT_NOT_FOUND. Prior history shows this test has never run before, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test has no passing baseline; prior history recorded no previous executions.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the AcmeApp app; the visible page was the hosting provider's missing-deployment error.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run trace only contains navigation/refresh activity, with no Advisor UI interaction reached.",
+                    "snippet": "1. [navigate] success\n2. [refresh] success\n3. [navigate] success\n4. [navigate] success"
+                }
+            ]
+        },
+        {
+            "id": "advisor-initiative-analysis",
+            "slug": "advisor-initiative-analysis",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment is missing",
+            "rootCause": "The live preview URL resolved to Vercel’s missing-deployment page instead of the AcmeApp app. Because the browser never loaded the app, no initiative navigation or Advisor behavior was exercised, making this a preview deployment availability failure.",
+            "whatHappened": "The run never reached the AcmeApp app: both attempted navigations showed a Vercel 404 page instead of the Initiatives UI. There are no prior successful runs for this test, so the plan is unproven, but this execution was blocked before any app step could run.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test has no passing baseline; it has never run successfully before.",
+                    "snippet": "prior_runs: “No prior runs recorded for this test - it has NEVER been executed before”"
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the app never rendered; the browser stayed on Vercel's missing-deployment error page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot confirmed the same Vercel deployment error.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::g2zmk-1782947405471-8a072a223594`\n\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded, so missing seeded data was not the immediate blocker.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials were returned.\nSeeded data included Initiative=5, InitiativeProject=1, and AdvisorThread=1."
+                }
+            ]
+        },
+        {
+            "id": "advisor-refuses-diagnosis-when-proactive-flag-is-off",
+            "slug": "advisor-refuses-diagnosis-when-proactive-flag-is-off",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment cannot be found",
+            "rootCause": "The requested PR preview frontend was not available at run time. Provisioning succeeded with valid auth and seeded initiative/Advisor data, but the browser only received a deployment-level `DEPLOYMENT_NOT_FOUND` page, so the app shell and tested feature never loaded.",
+            "whatHappened": "The run never reached the AcmeApp app or the initiative detail page; it only attempted navigation and refresh. Every attempt showed `404: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND`, so none of the Advisor steps were exercised. `prior_runs` reports this test has never run before, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test has no passing baseline and has never been executed before.",
+                    "snippet": "prior_runs: No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never loaded the app; it showed a deployment-level missing deployment page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot remained on the same deployment-not-found page.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning was successful, so the failure was not caused by missing auth or seeded scenario data.",
+                    "snippet": "Provisioning status: UP_SUCCESS\nValid auth credentials were returned.\nSeeded data included Initiative=5, InitiativeProject=1, and AdvisorThread=1."
+                }
+            ]
+        },
+        {
+            "id": "advisor-readiness-tab-integration",
+            "slug": "advisor-readiness-tab-integration",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment cannot be found",
+            "rootCause": "The preview URL for PR #3699 did not resolve to a live deployment, so no application code, auth flow, seeded data, initiative page, or Advisor UI was exercised. This is a preview environment availability failure, not evidence of an app defect.",
+            "whatHappened": "The run never reached the AcmeApp app or the initiative detail page; every navigation/refresh showed a Vercel deployment error instead. The on-screen error was `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. Prior runs show this test has never passed before, but this run was blocked before any app step could execute.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows no successful validation history for this test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "video",
+                    "detail": "The run was blocked by the preview deployment error page instead of the AcmeApp app.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\n\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot was still the Vercel deployment-not-found page.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`"
+                }
+            ]
+        },
+        {
+            "id": "advisor-readiness-panel-toggle",
+            "slug": "advisor-readiness-panel-toggle",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The preview frontend deployment for this run was unavailable at the URL the runner opened. The visible page was Vercel's `DEPLOYMENT_NOT_FOUND`, so the AcmeApp app shell and the Initiatives/Advisor UI never loaded.",
+            "whatHappened": "The run never reached the AcmeApp app; every navigation/refresh showed Vercel's deployment error page. None of the written Initiatives or Advisor steps were executed. Prior history has no passes because this test has never run before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline showed no successful baseline exists for this test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the app and stayed on Vercel's deployment error page.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was not the blocker; auth/data setup reported success with relevant seeded records.",
+                    "snippet": "UP_SUCCESS\nInitiative=5\nInitiativeProject=1\nAdvisorThread=1"
+                }
+            ]
+        },
+        {
+            "id": "initiative-readiness-display-in-advisor-panel",
+            "slug": "initiative-readiness-display-in-advisor-panel",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview URL returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The target preview deployment was unavailable, as shown by the hosting-level `DEPLOYMENT_NOT_FOUND` page. Scenario provisioning succeeded and returned auth plus seeded entities, so this is not a scenario-data or login setup failure. Because the app never loaded, no PR code path for the Initiatives page or Advisor panel was exercised.",
+            "whatHappened": "The run never reached the Initiatives page or any Advisor UI. The browser showed `404: NOT_FOUND` / `DEPLOYMENT_NOT_FOUND` from the start through the end of the recording. There are no prior successful runs for this test, but this execution was blocked before the written plan could be exercised.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No passing baseline exists for this test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before, so you cannot assume it was ever passing."
+                },
+                {
+                    "source": "video",
+                    "detail": "The preview never served the app; the video showed a hosting-level deployment error for the full recording.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was successful, so the blocker was not missing seeded auth or data.",
+                    "snippet": "Scenario provisioning for this run: status=UP_SUCCESS\nValid auth credentials WERE returned\nData this scenario seeded into the env: ... Initiative=5 ... InitiativeProject=1 ... AdvisorThread=1"
+                }
+            ]
+        },
+        {
+            "id": "initiative-readiness-tab-display-and-reprocess-navigation",
+            "slug": "initiative-readiness-tab-display-and-reprocess-navigation",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The preview URL used by the runner did not resolve to a live deployment. Vercel returned its deployment-not-found page instead of serving the AcmeApp app, so this is a preview environment availability/configuration failure rather than evidence of an Initiative Readiness defect.",
+            "whatHappened": "The run never reached the AcmeApp app or the Initiatives page; every navigation showed a Vercel error page. The visible error was `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`, so none of the Readiness or Reprocess steps were exercised. Baseline: prior_runs reports this test has never run before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows there is no successful historical validation for this test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run never reached the AcmeApp app; the browser displayed Vercel's deployment-not-found page for the recording.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot showed the same preview deployment error instead of the Initiatives page.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found."
+                }
+            ]
+        },
+        {
+            "id": "initiative-readiness-tab-empty-state",
+            "slug": "initiative-readiness-tab-empty-state",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment is missing",
+            "rootCause": "The preview URL did not point to an existing live deployment, so Vercel served its own `DEPLOYMENT_NOT_FOUND` page before any AcmeApp frontend code could run. Scenario provisioning had already succeeded and returned auth plus seeded data, so the blocker was outside the scenario setup.",
+            "whatHappened": "The run never reached the Initiatives UI; every navigation or refresh showed a platform 404 page instead. The visible error was `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. Prior runs show this test has never passed, but this run was blocked by the unreachable preview deployment.",
+            "evidence": [
+                {
+                    "source": "video",
+                    "detail": "Final screen showed Vercel's platform 404 instead of the AcmeApp app.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::sppt8-1782970895584-8445348a605f`\n\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "video",
+                    "detail": "Repeated refresh/navigation attempts stayed on the same deployment-missing page; no Initiatives UI loaded.",
+                    "snippet": "00:00 Initial Load: 404: NOT_FOUND / Code: DEPLOYMENT_NOT_FOUND\n00:02 1st Refresh: 404: NOT_FOUND / Code: DEPLOYMENT_NOT_FOUND\n00:06 2nd Refresh: 404: NOT_FOUND / Code: DEPLOYMENT_NOT_FOUND\n00:11 3rd Refresh: 404: NOT_FOUND / Code: DEPLOYMENT_NOT_FOUND\n00:15-00:32 Same 404 remains; no Initiatives steps reached."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was reported healthy, so the blocker was not missing auth or seeded data.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nData seeded: Initiative=5, InitiativeProject=1, AdvisorThread=1, ..."
+                },
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline has no successful pass for this test.",
+                    "snippet": "ever passed: NO\nrecent: 2026-06-25: failed(replay_failed)"
+                }
+            ]
+        },
+        {
+            "id": "initiative-gated-surfaces-default-state",
+            "slug": "initiative-gated-surfaces-default-state",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The preview host for PR #3699 was not serving an app deployment, so the browser received the hosting platform’s deployment-not-found page instead of the Initiatives UI. Scenario provisioning was healthy and returned auth plus seeded data, so this is not a missing-login or missing-data scenario issue.",
+            "whatHappened": "The run never reached the AcmeApp app; it only navigated to and refreshed the preview URL. The screen showed 404: NOT_FOUND with Code: DEPLOYMENT_NOT_FOUND for the full recording. Prior runs show this test has never passed, but this run was blocked before any test behavior could execute.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline shows no successful history for this test.",
+                    "snippet": "Prior runs (most recent 1):\n- ever passed: NO - it has never succeeded in recorded history.\n- recent: 2026-06-25:failed(replay_failed)"
+                },
+                {
+                    "source": "video",
+                    "detail": "Full video showed the preview deployment error throughout the run.",
+                    "snippet": "The preview app never loads. A deployment error is visible for the entire duration of the recording.\n\nExact Visible Error Text:\n* 404: NOT_FOUND\n* Code: DEPLOYMENT_NOT_FOUND\n* Footer text: \"This deployment cannot be found. For more information and troubleshooting, see our documentation.\"\n\nInteractions:\nThe only interactions occurring are automated page refreshes."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded, so auth/data setup was not the blocker.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nData this scenario seeded into the env: ... Initiative=5 ... InitiativeProject=1 ... AdvisorThread=1"
+                }
+            ]
+        },
+        {
+            "id": "chat-delete",
+            "slug": "chat-delete",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment returns DEPLOYMENT_NOT_FOUND",
+            "rootCause": "The preview URL used by the runner points to a deployment that the hosting layer reports as missing. This blocked the run before authentication, scenario provisioning, navigation to Chats, or the delete flow could be exercised.",
+            "whatHappened": "The run never reached the AcmeApp app or the Chats page; it stayed on a hosting error page from the first frame through every refresh. The visible error was `404: NOT_FOUND` with code `DEPLOYMENT_NOT_FOUND`, so none of the chat-delete steps executed. Prior history has no successful baseline because this test has never run before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline shows no validated history for this test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the preview never loaded the app and displayed the hosting error from the first frame through refreshes.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot still showed the deployment-not-found page.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::j6jkj-1782970903217-90459b9c3e64`"
+                }
+            ]
+        },
+        {
+            "id": "chat-bulk-delete",
+            "slug": "chat-bulk-delete",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment was not found",
+            "rootCause": "The live preview URL did not serve the frontend deployment, so the browser stayed on the platform error page instead of loading the app. This is a preview availability/configuration problem, not evidence of a chat deletion regression. The scenario may have provisioned data, but the UI was unreachable.",
+            "whatHappened": "The run only performed navigation and refresh attempts and never reached the AcmeApp app or Chats page. The screen showed `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND` for the entire recording, so none of the bulk-delete steps executed. Prior history shows this test has never passed, but this run is blocked earlier by an inaccessible preview deployment.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior runs show no successful baseline for this test, but this run was blocked before the app loaded.",
+                    "snippet": "ever passed: NO"
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the preview host's deployment-not-found page for the entire recording.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot confirms the app never loaded and the preview deployment was missing.",
+                    "snippet": "404: NOT_FOUND\nCode: `DEPLOYMENT_NOT_FOUND`\nID: `iad1::jpkkr-1782970894429-716e4a74ac0a`\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "The step trace contains only navigation/refresh attempts; no chat-table actions or assertions executed.",
+                    "snippet": "1. [navigate] success\n2. [refresh] success\n3. [navigate] success"
+                }
+            ]
+        },
+        {
+            "id": "okta-sso-login-button-rename",
+            "slug": "okta-sso-login-button-rename",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "PR preview served DEPLOYMENT_NOT_FOUND instead of the app",
+            "rootCause": "The preview deployment for PR #3699 was unavailable at runtime: the browser saw `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`. This blocked setup navigation before app code, the Okta UI, or scenario data could be exercised. The `no_scenario` provisioning status does not explain this specific failure because even the public login page did not load.",
+            "whatHappened": "The run never reached AcmeApp’s login page; both navigation attempts showed a deployment 404 instead of the app. The Okta SSO button was never rendered or clicked. Prior history shows this test has never run before, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline check found no successful or failed history for this generated test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before"
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The browser never reached the app; the final screen showed Vercel's missing deployment page.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nID: iad1::fqv59-1782970890611-39fdd7c9da77\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video review confirmed the deployment error persisted throughout the run.",
+                    "snippet": "The app does not load at any point during the run. The screen displays a deployment error throughout the entire duration of the recording."
+                }
+            ]
+        },
+        {
+            "id": "admin-company-workspace-add-employee",
+            "slug": "admin-company-workspace-add-employee",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview deployment is missing",
+            "rootCause": "The requested PR preview URL did not resolve to a deployed application; it returned a platform deployment-not-found page before any AcmeApp UI loaded. Because the app was unavailable, none of the workspace collaborator steps could execute.",
+            "whatHappened": "The run never reached the AcmeApp app and stayed on a platform 404 page. The visible error was `404: NOT_FOUND` with `Code: DEPLOYMENT_NOT_FOUND`, so none of the workspace collaborator steps executed. Prior runs show this test has never run before, leaving no app-level baseline.",
+            "evidence": [
+                {
+                    "source": "screenshot",
+                    "detail": "The run never reached the app; the preview showed a deployment-not-found page for the entire run.",
+                    "snippet": "404: NOT_FOUND\nCode: DEPLOYMENT_NOT_FOUND\nID: iad1::xx5z6-1782970891930-818dcb1b05ac\n\nThis deployment cannot be found. For more information and troubleshooting, see our documentation."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning was successful, so missing seeded auth/data was not the blocker.",
+                    "snippet": "status=UP_SUCCESS\nValid auth credentials WERE returned\nData seeded: Company=1, Employee=5, Workspace=2, WorkspaceMembership=2, ..."
+                },
+                {
+                    "source": "run",
+                    "detail": "There is no historical app-level baseline for this test.",
+                    "snippet": "No prior runs recorded for this test - it has NEVER been executed before."
+                }
+            ]
+        }
+    ],
+    "gold": [
+        {
+            "members": [
+                "cortex-renamed-to-recall",
+                "cortex-full-reset-files",
+                "cortex-incremental-ingest",
+                "cortex-preview-then-ingest",
+                "metric-tree-internal-tool-navigation",
+                "metric-tree-creation-lifecycle",
+                "outcome-tracking-insight-drill-down",
+                "account-health-company-drill-down",
+                "internal-account-health-settings-edit",
+                "sidebar-internal-mode-switch",
+                "admin-mode-switch-toggle",
+                "internal-mode-brand-and-navigation",
+                "conversation-scoring-internal-tool-navigation",
+                "conversation-analytics-monitor-tabs",
+                "conversation-scoring-trends-and-feedbacks",
+                "discovery-wizard-area-flow",
+                "discovery-wizard-process-flow",
+                "discovery-wizard-validation-participants",
+                "discovery-cycles-create-draft",
+                "discovery-cycle-duplicate-from-menu",
+                "discovery-duplicate-detail",
+                "discovery-cycles-filter-status",
+                "discovery-cycles-navigate-to-detail",
+                "discovery-tab-navigation",
+                "discovery-cycle-insights-dashboard",
+                "insight-cycle-dashboard-drilldown",
+                "insight-dashboard-multi-run-filter",
+                "insight-table-run-filter-multi-select",
+                "insights-table-column-filters",
+                "insight-column-native-filter",
+                "insights-bulk-archiving-and-filter-persistence",
+                "plan-configuration-workflow",
+                "plan-context-management",
+                "process-library-tree-structure-and-expansion",
+                "process-library-confidence-and-evidence-placeholder",
+                "process-search-filter",
+                "process-edit-metadata",
+                "process-catalog-manage-regions",
+                "processes-create-macroprocess",
+                "advisor-input-guard-enforcement",
+                "advisor-input-guard-blocking",
+                "advisor-input-guard-short-circuits-blocked-messages",
+                "advisor-history-preserved-after-block",
+                "advisor-input-guard-block",
+                "advisor-standard-business-query",
+                "advisor-basic-chat-and-persistence",
+                "advisor-send-message",
+                "advisor-switch-and-send",
+                "advisor-initiative-analysis",
+                "advisor-refuses-diagnosis-when-proactive-flag-is-off",
+                "advisor-readiness-tab-integration",
+                "advisor-readiness-panel-toggle",
+                "initiative-readiness-display-in-advisor-panel",
+                "initiative-readiness-tab-display-and-reprocess-navigation",
+                "initiative-readiness-tab-empty-state",
+                "initiative-gated-surfaces-default-state",
+                "chat-delete",
+                "chat-bulk-delete",
+                "okta-sso-login-button-rename",
+                "admin-company-workspace-add-employee"
+            ],
+            "confidence": "high"
+        }
+    ]
+}

@@ -43,12 +43,35 @@ export async function planFrontDoor(config: AppConfig): Promise<FrontDoorPlan | 
     const client = new AutonomaClient(config.autonomaApiUrl, apiToken);
     try {
         const state = await client.getOnboardingState(applicationId);
-        return { client, applicationId, phase: resolveEntryPhase(state) };
+        const phase = resolveEntryPhase(state);
+        await claimHoldForRun(client, applicationId, phase);
+        return { client, applicationId, phase };
     } catch (err) {
         p.log.warn("Couldn't read your setup status from Autonoma - continuing with the test-suite run.");
         debugLog("Front-door planning failed", { err });
         captureLog("warn", "Could not resolve the onboarding entry phase", { source: "front_door" });
         return undefined;
+    }
+}
+
+/**
+ * Take the config mutex for this run, so the web app renders "continue in your
+ * terminal" instead of the steps this run is already doing.
+ *
+ * Only from the planner phase on. Before that the run hands the preview setup to a
+ * coding agent, and pairing takes the mutex with a real connected agent behind it -
+ * claiming ahead of that would put the agent activity screen on screen with nothing
+ * yet to feed it.
+ *
+ * Best effort: this decides what a web page renders, and no run should end over it.
+ */
+async function claimHoldForRun(client: AutonomaClient, applicationId: string, phase: OnboardingPhase): Promise<void> {
+    if (phase === "preview" || phase === "done") return;
+    try {
+        await client.claimAgentHold(applicationId);
+    } catch (err) {
+        debugLog("Could not claim the onboarding config for this run", { err });
+        captureLog("warn", "Could not claim the onboarding config for this run", { source: "front_door" });
     }
 }
 

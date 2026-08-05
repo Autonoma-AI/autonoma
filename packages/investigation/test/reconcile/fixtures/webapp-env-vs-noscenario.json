@@ -1,0 +1,796 @@
+{
+    "id": "webapp-env-vs-noscenario",
+    "findings": [
+        {
+            "id": "configure-channelprovider-response-verbosity",
+            "slug": "configure-channelprovider-response-verbosity",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview served nginx 502 before ChannelProvider settings loaded",
+            "rootCause": "The blocking mechanism was a preview-level gateway failure: nginx returned `502 Bad Gateway` before the browser could exercise `/settings/integrations`. The missing bound scenario explains the initial unauthenticated login screen, but the decisive failure was the preview becoming unavailable. The ChannelProvider `Response verbosity` control exists in `apps/main-app/components/integrations/providers/channelprovider/channelprovider-settings.tsx:350-374`, so this run did not prove the tested feature is missing or broken.",
+            "whatHappened": "The run never reached `/settings/integrations` or the ChannelProvider integration card. It started on the Vantage login screen, then after a refresh ended on an nginx `502 Bad Gateway` page. Prior runs show this test has never passed, so there is no baseline proving the original plan and scenario were valid.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline shows no successful or failed baseline exists; this test has never passed before."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning did not bind a scenario, so no authenticated session or seeded data was provided."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screenshot showed the preview failed at nginx rather than rendering the app."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video showed the run starting on the Vantage login page, then transitioning to an nginx 502 page around 00:07."
+                },
+                {
+                    "source": "code",
+                    "detail": "The target ChannelProvider response verbosity setting is implemented in the PR code, so the observed failure was not because the control is absent from the app.",
+                    "file": "apps/main-app/components/integrations/providers/channelprovider/channelprovider-settings.tsx",
+                    "lines": "350-374"
+                }
+            ]
+        },
+        {
+            "id": "008-channelprovider-response-verbosity",
+            "slug": "008-channelprovider-response-verbosity",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview failed with nginx 502 before ChannelProvider settings loaded",
+            "rootCause": "The requested app route did not render because the preview returned an nginx gateway failure before the test could reach `/settings/integrations`. The ChannelProvider response verbosity code path in `apps/main-app/components/integrations/providers/channelprovider/channelprovider-settings.tsx` was not exercised, so there is no observed PR defect.",
+            "whatHappened": "The run loaded the preview, briefly showed the login flow, then was replaced by an nginx “502 Bad Gateway” page. None of the planned ChannelProvider Integrations interactions executed. Prior runs show this test has never passed or failed before, so there is no baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No passing baseline exists for this test, so the PR cannot be blamed from history."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video shows the preview failed before any ChannelProvider integrations steps were reached."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot confirms nginx served a gateway error instead of the app UI."
+                },
+                {
+                    "source": "diff",
+                    "detail": "The intended ChannelProvider response verbosity UI exists in the PR, but the run never reached it.",
+                    "file": "apps/main-app/components/integrations/providers/channelprovider/channelprovider-settings.tsx"
+                }
+            ]
+        },
+        {
+            "id": "mailprovider-sync-settings-navigation-and-layout",
+            "slug": "mailprovider-sync-settings-navigation-and-layout",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview returned nginx 502 before MailProvider settings rendered",
+            "rootCause": "The immediate blocker was the preview returning a gateway-level 502 before the tested route rendered. The expected MailProvider settings strings exist in `apps/main-app/components/integrations/providers/mailvendor/mailprovider-sync-settings.tsx:291-364`, so the run did not expose a missing MailProvider-layout implementation. Because the run never reached the component, this cannot be attributed to the PR’s ChannelProvider uninstall changes.",
+            "whatHappened": "The run started on the Vantage login page, then loading `/settings/integrations` produced a white nginx `502 Bad Gateway` page. The MailVendor card and MailProvider sync settings panel were never reached, so none of the MailProvider layout assertions exercised the app. Prior history shows this test has never passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline showed this test has no successful history, so there is no evidence it was ever validated before this run."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the app never reached the MailVendor integration card or MailProvider settings panel; it hit an nginx gateway error instead."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screen was still a gateway-level error page."
+                },
+                {
+                    "source": "code",
+                    "detail": "The MailProvider layout text that the test expected is implemented in the app, but the route failed before this component could render.",
+                    "file": "apps/main-app/components/integrations/providers/mailvendor/mailprovider-sync-settings.tsx",
+                    "lines": "291-364"
+                }
+            ]
+        },
+        {
+            "id": "mailvendor-integration-settings-layout",
+            "slug": "mailvendor-integration-settings-layout",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview returned nginx 502 before the app loaded",
+            "rootCause": "The blocking failure was preview infrastructure: nginx returned `502 Bad Gateway` before authentication, routing, or scenario data could affect the result. The unbound scenario would need attention for an authenticated settings route, but it was not the observed blocker because the app never rendered.",
+            "whatHappened": "The test never reached `/settings/integrations`; it navigated and refreshed the same broken preview page three times. The final screen showed nginx `502 Bad Gateway`, so none of the MailVendor integration layout assertions were exercised. There is no passing baseline because prior runs reports this test has never executed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No passing baseline exists; this was a first execution, so the test was not validated before this run."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run never interacted with the app UI; it only navigated and refreshed the broken preview page."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final visible page was an nginx gateway failure, not the Vantage application."
+                },
+                {
+                    "source": "run",
+                    "detail": "No authenticated scenario was bound, but the observed blocker happened earlier: the preview did not serve the app at all."
+                }
+            ]
+        },
+        {
+            "id": "directorysync-group-team-mapping",
+            "slug": "directorysync-group-team-mapping",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview URL returns nginx 404",
+            "rootCause": "The preview host returned a generic nginx 404 before the Next/Vantage app loaded, so the runner could not exercise the DirectorySync group-to-team mapping flow. This is a preview availability/routing failure, not evidence of a DirectorySync application regression or seeded-data issue.",
+            "whatHappened": "The runner only navigated and refreshed the preview URL; it never reached login, workspace settings, or the DirectorySync page. The final screen showed a generic nginx “404 Not Found” page. There are no prior successful runs for this test, so the DirectorySync plan is unproven, but this run was blocked earlier by the inaccessible preview.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this DirectorySync test has no successful history and has never run before."
+                },
+                {
+                    "source": "run",
+                    "detail": "The runner never got past preview-level navigation/refresh actions."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screen was a generic nginx 404, not the application shell, login page, or DirectorySync settings UI."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning did not bind a scenario, but the observed blocker was the preview host itself returning nginx 404 before auth or data could matter."
+                },
+                {
+                    "source": "diff",
+                    "detail": "The PR diff evidence provided does not indicate an intentional change to preview root routing.",
+                    "file": "apps/main-app/proxy.ts; apps/main-app/deploy.json"
+                }
+            ]
+        },
+        {
+            "id": "directorysync-manual-reconcile",
+            "slug": "directorysync-manual-reconcile",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview host returns nginx 404 before DirectorySync loads",
+            "rootCause": "The preview deployment URL itself is not routing to the Next.js app, so the DirectorySync settings route at apps/main-app/app/settings/(admin)/security/directorysync/page.tsx:8 never rendered. The expected DirectorySync UI exists in code, including the “Sync now” button and “Synced:” toast in apps/main-app/components/settings/admin/security/directorysync/directorysync-settings.tsx:157-165 and 256-265. The failure happened before app code, seeded data, or the PR’s ChannelProvider-related changes could be exercised.",
+            "whatHappened": "The run never reached Vantage or the DirectorySync settings page; every navigate/refresh stayed on a generic “404 Not Found” nginx page. No “Sync now” click or DirectorySync reconcile assertion was attempted. There are no prior runs for this test, so the DirectorySync test has no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this test has never passed or even run before, so there is no successful DirectorySync baseline to compare against."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video shows the preview never loaded the application; it remained on the generic nginx error page for the entire recording."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot confirms a server-level nginx 404 rather than any Vantage UI."
+                },
+                {
+                    "source": "code",
+                    "detail": "The DirectorySync page route exists in the app, but the preview routing failure prevented it from rendering.",
+                    "file": "apps/main-app/app/settings/(admin)/security/directorysync/page.tsx",
+                    "lines": "1-8"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected DirectorySync reconcile success toast exists in code, but the run never reached the component.",
+                    "file": "apps/main-app/components/settings/admin/security/directorysync/directorysync-settings.tsx",
+                    "lines": "157-165"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected “Sync now” button exists in code, but no app UI loaded during the run.",
+                    "file": "apps/main-app/components/settings/admin/security/directorysync/directorysync-settings.tsx",
+                    "lines": "256-265"
+                }
+            ]
+        },
+        {
+            "id": "006-enable-directorysync-connection",
+            "slug": "006-enable-directorysync-connection",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview hostname serves nginx 404 instead of the main app",
+            "rootCause": "The live preview is not routing requests to the Next.js main app: the browser landed on the default nginx 404 page, not a Vantage route or auth gate. The target route is present at `apps/main-app/app/settings/(admin)/security/page.tsx:1-9`, and the DirectorySync route is present at `apps/main-app/app/settings/(admin)/security/directorysync/page.tsx:1-9`, so this is an environment/ingress failure rather than a bad test URL or PR-introduced DirectorySync defect.",
+            "whatHappened": "The runner never reached `/settings/security`; every attempted navigation ended on a plain nginx `404 Not Found` page. No DirectorySync toggle, connection form, or delete flow was exercised. This test has no prior successful baseline, but the route exists in the app code and the failure occurred at the preview/ingress layer.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Final screen showed a server-level nginx error before the app loaded."
+                },
+                {
+                    "source": "code",
+                    "detail": "The target route exists in the main app, so the URL itself is valid in code.",
+                    "file": "apps/main-app/app/settings/(admin)/security/page.tsx",
+                    "lines": "1-9"
+                },
+                {
+                    "source": "code",
+                    "detail": "The DirectorySync settings sub-route also exists in the main app.",
+                    "file": "apps/main-app/app/settings/(admin)/security/directorysync/page.tsx",
+                    "lines": "1-9"
+                },
+                {
+                    "source": "run",
+                    "detail": "There is no passing baseline for this generated test."
+                },
+                {
+                    "source": "run",
+                    "detail": "No scenario was bound, but that does not explain nginx returning 404 for the app hostname."
+                }
+            ]
+        },
+        {
+            "id": "sidebar-manual-collapse-toggle",
+            "slug": "sidebar-manual-collapse-toggle",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview host returned nginx 404 before the dashboard loaded",
+            "rootCause": "The preview deployment URL was not serving the application route at all; it returned an nginx-level 404 before any Vantage or Next.js UI loaded. Because the failure occurred before auth, app code, sidebar rendering, or data access, it is a preview availability/routing failure rather than a sidebar regression or scenario-data issue.",
+            "whatHappened": "The run never reached the dashboard: every navigation showed a plain nginx “404 Not Found” page. No sidebar rendered, so the collapse or expand steps were never exercised. Prior history shows this test has never run before, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this was a first run with no passing baseline."
+                },
+                {
+                    "source": "video",
+                    "detail": "The full video showed the preview host serving only an nginx 404 for the entire run; the dashboard and sidebar never loaded."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot confirmed the app UI was not served."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning was absent, but the observed blocker was an nginx-level page-load failure before auth or seeded data could affect the run."
+                }
+            ]
+        },
+        {
+            "id": "sidebar-collapse-persistence",
+            "slug": "sidebar-collapse-persistence",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Preview serves nginx 404 before /home reaches app",
+            "rootCause": "The live preview is not routing `/home` to the Next.js main app, so the browser receives an nginx 404 before any app code, auth guard, or sidebar UI can run. The route exists at `apps/main-app/app/(main)/home/page.tsx:15` and is included in the app’s protected route list at `apps/main-app/proxy.ts:48`, so this is a preview serving/routing failure rather than a missing page.",
+            "whatHappened": "The run never reached the sidebar or any authenticated app UI; it ended on an nginx `404 Not Found` page. There is also no prior successful baseline for this test.",
+            "evidence": [
+                {
+                    "source": "screenshot",
+                    "detail": "Final screen was an upstream nginx error page, not the application UI."
+                },
+                {
+                    "source": "run",
+                    "detail": "This test has no successful baseline, so there is no prior proof that the generated plan ever passed."
+                },
+                {
+                    "source": "code",
+                    "detail": "`/home` is implemented in the main app, so the nginx 404 indicates the preview did not route to the app.",
+                    "file": "apps/main-app/app/(main)/home/page.tsx",
+                    "lines": "15-21"
+                },
+                {
+                    "source": "code",
+                    "detail": "`/home` is registered as a protected app route; without auth it should hit the app auth flow, not nginx.",
+                    "file": "apps/main-app/proxy.ts",
+                    "lines": "48-53"
+                },
+                {
+                    "source": "run",
+                    "detail": "No scenario was bound, but that is secondary because the request failed before reaching the app’s auth guard."
+                }
+            ]
+        },
+        {
+            "id": "channelprovider-response-verbosity-setting-persists",
+            "slug": "channelprovider-response-verbosity-setting-persists",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No scenario bound, so ChannelProvider settings were never reached",
+            "rootCause": "The written test assumes an already-authenticated user, but this run had no scenario to create the Autonoma bypass cookies. The app’s auth seeding path is `/api/autonoma`, which creates bypass cookies from seeded user/workspace refs in `apps/main-app/app/api/autonoma/route.ts:12-33` and `apps/main-app/lib/private/autonoma/bypass-auth.ts:13-37`; because no scenario ran, the agent fell into invalid live-login attempts. The ChannelProvider response verbosity UI exists, but it was not exercised.",
+            "whatHappened": "The run never reached the dashboard, Settings, Integrations, or the ChannelProvider panel; it stayed in the auth flow with lockout/incorrect-passcode errors and briefly showed a 502 Bad Gateway page. Provisioning was `no_scenario`, so no authenticated session or test data was seeded. Prior runs show this test has never run before, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test had no passing baseline; it had never executed before this run."
+                },
+                {
+                    "source": "run",
+                    "detail": "No scenario was bound, so auth cookies and data were not seeded."
+                },
+                {
+                    "source": "video",
+                    "detail": "The recording never reached dashboard/settings/integrations and instead stayed in login with auth failures and one gateway error."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Autonoma handler is the app's scenario auth path and returns bypass cookies only when scenario-created user/workspace refs exist.",
+                    "file": "apps/main-app/app/api/autonoma/route.ts",
+                    "lines": "12-33"
+                },
+                {
+                    "source": "code",
+                    "detail": "Bypass cookies require scenario-created user/workspace context plus E2E_BYPASS_SECRET; without a scenario the browser gets no authenticated session.",
+                    "file": "apps/main-app/lib/private/autonoma/bypass-auth.ts",
+                    "lines": "13-37"
+                },
+                {
+                    "source": "code",
+                    "detail": "The targeted ChannelProvider setting exists in the app, but the run never reached this UI.",
+                    "file": "apps/main-app/components/integrations/providers/channelprovider/channelprovider-settings.tsx",
+                    "lines": "346-366"
+                }
+            ]
+        },
+        {
+            "id": "channelprovider-ai-answer-approval-unified-outline",
+            "slug": "channelprovider-ai-answer-approval-unified-outline",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No scenario was bound for the ChannelProvider approval run",
+            "rootCause": "The written setup requires a ChannelProvider channel where the Vantage bot is active and an AI answer has already been generated, but provisioning reported `status=no_scenario`, so none of that auth or ChannelProvider data existed. The ChannelProvider approval UI and expected footer/link code exist at `apps/main-app/lib/channelprovider/handlers/qa-approval/block-kit-builders.ts:177-184`, `apps/main-app/lib/channelprovider/constants.ts:113`, and `apps/main-app/lib/channelprovider/intake/issue-link-footer.ts:24-28`, but the run never reached those surfaces. The observed failures happened before any ChannelProvider approval handler or AI answer generation path was exercised.",
+            "whatHappened": "The run never opened a ChannelProvider channel, the Vantage bot DM, an AI answer card, or an Approve button. Instead, it stayed in browser navigation/login/error pages and showed repeated 404s, an AuthProvider redirect-URI JSON error, and a 502 while searching for a ChannelProvider simulation route. Prior history shows zero successful runs for this test.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test had no successful baseline; it had never been validated as a passing ChannelProvider approval flow."
+                },
+                {
+                    "source": "run",
+                    "detail": "No scenario was attached, so no authenticated ChannelProvider workspace/channel/message/AI approval state was seeded."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video never reached ChannelProvider or the approval UI; the agent only hit navigation, login, 404, AuthProvider, and 502 pages."
+                },
+                {
+                    "source": "code",
+                    "detail": "The ChannelProvider approval button exists in code, but this run never reached the ChannelProvider Block Kit approval surface.",
+                    "file": "apps/main-app/lib/channelprovider/handlers/qa-approval/block-kit-builders.ts",
+                    "lines": "177-184"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected branded ChannelProvider footer exists in code and requires the ChannelProvider approval flow to execute.",
+                    "file": "apps/main-app/lib/channelprovider/constants.ts",
+                    "lines": "113"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected Vantage link footer exists in code, but it requires seeded ChannelProvider issue/link context.",
+                    "file": "apps/main-app/lib/channelprovider/intake/issue-link-footer.ts",
+                    "lines": "24-28"
+                }
+            ]
+        },
+        {
+            "id": "channelprovider-fallback-edit-and-send",
+            "slug": "channelprovider-fallback-edit-and-send",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No scenario was bound for the ChannelProvider fallback run",
+            "rootCause": "The written plan requires an already-authenticated ChannelProvider channel, but provisioning reported status=no_scenario, so no auth session or ChannelProvider data existed. The agent therefore improvised login attempts and hit auth/provider errors instead of executing any ChannelProvider reaction or fallback send steps. This is a scenario binding/setup failure, not an observed defect in the ChannelProvider fallback implementation.",
+            "whatHappened": "This first-ever run did not start in ChannelProvider; it opened Vantage’s login page and attempted MailVendor, OfficeVendor, SSO, and email login. The run ended on an auth lockout message before any ChannelProvider reaction, direct message, edit, or send step occurred. Prior history shows this test has never passed, and provisioning explicitly reported status=no_scenario.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows there is no passing history for this test."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning explicitly says no scenario was bound, so no auth or data was seeded."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video showed the agent never reached ChannelProvider or the intended ChannelProvider fallback flow."
+                },
+                {
+                    "source": "video",
+                    "detail": "Visible auth/provider failures occurred during the improvised login attempts."
+                }
+            ]
+        },
+        {
+            "id": "009-mailprovider-sync-settings-clarity",
+            "slug": "009-mailprovider-sync-settings-clarity",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No scenario was bound, so MailVendor settings never loaded",
+            "rootCause": "The written plan assumes the user is already authenticated, but the run had `status=no_scenario`, so no session was seeded. The browser therefore entered the auth flow instead of rendering `apps/main-app/components/integrations/providers/mailvendor/mailprovider-sync-settings.tsx:290-347`, where the asserted MailProvider layout text exists. Because none of the MailVendor settings assertions executed, there is no observed PR-introduced UI defect.",
+            "whatHappened": "The run never reached `/settings/integrations/mailvendor`; it entered the auth flow and then stayed on a `502 Bad Gateway` nginx page. None of the MailProvider sync clarity assertions were exercised. Prior runs show this test has never passed, and provisioning reported `no_scenario`.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows this test has no successful history, so there is no validated passing version to compare against this PR."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning did not seed auth or data for the run."
+                },
+                {
+                    "source": "video",
+                    "detail": "The browser never reached the MailVendor settings page; it hit OAuth and then a persistent nginx error."
+                },
+                {
+                    "source": "code",
+                    "detail": "The asserted MailProvider clarity UI exists in the app code, but it was never rendered in this run because setup stopped before authenticated navigation.",
+                    "file": "apps/main-app/components/integrations/providers/mailvendor/mailprovider-sync-settings.tsx",
+                    "lines": "290-347"
+                }
+            ]
+        },
+        {
+            "id": "verify-mailbox-card-in-mailprovider-sync-settings",
+            "slug": "verify-mailbox-card-in-mailprovider-sync-settings",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No scenario auth left the run at the passcode screen",
+            "rootCause": "The immediate blocker was scenario provisioning: `status=no_scenario` means no authenticated admin session was created for a test whose setup requires starting on the Home page. The runner therefore guessed emails and passcodes and failed before any numbered step executed. Separately, `apps/main-app/components/integrations/providers/mailvendor/mailprovider-sync-settings.tsx:329-337` shows the PR intentionally changed the MailProvider mailbox card copy, so the old assertions would be stale after auth is fixed.",
+            "whatHappened": "The agent never reached the Home page or any MailProvider integration settings step; it stayed on the passcode verification screen. The visible error repeated for multiple guessed admin emails: “The passcode was incorrect and could not be authenticated, encourage the user to try inputting the passcode again or send another passcode.” Prior history has no successful baseline because this test has never run before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No scenario was bound, so the run had no provisioned admin auth or seeded data."
+                },
+                {
+                    "source": "run",
+                    "detail": "This test has no passing baseline; it has never run before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The recording showed the agent stuck at authentication and never reaching the workspace or integrations UI."
+                },
+                {
+                    "source": "code",
+                    "detail": "The implemented MailProvider mailbox card now renders different copy and button text than the written test asserts.",
+                    "file": "apps/main-app/components/integrations/providers/mailvendor/mailprovider-sync-settings.tsx",
+                    "lines": "329-337"
+                },
+                {
+                    "source": "diff",
+                    "detail": "The PR intentionally replaced the old Mailbox copy and Open mailbox button.",
+                    "file": "apps/main-app/components/integrations/providers/mailvendor/mailprovider-sync-settings.tsx"
+                }
+            ]
+        },
+        {
+            "id": "manual-issue-creation-with-linked-entity-and-role",
+            "slug": "manual-issue-creation-with-linked-entity-and-role",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No bound scenario left the run at AuthProvider login",
+            "rootCause": "The written setup requires starting authenticated at the dashboard, but this run had status=no_scenario, so no session or workspace data existed. The agent therefore clicked the normal MailVendor OAuth button, which constructs /auth/callback?source=mailvendor in apps/main-app/components/auth/AuthProvidersButtons.tsx:24-29, and AuthProvider rejected that preview redirect configuration. The intended issue creation and linked-record behavior was never exercised.",
+            "whatHappened": "The agent never reached the dashboard or “My Issues”; it started unauthenticated and clicked “Continue with MailVendor.” AuthProvider returned a raw 400 JSON page with error_type query_params_do_not_match. There are no prior successful runs for this test, so the issue-linking plan has no validated baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Provisioning status shows no auth or data were seeded for the run."
+                },
+                {
+                    "source": "run",
+                    "detail": "There is no prior successful baseline for this generated test."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run hit a raw AuthProvider redirect error after clicking MailVendor login."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video confirmed the agent never reached Dashboard or My Issues."
+                },
+                {
+                    "source": "code",
+                    "detail": "MailVendor OAuth uses a preview-origin callback with a source query parameter.",
+                    "file": "apps/main-app/components/auth/AuthProvidersButtons.tsx",
+                    "lines": "24-29"
+                },
+                {
+                    "source": "diff",
+                    "detail": "The PR did not change the auth button file implicated in the login detour.",
+                    "file": "apps/main-app/components/auth/AuthProvidersButtons.tsx"
+                }
+            ]
+        },
+        {
+            "id": "edit-issue-relationship-role",
+            "slug": "edit-issue-relationship-role",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No bound scenario left the issue role test at login",
+            "rootCause": "No scenario was bound to this run, so Autonoma never provisioned the bypass auth cookies required for the test’s assumed already-authenticated Home page. The auth factory in apps/main-app/app/api/autonoma/route.ts:27-34 only returns cookies when seeded user/workspace refs exist, and those cookies are generated by apps/main-app/lib/private/autonoma/bypass-auth.ts:14-26.",
+            "whatHappened": "The run started on the Vantage login page instead of the Home page and never reached the Create Issue flow. After the agent typed test@example.com and clicked “Send Verification Code,” the app showed a lockout error, then later a 404 page. There are no prior successful runs for this test, so the issue relationship plan has no validated baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows no successful history for this generated test."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning explicitly did not seed auth or data because no scenario was bound."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video showed the browser started on the normal login page and never reached the intended Create Issue flow."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Autonoma auth factory requires seeded user/workspace refs to return bypass cookies.",
+                    "file": "apps/main-app/app/api/autonoma/route.ts",
+                    "lines": "27-34"
+                },
+                {
+                    "source": "code",
+                    "detail": "Bypass cookies are the mechanism that authenticates the pre-seeded browser session.",
+                    "file": "apps/main-app/lib/private/autonoma/bypass-auth.ts",
+                    "lines": "14-26"
+                }
+            ]
+        },
+        {
+            "id": "issue-sidebar-relationships-roles",
+            "slug": "issue-sidebar-relationships-roles",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No scenario auth kept the run on the login wall",
+            "rootCause": "The setup precondition required an already-authenticated user starting at `/my-issues`, but this run had `status=no_scenario`. With no seeded auth/session or issue/company data, the browser could only reach the login wall and never exercised the Relationships card or PR-touched code.",
+            "whatHappened": "The run never reached `/my-issues`; it stayed on the Vantage login screen after entering `test@example.com`. The final UI showed the user was locked out due to too many failed authentication attempts. Prior runs show this test has never passed, so there is no validated baseline for the plan or scenario.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this test has no passing history."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning did not create auth or data for the run."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The browser remained on the login screen instead of reaching the My Issues page."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video confirmed the test never exercised the Relationships card flow."
+                }
+            ]
+        },
+        {
+            "id": "issue-detail-relationships-card-shows-document-roles",
+            "slug": "issue-detail-relationships-card-shows-document-roles",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No scenario left Relationships test at unauthenticated login",
+            "rootCause": "No scenario was bound to the run, so the runner received neither auth nor the issue data required by the test setup. The written plan assumes an authenticated issue detail page with document-extracted relationship roles, while the actual run attempted unauthenticated navigation and login. The expected Relationships UI exists in `apps/main-app/components/issues/sidebar/relationships-card.tsx:517`, but this run never exercised it.",
+            "whatHappened": "The agent loaded Vantage but never reached the issue detail page or the Relationships card. It hit unauthenticated 404 pages, then ended on the login screen with “The user has been locked out due to too many failed authentication attempts.” There are no prior successful runs, so this plan/scenario has no validated baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Provisioning returned no scenario, so no authenticated session or seeded issue-detail data was created for the run."
+                },
+                {
+                    "source": "run",
+                    "detail": "This test has no passing baseline; it has never been validated against the running app before this failure."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run never reached the issue detail page or Relationships card; it navigated unauthenticated to 404 pages and ended at a login lockout."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Relationships card header the test expects exists in the app, but it was never exercised in this run.",
+                    "file": "apps/main-app/components/issues/sidebar/relationships-card.tsx",
+                    "lines": "517"
+                },
+                {
+                    "source": "code",
+                    "detail": "The source label asserted by the test exists in the Relationships card implementation when a document-backed relationship is present.",
+                    "file": "apps/main-app/components/issues/sidebar/relationships-card.tsx",
+                    "lines": "65"
+                },
+                {
+                    "source": "code",
+                    "detail": "The role label asserted by the test exists in the shared entity label mapping.",
+                    "file": "apps/main-app/components/issues/shared/entity-asset-types.ts",
+                    "lines": "120"
+                },
+                {
+                    "source": "code",
+                    "detail": "The standard Autonoma recipe contains the issue the test setup describes, but that recipe was not bound to this run.",
+                    "file": "apps/main-app/lib/private/autonoma/recipes/standard.json"
+                }
+            ]
+        },
+        {
+            "id": "templates-link-counterparty-during-drafting",
+            "slug": "templates-link-counterparty-during-drafting",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No scenario bound, so Vantage stayed on auth screen",
+            "rootCause": "The written plan assumes the user starts on Home, but this run had no bound scenario, so the browser had no authenticated session or seeded data. Protected routes redirect unauthenticated users to `/auth` in `apps/main-app/proxy.ts:276-284`, which matches the video. The app has an Autonoma path to mint bypass auth cookies, but it only helps when provisioning is invoked and enabled via `apps/main-app/app/api/autonoma/route.ts:39-42` and `apps/main-app/lib/private/autonoma/bypass-auth.ts:7-18`.",
+            "whatHappened": "The run never reached Home, Templates, or the drafting flow; it stayed on the Vantage auth screen. There were no visible app errors, and provisioning reported `status=no_scenario`, meaning no auth or data was seeded. Prior history shows no successful baseline for this test.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-runs baseline shows this test has never passed or even run before, so there is no validated baseline tying the failure to this PR."
+                },
+                {
+                    "source": "run",
+                    "detail": "This run had no scenario bound, so no authentication or test data was provisioned."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video showed the browser remained on the Vantage login screen for the whole run with no app error toast or broken render."
+                },
+                {
+                    "source": "code",
+                    "detail": "Protected routes redirect unauthenticated sessions to the auth page, matching the observed login screen.",
+                    "file": "apps/main-app/proxy.ts",
+                    "lines": "276-284"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Autonoma factory endpoint only provisions when enabled and invoked; without a bound scenario, those cookies were never generated for this run.",
+                    "file": "apps/main-app/app/api/autonoma/route.ts",
+                    "lines": "39-42"
+                },
+                {
+                    "source": "code",
+                    "detail": "When provisioning is invoked, the factory can create the bypass cookies needed for authenticated E2E sessions.",
+                    "file": "apps/main-app/lib/private/autonoma/bypass-auth.ts",
+                    "lines": "7-18"
+                }
+            ]
+        },
+        {
+            "id": "draft-agreement-from-template-with-folder-selection-and-issue-toggle",
+            "slug": "draft-agreement-from-template-with-folder-selection-and-issue-toggle",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No bound scenario left the templates test unauthenticated",
+            "rootCause": "The written setup assumes an already authenticated user, but this run had no scenario bound, so Autonoma never seeded auth/data. In `apps/main-app/app/api/autonoma/route.ts:27-35`, bypass cookies are only returned by the scenario auth hook after a valid recipe creates user/workspace refs; without that provisioning, the protected app correctly showed `/auth`.",
+            "whatHappened": "The agent loaded the app but stayed on the Vantage authentication screen and never reached `/templates` or the draft modal. No app error banner or toast appeared. Prior history has zero successful runs, and run provisioning reported `status=no_scenario`.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior history provides no successful baseline for this generated test."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning did not run because no scenario was bound, so no auth cookies or data were seeded."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run stayed on the unauthenticated Vantage login screen instead of reaching the templates flow."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Autonoma auth handler only returns bypass cookies during a successful scenario up.",
+                    "file": "apps/main-app/app/api/autonoma/route.ts",
+                    "lines": "27-35"
+                },
+                {
+                    "source": "code",
+                    "detail": "The bound standard recipe would include the required template record.",
+                    "file": "apps/main-app/lib/private/autonoma/recipes/standard.json",
+                    "lines": "168"
+                },
+                {
+                    "source": "code",
+                    "detail": "The bound standard recipe would include the required destination folder.",
+                    "file": "apps/main-app/lib/private/autonoma/recipes/standard.json",
+                    "lines": "89"
+                }
+            ]
+        },
+        {
+            "id": "directorysync-settings-and-manual-sync",
+            "slug": "directorysync-settings-and-manual-sync",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No scenario was bound, so DirectorySync settings were never reached",
+            "rootCause": "The written setup expected scenario `standard` to provide `{{admin_email}}`, but run metadata shows `status=no_scenario`, so no scenario auth/data existed. The standard recipe would create `admin-{{testRunId}}@autonoma-test.local`, and `apps/main-app/app/api/autonoma/route.ts:27-32` would return bypass cookies after provisioning. Because that setup did not happen, the browser fell back to a real login flow and was blocked before exercising any DirectorySync functionality.",
+            "whatHappened": "The run stopped on the Vantage login screen after submitting `admin@example.com`; it never reached the dashboard or any DirectorySync settings page. The visible auth error said the email was marked inactive by the email provider. `prior_runs` reports this test has never passed or run before, and this run had `status=no_scenario`.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline shows this generated test has no passing baseline and had never executed before."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run had no bound scenario, so no auth cookies or seeded data were provided."
+                },
+                {
+                    "source": "run",
+                    "detail": "The browser was left in the public login flow with an inactive real email rather than scenario auth."
+                },
+                {
+                    "source": "code",
+                    "detail": "The standard scenario recipe would create a dynamic Autonoma admin user, not admin@example.com.",
+                    "file": "apps/main-app/lib/private/autonoma/recipes/standard.json",
+                    "lines": "4-11"
+                },
+                {
+                    "source": "code",
+                    "detail": "When provisioning succeeds, the Autonoma endpoint returns bypass cookies for the seeded admin/workspace.",
+                    "file": "apps/main-app/app/api/autonoma/route.ts",
+                    "lines": "27-32"
+                }
+            ]
+        },
+        {
+            "id": "directorysync-group-to-team-membership-sync",
+            "slug": "directorysync-group-to-team-membership-sync",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No scenario was bound for the admin DirectorySync test",
+            "rootCause": "No scenario was bound to the run, so no authenticated admin session or DirectorySync test data was provisioned. With no Autonoma auth cookies/data, the agent fell back to interactive login as `admin@example.com` and the passcode was rejected before the DirectorySync flow could be exercised. The DirectorySync UI and expected toast labels are implemented in `apps/main-app/components/settings/admin/security/directorysync/directorysync-settings.tsx:158-166` and `apps/main-app/components/settings/admin/security/directorysync/directorysync-settings.tsx:258-264`, so the observed failure is setup/provisioning rather than this PR’s DirectorySync behavior.",
+            "whatHappened": "The run never got past login verification, so it did not reach `/settings/security/directorysync` or click “Sync now.” The app showed the login error “The passcode was incorrect…” after the agent entered a code. Prior runs show this test has never passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Provisioning fact for this run"
+                },
+                {
+                    "source": "run",
+                    "detail": "Baseline shows this is an unvalidated first run"
+                },
+                {
+                    "source": "video",
+                    "detail": "Video confirmed the run never reached the DirectorySync page"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected DirectorySync toast text is implemented",
+                    "file": "apps/main-app/components/settings/admin/security/directorysync/directorysync-settings.tsx",
+                    "lines": "158-166"
+                },
+                {
+                    "source": "code",
+                    "detail": "The “Sync now” button is implemented on the DirectorySync settings page",
+                    "file": "apps/main-app/components/settings/admin/security/directorysync/directorysync-settings.tsx",
+                    "lines": "258-264"
+                }
+            ]
+        }
+    ],
+    "gold": [
+        {
+            "members": [
+                "configure-channelprovider-response-verbosity",
+                "008-channelprovider-response-verbosity",
+                "mailprovider-sync-settings-navigation-and-layout",
+                "mailvendor-integration-settings-layout",
+                "directorysync-group-team-mapping",
+                "directorysync-manual-reconcile",
+                "006-enable-directorysync-connection",
+                "sidebar-manual-collapse-toggle",
+                "sidebar-collapse-persistence"
+            ],
+            "confidence": "high"
+        },
+        {
+            "members": [
+                "channelprovider-response-verbosity-setting-persists",
+                "channelprovider-ai-answer-approval-unified-outline",
+                "channelprovider-fallback-edit-and-send",
+                "009-mailprovider-sync-settings-clarity",
+                "verify-mailbox-card-in-mailprovider-sync-settings",
+                "manual-issue-creation-with-linked-entity-and-role",
+                "edit-issue-relationship-role",
+                "issue-sidebar-relationships-roles",
+                "issue-detail-relationships-card-shows-document-roles",
+                "templates-link-counterparty-during-drafting",
+                "draft-agreement-from-template-with-folder-selection-and-issue-toggle",
+                "directorysync-settings-and-manual-sync",
+                "directorysync-group-to-team-membership-sync"
+            ],
+            "confidence": "high"
+        }
+    ]
+}

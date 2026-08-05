@@ -78,6 +78,32 @@ function makeSdkValidatedState(): RouterOutputs["onboarding"]["getState"] {
   };
 }
 
+/**
+ * Nobody is driving: the page renders its own stepper. Every story below is the
+ * human-held case except the agent ones at the bottom, which is also the state a
+ * user lands in after taking over.
+ */
+const humanHeldSession: RouterOutputs["onboarding"]["getAgentSession"] = {
+  applicationId: baseApplication.id,
+  step: "completed",
+  previewEnvironmentMode: "previewkit",
+  previewVerificationStatus: "ready",
+  holder: "human",
+  effectiveHolder: "human",
+  stale: false,
+  agentConnectedAt: FIXTURE_EPOCH,
+  agentLastActivityAt: FIXTURE_EPOCH,
+  logs: [],
+};
+
+/** A coding agent holds the app, so finish setup points at the terminal instead. */
+const agentHeldSession: RouterOutputs["onboarding"]["getAgentSession"] = {
+  ...humanHeldSession,
+  holder: "agent",
+  effectiveHolder: "agent",
+  agentClient: "claude-code",
+};
+
 const artifactStatus: RouterOutputs["applicationSetups"]["artifactStatus"] = {
   complete: true,
   stepComplete: true,
@@ -267,9 +293,11 @@ const noVercelProjects: RouterOutputs["onboarding"]["listAvailableVercelProjects
 function sdkStepFixtures(
   targets: SdkDryRunTargets,
   state: RouterOutputs["onboarding"]["getState"] = makeOnboardingState(),
+  session: RouterOutputs["onboarding"]["getAgentSession"] = humanHeldSession,
 ): TrpcFixtures {
   return {
     onboarding: {
+      getAgentSession: session,
       getState: state,
       listSdkDryRunTargets: targets,
       prepareSdkTarget: { status: "ready" },
@@ -294,6 +322,7 @@ const linkedVercelProject: RouterOutputs["onboarding"]["listAvailableVercelProje
 function vercelNoDeploymentsFixtures(): TrpcFixtures {
   return {
     onboarding: {
+      getAgentSession: humanHeldSession,
       getState: makeOnboardingState(),
       listSdkDryRunTargets: readyTargets,
       prepareSdkTarget: { status: "ready" },
@@ -315,6 +344,7 @@ function vercelNoDeploymentsFixtures(): TrpcFixtures {
 function artifactsStepFixtures(): TrpcFixtures {
   return {
     onboarding: {
+      getAgentSession: humanHeldSession,
       getState: makeArtifactsState(),
       listSdkDryRunTargets: readyTargets,
     },
@@ -360,6 +390,7 @@ function makeDryRunState(): RouterOutputs["onboarding"]["getState"] {
 function dryRunStepFixtures(targets: SdkDryRunTargets): TrpcFixtures {
   return {
     onboarding: {
+      getAgentSession: humanHeldSession,
       getState: makeDryRunState(),
       listSdkDryRunTargets: targets,
     },
@@ -375,9 +406,11 @@ function dryRunStepFixtures(targets: SdkDryRunTargets): TrpcFixtures {
  * dry-run step, so the story walks back to the SDK step - which is why the
  * dry-run step's scenario list is fixtured here too.
  */
-function sdkValidatedFixtures(): TrpcFixtures {
+function sdkValidatedFixtures(
+  session: RouterOutputs["onboarding"]["getAgentSession"] = humanHeldSession,
+): TrpcFixtures {
   return {
-    ...sdkStepFixtures(readyTargets, makeSdkValidatedState()),
+    ...sdkStepFixtures(readyTargets, makeSdkValidatedState(), session),
     scenarios: { list: scenarioList },
   };
 }
@@ -567,4 +600,26 @@ export const TargetBuilding: Story = {
       ],
     },
   },
+};
+
+/**
+ * Finish setup while a coding agent holds the app. The stepper is replaced
+ * outright: the work is happening in a terminal the user opened, which is a
+ * better window onto it than anything this page could render, and the CLI step
+ * only exists to hand out the command that run already is.
+ */
+export const AgentDriving: Story = {
+  args: { path: PATH },
+  parameters: {
+    msw: { handlers: appShellHandlers(sdkStepFixtures(readyTargets, makeOnboardingState(), agentHeldSession)) },
+  },
+};
+
+/**
+ * The same screen part-way through, with the artifacts landed and the SDK
+ * answering - so the only row still open is the dry run.
+ */
+export const AgentDrivingPartway: Story = {
+  args: { path: PATH },
+  parameters: { msw: { handlers: appShellHandlers(sdkValidatedFixtures(agentHeldSession)) } },
 };

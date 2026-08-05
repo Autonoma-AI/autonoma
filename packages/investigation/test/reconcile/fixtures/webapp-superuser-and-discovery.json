@@ -1,0 +1,212 @@
+{
+    "id": "webapp-superuser-and-discovery",
+    "findings": [
+        {
+            "id": "internal-visibility-drawer",
+            "slug": "internal-visibility-drawer",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Seeded admin cannot open the internal visibility drawer",
+            "rootCause": "The internal visibility surface is superuser-only, but the seeded admin user is not a Django superuser. The frontend only renders the Internal-mode link when isSuperuser is true, and the backend route/API also require user.is_superuser, so the scenario-authenticated user cannot access the route the test depends on.",
+            "whatHappened": "The run logged in as the seeded admin and opened the sidebar user menu, but the menu did not show the Internal-mode button, so the agent stayed on Home. Prior history has no successful runs.",
+            "evidence": [
+                {
+                    "source": "code",
+                    "file": "SidebarUserMenu.tsx",
+                    "lines": "331-349",
+                    "detail": "Internal link gated on isSuperuser"
+                }
+            ]
+        },
+        {
+            "id": "evaluations-company-toggle",
+            "slug": "evaluations-company-toggle",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Evaluations test-company toggle unreachable for the seeded admin",
+            "rootCause": "The written test requires clicking Internal, but that control is gated behind isSuperuser in SidebarUserMenu.tsx. The scenario recipe seeds the admin with isStaff: true only, and the user DTO defaults is_superuser to false, so the required menu item cannot render. The failure is in the scenario's auth-role setup, not the PR.",
+            "whatHappened": "The run opened the sidebar user menu, but it had no Internal option, so the agent never reached Evaluations. The final screen stayed on Home with no app errors.",
+            "evidence": [
+                {
+                    "source": "code",
+                    "file": "SidebarUserMenu.tsx",
+                    "lines": "331-349",
+                    "detail": "Internal item gated on isSuperuser"
+                },
+                {
+                    "source": "code",
+                    "file": "scenario-recipes.json",
+                    "lines": "15-21",
+                    "detail": "admin seeded with isStaff only"
+                }
+            ]
+        },
+        {
+            "id": "internal-visibility-health",
+            "slug": "internal-visibility-health",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Internal visibility health view never opens",
+            "rootCause": "The test expects to enter Internal mode and open the visibility view, but that surface is superuser-only. The seeded admin user is only isStaff: true in scenario-recipes.json, while the sidebar renders the Internal link only for isSuperuser in SidebarUserMenu.tsx and the backend guard also requires request.user.is_superuser in internal_views.py.",
+            "whatHappened": "The run opened the sidebar user menu but saw no Internal option, so it never reached the visibility view. No app error was visible; the test has never passed before.",
+            "evidence": [
+                {
+                    "source": "code",
+                    "file": "SidebarUserMenu.tsx",
+                    "lines": "335-348",
+                    "detail": "Internal link only for isSuperuser"
+                },
+                {
+                    "source": "code",
+                    "file": "internal_views.py",
+                    "lines": "29-34",
+                    "detail": "backend requires is_superuser"
+                }
+            ]
+        },
+        {
+            "id": "discovery-conversation-sim",
+            "slug": "discovery-conversation-sim",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Test assumes a deterministic single-prompt discovery path",
+            "rootCause": "The written plan assumes one prompt will deterministically produce the exact continue actions and unlock the conversation-stage simulation, but the implemented discovery flow can ask additional questions before advancing. The simulation button is gated on the discovery stage completing.",
+            "evidence": [
+                {
+                    "source": "code",
+                    "file": "discovery/SKILL.md",
+                    "lines": "67-74",
+                    "detail": "skill is conversational, asks follow-ups"
+                }
+            ]
+        },
+        {
+            "id": "discovery-quality-check-flow",
+            "slug": "discovery-quality-check-flow",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Test expects one prompt to complete every discovery stage",
+            "rootCause": "The written plan assumes one chat prompt immediately completes Context, Strategy, Conversation, and Launch, then exposes Quality Check. The implemented flow in discovery/SKILL.md is conversational and requires follow-up questions before advancing.",
+            "evidence": [
+                {
+                    "source": "code",
+                    "file": "discovery/SKILL.md",
+                    "lines": "67-74",
+                    "detail": "requires questions before advancing"
+                }
+            ]
+        },
+        {
+            "id": "discovery-quality-check-flow-2",
+            "slug": "discovery-quality-check-flow-2",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Test assumes a short sentence completes the Context stage",
+            "rootCause": "The written test assumes one short sentence is enough to complete Context and expose the continue control. The implemented flow in discovery/SKILL.md first opens an empty canvas, sends the fixed opener, and waits for discovery material before advancing.",
+            "evidence": [
+                {
+                    "source": "code",
+                    "file": "discovery/SKILL.md",
+                    "lines": "83-93",
+                    "detail": "waits for discovery material"
+                }
+            ]
+        },
+        {
+            "id": "quality-check-participant-rubric",
+            "slug": "quality-check-participant-rubric",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Fixed continue-clicks never reach Quality Check",
+            "rootCause": "The written plan assumes the advisor advances through Context, Strategy, and Conversation by repeatedly clicking a stable continue option. In the implemented skill, discovery/SKILL.md drives dynamic ask_user_question prompts, so the fixed-click path never reaches Quality Check.",
+            "evidence": [
+                {
+                    "source": "code",
+                    "file": "discovery/SKILL.md",
+                    "lines": "70-74",
+                    "detail": "dynamic ask_user_question prompts"
+                }
+            ]
+        },
+        {
+            "id": "quality-check-persistence-parallel",
+            "slug": "quality-check-persistence-parallel",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Fixed continue-clicks leave the Quality Check footer unrendered",
+            "rootCause": "The written test assumes three fixed continue clicks always advance through Context, Strategy, Conversation, and Launch. In the observed run the app was still asking a Strategy follow-up question, so the Launch stage stayed locked and the Quality Check footer could not render.",
+            "evidence": [
+                {
+                    "source": "code",
+                    "file": "discovery/SKILL.md",
+                    "lines": "70-74",
+                    "detail": "Strategy still asking a follow-up"
+                }
+            ]
+        },
+        {
+            "id": "thread-management-sidebar",
+            "slug": "thread-management-sidebar",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Deleted threads intentionally remain in the default recents list",
+            "rootCause": "The test asserts a deleted thread should be absent from the default sidebar list after refresh, but the implemented sidebar defaults the recents status filter to 'all'. Deletion is a soft delete, so the thread still appears under the 'all' filter by design.",
+            "evidence": [
+                {
+                    "source": "code",
+                    "file": "SidebarRecentsSection.tsx",
+                    "lines": "109-122",
+                    "detail": "recents filter defaults to all"
+                }
+            ]
+        },
+        {
+            "id": "plan-context-prefill",
+            "slug": "plan-context-prefill",
+            "category": "environment_failure",
+            "confidence": "medium",
+            "headline": "Create-plan button hidden by a feature flag",
+            "rootCause": "The plans page only renders the creation CTA when the SHOW_CREATE_PLAN_BUTTON feature flag is enabled. In this run the flag evaluated false or unresolved, so the table received canCreate=false and omitted the primary action.",
+            "evidence": [
+                {
+                    "source": "code",
+                    "file": "plans/page.tsx",
+                    "lines": "31,75",
+                    "detail": "CTA gated on SHOW_CREATE_PLAN_BUTTON"
+                }
+            ]
+        },
+        {
+            "id": "quality-check-live-completion",
+            "slug": "quality-check-live-completion",
+            "category": "outdated_test",
+            "confidence": "high",
+            "headline": "Test expects the old fixed Quality Check score",
+            "rootCause": "The written test is stale for this PR: it expects the old fixed Quality Check score of 3.5 even though the PR intentionally moves scoring to backend evaluation data. The modal now maps evaluation.overall into a dynamic eval score.",
+            "evidence": [
+                {
+                    "source": "code",
+                    "file": "useQualityCheckRuns.ts",
+                    "lines": "116-126",
+                    "detail": "maps evaluation.overall into evalScore"
+                }
+            ]
+        }
+    ],
+    "gold": [
+        {
+            "members": ["internal-visibility-drawer", "evaluations-company-toggle", "internal-visibility-health"],
+            "confidence": "high"
+        },
+        {
+            "members": [
+                "discovery-conversation-sim",
+                "discovery-quality-check-flow",
+                "discovery-quality-check-flow-2",
+                "quality-check-participant-rubric",
+                "quality-check-persistence-parallel"
+            ],
+            "confidence": "high"
+        }
+    ]
+}

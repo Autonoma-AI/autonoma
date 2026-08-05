@@ -43,6 +43,7 @@ import { useAuth } from "lib/auth";
 import { type DryRunOutcome, formatDryRunError } from "lib/format-dry-run-error";
 import { AGENT_INSTRUCTIONS } from "lib/onboarding/agent-instructions";
 import {
+  useAgentSession,
   useAvailableVercelProjects,
   useConfigureAndDiscoverSdkTarget,
   useConfigureAndDiscoverScenarios,
@@ -71,6 +72,7 @@ import { toastManager } from "lib/toast-manager";
 import { type RouterOutputs, trpc } from "lib/trpc";
 import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { useCurrentApplication } from "../../-use-current-application";
+import { AgentFinishingScreen } from "./-components/agent-finishing-screen";
 import { testCaseFolder } from "./-test-case-folder";
 
 type FinishStepId = "cli" | "sdk" | "dry-run";
@@ -166,6 +168,9 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/finis
         context.queryClient,
         trpc.onboarding.listSdkDryRunTargets.queryOptions({ applicationId: app.id }),
       ),
+      // Who holds this app decides whether the stepper renders at all, so it is
+      // prefetched with the rest rather than arriving a poll later.
+      ensureAPIQueryData(context.queryClient, trpc.onboarding.getAgentSession.queryOptions({ applicationId: app.id })),
     ]);
     if (state.setupComplete) {
       throw redirect({ to: "/app/$appSlug", params: { appSlug } });
@@ -188,15 +193,14 @@ function FinishSetupPage() {
         Back to home
       </Link>
 
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-medium tracking-tight text-text-primary">Finish setup</h1>
-        <p className="max-w-2xl text-sm text-text-secondary">
-          Deepen what Autonoma can test - upload CLI artifacts, implement the SDK so it can provision real test data,
-          and dry-run your scenarios. Finish once all three are done.
-        </p>
-      </header>
-
-      <Suspense fallback={<Skeleton className="h-96 w-full" />}>
+      <Suspense
+        fallback={
+          <>
+            <Skeleton className="h-16 w-full max-w-2xl" />
+            <Skeleton className="h-96 w-full" />
+          </>
+        }
+      >
         <FinishSetupSteps applicationId={app.id} appSlug={app.slug} />
       </Suspense>
     </div>
@@ -207,6 +211,9 @@ function FinishSetupSteps({ applicationId, appSlug }: { applicationId: string; a
   const { data: state } = useOnboardingState(applicationId);
   const { data: artifactStatus } = useArtifactStatus(applicationId);
   const { data: targets } = useSdkDryRunTargets(applicationId);
+  // Warmed by the route loader, so the stepper never flashes up before the screen
+  // that is meant to replace it.
+  const { data: agentSession } = useAgentSession(applicationId);
   const { target: pinnedTargetId } = Route.useSearch();
   const navigate = Route.useNavigate();
 
@@ -233,6 +240,7 @@ function FinishSetupSteps({ applicationId, appSlug }: { applicationId: string; a
   const dryRunPassed = state.dryRunPassed;
 
   const stepDone = [artifactsUploaded, sdkImplemented, dryRunPassed];
+  const progress = { artifactsUploaded, sdkConfigured: sdkImplemented, dryRunPassed };
   const incompleteStepIndex = stepDone.findIndex((done) => done !== true);
   const firstIncompleteIndex = incompleteStepIndex === -1 ? 0 : incompleteStepIndex;
   const [currentIndex, setCurrentIndex] = useState(firstIncompleteIndex);
@@ -260,77 +268,112 @@ function FinishSetupSteps({ applicationId, appSlug }: { applicationId: string; a
     state.previewEnvironmentMode === "existing_deploys" &&
     state.diffTriggerConfirmedAt == null;
 
+  // A coding agent holding the config is doing this exact work, in a terminal the
+  // user can see far better than any feed here could show them - so the stepper is
+  // replaced rather than annotated. That also retires the CLI step while it applies:
+  // that step exists only to hand out the command the agent's run already is.
+  // `holder`, not `effectiveHolder`: an agent implementing the SDK in the repo goes
+  // quiet for long stretches, and the staleness window would swap the screen out
+  // from under a run that is very much still going. Take over is the way back.
+  if (agentSession?.holder === "agent") {
+    return (
+      <>
+        <FinishSetupHeader description="A coding agent is finishing this setup for you. Everything below updates itself as it goes." />
+        <AgentFinishingScreen applicationId={applicationId} progress={progress} />
+      </>
+    );
+  }
+
   return (
-    <div className="flex flex-col">
-      {awaitingFirstDiffSignal && (
-        <div className="mb-6 flex items-start gap-3 border border-status-warn/30 bg-status-warn/5 px-5 py-4">
-          <WarningCircleIcon size={20} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-medium text-text-primary">Waiting for your first PR deployment signal</p>
-            <p className="text-sm text-text-secondary">
-              This app is live, but Autonoma hasn't received a deployment signal yet. Reviews start once your{" "}
-              <Code>deployment_status</Code> workflow fires on a pull request. If you haven't wired it up, no reviews
-              will run.
-            </p>
+    <>
+      <FinishSetupHeader description="Deepen what Autonoma can test - upload CLI artifacts, implement the SDK so it can provision real test data, and dry-run your scenarios. Finish once all three are done." />
+      <div className="flex flex-col">
+        {awaitingFirstDiffSignal && (
+          <div className="mb-6 flex items-start gap-3 border border-status-warn/30 bg-status-warn/5 px-5 py-4">
+            <WarningCircleIcon size={20} weight="fill" className="mt-0.5 shrink-0 text-status-warn" />
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-text-primary">Waiting for your first PR deployment signal</p>
+              <p className="text-sm text-text-secondary">
+                This app is live, but Autonoma hasn't received a deployment signal yet. Reviews start once your{" "}
+                <Code>deployment_status</Code> workflow fires on a pull request. If you haven't wired it up, no reviews
+                will run.
+              </p>
+            </div>
           </div>
-        </div>
-      )}
-      <FinishSetupStepper
-        currentIndex={currentIndex}
-        completedStepCount={completedStepCount}
-        stepDone={stepDone}
-        firstIncompleteIndex={firstIncompleteIndex}
-        onSelect={goToStep}
-      />
-
-      <section className="flex flex-col gap-5">
-        <header className="flex flex-col gap-2">
-          <h2 className="text-lg font-medium text-text-primary">{currentStep.title}</h2>
-          <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">{currentStep.description}</p>
-        </header>
-        {currentStep.render({ applicationId, artifactStatus, selectedTargetId, onSelectTarget: setSelectedTargetId })}
-      </section>
-
-      <div className="mt-8 flex items-center justify-between border-t border-border-dim pt-6">
-        <Button
-          variant="outline"
-          className="gap-2"
-          disabled={currentIndex === 0}
-          onClick={() => goToStep(currentIndex - 1)}
-        >
-          <ArrowLeftIcon size={16} weight="bold" />
-          Back
-        </Button>
-        {isLastStep ? (
-          <Button
-            variant="accent"
-            className="gap-2 px-6 font-mono text-sm font-bold uppercase"
-            disabled={!currentStepDone}
-            onClick={goHome}
-          >
-            Finish
-            <ArrowRightIcon size={16} weight="bold" />
-          </Button>
-        ) : (
-          <Button
-            variant="accent"
-            className="gap-2 px-6 font-mono text-sm font-bold uppercase"
-            disabled={!currentStepDone}
-            onClick={() => goToStep(currentIndex + 1)}
-          >
-            Next
-            <ArrowRightIcon size={16} weight="bold" />
-          </Button>
         )}
-      </div>
+        <FinishSetupStepper
+          currentIndex={currentIndex}
+          completedStepCount={completedStepCount}
+          stepDone={stepDone}
+          firstIncompleteIndex={firstIncompleteIndex}
+          onSelect={goToStep}
+        />
 
-      <div className="mt-2 border-t border-border-dim pt-6">
-        <p className="max-w-2xl text-sm text-text-secondary">
-          All three steps are required. Until they're done, Autonoma can't run test generations for this app. The page
-          closes itself once the app is set up.
-        </p>
+        <section className="flex flex-col gap-5">
+          <header className="flex flex-col gap-2">
+            <h2 className="text-lg font-medium text-text-primary">{currentStep.title}</h2>
+            <p className="max-w-2xl text-sm leading-relaxed text-text-secondary">{currentStep.description}</p>
+          </header>
+          {currentStep.render({ applicationId, artifactStatus, selectedTargetId, onSelectTarget: setSelectedTargetId })}
+        </section>
+
+        <div className="mt-8 flex items-center justify-between border-t border-border-dim pt-6">
+          <Button
+            variant="outline"
+            className="gap-2"
+            disabled={currentIndex === 0}
+            onClick={() => goToStep(currentIndex - 1)}
+          >
+            <ArrowLeftIcon size={16} weight="bold" />
+            Back
+          </Button>
+          {isLastStep ? (
+            <Button
+              variant="accent"
+              className="gap-2 px-6 font-mono text-sm font-bold uppercase"
+              disabled={!currentStepDone}
+              onClick={goHome}
+            >
+              Finish
+              <ArrowRightIcon size={16} weight="bold" />
+            </Button>
+          ) : (
+            <Button
+              variant="accent"
+              className="gap-2 px-6 font-mono text-sm font-bold uppercase"
+              disabled={!currentStepDone}
+              onClick={() => goToStep(currentIndex + 1)}
+            >
+              Next
+              <ArrowRightIcon size={16} weight="bold" />
+            </Button>
+          )}
+        </div>
+
+        <div className="mt-2 border-t border-border-dim pt-6">
+          <p className="max-w-2xl text-sm text-text-secondary">
+            All three steps are required. Until they're done, Autonoma can't run test generations for this app. The page
+            closes itself once the app is set up.
+          </p>
+        </div>
       </div>
-    </div>
+    </>
+  );
+}
+
+/**
+ * The page title, and one line saying what the reader is looking at. The
+ * description is passed in because it is the one part that differs between doing
+ * this by hand and watching an agent do it - and a page that says "upload CLI
+ * artifacts, implement the SDK" above a screen that says "continue in your
+ * terminal" is asking the reader to resolve the contradiction themselves.
+ */
+function FinishSetupHeader({ description }: { description: string }) {
+  return (
+    <header className="flex flex-col gap-2">
+      <h1 className="text-2xl font-medium tracking-tight text-text-primary">Finish setup</h1>
+      <p className="max-w-2xl text-sm text-text-secondary">{description}</p>
+    </header>
   );
 }
 

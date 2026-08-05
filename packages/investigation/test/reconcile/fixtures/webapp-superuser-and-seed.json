@@ -1,0 +1,1068 @@
+{
+    "id": "webapp-superuser-and-seed",
+    "findings": [
+        {
+            "id": "assistant-module-send-message",
+            "slug": "assistant-module-send-message",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Test asserts optional AssistantModule timeline labels",
+            "rootCause": "The written plan requires literal \"Used\" and \"Response\" text, but the observed UI rendered streaming activity labels and then a completed answer with \"Sources +1\" plus response headings. The \"Used 1 tool\" and \"Response\" strings are timeline labels in `frontend/src/components/AssistantModuleV2/index.tsx:753`, and that timeline is gated by `useAssistantModuleToolTimeline` in `frontend/app/hooks/useAssistantModuleToolTimeline.ts:25`. Because this test had never passed before, the failure is an invalid assertion in the generated test rather than a proven app regression.",
+            "whatHappened": "The run reached AssistantModule, sent the requested message, streamed activity, rendered an assistant answer, refreshed, and still showed the conversation history. No app error appeared, but the test failed because the literal \"Used\" and \"Response\" labels were not visible. Prior history shows this test has never passed, so those assertions were not validated against the real UI.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior history shows no successful baseline; this was an unvalidated first run."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the chat flow completing with streaming tool activity and no visible app errors, but the activity labels did not match the test's literal assertions."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot showed the response persisted with a source indicator, not the asserted literal labels."
+                },
+                {
+                    "source": "code",
+                    "detail": "The \"Used ...\" copy is produced by the optional message tool activity summary, not guaranteed base chat text.",
+                    "file": "frontend/src/components/NexusChat/MessageToolActivity.tsx",
+                    "lines": "39"
+                },
+                {
+                    "source": "code",
+                    "detail": "The asserted strings exist as timeline labels, not as required visible text in the final assistant response.",
+                    "file": "frontend/src/components/AssistantModuleV2/index.tsx",
+                    "lines": "753"
+                },
+                {
+                    "source": "code",
+                    "detail": "The timeline UI is feature-gated, so the test cannot require its labels in the default flow.",
+                    "file": "frontend/app/hooks/useAssistantModuleToolTimeline.ts",
+                    "lines": "25"
+                }
+            ]
+        },
+        {
+            "id": "chat-bulk-delete",
+            "slug": "chat-bulk-delete",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Test targets the wrong chats navigation",
+            "rootCause": "The written setup says to reach the Chats page by clicking “Chats” in the sidebar, but the observed sidebar only showed AssistantModule and Conversations. The bulk-delete UI does exist on `/chats` in `frontend/app/(private)/(admin)/chats/page.tsx:17-22` and `frontend/app/(private)/(admin)/chats/_components/ChatsList.tsx:462-514`, but the run never opened that route. The PR’s `delete_thread` change was therefore not exercised by this failed run.",
+            "whatHappened": "The agent logged in and visited AssistantModule-related screens, then opened the separate Conversations page instead of the AssistantModule Chats table with checkboxes. The run never reached the bulk-delete UI the test was written for, and no visible app error was confirmed. Prior runs show this test has never passed, so there is no validated baseline for the written navigation.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline shows this test has never succeeded, so the written plan has no validated pass history."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the agent never reached the AssistantModule Chats table; the sidebar exposed AssistantModule and Conversations, not a Chats item."
+                },
+                {
+                    "source": "code",
+                    "detail": "The actual AssistantModule Chats page is implemented at the /chats route and renders ChatsList.",
+                    "file": "frontend/app/(private)/(admin)/chats/page.tsx",
+                    "lines": "17-22"
+                },
+                {
+                    "source": "code",
+                    "detail": "The /chats page includes the expected checkbox selection and bulk-delete action bar, so the feature exists but the run did not open it.",
+                    "file": "frontend/app/(private)/(admin)/chats/_components/ChatsList.tsx",
+                    "lines": "462-514"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected bulk-delete dialog text exists in the locale file.",
+                    "file": "frontend/messages/en.json",
+                    "lines": "6171-6174"
+                },
+                {
+                    "source": "code",
+                    "detail": "The visible pinned sidebar route is Conversations, not Chats.",
+                    "file": "frontend/components/organisms/AppSidebarV3/parts/SidebarV3PinnedNav.tsx",
+                    "lines": "42-51"
+                }
+            ]
+        },
+        {
+            "id": "discovery-duplicate-detail",
+            "slug": "discovery-duplicate-detail",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Step1 title generation invalidates duplicate copy-title assertion",
+            "rootCause": "The written test assumes the wizard will preserve the modal default title “Q1 Operations Discovery (copy)”, but the wizard can regenerate and overwrite the title before Step 1 settles. The overwrite path is pre-existing code in `frontend/app/(private)/(admin)/discoveries/new/steps/Step1.tsx:872-884` and is triggered by the effect at `frontend/app/(private)/(admin)/discoveries/new/steps/Step1.tsx:896-906`. Separately, the PR intentionally changed the detail-page Duplicate control into a dropdown item at `frontend/app/(private)/(admin)/discoveries/[id]/page.tsx:318-341`, so the original direct-button step no longer matches the UI.",
+            "whatHappened": "The run opened Q1 Operations Discovery, used the duplicate flow, and reached Step 1 of the new discovery-cycle wizard with no visible app errors. It failed because the visible title field contained “Operations Area Discovery for Efficiency and Automation,” not “Q1 Operations Discovery (copy).” Prior runs show no passing baseline for this test.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows this is a genesis test with no passing history."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the duplicate wizard without an app error, but the visible title field contained a generated title instead of the test's expected copy title."
+                },
+                {
+                    "source": "code",
+                    "detail": "The duplicate modal initially defaults the duplicate name to the selected cycle plus the localized copy suffix and forwards it as duplicate_name.",
+                    "file": "frontend/app/(private)/(admin)/discoveries/components/DuplicateCycleModal.tsx",
+                    "lines": "41-62"
+                },
+                {
+                    "source": "code",
+                    "detail": "Unchanged Step 1 code can overwrite the wizard title with the generated discovery_name returned by the generation API.",
+                    "file": "frontend/app/(private)/(admin)/discoveries/new/steps/Step1.tsx",
+                    "lines": "872-884"
+                },
+                {
+                    "source": "code",
+                    "detail": "The title-generation branch runs when final Step 1 blocks appear and either title or objective is missing.",
+                    "file": "frontend/app/(private)/(admin)/discoveries/new/steps/Step1.tsx",
+                    "lines": "896-906"
+                },
+                {
+                    "source": "code",
+                    "detail": "The PR intentionally moved the detail-page Duplicate action behind an actions dropdown, making the original direct-button step stale.",
+                    "file": "frontend/app/(private)/(admin)/discoveries/[id]/page.tsx",
+                    "lines": "318-341"
+                }
+            ]
+        },
+        {
+            "id": "discovery-cycle-insights-tab",
+            "slug": "discovery-cycle-insights-tab",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Insights count assertion expects nonexistent summary text",
+            "rootCause": "The app renders the insights list through AG Grid pagination, which displays a range/count such as “1 to 3 of 3” rather than a custom “3 insights” summary. The code in `frontend/app/(private)/(admin)/insights/_components/InsightsTable.tsx:676-684` enables pagination and page-size controls, and no observed UI state rendered the exact text the test expected.",
+            "whatHappened": "The run reached Q1 Operations Discovery, opened Insights > All Insights, and displayed all three expected insight rows. It failed only because the test asserted “3 insights”, while the UI showed “1 to 3 of 3” in pagination. There are no prior runs, so this test was never proven valid before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this was a first execution with no passing history."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the Insights table and all expected seeded insight rows were visible; the visible count format was AG Grid pagination text, not “3 insights”."
+                },
+                {
+                    "source": "run",
+                    "detail": "The only failing step was the literal assertion for nonexistent count text."
+                },
+                {
+                    "source": "code",
+                    "detail": "The implemented table uses AG Grid pagination, matching the observed “1 to 3 of 3” pagination format.",
+                    "file": "frontend/app/(private)/(admin)/insights/_components/InsightsTable.tsx",
+                    "lines": "676-684"
+                }
+            ]
+        },
+        {
+            "id": "insights-table-column-filters",
+            "slug": "insights-table-column-filters",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Test targets columns that do not match the table",
+            "rootCause": "The test plan is wrong for the implemented table, not proven to be a PR regression. `Title` uses a full custom AG Grid header component in `frontend/app/(private)/(admin)/insights/_lib/columns.tsx:35-63`, so the native AG Grid filter button is not visible there even though the column has a filter configured. `Status` is defined after `Macroprocesses` in `frontend/app/(private)/(admin)/insights/_lib/columns.tsx:352-383`, so it was outside the default viewport used by the run.",
+            "whatHappened": "The run reached Insights > All Insights and exercised the table and filter popover with no visible app errors. It failed when looking for a visible `Status` column header and for a native filter icon in the `Title` header. `prior_runs` reports this test has never passed before, so the generated plan was unvalidated.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test has no successful baseline."
+                },
+                {
+                    "source": "code",
+                    "detail": "The PR only disables AG Grid native filters for popover-covered fields, not for `title`.",
+                    "file": "frontend/app/(private)/(admin)/insights/_components/InsightsTable.tsx",
+                    "lines": "46-54"
+                },
+                {
+                    "source": "code",
+                    "detail": "The PR applies `filter: false` only when the column id is in that popover set.",
+                    "file": "frontend/app/(private)/(admin)/insights/_components/InsightsTable.tsx",
+                    "lines": "215-223"
+                },
+                {
+                    "source": "code",
+                    "detail": "`Title` has a full custom header component that renders checkbox plus text, with no native filter button in that header component.",
+                    "file": "frontend/app/(private)/(admin)/insights/_lib/columns.tsx",
+                    "lines": "35-63"
+                },
+                {
+                    "source": "code",
+                    "detail": "The `Status` column is defined after `Macroprocesses`, matching the run where `Macroprocesses` was visible but `Status` was not.",
+                    "file": "frontend/app/(private)/(admin)/insights/_lib/columns.tsx",
+                    "lines": "352-383"
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screen showed the visible headers did not include `Status`, and `Title` had no filter icon."
+                }
+            ]
+        },
+        {
+            "id": "conversation-analytics-monitor-tabs",
+            "slug": "conversation-analytics-monitor-tabs",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Home uses the admin sidebar, not the internal analytics nav",
+            "rootCause": "The plan assumes Home exposes a “Conversations analytics” sidebar link, but that link is only rendered by `SidebarV3InternalNav.tsx:20-28`. `PrivateLayoutClient.tsx:82-94` and `266-270` show the internal sidebar is only selected for superusers already on an internal route, so the Home/admin sidebar correctly showed other links instead. The written assertions also use stale text: `en.json:2449-2457` renders “Conversation scoring,” not “Conversation Scoring,” and `en.json:2526-2529` renders a different Feedbacks empty state.",
+            "whatHappened": "The agent authenticated and reached the normal Home/admin area, then clicked visible “Conversations” and “Insights” sidebar links. It never saw “Conversations analytics” or reached the Conversation scoring monitor. There is no prior successful baseline; `prior_runs` says this test had never been executed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test has no successful baseline; it had never been executed before this run."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run authenticated and reached the app, but never found the planned sidebar link or target page."
+                },
+                {
+                    "source": "code",
+                    "detail": "The requested \"Conversations analytics\" nav item is implemented only in the internal sidebar.",
+                    "file": "frontend/components/organisms/AppSidebarV3/parts/SidebarV3InternalNav.tsx",
+                    "lines": "20-28"
+                },
+                {
+                    "source": "code",
+                    "detail": "The internal sidebar is gated to superusers already on internal routes, so it is not the Home sidebar.",
+                    "file": "frontend/app/(private)/PrivateLayoutClient.tsx",
+                    "lines": "82-94, 266-270"
+                },
+                {
+                    "source": "code",
+                    "detail": "The implemented title and empty-feedback text differ from the written assertions.",
+                    "file": "frontend/messages/en.json",
+                    "lines": "2449-2457, 2526-2529, 2544-2548"
+                }
+            ]
+        },
+        {
+            "id": "discovery-cycles-filter-draft",
+            "slug": "discovery-cycles-filter-draft",
+            "category": "client_bug",
+            "confidence": "medium",
+            "headline": "views.py maps archived cycles into Draft",
+            "rootCause": "The REST status mapper in nexus/discovery_cycles_app/api/views.py:52-64 does not check cycle.is_archived. This PR changed the final fallback from PLANNING to DRAFT, so an archived, non-draft cycle with no conversations now receives item.status = DRAFT. The table in frontend/app/(private)/(admin)/discoveries/components/DiscoveryCyclesTable.tsx:118-126 filters only by item.status, so the archived row remains visible under the Draft filter.",
+            "whatHappened": "The agent reached the Discoveries page, selected the Draft status filter, refreshed, and the test’s narrow assertions passed. The filtered table nevertheless visibly included “Legacy CS Cycle (Archived)” with a Draft badge. Baseline is weak because prior_runs had no earlier pass or failure for this test.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "After applying the Draft status filter and refreshing, the visible table still included an archived cycle displayed with a Draft badge."
+                },
+                {
+                    "source": "code",
+                    "detail": "The seeded scenario marks the visible legacy row as archived and not draft.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "344-362"
+                },
+                {
+                    "source": "code",
+                    "detail": "The current REST status calculation has no archived-cycle branch, so archived cycles with no matching earlier status fall through to Draft.",
+                    "file": "nexus/discovery_cycles_app/api/views.py",
+                    "lines": "52-64"
+                },
+                {
+                    "source": "diff",
+                    "detail": "The PR changed the final status fallback from PLANNING to DRAFT.",
+                    "file": "nexus/discovery_cycles_app/api/views.py"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Discoveries table status filter only checks the computed item.status value, so any archived row mapped to DRAFT passes the Draft filter.",
+                    "file": "frontend/app/(private)/(admin)/discoveries/components/DiscoveryCyclesTable.tsx",
+                    "lines": "118-126"
+                }
+            ]
+        },
+        {
+            "id": "insight-search-filter",
+            "slug": "insight-search-filter",
+            "category": "client_bug",
+            "confidence": "medium",
+            "headline": "useAllInsightsList crashes All Insights after applying filters",
+            "rootCause": "The PR moved the All Insights tab onto `useAllInsightsList` at `frontend/app/(private)/(admin)/insights/_components/AllInsightsTab.tsx:77-80`. That hook calls `insightsApi.listAll`, whose pagination loop in `frontend/app/api/insightsApi.ts:493-509` reads `res.data.length` without guarding that `res.data` exists. When filters were applied in the run, that path threw the observed TypeError and the Insights error display replaced the table.",
+            "whatHappened": "The run reached the Insights page, searched for “Automate purchase-order approvals”, opened Filters, and clicked Apply filters. Each Apply filters click replaced the table with the error screen “Cannot read properties of undefined (reading 'length')”. There are no prior successful runs for this generated test, but provisioning succeeded and the target row was visible before the crash.",
+            "evidence": [
+                {
+                    "source": "video",
+                    "detail": "The run reached the table and the target row was visible before the failing interaction; after clicking Apply filters, the app rendered a full-screen error."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning succeeded and seeded the relevant entities, ruling out a missing-data scenario for the target insight."
+                },
+                {
+                    "source": "diff",
+                    "detail": "The PR changed the All Insights tab to use the new all-pages fetch hook.",
+                    "file": "frontend/app/(private)/(admin)/insights/_components/AllInsightsTab.tsx",
+                    "lines": "77-80"
+                },
+                {
+                    "source": "code",
+                    "detail": "The new all-pages pagination loop assumes each response has a data array and reads res.data.length.",
+                    "file": "frontend/app/api/insightsApi.ts",
+                    "lines": "493-509"
+                },
+                {
+                    "source": "code",
+                    "detail": "Filter refetches on All Insights now route through the changed listAll code path.",
+                    "file": "frontend/app/(private)/(admin)/insights/_hooks/useInsightsList.ts",
+                    "lines": "22-30"
+                },
+                {
+                    "source": "run",
+                    "detail": "There is no successful baseline for this generated test."
+                }
+            ]
+        },
+        {
+            "id": "discovery-timeline-granularity",
+            "slug": "discovery-timeline-granularity",
+            "category": "engine_artifact",
+            "confidence": "high",
+            "headline": "Runner stopped before any test interaction",
+            "rootCause": "The failure was a runner/agent stall, not an observed application failure. The trace recorded no attempted interactions, and the video showed the browser sitting idle on the login page. Scenario data was present for the expected record in `scripts/autonoma_recipe_standard.py:84`, so missing seeded discovery-cycle data does not explain the block.",
+            "whatHappened": "The run loaded the Nexus login screen but executed zero test steps, with no typed credentials, clicks, or assertions. The video and final screenshot show a static login form with no visible error. There are no prior runs for this test, so there is no passing baseline, but the failure happened before the Discoveries timeline could be exercised.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this test has no successful history, and no prior executions at all."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run stopped before executing any planned test step."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video confirmed the browser stayed idle on the login page with no clicks, typing, or app error shown."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screenshot stayed on the login page with empty credentials and no visible error text."
+                },
+                {
+                    "source": "code",
+                    "detail": "The standard scenario recipe defines the expected discovery cycle, so the failure was not explained by missing seeded timeline data.",
+                    "file": "scripts/autonoma_recipe_standard.py",
+                    "lines": "84"
+                }
+            ]
+        },
+        {
+            "id": "insight-column-native-filter",
+            "slug": "insight-column-native-filter",
+            "category": "engine_artifact",
+            "confidence": "medium",
+            "headline": "Runner diverged after the Title filter worked",
+            "rootCause": "This was not a confirmed app defect: the Title column still enables `agTextColumnFilter` in `frontend/app/(private)/(admin)/insights/_lib/columns.tsx:89-95`. The PR’s cleanup logic in `frontend/app/(private)/(admin)/insights/_components/InsightsTable.tsx:215-222` only disables native filters for fields listed at line 51, which does not include `title`. The blocking issue was the runner diverging from the scripted clear/refresh path after a working filter interaction.",
+            "whatHappened": "The run reached the Insights page and the “All Insights” tab with the expected seeded rows visible. The Title column filter was observed working, but the runner did not reliably complete the later clear, refresh, and verification steps. Prior runs show this test has never passed, so there is no baseline proving a PR regression.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline shows no successful history for this test."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the correct page, opened the Title filter, and filtered to the matching row without visible app errors."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screen showed the expected All Insights rows restored, with no filter menu left open."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Title column still defines the native AG Grid text filter.",
+                    "file": "frontend/app/(private)/(admin)/insights/_lib/columns.tsx",
+                    "lines": "89-95"
+                },
+                {
+                    "source": "code",
+                    "detail": "The PR logic only removes native AG Grid filters for popover-covered fields, and returns other columns unchanged.",
+                    "file": "frontend/app/(private)/(admin)/insights/_components/InsightsTable.tsx",
+                    "lines": "215-222"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Title column is not among the fields whose native filters are removed.",
+                    "file": "frontend/app/(private)/(admin)/insights/_components/InsightsTable.tsx",
+                    "lines": "51"
+                },
+                {
+                    "source": "code",
+                    "detail": "The scenario recipe includes both rows asserted by the test.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "393, 491"
+                }
+            ]
+        },
+        {
+            "id": "insights-bulk-archiving-and-filter-persistence",
+            "slug": "insights-bulk-archiving-and-filter-persistence",
+            "category": "environment_failure",
+            "confidence": "medium",
+            "headline": "PrivateLayoutClient leaves preview on the full-screen loader after login",
+            "rootCause": "The run blocked before the written Insights setup because the private layout stayed in its auth-checking state. `frontend/app/(private)/PrivateLayoutClient.tsx:252-255` renders `FullScreenLoader` whenever `isChecking` remains true, and `frontend/components/layouts/FullScreenLoader/FullScreenLoader.tsx:4-15` confirms that loader has no auto-timeout. Provisioning returned valid auth and seeded records, so the observed blocker is preview/session bootstrap rather than a scenario data gap or the test’s archive assertions.",
+            "whatHappened": "The agent reached the login page, entered credentials, clicked “Sign In,” and then stayed on a white full-screen Nexus loading logo. It never reached the Insights page or exercised select-all, archive, filters, or refresh persistence. `prior_runs` reported this test has never run or passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows no successful history for this generated test."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video shows the run never reached Insights after credential submission."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screenshot contained only the app-wide loader."
+                },
+                {
+                    "source": "code",
+                    "detail": "Private routes render the full-screen loader while the auth check is still active.",
+                    "file": "frontend/app/(private)/PrivateLayoutClient.tsx",
+                    "lines": "252-255"
+                },
+                {
+                    "source": "code",
+                    "detail": "The loader has no timeout or fallback; it remains until the parent unmounts it.",
+                    "file": "frontend/components/layouts/FullScreenLoader/FullScreenLoader.tsx",
+                    "lines": "4-15"
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning returned auth and seeded data, so the blocker was not missing scenario data."
+                }
+            ]
+        },
+        {
+            "id": "admin-company-workspace-add-employee",
+            "slug": "admin-company-workspace-add-employee",
+            "category": "environment_failure",
+            "confidence": "medium",
+            "headline": "Workspaces tab is hidden by the preview feature flag",
+            "rootCause": "The run could not reach the intended workspace flow because the Company page did not render the Workspaces tab. In `frontend/app/(private)/(admin)/company/page.tsx:64-68` and `:113-118`, that tab requires both `canManageWorkspaces` and `useFeatureFlag(FeatureFlags.WORKSPACES_TAB)`. The run showed admin-only Company UI, so permission was present; the missing externally configured PostHog flag hid the tab.",
+            "whatHappened": "The agent authenticated and reached the Company area, but the Company header never showed a “Workspaces” tab, so it looped through Profile and Collaborators instead of the workspace collaborator flow. No app error, toast, or broken render was visible. This test has no prior successful runs, so there is no passing baseline.",
+            "evidence": [
+                {
+                    "source": "video",
+                    "detail": "Video review showed the agent reached the Company area but never saw a “Workspaces” tab or the workspace collaborator flow."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Company page only renders the Workspaces tab when both workspace permission and the external feature flag are enabled.",
+                    "file": "frontend/app/(private)/(admin)/company/page.tsx",
+                    "lines": "64-68, 113-118"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Workspaces flag is a PostHog feature flag, not scenario data.",
+                    "file": "frontend/app/utils/posthog.ts",
+                    "lines": "12, 34"
+                },
+                {
+                    "source": "code",
+                    "detail": "Unresolved feature flags default off unless explicitly listed as default-on.",
+                    "file": "frontend/app/utils/posthog.ts",
+                    "lines": "316-334"
+                },
+                {
+                    "source": "code",
+                    "detail": "The scenario recipe includes the needed Bob Logistics user and Operations workspace, so the missing tab was not caused by absent workspace/collaborator data.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "17-67, 137-154"
+                },
+                {
+                    "source": "diff",
+                    "detail": "The PR changed workspace side-nav overflow styling, not the Company page feature gate.",
+                    "file": "frontend/app/(private)/(admin)/company/_components/WorkspacesTab.tsx"
+                }
+            ]
+        },
+        {
+            "id": "company-workspaces-create",
+            "slug": "company-workspaces-create",
+            "category": "environment_failure",
+            "confidence": "medium",
+            "headline": "workspaces-tab-flag is disabled in preview",
+            "rootCause": "The workspace-management UI exists, but `frontend/app/(private)/(admin)/company/page.tsx:64-124` renders the Workspaces tab only when `canManageWorkspaces` and `isWorkspacesEnabled` are both true. The run showed `Users & Roles`, which uses the admin-role permission path, so the seeded user had admin access; the missing Workspaces tab points to `FeatureFlags.WORKSPACES_TAB` resolving false/unavailable. The PR only changed CSS in `WorkspacesTab.tsx`, which was never rendered in this run.",
+            "whatHappened": "The agent logged in and reached `/company`, but the page only showed `Company Information`, `Organization Chart`, and `Users & Roles`. It never saw the `Workspaces` tab, side navigation, `New Workspace` button, or creation drawer. `prior_runs` shows this test has never passed or even run before, so there is no validated baseline tying the failure to this PR.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline has no validated prior pass for this test."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the Company page, but the Workspaces tab and creation UI were not visible."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screenshot confirmed the visible tabs did not include Workspaces."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Company page only renders the Workspaces tab when the user has admin-role permission and the Workspaces feature flag is enabled.",
+                    "file": "frontend/app/(private)/(admin)/company/page.tsx",
+                    "lines": "64-67, 118-124"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Workspaces flag is an external PostHog feature flag.",
+                    "file": "frontend/app/utils/posthog.ts",
+                    "lines": "34"
+                },
+                {
+                    "source": "code",
+                    "detail": "When feature flags are unavailable or unresolved, Workspaces defaults off because it is not in the default-on list.",
+                    "file": "frontend/app/utils/posthog.ts",
+                    "lines": "336-352"
+                },
+                {
+                    "source": "diff",
+                    "detail": "The PR diff changed WorkspacesTab scrolling/layout CSS only; it did not remove or rename the tab.",
+                    "file": "frontend/app/(private)/(admin)/company/_components/WorkspacesTab.tsx",
+                    "lines": "726-749"
+                }
+            ]
+        },
+        {
+            "id": "discovery-cycle-duplicate-from-menu",
+            "slug": "discovery-cycle-duplicate-from-menu",
+            "category": "outdated_test",
+            "confidence": "high",
+            "headline": "Duplicate flow intentionally redirects to the new-cycle wizard",
+            "rootCause": "The written test is stale: it expects an “Open actions menu” control and a dropdown “Duplicate” item, but the preview showed a direct “Duplicate” button. The duplicate action is not designed to create and redirect to a completed cycle detail page; `frontend/app/(private)/(admin)/discoveries/components/DuplicateCycleModal.tsx:54-63` routes to `/discoveries/new` with duplicate query parameters, and `frontend/app/(private)/(admin)/discoveries/new/page.tsx:121-129` renders the wizard in duplicate mode.",
+            "whatHappened": "The run reached the duplicate modal and completed the visible duplicate-start flow without app errors. It did not follow the written actions-menu steps, and the resulting page was the new-cycle wizard rather than a duplicated cycle detail page. prior_runs shows this test has no previous successful baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No historical baseline exists for this generated test."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run used a direct Duplicate button instead of an actions dropdown."
+                },
+                {
+                    "source": "video",
+                    "detail": "After confirming duplication, the app showed the new-cycle wizard, not a duplicated cycle detail page."
+                },
+                {
+                    "source": "code",
+                    "detail": "The duplicate modal intentionally redirects into the new discovery wizard with duplicate parameters.",
+                    "file": "frontend/app/(private)/(admin)/discoveries/components/DuplicateCycleModal.tsx",
+                    "lines": "54-63"
+                },
+                {
+                    "source": "code",
+                    "detail": "The new discovery page renders the wizard in duplicate mode.",
+                    "file": "frontend/app/(private)/(admin)/discoveries/new/page.tsx",
+                    "lines": "121-129"
+                }
+            ]
+        },
+        {
+            "id": "assistant-module-switch-and-send",
+            "slug": "assistant-module-switch-and-send",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario lacks an automation chat thread",
+            "rootCause": "The standard scenario seeded one AssistantModuleThread, but that thread was not searchable by “automation.” The sidebar filter only checks `thread.title` in `frontend/src/components/AssistantModuleV2/index.tsx:4355-4369`, while the Autonoma factory in `nexus/autonoma_factory/factories/assistant_module_thread.py:9-21` cannot seed a title or messages. Bare threads default to an empty title in `nexus/assistant_app/models.py:264-266`, so the test’s required thread was absent from the scenario data.",
+            "whatHappened": "The run reached the AssistantModule page, clicked the sidebar search field, and typed “automation.” The sidebar showed “No conversations match this filter.”, so the agent never selected a thread or exercised sending a message. Prior history shows this test has never run or passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline: this test has never previously passed or run, so the scenario/test data had no validated baseline."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning reported valid auth and one seeded AssistantModuleThread, but the run could not find a conversation matching the test's search term."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video observation: after typing the test's search term, the sidebar showed the empty filtered state and no thread could be selected."
+                },
+                {
+                    "source": "code",
+                    "detail": "The sidebar search filters threads only by the visible thread title.",
+                    "file": "frontend/src/components/AssistantModuleV2/index.tsx",
+                    "lines": "4355-4369"
+                },
+                {
+                    "source": "code",
+                    "detail": "The UI text seen in the run is the expected filtered-empty state when threads exist but none match the search query.",
+                    "file": "frontend/src/components/AssistantModuleV2/index.tsx",
+                    "lines": "4478-4481"
+                },
+                {
+                    "source": "code",
+                    "detail": "The scenario factory input cannot provide a thread title or message history for the seeded thread.",
+                    "file": "nexus/autonoma_factory/factories/assistant_module_thread.py",
+                    "lines": "9-21"
+                },
+                {
+                    "source": "code",
+                    "detail": "Bare AssistantModule threads default to an empty visible title, so the seeded thread cannot match 'automation' unless title/message data is added elsewhere.",
+                    "file": "nexus/assistant_app/models.py",
+                    "lines": "264-266"
+                }
+            ]
+        },
+        {
+            "id": "chat-delete",
+            "slug": "chat-delete",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Target chat was not seeded",
+            "rootCause": "The `standard` scenario seeded exactly one `AssistantModuleThread`, but the recipe does not give it the target title or any message matching “What are our top automation candidates?” in `autonoma/scenario-recipes.json:206-225`. The AssistantModule thread factory only accepts linkage fields, not a title/message payload, in `nexus/autonoma_factory/factories/assistant_module_thread.py:9-21`, so the needed chat row cannot be created by the current recipe. The PR’s `/assistant/v2/api/delete-thread/` guard was never exercised because the agent never reached the row actions menu or confirmation dialog.",
+            "whatHappened": "The run authenticated and reached the Nexus UI, but it never found the chat “What are our top automation candidates?” or opened the planned table delete menu. It briefly showed “Could not open this conversation. It may have been deleted or you may not have access.” after the agent clicked a sidebar conversation while off-plan. Prior history has no successful baseline: this test has never run before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No passing baseline exists for this test."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video confirms the planned delete flow was not exercised."
+                },
+                {
+                    "source": "code",
+                    "detail": "The scenario recipe creates one AssistantModule thread, but only links it to an insight; it does not set the required title.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "206-225"
+                },
+                {
+                    "source": "code",
+                    "detail": "The AssistantModuleThread factory cannot accept a title or first message, so the recipe cannot currently seed the searched chat text through this entity.",
+                    "file": "nexus/autonoma_factory/factories/assistant_module_thread.py",
+                    "lines": "9-21"
+                },
+                {
+                    "source": "code",
+                    "detail": "Repository search found no seeded or hard-coded occurrence of the exact target chat title."
+                }
+            ]
+        },
+        {
+            "id": "chat-search-navigate",
+            "slug": "chat-search-navigate",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario recipe never seeds the expected AssistantModule thread",
+            "rootCause": "The written test expects a AssistantModule thread titled “What are our top automation candidates?”, but the standard scenario does not create one. `autonoma/scenario-recipes.json:214-220` creates one `assistant_moduleThreads` entry with no `title`, while `autonoma/scenario-recipes.json:206-212` creates only a different admin conversation titled “Top automation candidates planning”. Because `frontend/src/components/AssistantModuleV2/index.tsx:4360-4370` filters AssistantModule search results by `thread.title`, the expected row cannot appear.",
+            "whatHappened": "The run logged in, opened Conversations, searched for “automation candidates,” and the table showed “No Rows To Show.” It then diverged to AssistantModule and searched the chat sidebar, which showed “No conversations match this filter.” Prior runs show no baseline success; this test has never passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No baseline success exists for this generated test."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run searched for the expected title, but the Conversations table and AssistantModule sidebar both showed empty results."
+                },
+                {
+                    "source": "code",
+                    "detail": "The standard scenario seeds a different admin conversation title, not the expected AssistantModule thread title.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "206-212"
+                },
+                {
+                    "source": "code",
+                    "detail": "The only seeded AssistantModule thread has no title field, so it cannot match the searched title.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "214-220"
+                },
+                {
+                    "source": "code",
+                    "detail": "The AssistantModule sidebar search filters by thread title.",
+                    "file": "frontend/src/components/AssistantModuleV2/index.tsx",
+                    "lines": "4360-4370"
+                },
+                {
+                    "source": "code",
+                    "detail": "The implemented AssistantModule search input label is `Search conversations`, not the Conversations table placeholder with ellipsis.",
+                    "file": "frontend/messages/en.json",
+                    "lines": "7796-7799"
+                }
+            ]
+        },
+        {
+            "id": "insight-table-run-filter-multi-select",
+            "slug": "insight-table-run-filter-multi-select",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario runs are not linked to insight rows",
+            "rootCause": "The scenario seeds two InsightRun records, but the seeded BusinessCase insight rows are not linked to those runs via business_case_run_id. The frontend hides the run multiselect unless filterOptions.runNames has entries in frontend/app/(private)/(admin)/insights/_components/InsightsTable.tsx:618, and the backend only builds run_names from linked BusinessCase.business_case_run_id values in nexus/insights_app/selectors.py:1222.",
+            "whatHappened": "The run reached the Insights page and opened the Filters popover, but it blocked at step 2 because no Insight Run or All runs control appeared. The video showed only Impact and Status filters, with no visible app errors. Prior history has no successful baseline because this test has never run before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No successful baseline exists for this generated test."
+                },
+                {
+                    "source": "video",
+                    "detail": "The recording showed the Filters popover without the run filter controls the test needed."
+                },
+                {
+                    "source": "code",
+                    "detail": "The frontend only renders the run multiselect when run filter options are present.",
+                    "file": "frontend/app/(private)/(admin)/insights/_components/InsightsTable.tsx",
+                    "lines": "618-627"
+                },
+                {
+                    "source": "code",
+                    "detail": "The backend derives run filter options from business cases linked by business_case_run_id.",
+                    "file": "nexus/insights_app/selectors.py",
+                    "lines": "1222-1230"
+                },
+                {
+                    "source": "code",
+                    "detail": "The recipe seeds the two run records named by the test.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "359-379"
+                },
+                {
+                    "source": "code",
+                    "detail": "The visible business case recipe entries do not include a run linkage field.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "384-429"
+                }
+            ]
+        },
+        {
+            "id": "insights-dashboard-area-drill-down",
+            "slug": "insights-dashboard-area-drill-down",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario recipe seeds BusinessCase but no Task area links",
+            "rootCause": "The scenario seeds BusinessCase and InsightRun data, but the dashboard card is built from linked Task rows, not from standalone BusinessCase names. The seeded \"Automate purchase-order approvals\" record has no task M2M linkage, and the factory DTO explicitly excludes tasks. The drill-down also filters by main_area, so the expected Operations table row cannot be produced by the current recipe.",
+            "whatHappened": "The agent reached the Insights page, but the dashboard showed \"Your insights are on the way\" instead of the \"Top Groups by Insights\" card. It then diverged into the Generate new Insights flow and later saw red \"Error\" statuses in Runs. Prior history shows this test has never passed, so there is no validated baseline tying the failure to this PR.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No successful baseline exists for this test."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run did not reach the intended dashboard card; the page showed an empty/generating insights state, then the agent entered generation flow and later saw errored runs."
+                },
+                {
+                    "source": "code",
+                    "detail": "The recipe includes the expected insight text only as a BusinessCase record.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "384-407"
+                },
+                {
+                    "source": "code",
+                    "detail": "The BusinessCase factory explicitly does not attach task M2M relations.",
+                    "file": "nexus/autonoma_factory/factories/business_case.py",
+                    "lines": "7-15"
+                },
+                {
+                    "source": "code",
+                    "detail": "The dashboard area groups are built from Task rows linked to visible BusinessCase ids.",
+                    "file": "nexus/insights_app/selectors.py",
+                    "lines": "1935-1957"
+                },
+                {
+                    "source": "code",
+                    "detail": "The drill-down list filters by main_area, which the seeded BusinessCase entry does not set.",
+                    "file": "nexus/insights_app/selectors.py",
+                    "lines": "556-558"
+                }
+            ]
+        },
+        {
+            "id": "insight-dashboard-drilldown-navigation",
+            "slug": "insight-dashboard-drilldown-navigation",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario omits dashboard task data",
+            "rootCause": "The scenario seeds the expected discovery and BusinessCase names, but it does not seed Task rows or task/business-case associations. The dashboard builds area cards from Task rows linked to visible BusinessCases in `nexus/insights_app/selectors.py:1938-1955`, while the BusinessCase factory notes that tasks must be attached after creation in `nexus/autonoma_factory/factories/business_case.py:10-17`.",
+            "whatHappened": "The run reached Q1 Operations Discovery → Insights → Dashboard, but the dashboard showed the empty “Generate Insights” state instead of an Operations card. The test has never passed before, so there is no validated baseline showing this plan and scenario previously worked.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline has no successful validation for this test."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the Insights Dashboard, but the page showed the empty insight-generation state instead of an Operations dashboard card."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning seeded BusinessCase and InsightRun records, but no Task entities were listed."
+                },
+                {
+                    "source": "code",
+                    "detail": "The recipe defines the expected non-archived insight as a BusinessCase fixture, not task-backed dashboard data.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "384-399"
+                },
+                {
+                    "source": "code",
+                    "detail": "The archived insight is also only seeded as a BusinessCase fixture.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "500-513"
+                },
+                {
+                    "source": "code",
+                    "detail": "The BusinessCase factory explicitly does not attach tasks automatically.",
+                    "file": "nexus/autonoma_factory/factories/business_case.py",
+                    "lines": "10-17"
+                },
+                {
+                    "source": "code",
+                    "detail": "Dashboard area grouping is derived from Task rows linked to visible BusinessCases.",
+                    "file": "nexus/insights_app/selectors.py",
+                    "lines": "1938-1955"
+                },
+                {
+                    "source": "code",
+                    "detail": "The dashboard empty-state condition matches the observed page when no groupings are available.",
+                    "file": "frontend/app/(private)/(admin)/insights/_components/DashboardTab.tsx",
+                    "lines": "184-199"
+                }
+            ]
+        },
+        {
+            "id": "conversation-scoring-trends-and-feedbacks",
+            "slug": "conversation-scoring-trends-and-feedbacks",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "autonoma/scenario-recipes.json seeds a non-superuser for Internal navigation",
+            "rootCause": "The test depends on the superuser-only Internal sidebar, but the seeded user is only staff in autonoma/scenario-recipes.json:13-20. The factory default in nexus/autonoma_factory/factories/user.py:34-40 leaves is_superuser false unless explicitly set, and frontend/components/organisms/AppSidebarV3/parts/SidebarV3UserMenuContent.tsx:331-345 only renders the Internal option when isSuperuser is true. As a result, the run remained in the normal admin menu and never reached SidebarV3InternalNav.",
+            "whatHappened": "The runner logged in and opened the sidebar user menu, but the required Internal option was not present, so it could not continue to Conversations analytics. The visible menu showed normal account/help/logout items and no app error. Prior runs show this test has never passed.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline: this test has never passed, so the internal-navigation setup was unproven."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run opened the user menu, but the visible menu did not include the required Internal option."
+                },
+                {
+                    "source": "code",
+                    "detail": "Scenario seeds the authenticated admin user as staff only, with no superuser flag.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "13-20"
+                },
+                {
+                    "source": "code",
+                    "detail": "The user factory defaults is_superuser to false unless the recipe explicitly sets it.",
+                    "file": "nexus/autonoma_factory/factories/user.py",
+                    "lines": "34-40"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Internal menu segment is only rendered for superusers.",
+                    "file": "frontend/components/organisms/AppSidebarV3/parts/SidebarV3UserMenuContent.tsx",
+                    "lines": "194-200, 331-345"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Conversations analytics link exists in the internal sidebar, which the non-superuser scenario cannot open.",
+                    "file": "frontend/components/organisms/AppSidebarV3/parts/SidebarV3InternalNav.tsx",
+                    "lines": "21-29"
+                }
+            ]
+        },
+        {
+            "id": "discovery-visibility-drawer-and-health",
+            "slug": "discovery-visibility-drawer-and-health",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Seeded user lacks superuser access for Internal mode",
+            "rootCause": "The test requires switching into Internal mode, but the app only renders that menu option when `isSuperuser` is true. The scenario seeds “Pat Admin” with `is_staff=True` only, while the user factory defaults `is_superuser` to `False`, so step 2 is unreachable before any Discovery visibility functionality is exercised.",
+            "whatHappened": "The agent logged in, reached `/home`, and opened the sidebar user menu. It could not continue because the expected “Internal” option was not available for the seeded user, so the Discovery visibility page was never exercised. `prior_runs` shows this test has never passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows this is a first run with no successful history, so the blocked step is not established as a PR regression."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the user menu, but the expected Internal option was not visible; the test never reached Discovery visibility."
+                },
+                {
+                    "source": "code",
+                    "detail": "The frontend only renders the Internal link for superusers.",
+                    "file": "frontend/components/organisms/AppSidebarV3/parts/SidebarV3UserMenuContent.tsx",
+                    "lines": "196-199, 335-349"
+                },
+                {
+                    "source": "code",
+                    "detail": "The scenario creates Pat Admin as staff but does not set superuser access.",
+                    "file": "scripts/autonoma_recipe_standard.py",
+                    "lines": "73"
+                },
+                {
+                    "source": "code",
+                    "detail": "The user factory default leaves is_superuser false unless explicitly overridden.",
+                    "file": "nexus/autonoma_factory/factories/user.py",
+                    "lines": "33-39"
+                },
+                {
+                    "source": "code",
+                    "detail": "The target discovery cycle is present in the recipe, but the test could not reach the internal page that displays it.",
+                    "file": "scripts/autonoma_recipe_standard.py",
+                    "lines": "84-88"
+                }
+            ]
+        },
+        {
+            "id": "discovery-visibility-monitor-drawer",
+            "slug": "discovery-visibility-monitor-drawer",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario user lacks Discovery visibility superuser access",
+            "rootCause": "Discovery visibility is an internal-only surface, but the seeded scenario user only has staff/admin access and does not set `is_superuser`. The frontend hides/guards the route through `InternalGuard` in `frontend/app/(private)/(internal)/_components/InternalGuard.tsx:13-23`, and the backend permission in `nexus/discovery_cycles_app/api/discovery_visibility_views.py:25-39` also requires `request.user.is_superuser`. Because the scenario authenticated a non-superuser, the sidebar link was correctly absent.",
+            "whatHappened": "The run authenticated as Pat Admin and reached the normal app shell, but the agent never found a visible Discovery visibility sidebar link. Prior history shows this test has never passed, so there is no validated baseline. No visible app errors appeared; the blocking issue was access/setup for an internal-only page.",
+            "evidence": [
+                {
+                    "source": "video",
+                    "detail": "The run reached the authenticated app shell as Pat Admin, but the sidebar did not include Discovery visibility; visible entries were Home, AssistantModule, Discoveries, Conversations, Insights, Initiatives, and company links. No app error was visible."
+                },
+                {
+                    "source": "run",
+                    "detail": "This test has no successful baseline."
+                },
+                {
+                    "source": "code",
+                    "detail": "The scenario recipe seeds Pat Admin as staff, but does not set superuser access.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "12-18"
+                },
+                {
+                    "source": "code",
+                    "detail": "The user factory defaults superuser access to false unless the recipe explicitly sets it.",
+                    "file": "nexus/autonoma_factory/factories/user.py",
+                    "lines": "34-40"
+                },
+                {
+                    "source": "code",
+                    "detail": "The internal page is frontend-gated to superusers.",
+                    "file": "frontend/app/(private)/(internal)/_components/InternalGuard.tsx",
+                    "lines": "13-23"
+                },
+                {
+                    "source": "code",
+                    "detail": "The backend API also requires Django superuser permission.",
+                    "file": "nexus/discovery_cycles_app/api/discovery_visibility_views.py",
+                    "lines": "25-39"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Discovery visibility link exists, but in the internal sidebar navigation.",
+                    "file": "frontend/components/organisms/AppSidebarV3/parts/SidebarV3InternalNav.tsx",
+                    "lines": "26-37"
+                }
+            ]
+        },
+        {
+            "id": "evaluations-test-company-toggle",
+            "slug": "evaluations-test-company-toggle",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario user lacks Internal access",
+            "rootCause": "The test scenario authenticates as the standard Pat Admin user, but that recipe only sets staff access and leaves superuser access false. The UI renders the “Internal” menu item only when `isSuperuser` is true in `frontend/components/organisms/AppSidebarV3/parts/SidebarV3UserMenuContent.tsx:333-347`, and internal routes are guarded by the same permission in `frontend/app/(private)/(internal)/_components/InternalGuard.tsx:13-24`.",
+            "whatHappened": "The agent logged in and opened the sidebar user menu, but the expected “Internal” option was not visible. It stayed on Home and never reached the Evaluations page or exercised the “Show test companies” toggle. Prior runs show this test has never passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows no successful prior validation for this generated test."
+                },
+                {
+                    "source": "video",
+                    "detail": "The opened user menu did not contain the planned “Internal” item, so the run never reached Evaluations."
+                },
+                {
+                    "source": "code",
+                    "detail": "The scenario recipe seeds Pat Admin as staff, but does not grant superuser access.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "13-20"
+                },
+                {
+                    "source": "code",
+                    "detail": "The user factory default confirms omitted superuser status means false.",
+                    "file": "nexus/autonoma_factory/factories/user.py",
+                    "lines": "35-39"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Internal link is rendered only for superusers.",
+                    "file": "frontend/components/organisms/AppSidebarV3/parts/SidebarV3UserMenuContent.tsx",
+                    "lines": "333-347"
+                },
+                {
+                    "source": "code",
+                    "detail": "Internal pages are also guarded by superuser access.",
+                    "file": "frontend/app/(private)/(internal)/_components/InternalGuard.tsx",
+                    "lines": "13-24"
+                }
+            ]
+        },
+        {
+            "id": "internal-evaluations-navigation",
+            "slug": "internal-evaluations-navigation",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Pat Admin is seeded without superuser access",
+            "rootCause": "The test requires the user to switch into Internal mode, but the UI renders that control only when `isSuperuser` is true in `SidebarV3UserMenuContent.tsx:196-199,335-347`. The scenario recipe creates Pat Admin with `isStaff: true` only, and the factory default in `nexus/autonoma_factory/factories/user.py:34-39` leaves `is_superuser` false.",
+            "whatHappened": "The run logged in and opened Pat Admin’s sidebar user menu, but no “Internal” toggle/button was visible, so it never reached Evaluations or rubrics. Prior runs show no successful baseline; this test has never passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline showed this test has never passed or even run successfully before."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run opened Pat Admin’s sidebar user menu, but the Internal control was not visible and the app stayed on Home without visible errors."
+                },
+                {
+                    "source": "code",
+                    "detail": "The sidebar only renders the internal navigation control for superusers.",
+                    "file": "frontend/components/organisms/AppSidebarV3/parts/SidebarV3UserMenuContent.tsx",
+                    "lines": "196-199,335-347"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Autonoma recipe seeds Pat Admin as staff but not as a superuser.",
+                    "file": "autonoma/scenario-recipes.json",
+                    "lines": "14-20"
+                },
+                {
+                    "source": "code",
+                    "detail": "The user factory defaults seeded users to non-superusers unless the recipe explicitly overrides it.",
+                    "file": "nexus/autonoma_factory/factories/user.py",
+                    "lines": "34-39"
+                }
+            ]
+        }
+    ],
+    "gold": [
+        {
+            "members": [
+                "conversation-scoring-trends-and-feedbacks",
+                "discovery-visibility-drawer-and-health",
+                "discovery-visibility-monitor-drawer",
+                "evaluations-test-company-toggle",
+                "internal-evaluations-navigation"
+            ],
+            "confidence": "high"
+        },
+        {
+            "members": ["assistant-module-switch-and-send", "chat-delete", "chat-search-navigate"],
+            "confidence": "high"
+        },
+        {
+            "members": ["insights-dashboard-area-drill-down", "insight-dashboard-drilldown-navigation"],
+            "confidence": "high"
+        },
+        {
+            "members": ["admin-company-workspace-add-employee", "company-workspaces-create"],
+            "confidence": "high"
+        }
+    ]
+}

@@ -1,0 +1,380 @@
+{
+    "id": "webapp-seed-500",
+    "findings": [
+        {
+            "id": "learn-player-header-actions-and-aichat-panel",
+            "slug": "learn-player-header-actions-and-aichat-panel",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:50.899Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:50.899Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "learn-player-aichat-panel-and-dashboard-navigation",
+            "slug": "learn-player-aichat-panel-and-dashboard-navigation",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:50.902Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:50.902Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "aichat-interaction-and-history-persistence",
+            "slug": "aichat-interaction-and-history-persistence",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:50.170Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:50.170Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "aichat-auto-scroll-guard-on-manual-scroll",
+            "slug": "aichat-auto-scroll-guard-on-manual-scroll",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:51.598Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:51.598Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "aichat-scroll-behavior-and-plain-text-rendering",
+            "slug": "aichat-scroll-behavior-and-plain-text-rendering",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:51.599Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:51.599Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "learn-player-sidebar-collapse-toggle",
+            "slug": "learn-player-sidebar-collapse-toggle",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:51.439Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:51.439Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "003-temario-click-unit-opens-lesson-md",
+            "slug": "003-temario-click-unit-opens-lesson-md",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:50.908Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:50.908Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "syllabus-module-list-visibility-on-entry",
+            "slug": "syllabus-module-list-visibility-on-entry",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:51.595Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:51.595Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "assignment-status-label-in-sidebar-after-submission",
+            "slug": "assignment-status-label-in-sidebar-after-submission",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:51.307Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:51.307Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "learn-player-assignment-submission-flow",
+            "slug": "learn-player-assignment-submission-flow",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:50.055Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:50.055Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "certificate-requirements-visibility-in-code-unit",
+            "slug": "certificate-requirements-visibility-in-code-unit",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:53.897Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:53.897Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "verify-certificate-requirements-in-learn-player",
+            "slug": "verify-certificate-requirements-in-learn-player",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.196Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.196Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "live-class-rating-professor-name-display",
+            "slug": "live-class-rating-professor-name-display",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:53.701Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:53.701Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "live-class-rating-submission",
+            "slug": "live-class-rating-submission",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:53.917Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:53.917Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "verify-new-ranking-page-from-learn-player",
+            "slug": "verify-new-ranking-page-from-learn-player",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.206Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.206Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "home-course-card-direct-syllabus-access",
+            "slug": "home-course-card-direct-syllabus-access",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:53.998Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:53.998Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "013-sidebar-playground-link-md",
+            "slug": "013-sidebar-playground-link-md",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:52.405Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:52.405Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "sidebar-collapsible-section-herramientas",
+            "slug": "sidebar-collapsible-section-herramientas",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.200Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.200Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "access-ai-cv-tool-from-sidebar",
+            "slug": "access-ai-cv-tool-from-sidebar",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.000Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.000Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "verify-discord-community-modal-from-sidebar",
+            "slug": "verify-discord-community-modal-from-sidebar",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:52.012Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:52.012Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "discord-community-sidebar-link-free-user",
+            "slug": "discord-community-sidebar-link-free-user",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.773Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.773Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "submit-platform-feedback",
+            "slug": "submit-platform-feedback",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.837Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.837Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        },
+        {
+            "id": "009-playground-sidebar-active-md",
+            "slug": "009-playground-sidebar-active-md",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario setup failed: seeding the test data errored, so the test never ran",
+            "rootCause": "The scenario seeding call failed, so the required test data was never provisioned.",
+            "whatHappened": "scenario up failed before the browser was launched: SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.699Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "SDK returned HTTP 500: [Autonoma API] POST http://platform-user-service:3001/platform/user/test-data/users → 500: {\"statusCode\":500,\"timestamp\":\"2026-07-03T15:58:54.699Z\",\"path\":\"/platform/user/test-data/users\",\"method\":\"POST\",\"message\":\"Error interno del servidor\",\"error\":\"Forbidden\"}"
+                }
+            ]
+        }
+    ],
+    "gold": [
+        {
+            "members": [
+                "learn-player-header-actions-and-aichat-panel",
+                "learn-player-aichat-panel-and-dashboard-navigation",
+                "aichat-interaction-and-history-persistence",
+                "aichat-auto-scroll-guard-on-manual-scroll",
+                "aichat-scroll-behavior-and-plain-text-rendering",
+                "learn-player-sidebar-collapse-toggle",
+                "003-temario-click-unit-opens-lesson-md",
+                "syllabus-module-list-visibility-on-entry",
+                "assignment-status-label-in-sidebar-after-submission",
+                "learn-player-assignment-submission-flow",
+                "certificate-requirements-visibility-in-code-unit",
+                "verify-certificate-requirements-in-learn-player",
+                "live-class-rating-professor-name-display",
+                "live-class-rating-submission",
+                "verify-new-ranking-page-from-learn-player",
+                "home-course-card-direct-syllabus-access",
+                "013-sidebar-playground-link-md",
+                "sidebar-collapsible-section-herramientas",
+                "access-ai-cv-tool-from-sidebar",
+                "verify-discord-community-modal-from-sidebar",
+                "discord-community-sidebar-link-free-user",
+                "submit-platform-feedback",
+                "009-playground-sidebar-active-md"
+            ],
+            "confidence": "high"
+        }
+    ]
+}

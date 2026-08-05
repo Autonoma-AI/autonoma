@@ -1,0 +1,1432 @@
+{
+    "id": "webapp-distinct-flags",
+    "findings": [
+        {
+            "id": "redesigned-variable-details-sidebar-interaction",
+            "slug": "redesigned-variable-details-sidebar-interaction",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Variable sidebar test uses invalid editor commands",
+            "rootCause": "The written plan is invalid for the implemented editor flow: typing `/` then Enter did not select the Variable slash-menu item in this run, and the harness inserted literal key-token text into the document instead. The app also normalizes variable names through `toSnakeCase` in `assets/js/aui/shared/jotted/VariablePopover.tsx:252-263`, so assertions for `VarOne` and `VarTwo` are stale against implemented behavior. Because `assets/js/views/docs/create/VariableDetails.tsx:102-109` renders the sidebar only when variables exist, the run never reached the feature under test.",
+            "whatHappened": "The run created a blank agreement and clicked into the editor, but it typed literal key tokens like `{enter}` into the document instead of creating variables. It never reached the Details sidebar or exercised the VarOne/VarTwo navigation assertions. `prior_runs` shows this test has never passed or even run before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test has no successful baseline and no prior executions."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run never created VarOne or VarTwo and did not reach the Details sidebar assertions."
+                },
+                {
+                    "source": "code",
+                    "detail": "The app does implement a Variable slash-menu item, but the plan's generic `/` then Enter step did not reliably invoke it in the run.",
+                    "file": "assets/js/aui/shared/jotted/SuggestionMenu.tsx",
+                    "lines": "145-151"
+                },
+                {
+                    "source": "code",
+                    "detail": "Variable names are normalized before creation, so the plan's VarOne and VarTwo text assertions do not match the app's rendered names.",
+                    "file": "assets/js/aui/shared/jotted/VariablePopover.tsx",
+                    "lines": "252-263"
+                },
+                {
+                    "source": "code",
+                    "detail": "The normalization converts camel-case input such as VarOne to snake-case lower-case text.",
+                    "file": "assets/js/aui/shared/jotted/fields.ts",
+                    "lines": "817-825"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Details sidebar being tested only appears after variables exist, which never happened in the run.",
+                    "file": "assets/js/views/docs/create/VariableDetails.tsx",
+                    "lines": "102-109"
+                }
+            ]
+        },
+        {
+            "id": "wizard-variable-details-keyboard-navigation",
+            "slug": "wizard-variable-details-keyboard-navigation",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Generated plan targets non-existent labels",
+            "rootCause": "The test plan is genesis-broken: it asks the agent to click labels the app does not render, including “Start from blank” and “Create variable”. The actual agreement creation UI renders “Blank agreement” in `assets/js/aui/shared/NewAgreementModal.tsx:130`, and the variable popover renders “Create” while normalizing names through `toSnakeCase` in `assets/js/aui/shared/jotted/VariablePopover.tsx:253`. Because there is no prior pass and no visual evidence of an app failure, this is not attributable to the PR.",
+            "whatHappened": "The run executed many clicks/types, but then hit repeated harness object-generation failures and never produced video or screenshots to confirm the intended keyboard-navigation assertions. This test has no prior successful baseline: prior_runs reports it has never been executed before. Code review shows the written plan/assertions do not match implemented labels or rendered variable names.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test has no passing baseline."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run did not provide visual proof of an app defect."
+                },
+                {
+                    "source": "code",
+                    "detail": "The agreement creation modal renders “Blank agreement”, not “Start from blank”.",
+                    "file": "assets/js/aui/shared/NewAgreementModal.tsx",
+                    "lines": "130"
+                },
+                {
+                    "source": "code",
+                    "detail": "The global new menu renders “New agreement”, not “New Agreement”.",
+                    "file": "assets/js/aui/shared/GlobalNewMenu.tsx"
+                },
+                {
+                    "source": "code",
+                    "detail": "The variable popover renders a generic “Create” button, not “Create variable”.",
+                    "file": "assets/js/aui/shared/jotted/VariablePopover.tsx"
+                },
+                {
+                    "source": "code",
+                    "detail": "Variable names are normalized to snake_case before being stored/displayed.",
+                    "file": "assets/js/aui/shared/jotted/VariablePopover.tsx",
+                    "lines": "253"
+                },
+                {
+                    "source": "code",
+                    "detail": "The snake_case helper converts spaces and capitals, so “Client Name” becomes “client_name”.",
+                    "file": "assets/js/aui/shared/jotted/fields.ts",
+                    "lines": "817"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Details sidebar heading and value input do exist, so the feature exists but the test text is wrong.",
+                    "file": "assets/js/views/docs/create/VariableDetails.tsx",
+                    "lines": "108"
+                },
+                {
+                    "source": "code",
+                    "detail": "The value input placeholder exists.",
+                    "file": "assets/js/views/docs/create/VariableValueInput.tsx",
+                    "lines": "136"
+                }
+            ]
+        },
+        {
+            "id": "agreement-wizard-ui-polish-and-title-editing",
+            "slug": "agreement-wizard-ui-polish-and-title-editing",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Recipient row settings step is not implemented",
+            "rootCause": "The written plan assumes that clicking the Bob Admin recipient row opens signer settings, but `RecipientList.tsx:35-78` does not provide a row-level settings action. The settings sheet the agent reached is the general party settings sheet in `DocPartiesSheet.tsx:311-335`, where “Signer” appears only in explanatory copy. The plan also asserts stale step headers; the implemented billing and review headers are “Set up your billing” and “Configure delivery.”",
+            "whatHappened": "The run created a blank agreement, renamed it to “Polished Service Agreement,” and added “Bob Admin.” It then diverged by opening the party settings sheet and clicking “Apply” instead of advancing through the wizard; no visible app errors appeared. Prior runs show this test has never passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this is a genesis/unvalidated test with no successful history."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run created and renamed the agreement and added Bob Admin, then diverged into the party settings drawer; no app error was visible."
+                },
+                {
+                    "source": "code",
+                    "detail": "Recipient rows do not implement a row-level settings action; the only nested action is a hover/focus menu for removing the party.",
+                    "file": "assets/js/views/docs/create/RecipientList.tsx",
+                    "lines": "35-78"
+                },
+                {
+                    "source": "code",
+                    "detail": "The sheet the agent opened is the general party settings sheet; its “Signer” text is explanatory copy, not Bob Admin’s assigned role setting.",
+                    "file": "assets/js/views/docs/components/DocPartiesSheet.tsx",
+                    "lines": "311-335"
+                },
+                {
+                    "source": "code",
+                    "detail": "The implemented wizard controls are Next, Skip billing, then Send/review behavior; the test diverged before using this path.",
+                    "file": "assets/js/views/docs/create/Nav.tsx",
+                    "lines": "238-295"
+                },
+                {
+                    "source": "code",
+                    "detail": "The current UI headers do not match the test’s stale assertions for “Billing” and “Review.”",
+                    "file": "assets/js/views/docs/create/BillingStep.tsx / assets/js/views/docs/create/ReviewStep.tsx",
+                    "lines": "18-22 / 67-70"
+                }
+            ]
+        },
+        {
+            "id": "verify-agreement-menu-and-archive-in-wizard",
+            "slug": "verify-agreement-menu-and-archive-in-wizard",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Test targets the wrong agreement menu",
+            "rootCause": "The written plan assumes that clicking a row opens the wizard navigation bar AgreementMenu, but the live UI first opens the agreement side panel. The Status, Creator, and Delete agreement rows are implemented in assets/js/views/docs/create/AgreementMenu.tsx:57-110, while the observed title actions menu exposes Audit trail, Download, Save template, and Archive from assets/js/views/docs/components/DocMoreMenu.tsx:47-113. With no passing baseline, this is an unvalidated test plan mismatch rather than a PR regression.",
+            "whatHappened": "The run got past /docs, opened the Master Service Agreement row, and landed in the agreement side panel. It then tried title, ellipsis, and settings controls, but the menus it opened did not contain the expected Status, Creator, or Delete agreement rows. Prior runs show this test has never passed, so the plan was unvalidated before this PR.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows no successful validation for this test before this run."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run opened the agreement side panel after clicking the table row, not the wizard navigation bar menu expected by the plan."
+                },
+                {
+                    "source": "video",
+                    "detail": "The menus reached in the video did not contain the planned Status, Creator, or Delete agreement rows."
+                },
+                {
+                    "source": "code",
+                    "detail": "The planned Status, Creator, and Delete agreement rows exist in a different agreement menu than the one reached from the list row.",
+                    "file": "assets/js/views/docs/create/AgreementMenu.tsx",
+                    "lines": "57-110"
+                },
+                {
+                    "source": "code",
+                    "detail": "The observed agreement title menu exposes different actions, including Archive rather than Delete agreement.",
+                    "file": "assets/js/views/docs/components/DocMoreMenu.tsx",
+                    "lines": "47-113"
+                },
+                {
+                    "source": "code",
+                    "detail": "The side panel implements the metadata label the updated test should assert.",
+                    "file": "assets/js/views/docs/components/agreement-sheet/AgreementDetailsBlock.tsx",
+                    "lines": "47-62"
+                }
+            ]
+        },
+        {
+            "id": "create-prepaid-subscription-with-bill-upfront-toggle",
+            "slug": "create-prepaid-subscription-with-bill-upfront-toggle",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Test omits required subscription end date",
+            "rootCause": "Bill upfront is intentionally unavailable for open-ended subscriptions: `assets/js/aui/shared/payments/utils/prepaidUtils.ts:17-29` disables it when `recurring_end_type === \"never\"`, and both frontend and backend submit validation require an end date. The written test never changes the default “Forever” duration before clicking Bill upfront, so it creates a normal monthly subscription. The final assertion is also stale because `assets/js/views/subscriptions/sections/SubscriptionDetailsSection.tsx:106-117,212-221` renders “Billed upfront,” not “Prepaid” or “Bill upfront.”",
+            "whatHappened": "The run created a subscription for External Contact 1 and showed the success toast “Invoice created,” but the final subscription details showed an open-ended monthly subscription instead of prepaid billing. This test has never passed before, so the plan was unvalidated at genesis. The written steps try to enable Bill upfront without first setting the required subscription end date.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows this test has never succeeded, so the plan had no validated passing history."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run reached creation and showed success, but the resulting subscription was open-ended monthly billing rather than prepaid."
+                },
+                {
+                    "source": "code",
+                    "detail": "Frontend logic intentionally disables Bill upfront when the subscription end type is never.",
+                    "file": "assets/js/aui/shared/payments/utils/prepaidUtils.ts",
+                    "lines": "17-29"
+                },
+                {
+                    "source": "code",
+                    "detail": "Frontend submit validation requires an end date if Bill upfront is checked.",
+                    "file": "assets/js/aui/shared/payments/utils/prepaidUtils.ts",
+                    "lines": "86-96"
+                },
+                {
+                    "source": "code",
+                    "detail": "Backend validation enforces the same prepaid end-date rule.",
+                    "file": "lib/clario/payments/invoice_template.ex",
+                    "lines": "527-543"
+                },
+                {
+                    "source": "code",
+                    "detail": "The implemented subscription details text is “Billed upfront,” not the assertion text “Prepaid” or “Bill upfront.”",
+                    "file": "assets/js/views/subscriptions/sections/SubscriptionDetailsSection.tsx",
+                    "lines": "106-117,212-221"
+                }
+            ]
+        },
+        {
+            "id": "bill-upfront-subscription",
+            "slug": "bill-upfront-subscription",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Line item step targets the wrong control",
+            "rootCause": "The written plan assumes clicking Line item immediately creates or exposes an Item and Amount row, but the implemented UI has a recent-items branch at assets/js/aui/shared/payments/LineItems.tsx:350-413 that opens a search/add menu instead. The row containing Item and Amount only exists after handleAddLineItem runs, as shown at assets/js/aui/shared/payments/LineItems.tsx:221-288. Because the test omitted that action, it typed into the wrong control and left the invoice total at $0.00.",
+            "whatHappened": "The run opened the subscription composer, chose External Contact 1, and reached the line-item area. It typed into the line-item search/add menu without creating a line-item row, so the summary still showed $0.00 when the test asserted $1,200.00. Prior runs show this test has never passed.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline shows this test has never been validated by a successful run."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run failed because the summary never reached the expected prepaid total."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screen showed no completed line item for Annual Platform License."
+                },
+                {
+                    "source": "code",
+                    "detail": "When recent line items exist, clicking Line item opens a menu; the user must press Enter or click New line item to add a row.",
+                    "file": "assets/js/aui/shared/payments/LineItems.tsx",
+                    "lines": "350-413"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Item and Amount fields the test targets are only rendered after a line item has actually been added.",
+                    "file": "assets/js/aui/shared/payments/LineItems.tsx",
+                    "lines": "221-288"
+                }
+            ]
+        },
+        {
+            "id": "create-prepaid-subscription-bill-upfront",
+            "slug": "create-prepaid-subscription-bill-upfront",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "PrepaidAmountSummary never renders the test’s expected label",
+            "rootCause": "The written test expects a `Prepaid amount` summary label, but the implemented prepaid summary component renders `Monthly amount`, `Invoice total`, and optionally `Duration` instead at `assets/js/aui/shared/payments/PrepaidAmountSummary.tsx:33-44`. The prepaid behavior itself was exercised successfully: the final details sheet showed `Billed upfront`, so the failure is an invalid first-generation assertion rather than a product defect.",
+            "whatHappened": "The run completed the subscription creation flow and the final subscription details showed the subscription was billed upfront. The only blocking failure was the assertion that `Prepaid amount` appears in the creation summary, and this test has no prior successful runs.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this is an unvalidated first run."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video review confirmed the prepaid flow completed and no app errors appeared."
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected assertion text is not present anywhere in the repository."
+                },
+                {
+                    "source": "code",
+                    "detail": "The prepaid summary component renders different visible labels.",
+                    "file": "assets/js/aui/shared/payments/PrepaidAmountSummary.tsx",
+                    "lines": "33-44"
+                },
+                {
+                    "source": "code",
+                    "detail": "The final subscription details label used by the passing verification is implemented.",
+                    "file": "assets/js/views/subscriptions/sections/SubscriptionDetailsSection.tsx",
+                    "lines": "108-111"
+                }
+            ]
+        },
+        {
+            "id": "locked-invoice-customer-on-edit",
+            "slug": "locked-invoice-customer-on-edit",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "PaymentAssignee gates customer locking behind customers flag",
+            "rootCause": "The written plan assumes the customers-enabled invoice editor, but the app only renders locked customer/contact rows when `feature_flags?.customers` is true in `assets/js/aui/shared/payments/PaymentAssignee.tsx:660`. With the flag off, the implemented legacy path renders an editable Billing contact menu with a Find contact search field, which is exactly what the run observed. The backend also preserves legacy edit behavior unless `:customers` is enabled in `lib/clario_web/live/invoices/invoice_handlers.ex:358`.",
+            "whatHappened": "The run reached the Invoices page, opened a draft invoice for Alice Owner, and opened the invoice editor. The editor showed the legacy Billing contact picker; the lock assertion failed, clicking the contact opened a Find contact menu, and the run later diverged to Sales Contract Q1 instead of completing the close-and-recheck verification. Prior runs show this test has never passed or run before, so the original plan was unvalidated.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows this was a first-generation, never-validated test."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run saw the legacy editable Billing contact UI, not a locked Billing customer row."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video confirmed clicking the contact opened the editable contact picker."
+                },
+                {
+                    "source": "code",
+                    "detail": "The legacy flag-off UI intentionally renders an editable contact picker with a Find contact search field.",
+                    "file": "assets/js/aui/shared/payments/PaymentAssignee.tsx",
+                    "lines": "89-120"
+                },
+                {
+                    "source": "code",
+                    "detail": "The locked customer/contact rows only render when the customers feature flag selects CustomerPaymentAssignee.",
+                    "file": "assets/js/aui/shared/payments/PaymentAssignee.tsx",
+                    "lines": "636-666"
+                },
+                {
+                    "source": "code",
+                    "detail": "The customers feature flag defaults to false.",
+                    "file": "lib/clario_web/user_auth.ex",
+                    "lines": "559-566"
+                },
+                {
+                    "source": "code",
+                    "detail": "The backend edit lock is also intentionally gated on the same customers flag.",
+                    "file": "lib/clario_web/live/invoices/invoice_handlers.ex",
+                    "lines": "358-366"
+                }
+            ]
+        },
+        {
+            "id": "connect-ledgerly-integration-c4097885",
+            "slug": "connect-ledgerly-integration-c4097885",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Ledgerly card is feature-gated off for the standard scenario",
+            "rootCause": "The written plan assumes the standard setup exposes Ledgerly, but the implemented UI only renders the Ledgerly card when `feature_flags.ledgerly` is true in `assets/js/views/settings/AppsContent.tsx:156-235`. The flag defaults to false in `lib/clario_web/user_auth.ex:559-585`, and this run did not establish a Ledgerly-enabled scenario. The setup path is also stale because the implemented settings apps path is `/home?modal=settings&tab=apps`, not `/settings/integrations`.",
+            "whatHappened": "The run reached the Settings integrations panel and saw “Available integrations,” but only Bookline, Connectly, Chatly, and Relay were visible. Ledgerly never appeared, so the agent could not click its Connect button. Prior runs show this test has never passed, so there is no validated baseline for the standard scenario.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows this is a genesis/unvalidated test, not a known passing flow that regressed."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the integrations panel, but the available cards did not include Ledgerly."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Ledgerly card is rendered only when the `ledgerly` feature flag is enabled and the connection query has finished loading.",
+                    "file": "assets/js/views/settings/AppsContent.tsx",
+                    "lines": "156-235"
+                },
+                {
+                    "source": "code",
+                    "detail": "The app defaults the `ledgerly` feature flag to off.",
+                    "file": "lib/clario_web/user_auth.ex",
+                    "lines": "559-585"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Ledgerly card labels asserted by the test do exist, but only inside the gated card component.",
+                    "file": "assets/js/views/settings/LedgerlyCard.tsx",
+                    "lines": "10-45"
+                },
+                {
+                    "source": "code",
+                    "detail": "The implemented settings return path is the home settings modal, not `/settings/integrations`.",
+                    "file": "lib/clario_web/controllers/oauth/ledgerly_controller.ex",
+                    "lines": "345"
+                }
+            ]
+        },
+        {
+            "id": "ledgerly-contact-sync-flow",
+            "slug": "ledgerly-contact-sync-flow",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "Ledgerly is hidden by a disabled feature flag",
+            "rootCause": "The test assumes Ledgerly is visible by default, but the app hides the Ledgerly card unless `feature_flags.ledgerly` is true in `assets/js/views/settings/AppsContent.tsx:153-172`. That flag defaults to false in `lib/clario_web/user_auth.ex:559-589`, and the run confirmed the Settings modal showed only Bookline, Connectly, Chatly, and Relay. The written plan also refers to an `Apps` tab, while the implemented tab label is `Integrations` in `assets/js/aui/shared/SettingsModal.tsx:67-91`.",
+            "whatHappened": "The run opened Settings, clicked the actual `Integrations` tab, and stopped before the Ledgerly OAuth or sync flow because no Ledgerly card was visible. The visible integrations were Bookline, Connectly, Chatly, and Relay, with no app errors shown. Baseline shows this test had never passed or even run before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows this Ledgerly test had no validated passing history."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached Settings, but the available integrations list did not contain Ledgerly and no app error was shown."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Ledgerly card only renders when the Ledgerly feature flag is enabled.",
+                    "file": "assets/js/views/settings/AppsContent.tsx",
+                    "lines": "153-172, 229-235"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Ledgerly feature flag defaults to false unless explicitly enabled for the user or organization.",
+                    "file": "lib/clario_web/user_auth.ex",
+                    "lines": "559-589"
+                },
+                {
+                    "source": "code",
+                    "detail": "The current Settings tab label is Integrations, not Apps.",
+                    "file": "assets/js/aui/shared/SettingsModal.tsx",
+                    "lines": "67-91"
+                },
+                {
+                    "source": "code",
+                    "detail": "Project documentation confirms Ledgerly requires feature flags before the Connect UI appears.",
+                    "file": "lib/clario/integrations/LEDGERLY_INTEGRATION.md",
+                    "lines": "80-84"
+                }
+            ]
+        },
+        {
+            "id": "001-revenue-report-charts-md",
+            "slug": "001-revenue-report-charts-md",
+            "category": "bad_test",
+            "confidence": "high",
+            "headline": "ReportsCashflowView has no date filter",
+            "rootCause": "The implemented `/reports/cashflow` page renders fixed widgets in `assets/js/views/reporting/ReportsCashflowView.tsx:291-303`: stats, the revenue chart, outstanding invoices, and Forecast. The only time-related UI in `assets/js/views/reporting/ReportsCashflowView.tsx:142-169` is static forecast bucket text, not an interactive date range picker. The PR diff only wraps/reorders those widgets for responsive layout, so it did not introduce the missing selector.",
+            "whatHappened": "The run reached `/reports/cashflow`, loaded the Revenue page, and displayed metric cards, a revenue chart, outstanding invoices, and a Forecast section with no visible app errors. It failed only on the assertion that a time period selector or date range filter was available. Prior history shows this test has never passed, so there is no baseline proving that assertion was ever valid.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior history shows no successful baseline for this generated assertion."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the Revenue page and displayed the core widgets, with no visible app error; the missing item was only the asserted date filter."
+                },
+                {
+                    "source": "code",
+                    "detail": "The implemented cashflow report renders fixed widgets only: stats, revenue chart, outstanding invoices, and forecast.",
+                    "file": "assets/js/views/reporting/ReportsCashflowView.tsx",
+                    "lines": "291-303"
+                },
+                {
+                    "source": "code",
+                    "detail": "The forecast labels are static bucket labels, not a date-range selector or report filter.",
+                    "file": "assets/js/views/reporting/ReportsCashflowView.tsx",
+                    "lines": "142-169"
+                },
+                {
+                    "source": "diff",
+                    "detail": "The PR changed responsive layout wrappers/order around the existing widgets; it did not remove a date filter.",
+                    "file": "assets/js/views/reporting/ReportsCashflowView.tsx"
+                }
+            ]
+        },
+        {
+            "id": "001-dashboard-stats-display-md",
+            "slug": "001-dashboard-stats-display-md",
+            "category": "client_bug",
+            "confidence": "high",
+            "headline": "Actions.tsx hides invoice approval actions on desktop",
+            "rootCause": "The invoice details sheet still contains the “Approve & Send” action for unreviewed invoice data, but this PR added a top-level read-only guard in `assets/js/views/invoices/details/Actions.tsx:988-992`. In the live desktop run, the side panel loaded for a draft one-time invoice, yet the entire action row was absent, matching that new `if (readOnly) return null` behavior. Because the scenario data was present and this test recently passed, the missing action is attributable to the new action-row suppression rather than data, infrastructure, or a stale assertion.",
+            "whatHappened": "The run reached Home, opened Inbox, and selected the invoice-review task, but the invoice side panel never showed “Approve & Send”. The agent could not approve the invoice, so it never reached the dashboard stat assertions. Baseline is strong: this test has passed before, including the most recent prior run on 2026-07-01, with 21/30 recent successes.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this test and scenario were previously valid."
+                },
+                {
+                    "source": "video",
+                    "detail": "The live run opened the invoice details side panel for the seeded review task, but the approval action was absent."
+                },
+                {
+                    "source": "code",
+                    "detail": "The invoice review context should be active when the invoice has data and has not been reviewed.",
+                    "file": "assets/js/views/invoices/details/utils.ts",
+                    "lines": "24-31"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected review action is implemented and should render “Approve & Send” when the review action is shown.",
+                    "file": "assets/js/views/invoices/details/Actions.tsx",
+                    "lines": "858-895"
+                },
+                {
+                    "source": "diff",
+                    "detail": "This PR added an early return that suppresses the entire invoice action row when the sheet read-only context is true.",
+                    "file": "assets/js/views/invoices/details/Actions.tsx",
+                    "lines": "988-992"
+                },
+                {
+                    "source": "code",
+                    "detail": "The read-only value is tied to mobile detection, but the observed failure occurred in a desktop viewport.",
+                    "file": "assets/js/aui/shared/sheet/SheetReadOnlyContext.tsx",
+                    "lines": "13-22"
+                }
+            ]
+        },
+        {
+            "id": "002-recent-payments-list-md",
+            "slug": "002-recent-payments-list-md",
+            "category": "client_bug",
+            "confidence": "medium",
+            "headline": "RecentPayments click target can be null",
+            "rootCause": "The run showed the recent-payments rows, but clicking the visible “Alice Owner” payer link did not open a side panel. This PR changed `assets/js/views/home/RecentPayments.tsx:74-112` so the modal opens only when `customerTarget` is truthy, and under the customers flag that target is `payment.payer.customer_id`. The report in `lib/clario/reports/home.ex:166-181` can still display payer names while returning a null `customer_id`, leaving a visible link whose click handler silently skips `openModal`.",
+            "whatHappened": "The run reached `/home` and displayed the “Recent payments” card with two “Alice Owner” rows. At least one click landed directly on the underlined “Alice Owner” name, but no customer side panel opened and no visible error appeared. Prior runs are a strong baseline: this test has passed before, including the most recent success on 2026-06-30.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline shows the test/scenario was previously valid."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video review confirmed rows rendered and a click landed on the visible underlined customer name, but no drawer opened."
+                },
+                {
+                    "source": "code",
+                    "detail": "The changed click target becomes null when the customers flag is on and the payer lacks `customer_id`, causing the click handler to do nothing.",
+                    "file": "assets/js/views/home/RecentPayments.tsx",
+                    "lines": "74-112"
+                },
+                {
+                    "source": "code",
+                    "detail": "The report only populates the new customer UUID from linked contacts, so unlinked payer contacts can have a null `customer_id` while still displaying a payer name.",
+                    "file": "lib/clario/reports/home.ex",
+                    "lines": "166-181"
+                },
+                {
+                    "source": "diff",
+                    "detail": "The PR replaced the previous company-name modal target with the feature-flagged UUID path.",
+                    "file": "assets/js/views/home/RecentPayments.tsx"
+                }
+            ]
+        },
+        {
+            "id": "mobile-bottom-navigation-and-more-sheet",
+            "slug": "mobile-bottom-navigation-and-more-sheet",
+            "category": "engine_artifact",
+            "confidence": "high",
+            "headline": "Runner opened desktop viewport for mobile-only navigation test",
+            "rootCause": "The blocking condition was the runner viewport, not app behavior. The app only renders MobileNav through MobileOnly, which depends on window.matchMedia(\"(max-width: 767px)\") in assets/js/hooks/util/useIsMobile.tsx:3-29. AppLayout renders DesktopOnly/AppNav versus MobileOnly/MobileNav as mutually exclusive branches in assets/js/aui/layout/AppLayout.tsx:59-70, so a desktop-width run correctly shows the sidebar instead of the bottom bar.",
+            "whatHappened": "The run loaded the authenticated Home dashboard successfully, but it rendered the desktop layout with a left sidebar. Step 1 failed because the mobile bottom navigation was not present, so the More-sheet navigation steps never ran. Prior history shows this test has never passed before, so there is no validated baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline: this test has no successful history and has never been validated before."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video showed the app loaded successfully in a desktop viewport, with no visible app errors."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "Final screen was the desktop dashboard with a left sidebar and no mobile bottom navigation."
+                },
+                {
+                    "source": "code",
+                    "detail": "The mobile-only UI is gated by a max-width media query.",
+                    "file": "assets/js/hooks/util/useIsMobile.tsx",
+                    "lines": "3-29"
+                },
+                {
+                    "source": "code",
+                    "detail": "AppLayout renders either the desktop sidebar or mobile nav based on that viewport gate.",
+                    "file": "assets/js/aui/layout/AppLayout.tsx",
+                    "lines": "59-70"
+                },
+                {
+                    "source": "code",
+                    "detail": "The mobile navigation and the tested More-sheet destinations exist in the app code.",
+                    "file": "assets/js/aui/layout/MobileNav.tsx",
+                    "lines": "22-34"
+                }
+            ]
+        },
+        {
+            "id": "mobile-inbox-task-actions-and-navigation",
+            "slug": "mobile-inbox-task-actions-and-navigation",
+            "category": "engine_artifact",
+            "confidence": "high",
+            "headline": "Runner used desktop layout for mobile inbox test",
+            "rootCause": "The mobile inbox rows are gated by `useIsMobile()` in `assets/js/views/inbox/InboxView.tsx:742-785`, which only becomes true under the `max-width: 767px` media query in `assets/js/hooks/util/useIsMobile.tsx:3-10`. The video and screenshot show a desktop shell with a left sidebar, so the run never exercised the mobile branch the plan targets. This is a runner viewport mismatch, not an observed application defect.",
+            "whatHappened": "The agent reached the Inbox, reviewed the invoice, opened the signing flow, refreshed, and ended with both tasks still visible. But the run used the desktop layout instead of the requested mobile viewport, so it clicked desktop row actions like “Review invoice” rather than mobile task rows. Prior runs show this test has never passed.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior run baseline shows this generated test has never succeeded, so there is no validated passing baseline to attribute a new regression to this PR."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run exercised the desktop inbox UI rather than the mobile task rows requested by the plan."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screenshot still showed the desktop shell, with no app crash or broken UI."
+                },
+                {
+                    "source": "code",
+                    "detail": "The inbox renders the mobile task list only when `isMobile` is true.",
+                    "file": "assets/js/views/inbox/InboxView.tsx",
+                    "lines": "742-785"
+                },
+                {
+                    "source": "code",
+                    "detail": "The mobile branch depends on a max-width media query, which the observed desktop viewport did not satisfy.",
+                    "file": "assets/js/hooks/util/useIsMobile.tsx",
+                    "lines": "3-10"
+                },
+                {
+                    "source": "code",
+                    "detail": "The mobile bottom navigation provides a stable visible marker the test can assert to prove it is in the mobile shell.",
+                    "file": "assets/js/aui/layout/MobileNav.tsx",
+                    "lines": "89-107"
+                }
+            ]
+        },
+        {
+            "id": "mobile-navigation-and-read-only-experience",
+            "slug": "mobile-navigation-and-read-only-experience",
+            "category": "engine_artifact",
+            "confidence": "high",
+            "headline": "Runner used desktop viewport for mobile-only MobileNav test",
+            "rootCause": "The written setup requires a mobile viewport, but the run executed in a desktop-sized layout. The app switches layout by viewport: MobileNav is only rendered inside MobileOnly in assets/js/aui/layout/AppLayout.tsx:60-70, and MobileOnly depends on window.matchMedia(\"(max-width: 767px)\") in assets/js/hooks/util/useIsMobile.tsx:3-5. At desktop width, the sidebar is expected and the bottom nav is absent.",
+            "whatHappened": "The run authenticated and loaded the Home page, but it rendered the desktop dashboard with a left sidebar instead of the mobile bottom navigation. It failed on the first assertion group before any mobile navigation interaction, and no visible app errors were shown. prior_runs reports this test has never passed or run before, so there is no validated baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "No successful baseline exists for this generated test."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run failed on the initial mobile-layout assertions because the page showed a left sidebar instead of a bottom nav."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video confirmed the app stayed in desktop layout and showed no app error state."
+                },
+                {
+                    "source": "code",
+                    "detail": "The app intentionally renders desktop or mobile navigation based on the viewport branch.",
+                    "file": "assets/js/aui/layout/AppLayout.tsx",
+                    "lines": "60-70"
+                },
+                {
+                    "source": "code",
+                    "detail": "The mobile branch is controlled by a max-width media query, so a desktop viewport will not render MobileNav.",
+                    "file": "assets/js/hooks/util/useIsMobile.tsx",
+                    "lines": "3-5"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected bottom navigation exists in the app when the mobile branch is active.",
+                    "file": "assets/js/aui/layout/MobileNav.tsx",
+                    "lines": "22-27, 91-104"
+                }
+            ]
+        },
+        {
+            "id": "mobile-read-only-sheets-for-invoices-and-agreements",
+            "slug": "mobile-read-only-sheets-for-invoices-and-agreements",
+            "category": "engine_artifact",
+            "confidence": "high",
+            "headline": "Runner used desktop viewport despite mobile setup",
+            "rootCause": "The setup required a mobile viewport, but the run used desktop width, so `useIsMobile()` in `assets/js/hooks/util/useIsMobile.tsx:3` returned false. Because `SheetReadOnlyProvider` in `assets/js/aui/shared/sheet/SheetReadOnlyContext.tsx:16` gets read-only state from that mobile check, desktop drawers correctly rendered mutation actions. The failed assertions therefore tested desktop behavior, not the intended mobile sheet behavior.",
+            "whatHappened": "The run reached both invoice and agreement details, but the app stayed in desktop layout with a left sidebar and right-hand drawers. The agreement drawer showed desktop actions “Send now” and “Continue editing,” causing the mobile read-only assertions to fail. Prior runs show this test has never passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows no prior successful execution, so there is no passing mobile baseline to compare against."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run did not use the requested mobile viewport; it stayed in desktop layout throughout."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final screen showed desktop-only layout and actions, matching the failed assertions."
+                },
+                {
+                    "source": "code",
+                    "detail": "Mobile behavior is gated strictly by a max-width media query.",
+                    "file": "assets/js/hooks/util/useIsMobile.tsx",
+                    "lines": "3-9"
+                },
+                {
+                    "source": "code",
+                    "detail": "Sheets only switch to full-screen behavior when the app detects mobile width.",
+                    "file": "assets/js/aui/core/Sheet.tsx",
+                    "lines": "228-241"
+                },
+                {
+                    "source": "code",
+                    "detail": "The read-only sheet context is also mobile-only.",
+                    "file": "assets/js/aui/shared/sheet/SheetReadOnlyContext.tsx",
+                    "lines": "16-23"
+                },
+                {
+                    "source": "code",
+                    "detail": "Agreement mutation buttons are intentionally omitted only when the sheet is read-only.",
+                    "file": "assets/js/views/docs/components/agreement-sheet/BannerActionsBlock.tsx",
+                    "lines": "157-164"
+                },
+                {
+                    "source": "code",
+                    "detail": "Invoice mutation actions are intentionally omitted only when the sheet is read-only.",
+                    "file": "assets/js/views/invoices/details/Actions.tsx",
+                    "lines": "989-993"
+                }
+            ]
+        },
+        {
+            "id": "create-new-customer-during-invoice-creation",
+            "slug": "create-new-customer-during-invoice-creation",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Customers flag is off in the preview",
+            "rootCause": "The test targets the customer-based invoice assignee, but `assets/js/aui/shared/payments/PaymentAssignee.tsx:660` renders that path only when `feature_flags.customers` is true. The app defaults `:customers` to false in `lib/clario_web/user_auth.ex:559-562`, and the run’s provisioning did not seed any flag enablement. With the flag off, the app correctly showed the legacy “Billing contact” flow, so the written customer-flow steps diverged before the intended feature was exercised.",
+            "whatHappened": "The run opened the invoice creation flow, but the UI showed the legacy “Billing contact” / “Choose contact” path instead of the customer picker flow the test targets. The final screen was still the invoice editor with $0.00 and no selected billing customer; no visible app error was shown. `prior_runs` reported this test has never passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows there is no successful prior run to prove the generated plan was ever valid in this preview configuration."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The run ended in the invoice editor on the legacy contact-based UI, not the customer-based flow the test expected."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning did not include any customer feature-flag enablement."
+                },
+                {
+                    "source": "code",
+                    "detail": "The invoice assignee UI switches between the customer flow and the legacy contact flow based on feature_flags.customers.",
+                    "file": "assets/js/aui/shared/payments/PaymentAssignee.tsx",
+                    "lines": "660-668"
+                },
+                {
+                    "source": "code",
+                    "detail": "The customer creation row targeted by the test exists, but only inside the customer-enabled implementation path.",
+                    "file": "assets/js/aui/shared/payments/PaymentAssignee.tsx",
+                    "lines": "455-472"
+                },
+                {
+                    "source": "code",
+                    "detail": "The customers feature flag defaults off in auth-derived feature flags.",
+                    "file": "lib/clario_web/user_auth.ex",
+                    "lines": "559-562"
+                }
+            ]
+        },
+        {
+            "id": "promote-orphan-contact-to-customer-via-invoice-flow",
+            "slug": "promote-orphan-contact-to-customer-via-invoice-flow",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "PaymentAssignee uses the legacy picker when the customers flag is off",
+            "rootCause": "The orphan-contact promotion workflow is gated by the `customers` feature flag in `PaymentAssignee.tsx:660`. The live preview rendered the legacy picker, including `New contact`, which is exactly the flag-off branch; the default flag value is `false` in `user_auth.ex:562`.",
+            "whatHappened": "The run opened the invoice modal and interacted with the billing picker, but the picker showed the legacy contact flow instead of the customer/orphan promotion flow. It failed when looking for `Contacts without customers`. Prior runs show this test has never succeeded, so there is no passing baseline tying the failure to this PR.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline: this test has never passed before, so there is no proven passing baseline for the customer-promotion flow."
+                },
+                {
+                    "source": "run",
+                    "detail": "The run diverged when the picker did not show the expected customer/orphan section."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The final UI matched the legacy contact picker, not the customer picker."
+                },
+                {
+                    "source": "code",
+                    "detail": "The invoice assignee component switches between customer and legacy flows based on the customers feature flag.",
+                    "file": "assets/js/aui/shared/payments/PaymentAssignee.tsx",
+                    "lines": "660-668"
+                },
+                {
+                    "source": "code",
+                    "detail": "The default customers feature flag value is off.",
+                    "file": "lib/clario_web/user_auth.ex",
+                    "lines": "556-566"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected `Contacts without customers` UI only exists in the customer-enabled branch.",
+                    "file": "assets/js/aui/shared/payments/PaymentAssignee.tsx",
+                    "lines": "412-432"
+                },
+                {
+                    "source": "code",
+                    "detail": "The observed `New contact` action belongs to the legacy picker branch.",
+                    "file": "assets/js/aui/shared/payments/PaymentAssignee.tsx",
+                    "lines": "188-201"
+                }
+            ]
+        },
+        {
+            "id": "link-orphan-contact-to-existing-customer-during-invoice-creation",
+            "slug": "link-orphan-contact-to-existing-customer-during-invoice-creation",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Customers feature flag was off during invoice test",
+            "rootCause": "The test requires the customer-picker branch, but PaymentAssignee renders that branch only when feature_flags.customers is true at assets/js/aui/shared/payments/PaymentAssignee.tsx:660-667. In the run, the UI showed the legacy Billing contact behavior instead, so selecting the orphan contact produced the legacy error toast rather than opening the PromoteOrphan modal. The flag defaults off in lib/clario_web/user_auth.ex:562, making this a preview/test environment configuration failure rather than a PR defect.",
+            "whatHappened": "The agent opened the invoice creation form and searched for External Contact 2, but the form showed the legacy Billing contact picker instead of the expected Billing customer flow. Selecting the contact showed the toast \"The contact doesn't belong to any company,\" and the Add contact to a customer modal never appeared. Prior runs show no successful baseline for this test.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this test had no successful validation before this run."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run entered the legacy contact picker path: selecting the orphan contact showed this toast and the expected modal never appeared."
+                },
+                {
+                    "source": "code",
+                    "detail": "The invoice assignee UI switches between the customer picker and legacy contact picker based on the customers feature flag.",
+                    "file": "assets/js/aui/shared/payments/PaymentAssignee.tsx",
+                    "lines": "660-667"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected orphan-contact section exists only in the customer picker branch.",
+                    "file": "assets/js/aui/shared/payments/PaymentAssignee.tsx",
+                    "lines": "413-446"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected modal is opened from the customer-picker orphan-contact click handler.",
+                    "file": "assets/js/aui/shared/payments/PaymentAssignee.tsx",
+                    "lines": "363-374"
+                },
+                {
+                    "source": "code",
+                    "detail": "The customers feature flag defaults off unless enabled for the environment or organization.",
+                    "file": "lib/clario_web/user_auth.ex",
+                    "lines": "562"
+                }
+            ]
+        },
+        {
+            "id": "sync-ledgerly-contacts",
+            "slug": "sync-ledgerly-contacts",
+            "category": "environment_failure",
+            "confidence": "high",
+            "headline": "Ledgerly card is hidden by the ledgerly feature flag",
+            "rootCause": "The test expected Ledgerly to be visible, but `assets/js/views/settings/AppsContent.tsx:157-166` computes `showLedgerly` from `feature_flags.ledgerly`, and `assets/js/views/settings/AppsContent.tsx:230-234` only mounts the Ledgerly card when that gate is true. `lib/clario_web/user_auth.ex:560-588` defaults `:ledgerly` to false unless FunWithFlags enables it for the user or organization. This run’s scenario seeded users and an organization, but no Ledgerly flag or connection, so the Ledgerly UI was correctly absent for this preview configuration.",
+            "whatHappened": "The run opened Settings → Integrations and repeatedly searched for Ledgerly, but only Bookline, Connectly, Chatly, and Relay were visible. It never clicked Ledgerly Connect, never triggered contact sync, and never reached the Contacts verification. Prior runs show no successful baseline for this Ledgerly test.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Run trace showed the Ledgerly card was not present in Settings → Integrations."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video confirmed the run never exercised the Ledgerly connection or sync flow."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Ledgerly card is conditionally rendered only when the Ledgerly feature flag is true.",
+                    "file": "assets/js/views/settings/AppsContent.tsx",
+                    "lines": "157-166, 230-234"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Ledgerly feature flag defaults off unless enabled for the user or organization.",
+                    "file": "lib/clario_web/user_auth.ex",
+                    "lines": "560-588"
+                },
+                {
+                    "source": "code",
+                    "detail": "Project documentation states Ledgerly requires feature flags before the Connect UI appears.",
+                    "file": "lib/clario/integrations/LEDGERLY_INTEGRATION.md",
+                    "lines": "80-83"
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning succeeded but did not include a Ledgerly flag or Ledgerly connection."
+                }
+            ]
+        },
+        {
+            "id": "assign-bookline-class-and-location-to-an-invoice",
+            "slug": "assign-bookline-class-and-location-to-an-invoice",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario lacks Bookline prerequisites",
+            "rootCause": "The invoice form only renders the Bookline picker when early access is enabled, the current organization is connected to Bookline, and at least one class or location is returned. The scenario only seeded auth/org basics and did not seed the required contact or Bookline reference data, so the expected “Bookline”, “Class”, “Consulting”, “Location”, and “West Coast” controls were correctly absent. Because this test has never passed, there is no validated baseline tying the absence to this PR.",
+            "whatHappened": "The run reached the invoice creation drawer, created or used a contact, and filled an invoice line item, but never found a visible “Bookline” section. There are no prior successful runs for this test, so the written plan and scenario data were unproven. Provisioning only reported users and an organization, while the test requires a seeded contact plus Bookline class/location prerequisites.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows this was a first-generation, unvalidated test with no prior successful run."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning returned auth and organization basics only; it did not report seeding the required contact or Bookline class/location fixtures."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the expected contact was not pre-seeded, so the agent had to create it during the run."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video never showed the Bookline section or the required Class/Location choices."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Bookline class/location component intentionally renders nothing when Bookline is not connected or when no classes/locations are available.",
+                    "file": "assets/js/aui/shared/payments/BooklineClassLocation.tsx",
+                    "lines": "73-91"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Bookline picker is gated on both early access and the organization being connected to Bookline.",
+                    "file": "assets/js/hooks/service/invoice/useBooklineClassesLocations.tsx",
+                    "lines": "36-50"
+                }
+            ]
+        },
+        {
+            "id": "create-customer-by-picking-existing-contact",
+            "slug": "create-customer-by-picking-existing-contact",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario did not seed customers flag or External Contact 1",
+            "rootCause": "The written flow requires the flagged customer creation UI, but the app only shows “Customer” when `feature_flags.customers` is true in `assets/js/aui/shared/GlobalNewMenu.tsx:31-117`. That flag defaults to false in `lib/clario_web/user_auth.ex:559-590`, and this run’s provisioning seeded only user and organization identifiers. The scenario also did not seed the required existing contact, so the “External Contact 1” picker path was not available.",
+            "whatHappened": "The agent reached the Customers area and opened the global create menu, but the menu showed “Company” instead of “Customer.” The intended “New customer” modal and “Pick existing contact” path were never reached. prior_runs shows this test has never passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test has no successful baseline; it has never passed before."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning succeeded, but the seeded entity list did not include the required customers feature flag or the existing contact named \"External Contact 1\"."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the create menu, but the visible options showed the flag-off legacy \"Company\" path instead of \"Customer\"."
+                },
+                {
+                    "source": "code",
+                    "detail": "The create menu switches between \"Customer\" and \"Company\" based on the customers feature flag.",
+                    "file": "assets/js/aui/shared/GlobalNewMenu.tsx",
+                    "lines": "31-117"
+                },
+                {
+                    "source": "code",
+                    "detail": "The customers feature flag defaults to off unless explicitly enabled for the user or organization.",
+                    "file": "lib/clario_web/user_auth.ex",
+                    "lines": "559-590"
+                },
+                {
+                    "source": "code",
+                    "detail": "The intended flagged customer modal and existing-contact path do exist in the app once the correct scenario state is present.",
+                    "file": "assets/js/aui/shared/CustomerFormModal.tsx",
+                    "lines": "72-126"
+                },
+                {
+                    "source": "code",
+                    "detail": "The contact picker requires existing contacts to show \"Choose contact\" and allow searching for \"External Contact 1\".",
+                    "file": "assets/js/aui/shared/PrimaryContactPicker.tsx",
+                    "lines": "108-170"
+                }
+            ]
+        },
+        {
+            "id": "edit-customer-name-and-change-primary-contact",
+            "slug": "edit-customer-name-and-change-primary-contact",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "standard_payload seeds no Northwind customer data",
+            "rootCause": "The written test depends on specific records that the standard scenario does not create. `test/support/autonoma_payloads.ex:31-91` creates generic `Customer #{suffix}` and `Contact #{suffix}` records, and there is no `autonoma/recipe.json` defining “Northwind Traders” or “Aaron Fields”. Because the customer was absent, the run could not open the detail sheet or exercise the inline edit and primary-contact picker code.",
+            "whatHappened": "The run reached `/contacts` and confirmed the “Customers” heading, but it never found “Northwind Traders” in the customer/company list. The video showed empty customer/company states and unrelated contacts, with no visible app error. Prior runs show this test has never passed before, so the plan/scenario data had no valid baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows no successful validation of this test."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the customers page, but the expected customer/contact never appeared."
+                },
+                {
+                    "source": "code",
+                    "detail": "The repository has no Autonoma recipe file defining the named records.",
+                    "file": "autonoma/recipe.json"
+                },
+                {
+                    "source": "code",
+                    "detail": "Repo search found no seeded or hard-coded data for the records the test requires."
+                },
+                {
+                    "source": "code",
+                    "detail": "The standard scenario payload seeds generic Customer/Contact records instead of Northwind Traders or Aaron Fields.",
+                    "file": "test/support/autonoma_payloads.ex",
+                    "lines": "31-91"
+                },
+                {
+                    "source": "code",
+                    "detail": "The primary-contact feature exists in the app, but the run never reached it because the required customer was absent.",
+                    "file": "assets/js/views/contacts/CustomerDetailsSheet.tsx",
+                    "lines": "62-113"
+                }
+            ]
+        },
+        {
+            "id": "001-view-companies-list-md",
+            "slug": "001-view-companies-list-md",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Standard scenario seeds no expected companies",
+            "rootCause": "The test plan correctly reached `/contacts`, but its data assertions do not match the standard scenario. `test/support/autonoma_payloads.ex:31` builds the standard payload through `payload_with_entities`, and the concrete customer/contact entries at `test/support/autonoma_payloads.ex:72` and `:80` use dynamic `Customer #{suffix}` data rather than the five fixed company names. Provisioning succeeded for auth/org setup, so this is a scenario data gap rather than an app or preview failure.",
+            "whatHappened": "The run reached the Customers page, and the Companies tab was active by default. Instead of the five asserted company names, the Companies tab showed the empty state “No contacts. Create a contact or assign one while you are sending an agreement.” Prior runs show this test has never passed, so there is no baseline proving those fixed companies ever existed in the standard scenario.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior runs show this test has no successful baseline."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the intended Customers page with Companies active, but the list showed the empty state instead of the asserted companies."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning succeeded for auth/org context but did not report seeded customer/company records matching the assertions."
+                },
+                {
+                    "source": "code",
+                    "detail": "The standard scenario creates a dynamic Acme/customer payload, not the five named companies asserted by the test.",
+                    "file": "test/support/autonoma_payloads.ex",
+                    "lines": "31"
+                },
+                {
+                    "source": "code",
+                    "detail": "The payload defines a single dynamic Customer record.",
+                    "file": "test/support/autonoma_payloads.ex",
+                    "lines": "72"
+                },
+                {
+                    "source": "code",
+                    "detail": "The payload defines a contact linked to the dynamic customer name, not the expected fixed company names.",
+                    "file": "test/support/autonoma_payloads.ex",
+                    "lines": "80"
+                },
+                {
+                    "source": "code",
+                    "detail": "Repo search found none of the fixed company names required by the test."
+                }
+            ]
+        },
+        {
+            "id": "customer-search-sanitization",
+            "slug": "customer-search-sanitization",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Meridian Digital was not seeded",
+            "rootCause": "The scenario did not seed any Customer/company named Meridian Digital; provisioning reported only users, scenario, and organization data. The app’s Companies search operates on Customer.name in lib/clario/customers.ex:257-269, so the expected row cannot appear unless that customer exists. The written steps also target labels the UI does not implement: the filter menu exposes Company, Contact, and Email in assets/js/views/contacts/filters/contactFilterUtils.ts:45-65, and the company search input is Company contains... in ContactCompanyFilter.tsx:14-15.",
+            "whatHappened": "The run reached /contacts, opened filters, typed searches, and showed no visible app errors. The final Meridian Digital assertion failed because the customers list showed No contacts, and prior_runs shows this test has never passed before. Provisioning seeded users and an organization, but not the Meridian Digital customer/company the test requires.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test has no successful baseline; it had never run before, so the plan/scenario were unvalidated."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning succeeded but seeded only auth/org data, not the required Meridian Digital customer/company."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the contacts filters and showed the implemented labels, but Meridian Digital never appeared; the list ended at No contacts with no visible app error."
+                },
+                {
+                    "source": "code",
+                    "detail": "The app implements filter menu labels as Company, Contact, and Email, not Customer as written in the test plan.",
+                    "file": "assets/js/views/contacts/filters/contactFilterUtils.ts",
+                    "lines": "45-65"
+                },
+                {
+                    "source": "code",
+                    "detail": "The company-name filter input label is Company contains..., not Customer name contains....",
+                    "file": "assets/js/views/contacts/filters/ContactCompanyFilter.tsx",
+                    "lines": "14-15"
+                },
+                {
+                    "source": "code",
+                    "detail": "The contact-name filter input label is Contact name contains..., confirming the written Customer input label does not match either implemented filter.",
+                    "file": "assets/js/views/contacts/filters/ContactNameFilter.tsx",
+                    "lines": "14-15"
+                },
+                {
+                    "source": "code",
+                    "detail": "The feature under test searches Customer.name using a sanitized fuzzy-search pattern, so a Customer row named Meridian Digital must exist for the final assertion to pass.",
+                    "file": "lib/clario/customers.ex",
+                    "lines": "257-269"
+                }
+            ]
+        },
+        {
+            "id": "mobile-invoice-list-filtering",
+            "slug": "mobile-invoice-list-filtering",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No scenario was bound for the test account",
+            "rootCause": "The test assumes an already-authenticated user on `/invoices`, but no scenario was bound, so no auth session or invoice data was seeded. The app therefore followed its normal no-account sign-in path in `lib/clario_web/live/users/user_signin_live.ex:50-52` and showed `No account found for this email`. This does not establish any defect in the mobile invoice filter behavior.",
+            "whatHappened": "The run never reached the mobile Invoices page or exercised the filter menu. It entered `test@example.com`, clicked `Log in with email`, and the app showed `No account found for this email`. There are no prior successful runs, so the test/scenario has no validated baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Provisioning did not create auth or data for the run."
+                },
+                {
+                    "source": "video",
+                    "detail": "The video showed the agent hit the unauthenticated login flow instead of the Invoices page."
+                },
+                {
+                    "source": "code",
+                    "detail": "The observed login message is the app's normal no-account response.",
+                    "file": "lib/clario_web/live/users/user_signin_live.ex",
+                    "lines": "50-52"
+                },
+                {
+                    "source": "run",
+                    "detail": "There is no successful baseline for this generated test."
+                }
+            ]
+        },
+        {
+            "id": "verify-mobile-navigation-and-read-only-sheet-experience",
+            "slug": "verify-mobile-navigation-and-read-only-sheet-experience",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Provisioning status no_scenario left protected routes at sign-in",
+            "rootCause": "The written setup requires an already-authenticated user on Home, but no scenario was bound, so no valid auth session or user data was provisioned. The app protects `/home` and `/invoices` with `:require_authenticated_user` in `lib/clario_web/router.ex:274-289`, and unauthenticated users are redirected by `lib/clario_web/user_auth.ex:471-480`. The observed “No account found for this email” is normal behavior for the runner’s guessed, unseeded emails.",
+            "whatHappened": "The run never reached the Home page or the mobile navigation under test. It stayed on `/signin` and showed “No account found for this email” after multiple attempted emails. Prior history shows this test has never passed before, and this run had `status=no_scenario`.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline: no successful run exists for this test."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning status: no scenario was bound, so no auth or data was seeded."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video observation: the runner never reached the authenticated Home page, mobile tabs, invoice list, or invoice detail sheet."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Home and Invoices routes are inside the authenticated route scope.",
+                    "file": "lib/clario_web/router.ex",
+                    "lines": "274-289"
+                },
+                {
+                    "source": "code",
+                    "detail": "Unauthenticated users are redirected to sign-in.",
+                    "file": "lib/clario_web/user_auth.ex",
+                    "lines": "471-480"
+                },
+                {
+                    "source": "code",
+                    "detail": "The visible sign-in error is the expected response for an unknown email.",
+                    "file": "lib/clario_web/live/users/user_signin_live.ex",
+                    "lines": "50-52"
+                }
+            ]
+        },
+        {
+            "id": "connect-and-disconnect-ledgerly-integration",
+            "slug": "connect-and-disconnect-ledgerly-integration",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "AppsContent gates Ledgerly behind an unseeded feature flag",
+            "rootCause": "The Ledgerly UI is intentionally hidden unless `feature_flags.ledgerly` is true in `assets/js/views/settings/AppsContent.tsx:157-170`. The scenario only provisioned user/org identifiers and did not enable the Ledgerly flag, while `lib/clario_web/user_auth.ex:559-588` defaults `:ledgerly` to false. Because the card never rendered, the run diverged at the availability assertion before the OAuth connection flow could be tested.",
+            "whatHappened": "The run opened Settings and reached the Integrations tab, but Ledgerly never appeared in Available integrations. Prior history shows this test has never passed, so there was no baseline proving this plan and scenario were valid. The visible available integrations were Bookline, Connectly, Chatly, and Relay only.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Baseline shows this was an unvalidated first run, not a known-good test that regressed."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the settings Integrations UI, but Ledgerly was not present among the visible available integrations."
+                },
+                {
+                    "source": "run",
+                    "detail": "The scenario provisioning returned user/org identifiers only, with no Ledgerly flag or integration setup."
+                },
+                {
+                    "source": "code",
+                    "detail": "The frontend only enables the Ledgerly connection/card when `feature_flags.ledgerly` is true.",
+                    "file": "assets/js/views/settings/AppsContent.tsx",
+                    "lines": "157-170"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Ledgerly available card is conditionally rendered only when `showLedgerly` is true.",
+                    "file": "assets/js/views/settings/AppsContent.tsx",
+                    "lines": "232-235"
+                },
+                {
+                    "source": "code",
+                    "detail": "The Ledgerly feature flag defaults to off unless explicitly enabled for the user or organization.",
+                    "file": "lib/clario_web/user_auth.ex",
+                    "lines": "559-588"
+                },
+                {
+                    "source": "code",
+                    "detail": "The project’s own Ledgerly integration docs state that the `:ledgerly` flag is required for the Connect UI.",
+                    "file": "lib/clario/integrations/LEDGERLY_INTEGRATION.md",
+                    "lines": "82-83"
+                }
+            ]
+        },
+        {
+            "id": "ledgerly-native-integration-settings-flow",
+            "slug": "ledgerly-native-integration-settings-flow",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "No standard scenario was bound",
+            "rootCause": "The run was provisioned with no scenario, so the credentials the agent tried did not correspond to a seeded account. The app rejected the attempted sign-in through its normal no-account path in lib/clario_web/controllers/user_session_controller.ex:17 and lib/clario_web/live/users/user_signin_live.ex:52. The Ledgerly settings UI was never reached, so this is not evidence of a Ledgerly integration defect.",
+            "whatHappened": "The agent never reached /home; it remained on the sign-in screen after trying the standard credentials. The app displayed “No account found for this email,” so none of the Settings → Integrations → Ledgerly steps executed. Prior history shows this test has never passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior runs show no successful baseline; this test has never passed."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning did not bind any scenario, so no auth or data was seeded."
+                },
+                {
+                    "source": "screenshot",
+                    "detail": "The run stayed on the sign-in screen and showed the no-account error instead of reaching the Ledgerly integration UI."
+                },
+                {
+                    "source": "code",
+                    "detail": "The controller maps a missing account to the exact error shown in the run.",
+                    "file": "lib/clario_web/controllers/user_session_controller.ex",
+                    "lines": "17"
+                },
+                {
+                    "source": "code",
+                    "detail": "The LiveView sign-in path also returns the exact same no-account error.",
+                    "file": "lib/clario_web/live/users/user_signin_live.ex",
+                    "lines": "52"
+                },
+                {
+                    "source": "code",
+                    "detail": "The expected Autonoma scenario artifacts were missing from the repo clone.",
+                    "file": "autonoma/recipe.json / autonoma/scenarios.md"
+                }
+            ]
+        },
+        {
+            "id": "revenue-report-navigation-md",
+            "slug": "revenue-report-navigation-md",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Revenue scenario lacks customer revenue data",
+            "rootCause": "The standard scenario provisioning succeeded only with auth/org/user refs, not the customer, contact, invoice-template, and paid invoice records required for this report. The Revenue page intentionally shows an empty placeholder when useCustomersByRevenue() returns no rows in assets/js/views/reporting/ReportsRevenueView.tsx:184-197. The backend query in lib/clario/reports/revenue.ex:74-98 only returns customers with paid, reviewed invoices on custom invoice templates joined to contacts, so an org/user-only scenario cannot produce BrightWave Inc.",
+            "whatHappened": "The run reached the Revenue page and showed the “Revenue” and “Top Customers” headings, but the Top Customers table was empty with “Customer data will appear here once available.” BrightWave Inc never appeared, so the agent could not click the customer row or open the detail modal. This test has never passed before, so the plan/scenario data were unproven.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "This test has never passed, so the generated plan/scenario were not previously validated."
+                },
+                {
+                    "source": "video",
+                    "detail": "The intended customer row was absent in the run; the report showed the empty state instead."
+                },
+                {
+                    "source": "run",
+                    "detail": "Scenario provisioning succeeded, but the seeded data only included auth/org/user refs, not reportable customer revenue records."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Revenue UI intentionally renders an empty-state placeholder when the customers-by-revenue query returns no rows.",
+                    "file": "assets/js/views/reporting/ReportsRevenueView.tsx",
+                    "lines": "184-197"
+                },
+                {
+                    "source": "code",
+                    "detail": "Rows require paid, reviewed custom-template invoices joined through contacts in the same organization.",
+                    "file": "lib/clario/reports/revenue.ex",
+                    "lines": "74-98"
+                },
+                {
+                    "source": "code",
+                    "detail": "The PR's customer-row click handler was not exercised because no customer row existed to click.",
+                    "file": "assets/js/views/reporting/components/CustomersTable.tsx",
+                    "lines": "33-39"
+                }
+            ]
+        },
+        {
+            "id": "005-invoice-detail-sheet-md",
+            "slug": "005-invoice-detail-sheet-md",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "test/support/autonoma_payloads.ex seeds no Northwind invoice",
+            "rootCause": "The written test requires a paid “Northwind Traders” invoice for `$4,500.00`, but the `standard` scenario did not create that record. The Autonoma payload at `test/support/autonoma_payloads.ex:76-130` creates generic `Customer #{suffix}` data and a paid invoice amount that does not match the requested fixture. Because the target row was absent, the agent could not follow step 1 exactly and instead opened a different available invoice.",
+            "whatHappened": "The run reached `/invoices`, showed invoice rows, and opened an invoice detail sheet without visible app errors. The required “Northwind Traders” `$4,500.00` paid invoice never appeared; searches for the customer and amount returned “No invoices.” Prior runs show this test had never executed or passed before.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior-run baseline shows this was an unvalidated first run, not a known-good test regressing on this PR."
+                },
+                {
+                    "source": "video",
+                    "detail": "The run reached the invoices page and the detail sheet worked for an available invoice, but the required Northwind Traders invoice was not present."
+                },
+                {
+                    "source": "code",
+                    "detail": "The standard Autonoma payload seeds generic customer/invoice data, not a Northwind Traders $4,500 paid invoice.",
+                    "file": "test/support/autonoma_payloads.ex",
+                    "lines": "76-130"
+                },
+                {
+                    "source": "code",
+                    "detail": "There is no repository fixture or code reference for the expected customer name."
+                }
+            ]
+        },
+        {
+            "id": "verify-subscription-details-metadata-order-and-content",
+            "slug": "verify-subscription-details-metadata-order-and-content",
+            "category": "scenario_issue",
+            "confidence": "high",
+            "headline": "Scenario seeded no subscription data",
+            "rootCause": "The scenario provisioning for this run only returned auth plus user/org identifiers; it did not seed any InvoiceTemplate, Agreement, Customer, or subscription record required by the test. The Subscriptions UI renders the empty state whenever `invoiceTemplates.length === 0` in `assets/js/views/subscriptions/SubscriptionsView.tsx:483-486`, which matches the observed page. The app has subscription-list/detail functionality, but this run never exercised it because the necessary seeded data was absent.",
+            "whatHappened": "The agent reached the Subscriptions page, but no row for “Innovate Co 1” ever appeared, so it could not begin step 1. The page showed an empty subscriptions state with no visible app errors. There are no prior runs, so this test/scenario has never had a passing baseline.",
+            "evidence": [
+                {
+                    "source": "run",
+                    "detail": "Prior baseline shows this test has never passed."
+                },
+                {
+                    "source": "run",
+                    "detail": "Provisioning succeeded for auth/org only, but did not report any subscription/customer/agreement entities."
+                },
+                {
+                    "source": "video",
+                    "detail": "Video confirms the user reached Subscriptions, no target row appeared, and there were no app errors."
+                },
+                {
+                    "source": "code",
+                    "detail": "The Subscriptions UI intentionally shows the empty state when no invoice templates are loaded.",
+                    "file": "assets/js/views/subscriptions/SubscriptionsView.tsx",
+                    "lines": "483-486"
+                },
+                {
+                    "source": "code",
+                    "detail": "The empty state text is driven by the filter state, matching the observed empty Subscriptions screen.",
+                    "file": "assets/js/views/subscriptions/SubscriptionsView.tsx",
+                    "lines": "436-444"
+                },
+                {
+                    "source": "code",
+                    "detail": "The codebase has an Autonoma factory capable of creating subscription rows via InvoiceTemplate, so the missing fixture belongs in scenario data.",
+                    "file": "lib/clario/autonoma/factories/invoice_template.ex",
+                    "lines": "10-29"
+                }
+            ]
+        }
+    ],
+    "gold": [
+        {
+            "members": [
+                "locked-invoice-customer-on-edit",
+                "create-new-customer-during-invoice-creation",
+                "promote-orphan-contact-to-customer-via-invoice-flow",
+                "link-orphan-contact-to-existing-customer-during-invoice-creation",
+                "create-customer-by-picking-existing-contact"
+            ],
+            "confidence": "high"
+        },
+        {
+            "members": [
+                "connect-ledgerly-integration-c4097885",
+                "ledgerly-contact-sync-flow",
+                "sync-ledgerly-contacts",
+                "connect-and-disconnect-ledgerly-integration"
+            ],
+            "confidence": "high"
+        },
+        {
+            "members": [
+                "mobile-bottom-navigation-and-more-sheet",
+                "mobile-inbox-task-actions-and-navigation",
+                "mobile-navigation-and-read-only-experience",
+                "mobile-read-only-sheets-for-invoices-and-agreements"
+            ],
+            "confidence": "high"
+        },
+        {
+            "members": [
+                "mobile-invoice-list-filtering",
+                "verify-mobile-navigation-and-read-only-sheet-experience",
+                "ledgerly-native-integration-settings-flow"
+            ],
+            "confidence": "high"
+        },
+        {
+            "members": [
+                "edit-customer-name-and-change-primary-contact",
+                "001-view-companies-list-md",
+                "005-invoice-detail-sheet-md"
+            ],
+            "confidence": "medium"
+        }
+    ]
+}
