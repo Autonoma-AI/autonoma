@@ -88,8 +88,20 @@ if (mode.kind === "get") {
     // Printed deliberately - decrypting a value for an operator to read is the whole point of --get.
     console.log(value);
 } else {
-    await values.put(bundle, [{ key, value: mode.value }]);
-    console.log(`Encrypted and stored "${key}" for application ${bundle.applicationId}, app "${bundle.appName}".`);
+    const force = process.argv.includes("--force");
+    const result = await values.put(bundle, [{ key, value: mode.value }], { force });
+    const where = `for application ${bundle.applicationId}, app "${bundle.appName}"`;
+
+    // Say which of the two happened. A value that already matches is left alone so
+    // its `updatedAt` keeps meaning "last changed", and an operator re-setting a
+    // value to repair it would otherwise read "stored" and believe the row was
+    // rewritten - pointing them at --force is the whole reason to distinguish.
+    if (result.written.length === 0) {
+        console.log(`"${key}" already holds this value under the current key ${where} - nothing written.`);
+        console.log("Pass --force to re-seal it anyway (repairs a row whose envelope no longer opens).");
+    } else {
+        console.log(`Encrypted and stored "${key}" ${where}.`);
+    }
 }
 
 await db.$disconnect();

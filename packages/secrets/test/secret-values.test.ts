@@ -89,6 +89,95 @@ secretsSuite({
             expect(updated.decrypt(rows[0]?.envelope ?? "", scopeIn(bundle, "A"))).toBe("one-updated");
         });
 
+        // `updatedAt` is read as "when this value last changed" - onboarding compares it
+        // against a preview's deploy time to decide whether to redeploy - so a re-assert
+        // of the same value must not move it, or every check reads as drift.
+        test("leaves a key untouched when it is re-asserted with the same value", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            const store = values(harness);
+            await store.put(bundle, [{ key: "A", value: "one" }]);
+            const sealed = await harness.db.previewkitSecret.findFirstOrThrow({ where: { key: "A" } });
+
+            await store.put(bundle, [{ key: "A", value: "one" }]);
+
+            const after = await harness.db.previewkitSecret.findFirstOrThrow({ where: { key: "A" } });
+            expect(after.updatedAt).toEqual(sealed.updatedAt);
+            expect(after.envelope).toBe(sealed.envelope);
+        });
+
+        test("writes only the keys whose values moved", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            const store = values(harness);
+            await store.put(bundle, [
+                { key: "A", value: "one" },
+                { key: "B", value: "two" },
+            ]);
+            const before = await harness.db.previewkitSecret.findMany({ orderBy: { key: "asc" } });
+
+            await store.put(bundle, [
+                { key: "A", value: "one" },
+                { key: "B", value: "two-updated" },
+            ]);
+
+            const after = await harness.db.previewkitSecret.findMany({ orderBy: { key: "asc" } });
+            expect(after[0]?.updatedAt).toEqual(before[0]?.updatedAt);
+            expect(after[1]?.updatedAt.getTime()).toBeGreaterThan(before[1]?.updatedAt.getTime() ?? 0);
+        });
+
+        test("rewrites an unchanged value once the encryption key has rotated", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            const store = values(harness);
+            await store.put(bundle, [{ key: "A", value: "one" }]);
+            const before = await harness.db.previewkitSecret.findFirstOrThrow({ where: { key: "A" } });
+
+            await mint(harness, "2");
+            await store.put(bundle, [{ key: "A", value: "one" }]);
+
+            const after = await harness.db.previewkitSecret.findFirstOrThrow({ where: { key: "A" } });
+            expect(after.encryptionKeyId).toBe("2");
+            expect(after.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime());
+        });
+
+        test("re-seals an unchanged value when forced, so a broken envelope can be repaired", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            const store = values(harness);
+            await store.put(bundle, [{ key: "A", value: "one" }]);
+            const before = await harness.db.previewkitSecret.findFirstOrThrow({ where: { key: "A" } });
+
+            const result = await store.put(bundle, [{ key: "A", value: "one" }], { force: true });
+
+            const after = await harness.db.previewkitSecret.findFirstOrThrow({ where: { key: "A" } });
+            expect(result.written).toEqual(["A"]);
+            expect(after.updatedAt.getTime()).toBeGreaterThan(before.updatedAt.getTime());
+            // The repair only means anything if the row still opens afterwards.
+            expect(await store.get(bundle, "A")).toBe("one");
+        });
+
+        test("reports what it wrote, and separates that from whether a value moved", async ({ harness }) => {
+            await mint(harness, "1");
+            const bundle = await harness.createAppBundle();
+            const store = values(harness);
+
+            const first = await store.put(bundle, [{ key: "A", value: "one" }]);
+            expect(first).toEqual({ created: true, changed: true, written: ["A"] });
+
+            const reassert = await store.put(bundle, [{ key: "A", value: "one" }]);
+            expect(reassert).toEqual({ created: false, changed: false, written: [] });
+
+            const moved = await store.put(bundle, [{ key: "A", value: "two" }]);
+            expect(moved).toEqual({ created: false, changed: true, written: ["A"] });
+
+            // A rotation rewrites the row without the value having moved, which is why
+            // `changed` and a non-empty `written` are not the same question.
+            await mint(harness, "2");
+            const rotated = await store.put(bundle, [{ key: "A", value: "two" }]);
+            expect(rotated).toEqual({ created: false, changed: false, written: ["A"] });
+        });
+
         test("keeps the same key in two bundles separate", async ({ harness }) => {
             await mint(harness, "1");
             const web = await harness.createAppBundle("web");

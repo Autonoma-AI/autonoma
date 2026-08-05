@@ -21,6 +21,21 @@ await values.remove({ kind: "app", applicationId, appName }, "DATABASE_URL");
 
 `put` merges: keys it was not given are left alone, matching the authoritative store, so writing one key never drops the rest. Values are bound to their own row through the scope derived by `scopeIn(bundle, key)`, so a ciphertext copied into another application, another bundle, or another key fails to decrypt rather than leaking.
 
+### `updatedAt` means "last changed", and callers rely on it
+
+**`put` skips a key already sealed with the same value under the current primary key.** That is not an optimization - it is what makes a row's `updatedAt` the time its value last *changed* rather than the time it was last *written*. Two readers depend on that and neither is local to this package:
+
+- `SecretValues.list` surfaces it per key, in the secrets UI and the previewkit OpenAPI, as when that secret last changed.
+- Onboarding's `isManagedDeployStaleVsSecrets` compares it against a preview's `deployedAt` to decide whether the running pod is holding stale secrets, and redeploys the preview when it is.
+
+The second one is unforgiving. `prepareManagedTarget` re-asserts a preview's `AUTONOMA_SHARED_SECRET` immediately before asking that question, so while `put` wrote unconditionally the check answered "yes" to its own write and redeployed the preview on every call - and never converged, since each redeploy moved `deployedAt` forward only for the next write to move past it again.
+
+**If you make `put` write unconditionally again, you reintroduce that.** A re-assert of an unchanged value must not touch the row. Rotation is unaffected and needs no exception: re-keying moves `encryptionKeyId`, which is part of the comparison, so [step 2 of a rotation](#rotating) rewrites every row as it should.
+
+The one case the skip costs something is repair. Fingerprint equality says the same bytes went in, not that the stored envelope still opens, so a row with a right fingerprint and an unusable envelope (sealed under a wrong scope, a truncated ciphertext) is no longer fixed by re-asserting the value. Pass `force` for that - `secret-value.ts --set --force` is the hand-run path, and it tells you when a plain `--set` wrote nothing.
+
+`put` returns `{ created, changed, written }`, all decided by the one read it already does to choose what to write. `changed` is "a value moved", which is not the same as `written` being non-empty: a rotation rewrites without any value changing.
+
 Each row also carries `fingerprint` and `maskedLength`, computed at seal time. That is what lets a bundle be listed without unwrapping a key or decrypting anything: listing needs key names and an "is this the value I already hold?" check, never the values.
 
 The `encryptionKeyId` foreign key is `RESTRICT`, not `CASCADE`. Deleting an encryption key that any value still needs is refused by Postgres, which turns "retired rows are never deleted" from a convention in this README into something the database enforces.
@@ -176,6 +191,8 @@ pnpm --filter @autonoma/secrets secret-value -- --application-id <id> --app-name
 ```
 
 `--get` prints the decrypted value to stdout; `--set <value>` seals it under the current primary key and writes it, same as any other write. Needs `PREVIEWKIT_SECRETS_CMK` and `DATABASE_URL` for the environment you mean to touch - it does not import a shared `env.ts`, for the same reason `mint-key.ts` (`apps/previewkit/src/scripts`) doesn't.
+
+`--set` with the value the row already holds writes nothing and says so, since [an unchanged re-assert must not move `updatedAt`](#updatedat-means-last-changed-and-callers-rely-on-it). Add `--force` to re-seal it anyway, which is how you repair a row whose envelope no longer opens - the one failure a matching fingerprint cannot rule out.
 
 ## `KeyProvider`
 

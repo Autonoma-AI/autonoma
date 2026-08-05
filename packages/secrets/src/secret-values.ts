@@ -19,6 +19,43 @@ export interface SecretValueSummary {
     updatedAt: Date;
 }
 
+/** What a stored key already holds, reduced to what decides whether a write would change it. */
+interface SealedState {
+    fingerprint: string;
+    encryptionKeyId: string;
+}
+
+export interface SecretPutOptions {
+    /**
+     * Seal every given key, even one whose value and encryption key already match.
+     * This is the repair path: fingerprint equality says "the same bytes went in",
+     * not "the stored envelope still opens", so a row with a right fingerprint and
+     * an unusable envelope (sealed under a wrong scope, truncated ciphertext) is
+     * only fixed by re-sealing - which the default skip would make a no-op.
+     */
+    force?: boolean;
+}
+
+export interface SecretPutResult {
+    /** The bundle held no keys before this write. */
+    created: boolean;
+    /** At least one given key's stored value differs from the one supplied. */
+    changed: boolean;
+    /** The keys actually sealed. The rest were already stored exactly as given. */
+    written: string[];
+}
+
+/**
+ * Whether writing `item` would leave the row exactly as it already is. Both halves
+ * matter: the fingerprint says the value has not moved, and the key id says it is
+ * sealed under the current primary rather than one a rotation has since retired.
+ */
+function isAlreadySealed(current: SealedState | undefined, item: SecretItem, primaryKeyId: string): boolean {
+    if (current == null) return false;
+    if (current.encryptionKeyId !== primaryKeyId) return false;
+    return current.fingerprint === secretFingerprint(item.value);
+}
+
 /**
  * Writes previewkit secret values into Postgres, sealed with the current
  * encryption key.
@@ -47,18 +84,48 @@ export class SecretValues {
      * Seals `items` into `bundle`, leaving keys it was not given alone - a caller
      * writing one key does not drop the rest.
      *
+     * A key already sealed with the same value under the current encryption key is
+     * left untouched, so a row's `updatedAt` marks when that value last changed
+     * rather than when it was last re-asserted. Readers depend on that distinction:
+     * onboarding compares the timestamp against a preview's deploy time to decide
+     * whether the running pod holds stale secrets, so a re-assert that moved it
+     * would redeploy on every check. Rotation still rewrites, since re-keying moves
+     * `encryptionKeyId`. Pass `force` to re-seal regardless - see
+     * {@link SecretPutOptions.force} for the one case that needs it.
+     *
+     * The result reports what happened, so a caller can tell an unchanged value
+     * apart from a write rather than assuming every call sealed something.
+     *
      * Throws {@link NoPrimaryEncryptionKeyError} when no encryption key has been
      * minted, which is an environment with no CMK rather than a bad request.
      */
-    async put(bundle: SecretBundle, items: readonly SecretItem[]): Promise<void> {
-        if (items.length === 0) return;
+    async put(
+        bundle: SecretBundle,
+        items: readonly SecretItem[],
+        options: SecretPutOptions = {},
+    ): Promise<SecretPutResult> {
+        if (items.length === 0) return { created: false, changed: false, written: [] };
 
         this.logger.info("Sealing secret values", {
-            extra: { bundle: describeSecretBundle(bundle), count: items.length },
+            extra: { bundle: describeSecretBundle(bundle), count: items.length, force: options.force === true },
         });
 
-        const cipher = await this.keys.primary();
-        const rows = items.map((item) => ({
+        const [cipher, sealed] = await Promise.all([this.keys.primary(), this.sealedState(bundle)]);
+        const created = sealed.size === 0;
+        const changed = items.some((item) => sealed.get(item.key)?.fingerprint !== secretFingerprint(item.value));
+        const pending: readonly SecretItem[] =
+            options.force === true
+                ? items
+                : items.filter((item) => !isAlreadySealed(sealed.get(item.key), item, cipher.keyId));
+
+        if (pending.length === 0) {
+            this.logger.info("Secret values already sealed as given; nothing written", {
+                extra: { bundle: describeSecretBundle(bundle), count: items.length },
+            });
+            return { created, changed, written: [] };
+        }
+
+        const rows = pending.map((item) => ({
             key: item.key,
             envelope: cipher.encrypt(item.value, scopeIn(bundle, item.key)),
             encryptionKeyId: cipher.keyId,
@@ -86,22 +153,32 @@ export class SecretValues {
             },
         );
 
+        const written = rows.map((row) => row.key);
         this.logger.info("Secret values sealed", {
-            extra: { bundle: describeSecretBundle(bundle), encryptionKeyId: cipher.keyId, count: rows.length },
+            extra: {
+                bundle: describeSecretBundle(bundle),
+                encryptionKeyId: cipher.keyId,
+                count: written.length,
+                unchanged: items.length - written.length,
+            },
         });
+        return { created, changed, written };
     }
 
     /**
-     * What the bundle holds, as key -> fingerprint. Reads two columns and decrypts
-     * nothing, which is the whole point of storing the fingerprint.
+     * What each key in the bundle already holds, as key -> the fields that decide
+     * whether writing `items` would change anything. Decrypts nothing, for the same
+     * reason {@link fingerprints} does not.
      */
-    async fingerprints(bundle: SecretBundle): Promise<Map<string, string>> {
+    private async sealedState(bundle: SecretBundle): Promise<Map<string, SealedState>> {
         const rows = await this.db.previewkitSecret.findMany({
             where: { applicationId: bundle.applicationId, appName: bundle.appName },
-            select: { key: true, fingerprint: true },
+            select: { key: true, fingerprint: true, encryptionKeyId: true },
         });
 
-        return new Map(rows.map((row) => [row.key, row.fingerprint]));
+        return new Map(
+            rows.map((row) => [row.key, { fingerprint: row.fingerprint, encryptionKeyId: row.encryptionKeyId }]),
+        );
     }
 
     /**

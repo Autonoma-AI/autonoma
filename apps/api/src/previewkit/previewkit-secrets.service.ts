@@ -1,7 +1,7 @@
 import { db, type PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { secretFingerprint, type SecretValues } from "@autonoma/secrets";
+import type { SecretValues } from "@autonoma/secrets";
 import type { SecretItem, SecretSummary } from "@autonoma/types";
 import type { SecretBundle } from "@autonoma/utils";
 import type { PreviewkitSecretsUpsertResult } from "../routes/onboarding/onboarding-dependencies";
@@ -88,12 +88,17 @@ export class PreviewkitSecretsService {
     /**
      * Writes `items` into the app's bundle.
      *
-     * Both flags come from one two-column read of the stored fingerprints, so
-     * deciding them decrypts nothing: `created` means the bundle held no keys before
-     * this write, and `changed` that at least one value moved. Onboarding redeploys
-     * on `created`, and two writes racing a brand-new bundle can both report it -
-     * the extra redeploy is superseded by the newer one, which is cheaper than
-     * serializing every secret write to make the flag exact.
+     * Both flags come from the read `put` already does to decide what to write, so
+     * deciding them costs no extra round trip and decrypts nothing: `created` means
+     * the bundle held no keys before this write, and `changed` that at least one
+     * value moved. Onboarding redeploys on `created`, and two writes racing a
+     * brand-new bundle can both report it - the extra redeploy is superseded by the
+     * newer one, which is cheaper than serializing every secret write to make the
+     * flag exact.
+     *
+     * `changed` is not "did `put` write": a key already sealed as given is skipped,
+     * and one whose encryption key has rotated underneath it is rewritten without
+     * its value having moved.
      */
     async upsert(
         applicationId: string,
@@ -114,14 +119,7 @@ export class PreviewkitSecretsService {
         const values = this.store();
         const bundle = this.bundleFor(app.id, appName);
 
-        const stored = await values.fingerprints(bundle);
-        const created = stored.size === 0;
-        const changed = items.some((item) => stored.get(item.key) !== secretFingerprint(item.value));
-
-        // Written even when nothing changed: `changed` reports whether the values
-        // moved, not whether the write happened, and re-sealing an unchanged value is
-        // how a rotation re-keys it.
-        await values.put(bundle, items);
+        const { created, changed } = await values.put(bundle, items);
 
         return { created, changed };
     }
