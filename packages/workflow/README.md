@@ -195,10 +195,28 @@ run records into its own harness even if the sweep has not reached it yet.
 
 ## Environment Variables
 
-| Variable             | Required | Default          | Description                  |
-| -------------------- | -------- | ---------------- | ---------------------------- |
-| `TEMPORAL_ADDRESS`   | No       | `localhost:7233` | Temporal server gRPC address |
-| `TEMPORAL_NAMESPACE` | No       | `default`        | Temporal namespace           |
+| Variable                | Required | Default          | Description                                                      |
+| ----------------------- | -------- | ---------------- | ---------------------------------------------------------------- |
+| `TEMPORAL_ADDRESS`      | No       | `localhost:7233` | Temporal server gRPC address                                     |
+| `TEMPORAL_NAMESPACE`    | No       | `default`        | Temporal namespace                                               |
+| `TEMPORAL_METRICS_PORT` | No       | unset            | Port for the SDK's Prometheus exporter. Unset = no exporter bound |
+
+## Worker memory: the workflow cache cap
+
+`createTemporalWorker` sets `maxCachedWorkflows` explicitly, and that is
+load-bearing rather than tidiness. Left unset, the SDK derives the cache size
+from V8's heap limit and budgets ~1.7MiB per cached workflow. Our workflows cost
+roughly 34MiB each, so the derived value over-commits by ~20x (539 on a 2Gi pod).
+The cache fills the **workflow thread's** heap - not the pod's cgroup - and the
+thread dies with `ERR_WORKER_OUT_OF_MEMORY`, taking the worker process with it.
+
+The derivation scales with the heap, which scales with the pod's memory limit, so
+**raising a worker's memory does not fix this**: it raises the ceiling and the
+cache grows into it. Only the explicit cap bounds it. Read
+`temporal_sticky_cache_size` (exposed via `TEMPORAL_METRICS_PORT`) before changing
+the cap; a queue whose workflows are long-lived - one that polls for hours rather
+than completing in seconds - keeps far more workflows resident per pod than a
+short-lived one and is what makes this bite.
 
 ## Dependencies
 
