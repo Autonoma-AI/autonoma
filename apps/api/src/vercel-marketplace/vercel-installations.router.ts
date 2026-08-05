@@ -9,12 +9,24 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { getVercelEncryptionHelper } from "../context";
 import { PlatformEventEmitter, VERCEL_PROVIDER } from "../posthog/emit-platform-events";
+import { VercelAnalytics } from "./vercel-analytics";
 import { authenticateVercelRequest } from "./vercel-auth";
 import { createBillingPeriod } from "./vercel-billing";
 import { resolveUniqueOrgSlug, toVercelInstallationWireStatus } from "./vercel-helpers";
 
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 const logger = rootLogger.child({ name: "VercelInstallationsRouter" });
 const platformEvents = new PlatformEventEmitter(db);
+const vercelAnalytics = new VercelAnalytics();
+
+/**
+ * Whole days an installation lasted. On an uninstall this separates "gave up
+ * during setup" from "used it for a month and left" - two very different problems.
+ */
+function daysSince(since: Date): number {
+    return Math.max(0, Math.floor((Date.now() - since.getTime()) / MS_PER_DAY));
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -378,6 +390,14 @@ vercelInstallationsRouter.patch("/:installationId", async (c) => {
 
         logger.info("Installation billing plan updated", { installationId, planId: body.billingPlanId });
 
+        vercelAnalytics.planChanged({
+            distinctId: installation.userId,
+            organizationId: installation.organizationId,
+            installationId,
+            planId: plan.id,
+            planName: plan.name,
+        });
+
         return c.json({
             billingPlan: {
                 id: plan.id,
@@ -428,7 +448,7 @@ vercelInstallationsRouter.delete("/:installationId", async (c) => {
         return c.json({ finalized: true });
     }
 
-    await db.$transaction(async (tx) => {
+    const resourceCount = await db.$transaction(async (tx) => {
         // Cancel billing periods for installation
         await tx.vercelBillingPeriod.updateMany({
             where: { installationId: installation.id, status: "active" },
@@ -463,9 +483,22 @@ vercelInstallationsRouter.delete("/:installationId", async (c) => {
             where: { id: installation.id },
             data: { status: VercelInstallationStatus.deleted, accessTokenEnc: null },
         });
+
+        return resources.length;
     });
 
     logger.info("Installation deleted", { installationId, organizationId: installation.organizationId });
+
+    // `resourceCount: 0` is the interesting case: they installed the integration
+    // and uninstalled it without ever provisioning a resource, so they never got
+    // as far as onboarding.
+    vercelAnalytics.installationDeleted({
+        distinctId: installation.userId,
+        organizationId: installation.organizationId,
+        installationId,
+        resourceCount,
+        daysInstalled: daysSince(installation.createdAt),
+    });
 
     return c.json({ finalized: true });
 });
@@ -699,8 +732,27 @@ vercelInstallationsRouter.post("/:installationId/resources", async (c) => {
             resourceId: resource.id,
             organizationId: installation.organizationId,
         });
+        vercelAnalytics.resourceProvisioningFailed({
+            distinctId: installation.userId,
+            organizationId: installation.organizationId,
+            installationId,
+            resourceId: resource.id,
+        });
         return c.json({ error: "Failed to provision credentials for this resource" }, 500);
     }
+
+    // Emitted only once the credentials exist: this is the point the customer's
+    // Vercel project actually receives AUTONOMA_SHARED_SECRET, which everything
+    // later in onboarding depends on.
+    vercelAnalytics.resourceCreated({
+        distinctId: installation.userId,
+        organizationId: installation.organizationId,
+        installationId,
+        resourceId: resource.id,
+        productId: resource.productId,
+        planId: plan.id,
+        planName: plan.name,
+    });
 
     return c.json(
         {
@@ -854,6 +906,13 @@ vercelInstallationsRouter.delete("/:installationId/resources/:resourceId", async
     });
 
     logger.info("Resource deleted", { resourceId, installationId });
+
+    vercelAnalytics.resourceDeleted({
+        distinctId: installation.userId,
+        organizationId: installation.organizationId,
+        installationId,
+        resourceId: resource.id,
+    });
 
     return c.json({ ok: true });
 });

@@ -11,10 +11,12 @@ import { z } from "zod";
 import { auth, redisClient } from "../context";
 import { env } from "../env";
 import { PlatformEventEmitter, VERCEL_PROVIDER } from "../posthog/emit-platform-events";
+import { VercelAnalytics, type VercelAuthMode } from "./vercel-analytics";
 import { resolveUniqueOrgSlug, vercelPreferredOrgKey } from "./vercel-helpers";
 
 const logger = rootLogger.child({ name: "VercelMarketplaceRouter" });
 const platformEvents = new PlatformEventEmitter(db);
+const vercelAnalytics = new VercelAnalytics();
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -484,6 +486,7 @@ vercelMarketplaceRouter.get("/callback", async (c) => {
     const mode = c.req.query("mode");
     const state = c.req.query("state") ?? "";
     const targetUrl = resolveSafeTargetUrl(c.req.query("url"));
+    const authMode: VercelAuthMode = mode === "sso" ? "sso" : "install";
 
     logger.info("Vercel marketplace callback received", {
         mode,
@@ -493,6 +496,7 @@ vercelMarketplaceRouter.get("/callback", async (c) => {
 
     if (code == null) {
         logger.warn("Vercel callback missing code param");
+        vercelAnalytics.authFailed({ mode: authMode, reason: "missing_code" });
         return c.redirect(`${env.APP_URL}/login?error=missing_code`);
     }
 
@@ -501,7 +505,7 @@ vercelMarketplaceRouter.get("/callback", async (c) => {
     const redirectUri = env.VERCEL_REDIRECT_URI ?? `${env.APP_URL}/v1/vercel/callback`;
 
     try {
-        if (mode === "sso") {
+        if (authMode === "sso") {
             return await handleSsoCallback(c, code, state, redirectUri, targetUrl);
         }
         return await handleInstallCallback(c, code, redirectUri);
@@ -509,6 +513,7 @@ vercelMarketplaceRouter.get("/callback", async (c) => {
         const message = error instanceof Error ? error.message : String(error);
         const stack = error instanceof Error ? error.stack : undefined;
         logger.error("Vercel marketplace callback failed", { message, stack, mode });
+        vercelAnalytics.authFailed({ mode: authMode, reason: "vercel_auth_failed" });
         return c.redirect(`${env.APP_URL}/login?error=vercel_auth_failed`);
     }
 });
@@ -576,6 +581,8 @@ async function handleSsoCallback(
     const sessionToken = await createSession(userId, organizationId);
     logger.info("SSO session created", { userId, organizationId });
 
+    vercelAnalytics.authCompleted({ distinctId: userId, organizationId, mode: "sso" });
+
     return c.redirect(buildFinalizeUrl(sessionToken, organizationId, targetUrl));
 }
 
@@ -613,6 +620,8 @@ async function handleInstallCallback(c: Context, code: string, redirectUri: stri
 
     const sessionToken = await createSession(userId, organizationId);
 
+    vercelAnalytics.authCompleted({ distinctId: userId, organizationId, mode: "install" });
+
     // No explicit target - finalize defaults to /onboarding?origin=vercel.
     return c.redirect(buildFinalizeUrl(sessionToken, organizationId));
 }
@@ -625,6 +634,7 @@ vercelMarketplaceRouter.get("/finalize", async (c) => {
 
     if (oneTimeCode == null) {
         logger.warn("Finalize called without code");
+        vercelAnalytics.authFailed({ mode: undefined, reason: "finalize_missing_code" });
         return c.redirect(`${env.APP_URL}/login?error=missing_code`);
     }
 
@@ -633,6 +643,7 @@ vercelMarketplaceRouter.get("/finalize", async (c) => {
 
     if (payload == null) {
         logger.warn("Finalize code not found or expired", { oneTimeCode });
+        vercelAnalytics.authFailed({ mode: undefined, reason: "finalize_code_expired" });
         return c.redirect(`${env.APP_URL}/login?error=vercel_auth_failed`);
     }
 

@@ -276,6 +276,29 @@ backed by three collaborators in `src/github/`:
 required on first suggestion, never at API boot), and any AI failure degrades to the heuristic result
 so suggestions never block onboarding. Suggestions are computed on demand and never persisted.
 
+### Onboarding funnel analytics
+
+Activation is instrumented end to end so a stalled customer is visible without asking them. `OnboardingAnalytics` (`src/routes/onboarding/onboarding-analytics.ts`) emits it; nothing is captured from inside a handler.
+
+| Event                                   | Emitted from                                       | Answers                                                                          |
+| --------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `onboarding.step_changed`               | every path that moves the step - see below         | Which stages people actually reach (`fromStep`/`toStep`, `surface`, `action`)     |
+| `onboarding.procedure_called`           | every onboarding tRPC mutation                     | What they retried and what it failed with (`success`, `durationMs`, `errorName`)  |
+| `onboarding.deployment_signal_received` | the signal endpoint (`POST /v1/onboarding/signal`) | Whether the customer's CI ever posted, and what we did with it                    |
+| `vercel.*`                              | `src/vercel-marketplace/vercel-analytics.ts`       | The Marketplace half: resource provisioning, plan changes, uninstalls, failed SSO |
+
+`step_changed` reaches the funnel two ways, and its `surface` property says which:
+
+- **Inferred from a before/after read** (`surface: ui | agent`), by `onboardingWriteProcedure` around every onboarding mutation and by `guardedWrite` around every MCP tool write. Because the step is read either side of the call, a transition is caught wherever it was written - a state subclass, a capability service, a nested `writePreviewUrl` - rather than only where a handler remembered to say so.
+- **Reported directly by the caller** (`surface: signal | system`), for the two paths no tracker wraps. `preview_verified` - the funnel's central conversion - is stamped by `writePreviewUrl`, which is also reached by the deployment-signal HTTP handler and by the `getPreviewReadiness` poll. Instrumenting only the wrappers would have counted that conversion for Vercel customers and nobody else. `writePreviewUrl` returns whether it advanced and from which step, so the "did it advance?" condition has exactly one definition, and both callers hand that straight to `stepAdvanced`.
+
+Two further design points matter when extending this:
+
+- **Mutations only.** Queries deliberately stay on `protectedProcedure` - the onboarding UI polls several of them continuously, and instrumenting reads would bury the funnel in poll traffic. A failing read is already captured browser-side. The readiness poll above is the one exception and costs a read only on the poll that actually flips the step.
+- **Analytics never breaks a request.** Every emit path swallows its own failure into a warning.
+
+`distinctId` is the acting user's id, matching `posthog.identify` in the browser, so these sit in one funnel with the client-side `onboarding.opened` and `onboarding.step_viewed` (both emitted from `apps/ui/src/routes/__root.tsx`). The two machine surfaces have no user - the customer's CI posts the signal, and the poll observes a deploy rather than an action - and are attributed to the organization instead. The client events count steps a user *saw*; the server events count steps the backend *persisted* - the gap between them for a given step is the drop-off.
+
 ### tRPC Routers
 
 Each router is thin wiring - business logic lives in the corresponding service class. Routers are defined in `src/routes/` and composed in `src/routes/router.ts`.
@@ -302,7 +325,10 @@ Defined in `src/trpc.ts`:
 
 - **`publicProcedure`** - No auth required. Has Sentry tracing and error mapping middleware.
 - **`protectedProcedure`** - Requires authenticated user with an active organization.
+- **`writeProcedure`** - `protectedProcedure` that also rejects writes from the read-only demo org. Every mutation uses this.
 - **`internalProcedure`** - Requires admin role.
+
+Plus one domain-scoped builder: **`onboardingWriteProcedure`** (`src/routes/onboarding/onboarding-write-procedure.ts`) - `writeProcedure` with funnel analytics attached. See [Onboarding funnel analytics](#onboarding-funnel-analytics).
 
 ### Error Handling
 

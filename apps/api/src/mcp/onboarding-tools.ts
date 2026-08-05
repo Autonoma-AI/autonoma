@@ -428,6 +428,14 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
      * caller's membership before anything mutates, and binds the analytics scope
      * so the event is attributed to the customer org. Generic over the work's
      * result so the tool's payload stays fully typed.
+     *
+     * The work itself is wrapped so any onboarding step it advances lands in the
+     * activation funnel. `mcp.tool_called` covers the call's own outcome and
+     * latency but knows nothing about steps, and these tools reach the onboarding
+     * services directly rather than through tRPC - so without this an
+     * agent-driven onboarding is missing from the funnel entirely. Wrapping
+     * `work` (rather than the guard) means a write the guard refuses records
+     * nothing, which is correct: nothing happened.
      */
     async function guardedWrite<T>(
         { applicationId, tool, message, toolArguments, requires }: OnboardingWrite,
@@ -436,7 +444,16 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
         return analytics.track(tool, async () => {
             try {
                 const organizationId = await resolveOrg(applicationId);
-                return await guard({ applicationId, organizationId, tool, message, toolArguments, requires }, work);
+                const trackedWork = (org: string) =>
+                    services.onboardingAnalytics.trackAgentWrite(
+                        { distinctId: principal.userId, organizationId: org, applicationId },
+                        tool,
+                        () => work(org),
+                    );
+                return await guard(
+                    { applicationId, organizationId, tool, message, toolArguments, requires },
+                    trackedWork,
+                );
             } catch (err) {
                 logger.warn(`${tool} failed`, { applicationId, err });
                 return toToolResult(err);

@@ -7,7 +7,8 @@ import {
     authoringPreviewConfigSchema,
 } from "@autonoma/types";
 import { z } from "zod";
-import { protectedProcedure, writeProcedure, router } from "../../trpc";
+import { protectedProcedure, router } from "../../trpc";
+import { onboardingWriteProcedure } from "./onboarding-write-procedure";
 
 const applicationIdInput = z.object({ applicationId: z.string() });
 const previewEnvironmentModeInput = z.enum(["previewkit", "existing_deploys"]);
@@ -21,7 +22,7 @@ export const onboardingRouter = router({
         .input(applicationIdInput)
         .query(({ ctx, input }) => ctx.services.onboarding.getLogs(input.applicationId, ctx.organizationId)),
 
-    configureAndDiscoverScenarios: writeProcedure
+    configureAndDiscoverScenarios: onboardingWriteProcedure
         .input(
             z.object({
                 applicationId: z.string(),
@@ -46,13 +47,13 @@ export const onboardingRouter = router({
             ctx.services.onboarding.listAvailableVercelProjects(input.applicationId, ctx.organizationId),
         ),
 
-    linkVercelProject: writeProcedure
+    linkVercelProject: onboardingWriteProcedure
         .input(z.object({ applicationId: z.string(), vercelProjectId: z.string() }))
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.linkVercelProject(input.applicationId, ctx.organizationId, input.vercelProjectId),
         ),
 
-    unlinkVercelProject: writeProcedure
+    unlinkVercelProject: onboardingWriteProcedure
         .input(applicationIdInput)
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.unlinkVercelProject(input.applicationId, ctx.organizationId),
@@ -64,7 +65,7 @@ export const onboardingRouter = router({
             ctx.services.onboarding.listVercelDeployments(input.applicationId, ctx.organizationId),
         ),
 
-    redeployVercelDeployment: writeProcedure
+    redeployVercelDeployment: onboardingWriteProcedure
         .input(z.object({ applicationId: z.string(), vercelDeploymentId: z.string() }))
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.redeployVercelDeployment(
@@ -84,7 +85,7 @@ export const onboardingRouter = router({
             ),
         ),
 
-    selectVercelDeployment: writeProcedure
+    selectVercelDeployment: onboardingWriteProcedure
         .input(z.object({ applicationId: z.string(), vercelDeploymentId: z.string() }))
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.selectVercelDeployment(
@@ -94,7 +95,7 @@ export const onboardingRouter = router({
             ),
         ),
 
-    discoverVercelDeploymentTarget: writeProcedure
+    discoverVercelDeploymentTarget: onboardingWriteProcedure
         .input(
             z.object({
                 applicationId: z.string(),
@@ -114,13 +115,13 @@ export const onboardingRouter = router({
             ),
         ),
 
-    prepareSdkTarget: writeProcedure
+    prepareSdkTarget: onboardingWriteProcedure
         .input(z.object({ applicationId: z.string(), targetId: z.string() }))
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.prepareSdkTarget(input.applicationId, ctx.organizationId, input.targetId),
         ),
 
-    configureAndDiscoverSdkTarget: writeProcedure
+    configureAndDiscoverSdkTarget: onboardingWriteProcedure
         .input(
             z.object({
                 applicationId: z.string(),
@@ -140,7 +141,7 @@ export const onboardingRouter = router({
             ),
         ),
 
-    runScenarioDryRun: writeProcedure
+    runScenarioDryRun: onboardingWriteProcedure
         .input(z.object({ applicationId: z.string(), scenarioId: z.string(), targetId: z.string().optional() }))
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.runScenarioDryRun(
@@ -157,23 +158,23 @@ export const onboardingRouter = router({
             ctx.services.onboarding.listSdkDryRunTargets(input.applicationId, ctx.organizationId),
         ),
 
-    redeploySdkDryRunTarget: writeProcedure
+    redeploySdkDryRunTarget: onboardingWriteProcedure
         .input(z.object({ applicationId: z.string(), targetId: z.string() }))
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.redeploySdkDryRunTarget(input.applicationId, ctx.organizationId, input.targetId),
         ),
 
-    completeGithub: writeProcedure
+    completeGithub: onboardingWriteProcedure
         .input(applicationIdInput)
         .mutation(({ ctx, input }) => ctx.services.onboarding.completeGithub(input.applicationId, ctx.organizationId)),
 
-    selectPreviewEnvironmentMode: writeProcedure
+    selectPreviewEnvironmentMode: onboardingWriteProcedure
         .input(z.object({ applicationId: z.string(), mode: previewEnvironmentModeInput }))
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.selectPreviewEnvironmentMode(input.applicationId, ctx.organizationId, input.mode),
         ),
 
-    confirmExistingDeploysSetup: writeProcedure
+    confirmExistingDeploysSetup: onboardingWriteProcedure
         .input(applicationIdInput)
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.confirmExistingDeploysSetup(input.applicationId, ctx.organizationId),
@@ -185,7 +186,7 @@ export const onboardingRouter = router({
             ctx.services.onboarding.getPreviewkitConfig(input.applicationId, ctx.organizationId),
         ),
 
-    savePreviewkitConfig: writeProcedure
+    savePreviewkitConfig: onboardingWriteProcedure
         .input(
             z.object({
                 applicationId: z.string(),
@@ -208,7 +209,7 @@ export const onboardingRouter = router({
             ctx.services.onboarding.getDeploymentSignalStatus(input.applicationId, ctx.organizationId),
         ),
 
-    validatePreviewkitConfig: writeProcedure
+    validatePreviewkitConfig: onboardingWriteProcedure
         // `document` is deliberately unvalidated at the boundary: this procedure's
         // job is to report problems with malformed documents as data, not 400.
         // Preflight covers every repository of the topology in one call.
@@ -234,7 +235,7 @@ export const onboardingRouter = router({
             ctx.services.onboarding.listPreviewkitSecrets(input.applicationId, ctx.organizationId, input.appName),
         ),
 
-    upsertPreviewkitSecrets: writeProcedure
+    upsertPreviewkitSecrets: onboardingWriteProcedure
         .input(UpsertSecretsInputSchema)
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.upsertPreviewkitSecrets(
@@ -245,7 +246,7 @@ export const onboardingRouter = router({
             ),
         ),
 
-    deletePreviewkitSecret: writeProcedure
+    deletePreviewkitSecret: onboardingWriteProcedure
         .input(DeleteSecretInputSchema)
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.deletePreviewkitSecret(
@@ -256,13 +257,13 @@ export const onboardingRouter = router({
             ),
         ),
 
-    triggerPreviewkitMainDeploy: writeProcedure
+    triggerPreviewkitMainDeploy: onboardingWriteProcedure
         .input(applicationIdInput)
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.triggerPreviewkitMainDeploy(input.applicationId, ctx.organizationId),
         ),
 
-    setDeployBranch: writeProcedure
+    setDeployBranch: onboardingWriteProcedure
         .input(z.object({ applicationId: z.string(), branch: z.string().min(1) }))
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.setDeployBranch(input.applicationId, ctx.organizationId, input.branch),
@@ -280,13 +281,13 @@ export const onboardingRouter = router({
             ctx.services.onboarding.getPreviewReadiness(input.applicationId, ctx.organizationId),
         ),
 
-    completePreviewOnboarding: writeProcedure
+    completePreviewOnboarding: onboardingWriteProcedure
         .input(applicationIdInput)
         .mutation(({ ctx, input }) =>
             ctx.services.onboarding.completePreviewOnboarding(input.applicationId, ctx.organizationId),
         ),
 
-    goLive: writeProcedure
+    goLive: onboardingWriteProcedure
         .input(applicationIdInput)
         .mutation(({ ctx, input }) => ctx.services.onboarding.goLive(input.applicationId, ctx.organizationId)),
 
@@ -301,21 +302,21 @@ export const onboardingRouter = router({
         ),
 
     // Mint the pairing code the user hands to their coding agent.
-    createAgentPairing: writeProcedure
+    createAgentPairing: onboardingWriteProcedure
         .input(applicationIdInput)
         .mutation(({ ctx, input }) =>
             ctx.services.onboardingAgentSession.createPairing(input.applicationId, ctx.organizationId),
         ),
 
     // Stop button: the human takes over; the agent stands down on its next call.
-    stopAgent: writeProcedure
+    stopAgent: onboardingWriteProcedure
         .input(applicationIdInput)
         .mutation(({ ctx, input }) =>
             ctx.services.onboardingAgentSession.stopForHuman(input.applicationId, ctx.organizationId),
         ),
 
     // Resume with Claude: hand control back to the agent.
-    resumeAgent: writeProcedure
+    resumeAgent: onboardingWriteProcedure
         .input(applicationIdInput)
         .mutation(({ ctx, input }) =>
             ctx.services.onboardingAgentSession.resumeForAgent(input.applicationId, ctx.organizationId),
@@ -325,7 +326,7 @@ export const onboardingRouter = router({
     // never reach the agent), record which keys they skipped ("I don't have
     // this"), and resolve the pending request so the agent continues. Skips are
     // fed back to the agent so it adapts instead of assuming the value exists.
-    submitAgentEnv: writeProcedure
+    submitAgentEnv: onboardingWriteProcedure
         .input(
             z
                 .object({

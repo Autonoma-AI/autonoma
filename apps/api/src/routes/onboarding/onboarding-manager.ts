@@ -1,4 +1,4 @@
-import { type OnboardingPreviewEnvironmentMode, type PrismaClient } from "@autonoma/db";
+import { type OnboardingPreviewEnvironmentMode, type OnboardingStep, type PrismaClient } from "@autonoma/db";
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
@@ -20,6 +20,7 @@ import {
     parseDeploymentSignalBody,
     verifySignature,
 } from "./deployment-signal";
+import { OnboardingAnalytics, type DeploymentSignalEvent, type OnboardingActor } from "./onboarding-analytics";
 import type { OnboardingManagerOptions, OnboardingPreviewkitSecretsService } from "./onboarding-dependencies";
 import {
     type ConfigureAndDiscoverSdkTargetResult,
@@ -74,6 +75,30 @@ export type DiscoverVercelDeploymentTargetResult =
     | { status: "discovered" }
     | { status: "redeploy_started"; deploymentId: string };
 
+/** The application an accepted deployment signal is reported against. */
+interface SignalledApplication {
+    id: string;
+    organizationId: string;
+}
+
+/** Its onboarding row, as far as analytics needs it. */
+interface SignalledOnboardingState {
+    step: OnboardingStep;
+    previewEnvironmentMode: OnboardingPreviewEnvironmentMode | null;
+}
+
+/**
+ * The analytics identity for work with no acting user - the customer's CI called
+ * it, not a person - so the organization stands in as the distinct id.
+ */
+function machineActor(application: SignalledApplication): OnboardingActor {
+    return {
+        distinctId: application.organizationId,
+        organizationId: application.organizationId,
+        applicationId: application.id,
+    };
+}
+
 /**
  * Facade for the onboarding state machine.
  *
@@ -96,6 +121,7 @@ export class OnboardingManager {
     private readonly previewkitConfig: PreviewkitConfigService;
     private readonly sdkCapability: OnboardingSdkCapabilityService;
     private readonly vercelCapability: OnboardingVercelCapabilityService;
+    private readonly analytics: OnboardingAnalytics;
 
     private static readonly states: Partial<
         Record<
@@ -122,6 +148,7 @@ export class OnboardingManager {
     ) {
         this.logger = logger.child({ name: "OnboardingManager" });
         this.previewkitConfig = new PreviewkitConfigService(db, options);
+        this.analytics = new OnboardingAnalytics(db);
         this.vercelCapability = new OnboardingVercelCapabilityService(db, options);
         this.sdkCapability = new OnboardingSdkCapabilityService(
             db,
@@ -659,6 +686,7 @@ export class OnboardingManager {
                     data: { diffTriggerConfirmedAt: new Date() },
                 });
             }
+            this.recordDeploymentSignal(application, application.onboardingState, "pr_diffs_triggered");
             return { ok: true, applicationId: application.id, previewUrl: body.previewUrl, ignored: false };
         }
 
@@ -668,14 +696,22 @@ export class OnboardingManager {
                 signalBranch: body.branch,
                 mainBranch: mainBranchName,
             });
+            this.recordDeploymentSignal(application, application.onboardingState, "ignored");
             return { ok: true, applicationId: application.id, previewUrl: body.previewUrl, ignored: true };
         }
 
-        await writePreviewUrl(this.db, {
+        const write = await writePreviewUrl(this.db, {
             applicationId: application.id,
             organizationId: application.organizationId,
             previewUrl: body.previewUrl,
         });
+        this.recordDeploymentSignal(application, application.onboardingState, "preview_recorded");
+        // The signal endpoint is a raw HTTP handler, so no tracker wraps it: on the
+        // bring-your-own-deploys path this is the only thing that reaches
+        // `preview_verified`, and it would otherwise be absent from the funnel.
+        if (write.advancedToVerified) {
+            await this.analytics.stepAdvanced(machineActor(application), "deployment_signal", "signal", write.fromStep);
+        }
         if (application.onboardingState.step === "completed") {
             await this.triggerDiffsFromSignal(application.id, application.organizationId, {
                 repoId: application.githubRepositoryId ?? undefined,
@@ -685,6 +721,27 @@ export class OnboardingManager {
         }
 
         return { ok: true, applicationId: application.id, previewUrl: body.previewUrl, ignored: false };
+    }
+
+    /**
+     * Record what an accepted deployment signal did. The signal endpoint is the
+     * only thing that advances the bring-your-own-deploys path, and it is called
+     * by the customer's CI rather than a user - so nothing else in the funnel can
+     * tell "their workflow never fired" apart from "their workflow fired and we
+     * ignored it".
+     */
+    private recordDeploymentSignal(
+        application: SignalledApplication,
+        state: SignalledOnboardingState,
+        outcome: DeploymentSignalEvent["outcome"],
+    ): void {
+        this.analytics.deploymentSignalReceived({
+            organizationId: application.organizationId,
+            applicationId: application.id,
+            outcome,
+            stepBefore: state.step,
+            previewEnvironmentMode: state.previewEnvironmentMode ?? undefined,
+        });
     }
 
     /**

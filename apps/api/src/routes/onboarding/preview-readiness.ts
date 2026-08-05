@@ -15,6 +15,7 @@ import {
     toAppBuildOutcomeMap,
     type PreviewFailure,
 } from "../deployments/preview-summary";
+import { OnboardingAnalytics } from "./onboarding-analytics";
 import { isStepAtOrPast } from "./onboarding-step-order";
 
 export type PreviewDiagnosticsAction = "edit_config" | "edit_secrets" | "redeploy" | "copy_for_agent";
@@ -445,7 +446,19 @@ export async function buildPreviewkitReadiness(
 
     if (diagnostics.status === "ready" && primaryUrl != null) {
         // writePreviewUrl is itself guarded against downgrading a completed row.
-        await writePreviewUrl(db, { applicationId, organizationId, previewUrl: primaryUrl });
+        const write = await writePreviewUrl(db, { applicationId, organizationId, previewUrl: primaryUrl });
+        // The Autonoma-hosted path reaches `preview_verified` here, inside a polled
+        // query that no tracker wraps - so the funnel's central conversion would be
+        // missing for every PreviewKit customer without this. It costs a read only
+        // on the poll that actually flips the step, not on the ones before it.
+        if (write.advancedToVerified) {
+            await new OnboardingAnalytics(db).stepAdvanced(
+                { distinctId: organizationId, organizationId, applicationId },
+                "previewkit_deploy_ready",
+                "system",
+                write.fromStep,
+            );
+        }
     } else if (!isCompleted && shouldPersistPreviewVerificationStatus(step, previousStatus, diagnostics.status)) {
         // Keep the verification status accurate, but only roll the *step* back to
         // `previewkit_deploying` while the app is still in the deploy phase. An app
@@ -512,6 +525,23 @@ async function loadSavedConfigAppIndexes(db: PrismaClient, applicationId: string
     return new Map(parsed.data.apps.map((app, index) => [app.name, index]));
 }
 
+/**
+ * What a {@link writePreviewUrl} call did to the onboarding step.
+ *
+ * Returned rather than reported from in here because this is the one place that
+ * stamps `preview_verified` - the funnel's central conversion - and it is
+ * reached three ways, only one of which (a tRPC mutation) the analytics
+ * middleware observes. Handing the fact back lets the other two report it
+ * without re-deriving the "did it advance?" condition, which would then have two
+ * copies to keep in step.
+ */
+export interface PreviewUrlWriteResult {
+    /** The onboarding step as it was before the write. */
+    fromStep: OnboardingStep;
+    /** True when THIS write is what stamped `preview_verified`. */
+    advancedToVerified: boolean;
+}
+
 export async function writePreviewUrl(
     db: PrismaClient,
     {
@@ -519,8 +549,8 @@ export async function writePreviewUrl(
         organizationId,
         previewUrl,
     }: { applicationId: string; organizationId: string; previewUrl: string },
-): Promise<void> {
-    await db.$transaction(async (tx) => {
+): Promise<PreviewUrlWriteResult> {
+    return db.$transaction(async (tx) => {
         const application = await tx.application.findFirst({
             where: { id: applicationId, organizationId },
             select: {
@@ -555,5 +585,7 @@ export async function writePreviewUrl(
                 ...(alreadyAtOrPastVerified ? {} : { step: "preview_verified", previewVerificationStatus: "ready" }),
             },
         });
+
+        return { fromStep: step, advancedToVerified: !alreadyAtOrPastVerified };
     });
 }

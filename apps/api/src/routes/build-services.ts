@@ -49,6 +49,7 @@ import { PreviewkitEnvFactoryService } from "./deployments/previewkit-env-factor
 import { FoldersService } from "./folders/folders.service";
 import { IssuesService } from "./issues/issues.service";
 import { OnboardingAgentSessionService } from "./onboarding/onboarding-agent-session.service";
+import { OnboardingAnalytics } from "./onboarding/onboarding-analytics";
 import { OnboardingManager } from "./onboarding/onboarding-manager";
 import { OnboardingService } from "./onboarding/onboarding.service";
 import { PreviewkitConfigService } from "./onboarding/previewkit-config-service";
@@ -94,6 +95,7 @@ export interface Services {
     previewkitEnvironments: PreviewkitEnvironmentsService;
     rateLimiter: RateLimiterService;
     onboardingAgentSession: OnboardingAgentSessionService;
+    onboardingAnalytics: OnboardingAnalytics;
     getVercelEncryptionHelper: () => EncryptionHelper;
 }
 
@@ -182,6 +184,7 @@ export function buildServices({
     const previewkitConfigService = new PreviewkitConfigService(conn, onboardingOptions);
     const rateLimiter = new RateLimiterService(conn);
     const onboardingAgentSession = new OnboardingAgentSessionService(conn, rateLimiter);
+    const onboardingAnalytics = new OnboardingAnalytics(conn, analytics);
     const previewkitWrite = new PreviewkitWriteService(
         previewkitConfigService,
         previewkitSecretsService,
@@ -238,6 +241,7 @@ export function buildServices({
         onboarding: new OnboardingService(onboardingManager),
         rateLimiter,
         onboardingAgentSession,
+        onboardingAnalytics,
         snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService),
         billing: billingService,
         applicationSetups: new ApplicationSetupsService(conn, applicationSetupService, apiKeysService),
