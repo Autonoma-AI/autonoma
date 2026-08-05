@@ -41,6 +41,8 @@ const CONCURRENCY_WAIT_MS = 10_000;
 interface Harness {
     previewTarget?: PreviewDeployTarget;
     everBuilt: boolean;
+    /** Whether the branch already has a deployment. Only read when there is no `previewTarget`. */
+    hasRecordedPreview: boolean;
     targets: AnalysisInvestigationTarget[];
     impactError?: Error;
     snapshotSkipped: boolean;
@@ -69,6 +71,7 @@ interface Harness {
 
 const harness: Harness = {
     everBuilt: false,
+    hasRecordedPreview: true,
     targets: [],
     snapshotSkipped: false,
     impactWaitsForBuild: false,
@@ -192,7 +195,9 @@ const analysisActivities: AnalysisActivities = {
 const previewkitActivities: PreviewkitActivities = {
     async resolvePreviewTarget() {
         const target = harness.previewTarget;
-        return target != null ? { organizationId: target.organizationId, target } : { organizationId: ORGANIZATION_ID };
+        return target != null
+            ? { organizationId: target.organizationId, target, hasRecordedPreview: harness.hasRecordedPreview }
+            : { organizationId: ORGANIZATION_ID, hasRecordedPreview: harness.hasRecordedPreview };
     },
     async hasBranchEverBuiltPreview() {
         return { everBuilt: harness.everBuilt };
@@ -298,6 +303,7 @@ afterAll(async () => {
 beforeEach(() => {
     harness.previewTarget = undefined;
     harness.everBuilt = false;
+    harness.hasRecordedPreview = true;
     harness.targets = [];
     harness.impactError = undefined;
     harness.snapshotSkipped = false;
@@ -493,3 +499,40 @@ describe("analysisRunWorkflow build gate", () => {
         expect(harness.settlements).toEqual([{ kind: "failed", reason: expect.any(String) }]);
     });
 });
+
+describe("analysisRunWorkflow on a customer-deployed branch", () => {
+    it("opens no snapshot when the customer's preview is not recorded yet", async () => {
+        harness.hasRecordedPreview = false;
+        harness.targets = [target()];
+
+        await startCustomerDeployedRun();
+
+        // No snapshot is the whole point: one would take this head as analyzed, and the customer's own trigger -
+        // the only thing that can record their preview - would then be dropped as a duplicate.
+        expect(harness.events).toEqual([]);
+        expect(harness.settlements).toEqual([]);
+        expect(harness.webRuns).toEqual([]);
+    });
+
+    it("analyzes against the recorded preview, building nothing", async () => {
+        harness.targets = [target()];
+
+        await startCustomerDeployedRun();
+
+        expect(await buildWasStarted()).toBe(false);
+        expect(harness.attachedUrls).toEqual([]);
+        expect(harness.webRuns).toEqual(["gen-1"]);
+        expect(harness.settlements).toEqual([{ kind: "succeeded" }]);
+    });
+});
+
+/** A run whose branch Autonoma does not host a preview for, so `resolvePreviewTarget` yields no target. */
+async function startCustomerDeployedRun(): Promise<void> {
+    executionCounter += 1;
+    const handle = await env.client.workflow.start(analysisRunWorkflow, {
+        taskQueue: TaskQueue.GENERAL,
+        workflowId: `customer-deployed-run-test-${executionCounter}`,
+        args: [{ branchId: "branch-customer-deployed", headSha: `head-${executionCounter}` }],
+    });
+    await handle.result();
+}

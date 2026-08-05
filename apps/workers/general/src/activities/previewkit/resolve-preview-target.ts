@@ -1,6 +1,7 @@
 import { db } from "@autonoma/db";
 import { OctokitGitHubApp } from "@autonoma/github";
 import { logger as rootLogger } from "@autonoma/logger";
+import { autonomaHostsPreviews } from "@autonoma/test-updates";
 import type { ResolvePreviewTargetInput, ResolvePreviewTargetOutput } from "@autonoma/workflow/activities";
 import { env } from "../../env";
 
@@ -21,6 +22,7 @@ export async function resolvePreviewTarget(input: ResolvePreviewTargetInput): Pr
         where: { id: branchId },
         select: {
             name: true,
+            deploymentId: true,
             prInfo: { select: { prNumber: true } },
             application: {
                 select: {
@@ -35,26 +37,27 @@ export async function resolvePreviewTarget(input: ResolvePreviewTargetInput): Pr
     const application = branch?.application;
     if (branch == null || application == null) {
         logger.info("No application for this branch; the run owns no preview", { branch: { branchId } });
-        return {};
+        return { hasRecordedPreview: false };
     }
 
+    const hasRecordedPreview = branch.deploymentId != null;
     const organizationId = application.organizationId;
-    if (application.onboardingState?.previewEnvironmentMode !== "previewkit") {
+    if (!autonomaHostsPreviews(application.onboardingState?.previewEnvironmentMode)) {
         logger.info("The customer deploys this preview; the run is analysis only", {
             branch: { branchId },
-            extra: { mode: application.onboardingState?.previewEnvironmentMode },
+            extra: { mode: application.onboardingState?.previewEnvironmentMode, hasRecordedPreview },
         });
-        return { organizationId };
+        return { organizationId, hasRecordedPreview };
     }
     if (application.githubRepositoryId == null) {
         logger.warn("Application is previewkit-managed but linked to no repository; cannot build a preview", {
             branch: { branchId },
         });
-        return { organizationId };
+        return { organizationId, hasRecordedPreview };
     }
 
     const repoFullName = await resolveRepoFullName(organizationId, application.githubRepositoryId);
-    if (repoFullName == null) return { organizationId };
+    if (repoFullName == null) return { organizationId, hasRecordedPreview };
 
     const prNumber = branch.prInfo?.prNumber ?? MAIN_BRANCH_ENVIRONMENT_NUMBER;
 
@@ -67,6 +70,7 @@ export async function resolvePreviewTarget(input: ResolvePreviewTargetInput): Pr
 
     return {
         organizationId,
+        hasRecordedPreview,
         target: {
             repoFullName,
             prNumber,

@@ -22,6 +22,7 @@ export * from "./changes";
 export { fetchTestSuiteInfo } from "./queries/fetch-info";
 export { buildSdkUrl } from "./queries/sdk-url";
 export { recordBranchDeployment, type RecordBranchDeploymentParams } from "./queries/record-branch-deployment";
+export { autonomaHostsPreviews } from "./queries/autonoma-hosts-previews";
 export { startAnalysisRun, type StartAnalysisRunParams } from "./queries/start-analysis-run";
 export {
     resolveAnalysisBase,

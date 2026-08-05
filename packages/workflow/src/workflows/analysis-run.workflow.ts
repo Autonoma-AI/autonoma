@@ -68,6 +68,13 @@ export async function analysisRunWorkflow(input: AnalysisRunWorkflowInput): Prom
     const { target } = resolved;
     const ids = runIds(branchId, resolved);
 
+    // Refuse BEFORE opening the run: a snapshot would take this head as analyzed, and the customer's own trigger -
+    // the only thing that can record their preview - would then be dropped as a duplicate, stranding the commit.
+    if (target == null && !resolved.hasRecordedPreview) {
+        log.info("Nothing to analyze against: the customer owns this preview and none is recorded yet", ids);
+        return;
+    }
+
     // An unconditional warrant starts the build here, ahead of opening the run: nothing
     // fallible may sit in front of a refresh the customer is entitled to.
     const eager = target != null ? await startEagerBuild(target, branchId, ids) : undefined;

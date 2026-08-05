@@ -57,9 +57,9 @@ let runner: Promise<void>;
 /** What the current test started, so anything it abandons is stopped before the next test runs. */
 let startedWorkflowIds: string[] = [];
 
-/** These are customer-deployed runs: no preview to build, so nothing to gate. */
+/** These are customer-deployed runs: their preview is already recorded, so there is no build to warrant. */
 const previewkitActivities: Pick<PreviewkitActivities, "resolvePreviewTarget"> = {
-    resolvePreviewTarget: () => Promise.resolve({}),
+    resolvePreviewTarget: () => Promise.resolve({ hasRecordedPreview: true }),
 };
 
 beforeAll(async () => {

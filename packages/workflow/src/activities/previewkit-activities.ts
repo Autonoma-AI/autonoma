@@ -15,6 +15,11 @@ export interface ResolvePreviewTargetOutput {
     organizationId?: string;
     /** Absent when the customer deploys their own preview, or the repo is not onboarded far enough to have one. */
     target?: PreviewDeployTarget;
+    /**
+     * Whether the branch already has a deployment to run tests against. Only meaningful with no `target`: the run
+     * cannot produce one itself, so this is what says whether there is anything to analyze against.
+     */
+    hasRecordedPreview: boolean;
 }
 
 export interface HasBranchEverBuiltPreviewInput {

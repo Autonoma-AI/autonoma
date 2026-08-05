@@ -1,6 +1,7 @@
 import type { BillingService } from "@autonoma/billing";
 import type { Prisma, PreviewkitStatus, PrismaClient } from "@autonoma/db";
 import { ConflictError, InsufficientPreviewCreditsError, NotFoundError } from "@autonoma/errors";
+import { autonomaHostsPreviews } from "@autonoma/test-updates";
 import type { PreviewRedeployAppMode, PreviewTeardownTarget, TriggerPreviewRedeployAppParams } from "@autonoma/types";
 import type { AnalysisRunWorkflowInput, PreviewBuildWorkflowInput } from "@autonoma/workflow";
 import { z } from "zod";
@@ -195,7 +196,7 @@ export class PreviewkitTriggerService extends Service {
         const { pull_request: pr, repository: repo } = parsed.data;
 
         if (await this.usesExternalDeploys(organizationId, repo.id)) {
-            this.logger.info("Skipping PreviewKit deploy: application uses existing_deploys (e.g. Vercel)", {
+            this.logger.info("Skipping the preview run: the customer deploys this app's previews", {
                 action,
                 organizationId,
                 repo: repo.full_name,
@@ -348,13 +349,16 @@ export class PreviewkitTriggerService extends Service {
     /**
      * Whether the customer deploys this repo's previews themselves (Vercel and the like). Only the webhook entries
      * need to ask - every other path is reached through an environment Autonoma already hosts.
+     *
+     * An app that has made no choice yet counts as customer-deployed, matching the run's own `resolvePreviewTarget`:
+     * a webhook cannot know a preview URL, so opening a run here would test a preview nobody recorded.
      */
     private async usesExternalDeploys(organizationId: string, githubRepositoryId: number): Promise<boolean> {
         const application = await this.db.application.findUnique({
             where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
             select: { onboardingState: { select: { previewEnvironmentMode: true } } },
         });
-        return application?.onboardingState?.previewEnvironmentMode === "existing_deploys";
+        return !autonomaHostsPreviews(application?.onboardingState?.previewEnvironmentMode);
     }
 
     /** Teardown entry point for `pull_request.closed` webhooks. */
@@ -371,7 +375,7 @@ export class PreviewkitTriggerService extends Service {
         const { pull_request: pr, repository: repo } = parsed.data;
 
         if (await this.usesExternalDeploys(organizationId, repo.id)) {
-            this.logger.info("Skipping PreviewKit teardown: application uses existing_deploys (e.g. Vercel)", {
+            this.logger.info("Skipping the preview teardown: the customer deploys this app's previews", {
                 organizationId,
                 repo: repo.full_name,
                 pr: pr.number,
