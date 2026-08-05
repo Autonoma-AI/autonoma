@@ -53,7 +53,7 @@ A recipe file (`autonoma/scenario-recipes.json`) is a list of recipes, each cont
   - `literal` - fixed value.
   - `derived` - templated from `testRunId` (e.g. `format: "owner+{testRunId}@example.com"`).
   - `faker` - one of a small set of seeded generators (`person.firstName`, `internet.email`, `company.name`, `lorem.words`, etc.). Output is deterministic per `(testRunId, tokenName)` pair.
-- `validation` - metadata about whether the planner managed to dry-run the recipe before uploading.
+- `validation` - metadata about whether the planner managed to dry-run the recipe before uploading. `status` and `phase` are single-valued literals and `method` is one of `SCENARIO_VALIDATION_METHODS`, so the block carries no decision its author makes - the planner CLI rewrites all three to the accepted values rather than rejecting a recipe over them.
 
 When loading a recipe for a run, we collect every `{{token}}` in `create`, validate that every used token has a definition (and every defined token is used), resolve them, and substitute them in. Unresolved tokens after substitution are an error.
 

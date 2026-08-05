@@ -204,6 +204,70 @@ describe("runRecipeBuilder handoff + completion", () => {
         expect((await loadState()).phase).toBe("done");
     });
 
+    test("re-entering the step with a spent launch budget relaunches instead of failing instantly", async () => {
+        // "Retry this step" used to be a no-op: the persisted budget was already at its
+        // cap, so the run handed back two seconds later without launching anything.
+        await seedHandoffPhase(true);
+        await writeFile(
+            join(dir, ".recipe-builder-state.json"),
+            JSON.stringify({
+                phase: "completion",
+                entityOrder: ["User"],
+                entities: { User: { entityName: "User", status: "recipe-accepted", errorLog: [] } },
+                sharedSecret: "handoff-test-secret",
+                permissionMode: "bypassPermissions",
+                agentId: "fake",
+                launchAttempts: 2,
+            }),
+            "utf-8",
+        );
+        const launcher = fakeLauncher({ exitCode: 0, writeMarker: true, outputDir: dir });
+
+        const result = await runRecipeBuilder(baseInput(launcher));
+
+        expect(launcher.calls).toBe(1);
+        expect(result.success).toBe(true);
+    });
+
+    test("retry guidance reaches the agent's prompt", async () => {
+        await seedHandoffPhase(true);
+        const launcher = fakeLauncher({ exitCode: 0, writeMarker: true, outputDir: dir });
+
+        await runRecipeBuilder({ ...baseInput(launcher), retryGuidance: "the Invoice factory skips tax lines" });
+
+        const prompt = await readFile(join(dir, "integration-prompt.md"), "utf-8");
+        expect(prompt).toContain("the Invoice factory skips tax lines");
+    });
+
+    test("a wrong validation block is normalized, not rejected", async () => {
+        // `validation` is ceremony - three constants the recipe's author does not decide -
+        // so a wrong value there must never cost a re-launch of the coding agent.
+        await seedHandoffPhase(true);
+        await writeFile(
+            join(dir, RECIPE_FILE),
+            JSON.stringify({
+                version: 1,
+                source: { discoverPath: "discover.json", scenariosPath: "scenarios.md" },
+                validationMode: "endpoint-lifecycle",
+                recipes: [
+                    {
+                        name: "standard",
+                        description: "d",
+                        create: { User: [{ _alias: "user_1", email: "a@b.com" }] },
+                        validation: { status: "passed", method: "manual" },
+                    },
+                ],
+            }),
+            "utf-8",
+        );
+        const launcher = fakeLauncher({ exitCode: 0, writeMarker: true, outputDir: dir });
+
+        const result = await runRecipeBuilder(baseInput(launcher));
+
+        expect(result.success).toBe(true);
+        expect(launcher.calls).toBe(1);
+    });
+
     test("non-interactive with no agent -> hard error, not a pause", async () => {
         await seedHandoffPhase(false);
         const launcher = fakeLauncher({ exitCode: 0, writeMarker: false, available: false, outputDir: dir });

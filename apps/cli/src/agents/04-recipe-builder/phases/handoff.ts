@@ -89,6 +89,8 @@ export async function runHandoffPhase(
         recipePath,
         cliCommand: deps.cliCommand,
         interactive: deps.interactive,
+        priorFailure: state.priorFailure,
+        userGuidance: state.userGuidance,
     });
     state.launchAttempts = (state.launchAttempts ?? 0) + 1;
     await saveRecipeState(outputDir, state);
@@ -129,7 +131,7 @@ export async function runCompletionPhase(
             return { kind: "advance" };
         }
 
-        const failure = describeIncompleteRecipe(read, uploadProblems);
+        const failure = describeIncompleteRecipe(read, uploadProblems, recipePath, deps.cliCommand);
 
         const { launcher } = await selectLauncher(
             deps.launchers,
@@ -148,6 +150,7 @@ export async function runCompletionPhase(
                 cliCommand: deps.cliCommand,
                 interactive: deps.interactive,
                 priorFailure: failure,
+                userGuidance: state.userGuidance,
             });
             state.launchAttempts = (state.launchAttempts ?? 0) + 1;
             await saveRecipeState(outputDir, state);
@@ -172,6 +175,7 @@ interface LaunchTarget {
     cliCommand: string;
     interactive: boolean;
     priorFailure?: string;
+    userGuidance?: string;
 }
 
 /** Render the prompt file and run the agent with the terminal handed over to it. */
@@ -185,6 +189,7 @@ async function launchAgent(
         recipePath: target.recipePath,
         cliCommand: target.cliCommand,
         priorFailure: target.priorFailure,
+        userGuidance: target.userGuidance,
     });
 
     // A stale marker from an earlier session would make the completion watcher
@@ -232,20 +237,34 @@ async function launchAgent(
     }
 }
 
-/** Why the recipe isn't submittable yet, phrased for the agent that has to fix it. */
-function describeIncompleteRecipe(read: RecipeReadResult, uploadProblems: string[]): string {
+/**
+ * Why the recipe isn't submittable yet, phrased for the agent that has to fix it. Every
+ * recipe-shaped failure names the file to edit and the command that re-checks it, so the
+ * relaunched agent has a closed fix-verify loop instead of guessing what "invalid" meant.
+ */
+function describeIncompleteRecipe(
+    read: RecipeReadResult,
+    uploadProblems: string[],
+    recipePath: string,
+    cliCommand: string,
+): string {
+    const recheck = `Fix ${recipePath}, then re-check it with:\n  ${cliCommand} sdk check --recipe ${recipePath}`;
+
     if (read.status === "absent") {
-        return "No completed recipe.json was produced, so there is nothing validated to submit.";
+        return `No completed recipe.json was produced, so there is nothing validated to submit. It belongs at ${recipePath}.`;
     }
     if (read.status === "invalid") {
         return (
-            `${RECIPE_FILE} does not match the recipe format Autonoma accepts:\n` +
-            read.problems.map((problem) => `  - ${problem}`).join("\n")
+            `${recipePath} does not match the recipe format Autonoma accepts:\n` +
+            read.problems.map((problem) => `  - ${problem}`).join("\n") +
+            `\n${recheck}`
         );
     }
     if (uploadProblems.length > 0) {
         return (
-            `recipe.json will be rejected on upload:\n` + uploadProblems.map((problem) => `  - ${problem}`).join("\n")
+            `${RECIPE_FILE} will be rejected on upload:\n` +
+            uploadProblems.map((problem) => `  - ${problem}`).join("\n") +
+            `\n${recheck}`
         );
     }
     return "The agent exited without marking the integration complete (see its IMPLEMENTATION.md for what's left).";

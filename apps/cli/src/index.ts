@@ -650,7 +650,7 @@ async function main() {
         process.exit(recipeUploaded ? 0 : 1);
     }
 
-    // `sdk <discover|up|down>` is the interactive agent's endpoint tool, not a
+    // `sdk <discover|up|down|check>` is the interactive agent's endpoint tool, not a
     // developer-facing command: it's non-interactive, prints JSON, and its exit code
     // signals HTTP success. It shells out from inside the handoff session.
     if (command === "sdk") {

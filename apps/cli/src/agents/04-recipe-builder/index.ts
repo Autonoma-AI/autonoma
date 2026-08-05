@@ -16,8 +16,7 @@ export interface RecipeBuilderInput {
     modelId?: string;
     config: AppConfig;
     nonInteractive?: boolean;
-    /** User guidance from a pipeline-level retry. Step-04 has its own recovery, so
-     *  this is accepted but currently unused. */
+    /** User guidance from a pipeline-level retry, handed to the agent on its next launch. */
     retryGuidance?: string;
     /** Preset agent id from the `--agent` flag. */
     agent?: string;
@@ -59,6 +58,15 @@ export async function runRecipeBuilder(input: RecipeBuilderInput): Promise<Agent
     const { outputDir } = input;
 
     const state = (await loadRecipeState(outputDir)) ?? initialRecipeState();
+
+    // The launch budget bounds re-launches WITHIN one run of this step; entering it again
+    // is an explicit request to try again (the user picked "Retry this step", or resumed a
+    // saved run), so it starts over. Carried across, a spent budget turned every retry into
+    // a hand-back two seconds later that relaunched nothing and changed nothing.
+    state.launchAttempts = 0;
+    // The latest guidance wins - it describes the run about to happen, not an older one.
+    if (input.retryGuidance != null) state.userGuidance = input.retryGuidance;
+    await saveRecipeState(outputDir, state);
 
     // Canonical shared secret: the app's onboarding secret when present, else a
     // CLI-generated one persisted for the run. It flows CLI -> agent -> app via env

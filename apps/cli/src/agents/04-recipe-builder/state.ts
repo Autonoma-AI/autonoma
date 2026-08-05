@@ -37,6 +37,9 @@ export interface RecipeBuilderState {
     /** Why a prior session didn't complete, carried into the re-launch so the agent
      *  resumes at the first unfinished item instead of redoing finished work. */
     priorFailure?: string;
+    /** What the developer typed into "Retry with guidance", handed to the agent verbatim
+     *  on its next launch. Persisted so a `--resume` still carries it. */
+    userGuidance?: string;
     /** Path to the recipe the agent generates and validates against, then submitted. */
     recipePath?: string;
 }

@@ -54,10 +54,14 @@ export const SdkDiscoverResponseSchema = z
     .passthrough();
 export type SdkDiscoverResponse = z.infer<typeof SdkDiscoverResponseSchema>;
 
+/** How a recipe was proven to work. Exported so writers can pick a method the schema accepts. */
+export const SCENARIO_VALIDATION_METHODS = ["checkScenario", "checkAllScenarios", "endpoint-up-down"] as const;
+export type ScenarioValidationMethod = (typeof SCENARIO_VALIDATION_METHODS)[number];
+
 const ScenarioRecipeValidationSchema = z
     .object({
         status: z.literal("validated"),
-        method: z.enum(["checkScenario", "checkAllScenarios", "endpoint-up-down"]),
+        method: z.enum(SCENARIO_VALIDATION_METHODS),
         phase: z.literal("ok"),
         up_ms: z.number().int().nonnegative().optional(),
         down_ms: z.number().int().nonnegative().optional(),

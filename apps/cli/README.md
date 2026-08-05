@@ -133,10 +133,18 @@ of a copy-paste guide, the CLI hands the whole integration to your **locally-ins
 one interactive, autonomous session - like `git commit` with no `-m` opening your editor. You watch
 it install the SDK, build the endpoint, write the factories, **generate the test-data recipe**, and
 validate each entity itself: for every entity it runs `up`, checks your database for the new rows,
-runs `down`, and checks they're gone. It finishes by seeding two instances at once, proving your
-recipe survives concurrent test runs. It drives the endpoint through the CLI's own signed client
+runs `down`, and checks they're gone. It finishes with `sdk up --repeat 3`, which seeds the whole
+recipe three times over **without tearing down in between** - the only check that catches a value
+the recipe reuses across runs, since every other check tears down before the next seed and so
+passes a recipe that can only ever exist once. A collision there is the unique constraint your
+customer would hit the first time they run two tests at the same time; the command reports which
+instance failed, then removes every instance it created. It drives the endpoint through the CLI's own signed client
 (`autonoma-planner sdk discover|up|down`), so its checks use the exact request signing and the exact
-recipe-token substitution the platform uses. All of that happens on a branch it cuts from your
+recipe-token substitution the platform uses. Before it declares the session done it must also run
+`autonoma-planner sdk check --recipe <file>`, which holds the recipe FILE to the format Autonoma
+accepts on upload - the same gate the CLI applies the moment the agent exits, so a rejected recipe
+is a fix the agent makes while it's still running rather than a re-launch afterwards. All of that
+happens on a branch it cuts from your
 repo's default branch, and it pushes the finished integration as a pull request rather than leaving
 the changes loose in your working tree. When it reports the session complete, the CLI uploads
 the recipe it produced and continues to test generation.

@@ -17,7 +17,7 @@ import { COMPLETION_MARKER_FILE } from "./completion";
  */
 
 /** Bump when the prompt's contract changes; surfaced in the file header. */
-export const INTEGRATION_PROMPT_VERSION = 9;
+export const INTEGRATION_PROMPT_VERSION = 10;
 
 /** The rendered prompt lives here in the app's planner output dir. */
 export const INTEGRATION_PROMPT_FILE = "integration-prompt.md";
@@ -41,6 +41,8 @@ export interface IntegrationPromptParams {
      * re-launch, so the agent resumes rather than repeating finished work.
      */
     priorFailure?: string;
+    /** What the developer typed when they retried the step, passed through verbatim. */
+    userGuidance?: string;
 }
 
 export function renderIntegrationPrompt(params: IntegrationPromptParams): string {
@@ -55,6 +57,14 @@ the completion marker.
 `
             : "";
 
+    const userGuidanceSection =
+        params.userGuidance != null
+            ? `
+═══ THE DEVELOPER ASKED FOR THIS - IT OVERRIDES YOUR OWN PLAN ═══
+${params.userGuidance}
+`
+            : "";
+
     return `<!-- Autonoma integration prompt v${INTEGRATION_PROMPT_VERSION} -->
 You are integrating Autonoma into THIS application, working in a LOCAL checkout of
 the repo. The Autonoma planner has ALREADY run locally and produced its artifacts
@@ -63,7 +73,7 @@ the repo. The Autonoma planner has ALREADY run locally and produced its artifact
 You are the developer picking up exactly where the planner hands off: implement the
 test-data layer (the SDK integration), GENERATE the test-data recipe, and validate
 it. Do NOT re-run the planner; read its artifacts as your spec.
-${priorFailureSection}
+${priorFailureSection}${userGuidanceSection}
 Work without asking questions. Make reasonable, codebase-grounded decisions. Only
 stop for missing secrets, credentials, or external services that genuinely cannot
 be mocked or run locally - and when you do, say exactly what you need and why.
@@ -215,7 +225,8 @@ Before implementing, write a checklist file inside the app (e.g. IMPLEMENTATION.
 and keep it updated. It must enumerate, as explicit checkboxes: EVERY entity the
 entity audit says needs a factory (by name, copied from the audit), plus the
 endpoint, teardown, the auth callback, the maintenance note, the full-recipe pass,
-the two-concurrent-instances proof, and the pushed branch + opened pull request.
+the concurrent-instances proof, a clean \`sdk check\` on the recipe file, and the
+pushed branch + opened pull request.
 Check items off only when actually done and verified. The single most common failure is stopping with entities left uncovered.
 
 ═══ VALIDATE - ENTITY BY ENTITY, THEN THE WHOLE RECIPE ═══
@@ -226,6 +237,12 @@ from the environment, so you never construct signatures yourself. The commands:
   • ${params.cliCommand} sdk up --url <endpoint-url> --recipe <file> [--test-run-id <id>] [--timeout <seconds>]
         (prints JSON; the response body includes a "refsToken")
   • ${params.cliCommand} sdk down --url <endpoint-url> --refs-token <token-from-up>
+  • ${params.cliCommand} sdk check --recipe <file>
+        (no url, no request: holds the FILE to the format Autonoma accepts and prints
+         every problem it finds. Run it whenever you edit the recipe.)
+  • ${params.cliCommand} sdk up --url <endpoint-url> --recipe <file> --repeat <n>
+        (seeds the recipe n times over WITHOUT tearing down in between, so every
+         instance is live at once - the concurrency proof below)
 The --recipe file may be your full recipe.json or a slice containing just the
 entities under test. Each request times out after 120s by default; a cold
 full-recipe up (first compile + many real-service inserts) can exceed that, so
@@ -257,19 +274,34 @@ Once every entity passes independently, run the FULL recipe as one pass:
   • confirm a WRONG signature is rejected (the SDK does this for you - do not disable it)
   • confirm the up response's auth payload contains real credentials, not a placeholder
 
-═══ PROVE TWO INSTANCES CAN COEXIST - MANDATORY, LAST ═══
+═══ CHECK THE RECIPE FILE - THE GATE YOU CANNOT SKIP ═══
+A recipe that seeds a database perfectly can still be a file Autonoma refuses, because
+\`sdk up\` only ever reads the "create" graph out of it - it never looks at the envelope
+around it. The planner DOES, the moment you exit, and a file it rejects there costs a
+whole re-launch. So before you write the completion marker, run:
+    ${params.cliCommand} sdk check --recipe ${params.recipePath}
+It exits 0 and prints "ok": true only when the file is submittable. Anything else prints
+a "problems" array naming the exact field and what is wrong with it - fix each one in
+${params.recipePath} and run it again. Do NOT write the completion marker until it is
+clean; a passing \`up\` is not a substitute for it.
+
+═══ PROVE MANY INSTANCES CAN COEXIST - MANDATORY, LAST ═══
 Every check above tears down before the next up, so a recipe whose unique columns hold
-hardcoded values passes all of them. Real test runs OVERLAP: the customer runs two tests
-at once and the second seed hits the first one's rows. Prove yours survives that:
-  1. ${params.cliCommand} sdk up --url <url> --recipe ${params.recipePath} --test-run-id concurrent-a
-  2. ${params.cliCommand} sdk up --url <url> --recipe ${params.recipePath} --test-run-id concurrent-b
-     (do NOT tear down A first - both instances must be up at the same time)
-  3. BOTH must succeed. Then down A, then down B, and confirm in the DB that each
-     teardown removed only its own rows and that nothing is left behind.
-A failure here is a unique-constraint violation, and it names the exact column that is
-not per-run. Fix it where it lives: put a token in that field if the recipe supplies it,
-or derive it from the "testRunId" your handler receives if your factory generates it.
-Then repeat from step 1. Do not weaken the constraint and do not disable the check.
+hardcoded values passes all of them. Real test runs OVERLAP: the customer runs several
+tests at once and the second seed hits the first one's rows. Prove yours survives that:
+    ${params.cliCommand} sdk up --url <url> --recipe ${params.recipePath} --repeat 3
+It seeds the recipe three times over WITHOUT tearing down in between, so all three are
+live at once, then removes every instance it created and reports the teardown. It exits 0
+and prints "ok": true only when every instance came up.
+A failure here is a unique-constraint violation, and the endpoint's error names the exact
+column that is not per-run. Fix it where it lives: put a token in that field if the recipe
+supplies it, or derive it from the "testRunId" your handler receives if your factory
+generates it. Then run it again, and keep going until it passes - each run surfaces the
+next reused value. Do not weaken the constraint and do not disable the check.
+
+If the teardown it reports did NOT complete, go clean those rows out of the database by
+hand before re-running: leftovers from a failed attempt collide with the next one and
+look like a defect in whatever you just changed.
 
 Escape hatch, only after honest attempts: if an entity truly cannot be seeded twice
 concurrently because the app's own schema forces a global singleton, write that in
@@ -300,9 +332,10 @@ sitting uncommitted in the working tree:
 
 ═══ FINISH - THE LAST THING YOU DO ═══
 Write the completion marker once ALL of these hold:
-  • every entity, the full-recipe pass, and the two-concurrent-instances proof are green
+  • every entity, the full-recipe pass, and the concurrent-instances proof are green
     - or the blocking constraint is documented in IMPLEMENTATION.md
-  • ${params.recipePath} holds the recipe you validated
+  • ${params.recipePath} holds the recipe you validated, and \`sdk check\` on it prints
+    "ok": true - this one has no escape hatch; a rejected file blocks the whole setup
   • your work is committed, and pushed with a pull request open - or the reason you could
     not push / open one is documented in IMPLEMENTATION.md
 A step you documented as genuinely blocked NEVER justifies withholding the marker; a
