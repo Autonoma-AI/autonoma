@@ -39,12 +39,21 @@ const MASKED_VALUE = "•".repeat(24);
  */
 function copyHeader(): string {
     return [
+        // zsh does not treat `#` as a comment interactively unless
+        // `interactive_comments` is set, and it is OFF by default - the shells where
+        // pasting this works have it turned on by a dotfile. Without it, an apostrophe
+        // in the prose below opens a quote that swallows the command and the
+        // credentials after it, and the user is left at a `quote>` prompt with nothing
+        // run. Setting it first costs one line and makes the paste behave the same
+        // everywhere; in bash, which comments interactively anyway, the line fails
+        // silently and changes nothing.
+        "setopt interactive_comments 2>/dev/null || true",
         "# Autonoma sets up your preview environment and generates your test suite.",
         "# Run this in a terminal, from your project folder.",
         "#",
         "# Agent reading this - which are you?",
         "#",
-        "# A coding agent on the user's machine (Claude Code, Codex, Cursor): do NOT run",
+        "# A coding agent running beside a human (Claude Code, Codex, Cursor): do NOT run",
         "# this yourself. Give it to them to run in their own terminal. It takes the",
         "# terminal over and starts a coding agent of its own, so running it from inside",
         "# one leaves two agents fighting over the same screen.",

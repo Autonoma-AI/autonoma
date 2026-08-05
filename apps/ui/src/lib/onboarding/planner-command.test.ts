@@ -96,6 +96,25 @@ describe("buildPlannerCommand", () => {
         expect(copied).toContain(PLANNER_DOCS_URL);
     });
 
+    // zsh does not comment `#` interactively unless `interactive_comments` is set,
+    // and it is off by default. Without the setopt line an apostrophe in the prose
+    // opens a quote that swallows the command and the credentials behind it, leaving
+    // a `quote>` prompt and nothing run - seen on a real machine, in Cursor's console.
+    test("survives a paste into a shell that does not comment interactively", () => {
+        const copied = buildPlannerCommandForCopy(ENV);
+
+        expect(copied.split("\n")[0]).toBe("setopt interactive_comments 2>/dev/null || true");
+    });
+
+    // Belt and braces for the same failure: with no apostrophe, a shell that somehow
+    // ignored the line above still recovers and runs the command, instead of hanging
+    // on an unterminated quote.
+    test("carries no apostrophe that could open a quote", () => {
+        const header = buildPlannerCommandForCopy(ENV).split("AUTONOMA_API_URL=")[0] ?? "";
+
+        expect(header).not.toContain("'");
+    });
+
     // None of that guidance is rendered - a human is already reading the screen.
     test("keeps the guidance out of what the screen shows", () => {
         expect(buildPlannerCommand(ENV)).not.toContain("--non-interactive");
