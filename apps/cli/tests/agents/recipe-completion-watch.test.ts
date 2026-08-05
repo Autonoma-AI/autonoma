@@ -34,13 +34,18 @@ describe("watchForCompletion", () => {
     });
 
     test("cleanup stops a pending reclaim (the agent exited on its own)", async () => {
-        const kill = vi.fn((_signal: NodeJS.Signals) => true);
-        const stop = watchForCompletion(dir, { kill }, { ...TIMING, graceMs: 60 });
-        await writeFile(join(dir, COMPLETION_MARKER_FILE), JSON.stringify({ complete: true }), "utf-8");
-        // Let the poll detect the marker, then "exit" before the grace elapses.
-        await new Promise((r) => setTimeout(r, 30));
-        stop();
-        await new Promise((r) => setTimeout(r, 100));
-        expect(kill).not.toHaveBeenCalled();
+        const graceMs = 1000;
+        vi.useFakeTimers();
+        try {
+            const kill = vi.fn((_signal: NodeJS.Signals) => true);
+            const stop = watchForCompletion(dir, { kill }, { ...TIMING, graceMs });
+            await writeFile(join(dir, COMPLETION_MARKER_FILE), JSON.stringify({ complete: true }), "utf-8");
+            await vi.advanceTimersByTimeAsync(TIMING.pollMs * 20);
+            stop();
+            await vi.advanceTimersByTimeAsync(graceMs + TIMING.killMs);
+            expect(kill).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
