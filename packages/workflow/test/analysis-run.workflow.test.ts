@@ -208,6 +208,9 @@ const previewkitActivities: PreviewkitActivities = {
         harness.events.push("build:cancel");
         return Promise.resolve();
     },
+    async readPreviewBuildJobState() {
+        return { state: "running" };
+    },
     async readPreviewBuildStatus() {
         return harness.buildStatus;
     },

@@ -38,11 +38,17 @@ GitHub pull_request webhook
 
 **The build needs a warrant.** A commit on a branch that has never had a live preview, whose diff affects no
 test and authors no new one, is not built at all: impact analysis reads only the repo at the head sha,
-so it can be asked BEFORE any container exists. Every other case builds - a main-branch environment, an
+so it can be asked BEFORE any container exists. Every other case is warranted - a main-branch environment, an
 un-onboarded repo, a redeploy of an already-analyzed head, and any branch that already has a preview
 (whose build launches concurrently with analysis, so an established preview URL refreshes with no added
 latency). The warrant is decided in the orchestrator workflow, not in this app; the runner behaves identically
 however it was launched.
+
+**A warrant is not enough to get a Job.** `launchPreviewBuild` (the general worker) resolves the Application and its
+preview config the way `prepare` does, and refuses to create a Job when either is absent. A decline that does happen
+writes no row at all, so `previewBuildWorkflow` reads the Job's own terminal state
+(`PreviewkitJobLauncher.getDeployJobState`) alongside the environment row - a Job that ended having written nothing
+is what tells it no preview is coming. Adding a decline path to `prepare` therefore needs no orchestrator change.
 
 On `pull_request.closed`, `launchTeardown()` creates a `pk-teardown-*` Job that runs
 `TeardownPipeline` (namespace delete + PR comment). Teardown updates both PR

@@ -34,14 +34,24 @@ class FakeJobsApi implements PreviewJobsApi {
     readonly deleteCalls: Array<{ name: string; namespace: string; propagationPolicy?: string }> = [];
     readonly createdJobs: V1Job[] = [];
     readonly createNamespaces: string[] = [];
+    readonly readCalls: Array<{ name: string; namespace: string }> = [];
     /** When set, every delete throws it - the hook for a Job that is already gone. */
     deleteError?: unknown;
+    /** When set, the read throws it instead of answering from `existingJobs`. */
+    readError?: unknown;
     /** Stands in for the API server's generateName suffix, so every created Job gets a distinct name. */
     private assignedNames = 0;
 
     async listNamespacedJob(params: { namespace: string; labelSelector?: string }): Promise<{ items: V1Job[] }> {
         this.listCalls.push(params);
         return { items: this.existingJobs };
+    }
+    async readNamespacedJob(params: { name: string; namespace: string }): Promise<V1Job> {
+        this.readCalls.push(params);
+        if (this.readError != null) throw this.readError;
+        const job = this.existingJobs.find((candidate) => candidate.metadata?.name === params.name);
+        if (job == null) throw new ApiException(404, "not found", undefined, {});
+        return job;
     }
     async createNamespacedJob(params: { namespace: string; body: V1Job }): Promise<V1Job> {
         this.createNamespaces.push(params.namespace);
@@ -237,6 +247,60 @@ describe("PreviewkitJobLauncher.cancelDeploy", () => {
         api.deleteError = new ApiException(404, "not found", undefined, {});
 
         await expect(launcher(api).cancelDeploy("pk-deploy-gone")).resolves.toBeUndefined();
+    });
+});
+
+describe("PreviewkitJobLauncher.getDeployJobState", () => {
+    const job = (status: V1Job["status"]): V1Job => ({ metadata: { name: "pk-deploy-1" }, status });
+
+    it("reports a Job with neither condition set as still running", async () => {
+        const api = new FakeJobsApi();
+        api.existingJobs = [job({ active: 1 })];
+
+        await expect(launcher(api).getDeployJobState("pk-deploy-1")).resolves.toBe("running");
+        expect(api.readCalls).toEqual([{ name: "pk-deploy-1", namespace: JOB_NAMESPACE }]);
+    });
+
+    it("reports a completed Job as succeeded", async () => {
+        const api = new FakeJobsApi();
+        api.existingJobs = [job({ succeeded: 1, conditions: [{ type: "Complete", status: "True" }] })];
+
+        await expect(launcher(api).getDeployJobState("pk-deploy-1")).resolves.toBe("succeeded");
+    });
+
+    it("reports a succeeded pod as succeeded before the Complete condition lands", async () => {
+        const api = new FakeJobsApi();
+        api.existingJobs = [job({ succeeded: 1 })];
+
+        await expect(launcher(api).getDeployJobState("pk-deploy-1")).resolves.toBe("succeeded");
+    });
+
+    // backoffLimit is 1, so the first pod failure leaves `failed: 1` with a retry still to come.
+    it("keeps a Job with a failed pod but no Failed condition as running", async () => {
+        const api = new FakeJobsApi();
+        api.existingJobs = [job({ failed: 1 })];
+
+        await expect(launcher(api).getDeployJobState("pk-deploy-1")).resolves.toBe("running");
+    });
+
+    it("reports a Job out of retries as failed", async () => {
+        const api = new FakeJobsApi();
+        api.existingJobs = [job({ failed: 2, conditions: [{ type: "Failed", status: "True" }] })];
+
+        await expect(launcher(api).getDeployJobState("pk-deploy-1")).resolves.toBe("failed");
+    });
+
+    it("reports a Job that no longer exists as gone", async () => {
+        const api = new FakeJobsApi();
+
+        await expect(launcher(api).getDeployJobState("pk-deploy-1")).resolves.toBe("gone");
+    });
+
+    it("rethrows a non-404 read failure", async () => {
+        const api = new FakeJobsApi();
+        api.readError = new ApiException(403, "forbidden", undefined, {});
+
+        await expect(launcher(api).getDeployJobState("pk-deploy-1")).rejects.toThrow();
     });
 });
 

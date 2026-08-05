@@ -4,6 +4,8 @@ import { Worker } from "@temporalio/worker";
 import { ApplicationFailure } from "@temporalio/workflow";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type {
+    LaunchPreviewBuildOutput,
+    PreviewBuildJobState,
     PreviewkitActivities,
     ReadPreviewBuildStatusOutput,
     ReportPreviewBuildWarrantInput,
@@ -25,6 +27,10 @@ const SDK_URL = "https://api-pr-7.preview.example.com";
 interface Harness {
     /** A test drives the build's outcome entirely through this. */
     statuses: ReadPreviewBuildStatusOutput[];
+    jobState: PreviewBuildJobState;
+    /** When set, the Job read throws it instead of answering. */
+    jobStateError?: Error;
+    launch: LaunchPreviewBuildOutput;
     gateReports: ReportPreviewBuildWarrantInput[];
     cancelledJobs: string[];
     polls: number;
@@ -33,16 +39,18 @@ interface Harness {
     notifyLaunched: () => void;
 }
 
+const JOB_NAME = "pk-deploy-abc123";
+
 const harness: Harness = {
     statuses: [],
+    jobState: "running",
+    launch: { jobName: JOB_NAME },
     gateReports: [],
     cancelledJobs: [],
     polls: 0,
     launched: Promise.resolve(),
     notifyLaunched: () => undefined,
 };
-
-const JOB_NAME = "pk-deploy-abc123";
 
 /** Reports the scripted statuses in order, then repeats the last one forever. */
 function nextStatus(): ReadPreviewBuildStatusOutput {
@@ -53,15 +61,23 @@ function nextStatus(): ReadPreviewBuildStatusOutput {
 
 const previewkitActivities: Pick<
     PreviewkitActivities,
-    "launchPreviewBuild" | "cancelPreviewBuild" | "readPreviewBuildStatus" | "reportPreviewBuildWarrant"
+    | "launchPreviewBuild"
+    | "cancelPreviewBuild"
+    | "readPreviewBuildJobState"
+    | "readPreviewBuildStatus"
+    | "reportPreviewBuildWarrant"
 > = {
     launchPreviewBuild() {
         harness.notifyLaunched();
-        return Promise.resolve({ jobName: JOB_NAME });
+        return Promise.resolve(harness.launch);
     },
     cancelPreviewBuild(input) {
         harness.cancelledJobs.push(input.jobName);
         return Promise.resolve();
+    },
+    readPreviewBuildJobState() {
+        if (harness.jobStateError != null) return Promise.reject(harness.jobStateError);
+        return Promise.resolve({ state: harness.jobState });
     },
     readPreviewBuildStatus() {
         return Promise.resolve(nextStatus());
@@ -94,6 +110,9 @@ afterAll(async () => {
 
 beforeEach(() => {
     harness.statuses = [{ state: "ready", primaryUrl: PREVIEW_URL, sdkAppUrl: SDK_URL }];
+    harness.jobState = "running";
+    harness.jobStateError = undefined;
+    harness.launch = { jobName: JOB_NAME };
     harness.gateReports = [];
     harness.cancelledJobs = [];
     harness.polls = 0;
@@ -116,18 +135,22 @@ function deployEvent(): PreviewDeployTarget {
 }
 
 /** `handle.result()` rejects with a generic wrapper; the verdict is the ApplicationFailure on its cause chain. */
-async function failureMessage(handle: { result: () => Promise<unknown> }): Promise<string> {
+async function failure(handle: { result: () => Promise<unknown> }): Promise<{ message: string; type?: string }> {
     try {
         await handle.result();
     } catch (error) {
         let current: unknown = error;
         while (current instanceof Error) {
-            if (current instanceof ApplicationFailure) return current.message;
+            if (current instanceof ApplicationFailure) return { message: current.message, type: current.type };
             current = current.cause;
         }
-        return error instanceof Error ? error.message : String(error);
+        return { message: error instanceof Error ? error.message : String(error) };
     }
     throw new Error("expected the build to fail, but it succeeded");
+}
+
+async function failureMessage(handle: { result: () => Promise<unknown> }): Promise<string> {
+    return (await failure(handle)).message;
 }
 
 function startBuild() {
@@ -171,7 +194,10 @@ describe("previewBuildWorkflow", () => {
 
         const handle = await startBuild();
 
-        await expect(failureMessage(handle)).resolves.toContain("image build exploded");
+        await expect(failure(handle)).resolves.toMatchObject({
+            message: expect.stringContaining("image build exploded"),
+            type: "PreviewBuildFailed",
+        });
     });
 
     // Reading the per-commit build row is what stops an abandoned build polling a foreign head for its whole
@@ -197,14 +223,86 @@ describe("previewBuildWorkflow", () => {
         await expect(failureMessage(handle)).resolves.toContain("`main-app` build failed");
     });
 
-    // A Job that dies before its first write - evicted, OOM, image pull - never claims the environment, and is
-    // bounded far below the settle budget.
-    it("gives up when the Job never claims the environment", async () => {
+    it("gives up when a running Job never claims the environment", async () => {
         harness.statuses = [{ state: "missing" }];
 
         const handle = await startBuild();
 
         await expect(failureMessage(handle)).resolves.toContain("did not start within 30 minutes");
+    });
+
+    it("fails on the first poll when the Job ended without claiming the environment", async () => {
+        harness.statuses = [{ state: "missing" }];
+        harness.jobState = "succeeded";
+
+        const handle = await startBuild();
+
+        await expect(failure(handle)).resolves.toMatchObject({
+            message: expect.stringContaining("declined to build a preview"),
+            type: "PreviewBuildDeclined",
+        });
+        expect(harness.polls).toBe(1);
+    });
+
+    /**
+     * A `Failed` Job is two non-zero exits, and the runner exits 0 for every outcome it handles - so this is a
+     * crash (an unparseable stored config, an eviction), and it belongs in the failure type, not the refusal one.
+     */
+    it("reports a Job that died before recording anything as a build failure", async () => {
+        harness.statuses = [{ state: "missing" }];
+        harness.jobState = "failed";
+
+        const handle = await startBuild();
+
+        await expect(failure(handle)).resolves.toMatchObject({
+            message: expect.stringContaining("died before it recorded anything"),
+            type: "PreviewBuildFailed",
+        });
+        expect(harness.polls).toBe(1);
+    });
+
+    // A teardown or per-app redeploy takes the environment mutex and deletes this Job without cancelling the
+    // workflow. Nothing broke, so it must not land in the build-failure type either.
+    it("reports a Job that no longer exists as a refusal, not a failure", async () => {
+        harness.statuses = [{ state: "missing" }];
+        harness.jobState = "gone";
+
+        const handle = await startBuild();
+
+        await expect(failure(handle)).resolves.toMatchObject({
+            message: expect.stringContaining("superseded by a newer deploy"),
+            type: "PreviewBuildDeclined",
+        });
+    });
+
+    it("keeps waiting on an in-flight build even once its Job has ended", async () => {
+        harness.statuses = [{ state: "building" }, { state: "building" }, { state: "ready", primaryUrl: PREVIEW_URL }];
+        harness.jobState = "succeeded";
+
+        const handle = await startBuild();
+
+        await expect(handle.result()).resolves.toMatchObject({ primaryUrl: PREVIEW_URL });
+    });
+
+    it("falls back to the claim timeout when the Job cannot be read at all", async () => {
+        harness.statuses = [{ state: "missing" }];
+        harness.jobStateError = new Error("the Kubernetes API is unreachable");
+
+        const handle = await startBuild();
+
+        await expect(failureMessage(handle)).resolves.toContain("did not start within 30 minutes");
+    });
+
+    it("fails without polling when the launch refuses to create a Job", async () => {
+        harness.launch = { declined: "acme/widgets has no preview environment configuration" };
+
+        const handle = await startBuild();
+
+        await expect(failure(handle)).resolves.toMatchObject({
+            message: expect.stringContaining("has no preview environment configuration"),
+            type: "PreviewBuildDeclined",
+        });
+        expect(harness.polls).toBe(0);
     });
 
     // The whole reason the build is its own workflow. Stopped by NAME, never by the environment label, which is

@@ -22,6 +22,7 @@ export { attachPreviewDeployment } from "./previewkit/attach-preview-deployment"
 export { cancelPreviewBuild } from "./previewkit/cancel-preview-build";
 export { hasBranchEverBuiltPreview } from "./previewkit/has-branch-ever-built-preview";
 export { launchPreviewBuild } from "./previewkit/launch-preview-build";
+export { readPreviewBuildJobState } from "./previewkit/read-preview-build-job-state";
 export { readPreviewBuildStatus } from "./previewkit/read-preview-build-status";
 export { resolvePreviewTarget } from "./previewkit/resolve-preview-target";
 export { reportPreviewBuildWarrant } from "./previewkit/report-preview-build-warrant";
@@ -33,6 +34,7 @@ import { attachPreviewDeployment } from "./previewkit/attach-preview-deployment"
 import { cancelPreviewBuild } from "./previewkit/cancel-preview-build";
 import { hasBranchEverBuiltPreview } from "./previewkit/has-branch-ever-built-preview";
 import { launchPreviewBuild } from "./previewkit/launch-preview-build";
+import { readPreviewBuildJobState } from "./previewkit/read-preview-build-job-state";
 import { readPreviewBuildStatus } from "./previewkit/read-preview-build-status";
 import { reportPreviewBuildWarrant } from "./previewkit/report-preview-build-warrant";
 import { resolvePreviewTarget } from "./previewkit/resolve-preview-target";
@@ -71,6 +73,7 @@ import { scenarioDown, scenarioUp } from "./scenario";
     cancelPreviewBuild,
     hasBranchEverBuiltPreview,
     launchPreviewBuild,
+    readPreviewBuildJobState,
     readPreviewBuildStatus,
     reportPreviewBuildWarrant,
     resolvePreviewTarget,

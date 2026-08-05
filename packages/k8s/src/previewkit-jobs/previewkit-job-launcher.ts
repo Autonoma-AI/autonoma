@@ -16,6 +16,7 @@ import { ApiException, type V1Job } from "@kubernetes/client-node";
  */
 export interface PreviewJobsApi {
     listNamespacedJob(params: { namespace: string; labelSelector?: string }): Promise<{ items: V1Job[] }>;
+    readNamespacedJob(params: { name: string; namespace: string }): Promise<V1Job>;
     createNamespacedJob(params: { namespace: string; body: V1Job }): Promise<V1Job>;
     deleteNamespacedJob(params: { name: string; namespace: string; propagationPolicy?: string }): Promise<unknown>;
 }
@@ -46,6 +47,9 @@ const TEARDOWN_GRACE_SECONDS = 300;
 const NAME_SLUG_MAX = 28;
 
 type JobType = "deploy" | "teardown" | "redeploy-app";
+
+/** Whether a launched Job can still write anything. `gone` is a 404: superseded, cancelled, or TTL-collected. */
+export type PreviewDeployJobState = "running" | "succeeded" | "failed" | "gone";
 
 // The "deploy family" - deploy and per-app redeploy share the per-environment
 // mutex (the Temporal workflows shared one workflowId), so launching either
@@ -158,6 +162,25 @@ export class PreviewkitJobLauncher {
             }
             throw err;
         }
+    }
+
+    /** A runner that declines exits 0 having written no row, so only the Job separates "not yet" from "never". */
+    async getDeployJobState(jobName: string): Promise<PreviewDeployJobState> {
+        const { jobNamespace } = this.options;
+        let job: V1Job;
+        try {
+            job = await this.batchApi.readNamespacedJob({ name: jobName, namespace: jobNamespace });
+        } catch (err) {
+            if (isNotFound(err)) {
+                this.logger.info("Preview deploy job no longer exists", { extra: { job: jobName } });
+                return "gone";
+            }
+            throw err;
+        }
+
+        const state = deployJobState(job);
+        this.logger.info("Read preview deploy job state", { extra: { job: jobName, state } });
+        return state;
     }
 
     async launchRedeployApp(params: TriggerPreviewRedeployAppParams): Promise<void> {
@@ -400,6 +423,20 @@ function nameSlug(repoFullName: string, max: number): string {
 
 function isNotFound(err: unknown): boolean {
     return err instanceof ApiException && err.code === 404;
+}
+
+/**
+ * The conditions decide, not `status.failed`: with `backoffLimit: 1` a first pod failure leaves that at 1 while the
+ * retry is still pending. `succeeded` is read too, because it is set a moment before the `Complete` condition.
+ */
+function deployJobState(job: V1Job): PreviewDeployJobState {
+    const conditions = job.status?.conditions ?? [];
+    const isTrue = (type: string): boolean =>
+        conditions.some((condition) => condition.type === type && condition.status === "True");
+
+    if (isTrue("Complete") || (job.status?.succeeded ?? 0) > 0) return "succeeded";
+    if (isTrue("Failed")) return "failed";
+    return "running";
 }
 
 /** A teardown target has no sha until the runner resolves one from the environment row. */

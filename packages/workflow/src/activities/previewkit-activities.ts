@@ -30,16 +30,38 @@ export interface LaunchPreviewBuildInput {
     target: PreviewDeployTarget;
 }
 
-export interface LaunchPreviewBuildOutput {
-    /**
-     * Carried so the build can be cancelled by NAME: the `previewkit.dev/env` label is per (repo, PR), so a
-     * label-scoped delete issued after a newer commit launched would kill the newer build.
-     */
-    jobName: string;
-}
+/**
+ * The presence of `declined` is the discriminant. Do not add a flag beside it: a build in flight replays against
+ * whatever this type says today, so the launched case has to stay recognisable from `jobName` alone.
+ */
+export type LaunchPreviewBuildOutput =
+    | {
+          /**
+           * Carried so the build can be cancelled by NAME: the `previewkit.dev/env` label is per (repo, PR), so a
+           * label-scoped delete issued after a newer commit launched would kill the newer build.
+           */
+          jobName: string;
+          declined?: undefined;
+      }
+    | {
+          jobName?: undefined;
+          /** Why no preview is coming. */
+          declined: string;
+      };
 
 export interface CancelPreviewBuildInput {
     jobName: string;
+}
+
+export interface ReadPreviewBuildJobStateInput {
+    jobName: string;
+}
+
+/** Mirrors `PreviewDeployJobState` in `@autonoma/k8s/previewkit-jobs`, which workflow code cannot import. */
+export type PreviewBuildJobState = "running" | "succeeded" | "failed" | "gone";
+
+export interface ReadPreviewBuildJobStateOutput {
+    state: PreviewBuildJobState;
 }
 
 export interface ReadPreviewBuildStatusInput {
@@ -50,7 +72,8 @@ export interface ReadPreviewBuildStatusInput {
 }
 
 /**
- * - `missing`: nothing attempted for this commit, which is also how the run learns a build was never ATTEMPTED.
+ * - `missing`: nothing recorded for this commit YET, and never terminal - a declined deploy writes no row either,
+ *   so only {@link PreviewBuildJobState} separates the two.
  * - `building`: at our head, not settled. `ready` / `failed`: terminal for our head.
  * - `superseded`: a newer commit took the environment over. A fact, not a guess - the drained pod writes it.
  */
@@ -108,6 +131,7 @@ export interface PreviewkitActivities {
     hasBranchEverBuiltPreview(input: HasBranchEverBuiltPreviewInput): Promise<HasBranchEverBuiltPreviewOutput>;
     launchPreviewBuild(input: LaunchPreviewBuildInput): Promise<LaunchPreviewBuildOutput>;
     cancelPreviewBuild(input: CancelPreviewBuildInput): Promise<void>;
+    readPreviewBuildJobState(input: ReadPreviewBuildJobStateInput): Promise<ReadPreviewBuildJobStateOutput>;
     readPreviewBuildStatus(input: ReadPreviewBuildStatusInput): Promise<ReadPreviewBuildStatusOutput>;
     attachPreviewDeployment(input: AttachPreviewDeploymentInput): Promise<AttachPreviewDeploymentOutput>;
     reportPreviewBuildWarrant(input: ReportPreviewBuildWarrantInput): Promise<void>;

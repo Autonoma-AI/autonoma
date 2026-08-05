@@ -136,6 +136,14 @@ owns HOW. A child cannot terminate a running same-id workflow, so two pushes mus
 stays with the launcher's per-(repo, PR) `previewkit.dev/env` label mutex, and a superseded build is cancelled by
 Job name.
 
+Waiting for that build asks two questions, not one. `readPreviewBuildStatus` reports what the environment and
+per-commit build rows say, and its `missing` means only "nothing recorded YET" - a runner that DECLINES to deploy
+(the repo is not linked to an Application, or it has no preview config) exits 0 having written no row, so `missing`
+is equally what "never" looks like. `readPreviewBuildJobState` supplies the other half from the Job object itself,
+and the poll reads it FIRST, so a Job that had already ended cannot have written a row in between. The refusals that
+are knowable up front are refused by `launchPreviewBuild` before a pod is scheduled at all. What is left for the
+30-minute claim timeout is a Job that never reports an end - which is what it was sized for.
+
 Past the selection both are identical, which is why the stages past it live in `workflows/run-analysis-stages.ts`
 and the settle-exactly-once contract in `workflows/with-analysis-run-settlement.ts`.
 
@@ -195,10 +203,10 @@ run records into its own harness even if the sweep has not reached it yet.
 
 ## Environment Variables
 
-| Variable                | Required | Default          | Description                                                      |
-| ----------------------- | -------- | ---------------- | ---------------------------------------------------------------- |
-| `TEMPORAL_ADDRESS`      | No       | `localhost:7233` | Temporal server gRPC address                                     |
-| `TEMPORAL_NAMESPACE`    | No       | `default`        | Temporal namespace                                               |
+| Variable                | Required | Default          | Description                                                       |
+| ----------------------- | -------- | ---------------- | ----------------------------------------------------------------- |
+| `TEMPORAL_ADDRESS`      | No       | `localhost:7233` | Temporal server gRPC address                                      |
+| `TEMPORAL_NAMESPACE`    | No       | `default`        | Temporal namespace                                                |
 | `TEMPORAL_METRICS_PORT` | No       | unset            | Port for the SDK's Prometheus exporter. Unset = no exporter bound |
 
 ## Worker memory: the workflow cache cap

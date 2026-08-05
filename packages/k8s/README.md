@@ -78,6 +78,11 @@ stops that one Job. The pairing matters: the `previewkit.dev/env` label is per
 newer commit had already launched. A build is superseded by label and cancelled
 by name.
 
+`getDeployJobState(jobName)` answers whether that Job can still write anything. The
+runner exits 0 for every outcome it HANDLES, declining to deploy included, and a
+decline writes no database row at all - so the Job object is the only thing that
+separates "the build has not started yet" from "the build never will".
+
 The `PREVIEWKIT_JOB_SPEC` payload it writes is parsed against `previewJobSpecSchema`
 (`@autonoma/types`) before serializing - the same definition the runner parses it back
 with, so a spec the runner would reject fails at launch rather than inside a Job nobody

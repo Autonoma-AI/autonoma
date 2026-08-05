@@ -1,4 +1,5 @@
 import {
+    ApplicationArchitecture,
     applyMigrations,
     createClient,
     type PreviewkitStatus,
@@ -6,8 +7,10 @@ import {
     PreviewkitAppStatus,
 } from "@autonoma/db";
 import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import type { PreviewDeployTarget } from "@autonoma/types";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { expect } from "vitest";
+import { previewBuildRefusalReason } from "../../src/activities/previewkit/preview-build-refusal-reason";
 import { readPreviewBuildStatus } from "../../src/activities/previewkit/read-preview-build-status";
 
 // The activity reads the `@autonoma/db` singleton (the global `db` proxy resolves to globalThis.prisma). Point it at
@@ -110,14 +113,52 @@ class PreviewBuildStatusHarness implements IntegrationHarness {
 
         return { repoFullName, prNumber };
     }
+
+    /** An Application the runner can resolve: linked to the target's repository id, and carrying a preview config. */
+    async seedDeployableTarget(): Promise<PreviewDeployTarget> {
+        const n = next();
+        const org = await this.db.organization.create({ data: { name: `Org ${n}`, slug: `org-${n}` } });
+        const githubRepositoryId = 1_000 + n;
+        const application = await this.db.application.create({
+            data: {
+                name: `App ${n}`,
+                slug: `app-${n}`,
+                architecture: ApplicationArchitecture.WEB,
+                organizationId: org.id,
+                githubRepositoryId,
+            },
+        });
+        await this.db.previewkitConfig.create({
+            data: { applicationId: application.id, document: RESOLVED_CONFIG },
+        });
+
+        return {
+            repoFullName: `acme/repo-${n}`,
+            prNumber: n + 1,
+            organizationId: org.id,
+            githubRepositoryId,
+            headSha: OUR_SHA,
+            headRef: `feature/${n}`,
+        };
+    }
 }
 
 integrationTestSuite({
-    name: "readPreviewBuildStatus (the orchestrator's view of a launched build)",
+    name: "readPreviewBuildStatus + previewBuildRefusalReason (the orchestrator's database reads)",
     createHarness: () => PreviewBuildStatusHarness.create(),
     cases: (test) => {
         const poll = (env: { repoFullName: string; prNumber: number }) =>
             readPreviewBuildStatus({ ...env, headSha: OUR_SHA });
+
+        /**
+         * The only direction worth guarding: an over-broad refusal silently stops building previews for every
+         * working customer, and no other test exercises this lookup against a real compound-key row.
+         */
+        test("does not refuse a repository whose application carries a preview config", async ({ harness }) => {
+            const target = await harness.seedDeployableTarget();
+
+            expect(await previewBuildRefusalReason(target)).toBeUndefined();
+        });
 
         test("reads as missing before the build writes its first row", async ({ harness }) => {
             expect(await poll(harness.unseededEnvironment())).toEqual({ state: "missing" });
