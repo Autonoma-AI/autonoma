@@ -1,13 +1,14 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import type { AgentLauncher, PermissionMode } from "../../../core/coding-agent";
+import { DEFAULT_PERMISSION_MODE, selectLauncher, selectPermissionMode } from "../../../core/coding-agent";
 import { debugLog } from "../../../core/debug";
 import { suspend, resume } from "../../../core/interrupt";
 import { notify } from "../../../core/notify";
 import * as p from "../../../ui/prompts";
 import { COMPLETION_MARKER_FILE, readCompletion } from "../completion";
+import { watchForCompletion } from "../completion-watch";
 import { INTEGRATION_PROMPT_FILE, writeIntegrationPrompt } from "../integration-prompt";
-import type { AgentLauncher, PermissionMode } from "../launcher";
-import { DEFAULT_PERMISSION_MODE, selectLauncher, selectPermissionMode } from "../launcher";
 import { findRecipeUploadProblems, loadRecipe, type RecipeReadResult, RECIPE_FILE } from "../recipe";
 import type { RecipeBuilderState } from "../state";
 import { saveRecipeState } from "../state";
@@ -17,6 +18,15 @@ export const MAX_LAUNCH_ATTEMPTS = 2;
 
 /** Breathing room before the terminal switches to the coding agent. */
 const HANDOFF_COUNTDOWN_SECONDS = 10;
+
+/** Points the agent at the rendered prompt file it must read and follow. */
+function launchMessage(promptFile: string): string {
+    return (
+        `Read the file ${promptFile} and follow its instructions exactly to integrate ` +
+        `Autonoma into this application. It is your complete spec. Do not stop until every ` +
+        `item in it is done and you have written the completion marker it describes.`
+    );
+}
 
 export interface HandoffDeps {
     /** Launchers to detect/select over. Injected in tests; built from the repo in prod. */
@@ -203,7 +213,15 @@ async function launchAgent(
     // Hand the terminal (SIGINT + raw mode) to the agent, then take it back.
     suspend();
     try {
-        const exitCode = await launcher.launch(promptFile, permissionMode, target.interactive);
+        const exitCode = await launcher.launch({
+            message: launchMessage(promptFile),
+            permissionMode,
+            interactive: target.interactive,
+            // An interactive session sits open after its final message, so the marker
+            // the agent writes is the real "done" signal. A headless run exits on its
+            // own and needs no watcher.
+            watch: target.interactive ? (proc) => watchForCompletion(target.outputDir, proc) : undefined,
+        });
         p.log.info(`${launcher.label} exited (code ${exitCode ?? "unknown"}). Back to the planner.`);
     } finally {
         resume();

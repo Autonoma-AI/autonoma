@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { PermissionMode } from "./launcher";
+import type { PermissionMode } from "../../core/coding-agent";
 
 export type EntityStatus = "pending" | "recipe-accepted" | "tested-up" | "tested-down" | "skipped";
 

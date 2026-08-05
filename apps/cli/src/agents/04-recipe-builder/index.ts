@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
 import type { AppConfig } from "../../config";
 import type { AgentResult } from "../../core/agent";
+import { buildAllLaunchers, type AgentLauncher, type PermissionMode } from "../../core/coding-agent";
 import * as p from "../../ui/prompts";
 import { parseEntityAudit, resolveEntityOrder } from "./entity-order";
-import { buildAllLaunchers, type AgentLauncher, type PermissionMode } from "./launcher";
 import { runCompletionPhase, runHandoffPhase, type HandoffDeps, type PhaseOutcome } from "./phases/handoff";
 import { runSubmit, type SubmitFailure } from "./phases/submit";
 import { initialRecipeState, loadRecipeState, saveRecipeState } from "./state";

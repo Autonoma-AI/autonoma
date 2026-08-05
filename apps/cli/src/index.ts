@@ -347,7 +347,7 @@ async function runStep(
             }
             case "recipeBuilder": {
                 const { runRecipeBuilder } = await import("./agents/04-recipe-builder/index");
-                const { parsePermissionMode } = await import("./agents/04-recipe-builder/launcher");
+                const { parsePermissionMode } = await import("./core/coding-agent");
                 result = await runRecipeBuilder({
                     projectRoot: config.projectRoot,
                     outputDir,

@@ -11,10 +11,10 @@ vi.mock("../../src/core/notify", () => ({ notify: vi.fn() }));
 
 import { COMPLETION_MARKER_FILE } from "../../src/agents/04-recipe-builder/completion";
 import { runRecipeBuilder } from "../../src/agents/04-recipe-builder/index";
-import type { AgentLauncher } from "../../src/agents/04-recipe-builder/launcher";
 import { RECIPE_FILE } from "../../src/agents/04-recipe-builder/recipe";
 import type { RecipeBuilderState } from "../../src/agents/04-recipe-builder/state";
 import type { AppConfig } from "../../src/config";
+import type { AgentLauncher } from "../../src/core/coding-agent";
 
 interface FakeSpec {
     exitCode: number;
@@ -32,6 +32,7 @@ function fakeLauncher(spec: FakeSpec): AgentLauncher & { calls: number } {
         id: "fake",
         label: "Fake Agent",
         isAvailable: () => Promise.resolve(spec.available ?? true),
+        registerMcpServer: () => Promise.resolve({ env: {} }),
         async launch(): Promise<number> {
             launcher.calls++;
             if (spec.writeMarker) {
