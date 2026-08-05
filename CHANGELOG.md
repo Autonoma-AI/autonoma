@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.260805.1](https://github.com/Autonoma-AI/agent/compare/v1.260804.1...v1.260805.1) (2026-08-05)
+
+
+### Features
+
+* **cli:** read onboarding state and mint pairing codes ([#2160](https://github.com/Autonoma-AI/agent/issues/2160)) ([52786d8](https://github.com/Autonoma-AI/agent/commit/52786d8dc9c335f1b15ea776086d44cd147eb059))
+* **cli:** register the onboarding MCP with the agent it spawns ([#2161](https://github.com/Autonoma-AI/agent/issues/2161)) ([8951d46](https://github.com/Autonoma-AI/agent/commit/8951d464ff423c85fa6dcb28f1b74e0a6ddd71c0))
+* **cli:** set up the preview environment before the pipeline ([#2169](https://github.com/Autonoma-AI/agent/issues/2169)) ([7b26a25](https://github.com/Autonoma-AI/agent/commit/7b26a25ecdfec60652a6ce225d2330d7bf69bb07))
+* **mcp:** serve every tool at /v1/mcp and keep the old paths as aliases ([#2159](https://github.com/Autonoma-AI/agent/issues/2159)) ([e0c9379](https://github.com/Autonoma-AI/agent/commit/e0c9379fc27d1f642a7841189069396b98101838))
+* **previewkit:** add the additive blueprint (preset-based) deploy model ([#1544](https://github.com/Autonoma-AI/agent/issues/1544)) ([aea162a](https://github.com/Autonoma-AI/agent/commit/aea162a37c28c85fe925f1395c1cdc5fb23023a0))
+* **previewkit:** gate the preview build on impact analysis ([#1937](https://github.com/Autonoma-AI/agent/issues/1937)) ([3dfca6e](https://github.com/Autonoma-AI/agent/commit/3dfca6eb0d02f1e378ada2b319971fb55b2ce880))
+
+
+### Bug Fixes
+
+* **api:** scope the onboarding reads to the caller's organization ([#2166](https://github.com/Autonoma-AI/agent/issues/2166)) ([505d4ce](https://github.com/Autonoma-AI/agent/commit/505d4cef9b2de6b069ab610c1f3833d9a5346898))
+* **api:** stop stale onboarding pairing codes from pairing an agent ([#2172](https://github.com/Autonoma-AI/agent/issues/2172)) ([f10f296](https://github.com/Autonoma-AI/agent/commit/f10f2962d1e42f75f36dd1be6d5a303fb1bc5691))
+* **cli:** make the preview handoff survive a real run ([#2171](https://github.com/Autonoma-AI/agent/issues/2171)) ([daf554a](https://github.com/Autonoma-AI/agent/commit/daf554ab56dc3eabd2638f861252875a2b1e7508))
+* **mcp:** attribute the either-form tools to the org they resolve ([#2165](https://github.com/Autonoma-AI/agent/issues/2165)) ([3294130](https://github.com/Autonoma-AI/agent/commit/329413026ee8529445415ccc9dfe146272c57cb8))
+* **ui:** drop the redundant finish-setup takeover on Home ([#2157](https://github.com/Autonoma-AI/agent/issues/2157)) ([217294b](https://github.com/Autonoma-AI/agent/commit/217294bf6b9f3368161f74c0bdd63576d4402ae1))
+
 ## [1.260804.1](https://github.com/Autonoma-AI/agent/compare/v1.260803.3...v1.260804.1) (2026-08-04)
 
 
