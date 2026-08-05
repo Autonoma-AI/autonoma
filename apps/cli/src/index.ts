@@ -589,9 +589,20 @@ function ensureAutonomaAuth(): boolean {
  * network blip here must not turn a successful run into a failed one - the same
  * reason the front-door planning degrades rather than throws.
  */
-async function finishFrontDoorRun(frontDoor: FrontDoorPlan): Promise<FinishPhaseResult | undefined> {
+async function finishFrontDoorRun(
+    frontDoor: FrontDoorPlan,
+    projectRoot: string,
+): Promise<FinishPhaseResult | undefined> {
     try {
-        const result = await runFinishPhase({ client: frontDoor.client, applicationId: frontDoor.applicationId });
+        // Read fresh rather than reusing the run's saved git info: that was recorded
+        // at analysis start, and the SDK handoff has since put the handler on a branch
+        // of its own. The branch we are on NOW is the one whose preview carries it.
+        const gitInfo = await readGitInfo(projectRoot);
+        const result = await runFinishPhase({
+            client: frontDoor.client,
+            applicationId: frontDoor.applicationId,
+            checkedOutBranch: gitInfo?.branch,
+        });
         track("cli_dry_run_finished", { outcome: result.dryRun.kind, live: result.live });
 
         const problem = describeDryRunOutcome(result.dryRun);
@@ -964,7 +975,8 @@ async function main() {
     // preview, then read back what Autonoma makes of this app. Only worth doing on a
     // complete run - a paused or failed one has no SDK handler to validate and no
     // scenarios to provision through it.
-    const finish = frontDoor != null && allStepsDone ? await finishFrontDoorRun(frontDoor) : undefined;
+    const finish =
+        frontDoor != null && allStepsDone ? await finishFrontDoorRun(frontDoor, config.projectRoot) : undefined;
 
     const anyFailed = Object.values(state.steps).some((s) => s === "failed");
     getActiveStore()?.finish({ kind: allStepsDone ? "complete" : anyFailed ? "failed" : "paused" });

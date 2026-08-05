@@ -50,6 +50,8 @@ export interface DryRunTarget {
     availability: TargetAvailability;
     /** Why the preview is unusable, when its deploy failed. */
     error?: string;
+    /** The branch this preview is for, which is how a checkout is matched to it. */
+    branchName?: string;
     /** Absent until the preview has actually deployed. */
     sdkUrl?: string;
 }
@@ -77,6 +79,12 @@ export interface DryRunReader {
 export interface DryRunPhaseDeps {
     client: DryRunReader;
     applicationId: string;
+    /**
+     * The branch the project is checked out on. What ties the preview to the handler
+     * this run just wrote - see {@link pickDryRunTarget}. Absent when the project is
+     * not a git repository, which only costs the first choice of target.
+     */
+    checkedOutBranch?: string;
     /** Overridable so tests do not wait real minutes. */
     timing?: DryRunTiming;
 }
@@ -138,7 +146,7 @@ export async function runDryRunPhase(deps: DryRunPhaseDeps): Promise<DryRunPhase
         return { kind: "no-scenarios" };
     }
 
-    const chosen = pickDryRunTarget(listing);
+    const chosen = pickDryRunTarget(listing, deps.checkedOutBranch);
     if (chosen == null) {
         return {
             kind: "no-target",
@@ -162,17 +170,40 @@ export async function runDryRunPhase(deps: DryRunPhaseDeps): Promise<DryRunPhase
 }
 
 /**
- * Which preview to run against. The platform flags the pull request carrying the SDK
- * handler, and that is the one to use even while it is still building: it is the only
- * preview whose code contains the handler the scenarios need. Failing that, any
- * preview that is already up will do.
+ * Which preview to run against, in descending order of how sure we are that it
+ * carries the SDK handler - which is the only thing that makes a preview usable here.
+ *
+ * 1. The preview for the branch this repository is on. The handler was just written
+ *    into this checkout, so its branch is the one place it is certainly present. This
+ *    also covers the handler having been merged: the checkout is then on main, and
+ *    main is what matches.
+ * 2. The pull request the platform flagged. It guesses from the PR title and branch
+ *    name, so it is a hint, not evidence - and it misses whenever the agent named its
+ *    branch something reasonable that the convention did not anticipate.
+ * 3. Any preview that is already up. A last resort for a run started from a checkout
+ *    with no preview of its own, where a previously-merged handler is the best guess
+ *    available.
+ *
+ * A match is returned even when its preview is not up yet: the caller waits for it.
+ * Settling for a different preview that happens to be ready would test code that does
+ * not contain the handler, and report the resulting 404 as the user's app being
+ * broken.
  */
-export function pickDryRunTarget(listing: {
-    targets: DryRunTarget[];
-    autoDetectedTargetId?: string;
-}): DryRunTarget | undefined {
+export function pickDryRunTarget(
+    listing: {
+        targets: DryRunTarget[];
+        autoDetectedTargetId?: string;
+    },
+    /** The branch the project is checked out on, when the CLI could read it. */
+    checkedOutBranch?: string,
+): DryRunTarget | undefined {
+    const onCheckedOutBranch =
+        checkedOutBranch == null ? undefined : listing.targets.find((target) => target.branchName === checkedOutBranch);
+    if (onCheckedOutBranch != null) return onCheckedOutBranch;
+
     const detected = listing.targets.find((target) => target.id === listing.autoDetectedTargetId);
     if (detected != null) return detected;
+
     return listing.targets.find((target) => target.availability === "ready");
 }
 

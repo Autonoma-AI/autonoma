@@ -84,6 +84,69 @@ function fakeClient(options: FakeOptions = {}): FakeClient {
 }
 
 describe("pickDryRunTarget", () => {
+    // The regression that made a first-time run unfinishable: the agent named its
+    // branch something the platform's title convention did not match, nothing was
+    // flagged, and the run fell through to main - which cannot contain a handler
+    // written moments ago on another branch, and answered the 404 to prove it.
+    test("prefers the preview for the branch the repository is on", () => {
+        const chosen = pickDryRunTarget(
+            {
+                targets: [
+                    target({ id: "main", branchName: "main", availability: "ready" }),
+                    target({
+                        id: "pr-29",
+                        branchName: "autonoma-integration",
+                        availability: "no_preview",
+                        sdkUrl: undefined,
+                    }),
+                ],
+            },
+            "autonoma-integration",
+        );
+
+        expect(chosen?.id).toBe("pr-29");
+    });
+
+    // The checked-out branch beats the platform's guess: the guess reads a PR title,
+    // this reads the code actually in front of us.
+    test("prefers the checked-out branch over a differently flagged pull request", () => {
+        const chosen = pickDryRunTarget(
+            {
+                targets: [
+                    target({ id: "pr-7", branchName: "feat/autonoma-sdk" }),
+                    target({ id: "pr-29", branchName: "autonoma-integration" }),
+                ],
+                autoDetectedTargetId: "pr-7",
+            },
+            "autonoma-integration",
+        );
+
+        expect(chosen?.id).toBe("pr-29");
+    });
+
+    // A handler merged to main, then a fresh run: the checkout is on main and so is
+    // the only preview carrying it.
+    test("matches main when that is what the repository is on", () => {
+        const chosen = pickDryRunTarget(
+            { targets: [target({ id: "pr-9", branchName: "other" }), target({ id: "main", branchName: "main" })] },
+            "main",
+        );
+
+        expect(chosen?.id).toBe("main");
+    });
+
+    test("falls back to the flagged pull request when the branch matches nothing", () => {
+        const chosen = pickDryRunTarget(
+            {
+                targets: [target({ id: "pr-7", branchName: "feat/autonoma-sdk" }), target({ id: "main" })],
+                autoDetectedTargetId: "pr-7",
+            },
+            "some-unrelated-branch",
+        );
+
+        expect(chosen?.id).toBe("pr-7");
+    });
+
     // The auto-detected PR is the only preview whose code carries the SDK handler, so
     // it wins even mid-build - the ready main preview would 404 every provisioning call.
     test("prefers the pull request the platform flagged as the SDK's, even while it builds", () => {

@@ -23,6 +23,8 @@ export type FinishReader = DryRunReader & {
 export interface FinishPhaseDeps {
     client: FinishReader;
     applicationId: string;
+    /** The branch the project is checked out on - which preview carries the handler. */
+    checkedOutBranch?: string;
     /** Overridable so tests do not wait real minutes. */
     timing?: DryRunTiming;
 }
@@ -49,6 +51,7 @@ export async function runFinishPhase(deps: FinishPhaseDeps): Promise<FinishPhase
     const dryRun = await runDryRunPhase({
         client: deps.client,
         applicationId: deps.applicationId,
+        checkedOutBranch: deps.checkedOutBranch,
         timing: deps.timing,
     });
 

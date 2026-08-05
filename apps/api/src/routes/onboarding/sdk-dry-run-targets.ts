@@ -40,6 +40,16 @@ export interface SdkDryRunTarget {
     /** Branch + commit the PreviewKit env is deployed (or deploying) at - the UI shows these as the build cause. Absent for external targets. */
     headRef?: string;
     headSha?: string;
+    /**
+     * The branch this target is the preview for, whoever deploys it.
+     *
+     * Distinct from {@link headRef}, which is what PreviewKit recorded for its own
+     * environment and is therefore absent on targets Autonoma does not build. This
+     * is the branch as the repository knows it, so a caller sitting in a checkout
+     * can match the preview to the code in front of it instead of guessing from a
+     * title - which is what {@link isAutoDetected} does, and why it is only a hint.
+     */
+    branchName?: string;
     /** Absent until the preview has deployed (availability "building"/"failed"/"no_preview"). */
     previewUrl?: string;
     sdkUrl?: string;
@@ -212,7 +222,10 @@ export async function listSdkDryRunTargets(
                 githubRepositoryId: true,
                 onboardingState: { select: { previewUrl: true } },
                 mainBranch: {
-                    select: { deployment: { select: { webhookUrl: true, webDeployment: { select: { url: true } } } } },
+                    select: {
+                        name: true,
+                        deployment: { select: { webhookUrl: true, webDeployment: { select: { url: true } } } },
+                    },
                 },
             },
         }),
@@ -296,6 +309,7 @@ export async function listSdkDryRunTargets(
             error: mainPreviewkitTarget.error,
             headRef: mainPreviewkitTarget.headRef,
             headSha: mainPreviewkitTarget.headSha,
+            branchName: mainPreviewkitTarget.headRef ?? application.mainBranch?.name,
             previewUrl: mainPreviewkitTarget.previewUrl,
             sdkUrl: mainPreviewkitTarget.previewUrl != null ? buildSdkUrl(mainPreviewkitTarget.previewUrl) : undefined,
             freshness: mainPreviewkitTarget.freshness,
@@ -309,6 +323,7 @@ export async function listSdkDryRunTargets(
             source: "external",
             label: "main",
             availability: "ready",
+            branchName: application.mainBranch?.name,
             previewUrl: mainExternalPreviewUrl,
             // Prefer the deployment's explicit SDK endpoint (split UI/API host) over
             // the single-origin <previewUrl>/api/autonoma convention.
@@ -349,6 +364,7 @@ export async function listSdkDryRunTargets(
                 error: previewkitTarget.error,
                 headRef: previewkitTarget.headRef,
                 headSha: previewkitTarget.headSha,
+                branchName: branchName !== "" ? branchName : undefined,
                 previewUrl: previewkitTarget.previewUrl,
                 sdkUrl: previewkitTarget.previewUrl != null ? buildSdkUrl(previewkitTarget.previewUrl) : undefined,
                 freshness: previewkitTarget.freshness,
@@ -365,6 +381,7 @@ export async function listSdkDryRunTargets(
                 label,
                 prNumber,
                 availability: hasPreview ? "ready" : "no_preview",
+                branchName: branchName !== "" ? branchName : undefined,
                 previewUrl: deployUrl,
                 // Prefer the deployment's explicit SDK endpoint (split UI/API host) over
                 // the single-origin <deployUrl>/api/autonoma convention.
