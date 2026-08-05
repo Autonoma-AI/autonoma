@@ -7,18 +7,17 @@ import {
 } from "@autonoma/types";
 import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
 import type {
+    AnalysisActivities,
     AnalysisCandidateClassification,
     AnalysisCandidateFinding,
     GeneralActivities,
-    InvestigationActivities,
     InvestigationTestResult,
     InvestigationVerdict,
-    InvestigatorActivities,
     PersistAnalysisClassificationOutput,
     WebActivities,
 } from "../activities";
 import { rootFailureMessage } from "../root-failure-message";
-import { categorizeInfraFailure } from "../rules/scenario-setup-failure";
+import { categorizeInfraFailure } from "../rules/infra-failure";
 import { TaskQueue } from "../task-queues";
 
 /**
@@ -46,14 +45,19 @@ const FAULT_DETAIL_CAP = 200;
  * outer net, has to sit above that sum or Temporal kills a classification that is still making progress and the
  * test is contained as an engine artifact instead of getting a verdict.
  */
-const investigation = proxyActivities<InvestigationActivities>({
+const investigation = proxyActivities<Pick<AnalysisActivities, "classifyInvestigationRun">>({
     startToCloseTimeout: "30m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.DIFFS,
 });
 
-const investigator = proxyActivities<InvestigatorActivities>({
+const investigator = proxyActivities<
+    Pick<
+        AnalysisActivities,
+        "selfHealAnalysisTest" | "revertSelfHealPlan" | "deleteAnalysisTest" | "persistAnalysisClassification"
+    >
+>({
     startToCloseTimeout: "20m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },

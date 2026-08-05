@@ -114,20 +114,6 @@ export const investigationFindingSchema = z.object({
 });
 export type InvestigationFinding = z.infer<typeof investigationFindingSchema>;
 
-export const investigationValidationSchema = z.object({
-    passed: z.boolean(),
-    iterations: z.number(),
-    failureReason: z.string().optional(),
-});
-
-export const investigationSuggestedTestSchema = z.object({
-    name: z.string(),
-    instruction: z.string(),
-    reasoning: z.string(),
-    validation: investigationValidationSchema.optional(),
-});
-export type InvestigationSuggestedTest = z.infer<typeof investigationSuggestedTestSchema>;
-
 export const investigationDeployedPerTestSchema = z.object({
     testSlug: z.string(),
     affectedReason: z.string().optional(),
@@ -144,19 +130,3 @@ export const investigationDeployedComparisonSchema = z.object({
     perTest: z.array(investigationDeployedPerTestSchema),
 });
 export type InvestigationDeployedComparison = z.infer<typeof investigationDeployedComparisonSchema>;
-
-export const investigationReportDataSchema = z.object({
-    client: z.string(),
-    appSlug: z.string(),
-    prNumber: z.number(),
-    prTitle: z.string().optional(),
-    prBody: z.string().optional(),
-    /** owner/repo for the app's GitHub repository - used to build code permalinks. Absent on legacy reports. */
-    repoFullName: z.string().optional(),
-    /** The PR head commit the run tested - the permalink ref. Absent on legacy reports. */
-    commitSha: z.string().optional(),
-    findings: z.array(investigationFindingSchema),
-    suggested: z.array(investigationSuggestedTestSchema),
-    deployed: investigationDeployedComparisonSchema.optional(),
-});
-export type InvestigationReportData = z.infer<typeof investigationReportDataSchema>;

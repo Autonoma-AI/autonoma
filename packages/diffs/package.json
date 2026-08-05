@@ -6,7 +6,8 @@
     "exports": {
         ".": "./src/index.ts",
         "./env": "./src/env.ts",
-        "./analysis": "./src/analysis/index.ts"
+        "./analysis": "./src/analysis/index.ts",
+        "./analysis/logs/loki": "./src/analysis/logs/loki.ts"
     },
     "scripts": {
         "test": "vitest",

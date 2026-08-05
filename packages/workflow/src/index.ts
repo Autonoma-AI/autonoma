@@ -3,12 +3,6 @@ export {
     type TriggerBatchGenerationParams,
     triggerBatchGeneration,
 } from "./triggers/batch-generation";
-export {
-    type TriggerInvestigationJobParams,
-    triggerInvestigationJob,
-    type TriggerInvestigationMergeJobParams,
-    triggerInvestigationMergeJob,
-} from "./triggers/investigation";
 export { triggerAnalysisRun } from "./triggers/analysis-run";
 export type { AnalysisRunWorkflowInput } from "./workflows/analysis-run.workflow";
 export { triggerPreviewBuild } from "./triggers/preview-build";

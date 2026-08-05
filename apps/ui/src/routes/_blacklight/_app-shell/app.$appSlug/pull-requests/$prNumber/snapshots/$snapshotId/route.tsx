@@ -3,11 +3,11 @@ import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { Outlet, createFileRoute, notFound, useLocation } from "@tanstack/react-router";
 import { AnalysisJobStatus } from "components/analysis/analysis-job-status";
 import { AnalysisReportBody } from "components/analysis/analysis-report-body";
-import type { SnapshotDetail } from "components/snapshot/snapshot-types";
 import { ReasoningPanel } from "components/snapshot/reasoning-panel";
 import { SnapshotBugsPanel, SnapshotBugsPanelSkeleton } from "components/snapshot/snapshot-bugs-panel";
 import { SnapshotReportHeader } from "components/snapshot/snapshot-report-header";
 import { SnapshotReportTabs } from "components/snapshot/snapshot-report-tabs";
+import type { SnapshotDetail } from "components/snapshot/snapshot-types";
 import { SuiteChangesSummary } from "components/snapshot/suite-changes-summary";
 import {
   ensureAnalysisJobData,
@@ -70,11 +70,9 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   const location = useLocation();
   const activeTab = location.pathname.includes("/changes") ? "changes" : "report";
   const showingChanges = activeTab === "changes";
-  // The investigation + analysis finding-detail pages own the full screen (their own header + back link), so
-  // render only their Outlet.
-  const showingInvestigation = location.pathname.includes("/investigation");
+  // The analysis finding-detail page owns the full screen (its own header + back link), so render only its Outlet.
   const showingFindings = location.pathname.includes("/findings");
-  if (showingInvestigation || showingFindings) return <Outlet />;
+  if (showingFindings) return <Outlet />;
 
   return (
     <div className={cn("flex flex-col gap-6", showingChanges && "lg:h-full")}>

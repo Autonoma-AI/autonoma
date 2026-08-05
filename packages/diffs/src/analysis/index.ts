@@ -6,8 +6,6 @@ export { PreviewEnvironment } from "./preview/preview-environment";
 export { openModelSession } from "./ai/model-session";
 export type { ModelSession, InvestigationModelName, InvestigationModelConfig } from "./ai/model-session";
 export { persistInvestigationCosts } from "./ai/persist-costs";
-export { queryLokiLogs } from "./logs/loki";
-export type { LokiLogQuery } from "./logs/loki";
 export { loadPreviewAppLogs } from "./logs/preview-app-logs";
 export type { PreviewAppLogsInput } from "./logs/preview-app-logs";
 export { VerdictForModel } from "./classify/verdict-schema";

@@ -265,8 +265,6 @@ Every tool takes your repo (`owner/repo`); the per-PR tools also take the PR num
 | --- | --- | --- |
 | `list_apps` | none | The repos you can debug across your organizations - use when the repo isn't obvious |
 | `get_analysis` | repo, PR | **Start here when Autonoma flagged something.** The run's report (a summary, the write-up, and which tests it selected and why) plus every open issue - what should have happened, what did, a suspected cause with `file:line` code evidence, signed screenshot/clip URLs, and the tests it covers. Read live, so it can be more current than the PR comment |
-| `get_investigation` | repo, PR | Legacy. The equivalent findings from the older investigation pipeline, for a PR analyzed before the current one. Only needed when `get_analysis` reports that the PR has no analysis run |
-| `report_false_positive` | repo, PR, findingId, reason? | Flags a `get_investigation` finding as a likely false positive (not a real bug). A tracking signal for Autonoma to review - it does **not** change the check, re-run the analysis, unblock the merge, or hide the finding. No equivalent exists for `get_analysis` issues yet |
 | `get_deploy_status` | repo, PR | Per-service deploy status, endpoints, and the latest build outcome |
 | `diagnose_deploy` | repo, PR | The raw evidence in one call - status, service states, latest build outcome, a rule-based failure classification, the config's env-key surface, and error-shaped logs - plus deterministic findings categorized as a missing env var, setup problem, or platform error. It is not an AI summary; you reason over the signals |
 | `get_build_logs` | repo, PR | Build-log lines, from the `tail` (newest) or `head` (start of the build), optionally for one service |

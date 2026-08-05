@@ -108,7 +108,7 @@ Appium-based mobile test execution for iOS and Android. Implements the driver in
 
 ### engine-web
 
-Playwright-based web test execution. Implements the driver interfaces from `engine` using Playwright's API. Handles browser lifecycle, screenshot capture, network idle detection, and video recording. Linked into the `workers/web`, `workers/diffs`, and `workers/investigation` images.
+Playwright-based web test execution. Implements the driver interfaces from `engine` using Playwright's API. Handles browser lifecycle, screenshot capture, network idle detection, and video recording. Linked into the `workers/web` and `workers/diffs` images.
 
 **When to modify:** Changing web-specific test execution behavior, adjusting Playwright configuration, or fixing browser-related issues.
 
@@ -142,12 +142,6 @@ Test harness using Testcontainers. Provides `IntegrationHarness` and `integratio
 **Key exports:** `IntegrationHarness`, `integrationTestSuite`
 
 **When to modify:** Changing the test harness setup, adding new test utilities, or supporting new infrastructure in tests.
-
-### investigation
-
-The investigation agent: given a pull request, work out what changed and what it might have broken.
-
-**When to modify:** Changing how investigations are selected, run, or reported.
 
 ### k8s
 
@@ -263,7 +257,7 @@ Published to npm as `@autonoma-ai/planner`. Runs on the user's machine, reads th
 
 ### workers
 
-Temporal workers. Each subdirectory is its own deployable: `diffs`, `general`, `investigation`, `web`, `mobile`. They own the long-running pipeline - provisioning, seeding, running, reviewing - so a restart never loses a run in flight.
+Temporal workers. Each subdirectory is its own deployable: `diffs`, `general`, `web`, `mobile`. They own the long-running pipeline - provisioning, seeding, running, reviewing - so a restart never loses a run in flight.
 
 **When to modify:** Adding a workflow or activity, or changing how a run is orchestrated.
 
@@ -296,7 +290,7 @@ apps (api, ui, workers, jobs)
  |
  +-- packages/types        (shared schemas - used by almost everything)
  +-- packages/db           (database - used by api, jobs)
- +-- packages/engine-web   (Playwright execution - used by workers/web, diffs, investigation)
+ +-- packages/engine-web   (Playwright execution - used by workers/web, diffs)
  +-- packages/engine-mobile (Appium execution - used by workers/mobile)
  +-- packages/engine       (execution core - used by the engine packages)
  +-- packages/ai           (AI primitives - used by engine, jobs)

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { internalEmailProcedure, protectedProcedure, router } from "../../trpc";
+import { protectedProcedure, router } from "../../trpc";
 
 export const branchesRouter = router({
     list: protectedProcedure
@@ -117,41 +117,6 @@ export const branchesRouter = router({
         .input(z.object({ snapshotId: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>
             services.branches.getAnalysisSnapshotIssueChanges(input.snapshotId, organizationId),
-        ),
-
-    // The shadow investigation agent's report (a freshly-signed S3 URL), for comparing against the deployed
-    // agent. Internal-only: gated to @autonoma.app users. Returns undefined when no shadow report exists.
-    investigationReport: internalEmailProcedure
-        .input(z.object({ snapshotId: z.string() }))
-        .query(({ ctx: { services, organizationId }, input }) =>
-            services.branches.getInvestigationReport(input.snapshotId, organizationId),
-        ),
-
-    // The structured investigation report (findings + signed media) for the in-app "View investigation" page.
-    // Internal-only, gated to @autonoma.app users; returns undefined when no rich report exists for the snapshot.
-    investigationReportData: internalEmailProcedure
-        .input(z.object({ snapshotId: z.string() }))
-        .query(({ ctx: { services, organizationId }, input }) =>
-            services.branches.getInvestigationReportData(input.snapshotId, organizationId),
-        ),
-
-    // Batched investigation presence for the PR-list entry points (Home + PR list). Internal-only, gated to
-    // @autonoma.app users; returns one entry per PR-snapshot that has a report (keyed by the PR snapshot id).
-    investigationReportsForApplication: internalEmailProcedure
-        .input(
-            z.object({
-                applicationId: z.string(),
-                state: z.enum(["open", "closed", "merged"]).default("open"),
-                page: z.number().int().min(1).default(1),
-            }),
-        )
-        .query(({ ctx: { services, organizationId }, input }) =>
-            services.branches.getInvestigationReportsForApplication(
-                input.applicationId,
-                organizationId,
-                input.state,
-                input.page,
-            ),
         ),
 
     activeSnapshot: protectedProcedure

@@ -1,5 +1,5 @@
 import { executeChild, log, proxyActivities } from "@temporalio/workflow";
-import type { AnalysisCandidateFinding, AnalysisInvestigationTarget, InvestigatorActivities } from "../activities";
+import type { AnalysisActivities, AnalysisCandidateFinding, AnalysisInvestigationTarget } from "../activities";
 import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "../workflow-types";
@@ -11,9 +11,8 @@ import { CONTAINMENT_CLASSIFICATION_NUMBER } from "./investigator.workflow";
  */
 const INVESTIGATOR_CONCURRENCY = 10;
 
-// The fan-out proxies one Investigator activity: `persistAnalysisClassification`, to contain a child that crashed
-// before it could file its own.
-const investigator = proxyActivities<InvestigatorActivities>({
+// The parent files a classification only to contain a child that crashed before it could file its own.
+const investigator = proxyActivities<Pick<AnalysisActivities, "persistAnalysisClassification">>({
     startToCloseTimeout: "20m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },

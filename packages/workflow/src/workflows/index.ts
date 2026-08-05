@@ -1,7 +1,5 @@
 export { batchGenerationWorkflow } from "./batch-generation.workflow";
 export { singleGenerationWorkflow } from "./single-generation.workflow";
-export { investigationWorkflow, type InvestigationWorkflowInput } from "./investigation.workflow";
-export { investigationMergeWorkflow, type InvestigationMergeWorkflowInput } from "./investigation-merge.workflow";
 export { analysisRunWorkflow, type AnalysisRunWorkflowInput } from "./analysis-run.workflow";
 export {
     previewBuildWorkflow,

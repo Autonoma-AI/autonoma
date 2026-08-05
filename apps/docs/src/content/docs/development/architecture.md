@@ -27,7 +27,7 @@ apps/
   cli/              @autonoma-ai/planner - the published test-planner CLI
   engine-web/       Playwright web test execution
   engine-mobile/    Appium mobile test execution (dormant - see below)
-  workers/          Temporal workers: diffs, general, investigation, web, mobile
+  workers/          Temporal workers: diffs, general, web, mobile
   jobs/             Standalone background jobs
   cronjobs/         Scheduled tasks
   docs/             Astro Starlight documentation site
@@ -49,7 +49,6 @@ packages/
   github/           GitHub App and API client
   image/            Image processing utilities
   integration-test/ Test harness with Testcontainers
-  investigation/    The investigation agent
   k8s/              Kubernetes helpers
   logger/           Sentry-based structured logging
   scenario/         Environment Factory scenario logic

@@ -11,25 +11,18 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
-  cn,
 } from "@autonoma/blacklight";
 import type { PrPipelineStatus } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { toPageParam } from "lib/page-param";
 import {
-  INVESTIGATION_TONE_CLASS,
-  type InvestigationPresence,
   type PullRequestStateFilter,
   ensureBranchesData,
-  investigationEntryLabel,
-  investigationEntryTone,
   useBranchDetail,
   useBranches,
-  useInvestigationReportsBySnapshot,
   useSnapshotHistory,
 } from "lib/query/branches.queries";
 import { Suspense } from "react";
@@ -81,7 +74,6 @@ type PullRequestRow = {
   prState?: "open" | "closed" | "merged";
   prAuthorLogin?: string;
   prUpdatedAt?: Date;
-  snapshotId?: string;
   prStatus: PrPipelineStatus;
 };
 
@@ -104,16 +96,11 @@ function PullRequestsContent({ state, page }: { state: PullRequestStateFilter; p
             prState: b.pr.state,
             prAuthorLogin: b.pr.authorLogin,
             prUpdatedAt: b.pr.updatedAt,
-            snapshotId: b.activeSnapshot?.id,
             prStatus: b.prStatus,
           },
         ]
       : [],
   );
-
-  // Internal-only (@autonoma.app); disabled for everyone else, so the column below never renders for customers.
-  // Same state AND page as the list, so it describes the rows actually on screen.
-  const investigation = useInvestigationReportsBySnapshot(state, servedPage);
 
   function handleRowClick(row: PullRequestRow) {
     void appNavigate({
@@ -169,28 +156,6 @@ function PullRequestsContent({ state, page }: { state: PullRequestStateFilter; p
     },
   ];
 
-  // Internal-only column: reserved for the whole (internal) view - skeleton cells while the presence query
-  // loads, then links or empty cells - so there is no post-load column reflow. Never renders for customers
-  // (the hook is disabled for them, so `enabled` is false).
-  if (investigation.enabled) {
-    columns.push({
-      id: "investigation",
-      header: "Investigation",
-      size: 130,
-      enableSorting: false,
-      cell: ({ row }) => (
-        <PRInvestigationCell
-          prNumber={row.original.prNumber}
-          snapshotId={row.original.snapshotId}
-          investigation={
-            row.original.snapshotId != null ? investigation.bySnapshot.get(row.original.snapshotId) : undefined
-          }
-          loading={investigation.isLoading}
-        />
-      ),
-    });
-  }
-
   return (
     <Panel>
       <PanelHeader className="flex items-center gap-2">
@@ -216,42 +181,6 @@ function PullRequestsContent({ state, page }: { state: PullRequestStateFilter; p
         label={`${rows.length} of ${branches.totalCount}`}
       />
     </Panel>
-  );
-}
-
-/**
- * Internal-only PR-list cell linking to the shadow investigation report for a PR. Nested inside a clickable
- * table row, so it stops propagation to win the click. Colored by severity (bug/warning/neutral); shows a
- * skeleton while the presence query loads, then the bug count or a "running" hint.
- */
-function PRInvestigationCell({
-  prNumber,
-  snapshotId,
-  investigation,
-  loading,
-}: {
-  prNumber: number;
-  snapshotId?: string;
-  investigation?: InvestigationPresence;
-  loading: boolean;
-}) {
-  if (investigation == null || snapshotId == null) {
-    return loading ? <Skeleton className="h-3 w-16" /> : undefined;
-  }
-  return (
-    <AppLink
-      to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/investigation"
-      params={{ prNumber: String(prNumber), snapshotId }}
-      onClick={(e) => e.stopPropagation()}
-      aria-label={`Investigation report for PR #${prNumber}`}
-      className={cn(
-        "inline-flex items-center gap-1 font-mono text-2xs hover:underline",
-        INVESTIGATION_TONE_CLASS[investigationEntryTone(investigation)],
-      )}
-    >
-      <MagnifyingGlassIcon size={12} />
-      {investigationEntryLabel(investigation)}
-    </AppLink>
   );
 }
 

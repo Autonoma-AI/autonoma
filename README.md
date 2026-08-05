@@ -142,7 +142,7 @@ apps/
   previewkit/    Per-PR preview environment builder and deployer
   engine-web/    Playwright-based web test execution
   engine-mobile/ Appium-based mobile test execution
-  workers/       Temporal workers (web, diffs, investigation, general)
+  workers/       Temporal workers (web, diffs, general)
   docs/          Astro Starlight documentation site
 
 packages/
@@ -151,7 +151,6 @@ packages/
   ai/            Model registry and structured generation (sharp-free)
   visual-ai/     Screenshot-driven checkers, point and object detection
   diffs/         PR diff analysis
-  investigation/ Run review - real bugs vs. flaky infrastructure
   scenario/      Environment Factory protocol and test-data scenarios
   checkpoint/    Per-commit run state
   db/            Prisma schema and generated client

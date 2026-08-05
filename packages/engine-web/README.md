@@ -2,7 +2,7 @@
 
 Playwright-based web test execution engine for the Autonoma testing platform. This package implements the platform-specific driver interfaces defined in `@autonoma/engine` (execution-agent) using Playwright, enabling AI-driven end-to-end web testing on Chromium browsers.
 
-It is a library, not a deployable: the images that link it are `apps/workers/web`, `apps/workers/diffs`, and `apps/workers/investigation`.
+It is a library, not a deployable: the images that link it are `apps/workers/web` and `apps/workers/diffs`.
 
 ## Tech Stack
 

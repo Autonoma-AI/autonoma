@@ -1,10 +1,5 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import type {
-    AnalysisActivities,
-    DiffsActivities,
-    InvestigationActivities,
-    InvestigatorActivities,
-} from "@autonoma/workflow/activities";
+import type { AnalysisActivities, DiffsActivities } from "@autonoma/workflow/activities";
 import { heartbeat } from "@temporalio/activity";
 
 export { reviewGeneration } from "./review/generation";
@@ -71,24 +66,17 @@ export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassi
 // Compile-time check: ensure exported activities match the DiffsActivities contract.
 ({ reviewGeneration }) satisfies DiffsActivities;
 
-// Compile-time check: the re-homed analysis-pipeline activities satisfy their contract. classify is part of the
-// shared InvestigationActivities contract (the workflow proxy that calls it is typed against it); the diffs
-// worker registers only that one method from it, so `Pick` rather than the full interface.
+// Compile-time check: this worker implements the whole DIFFS-queue contract - the run's stages, the per-test
+// classify, and the Investigator's row-local writes.
 ({
     openAnalysisRun,
     openMergeGate,
     runImpactAnalysis,
-    runReporter,
-    settleAnalysisRun,
-}) satisfies AnalysisActivities;
-({ classifyInvestigationRun }) satisfies Pick<InvestigationActivities, "classifyInvestigationRun">;
-
-// The Investigator's own writes (self-heal, the revert that undoes it, the `invalid_test` removal, per-iteration
-// classification), on their own contract - only the diffs worker implements them, so they stay off the
-// AnalysisActivities contract the frozen investigation worker shares.
-({
+    classifyInvestigationRun,
     selfHealAnalysisTest,
     revertSelfHealPlan,
     deleteAnalysisTest,
     persistAnalysisClassification,
-}) satisfies InvestigatorActivities;
+    runReporter,
+    settleAnalysisRun,
+}) satisfies AnalysisActivities;

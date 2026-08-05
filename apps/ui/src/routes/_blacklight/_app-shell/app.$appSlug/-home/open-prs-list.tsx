@@ -1,17 +1,9 @@
-import { Badge, cn, EmptyState, Pagination, Skeleton } from "@autonoma/blacklight";
+import { Badge, EmptyState, Pagination } from "@autonoma/blacklight";
 import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { Link } from "@tanstack/react-router";
 import { PreviewLivenessBadge } from "components/preview-liveness-badge";
 import { formatRelativeTime } from "lib/format";
-import {
-  INVESTIGATION_TONE_CLASS,
-  type InvestigationPresence,
-  investigationEntryLabel,
-  investigationEntryTone,
-  useInvestigationReportsBySnapshot,
-} from "lib/query/branches.queries";
 import { type LatestPullRequest, useLatestPullRequests } from "lib/query/latest-prs.queries";
 import {
   pickPreviewLiveness,
@@ -23,9 +15,6 @@ import { CheckpointSummaryBadge } from "../pull-requests/-components/checkpoint-
 
 export function OpenPrsList({ page, onPageChange }: { page: number; onPageChange: (page: number) => void }) {
   const prs = useLatestPullRequests(page);
-  // Internal-only (@autonoma.app); the hook is disabled for everyone else, so no entry point renders.
-  // Keyed to the page the SERVER served (it clamps an over-run one), so it describes the rows actually on screen.
-  const investigation = useInvestigationReportsBySnapshot("open", prs.page);
   // One liveness poll covering every preview the app has (never wakes them).
   const { data: liveness } = useApplicationPreviewLiveness();
 
@@ -53,15 +42,7 @@ export function OpenPrsList({ page, onPageChange }: { page: number; onPageChange
               description="Push a branch with an open PR to see it tracked here."
             />
           ) : (
-            prs.items.map((pr) => (
-              <PrRow
-                key={pr.id}
-                pr={pr}
-                investigation={pr.snapshotId != null ? investigation.bySnapshot.get(pr.snapshotId) : undefined}
-                investigationLoading={investigation.isLoading}
-                liveness={liveness}
-              />
-            ))
+            prs.items.map((pr) => <PrRow key={pr.id} pr={pr} liveness={liveness} />)
           )}
         </div>
 
@@ -71,17 +52,7 @@ export function OpenPrsList({ page, onPageChange }: { page: number; onPageChange
   );
 }
 
-function PrRow({
-  pr,
-  investigation,
-  investigationLoading,
-  liveness,
-}: {
-  pr: LatestPullRequest;
-  investigation?: InvestigationPresence;
-  investigationLoading: boolean;
-  liveness?: Record<string, PreviewLivenessState>;
-}) {
+function PrRow({ pr, liveness }: { pr: LatestPullRequest; liveness?: Record<string, PreviewLivenessState> }) {
   const livenessState = pickPreviewLiveness(liveness, [pr.previewUrl]);
   return (
     <div className="relative flex items-center gap-3 border-t border-border-dim px-4 py-3 transition-colors first:border-t-0 hover:bg-surface-raised">
@@ -131,45 +102,8 @@ function PrRow({
             </Link>
           </>
         )}
-        {investigation != null && pr.snapshotId != null && (
-          <InvestigationEntry prNumber={pr.prNumber} snapshotId={pr.snapshotId} investigation={investigation} />
-        )}
-        {investigation == null && investigationLoading && <Skeleton className="h-3 w-24" />}
       </div>
     </div>
-  );
-}
-
-/**
- * The internal-only entry point onto the shadow investigation report, surfaced right on the PR row so it is not
- * buried inside the checkpoint page. Nested inside the row's full-bleed link, so it needs its own z-layer +
- * stopPropagation to win the click. Colored by severity (bug/warning/neutral); shows the bug count when there is
- * one, or a "running" hint while in flight.
- */
-function InvestigationEntry({
-  prNumber,
-  snapshotId,
-  investigation,
-}: {
-  prNumber: number;
-  snapshotId: string;
-  investigation: InvestigationPresence;
-}) {
-  return (
-    <AppLink
-      to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/investigation"
-      params={{ prNumber: String(prNumber), snapshotId }}
-      onClick={(e) => e.stopPropagation()}
-      aria-label={`Investigation report for PR #${prNumber}`}
-      className={cn(
-        "relative z-10 inline-flex items-center gap-1 hover:underline",
-        INVESTIGATION_TONE_CLASS[investigationEntryTone(investigation)],
-      )}
-    >
-      <MagnifyingGlassIcon size={11} />
-      investigation
-      <span>· {investigationEntryLabel(investigation)}</span>
-    </AppLink>
   );
 }
 

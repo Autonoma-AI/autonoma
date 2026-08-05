@@ -1,5 +1,5 @@
 import { type Prisma, type PrismaClient } from "@autonoma/db";
-import { queryLokiLogs } from "@autonoma/investigation/logs";
+import { queryLokiLogs } from "@autonoma/diffs/analysis/logs/loki";
 import {
     type AiDiagnosisResult,
     AiDiagnosisResultSchema,
@@ -316,15 +316,17 @@ export class PreviewkitDiagnosisService extends Service {
 
         const startMs = (environment.deployedAt ?? environment.createdAt).getTime() - LOG_LOOKBACK_MS;
         try {
-            const lines = await queryLokiLogs({
+            const page = await queryLokiLogs({
                 lokiBaseUrl: this.lokiBaseUrl,
                 namespace: environment.namespace,
                 startEpoch: Math.floor(startMs / 1000),
                 endEpoch: Math.floor(Date.now() / 1000),
                 regex: LOG_ERROR_REGEX,
                 limit: MAX_LOG_LINES,
+                // What failed is often the build, so its output is evidence here rather than noise.
+                includeBuildOutput: true,
             });
-            return lines.map(maskSecretsInLine);
+            return page.lines.map((entry) => maskSecretsInLine(entry.line));
         } catch (err) {
             this.logger.warn("Loki log fetch failed during diagnosis, continuing without logs", {
                 namespace: environment.namespace,

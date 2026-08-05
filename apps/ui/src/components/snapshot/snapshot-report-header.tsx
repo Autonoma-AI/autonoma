@@ -1,12 +1,10 @@
-import { Badge, Button } from "@autonoma/blacklight";
+import { Badge } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CameraIcon } from "@phosphor-icons/react/Camera";
-import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { SentryLogsLink } from "components/observability-links";
 import { useAuth } from "lib/auth";
 import { formatDuration, formatRelativeTime } from "lib/format";
-import { useInvestigationReport } from "lib/query/branches.queries";
 import type { RouterOutputs } from "lib/trpc";
-import { SentryLogsLink } from "components/observability-links";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { CheckpointSummaryBadge } from "routes/_blacklight/_app-shell/app.$appSlug/pull-requests/-components/checkpoint-summary-badge";
 import { formatCheckpointMetrics } from "routes/_blacklight/_app-shell/app.$appSlug/pull-requests/-components/format-checkpoint-metrics";
@@ -29,10 +27,6 @@ export function SnapshotReportHeader({
   snapshotId: string;
 }) {
   const { isAdmin } = useAuth();
-  // Internal-only: the shadow investigation agent's report, for comparing against the deployed agent. The hook
-  // is enabled only for @autonoma.app users, so `investigation` is undefined for everyone else.
-  const { data: investigation } = useInvestigationReport(snapshotId);
-
   return (
     <header className="flex flex-col gap-3">
       <div className="flex items-center gap-2 text-text-tertiary">
@@ -64,21 +58,6 @@ export function SnapshotReportHeader({
             <Badge variant={healthVariant(report.health)} className="font-mono uppercase">
               {report.health}
             </Badge>
-          )}
-          {investigation != null && (
-            <AppLink
-              to="/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/investigation"
-              params={{ prNumber, snapshotId }}
-              aria-label="View the shadow investigation agent report"
-            >
-              <Button variant="outline" size="sm">
-                <MagnifyingGlassIcon size={14} />
-                Investigation
-                {investigation.clientBugCount > 0
-                  ? ` · ${investigation.clientBugCount} ${investigation.clientBugCount === 1 ? "bug" : "bugs"}`
-                  : ""}
-              </Button>
-            </AppLink>
           )}
           {isAdmin && <SentryLogsLink filterField="snapshotId" filterValue={snapshotId} />}
         </div>

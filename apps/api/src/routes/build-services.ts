@@ -197,7 +197,7 @@ export function buildServices({
     );
     const suiteHealthService = new SuiteHealthService(conn);
     const branchesService = new BranchesService(conn, githubService, storageProvider, prCacheService);
-    const falsePositiveCandidatesService = new FalsePositiveCandidateService(conn, branchesService);
+    const falsePositiveCandidatesService = new FalsePositiveCandidateService(conn);
     const branchContributorService = new BranchContributorService(conn, githubService);
 
     return {

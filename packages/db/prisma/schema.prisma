@@ -2213,7 +2213,7 @@ model BugFixOutcome {
 
 // Which channel surfaced a false-positive candidate.
 enum FalsePositiveCandidateSource {
-  mcp_client_agent // the client's own coding agent reported it via the debug MCP `report_false_positive` tool
+  mcp_client_agent // unwritten: the debug MCP tool that recorded it is gone, and no row ever carried this value
   skip_reason // inferred from an FP-indicating `/autonoma-skip` reason
 
   @@map("false_positive_candidate_source")

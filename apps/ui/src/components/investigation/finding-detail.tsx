@@ -5,7 +5,6 @@ import {
   type OverlayPoint,
   ScreenshotWithOverlay,
   Separator,
-  Skeleton,
   VideoPlayer,
 } from "@autonoma/blacklight";
 import type { InvestigationEvidence, InvestigationFinding, InvestigationRunStep } from "@autonoma/types";
@@ -452,15 +451,5 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       <h2 className="font-mono text-2xs uppercase tracking-widest text-text-secondary">{title}</h2>
       {children}
     </section>
-  );
-}
-
-export function FindingDetailSkeleton() {
-  return (
-    <div className="flex flex-col gap-6">
-      <Skeleton className="h-8 w-2/3" />
-      <Skeleton className="h-64 w-full" />
-      <Skeleton className="h-24 w-full" />
-    </div>
   );
 }

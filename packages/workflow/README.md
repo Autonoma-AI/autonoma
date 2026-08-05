@@ -9,12 +9,12 @@ src/
 ├── index.ts                              # Public exports
 ├── env.ts                                # Environment variables (TEMPORAL_ADDRESS, TEMPORAL_NAMESPACE)
 ├── client.ts                             # Temporal client singleton
-├── task-queues.ts                        # Task queue constants (web, mobile, general, diffs, investigation)
+├── task-queues.ts                        # Task queue constants (web, mobile, general, diffs)
 ├── types.ts                              # Shared types (WorkflowArchitecture, TestPlanItem, WorkflowRef)
 ├── root-failure-message.ts               # Unwraps a Temporal failure chain - not in rules/, it imports @temporalio
 ├── rules/                                # Pure decision logic - no Temporal, assertable without a test server
 │   ├── build-warrant.ts                 # Whether a commit warrants a preview build, and why
-│   └── scenario-setup-failure.ts        # Categorising a failed `scenario up`
+│   └── infra-failure.ts                # Categorising an SDK / provisioning / infra error
 ├── observability/                        # Canonical ObservabilityContext for a workflow's subjects
 │   ├── load-generation-context.ts
 │   ├── load-snapshot-context.ts
@@ -23,9 +23,8 @@ src/
 ├── preview-build-id.ts                   # The build's per-commit workflow id, shared by both starters
 ├── activities/                           # Activity type definitions (one file per concern)
 │   ├── index.ts                         # Re-exports + the activity-map interfaces each worker satisfies
-│   ├── analysis-activities.ts           # The analysis pipeline's stages
+│   ├── analysis-activities.ts           # Everything the diffs worker runs: stages, classify, Investigator writes
 │   ├── previewkit-activities.ts         # Preview build lifecycle + the warrant's inputs
-│   ├── investigation-activities.ts      # Investigation / Investigator activities
 │   ├── general-activities.ts            # Scenario setup/teardown + generation lifecycle
 │   ├── diffs-activities.ts              # The generation reviewer, on the diffs queue
 │   ├── web-activities.ts                # Web worker
@@ -39,15 +38,12 @@ src/
 │   ├── run-investigators.ts              # The bounded Investigator fan-out
 │   ├── with-analysis-run-settlement.ts   # Settle-exactly-once around a run body
 │   ├── investigator.workflow.ts          # One test's investigation
-│   ├── investigation.workflow.ts         # Shadow investigation (manual trigger only)
-│   ├── investigation-merge.workflow.ts   # Reconcile a merged twin's edits into main
 │   ├── batch-generation.workflow.ts      # Parallel generation
 │   └── single-generation.workflow.ts
 ├── triggers/                             # Functions to start workflows via the Temporal client
 │   ├── analysis-run.ts                   # triggerAnalysisRun
 │   ├── preview-build.ts                  # triggerPreviewBuild
-│   ├── batch-generation.ts               # triggerBatchGeneration
-│   └── investigation.ts                  # triggerInvestigationJob / triggerInvestigationMergeJob
+│   └── batch-generation.ts               # triggerBatchGeneration
 └── worker/
     └── create-worker.ts                  # Helper to create Temporal workers
 ```
@@ -59,8 +55,6 @@ src/
 triggerAnalysisRun(input: AnalysisRunWorkflowInput): Promise<void>
 triggerPreviewBuild(input: PreviewBuildWorkflowInput): Promise<void>
 triggerBatchGeneration(params: TriggerBatchGenerationParams): Promise<void>
-triggerInvestigationJob(params: TriggerInvestigationJobParams): Promise<void>
-triggerInvestigationMergeJob(params: TriggerInvestigationMergeJobParams): Promise<void>
 
 // Query functions
 findLatestWorkflowByGenerationId(generationId: string): Promise<WorkflowRef | undefined>
@@ -82,7 +76,7 @@ type TriggerBatchGenerationParams
 type TestPlanItem
 type WorkflowArchitecture  // "WEB" | "IOS" | "ANDROID"
 type WorkflowRef           // { workflowId, runId }
-type TaskQueue             // "web" | "mobile" | "general" | "diffs" | "investigation"
+type TaskQueue             // "web" | "mobile" | "general" | "diffs"
 ```
 
 ## Usage
@@ -108,7 +102,6 @@ Workflows define the orchestration logic using Temporal's deterministic workflow
 - **mobile** queue - Appium-based device automation activities
 - **general** queue - Scenario setup/teardown, generation lifecycle, and the preview build lifecycle
 - **diffs** queue - The analysis pipeline's stages, which clone the repository
-- **investigation** queue - The shadow investigation agent
 
 The authoritative analysis workflow has one uncancellable terminal activity, `settleAnalysisRun`. It settles the
 snapshot and run state before applying GitHub effects, so a failed or cancelled workflow cannot strand a pending
@@ -152,7 +145,6 @@ Each worker polls its own task queue:
   workflow. It is the pod that holds RBAC to create previewkit build Jobs.
 - **Diffs worker** (`apps/workers/diffs`) - The analysis pipeline's stages; runs one activity at a time because
   each clones a repository
-- **Investigation worker** (`apps/workers/investigation`) - The shadow investigation agent
 
 ### Activity Types
 

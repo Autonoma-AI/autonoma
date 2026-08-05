@@ -61,7 +61,6 @@ export function buildMcpServer(surface: McpSurface, deps: BuildMcpServerDeps): M
         resolveRepoContext: observedRepoContext,
         listRepos: () => listAccessibleRepos(services.github, principal),
         analytics,
-        userId: principal.userId,
         mergeGate: services.mergeGate,
     });
 

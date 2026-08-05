@@ -15,7 +15,6 @@ function buildProvider(getBranchHead: GitProvider["getBranchHead"]): GitProvider
         getBranchHead,
         fetchRepoTarball: unused,
         postComment: unused,
-        getComment: unused,
         updateComment: unused,
         deleteComment: unused,
         setCommitStatus: unused,

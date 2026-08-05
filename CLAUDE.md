@@ -624,7 +624,7 @@ Appium-based mobile test execution (iOS + Android). Implements the same driver i
 - Uses `@autonoma/device-lock` for Redis-based device allocation
 - Deep links / app intents for `NavigationDriver`
 
-**Both engines are libraries, not deployables.** They share all logic from `@autonoma/engine` and `@autonoma/ai`, and are linked into the worker images that run them - `apps/workers/web` (plus `diffs` and `investigation`) for web, `apps/workers/mobile` for mobile. Web and mobile never end up in the same image.
+**Both engines are libraries, not deployables.** They share all logic from `@autonoma/engine` and `@autonoma/ai`, and are linked into the worker images that run them - `apps/workers/web` (plus `diffs`) for web, `apps/workers/mobile` for mobile. Web and mobile never end up in the same image.
 
 ---
 

@@ -47,10 +47,6 @@ Each issue's kind tells you where its fix lives, so route on it rather than assu
 
 When you have fixed the cause and pushed, call start_analysis(repoFullName, prNumber) to ask Autonoma to re-check the PR against its preview - so you can confirm the fix from here without switching to GitHub to comment /start analysis. It no-ops quietly if the gate/activation is not enabled for the org; poll get_analysis afterward for the new verdict.
 
-If get_analysis reports that the PR has no analysis run, it was analyzed by the older investigation pipeline: call get_investigation(repoFullName, prNumber) for that PR's findings. Do not conclude a PR is clean from one tool alone.
-
-If while working through the INVESTIGATION findings you determine one is NOT a real bug (a false positive - e.g. a test-data gap, an environment misconfiguration, or the finding misread correct behavior), call report_false_positive(repoFullName, prNumber, findingId, reason?) with the finding's id from get_investigation. This is a tracking signal for Autonoma to review; it does not change the check, re-run the analysis, unblock the merge, or hide the finding. There is no equivalent for get_analysis issues yet.
-
 Recommended flow when a PREVIEW fails to build or deploy (for a test or app failure, get_analysis above is the entry point):
 1. Call get_deploy_status(repoFullName, prNumber) to see which service is unhealthy and whether it failed at build or at runtime.
 2. If a service failed to BUILD: call get_build_logs (start with from="tail" to see the failure; use from="head" for the start of the build). Missing build inputs often show up as a missing env var.
@@ -93,8 +89,6 @@ export interface DebugToolDeps {
     listRepos: () => Promise<AccessibleRepos>;
     /** Records a `mcp.tool_called` PostHog event per tool invocation, per customer org. */
     analytics: McpAnalytics;
-    /** The authenticated MCP caller's user id, stored as `reportedBy` on a `report_false_positive` candidate. */
-    userId: string;
     /**
      * The merge-gate entrypoint `start_analysis` calls to request a run. The single shared instance the service
      * graph already wires - never a second one - so a run requested from the editor is identical to one requested
@@ -125,18 +119,9 @@ function noLiveEnvResult(repoFullName: string, prNumber: number) {
     );
 }
 
-/**
- * The `unavailable` result for a PR with no analysis run at all. It names the legacy pipeline explicitly, because the
- * two findings tools cover different pipelines rather than different data on the same one: without the pointer an
- * agent reads "no analysis" as "nothing was found" and tells the developer their PR is clean, when the findings are
- * simply on the other tool.
- */
+/** The `unavailable` result for a PR Autonoma has not analyzed. */
 function noAnalysisResult(repoFullName: string, prNumber: number) {
-    return unavailableResult(
-        `No analysis run for ${repoFullName} PR ${prNumber}. Either Autonoma has not analyzed this PR, or it was ` +
-            `analyzed by the older investigation pipeline - call get_investigation to check before concluding there ` +
-            `is nothing to fix.`,
-    );
+    return unavailableResult(`No analysis run for ${repoFullName} PR ${prNumber}. Autonoma has not analyzed this PR.`);
 }
 
 /**
@@ -148,15 +133,10 @@ function noAnalysisResult(repoFullName: string, prNumber: number) {
  * Resolving per-repo (not a fixed org) is what lets a multi-org user's token work
  * unambiguously. Secret VALUES are never returned; `get_secret_status` reports
  * presence + masked length only.
- *
- * Two read-only findings tools cover the two analysis pipelines a PR may have run on, keyed by repo + PR:
- * `get_analysis` (current - the run's report plus the branch's open issues, read live) and `get_investigation`
- * (legacy, for PRs analyzed before it). They are not alternative views of the same run: a PR has data on one or the
- * other, which is why each one's empty result points at the other rather than reading as "nothing found".
  */
 export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void {
     const logger = rootLogger.child({ name: "debugTools" });
-    const { services, resolveRepoContext, listRepos, analytics, userId, mergeGate } = deps;
+    const { services, resolveRepoContext, listRepos, analytics, mergeGate } = deps;
 
     server.registerTool(
         "list_apps",
@@ -380,7 +360,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 'unreachable), so there is nothing to fix from it - do NOT read it as "no problems found". ' +
                 '`status: "complete"` with no issues and a `passed` verdict is a clean PR. A `newerRun` field means a ' +
                 "later run exists whose result is not in yet, so the issue set may still change. When it reports no " +
-                "analysis run, this PR was analyzed by the older pipeline - call get_investigation instead.",
+                "analysis run, Autonoma has not analyzed this PR.",
             inputSchema: repoPrInput,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
@@ -399,105 +379,6 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
     );
 
     server.registerTool(
-        "get_investigation",
-        {
-            title: "Get Autonoma's investigation findings for a PR (legacy pipeline)",
-            description:
-                "LEGACY. Findings from the older investigation pipeline, kept so a PR analyzed before the current " +
-                "one can still be worked on. Call get_analysis first; only fall back here when it reports that the PR " +
-                "has no analysis run. Returns the findings for the PR's latest checkpoint: per finding a headline, " +
-                "what happened, the likely root cause, observed app issues, a suggested fix, the file:line code " +
-                'evidence, and signed screenshot/clip URLs - plus any suggested new tests. `status: "unavailable"` ' +
-                "means no investigation has run for this PR, which is expected for any recently analyzed PR.",
-            inputSchema: repoPrInput,
-            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-        },
-        async ({ repoFullName, prNumber }) =>
-            analytics.track("get_investigation", async () => {
-                logger.info("get_investigation", { extra: { repoFullName, prNumber } });
-                try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
-                    const report = await services.branches.getInvestigationReportForPr(
-                        applicationId,
-                        prNumber,
-                        organizationId,
-                    );
-                    if (report == null) {
-                        return unavailableResult(`No investigation report for ${repoFullName} PR ${prNumber} yet.`);
-                    }
-                    return jsonResult(report);
-                } catch (err) {
-                    return toToolResult(err);
-                }
-            }),
-    );
-
-    server.registerTool(
-        "report_false_positive",
-        {
-            title: "Report an Autonoma finding as a false positive",
-            description:
-                "Flag one of Autonoma's investigation findings for this PR as a likely FALSE POSITIVE - a finding " +
-                "you determined is not a real bug in the app (e.g. a test-data gap, an environment misconfiguration, " +
-                "or the finding misread correct behavior). Pass the finding's `id` exactly as get_investigation " +
-                "returned it, and optionally a short `reason` explaining why it's not a real bug. This is a TRACKING " +
-                "signal only: it records the finding as a false-positive candidate for Autonoma to review and does " +
-                "NOT change the Autonoma check, re-run the analysis, unblock a merge, or hide the finding - to " +
-                "unblock a blocked PR a human still comments /autonoma-skip. If the id doesn't match a finding in " +
-                "the PR's latest report (e.g. it came from an earlier push), nothing is recorded and the current " +
-                "finding ids are returned so you can retry.",
-            inputSchema: {
-                ...repoPrInput,
-                findingId: z.string().min(1).max(255),
-                reason: z.string().min(1).max(4096).optional(),
-            },
-            annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-        },
-        async ({ repoFullName, prNumber, findingId, reason }) =>
-            analytics.track("report_false_positive", async () => {
-                logger.info("report_false_positive", { extra: { repoFullName, prNumber, findingId } });
-                try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
-                    const result = await services.falsePositiveCandidates.reportFromMcp({
-                        organizationId,
-                        applicationId,
-                        repoFullName,
-                        prNumber,
-                        findingId,
-                        reportedBy: userId,
-                        reason,
-                    });
-                    if (result.status === "no_report") {
-                        return unavailableResult(
-                            `No investigation report for ${repoFullName} PR ${prNumber} yet, so there is no ` +
-                                `finding to report as a false positive.`,
-                        );
-                    }
-                    if (result.status === "finding_not_found") {
-                        return jsonResult({
-                            status: "finding_not_found",
-                            message:
-                                `No finding with id "${findingId}" in the latest investigation report for ` +
-                                `${repoFullName} PR ${prNumber} - it may name a finding from an earlier push. ` +
-                                `Call get_investigation for the current finding ids and retry. Nothing was recorded.`,
-                            knownFindingIds: result.knownFindingIds,
-                        });
-                    }
-                    return jsonResult({
-                        status: "recorded",
-                        snapshotId: result.snapshotId,
-                        findingKey: result.findingKey,
-                        message:
-                            "Recorded as a false-positive candidate for Autonoma to review. Tracking only - the " +
-                            "check, the analysis, and the finding are unchanged.",
-                    });
-                } catch (err) {
-                    return toToolResult(err);
-                }
-            }),
-    );
-
-    server.registerTool(
         "start_analysis",
         {
             title: "Start an Autonoma analysis run for a PR",
@@ -506,7 +387,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "`/start analysis`. Call this when you have finished fixing and want Autonoma to re-check the PR " +
                 "against its preview; you do not need to switch to GitHub. Autonoma flips the PR's check to " +
                 "in-progress and runs its affected end-to-end tests, then posts the verdict on the PR - use " +
-                "get_investigation afterward to read the new findings. It NO-OPS quietly if the merge gate or " +
+                "get_analysis afterward to read the new findings. It NO-OPS quietly if the merge gate or " +
                 "activation is not enabled for this org (a run there starts automatically, so nothing is needed), " +
                 "and if the PR's current commit was already analyzed or has no live preview, no run starts and " +
                 "Autonoma comments on the PR why. Takes the repo ('owner/repo') and the PR number.",
@@ -541,7 +422,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                             `${pullRequest.headSha}). If the merge gate and activation are enabled for this org, ` +
                             `Autonoma either starts the run and posts the verdict on the PR, or - if this commit was ` +
                             `already analyzed or has no live preview - comments on the PR why no run started; if the ` +
-                            `gate or activation is not enabled, this was a no-op. Call get_investigation to read the ` +
+                            `gate or activation is not enabled, this was a no-op. Call get_analysis to read the ` +
                             `result.`,
                     });
                 } catch (err) {

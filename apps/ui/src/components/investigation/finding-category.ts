@@ -23,9 +23,6 @@ const CATEGORY_META: Record<string, FindingCategoryMeta> = {
     passed: { label: "Passed", variant: "success", priority: 6 },
 };
 
-/** The highest priority value (passed) - findings at this level are collapsed by default. */
-export const PASSED_PRIORITY = 6;
-
 export function findingCategoryMeta(category: string): FindingCategoryMeta {
     return (
         CATEGORY_META[category] ?? {

@@ -15,21 +15,26 @@ export interface LokiLogQuery {
     regex: string;
     /** Max lines to return. */
     limit?: number;
+    /**
+     * Also return the build pipeline's output, not just the running app's. Defaults to false.
+     *
+     * A preview namespace carries both under the same `namespace` label (`loki-build-log-sink.ts` labels the
+     * build stream `source="build"`), and a generic error filter matches build output readily: BuildKit step
+     * lines, turbo cache output, and a `db-setup` shell one-liner whose `rejectUnauthorized` matches
+     * `unauthorized`. Measured on a live preview over 24h, the unrestricted query returned 151 matching lines
+     * of which 68 - 45% - were build output.
+     *
+     * Which side is noise depends on the question. Explaining why a RUNNING app failed a step wants the app
+     * alone, or the model reads BuildKit output as the application's server-side errors. Diagnosing why a
+     * deploy failed wants both, because the thing that failed is often the build itself.
+     */
+    includeBuildOutput?: boolean;
 }
 
-/**
- * Restrict the stream to the RUNNING app.
- *
- * A preview namespace carries the build pipeline's output under the same `namespace` label, and the default
- * filter (`error|exception|...|unauthorized|...`) matches it readily: BuildKit step lines, turbo cache
- * output, and a `db-setup` shell one-liner whose `rejectUnauthorized` matches `unauthorized`. Measured on a
- * live preview over 24h, the unrestricted query returned 151 matching lines of which 68 - 45% - were build
- * output, handed to the model under the heading "App logs" as the running application's server-side errors.
- *
- * `kind!="start"` drops the empty deployment-marker rows; it keeps every real line, since a `!=` matcher also
- * matches streams that carry no `kind` label at all.
- */
-const SOURCE_MATCHERS = ['source="app"', 'kind!="start"'];
+/** Drops the empty deployment-marker rows. `!=` also matches streams carrying no `kind` label, so no real line is lost. */
+const DEPLOY_MARKER_MATCHER = 'kind!="start"';
+/** Restricts the stream to the running app, excluding the build pipeline that shares the namespace. */
+const APP_SOURCE_MATCHER = 'source="app"';
 
 const DEFAULT_LIMIT = 150;
 const WINDOW_PADDING_SECONDS = 90;
@@ -79,8 +84,10 @@ export async function queryLokiLogs(query: LokiLogQuery): Promise<LokiLogPage> {
     const limit = query.limit ?? DEFAULT_LIMIT;
     const startNanos = (query.startEpoch - WINDOW_PADDING_SECONDS) * NANOS_PER_SECOND;
     const endNanos = (query.endEpoch + WINDOW_PADDING_SECONDS) * NANOS_PER_SECOND;
+    const matchers =
+        query.includeBuildOutput === true ? [DEPLOY_MARKER_MATCHER] : [APP_SOURCE_MATCHER, DEPLOY_MARKER_MATCHER];
     const params = new URLSearchParams({
-        query: `{${SOURCE_MATCHERS.join(", ")}, namespace="${query.namespace}"} |~ ${lineFilter(query.regex)}`,
+        query: `{${matchers.join(", ")}, namespace="${query.namespace}"} |~ ${lineFilter(query.regex)}`,
         start: String(startNanos),
         end: String(endNanos),
         direction: "backward",

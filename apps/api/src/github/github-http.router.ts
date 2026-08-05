@@ -5,13 +5,10 @@ import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { storageProvider } from "../context";
 import { diffsTriggerService } from "../diffs/diffs-service";
 import { env } from "../env";
-import { investigationMergeTriggerService } from "../investigation/investigation-merge-service";
 import { previewkitTriggerService } from "../previewkit/previewkit-service";
 import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.service";
-import { BranchesService } from "../routes/branches/branches.service";
 import { BranchContributorService } from "./branch-contributor.service";
 import { BugFixOutcomeService } from "./bug-fix-outcome.service";
 import { FalsePositiveCandidateService } from "./false-positive-candidate.service";
@@ -32,8 +29,7 @@ type GitHubEnv = {
 const githubApp = buildGitHubApp(env);
 const githubService = new GitHubInstallationService(db, githubApp);
 const prCacheService = new PullRequestCacheService(db, githubService);
-const branchesService = new BranchesService(db, githubService, storageProvider, prCacheService);
-const falsePositiveCandidatesService = new FalsePositiveCandidateService(db, branchesService);
+const falsePositiveCandidatesService = new FalsePositiveCandidateService(db);
 const mergeGateService = new MergeGateService(
     db,
     githubApp,
@@ -263,7 +259,6 @@ async function dispatchWebhookEvent(
         case "pull_request_closed":
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestTeardown(organizationId, payload);
-            await startInvestigationMerge(organizationId, payload);
             await mergeGateService.recordMergeFromWebhook(organizationId, payload);
             await branchContributorService.refreshFromWebhook(organizationId, payload);
             await bugFixOutcomeService.recordFromWebhook(organizationId, payload);
@@ -300,16 +295,6 @@ async function startPullRequestDeploy(
         if (!(error instanceof InsufficientPreviewCreditsError)) throw error;
         logger.info("Skipped preview deploy: organization is out of credits", { action, organizationId });
     }
-}
-
-/**
- * Merge-with-main path for pull_request.closed: when the PR merged, reconcile its investigation twin's edits
- * into main. Gated on the same shadow flag as the rest of the investigation agent; the service itself no-ops
- * when the PR did not merge or has no twin.
- */
-async function startInvestigationMerge(organizationId: string, payload: Record<string, unknown>): Promise<void> {
-    if (!env.INVESTIGATION_SHADOW_ENABLED) return;
-    await investigationMergeTriggerService.onPullRequestClosed(organizationId, payload);
 }
 
 /** Teardown path for pull_request.closed. */

@@ -14,7 +14,6 @@ import * as Sentry from "@sentry/node";
 import { TRPCError, initTRPC } from "@trpc/server";
 import superjson from "superjson";
 import { z } from "zod";
-import { isInternalEmail } from "./auth";
 import type { Context } from "./context";
 import { env } from "./env";
 
@@ -154,15 +153,6 @@ export const writeProcedure = protectedProcedure.use(async ({ ctx, next }) => {
             message: "This is a read-only demo organization.",
             cause: new DemoReadOnlyError(),
         });
-    }
-    return next({ ctx });
-});
-
-/** Gated on the Autonoma-internal email domain (@autonoma.app) rather than the admin role - for surfaces
- * (like the shadow investigation report) shown only to Autonoma staff, regardless of their org role. */
-export const internalEmailProcedure = protectedProcedure.use(async ({ ctx, next }) => {
-    if (!isInternalEmail(ctx.user.email)) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Internal access required" });
     }
     return next({ ctx });
 });

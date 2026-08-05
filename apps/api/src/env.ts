@@ -34,9 +34,6 @@ export const env = createEnv({
         // in production (e.g. a marketplace-reviewer test account). Every other account
         // is Google SSO only - see the emailAndPassword hooks in auth.ts.
         TEST_ACCOUNT_ALLOWED_EMAILS: z.string().optional(),
-        // Gates the two remaining investigation entry points - the onboarding re-investigation sweep and the
-        // investigation merge flow. The PR-run trigger no longer consults it: a PR run is always an analysis run.
-        INVESTIGATION_SHADOW_ENABLED: z.stringbool().default(false),
         // Global master kill-switch for the Autonoma merge gate. OFF by default: while off, the gate posts no
         // checks and honors no Skip no matter an org's per-org `mergeGateEnabled`. Effective gate =
         // MERGE_GATE_ENABLED && org.mergeGateEnabled.

@@ -19,8 +19,6 @@ const HISTORICAL_DEBUG_TOOLS = [
     "get_app_logs",
     "diagnose_deploy",
     "get_analysis",
-    "get_investigation",
-    "report_false_positive",
     "start_analysis",
     "get_secret_status",
     "set_secret",

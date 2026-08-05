@@ -3,6 +3,7 @@ import type {
     AnalysisRunOutcome,
     AnalysisTestOrigin,
     AnalysisVerdict,
+    InvestigationRunStep,
 } from "@autonoma/types";
 
 /**
@@ -236,6 +237,95 @@ export interface OpenAnalysisRunInput {
  */
 export type OpenAnalysisRunOutput = { skipped: true } | { skipped: false; snapshotId: string };
 
+/** A serializable verdict, structurally assignable from the classifier's own `RunVerdict`. */
+export interface InvestigationEvidence {
+    source: string;
+    detail: string;
+    file?: string;
+    lines?: string;
+    snippet?: string;
+}
+export interface InvestigationVerdict {
+    category: string;
+    isClientBug: boolean;
+    ran: boolean;
+    confidence: string;
+    planFidelity?: string;
+    headline: string;
+    /** What the app SHOULD have done / what it actually did. */
+    expectedBehavior?: string;
+    actualBehavior?: string;
+    /** The false-positive self-check. Set for a bug / setup failure; absent for a passed run or a harness fault. */
+    falsePositiveRisk?: string;
+    /** Free-form "what happened" narrative, filled by the coverage faults (engine_artifact / environment_failure
+     * / scenario_issue); the app-health categories use expected/actual above instead. */
+    whatHappened?: string;
+    rootCause?: string;
+    remediation?: string;
+    suggestedTestUpdate?: string;
+    /** The `plan_mismatch` self-heal post-mortem: what the test asserted that was wrong, the rewrite attempted,
+     * and why it still failed. Set only for a `plan_mismatch` verdict. */
+    planMismatchNote?: string;
+    /** The `invalid_test` justification: which impossibility failure mode (nonexistent feature / unexecutable
+     * steps / wrong premise / unrecoverable) and the proof. Set only for an `invalid_test` verdict. */
+    invalidTestNote?: string;
+    /** App problems visible in the video independent of the test's pass/fail; absent if the app looked healthy. */
+    observedAppIssues?: string;
+    evidence: InvestigationEvidence[];
+}
+
+/** One classified run, carried from the classify activity to the Reporter. */
+export interface InvestigationTestResult {
+    slug: string;
+    /** The test's current plan (for rendering the suggested update as a diff). */
+    plan: string;
+    runSuccess: boolean;
+    stepCount: number;
+    /** The step-by-step run trace (interaction + status + per-step error) - the run agent's observation log. */
+    runSteps?: string[];
+    /** The structured trace: per-step frame (s3 key) + click coords, for the inspectable run-trace UI. */
+    runTrace?: InvestigationRunStep[];
+    verdict?: InvestigationVerdict;
+    error?: string;
+    videoUrl?: string;
+    /** The dead-time-stripped mp4 recording (s3 key), when the engine produced one. Signed on read; backs the
+     *  finding page's Optimized/Original toggle. Absent for runs recorded before the optimizer landed. */
+    optimizedVideoUrl?: string;
+    keyScreenshotUrl?: string;
+    /** S3 key of a short GIF clip of the failure (client bugs only). */
+    clipUrl?: string;
+    /**
+     * `s3://` URL of the classifier's persisted LLM conversation for this run (the reasoning behind the verdict),
+     * uploaded by the classify activity and signed on read. Best-effort: absent when the upload failed or the run
+     * reached no classifier verdict. Threaded onto this run's classification so a wrong verdict can be debugged.
+     */
+    conversationUrl?: string;
+}
+
+export interface ClassifyInvestigationRunInput {
+    snapshotId: string;
+    slug: string;
+    reason: string;
+    testGenerationId: string;
+    /**
+     * Present when this run is a SELF-HEAL RE-RUN: the prior pass's verdict on the original plan. The classifier
+     * needs this context - the prior pass concluded the app was healthy and the test itself was wrong, and this
+     * run executes the corrected plan - so a still-failing re-run is judged against that conclusion (the test
+     * could not be stabilized) instead of being re-investigated from scratch and flakily escalated to a bug.
+     */
+    priorPass?: {
+        category: string;
+        headline: string;
+        rootCause?: string;
+    };
+}
+
+/**
+ * Everything the diffs worker runs on the DIFFS queue: the run's own stages, the per-test classify, and the
+ * Investigator's row-local writes. One contract because one worker implements all of it - the differing timeouts
+ * live at the `proxyActivities` call sites, each of which `Pick`s the members it actually calls, so no workflow
+ * can reach an activity it has not declared.
+ */
 export interface AnalysisActivities {
     /**
      * Open the branch's analysis run - its pending snapshot plus the AnalysisJob tracking it - superseding whatever
@@ -250,24 +340,25 @@ export interface AnalysisActivities {
      */
     openMergeGate(input: OpenMergeGateInput): Promise<OpenMergeGateOutput>;
     runImpactAnalysis(input: RunImpactAnalysisInput): Promise<RunImpactAnalysisOutput>;
-    runReporter(input: RunReporterInput): Promise<RunReporterOutput>;
-    settleAnalysisRun(input: SettleAnalysisRunInput): Promise<SettleAnalysisRunOutput>;
-}
-
-/**
- * The Investigator's own write activities: its row-local test edits on the snapshot - a self-heal plan rewrite
- * (`UpdateTest`), the revert of that rewrite when a `plan_mismatch` is kept (`RevertPlan`, no re-run so the failed
- * rewrite is not promoted), and the removal of an irreparable test on an `invalid_test` verdict (`RemoveTest`) - all
- * via the canonical `TestSuiteUpdater` update actions - plus `persistAnalysisClassification`, with which it files each
- * iteration's outcome as it happens. `invalid_test` is the only verdict that removes a test. A separate contract from
- * `AnalysisActivities` (the parent stages); the parent also proxies it to contain a child that crashed, appending a
- * fault classification rather than overwriting what the child wrote.
- */
-export interface InvestigatorActivities {
+    /** One test's run classified into a verdict. The long pole of an Investigator pass - see its proxy's timeout. */
+    classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult>;
+    /**
+     * The Investigator's row-local test edits on the snapshot, all via the canonical `TestSuiteUpdater` update
+     * actions: a self-heal plan rewrite (`UpdateTest`), the revert of that rewrite when a `plan_mismatch` is kept
+     * (`RevertPlan`, no re-run so the failed rewrite is not promoted), and the removal of an irreparable test on an
+     * `invalid_test` verdict (`RemoveTest`). `invalid_test` is the only verdict that removes a test.
+     */
     selfHealAnalysisTest(input: SelfHealAnalysisTestInput): Promise<SelfHealAnalysisTestOutput>;
     revertSelfHealPlan(input: RevertSelfHealPlanInput): Promise<RevertSelfHealPlanOutput>;
     deleteAnalysisTest(input: DeleteAnalysisTestInput): Promise<DeleteAnalysisTestOutput>;
+    /**
+     * File one iteration's outcome as it happens. Proxied by the Investigator for its own iterations AND by the
+     * fan-out parent, which uses it to contain a child that crashed before filing - appending a fault
+     * classification rather than overwriting what the child wrote.
+     */
     persistAnalysisClassification(
         input: PersistAnalysisClassificationInput,
     ): Promise<PersistAnalysisClassificationOutput>;
+    runReporter(input: RunReporterInput): Promise<RunReporterOutput>;
+    settleAnalysisRun(input: SettleAnalysisRunInput): Promise<SettleAnalysisRunOutput>;
 }

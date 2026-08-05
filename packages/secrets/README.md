@@ -84,7 +84,7 @@ Each namespace releases its own on its next deploy. `deployment/previewkit/clust
 
 ### Reading a preview's env by repo
 
-`PreviewSecrets` is what the investigation and diffs classifiers introspect a preview with (`get_preview_env` lists the names, `run_script` runs against the live backend with the same credentials).
+`PreviewSecrets` is what the diffs classifier introspects a preview with (`get_preview_env` lists the names, `run_script` runs against the live backend with the same credentials).
 
 **It resolves rows, it does not rebuild a name.** The two copies it replaces built `previewkit/<repo>/web` and read that AWS secret directly - a guess that missed the bundles predating the three-segment scheme and any Application whose app is not called `web`, both surfacing as `ResourceNotFoundException` at the classifier. When an Application holds several bundles it prefers `web`; a sole bundle wins whatever it is named.
 

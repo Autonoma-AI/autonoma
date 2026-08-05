@@ -20,7 +20,6 @@ export {
 } from "./queries/snapshot-changes";
 export * from "./changes";
 export { fetchTestSuiteInfo } from "./queries/fetch-info";
-export { createDetachedSnapshot, type CreateDetachedSnapshotParams } from "./queries/create-detached-snapshot";
 export { buildSdkUrl } from "./queries/sdk-url";
 export { recordBranchDeployment, type RecordBranchDeploymentParams } from "./queries/record-branch-deployment";
 export { startAnalysisRun, type StartAnalysisRunParams } from "./queries/start-analysis-run";

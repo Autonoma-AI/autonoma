@@ -36,9 +36,8 @@ const STATE_ICONS: Record<AutonomaCommentState, string> = {
     unknown: "⚪",
 };
 
-// The "See preview" CTA links to the live preview environment. Exported so the teardown path
-// (which removes it once the environment is gone) keys off the same label instead of a private copy.
-export const SEE_PREVIEW_CTA_LABEL = "See preview";
+// The "See preview" CTA links to the live preview environment; the label keys its image asset and emoji below.
+const SEE_PREVIEW_CTA_LABEL = "See preview";
 
 // The comment is text-first (portable to markdown-only renderers like Linear): most CTAs are plain
 // markdown links. The two top-level CTAs keep an image (a Vercel-style primary + secondary pair) rendered

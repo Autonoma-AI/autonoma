@@ -1,8 +1,6 @@
 export const WORKFLOW_TYPE = {
     BATCH_GENERATION: "batchGenerationWorkflow",
     SINGLE_GENERATION: "singleGenerationWorkflow",
-    INVESTIGATION: "investigationWorkflow",
-    INVESTIGATION_MERGE: "investigationMergeWorkflow",
     ANALYSIS_RUN: "analysisRunWorkflow",
     PREVIEW_BUILD: "previewBuildWorkflow",
     INVESTIGATOR: "investigatorWorkflow",
