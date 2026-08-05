@@ -350,15 +350,18 @@ export class PreviewkitTriggerService extends Service {
      * Whether the customer deploys this repo's previews themselves (Vercel and the like). Only the webhook entries
      * need to ask - every other path is reached through an environment Autonoma already hosts.
      *
-     * An app that has made no choice yet counts as customer-deployed, matching the run's own `resolvePreviewTarget`:
-     * a webhook cannot know a preview URL, so opening a run here would test a preview nobody recorded.
+     * An Application that has made no choice yet counts as customer-deployed, matching the run's own
+     * `resolvePreviewTarget`: a webhook cannot know a preview URL, so opening a run here would test a preview
+     * nobody recorded. No Application at all is different - there is no onboarding choice to disagree with, and
+     * `startRun` already falls back to an unlinked best-effort build for that case via `startBuildWithoutRun`.
      */
     private async usesExternalDeploys(organizationId: string, githubRepositoryId: number): Promise<boolean> {
         const application = await this.db.application.findUnique({
             where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
             select: { onboardingState: { select: { previewEnvironmentMode: true } } },
         });
-        return !autonomaHostsPreviews(application?.onboardingState?.previewEnvironmentMode);
+        if (application == null) return false;
+        return !autonomaHostsPreviews(application.onboardingState?.previewEnvironmentMode);
     }
 
     /** Teardown entry point for `pull_request.closed` webhooks. */

@@ -191,6 +191,13 @@ apiTestSuite({
             where: { id: app.id },
             data: { githubRepositoryId: REPO_ID },
         });
+        // This suite exercises the previewkit-hosted flow throughout, so the seeded app has made that onboarding
+        // choice - an unmade choice (NULL) now means customer-deployed and would skip every run before it starts.
+        await harness.db.onboardingState.upsert({
+            where: { applicationId: app.id },
+            create: { applicationId: app.id, previewEnvironmentMode: "previewkit" },
+            update: { previewEnvironmentMode: "previewkit" },
+        });
 
         await harness.services.github.handleInstallation(54321, harness.organizationId, "acme", 777, "Organization");
 
