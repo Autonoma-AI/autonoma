@@ -1,5 +1,17 @@
-import type { TextGenerator, UploadedVideo } from "@autonoma/ai";
+import { TextGenerator, type LanguageModel, type RetryConfig, type UploadedVideo } from "@autonoma/ai";
 import { logger as rootLogger } from "@autonoma/logger";
+
+/**
+ * Bounded retry for the vision reads, tighter than the shared default.
+ *
+ * `buildRetry` treats a TIMEOUT as transient, so `maxRetries` multiplies the per-attempt ceiling: the default
+ * policy would let one hung full-recording read spend 33 minutes, past the 30-minute Temporal
+ * `startToCloseTimeout` that is the classifier's only wall clock.
+ */
+const VISION_RETRY: RetryConfig = { maxRetries: 3, initialDelayInMs: 1000, backoffFactor: 2, maxDelayInMs: 10_000 };
+
+/** A full-recording read re-sends the whole video and has been measured from ~10s to well over a minute. */
+const RECORDING_TIMEOUT_MS = 3 * 60_000;
 
 /**
  * Prepended to every probe.
@@ -156,6 +168,31 @@ export async function runVisionProbes({ recording, reader, testPlan }: VisionPro
         },
     });
     return scans;
+}
+
+/**
+ * The reader every recording read goes through - the probes here and the classifier's `analyze_video` alike.
+ *
+ * A read is an object you ask a question of, so which model answers and on what time budget is fixed by the
+ * reader you hold, not chosen per call. Built here so the classifier and an offline scan capture share one
+ * definition and cannot drift on the timeout/retry that keep a hung read inside the workflow's wall clock.
+ */
+export function createRecordingReader(videoModel: LanguageModel): TextGenerator {
+    return new TextGenerator({ model: videoModel, timeoutMs: RECORDING_TIMEOUT_MS, retry: VISION_RETRY });
+}
+
+/**
+ * Run the four probes over a recording with a freshly built reader - the standalone entry a caller uses to
+ * reproduce, offline, the scans a classification would have read. Content depends only on the model and the
+ * probe prompts, both fixed here, so a caller cannot freeze scans a classification could not have produced.
+ */
+export async function captureProbeScans(request: {
+    videoModel: LanguageModel;
+    recording: UploadedVideo;
+    testPlan: string;
+}): Promise<ProbeScans> {
+    const reader = createRecordingReader(request.videoModel);
+    return runVisionProbes({ recording: request.recording, reader, testPlan: request.testPlan });
 }
 
 interface SingleProbe extends Omit<VisionProbeRequest, "testPlan"> {

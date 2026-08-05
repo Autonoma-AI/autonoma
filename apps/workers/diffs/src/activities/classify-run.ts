@@ -39,6 +39,36 @@ const MAX_TRACE_STEPS = 120;
 /** Per-step error budget in the structured run trace the finding page renders. */
 const MAX_STEP_CHARS = 300;
 
+/** The columns {@link buildRunArtifacts} and {@link describeProvision} read off a generation. */
+const GENERATION_SELECT = {
+    status: true,
+    videoUrl: true,
+    optimizedVideoUrl: true,
+    finalScreenshot: true,
+    reasoning: true,
+    createdAt: true,
+    updatedAt: true,
+    testPlan: { select: { prompt: true } },
+    snapshot: { select: { branch: { select: { application: { select: { architecture: true } } } } } },
+    scenarioInstance: {
+        select: { status: true, auth: true, refs: true, lastError: true, upAt: true, downAt: true },
+    },
+    attempts: {
+        select: {
+            order: true,
+            interaction: true,
+            status: true,
+            error: true,
+            screenshotBefore: true,
+            screenshotAfter: true,
+            params: true,
+            output: true,
+            createdAt: true,
+        },
+        orderBy: { order: "asc" },
+    },
+} as const;
+
 type AttemptRow = {
     order: number;
     interaction: string;
@@ -80,6 +110,18 @@ export type GenerationRow = {
 };
 
 /**
+ * Load the generation a classification reasons from, with the columns {@link buildRunArtifacts} and
+ * {@link describeProvision} need.
+ *
+ * The one reader of {@link GENERATION_SELECT}, so freezing a replayable classification goes through this rather
+ * than reaching for the raw select: the select stays private, and a captured case cannot drift from the columns
+ * production classified.
+ */
+export function loadGenerationRow(generationId: string): Promise<GenerationRow> {
+    return db.testGeneration.findUniqueOrThrow({ where: { id: generationId }, select: GENERATION_SELECT });
+}
+
+/**
  * Classify one shadow run: load its generation row + media, clone the codebase, wire the classifier's
  * dependencies against real infra (Prisma / S3 / preview secrets / the cloned repo / the models / Loki), and
  * run the classifier. get_app_logs is wired to the preview's Loki stream, when the namespace resolves from
@@ -93,37 +135,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
     });
     logger.info("Classifying shadow run");
 
-    const generation = await db.testGeneration.findUniqueOrThrow({
-        where: { id: testGenerationId },
-        select: {
-            status: true,
-            videoUrl: true,
-            optimizedVideoUrl: true,
-            finalScreenshot: true,
-            reasoning: true,
-            createdAt: true,
-            updatedAt: true,
-            testPlan: { select: { prompt: true } },
-            snapshot: { select: { branch: { select: { application: { select: { architecture: true } } } } } },
-            scenarioInstance: {
-                select: { status: true, auth: true, refs: true, lastError: true, upAt: true, downAt: true },
-            },
-            attempts: {
-                select: {
-                    order: true,
-                    interaction: true,
-                    status: true,
-                    error: true,
-                    screenshotBefore: true,
-                    screenshotAfter: true,
-                    params: true,
-                    output: true,
-                    createdAt: true,
-                },
-                orderBy: { order: "asc" },
-            },
-        },
-    });
+    const generation = await loadGenerationRow(testGenerationId);
 
     return withSnapshotContext(snapshotId, `classify-${testGenerationId}`, async (context) => {
         const prMeta = await resolvePrMeta(context);

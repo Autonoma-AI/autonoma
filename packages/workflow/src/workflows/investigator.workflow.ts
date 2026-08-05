@@ -2,6 +2,7 @@ import {
     type AnalysisClassificationReport,
     type AnalysisTestOrigin,
     type AnalysisVerdict,
+    SELF_HEAL_RERUN_REASON,
     analysisVerdictSchema,
 } from "@autonoma/types";
 import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
@@ -34,10 +35,6 @@ const MAX_INVESTIGATOR_ITERATIONS = 2;
  * same child restates its own row rather than appending a second fault.
  */
 export const CONTAINMENT_CLASSIFICATION_NUMBER = MAX_INVESTIGATOR_ITERATIONS + 1;
-
-/** Reason recorded for a self-heal re-run, fed to the classifier as context for the follow-up iteration. */
-const SELF_HEAL_RERUN_REASON =
-    "Re-running after a self-heal plan rewrite: the prior run indicated a stale/incorrect test on a healthy app.";
 
 /** How much of a fault's underlying error message to carry into the finding headline (the rest is only logged). */
 const FAULT_DETAIL_CAP = 200;

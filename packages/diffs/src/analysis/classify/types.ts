@@ -2,6 +2,7 @@ import type { UploadedVideo } from "@autonoma/ai";
 import type { ApplicationArchitecture } from "@autonoma/db";
 import type { InspectableStep, ScreenshotLoader } from "../../agents/tools/run-evidence/run-evidence-types";
 import type { Codebase } from "../../codebase";
+import type { ProbeScans } from "./probes";
 
 /**
  * The artifacts of the browser run. The recording and the final frame are held in MEMORY as bytes - the
@@ -76,6 +77,12 @@ export interface ClassifierInput {
     baseSha: string;
     headSha: string;
     run: RunArtifacts;
+    /**
+     * The four pre-loop vision scans, when a caller already holds them. Supplied when replaying a frozen case,
+     * so the classification is judged against the exact scans the case was authored against and the replay
+     * spends no vision reads. Absent in production, where the agent reads the recording itself.
+     */
+    scans?: ProbeScans;
     /** Rehydrates one step frame's bytes from its storage key, at `view_step_details` call time. */
     screenshotLoader: ScreenshotLoader;
     /**

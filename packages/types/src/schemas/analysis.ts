@@ -262,6 +262,17 @@ export function countAnalysisFindingBuckets(categories: Iterable<string>): Analy
 export const analysisTestOriginSchema = z.enum(["pre_existing", "proposed"]);
 export type AnalysisTestOrigin = z.infer<typeof analysisTestOriginSchema>;
 
+/**
+ * The selection reason the classifier is given on a self-heal re-run, in place of the reason Impact Analysis
+ * recorded for the test.
+ *
+ * Never persisted - the finding keeps the ORIGINAL selection reason - so anything reconstructing what a
+ * re-run's classification was told has to reproduce this exact prose, which is why it is shared rather than
+ * inlined at the one place that emits it.
+ */
+export const SELF_HEAL_RERUN_REASON =
+    "Re-running after a self-heal plan rewrite: the prior run indicated a stale/incorrect test on a healthy app.";
+
 /** How many findings carry a given coverage-plane category (categories with zero are omitted). */
 export const coverageCategoryCountSchema = z.object({
     category: analysisVerdictSchema,

@@ -51,9 +51,17 @@ export class PriorRuns {
      * `[slug, organizationId]` - so slug-keying this silently merged the run history of every tenant sharing
      * an app slug, and `everPassed` could be established by another customer's passes. That decides whether
      * the classifier blames this PR, so the key has to be one that cannot span an organization.
+     *
+     * `before` bounds the history to the runs that existed at a past instant. Production omits it - now is the
+     * bound - and it is passed only when freezing a baseline for later replay: without it, runs recorded
+     * AFTER the classification being frozen leak into `everPassed` and `mostRecentSuccessDay`, handing a
+     * replay a baseline the original classification could never have seen.
      */
-    async getHistory(applicationId: string, testSlug: string): Promise<PriorRunsHistory> {
-        const scope = { assignment: { testCase: { slug: testSlug, applicationId } } };
+    async getHistory(applicationId: string, testSlug: string, before?: Date): Promise<PriorRunsHistory> {
+        const scope = {
+            assignment: { testCase: { slug: testSlug, applicationId } },
+            createdAt: before != null ? { lt: before } : undefined,
+        };
         // "Has it EVER passed" is asked of the WHOLE history, not of the recent window: the window is a
         // display sample, and a test that last passed 31 runs ago is still a test that has passed.
         const [runs, lastSuccess] = await Promise.all([

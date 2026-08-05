@@ -1,11 +1,3 @@
-// The analysis pipeline's classifier library - the `ClassifierAgent` (its vision probes + its tools) and the
-// deployed comparison, re-homed out of packages/investigation so the merged analysis pipeline
-// (impact analysis -> investigators -> reporter) shares no code with the frozen investigation shadow. Exposed via
-// the `@autonoma/diffs/analysis` subpath so it never collides with the diffs package's own model-session exports
-// on the main entrypoint.
-//
-// Test selection is not here: the DiffsAgent (`runDiffsAnalysis`) decides which tests a diff affects.
-
 export { Category, Confidence, Evidence, EvidenceSource, PlanFidelity, RunVerdict } from "./schema";
 export { PriorRuns } from "./db/prior-runs";
 export type { PriorRun, PriorRunsHistory } from "./db/prior-runs";
@@ -18,18 +10,15 @@ export { queryLokiLogs } from "./logs/loki";
 export type { LokiLogQuery } from "./logs/loki";
 export { loadPreviewAppLogs } from "./logs/preview-app-logs";
 export type { PreviewAppLogsInput } from "./logs/preview-app-logs";
-// The classifier: one AgentLoop run per test run, ending in the terminal `finish` tool's RunVerdict.
-// `ClassifierAgent` is the entry point, so its prompt builder, system prompt and loop class stay internal -
-// exporting them would offer a way to drive the pieces without the agent that sequences them.
 export { VerdictForModel } from "./classify/verdict-schema";
 export { ClassifierAgent } from "./classify/classifier-agent";
 export type { ClassifierAgentConfig } from "./classify/classifier-agent";
 export type { ClassifierInput, PreviewAccess, RunArtifacts } from "./classify/types";
+export { captureProbeScans } from "./classify/probes";
+export type { ProbeScans } from "./classify/probes";
 export { summarizeVerdictPlanes } from "./verdict-planes";
 export type { AppHealthVerdict, CoverageCategoryCount, CoverageSummary, TwoPlaneSummary } from "./verdict-planes";
 
-// The Reporter agent: reconciles a job's findings into de-duped, branch-scoped issues and authors one holistic
-// PR report, on the AgentLoop harness.
 export { ReporterAgent } from "./report";
 export type { ReporterAgentConfig } from "./report";
 export {

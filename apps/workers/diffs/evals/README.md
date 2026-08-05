@@ -4,11 +4,17 @@ Local, per-step, **scored** evaluations for the diffs pipeline - the replacement
 the eyeball-only local-dev scripts. Each step keeps a corpus of on-disk cases and
 scores the agent's output with **deterministic frontmatter checks plus an LLM judge**.
 
-Three steps are currently under eval: **Diff Analysis**, **Generation Review**,
-and **Diff Healing**. The reviewer evals additionally exercise
+Four steps are currently under eval: **Diff Analysis**, **Generation Review**,
+**Diff Healing**, and the **Classifier** (the Investigator's verdict on one run).
+The reviewer and classifier evals additionally exercise
 the **multimedia rehydration path** - they download screenshots + the recording
 from S3 at run time via the production evidence loader. No media bytes are ever
 committed.
+
+Note that `analysis/` is the **impact-analysis** step (the `DiffsAgent`, which picks
+which tests a diff affects), while `classifier/` is the step that judges what a run's
+outcome MEANT. Both live under the pipeline's "analysis" banner; they grade different
+agents.
 
 Diff Resolution no longer has its own step. The Resolution agent was folded into
 the Healing agent as iteration 1 of the refinement loop, so a first-turn case
@@ -186,11 +192,57 @@ review, any test case expected to be removed - via `expectedActions: remove_test
 throws at load time (the in-repo enforcement of "no `remove_test` case lacks a cited
 review").
 
+### Classifier frontmatter
+
+A classifier case is **one `AnalysisClassification`** - a single classifier invocation.
+That grain is what makes a self-heal re-run capturable on its own: iteration 2 of a
+finding is its own row, with its own generation and its own `priorPass`, exercising a
+prompt path iteration 1 never reaches. Rows with a **null confidence** are contained
+faults where no classifier ran, and capture refuses them.
+
+```yaml
+---
+description: "what this case exercises"
+skip: false
+capturedCategory: engine_artifact   # what production said when frozen. Provenance, never edited
+category: passed                    # the verdict this case ASSERTS (blank at capture, by design)
+planFidelity: exact                 # optional: exact | partial | diverged
+expectRewrite: true                 # a plan_mismatch must carry a revised plan (see below)
+probes: frozen                      # 'live' re-reads the recording instead of using frozen scans
+runs: 1                             # >1 requires EVERY run to pass, which measures stability
+---
+
+Free-text judge rubric. The judge sees only the structured verdict plus this body -
+never the codebase, recording, or screenshots.
+```
+
+`category` is deliberately **left blank by capture**: pre-filling it from production
+would make ratifying a wrong verdict the path of least resistance. `capturedCategory`
+records what production said, and is never edited - so when an expectation is later
+re-baselined (an `engine_artifact` that should now read `passed` because the engine
+grew the capability), the case still shows where it started.
+
+Only `category`, `planFidelity` and a `plan_mismatch`'s `suggestedTestUpdate` are
+graded deterministically. `confidence` is not - it is the field most likely to move
+between two runs of an unchanged classifier. `evidence` and `keyStepIndex` are not
+either: whether the cited evidence supports the verdict, and which frame best shows a
+finding, are judgements the rubric exists for. Set `expectRewrite: false` for a case
+whose right answer is the empty rewrite, which the self-heal loop reads as "keep this
+test without re-running it" - a real answer a blanket requirement would train away.
+
+**What a replay cannot serve.** The classifier holds two live-infra capabilities that
+no fixture can reproduce: the preview backend (`run_script`, `get_preview_env`) and the
+app-log stream (`get_app_logs`). A replay passes neither, and the classifier is told so
+through its own evidence-limits note, so it caps unprovable claims instead of guessing.
+Every case records in `productionCapabilities` which of them production actually had,
+so a case captured from a preview-integrated run says outright that it is graded
+against a classifier that could see less than the one in `capturedCategory`.
+
 ### Multimedia rehydration
 
-The reviewer evals download every step screenshot + the run video from S3 at
-agent run time via the production `StorageEvidenceLoader` - the same loader the
-production reviewer uses. Before the agent starts the harness calls
+The reviewer and classifier evals download every step screenshot + the run video from
+S3 at agent run time via the production `StorageEvidenceLoader` - the same loader
+production uses. Before the agent starts the harness calls
 `probeEvidence(...)` to walk every referenced key and surface a typed
 `MissingEvidenceError` if any key has been rotated away. A case in that state
 skips with a warning the same way an unfetchable SHA does.
@@ -198,6 +250,13 @@ skips with a warning the same way an unfetchable SHA does.
 Captured `input.json` files store media as **S3 keys**, never bytes. Generation
 review additionally stores the agent conversation, with image parts stripped at
 capture time via `sanitizeConversation` so the fixture stays text-only.
+
+The classifier stores the recording key alongside an `isOptimizedMp4` flag, because the
+uploader has to be told a mime type and the key alone does not say: production reads the
+dead-time-stripped mp4 when the optimizer produced one and the original webm otherwise.
+Its recording is re-uploaded **per run**, not once per case - an uploaded video is a
+handle with its own lifetime at the provider, so a `runs: N` case would otherwise replay
+a handle that may have expired mid-sweep.
 
 ### Legacy scenario-data recovery (Reviewers)
 
@@ -247,6 +306,7 @@ the new case in the private `eval-cases` repo, never here.
 
 ```bash
 pnpm --filter @autonoma/worker-diffs capture:analysis               <snapshotId>   [--name <case-name>] [--force]
+pnpm --filter @autonoma/worker-diffs capture:classifier            <classificationId> [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:generation-review      <generationId> [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:healing                <iterationId>  [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:healing-from-snapshot  <snapshotId>   [--name <case-name>] [--force]
@@ -273,6 +333,24 @@ old `capture:resolution` did (the "Baseline snapshot state" note below).
 
 After capture, fill in the frontmatter checks and the rubric
 in `expected.md`, then flip `skip: false`.
+
+**Classifier - what capture recomputes.** Everything the classifier reasons from is
+reassembled through the **same helpers the production activity uses** (the generation
+select, `buildRunArtifacts`, `describeProvision`, the diff stat, the PR metadata), so a
+frozen case cannot quietly diverge from what production classified. Two things are
+recomputed rather than read back:
+
+- **The four vision scans.** Only the model's rendered prompt was persisted, so capture
+  re-reads the recording through `captureProbeScans` - the same `smart-video` model and
+  probe prompts a classification uses, so the frozen scans are ones one could have
+  produced. This costs roughly $0.02 per case, once. A run that recorded nothing freezes
+  no scans, and replay runs none either.
+- **The prior-runs baseline**, bounded to the classification's own `createdAt`. Without
+  that bound, runs recorded *after* the classification leak into `everPassed` and
+  `mostRecentSuccessDay` - the line deciding whether the classifier may blame the PR at
+  all - handing a replay a baseline the original could never have seen.
+
+Capture also needs `OPENAI_API_KEY` for the scan re-read, unlike the other commands.
 
 **Baseline snapshot state (Analysis).** Analysis grades against the snapshot as it stood _before_
 this snapshot's pipeline ran. At production time the snapshot's own assignments are still that
