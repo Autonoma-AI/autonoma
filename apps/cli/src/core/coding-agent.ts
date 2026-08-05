@@ -256,6 +256,32 @@ export abstract class BaseLauncher implements AgentLauncher {
     }
 
     /**
+     * Sign this client in to a server through its own browser flow.
+     *
+     * Refused outright without a terminal. The flow prints a URL, opens a browser and
+     * blocks on the callback, so a run with nobody at the keyboard would not fail - it
+     * would hang, indefinitely, on a prompt nobody can see. A run without a terminal
+     * is meant to have passed an API token instead, and the error says so rather than
+     * describing the sign-in that could not happen.
+     */
+    protected async signIn(serverName: string): Promise<void> {
+        if (process.stdin.isTTY !== true) {
+            throw new Error(
+                `Cannot sign ${this.label} in to the ${serverName} MCP server without a terminal: that flow opens ` +
+                    `a browser and waits for it. Set AUTONOMA_API_TOKEN so the run authorizes with an API key instead.`,
+            );
+        }
+
+        p.log.info(`Authorizing ${this.label} with Autonoma - approve it in the browser that opens.`);
+        const login = await this.runAttached(["mcp", "login", serverName]);
+        if (login !== 0) {
+            throw new Error(
+                `${this.label} could not sign in to the ${serverName} MCP server (exit ${login ?? "unknown"}).`,
+            );
+        }
+    }
+
+    /**
      * Run a subcommand that hands the terminal over - an interactive OAuth sign-in.
      * The client prints a URL, opens a browser and waits on the callback, so it needs
      * this process's stdio rather than pipes.
@@ -334,13 +360,7 @@ export class ClaudeLauncher extends BaseLauncher {
         }
 
         if (spec.apiToken == null && !registered.stdout.includes(CLAUDE_CONNECTED_MARKER)) {
-            p.log.info(`Authorizing ${this.label} with Autonoma - approve it in the browser that opens.`);
-            const login = await this.runAttached(["mcp", "login", spec.name]);
-            if (login !== 0) {
-                throw new Error(
-                    `${this.label} could not sign in to the ${spec.name} MCP server (exit ${login ?? "unknown"}).`,
-                );
-            }
+            await this.signIn(spec.name);
         }
 
         return { env: {} };
@@ -401,13 +421,7 @@ export class CodexLauncher extends BaseLauncher {
         }
 
         if (spec.apiToken == null) {
-            p.log.info(`Authorizing ${this.label} with Autonoma - approve it in the browser that opens.`);
-            const login = await this.runAttached(["mcp", "login", spec.name]);
-            if (login !== 0) {
-                throw new Error(
-                    `${this.label} could not sign in to the ${spec.name} MCP server (exit ${login ?? "unknown"}).`,
-                );
-            }
+            await this.signIn(spec.name);
             return { env: {} };
         }
 
@@ -420,11 +434,27 @@ export function buildAllLaunchers(opts: LauncherOptions): AgentLauncher[] {
     return [new ClaudeLauncher(opts), new CodexLauncher(opts)];
 }
 
+/** What probing PATH for coding agents concluded. */
+export interface LauncherSelection {
+    /** The agent to hand off to, or undefined when none was settled on. */
+    launcher?: AgentLauncher;
+    /**
+     * How many agents were found installed.
+     *
+     * Carried out of the probe rather than left for the caller to work out, because
+     * the caller's message depends on it: "none installed" and "several installed and
+     * nobody to ask which" both leave a run without an agent, and only the first is
+     * fixed by installing something. A second probe to answer that could disagree
+     * with the one the selection was actually made on.
+     */
+    availableCount: number;
+}
+
 /**
- * Probe PATH and pick the launcher to hand off to. Zero available -> undefined
+ * Probe PATH and pick the launcher to hand off to. Zero available -> no launcher
  * (the caller decides: manual fallback interactively, hard error otherwise);
  * exactly one -> use it (announce, don't prompt for a choice of one); multiple ->
- * prompt to pick when interactive, else undefined (can't disambiguate headlessly -
+ * prompt to pick when interactive, else none (can't disambiguate headlessly -
  * name one with `--agent`). A preset id (from `--agent`) short-circuits detection
  * when that agent is available.
  */
@@ -432,34 +462,35 @@ export async function selectLauncher(
     launchers: AgentLauncher[],
     presetId?: string,
     interactive = true,
-): Promise<AgentLauncher | undefined> {
+): Promise<LauncherSelection> {
     const availability = await Promise.all(launchers.map((l) => l.isAvailable()));
     const available = launchers.filter((_, i) => availability[i]);
+    const availableCount = available.length;
     debugLog("Detected available agents", { available: available.map((l) => l.id), presetId, interactive });
 
     if (presetId != null) {
         const preset = available.find((l) => l.id === presetId);
-        if (preset != null) return preset;
+        if (preset != null) return { launcher: preset, availableCount };
         p.log.warn(`Requested agent "${presetId}" is not installed or not supported.`);
     }
 
-    if (available.length === 0) return undefined;
+    if (availableCount === 0) return { availableCount };
 
-    if (available.length === 1) {
+    if (availableCount === 1) {
         const only = available[0]!;
         p.log.info(`Found ${only.label} - will use it for the integration.`);
-        return only;
+        return { launcher: only, availableCount };
     }
 
     // Multiple agents and no usable preset: can't prompt headlessly.
-    if (!interactive) return undefined;
+    if (!interactive) return { availableCount };
 
     const selected = await p.select({
         message: "Which agent should implement the integration?",
         options: available.map((l) => ({ value: l.id, label: l.label })),
     });
     if (p.isCancel(selected)) throw new Error("Agent selection cancelled");
-    return available.find((l) => l.id === selected);
+    return { launcher: available.find((l) => l.id === selected), availableCount };
 }
 
 /**

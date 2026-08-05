@@ -64,7 +64,7 @@ export async function runHandoffPhase(
     const recipePath = state.recipePath ?? join(outputDir, RECIPE_FILE);
     state.recipePath = recipePath;
 
-    const launcher = await selectLauncher(deps.launchers, state.agentId ?? deps.presetAgentId, deps.interactive);
+    const { launcher } = await selectLauncher(deps.launchers, state.agentId ?? deps.presetAgentId, deps.interactive);
     if (launcher == null) {
         // Non-interactive requires an agent - there is no manual fallback without a TTY.
         if (!deps.interactive) {
@@ -131,7 +131,11 @@ export async function runCompletionPhase(
 
         const failure = describeIncompleteRecipe(read, uploadProblems);
 
-        const launcher = await selectLauncher(deps.launchers, state.agentId ?? deps.presetAgentId, deps.interactive);
+        const { launcher } = await selectLauncher(
+            deps.launchers,
+            state.agentId ?? deps.presetAgentId,
+            deps.interactive,
+        );
         if (launcher != null && (state.launchAttempts ?? 0) < MAX_LAUNCH_ATTEMPTS) {
             p.log.warn("The integration isn't complete yet. Launching the agent to finish it...");
             state.agentId = launcher.id;

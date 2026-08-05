@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+vi.mock("../../src/ui/prompts", () => ({
+    log: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), success: vi.fn() },
+}));
+
 import type { AppConfig } from "../../src/config";
-import { planFrontDoor } from "../../src/core/front-door";
+import type { AutonomaClient } from "../../src/core/autonoma-client";
+import type { AgentLauncher } from "../../src/core/coding-agent";
+import { describeIncompletePreview, planFrontDoor, runPreviewHandoff } from "../../src/core/front-door";
 
 const API_URL = "https://api.example.test";
 
@@ -16,6 +23,16 @@ let calls: string[] = [];
 /** Procedures that should answer with an error instead of a result. */
 let failing: ReadonlySet<string> = new Set();
 
+function launcher(id: string, available: boolean): AgentLauncher {
+    return {
+        id,
+        label: `Agent ${id}`,
+        isAvailable: () => Promise.resolve(available),
+        registerMcpServer: () => Promise.resolve({ env: {} }),
+        launch: () => Promise.resolve(0),
+    };
+}
+
 function config(): AppConfig {
     return {
         projectRoot: "/tmp/project",
@@ -24,6 +41,13 @@ function config(): AppConfig {
         autonomaApiToken: "ask_test",
         autonomaApplicationId: "app_1",
     };
+}
+
+function plan() {
+    // The handoff never reaches the client on the paths under test - it gives up
+    // before it has an agent to hand anything to.
+    const client = {} as AutonomaClient;
+    return { client, applicationId: "app_1", phase: "preview" as const };
 }
 
 function stubApi(phase: keyof typeof STATE_BY_PHASE): void {
@@ -107,5 +131,58 @@ describe("planFrontDoor", () => {
 
         expect(plan?.phase).toBe("planner");
         expect(calls).toContain("onboarding.resumeAgent");
+    });
+});
+
+describe("runPreviewHandoff", () => {
+    test("reports no agent when none is installed", async () => {
+        const result = await runPreviewHandoff({
+            plan: plan(),
+            config: config(),
+            nonInteractive: true,
+            launchers: [launcher("claude", false), launcher("codex", false)],
+        });
+
+        expect(result).toEqual({ kind: "no-agent", ambiguous: false });
+    });
+
+    // Both leave the run without an agent, but only one of them is fixed by
+    // installing something - and telling someone to install what they already have
+    // is worse than saying nothing.
+    test("tells having none apart from having several and nobody to ask", async () => {
+        const result = await runPreviewHandoff({
+            plan: plan(),
+            config: config(),
+            nonInteractive: true,
+            launchers: [launcher("claude", true), launcher("codex", true)],
+        });
+
+        expect(result).toEqual({ kind: "no-agent", ambiguous: true });
+    });
+});
+
+describe("describeIncompletePreview", () => {
+    test("says nothing when the preview is up", () => {
+        expect(describeIncompletePreview({ kind: "verified" })).toBeUndefined();
+    });
+
+    test("tells a caller with several agents to name one, not to install one", () => {
+        const message = describeIncompletePreview({ kind: "no-agent", ambiguous: true }) ?? "";
+
+        expect(message).toContain("--agent");
+        expect(message).not.toContain("Install");
+    });
+
+    test("tells a caller with none to install one", () => {
+        const message = describeIncompletePreview({ kind: "no-agent", ambiguous: false }) ?? "";
+
+        expect(message).toContain("Install Claude Code or the Codex CLI");
+    });
+
+    test("explains what an unverified preview costs, without making it fatal", () => {
+        const message = describeIncompletePreview({ kind: "incomplete", step: "previewkit_deploying" }) ?? "";
+
+        expect(message).toContain("dry runs");
+        expect(message).toContain("the rest of the run continues");
     });
 });

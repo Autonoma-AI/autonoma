@@ -11,9 +11,11 @@ import { runSdkCommand } from "./agents/04-recipe-builder/sdk-command";
 import { loadConfig } from "./config";
 import type { AgentResult } from "./core/agent";
 import { track, trackError } from "./core/analytics";
+import { CliArgs } from "./core/cli-args";
 import { BOLD, DIM, PRIMARY, RESET } from "./core/colors";
 import { formatException, describeKnownError, supportReference, isUserCancellation } from "./core/errors";
 import { flushTelemetry } from "./core/flush-telemetry";
+import { KNOWN_FLAGS, renderHelp } from "./core/help";
 import { installInterruptHandler, installTerminationDiagnostics, restoreTerminal } from "./core/interrupt";
 import { captureLog } from "./core/logs";
 import { DEFAULT_MODEL } from "./core/model";
@@ -53,6 +55,7 @@ import {
 } from "./core/state";
 import { uploadArtifacts } from "./core/upload";
 import { CLI_VERSION } from "./core/version";
+import { formatClock } from "./ui/eta";
 import { STEP_INTROS, STEP_SUMMARIES } from "./ui/steps";
 import { getActiveStore, type RunStore } from "./ui/store";
 import type { CompletionStat } from "./ui/types";
@@ -104,30 +107,17 @@ async function collectRunStats(outputDir: string): Promise<CompletionStat[]> {
     ];
 }
 
-function parseArgs(argv: string[]) {
-    const args: Record<string, string | boolean> = {};
-    for (let i = 0; i < argv.length; i++) {
-        const arg = argv[i]!;
-        if (arg.startsWith("--")) {
-            const key = arg.slice(2);
-            const next = argv[i + 1];
-            if (next && !next.startsWith("--")) {
-                args[key] = next;
-                i++;
-            } else {
-                args[key] = true;
-            }
-        }
+/**
+ * Say something about a flag we do not know, rather than ignoring it.
+ *
+ * The expensive one is a misspelled `--non-interactive`: nothing refuses it, and the
+ * run instead sits waiting on questions the caller has no way to answer. One line
+ * naming the flag back turns a silent stall into an obvious typo.
+ */
+function warnAboutUnknownFlags(args: CliArgs): void {
+    for (const { given, meant } of args.unrecognized(KNOWN_FLAGS)) {
+        p.log.warn(`Unknown flag --${given}${meant != null ? `. Did you mean --${meant}?` : "."} Ignoring it.`);
     }
-    return args;
-}
-
-// Pull a flag's value only when it was given as `--key value` (a string), not
-// as a bare boolean flag or absent. Keeps callers from having to narrow the
-// `string | boolean | undefined` index type by hand.
-function strArg(args: Record<string, string | boolean>, key: string): string | undefined {
-    const value = args[key];
-    return typeof value === "string" ? value : undefined;
 }
 
 const STEP_LABELS: Record<StepName, string> = {
@@ -221,9 +211,13 @@ async function runStep(
     retryGuidance?: string,
 ): Promise<PipelineState> {
     const label = STEP_LABELS[step];
-    p.note(STEP_INTROS[step], `Step: ${label}`);
+    // Position and elapsed time on every step boundary. With the dashboard up they
+    // are decoration; headless they are the only way the process that launched this
+    // can tell a step that is working from one that is stuck.
+    p.note(STEP_INTROS[step], `Step ${STEP_ORDER.indexOf(step) + 1}/${STEP_ORDER.length}: ${label}`);
 
     const stepStartedAt = Date.now();
+    const elapsed = () => formatClock(Date.now() - stepStartedAt);
     track("cli_step_started", { step });
     captureLog("info", `Step started: ${label}`, {
         source: "pipeline",
@@ -380,15 +374,15 @@ async function runStep(
         if (result && !result.success) {
             if (result.paused) {
                 state = await markStep(outputDir, state, step, "paused");
-                p.log.info(`Paused: ${label} - ${result.summary}`);
+                p.log.info(`Paused after ${elapsed()}: ${label} - ${result.summary}`);
             } else {
                 state = await markStep(outputDir, state, step, "failed");
-                p.log.error(`Failed: ${label} - ${result.summary}`);
+                p.log.error(`Failed after ${elapsed()}: ${label} - ${result.summary}`);
                 trackError(new Error(result.summary), { step, source: "step_result" });
             }
         } else {
             state = await markStep(outputDir, state, step, "done");
-            p.log.success(`Completed: ${label}`);
+            p.log.success(`Completed in ${elapsed()}: ${label}`);
         }
     } catch (err) {
         // The user deliberately stopped (Ctrl+C / "cancel" at a prompt). That's not
@@ -400,11 +394,11 @@ async function runStep(
         if (known) {
             // A recognized, actionable failure - the raw stack is library-internal
             // noise here, so we show the fix instead.
-            p.log.error(`Failed: ${label} - ${known.title}`);
+            p.log.error(`Failed after ${elapsed()}: ${label} - ${known.title}`);
             p.log.info(known.hint);
         } else {
             const message = err instanceof Error ? err.message : String(err);
-            p.log.error(`Failed: ${label} - ${message}`);
+            p.log.error(`Failed after ${elapsed()}: ${label} - ${message}`);
             // Full stack so users can copy-paste it when reporting the issue.
             console.error(`\x1b[2m${formatException(err)}\x1b[0m`);
             // One short line that maps this failure to its analytics event(s).
@@ -590,15 +584,15 @@ async function main() {
     // error leaves a greppable breadcrumb instead of the run just vanishing.
     installTerminationDiagnostics();
 
-    const args = parseArgs(process.argv.slice(2));
+    const args = CliArgs.parse(process.argv.slice(2));
     const command = process.argv[2];
 
     if (command === "status") {
         const config = loadConfig({
-            project: strArg(args, "project"),
-            slug: strArg(args, "slug"),
+            project: args.value("project"),
+            slug: args.value("slug"),
         });
-        if (!args.project) {
+        if (!args.has("project")) {
             console.log(`No --project flag passed; using current working directory: ${config.projectRoot}`);
         }
         const outputDir = await ensureOutputDir(config.projectSlug);
@@ -608,8 +602,8 @@ async function main() {
 
     if (command === "upload") {
         const config = loadConfig({
-            project: strArg(args, "project"),
-            slug: strArg(args, "slug"),
+            project: args.value("project"),
+            slug: args.value("slug"),
         });
         const outputDir = await ensureOutputDir(config.projectSlug);
         // Re-upload everything already generated in `~/.autonoma/<app>/`: the recipe
@@ -634,22 +628,16 @@ async function main() {
         process.exit(exitCode);
     }
 
-    if (command === "help" || args.help) {
-        console.log("Usage:");
-        console.log(
-            "  test-planner [run] [--project <path>] [--frontend <path>] [--backends <path,path>] [--model <id>] [--step <name>] [--resume] [--non-interactive] [--agent <claude|codex>] [--permission-mode <default|acceptEdits|bypassPermissions>]",
-        );
-        console.log("  test-planner status [--project <path>]");
-        console.log("  test-planner upload [--project <path>]   # re-upload already-generated recipe + artifacts");
-        console.log("");
-        console.log("`run` is the default command; it may be omitted.");
+    if (command === "help" || args.has("help")) {
+        console.log(renderHelp());
         return;
     }
 
     console.log(BANNER);
 
     // ESC no longer exits; Ctrl+C twice (within 3s) does, with a resume hint.
-    const resumeCommand = `autonoma-planner --resume` + (args.project ? ` --project ${args.project}` : "");
+    const projectArg = args.value("project");
+    const resumeCommand = `autonoma-planner --resume` + (projectArg != null ? ` --project ${projectArg}` : "");
     let mountedUi: MountedDashboard | undefined;
     installInterruptHandler({
         // exitCode defaults to 0 for a user-initiated Ctrl+C (progress saved, a clean stop);
@@ -667,21 +655,14 @@ async function main() {
         },
     });
 
-    const backendsArg = strArg(args, "backends");
     const config = loadConfig({
-        project: strArg(args, "project"),
-        model: strArg(args, "model"),
-        slug: strArg(args, "slug"),
-        frontend: strArg(args, "frontend"),
-        backends:
-            backendsArg != null
-                ? backendsArg
-                      .split(",")
-                      .map((s) => s.trim())
-                      .filter((s) => s.length > 0)
-                : undefined,
-        agent: strArg(args, "agent"),
-        permissionMode: strArg(args, "permission-mode"),
+        project: projectArg,
+        model: args.value("model"),
+        slug: args.value("slug"),
+        frontend: args.value("frontend"),
+        backends: args.list("backend", "backends"),
+        agent: args.value("agent", "coding-agent"),
+        permissionMode: args.value("permission-mode"),
     });
 
     // Seed telemetry identity before anything is captured: the generation id and
@@ -697,11 +678,13 @@ async function main() {
         return;
     }
 
-    const nonInteractive = !!args["non-interactive"];
+    warnAboutUnknownFlags(args);
+
+    const nonInteractive = args.has("non-interactive");
 
     const modelName = config.modelId ?? readEnv().OPENROUTER_MODEL ?? DEFAULT_MODEL;
 
-    if (!args.project) {
+    if (projectArg == null) {
         p.log.info(`No --project flag passed; using current working directory.`);
     }
     p.log.info(`Project: ${config.projectRoot}`);
@@ -731,7 +714,17 @@ async function main() {
     // on renders as the docked ACTION REQUIRED panel inside the TUI.
     if (!nonInteractive) mountedUi = await mountDashboard(outputDir, config.projectSlug);
 
-    let isResuming = !!(args.resume || args.step);
+    // Contradictory instructions are refused rather than resolved. Picking one would
+    // silently discard work, or silently keep work the caller asked to throw away.
+    if (args.has("fresh") && args.has("resume")) {
+        mountedUi?.unmount();
+        mountedUi = undefined;
+        p.log.error("--fresh and --resume ask for opposite things. Pass one of them, not both.");
+        process.exitCode = 1;
+        return;
+    }
+
+    let isResuming = args.has("resume") || args.has("step");
 
     const hasProgress = Object.values(state.steps).some((s) => s === "done" || s === "running");
 
@@ -777,7 +770,21 @@ async function main() {
         if (problem != null) p.log.warn(problem);
     }
 
-    if (!isResuming && !nonInteractive && hasProgress) {
+    // Starting over is a flag as well as a question, so a run with nobody to ask can
+    // still choose it rather than inheriting whatever a previous one left behind.
+    if (args.has("fresh") && hasProgress) {
+        await clearOutputDir(config.projectSlug);
+        state = initialState();
+        await saveState(outputDir, state);
+        p.log.info(`Cleared ${displayPath(outputDir)} - starting from scratch.`);
+    } else if (!isResuming && nonInteractive && hasProgress) {
+        // Nobody said what to do with it, so say what was assumed instead of quietly
+        // building on top of a run whose provenance the caller may know nothing about.
+        p.log.info(
+            "A previous run left output in this folder and no flag said what to do with it, so this run " +
+                "continues from it. Pass --fresh to discard it, or --resume to say so deliberately.",
+        );
+    } else if (!isResuming && !nonInteractive && hasProgress) {
         const completedSteps = Object.entries(state.steps)
             .filter(([, s]) => s === "done")
             .map(([name]) => (isStepName(name) ? STEP_LABELS[name] : name))
@@ -817,7 +824,7 @@ async function main() {
         "Output folder",
     );
 
-    const stepArg = strArg(args, "step");
+    const stepArg = args.value("step");
     const targetStep: StepName | undefined = stepArg != null && isStepName(stepArg) ? stepArg : undefined;
     if (stepArg != null && targetStep == null) {
         mountedUi?.unmount();
@@ -838,7 +845,7 @@ async function main() {
         mountedUi = undefined;
         if (state.steps[targetStep] === "failed") {
             const retryCommand =
-                `autonoma-planner --step ${targetStep}` + (args.project ? ` --project ${args.project}` : "");
+                `autonoma-planner --step ${targetStep}` + (projectArg != null ? ` --project ${projectArg}` : "");
             p.log.warn(`Your progress is saved. To retry this step, run:\n  ${retryCommand}`);
             process.exitCode = 1;
         }
@@ -857,8 +864,14 @@ async function main() {
     const steps = STEP_ORDER;
     const startIdx = steps.indexOf(startStep);
 
-    // Up-front overview so it's clear what each step does before any of them run.
-    p.note(steps.map((s, idx) => `${idx + 1}. ${STEP_LABELS[s]} - ${STEP_SUMMARIES[s]}`).join("\n"), "Here's the plan");
+    // Up-front overview so it's clear what each step does before any of them run. The
+    // closing line is not decoration: read headless, a numbered list looks exactly
+    // like a set of commands to issue one at a time, and it is not one.
+    p.note(
+        `${steps.map((s, idx) => `${idx + 1}. ${STEP_LABELS[s]} - ${STEP_SUMMARIES[s]}`).join("\n")}\n\n` +
+            `All of it runs from this one command - there is nothing to launch step by step.`,
+        "Here's the plan",
+    );
 
     try {
         for (let i = startIdx; i < steps.length; i++) {

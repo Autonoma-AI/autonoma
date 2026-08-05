@@ -70,7 +70,23 @@ function fakeProcess(args: string[]) {
     return proc;
 }
 
+const REAL_IS_TTY = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+
+/**
+ * Pretend this process has (or has not) a terminal. The browser sign-in is refused
+ * without one, and a test runner never has one - so a test about signing in has to
+ * say which world it is in rather than inheriting the runner's.
+ */
+function withTerminal(present: boolean): void {
+    Object.defineProperty(process.stdin, "isTTY", { value: present, configurable: true });
+}
+
+function restoreTerminalDetection(): void {
+    if (REAL_IS_TTY != null) Object.defineProperty(process.stdin, "isTTY", REAL_IS_TTY);
+}
+
 beforeEach(() => {
+    withTerminal(true);
     selectMock.mockReset();
     spawnCalls = [];
     exitCodes = new Map();
@@ -85,6 +101,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    restoreTerminalDetection();
     vi.restoreAllMocks();
 });
 
@@ -101,37 +118,59 @@ describe("parsePermissionMode", () => {
 });
 
 describe("selectLauncher", () => {
-    test("no available agents -> undefined (manual fallback)", async () => {
-        const chosen = await selectLauncher([fakeLauncher("claude", false)]);
-        expect(chosen).toBeUndefined();
+    test("no available agents -> no launcher (manual fallback)", async () => {
+        const { launcher, availableCount } = await selectLauncher([fakeLauncher("claude", false)]);
+        expect(launcher).toBeUndefined();
+        expect(availableCount).toBe(0);
         expect(selectMock).not.toHaveBeenCalled();
     });
 
     test("exactly one available -> uses it without prompting", async () => {
         const only = fakeLauncher("claude", true);
-        const chosen = await selectLauncher([only]);
-        expect(chosen).toBe(only);
+        const { launcher, availableCount } = await selectLauncher([only]);
+        expect(launcher).toBe(only);
+        expect(availableCount).toBe(1);
         expect(selectMock).not.toHaveBeenCalled();
     });
 
     test("multiple available -> prompts to pick", async () => {
         selectMock.mockResolvedValue("codex");
-        const chosen = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", true)]);
-        expect(chosen?.id).toBe("codex");
+        const { launcher } = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", true)]);
+        expect(launcher?.id).toBe("codex");
         expect(selectMock).toHaveBeenCalledTimes(1);
     });
 
     test("preset short-circuits when the preset agent is available", async () => {
-        const chosen = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", true)], "claude");
-        expect(chosen?.id).toBe("claude");
+        const { launcher } = await selectLauncher(
+            [fakeLauncher("claude", true), fakeLauncher("codex", true)],
+            "claude",
+        );
+        expect(launcher?.id).toBe("claude");
         expect(selectMock).not.toHaveBeenCalled();
     });
 
     test("an unavailable preset falls back to normal selection", async () => {
         // Preset asks for codex, which isn't installed; only claude is available,
         // so it's used without a prompt.
-        const chosen = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", false)], "codex");
-        expect(chosen?.id).toBe("claude");
+        const { launcher } = await selectLauncher(
+            [fakeLauncher("claude", true), fakeLauncher("codex", false)],
+            "codex",
+        );
+        expect(launcher?.id).toBe("claude");
+    });
+
+    // The headless ambiguous case: nothing is chosen, but the count says why - which
+    // is what lets the caller tell "install one" from "name one with --agent" without
+    // probing PATH a second time and risking a different answer.
+    test("reports how many were installed when it cannot disambiguate headlessly", async () => {
+        const { launcher, availableCount } = await selectLauncher(
+            [fakeLauncher("claude", true), fakeLauncher("codex", true)],
+            undefined,
+            false,
+        );
+        expect(launcher).toBeUndefined();
+        expect(availableCount).toBe(2);
+        expect(selectMock).not.toHaveBeenCalled();
     });
 });
 
@@ -292,6 +331,23 @@ describe("ClaudeLauncher.registerMcpServer", () => {
 
         await expect(claude().registerMcpServer(SPEC)).rejects.toThrow(/could not sign in/);
     });
+
+    // Without a terminal the sign-in does not fail, it HANGS - on a browser callback
+    // nobody will trigger. Refusing early turns an indefinite stall into an error that
+    // names the fix, which is to pass a token instead.
+    test("refuses the browser sign-in when there is no terminal, and says to use a token", async () => {
+        withTerminal(false);
+        stdouts.set("mcp get", `Status: Needs authentication\n  URL: ${SPEC.url}`);
+
+        await expect(claude().registerMcpServer(SPEC)).rejects.toThrow(/AUTONOMA_API_TOKEN/);
+        expect(spawnCalls.map((call) => commandKey(call.args))).not.toContain("mcp login");
+    });
+
+    test("still registers headlessly when a token was passed", async () => {
+        withTerminal(false);
+
+        await expect(claude().registerMcpServer({ ...SPEC, apiToken: "ask_test" })).resolves.toEqual({ env: {} });
+    });
 });
 
 describe("CodexLauncher.registerMcpServer", () => {
@@ -328,6 +384,13 @@ describe("CodexLauncher.registerMcpServer", () => {
         exitCodes.set("mcp add", 1);
 
         await expect(codex().registerMcpServer(SPEC)).rejects.toThrow(/Could not register/);
+    });
+
+    test("refuses the browser sign-in when there is no terminal", async () => {
+        withTerminal(false);
+
+        await expect(codex().registerMcpServer(SPEC)).rejects.toThrow(/AUTONOMA_API_TOKEN/);
+        expect(spawnCalls.map((call) => commandKey(call.args))).not.toContain("mcp login");
     });
 });
 

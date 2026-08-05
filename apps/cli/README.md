@@ -15,15 +15,21 @@ npx @autonoma-ai/planner@latest
 Commands:
 
 ```bash
-autonoma-planner [run] [--project <path>] [--frontend <path>] [--backends <path,path>] \
-                 [--model <id>] [--step <name>] [--resume] [--non-interactive] \
-                 [--agent <name>] [--permission-mode <default|acceptEdits|bypassPermissions>]
+autonoma-planner [run] [--project <path>] [--frontend <path>] [--backend <path>] \
+                 [--model <id>] [--step <name>] [--resume] [--fresh] [--non-interactive] \
+                 [--agent <claude|codex>] [--permission-mode <default|acceptEdits|bypassPermissions>]
 autonoma-planner status [--project <path>]
 autonoma-planner upload [--project <path>]
 ```
 
 `run` is the default and may be omitted. A run can take an hour or more; progress is saved, so you
 can stop and `--resume` later.
+
+`autonoma-planner --help` documents every flag and what each step of the run does. Flags accept
+`--key value` and `--key=value` alike, repeatable ones (`--backend`) also take a comma-separated
+list, and a flag it does not recognize is named back with the nearest one that it does - a
+misspelled `--non-interactive` would otherwise leave the run waiting on questions nobody can
+answer.
 
 ### The dashboard (TUI)
 
@@ -96,6 +102,27 @@ from a menu. To scope non-interactively, pass:
   default to the dependencies the mapper inferred for that frontend.
 
 For a single-app repo the mapper resolves the scope on its own and no flags are needed.
+
+### Running without a human
+
+`--non-interactive` is the path a hosted agent takes, and it runs the whole thing in one
+invocation - there is never a list of steps for a caller to sequence. Because nobody can be asked
+anything, every input that would have been a question is also a flag: `--agent`, `--frontend`,
+`--backend`, `--permission-mode`, `--resume`, `--fresh`.
+
+What the run does about the questions it cannot ask:
+
+- **It never opens a browser.** The coding agent's Autonoma connection is authorized with the
+  `AUTONOMA_API_TOKEN` the run already holds. The browser sign-in is refused outright without a
+  terminal rather than attempted - it would not fail, it would hang on a callback nobody triggers.
+- **It says what it assumed.** Where it proceeds on an answer nobody gave - continuing from a
+  previous run's output, say - it prints what was assumed and the flag that would have said
+  otherwise.
+- **It reports each step as it starts and finishes**, with its position in the run and how long it
+  took, so the process that launched it can tell work from a stall.
+- **It refuses rather than guesses** when the choice would be arbitrary: several frontends and no
+  `--frontend` pauses with the flag to pass, and both coding agents installed with no `--agent`
+  skips the handoff and says to name one.
 
 ## SDK integration handoff (test-data step)
 
