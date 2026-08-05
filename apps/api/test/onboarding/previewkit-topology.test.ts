@@ -387,10 +387,9 @@ integrationTestSuite({
             await linkRepository(harness, appId, 93_030);
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitClient: {
-                    isConfigured: () => true,
                     deployApplicationMain: vi.fn(async () => undefined),
                     redeploy: vi.fn(async () => undefined),
-                    deployPullRequest: vi.fn(async () => undefined),
+                    startRunForPullRequest: vi.fn(async () => undefined),
                 },
             });
             await setStep(harness, appId, "previewkit_configuring");

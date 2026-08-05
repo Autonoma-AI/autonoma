@@ -3,7 +3,7 @@ import { WorkflowIdConflictPolicy } from "@temporalio/client";
 import { getTemporalClient } from "../client";
 import { getWorkflowSearchAttributes } from "../search-attributes";
 import { TaskQueue } from "../task-queues";
-import { WORKFLOW_TYPE } from "../workflows/workflow-types";
+import { WORKFLOW_TYPE } from "../workflow-types";
 
 export interface TriggerRefinementLoopParams {
     snapshotId: string;

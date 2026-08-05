@@ -5,45 +5,20 @@ import type { IntegrationHarness } from "@autonoma/integration-test";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { LocalStorageProvider, S3Storage, type StorageProvider } from "@autonoma/storage";
 import { FakeGenerationProvider } from "@autonoma/test-updates";
-import type { PipelineWorkflows, TriggerAnalysisJobParams, TriggerInvestigationJobParams } from "@autonoma/workflow";
 import Redis from "ioredis";
-import { type Mock, vi } from "vitest";
+import { vi } from "vitest";
 import { buildAuth } from "../src/auth";
 import { type Services, buildServices } from "../src/routes/build-services";
 import { appRouter } from "../src/routes/router";
 import { t } from "../src/trpc";
 
-/**
- * Test double for {@link PipelineWorkflows}: routes every operation to the shared `triggerWorkflow` spy, except
- * analysis (its own `triggerAnalysis` spy) so tests can assert analysis triggers without conflation.
- */
-class FakePipelineWorkflows implements PipelineWorkflows {
-    constructor(
-        private readonly onWorkflow: Mock,
-        private readonly onAnalysis: Mock,
-    ) {}
-    cancelDiffs(snapshotId: string): Promise<void> {
-        return this.onWorkflow(snapshotId);
-    }
-    triggerInvestigation(params: TriggerInvestigationJobParams): Promise<void> {
-        return this.onWorkflow(params);
-    }
-    cancelInvestigation(snapshotId: string): Promise<void> {
-        return this.onWorkflow(snapshotId);
-    }
-    triggerAnalysis(params: TriggerAnalysisJobParams): Promise<void> {
-        return this.onAnalysis(params);
-    }
-    cancelAnalysis(snapshotId: string): Promise<void> {
-        return this.onWorkflow(snapshotId);
-    }
-}
-
 export class APITestHarness implements IntegrationHarness {
     public triggerWorkflow = vi.fn().mockResolvedValue(undefined);
-    // Dedicated mock for the analysis pipeline trigger so tests can assert on its args (snapshotId + mode)
-    // without them being conflated with the shared triggerWorkflow spy used by every other trigger.
-    public triggerAnalysis = vi.fn().mockResolvedValue(undefined);
+    /**
+     * Spy on the analysis-run trigger, so a test can assert what a caller asked for. The run itself opens inside
+     * the workflow, so this is the only place the API's decision is observable.
+     */
+    public startAnalysisRun = vi.fn().mockResolvedValue(undefined);
     public readonly generationProvider: FakeGenerationProvider;
     public readonly services: Services;
     public readonly githubApp: FakeGitHubApp;
@@ -89,7 +64,7 @@ export class APITestHarness implements IntegrationHarness {
         const scenarioManager = new ScenarioManager(db, encryptionHelper);
 
         const triggerWorkflow = vi.fn().mockResolvedValue(undefined);
-        const triggerAnalysis = vi.fn().mockResolvedValue(undefined);
+        const startAnalysisRun = vi.fn().mockResolvedValue(undefined);
         const generationProvider = new FakeGenerationProvider();
 
         const storageDir = process.env.TEST_STORAGE_DIR;
@@ -116,15 +91,15 @@ export class APITestHarness implements IntegrationHarness {
             getVercelEncryptionHelper: () => encryptionHelper,
             generationProvider,
             githubApp,
-            pipelineWorkflows: new FakePipelineWorkflows(triggerWorkflow, triggerAnalysis),
-            triggerPreviewDeploy: triggerWorkflow,
+            startAnalysisRun,
+            startPreviewBuild: triggerWorkflow,
             triggerPreviewTeardown: triggerWorkflow,
             triggerPreviewRedeployApp: triggerWorkflow,
         });
 
         const harness = new APITestHarness(db, services, generationProvider, redisClient, githubApp);
         harness.triggerWorkflow = triggerWorkflow as typeof harness.triggerWorkflow;
-        harness.triggerAnalysis = triggerAnalysis;
+        harness.startAnalysisRun = startAnalysisRun;
         return harness;
     }
 

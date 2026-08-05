@@ -68,17 +68,13 @@ describe("PreviewPipeline deploy supersede handling", () => {
         await expect(
             pipeline.deployEnvironment(
                 {
-                    event: {
-                        action: "synchronize",
+                    target: {
                         prNumber: 7,
                         repoFullName: "acme/web",
                         organizationId: "org_1",
                         githubRepositoryId: 123,
                         headSha: "abc1234def5678",
                         headRef: "feature/login",
-                        baseSha: "",
-                        baseRef: "",
-                        cloneUrl: "https://github.com/acme/web.git",
                     },
                     namespace,
                     commentId: "100",

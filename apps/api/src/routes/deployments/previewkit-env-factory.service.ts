@@ -6,18 +6,20 @@ import {
     provisionScenarioInstance,
     teardownScenarioInstance,
 } from "@autonoma/scenario";
-import type { AuthPayload, Refs, ScenarioVariableScalar } from "@autonoma/types";
+import {
+    type AuthPayload,
+    parseStringRecord,
+    projectManifest,
+    type Refs,
+    resolveDeclaredSdkAppUrl,
+    resolvePrimaryUrl,
+    resolveSdkAppUrl,
+    type ScenarioVariableScalar,
+} from "@autonoma/types";
 import { resolvePreviewkitBypassToken } from "@autonoma/utils";
 import { env } from "../../env";
 import { Service } from "../service";
 import { derivePreviewSdkUrl } from "./preview-sdk-url";
-import {
-    parseStringRecord,
-    projectManifest,
-    resolveDeclaredSdkAppUrl,
-    resolvePrimaryUrl,
-    resolveSdkAppUrl,
-} from "./preview-summary";
 
 // The tenant provision/teardown are synchronous requests through the ALB, whose
 // idle timeout defaults to 60s: hold the connection longer with no bytes flowing
@@ -154,7 +156,7 @@ export class PreviewkitEnvFactoryService extends Service {
             scenarios: [],
             appUrls,
             suggestedSdkUrl: undefined,
-            previewUrl: primaryUrl ?? undefined,
+            previewUrl: primaryUrl,
             disabledReason,
         });
 
@@ -218,7 +220,7 @@ export class PreviewkitEnvFactoryService extends Service {
             scenarios,
             appUrls,
             suggestedSdkUrl,
-            previewUrl: primaryUrl ?? undefined,
+            previewUrl: primaryUrl,
             disabledReason: undefined,
         };
     }

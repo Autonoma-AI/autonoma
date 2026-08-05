@@ -1,5 +1,5 @@
-import type { PreviewkitAppStatus, Prisma, PreviewkitStatus } from "@autonoma/db";
-import { declaredSdkAppName, previewConfigSchema, resolveSdkAppName } from "@autonoma/types";
+import type { PreviewkitAppStatus, PreviewkitStatus } from "@autonoma/db";
+import type { PreviewkitManifest } from "@autonoma/types";
 
 type PreviewEnvironmentStatus =
     | "ready"
@@ -39,11 +39,6 @@ type PreviewServiceIconKey =
 type PreviewkitAppBuildOutcome =
     | { status: "success"; imageTag: string; durationMs: number; logUrl: string; runtime?: PreviewServiceIconKey }
     | { status: "failed"; durationMs: number; error: string; logUrl?: string; runtime?: PreviewServiceIconKey };
-
-type PreviewkitManifest = {
-    apps?: Array<{ name: string; port?: number | null; primary?: boolean | null; sdk_implemented?: boolean | null }>;
-    services?: Array<{ name: string; recipe?: string | null; version?: string | null }>;
-};
 
 type PreviewServiceSummary = {
     name: string;
@@ -362,7 +357,7 @@ export function derivePreviewStatus({
     previewkitStatus: PreviewkitStatus;
     currentHeadSha: string | null;
     deployedHeadSha: string;
-    primaryUrl: string | null;
+    primaryUrl?: string;
     failedServiceCount: number;
     degradedServiceCount: number;
 }): PreviewEnvironmentStatus {
@@ -443,41 +438,6 @@ export function deriveDeploymentStatus(build: {
     if (build.error != null) return "failed";
     if (build.finishedAt != null) return "success";
     return "building";
-}
-
-/**
- * Projects the manifest-shaped subset the summary + readiness views need from a
- * stored resolved config. The merged config is the single source of truth -
- * there is no separate manifest column - so this parses it at read time.
- * Returns an empty projection when the config is absent or unparseable (e.g. a
- * deploy that has not resolved its config yet), matching the previous
- * best-effort behaviour.
- */
-export function projectManifest(resolvedConfig: Prisma.JsonValue): PreviewkitManifest {
-    const parsed = previewConfigSchema.safeParse(resolvedConfig);
-    if (!parsed.success) return {};
-    return {
-        apps: parsed.data.apps.map((app) => ({
-            name: app.name,
-            port: app.port,
-            primary: app.primary ?? null,
-            sdk_implemented: app.sdk_implemented ?? null,
-        })),
-        services: parsed.data.services.map((service) => ({
-            name: service.name,
-            recipe: service.recipe,
-            version: service.version ?? null,
-        })),
-    };
-}
-
-export function parseStringRecord(value: Prisma.JsonValue): Record<string, string> {
-    if (value == null || typeof value !== "object" || Array.isArray(value)) return {};
-    return Object.fromEntries(
-        Object.entries(value)
-            .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1] !== "")
-            .sort(([a], [b]) => a.localeCompare(b)),
-    );
 }
 
 /** Per-app row for the admin environment list: an app's name, lifecycle status, URL, and failure reason. */
@@ -600,39 +560,6 @@ export function toAppBuildOutcomeMap(rows: AppBuildRow[]): Record<string, Previe
         result[row.appName] = outcome;
     }
     return result;
-}
-
-export function resolvePrimaryUrl(manifest: PreviewkitManifest, urls: Record<string, string>): string | null {
-    const primaryAppName = manifest.apps?.find((app) => app.primary === true)?.name;
-    if (primaryAppName != null && urls[primaryAppName] != null) return urls[primaryAppName];
-    const firstManifestUrl = manifest.apps
-        ?.map((app) => urls[app.name])
-        .find((url): url is string => url != null && url !== "");
-    if (firstManifestUrl != null) return firstManifestUrl;
-    return Object.values(urls)[0] ?? null;
-}
-
-/**
- * The preview origin of the app the config EXPLICITLY declares as the SDK host,
- * or null when nothing is declared (so a caller can tell an explicit answer apart
- * from the primary-app fallback that {@link resolveSdkAppUrl} folds in).
- */
-export function resolveDeclaredSdkAppUrl(manifest: PreviewkitManifest, urls: Record<string, string>): string | null {
-    const declaredAppName = declaredSdkAppName(manifest.apps ?? []);
-    const declaredAppUrl = declaredAppName != null ? urls[declaredAppName] : undefined;
-    return declaredAppUrl != null && declaredAppUrl !== "" ? declaredAppUrl : null;
-}
-
-/**
- * The preview origin of the app hosting the Environment Factory handler: the app
- * flagged `sdk_implemented`, else the primary app's URL. Callers append the fixed
- * `/api/autonoma` path themselves (see `derivePreviewSdkUrl`).
- */
-export function resolveSdkAppUrl(manifest: PreviewkitManifest, urls: Record<string, string>): string | null {
-    const sdkAppName = resolveSdkAppName(manifest.apps ?? []);
-    const sdkAppUrl = sdkAppName != null ? urls[sdkAppName] : undefined;
-    if (sdkAppUrl != null && sdkAppUrl !== "") return sdkAppUrl;
-    return resolvePrimaryUrl(manifest, urls);
 }
 
 function inferServiceKind(name: string): PreviewServiceKind {

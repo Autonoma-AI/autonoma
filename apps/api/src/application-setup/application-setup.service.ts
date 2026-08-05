@@ -221,10 +221,6 @@ export class ApplicationSetupService {
 
         if (step === "completed") {
             await this.onboardingManager.activatePendingSnapshot(applicationId, organizationId);
-            // This branch skips goLive() (the app is already live), so recover any PR
-            // comments the onboarding gate dropped ourselves. Idempotent, so overlap
-            // with goLive()'s own call is harmless.
-            this.onboardingManager.reinvestigateDroppedPrComments(applicationId, organizationId);
             log.info("Activated pending snapshot after setup completion", { setupId, applicationId });
             return;
         }

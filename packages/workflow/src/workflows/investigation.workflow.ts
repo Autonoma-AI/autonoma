@@ -11,7 +11,7 @@ import type {
     WebActivities,
 } from "../activities";
 import { rootFailureMessage } from "../root-failure-message";
-import { infraFailureResult, scenarioSetupFailureResult } from "../scenario-setup-failure";
+import { infraFailureResult, scenarioSetupFailureResult } from "../rules/scenario-setup-failure";
 import { TaskQueue } from "../task-queues";
 
 /** Max validate->edit->retry passes for a single proposed/modified plan before giving up. */

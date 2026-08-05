@@ -19,17 +19,30 @@ When in doubt, read the source - this doc is a map, not the source of truth.
 ## End-to-end flow
 
 Previewkit has no long-running process - it runs as a one-shot Kubernetes Job per operation. The
-autonoma API owns the public surface and launches the Jobs; this app's `src/runner` executes them.
+autonoma API owns the public surface, a Temporal orchestrator owns the decision to build, and this
+app's `src/runner` executes the Job.
 
 ```
 GitHub pull_request webhook
-  -> apps/api  (PreviewkitTriggerService; gated by the API's PREVIEWKIT_ENABLED - see below)
-  -> PreviewkitJobLauncher.launchDeploy() creates a `pk-deploy-*` Job (runs apps/previewkit/src/runner):
-       clone repo(s) -> build images -> create namespace preview-{owner}-{repo}-pr-{N}
-       -> deploy infra services -> hand namespace to the central Gatekeeper
-       -> deploy app Deployments + Services
-       -> run pre/post-deploy hooks -> post/update the PR comment, then exit
+  -> apps/api  (PreviewkitTriggerService: preflight + credits)
+  -> analysisRunWorkflow (packages/workflow, general task queue; its cloning stages proxy to diffs)
+       create the branch snapshot -> run impact analysis (source-only) -> DECIDE whether to build
+       -> PreviewkitJobLauncher.launchDeploy() creates a `pk-deploy-*` Job (runs apps/previewkit/src/runner):
+            clone repo(s) -> build images -> create namespace preview-{owner}-{repo}-pr-{N}
+            -> deploy infra services -> hand namespace to the central Gatekeeper
+            -> deploy app Deployments + Services
+            -> run pre/post-deploy hooks -> post/update the PR comment, then exit
+       -> wait for the environment to go ready -> attach the branch deployment
+       -> Investigators -> Reporter -> settle the analysis run
 ```
+
+**The build needs a warrant.** A commit on a branch that has never had a live preview, whose diff affects no
+test and authors no new one, is not built at all: impact analysis reads only the repo at the head sha,
+so it can be asked BEFORE any container exists. Every other case builds - a main-branch environment, an
+un-onboarded repo, a redeploy of an already-analyzed head, and any branch that already has a preview
+(whose build launches concurrently with analysis, so an established preview URL refreshes with no added
+latency). The warrant is decided in the orchestrator workflow, not in this app; the runner behaves identically
+however it was launched.
 
 On `pull_request.closed`, `launchTeardown()` creates a `pk-teardown-*` Job that runs
 `TeardownPipeline` (namespace delete + PR comment). Teardown updates both PR
@@ -45,7 +58,7 @@ Pushes that don't update such an environment are dropped by the webhook handler 
 are even recorded - push fires for every branch of every connected repo.
 
 **Concurrency model:** the per-environment mutex is the `previewkit.dev/env={hash}-{pr}` label on
-each Job (`PreviewkitJobLauncher`, apps/api). Launching a deploy or per-app redeploy first deletes
+each Job (`PreviewkitJobLauncher`, `@autonoma/k8s/previewkit-jobs`). Launching a deploy or per-app redeploy first deletes
 any in-flight "deploy-family" Job for that env (`previewkit.dev/type in (deploy,redeploy-app)`,
 Background propagation), then creates the new one - async newest-wins. The deleted pod gets SIGTERM,
 which `src/runner/index.ts` turns into an `AbortController` abort: the build's
@@ -70,12 +83,15 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 - `runner/` - the one-shot Kubernetes Job entrypoint. `rolldown.config.ts` bundles it into a single
   self-contained `dist/index.js` (all deps inlined, incl. the Prisma wasm compiler), which the
   multi-stage `Dockerfile` ships without any node_modules; the API launches one Job
-  per deploy / teardown / per-app redeploy via `PreviewkitJobLauncher` (apps/api). `index.ts` reads
+  per deploy / teardown / per-app redeploy via `PreviewkitJobLauncher`
+  (`@autonoma/k8s/previewkit-jobs`; the diffs worker launches deploys, the API launches teardown +
+  per-app redeploy). `index.ts` reads
   the `PREVIEWKIT_JOB_SPEC` payload, builds `PreviewkitServices`, runs once, and exits (SIGTERM =
   supersede for deploy/redeploy-app; ignored during teardown). `run-preview-job.ts` is the
   orchestration (linear pipeline calls + a `signal.aborted` supersede branch); the `redeploy-app`
-  mode is `rebuild` (build+deploy one app) or `restart` (re-roll its pods). `job-spec.ts` Zod-validates
-  the payload; `deps.ts` wires the DB-backed side effects.
+  mode is `rebuild` (build+deploy one app) or `restart` (re-roll its pods). `job-spec.ts` reads the env var and
+  parses it against `previewJobSpecSchema` (`@autonoma/types`), the one definition the launcher writes against
+  and this reads; `deps.ts` wires the DB-backed side effects.
 - `create-services.ts` - builds `PreviewkitServices` (pipelines + provider) once per process.
 - `env.ts` - all env vars (`createEnv`); extends `@autonoma/logger/env`.
 - `pipeline/preview-pipeline.ts` - the deploy steps the runner drives (`prepare` / `build` /
@@ -112,16 +128,17 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
   `env-injector.ts` (`{{name.host}}` template resolution), `hook-job-runner.ts`, `pod-exec.ts`.
 - `db/index.ts` - all DB writes (`record*` functions) + the in-memory `AppBuildOutcome` type.
 - `recipes/` - infra service recipes (postgres, redis, valkey, mongodb, upstash, api-gateway, docker-image, aws, temporal).
-- `git-provider/` - GitHub provider + the `PullRequestEvent` shape (input to `deploy`).
-- `multirepo/`, `diffs/`, `secrets/` - multi-repo deps, primary-URL resolution, secret reads.
-  Multirepo: the dependency repo set is derived from `apps[].repository` (every value that is not the
-  event's repo); `resolve-target-branch.ts` + `resolve-dependency-checkout.ts` pick each repo's
-  branch/commit (convention, else its `repositories[]` `fallback_branch`), and
-  `enrich-repository-shas.ts` stamps the deployed `sha` per repo onto `resolvedConfig`. A repo with
-  no resolvable branch records its apps `skipped` (with the reason) and then FAILS the full deploy
-  before any image builds - previews are all-or-nothing, so an app that can never come up makes the
-  preview unpublishable. Two
-  independent secret read paths:
+- `git-provider/` - GitHub provider. The deploy/redeploy/teardown target shapes live in `@autonoma/types`;
+  the runner keeps no mirror of them.
+- `multirepo/`, `secrets/` - multi-repo deps, secret reads. Primary-URL and SDK-host resolution are NOT here:
+  the pipeline calls the shared `resolvePrimaryUrl` / `resolveSdkAppUrl` from `@autonoma/types`, the one rule the
+  API reads and the orchestrator's readiness wait both use.
+  Multirepo: the dependency repo set is derived from `apps[].repository` (every value that is not the target's
+  repo); `resolve-target-branch.ts` + `resolve-dependency-checkout.ts` pick each repo's branch/commit
+  (convention, else its `repositories[]` `fallback_branch`), and `enrich-repository-shas.ts` stamps the deployed
+  `sha` per repo onto `resolvedConfig`. A repo with no resolvable branch records its apps `skipped` (with the
+  reason) and then FAILS the deploy before any image builds - previews are all-or-nothing, so an app that can
+  never come up makes the preview unpublishable. Two independent secret read paths:
     - **Build-time values** go through `secrets/build-secret-source.ts` (`build_secrets:`
       build args). Postgres only - there is no AWS fallback here, so a
       registered bundle Postgres cannot serve fails the deploy rather than building against nothing.
@@ -141,11 +158,9 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
       redeploy soon - mainly the long-lived `-pr-0` environments -
       `deployment/previewkit/cluster/release-external-secrets.sh` sweeps them (dry-run by default,
       needs kubectl on the PREVIEW cluster). This is one-way: nothing hands a Secret back to ESO.
-  `diffs/trigger-diffs-after-deploy.ts` also starts the diffs run: once a PR preview is ready, the runner
-  starts the `triggerPrDiffsWorkflow` Temporal job directly (guarded on `TEMPORAL_ADDRESS`, PR-only, ready,
-  a resolved primary URL, and a `branchId` on the event), so an Autonoma review begins without the customer's
-  `deployment_status` Action. It fires for every PreviewKit-managed app - there is no per-org gate. The launcher
-  forwards this env's `TEMPORAL_ADDRESS`/`TEMPORAL_NAMESPACE` per-Job.
+  The runner does NOT start the Autonoma review: `analysisRunWorkflow` launched the build in the first place
+  and watches the environment row for readiness itself, so it owns everything downstream. The runner stays
+  responsible for build, deploy, environment status writes, and the preview-URL PR comment.
 
 ## The public surface lives in apps/api
 
@@ -166,11 +181,9 @@ per-caller org-scoping). Previewkit itself serves nothing over HTTP.
   `PATCH /environments/:owner/:repo/:pr` / per-app redeploy
   `PATCH /environments/:owner/:repo/:pr/apps/:app`):
   preflight + org-scoping in `PreviewkitTriggerService` (`previewkit-trigger.service.ts`, mirrors
-  `diffs-trigger.service.ts`), then the Kubernetes Job is launched (PreviewkitJobLauncher). 503 when the API's
-  `PREVIEWKIT_ENABLED` is off (dev / self-host without preview infra); the GitHub webhook handler
-  (`apps/api/src/github/github-http.router.ts`) silently skips in that case, and admin redeploy
-  (`apps/api/src/routes/deployments/deployments.service.ts`) errors. `PREVIEWKIT_SERVICE_SECRET`
-  remains in the API env - it authenticates the native routes and `/v1/diffs/internal/trigger`.
+  `diffs-trigger.service.ts`), then a deploy starts `analysisRunWorkflow` while teardown / per-app redeploy
+  launch their Kubernetes Job directly (PreviewkitJobLauncher, `@autonoma/k8s/previewkit-jobs`). `PREVIEWKIT_SERVICE_SECRET`
+  remains in the API env - it authenticates the native routes.
 
 The admin "active environments" page reads the DB directly:
 
@@ -403,13 +416,14 @@ risk are in `packages/secrets/README.md`.
 unwrapped, and a deploy that needs secrets fails saying so while one that needs none is unaffected.
 It is the only secrets knob the runner has - `PREVIEWKIT_SECRETS_READ` and
 `CLUSTER_SECRET_STORE_NAME` are gone, because every read is from the database now. It is not set in
-the shared `previewkit-env-file` secret: the API's launcher injects it per-Job from its OWN env
+the shared `previewkit-env-file` secret: the launcher injects it per-Job from the launching pod's OWN env
 alongside `DATABASE_URL`, because the key it names lives in the database that URL points at - a
 runner writing to beta's DB needs beta's CMK, not production's. The platform still installs External
 Secrets for its own env-file secrets (`deployment/secrets-manager/`); previewkit no longer uses it.
-`PREVIEWKIT_JOB_SPEC` is the per-Job `{mode, event, ...}` payload the API sets on each runner Job.
-`DATABASE_URL` is set on each runner Job by the launcher (PreviewkitJobLauncher, apps/api) to the
-_launching API's own_ DATABASE_URL - an explicit env var that overrides the production DATABASE_URL
+`PREVIEWKIT_JOB_SPEC` is the per-Job `{mode, event, ...}` payload the launcher sets on each runner Job.
+`DATABASE_URL` is set on each runner Job by the launcher (`PreviewkitJobLauncher`,
+`@autonoma/k8s/previewkit-jobs`, constructed by both the API and the diffs worker) to the _launching
+process's own_ DATABASE_URL - an explicit env var that overrides the production DATABASE_URL
 carried by the shared `previewkit-env-file` secret, so a runner writes its environment/build rows to
 the DB of the env that launched it (prod -> prod, beta -> beta, alpha -> that alpha env's DB).
 `LOKI_URL` (optional) - the build-log tier. When set, the builder tees each output chunk and the

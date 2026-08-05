@@ -1,9 +1,9 @@
 import { db } from "@autonoma/db";
 import type { GitHubPrCommentKind } from "@autonoma/db";
 import { createGitHubPrCommentStore, SEE_PREVIEW_CTA_LABEL, stripCtaFromBody } from "@autonoma/github/comment";
+import type { PreviewTeardownTarget } from "@autonoma/types";
 import { recordEnvironmentTornDown } from "../db";
 import type { Deployer } from "../deployer/deployer";
-import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger, withObservabilityContext } from "../logger";
 
@@ -21,14 +21,14 @@ export class TeardownPipeline {
         this.deployer = options.deployer;
     }
 
-    async teardown(event: PullRequestEvent): Promise<void> {
-        return await withObservabilityContext({ organization: { organizationId: event.organizationId } }, () =>
-            this.runTeardown(event),
+    async teardown(target: PreviewTeardownTarget): Promise<void> {
+        return await withObservabilityContext({ organization: { organizationId: target.organizationId } }, () =>
+            this.runTeardown(target),
         );
     }
 
-    private async runTeardown(event: PullRequestEvent): Promise<void> {
-        const { repoFullName, prNumber, headSha, organizationId } = event;
+    private async runTeardown(target: PreviewTeardownTarget): Promise<void> {
+        const { repoFullName, prNumber, headSha, organizationId } = target;
 
         logger.info("Starting preview teardown", { repo: repoFullName, pr: prNumber, headSha, organizationId });
 
@@ -106,11 +106,20 @@ export class TeardownPipeline {
             }),
         );
 
-        logger.info("Step 6/6 setting teardown commit status", { repo: repoFullName, pr: prNumber, headSha });
-        await this.provider
-            .setCommitStatus(repoFullName, headSha, "success", "Preview environment torn down")
-            .catch((err) => logger.error("Failed to set teardown status", err));
-        logger.info("Step 6/6 set teardown commit status", { repo: repoFullName, pr: prNumber, headSha });
+        // No sha when the close webhook carried none and the environment row was already gone. There is no commit
+        // to attach a status to, so say so rather than asking GitHub about the empty string.
+        if (headSha == null) {
+            logger.info("Step 6/6 skipped: no deployed commit to set a teardown status on", {
+                repo: repoFullName,
+                pr: prNumber,
+            });
+        } else {
+            logger.info("Step 6/6 setting teardown commit status", { repo: repoFullName, pr: prNumber, headSha });
+            await this.provider
+                .setCommitStatus(repoFullName, headSha, "success", "Preview environment torn down")
+                .catch((err) => logger.error("Failed to set teardown status", err));
+            logger.info("Step 6/6 set teardown commit status", { repo: repoFullName, pr: prNumber, headSha });
+        }
 
         logger.info("Preview teardown complete", { repo: repoFullName, pr: prNumber, namespace });
     }

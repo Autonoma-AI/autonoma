@@ -1,10 +1,11 @@
+import { env as dbEnv } from "@autonoma/db/env";
 import { base64PrivateKey } from "@autonoma/github/schemas";
 import { env as loggerEnv } from "@autonoma/logger/env";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
 export const env = createEnv({
-    extends: [loggerEnv],
+    extends: [loggerEnv, dbEnv],
     server: {
         SENTRY_DSN_WORKER_DIFFS: z.string().optional(),
         POSTHOG_KEY: z.string().optional(),
@@ -32,9 +33,8 @@ export const env = createEnv({
         // MERGE_GATE_ENABLED && org.mergeGateEnabled.
         MERGE_GATE_ENABLED: z.stringbool().default(false),
         // The CMK wrapping the encryption keys for the database DATABASE_URL points at - the
-        // preview-introspection tools read the env a preview runs with out of that database.
-        // Unset means those tools cannot answer and say so, rather than reporting an empty
-        // environment as a finding.
+        // preview-introspection tools read the env a preview runs with out of that database. Unset means those
+        // tools cannot answer and say so, rather than reporting an empty environment as a finding.
         PREVIEWKIT_SECRETS_CMK: z.string().min(1).optional(),
         AWS_REGION: z.string().min(1).default("us-east-1"),
     },

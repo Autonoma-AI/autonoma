@@ -222,7 +222,27 @@ export interface DeleteAnalysisTestOutput {
  * owns the snapshot, generation, job, merge-gate, and PR-comment protocol so no workflow exit can leave an
  * incomplete run behind.
  */
+export interface OpenAnalysisRunInput {
+    branchId: string;
+    headSha: string;
+    /** Fallback base sha (the PR base) used when the branch has no active-snapshot head yet. */
+    baseSha?: string;
+}
+
+/**
+ * `skipped` when the head was already analyzed (a re-delivered trigger, or a redeploy of an unchanged commit):
+ * there is no selection to make and no run to settle. A previewkit run still builds for it - the customer asked
+ * for a fresh preview of a commit we have already judged.
+ */
+export type OpenAnalysisRunOutput = { skipped: true } | { skipped: false; snapshotId: string };
+
 export interface AnalysisActivities {
+    /**
+     * Open the branch's analysis run - its pending snapshot plus the AnalysisJob tracking it - superseding whatever
+     * run the branch had in flight. Deliberately URL-free: a previewkit run calls this before its preview exists,
+     * and whether one ever will is what the build warrant is about to decide.
+     */
+    openAnalysisRun(input: OpenAnalysisRunInput): Promise<OpenAnalysisRunOutput>;
     /**
      * Flip the un-requested `Autonoma` check to the in-progress "Analyzing" state and stamp
      * the `ready_for_review` activation, for the auto-run-on-ready path that reaches the pipeline without going

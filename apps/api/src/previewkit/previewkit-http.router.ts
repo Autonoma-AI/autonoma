@@ -75,7 +75,13 @@ const redeployAppRequestSchema = z.object({
     mode: z.enum(["rebuild", "restart"]).default("rebuild"),
 });
 
-/** Request body for `POST /environments` - mirrors Previewkit's deploy schema. */
+/**
+ * Request body for `POST /environments` - mirrors Previewkit's deploy schema.
+ *
+ * `cloneUrl` and `baseRef` are deprecated and ignored: the build clones via the installation token from
+ * `repoFullName`, and nothing reads the base ref. Still accepted so existing callers keep working; drop them
+ * once no client sends them.
+ */
 const deployRequestSchema = z.object({
     repoFullName: z.string().regex(/^[^/]+\/[^/]+$/, "must be 'owner/repo'"),
     prNumber: z.number().int().positive(),
@@ -83,7 +89,7 @@ const deployRequestSchema = z.object({
     githubRepositoryId: z.number().int().positive(),
     headSha: z.string().min(1),
     headRef: z.string().min(1),
-    cloneUrl: z.url(),
+    cloneUrl: z.url().optional(),
     baseSha: z.string().min(1).optional(),
     baseRef: z.string().min(1).optional(),
 });
@@ -98,8 +104,7 @@ const deployRequestSchema = z.object({
  *  - **Lifecycle ops** (deploy / main-branch deploy / teardown / redeploy): the API
  *    authenticates the caller, runs the preflight checks, and starts the Temporal
  *    workflow directly (`PreviewkitTriggerService`) - the Previewkit worker executes
- *    the pipeline. 503 when `PREVIEWKIT_ENABLED` is off (dev / self-host without
- *    preview infrastructure).
+ *    the pipeline.
  */
 export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>()
     // ─── Native: environment status (DB-backed) ───────────────────────
@@ -298,8 +303,6 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
     // ─── Lifecycle ops: start the preview Temporal workflows ──────────
     .post("/environments", requireAuth, async (c) => {
-        if (!env.PREVIEWKIT_ENABLED) return previewsDisabled(c);
-
         const body = await c.req.json().catch(() => undefined);
         const parsed = deployRequestSchema.safeParse(body);
         if (!parsed.success) return c.json({ error: "Invalid request body", details: parsed.error.issues }, 400);
@@ -311,7 +314,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
         const { repoFullName, prNumber } = parsed.data;
         try {
-            await previewkitTriggerService.deploy(parsed.data);
+            await previewkitTriggerService.startRun(parsed.data);
         } catch (error) {
             return lifecycleErrorResponse(c, error, { repoFullName, prNumber });
         }
@@ -327,11 +330,9 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         );
     })
     .post("/applications/:applicationId/0", requireAuth, async (c) => {
-        if (!env.PREVIEWKIT_ENABLED) return previewsDisabled(c);
-
         const applicationId = c.req.param("applicationId");
         try {
-            const result = await previewkitTriggerService.deployMainBranch(
+            const result = await previewkitTriggerService.startMainBranchRun(
                 applicationId,
                 callerOrgId(c.var.authCaller),
             );
@@ -352,8 +353,6 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         }
     })
     .delete("/environments/:owner/:repo/:pr", requireAuth, async (c) => {
-        if (!env.PREVIEWKIT_ENABLED) return previewsDisabled(c);
-
         const pr = parseEnvironmentNumber(c.req.param("pr"));
         if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
 
@@ -361,11 +360,8 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         if (organizationId == null || organizationId === "") {
             return c.json({ error: "organizationId query param is required" }, 400);
         }
-        const githubRepositoryIdRaw = c.req.query("githubRepositoryId");
-        const githubRepositoryId = githubRepositoryIdRaw != null ? Number(githubRepositoryIdRaw) : NaN;
-        if (!Number.isInteger(githubRepositoryId) || githubRepositoryId <= 0) {
-            return c.json({ error: "githubRepositoryId query param must be a positive integer" }, 400);
-        }
+        // A `githubRepositoryId` query param is accepted and ignored: teardown addresses the environment by
+        // (repo, PR). Deprecated, so it is neither required nor validated.
 
         const orgId = callerOrgId(c.var.authCaller);
         if (orgId != null && orgId !== organizationId) {
@@ -374,7 +370,7 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
         const repoFullName = `${c.req.param("owner")}/${c.req.param("repo")}`;
         try {
-            await previewkitTriggerService.teardown({ repoFullName, prNumber: pr, organizationId, githubRepositoryId });
+            await previewkitTriggerService.teardown({ repoFullName, prNumber: pr, organizationId });
         } catch (error) {
             return lifecycleErrorResponse(c, error, { repoFullName, prNumber: pr });
         }
@@ -382,14 +378,15 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);
     })
     .patch("/environments/:owner/:repo/:pr", requireAuth, async (c) => {
-        if (!env.PREVIEWKIT_ENABLED) return previewsDisabled(c);
-
         const pr = parseEnvironmentNumber(c.req.param("pr"));
         if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
 
         const repoFullName = `${c.req.param("owner")}/${c.req.param("repo")}`;
         try {
-            await previewkitTriggerService.redeploy(repoFullName, pr, callerOrgId(c.var.authCaller));
+            await previewkitTriggerService.startRunForRedeploy(
+                { repoFullName, prNumber: pr },
+                { organizationId: callerOrgId(c.var.authCaller) },
+            );
         } catch (error) {
             return lifecycleErrorResponse(c, error, { repoFullName, prNumber: pr });
         }
@@ -397,8 +394,6 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
         return c.json({ accepted: true, repoFullName, prNumber: pr }, 202);
     })
     .patch("/environments/:owner/:repo/:pr/apps/:app", requireAuth, async (c) => {
-        if (!env.PREVIEWKIT_ENABLED) return previewsDisabled(c);
-
         const pr = parseEnvironmentNumber(c.req.param("pr"));
         if (pr == null) return c.json({ error: "pr must be a non-negative integer" }, 400);
 
@@ -424,7 +419,9 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
         const repoFullName = `${c.req.param("owner")}/${c.req.param("repo")}`;
         try {
-            await previewkitTriggerService.redeployApp(repoFullName, pr, app, mode, callerOrgId(c.var.authCaller));
+            await previewkitTriggerService.redeployApp({ repoFullName, prNumber: pr }, app, mode, {
+                organizationId: callerOrgId(c.var.authCaller),
+            });
         } catch (error) {
             return lifecycleErrorResponse(c, error, { repoFullName, prNumber: pr, app });
         }
@@ -442,11 +439,6 @@ export const previewkitHttpRouter = new Hono<{ Variables: CallerAuthVariables }>
 
 function callerOrgId(caller: AuthCaller): string | undefined {
     return caller.kind === "user" ? caller.organizationId : undefined;
-}
-
-/** Same body the legacy proxy returned when Previewkit was not configured. */
-function previewsDisabled(c: Context): Response {
-    return c.json({ error: "Preview environments are not configured." }, 503);
 }
 
 /** Maps trigger-service errors to the same statuses Previewkit's own routes used. */

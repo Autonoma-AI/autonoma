@@ -1,10 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
-import { TriggerSource } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
-import type { DiffsRunPreparer } from "@autonoma/test-updates";
-import { createDetachedSnapshot } from "@autonoma/test-updates";
-import type { PipelineWorkflows } from "@autonoma/workflow";
-import { env } from "../env";
+import { recordBranchDeployment, resolveAnalysisBase } from "@autonoma/test-updates";
+import type { AnalysisRunWorkflowInput } from "@autonoma/workflow";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
 import { Service } from "../routes/service";
@@ -12,7 +9,8 @@ import { Service } from "../routes/service";
 interface BaseTriggerDiffsParams {
     organizationId: string;
     repoId: number;
-    url: string;
+    /** Set when the CALLER knows the URL - a customer-deployed preview. One Autonoma hosts records its own. */
+    url?: string;
     webhookUrl?: string;
     webhookHeaders?: Record<string, string>;
     environment?: string;
@@ -33,9 +31,11 @@ interface TriggerDiffsParams extends BaseTriggerDiffsParams {
 
 export interface TriggerDiffsResult {
     branchId: string;
-    snapshotId?: string;
-    deploymentId?: string;
-    /** True when the request was a no-op: the head sha was already analyzed, so no snapshot/diffs job was created. */
+    /**
+     * True when the request was a no-op: the head was already analyzed, or activation suppressed it. Absent means a
+     * run is under way - either one this call started or one it attached to. No snapshot id: the run opens inside
+     * its workflow, so the trigger never learns one.
+     */
     skipped?: boolean;
 }
 
@@ -67,144 +67,10 @@ export class DiffsTriggerService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly githubInstallationService: GitHubInstallationService,
-        // Owns the whole run start (deployment + snapshot, per-org analysis-vs-diffs, supersede, investigation
-        // shadow), shared with the PreviewKit diffs-worker path. Injected ready-built; this service only resolves
-        // the branch/shas around it.
-        private readonly preparer: DiffsRunPreparer,
-        // Used only by the onboarding-recovery path (`reinvestigateOpenPrs`) to fire the investigation shadow
-        // directly; the main trigger paths go through `preparer`.
-        private readonly workflows: PipelineWorkflows,
+        /** Injected so a test can observe what a trigger asked for without standing up Temporal. */
+        private readonly startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<void>,
     ) {
         super();
-    }
-
-    /**
-     * Create a detached investigation snapshot for a branch head, pair it onto the given parent snapshot via
-     * `investigationSnapshotId`, and fire the investigation workflow. Used by the onboarding-completion recovery
-     * path (`reinvestigateOpenPrs`). Returns `undefined` when there is no baseline suite to fork from (nothing to
-     * investigate). Callers own the containment (try/catch) so a failure never blocks them.
-     */
-    private async startInvestigationForHead(params: {
-        branchId: string;
-        organizationId: string;
-        headSha: string;
-        baseSha: string;
-        parentSnapshotId: string;
-    }): Promise<{ snapshotId: string } | undefined> {
-        const { branchId, organizationId, headSha, baseSha, parentSnapshotId } = params;
-
-        const created = await createDetachedSnapshot({
-            db: this.db,
-            branchId,
-            organizationId,
-            source: TriggerSource.WEBHOOK,
-            headSha,
-            baseSha,
-        });
-        if (created == null) {
-            this.logger.info("No baseline suite; skipping investigation", {
-                snapshot: { snapshotId: parentSnapshotId },
-            });
-            return undefined;
-        }
-
-        await this.db.branchSnapshot.update({
-            where: { id: parentSnapshotId },
-            data: { investigationSnapshotId: created.snapshotId },
-        });
-
-        await this.workflows.triggerInvestigation({ snapshotId: created.snapshotId });
-        this.logger.info("Investigation triggered on detached snapshot", {
-            snapshot: { snapshotId: created.snapshotId },
-            extra: { parentSnapshotId },
-        });
-        return created;
-    }
-
-    /**
-     * Recovery for the onboarding race: a PR investigation that finished while the app was still onboarding had
-     * its comment suppressed by the onboarding gate (`isOnboardingComplete`) and nothing re-posts it. When the
-     * app goes live we re-run a fresh investigation for every open PR that never got an investigation comment,
-     * so the comment posts normally now that the gate passes. Only comment-less open PRs are targeted, bounding
-     * this to a one-time compute per app. Best-effort per PR: one failure does not sink the rest.
-     */
-    async reinvestigateOpenPrs(applicationId: string, organizationId: string): Promise<void> {
-        if (!env.INVESTIGATION_SHADOW_ENABLED) {
-            this.logger.info("Investigation shadow disabled; skipping open-PR reinvestigation", { applicationId });
-            return;
-        }
-        this.logger.info("Reinvestigating open PRs after go-live", { applicationId, organizationId });
-
-        const application = await this.db.application.findFirst({
-            where: { id: applicationId, organizationId },
-            select: { githubRepositoryId: true },
-        });
-        const repoId = application?.githubRepositoryId;
-        if (repoId == null) {
-            this.logger.info("Application has no linked repository; nothing to reinvestigate", { applicationId });
-            return;
-        }
-
-        const openBranches = await this.db.branch.findMany({
-            where: { applicationId, application: { organizationId }, prInfo: { prState: "open" } },
-            select: {
-                id: true,
-                activeSnapshotId: true,
-                prInfo: { select: { prNumber: true } },
-            },
-        });
-        if (openBranches.length === 0) {
-            this.logger.info("No open PRs to reinvestigate", { applicationId });
-            return;
-        }
-
-        const repository = await this.githubInstallationService.getRepository(organizationId, repoId);
-        const repoFullName = repository.fullName;
-
-        const openPrNumbers = openBranches
-            .map((branch) => branch.prInfo?.prNumber)
-            .filter((prNumber): prNumber is number => prNumber != null);
-        const existingComments = await this.db.gitHubPrComment.findMany({
-            where: { repoFullName, kind: "investigation", prNumber: { in: openPrNumbers } },
-            select: { prNumber: true },
-        });
-        const commentedPrNumbers = new Set(existingComments.map((comment) => comment.prNumber));
-
-        let retriggered = 0;
-        let skipped = 0;
-        for (const branch of openBranches) {
-            const prNumber = branch.prInfo?.prNumber;
-            const alreadyCommented = prNumber != null && commentedPrNumbers.has(prNumber);
-            if (prNumber == null || alreadyCommented || branch.activeSnapshotId == null) {
-                skipped++;
-                continue;
-            }
-            try {
-                const pullRequest = await this.githubInstallationService.getPullRequest(
-                    organizationId,
-                    repoId,
-                    prNumber,
-                );
-                await this.startInvestigationForHead({
-                    branchId: branch.id,
-                    organizationId,
-                    headSha: pullRequest.headSha,
-                    baseSha: pullRequest.baseSha,
-                    parentSnapshotId: branch.activeSnapshotId,
-                });
-                retriggered++;
-            } catch (error) {
-                this.logger.warn("Failed to reinvestigate open PR", {
-                    organizationId,
-                    extra: { applicationId, prNumber, branchId: branch.id, error: String(error) },
-                });
-            }
-        }
-
-        this.logger.info("Open-PR reinvestigation complete", {
-            applicationId,
-            extra: { retriggered, skipped, totalOpen: openBranches.length },
-        });
     }
 
     async triggerDiffs(params: TriggerDiffsParams): Promise<TriggerDiffsResult> {
@@ -259,15 +125,19 @@ export class DiffsTriggerService extends Service {
             prNumber,
             name: normalizedBranch,
         });
-        const baseSha = branch.activeSnapshotHeadSha ?? pullRequest.baseSha;
+        const baseSha = pullRequest.baseSha;
 
         this.logger.info("Resolved branch and shas", { branchId: branch.id, headSha, baseSha });
 
-        // Idempotency: a re-delivered webhook (GitHub retry, client repost) for an
-        // already-analyzed head has nothing new to diff. Drop it instead of
-        // re-running the full pipeline. `createSnapshot` still supersedes a pending
-        // snapshot if the head genuinely moved while one was in flight.
-        if (headSha === baseSha) {
+        // A re-delivered webhook for an already-analyzed head has nothing new to diff. `createSnapshot` still
+        // supersedes a pending snapshot if the head genuinely moved while one was in flight.
+        const { alreadyAnalyzed } = await resolveAnalysisBase({
+            db: this.db,
+            branchId: branch.id,
+            headSha,
+            fallbackBaseSha: baseSha,
+        });
+        if (alreadyAnalyzed) {
             this.logger.info("Skipping PR diffs: head already analyzed, no new commits", {
                 branchId: branch.id,
                 prNumber,
@@ -276,7 +146,41 @@ export class DiffsTriggerService extends Service {
             return { branchId: branch.id, skipped: true };
         }
 
-        const prepared = await this.preparer.prepare({
+        // Ready-for-review fires here rather than from the `pull_request.ready_for_review` webhook: a
+        // customer-deployed preview does not exist yet at webhook time, and this runs once it is live.
+        let isAutoRunOnReady = false;
+        if (!requested && (await this.isActivationGated(organizationId))) {
+            isAutoRunOnReady = await this.autoRunsOnReady(branch.id);
+            if (!isAutoRunOnReady) {
+                this.logger.info("Activation: suppressing automatic run; a run starts only on an explicit request", {
+                    branchId: branch.id,
+                    extra: { organizationId, headSha },
+                });
+                return { branchId: branch.id, skipped: true };
+            }
+            this.logger.info("Activation: repo opted into auto-run-on-ready; proceeding with the automatic run", {
+                branchId: branch.id,
+                extra: { organizationId, headSha },
+            });
+        }
+
+        // Dedupe of activation triggers racing on the same head: attach to the run an earlier trigger opened
+        // instead of superseding it. This covers explicit-vs-explicit (a label added while a `/start analysis`
+        // comment is mid-run) AND auto-vs-explicit (a preview-ready auto-run firing just after `/start analysis`
+        // opened one).
+        if (requested || isAutoRunOnReady) {
+            const inFlight = await this.findInFlightRunForHead(branch.id, headSha);
+            if (inFlight != null) {
+                this.logger.info("Attaching to the in-flight run for this head; not starting a duplicate", {
+                    branchId: branch.id,
+                    snapshot: { snapshotId: inFlight.snapshotId },
+                    extra: { headSha, requested: requested === true, isAutoRunOnReady },
+                });
+                return { branchId: branch.id };
+            }
+        }
+
+        await this.startRun({
             branchId: branch.id,
             organizationId,
             headSha,
@@ -284,19 +188,15 @@ export class DiffsTriggerService extends Service {
             url,
             webhookUrl,
             webhookHeaders,
-            requested,
         });
-        if (prepared.skipped) return { branchId: branch.id, skipped: true };
 
         this.logger.info("PR diffs analysis triggered successfully", {
             branchId: branch.id,
-            snapshotId: prepared.snapshotId,
-            deploymentId: prepared.deploymentId,
             headSha,
             baseSha,
         });
 
-        return { branchId: branch.id, snapshotId: prepared.snapshotId, deploymentId: prepared.deploymentId };
+        return { branchId: branch.id };
     }
 
     async triggerMainDiffs({
@@ -314,12 +214,7 @@ export class DiffsTriggerService extends Service {
             },
             select: {
                 id: true,
-                mainBranch: {
-                    select: {
-                        id: true,
-                        activeSnapshot: { select: { headSha: true } },
-                    },
-                },
+                mainBranch: { select: { id: true } },
                 mainBranchInfo: { select: { githubRef: true } },
             },
         });
@@ -328,24 +223,22 @@ export class DiffsTriggerService extends Service {
 
         if (app.mainBranch == null || app.mainBranchInfo == null) throw new NoMainBranchError(app.id);
 
-        const activeSnapshotHeadSha = app.mainBranch.activeSnapshot?.headSha;
-        if (activeSnapshotHeadSha == null) throw new NoActiveSnapshotHeadShaError(app.mainBranch.id);
-
         const branchId = app.mainBranch.id;
-        const baseSha = activeSnapshotHeadSha;
         const headSha = await this.githubInstallationService.getBranchHead(
             organizationId,
             repoId,
             app.mainBranchInfo.githubRef,
         );
 
+        // Main has no pull request to fall back on, so its baseline snapshot is the only possible base.
+        const { baseSha, alreadyAnalyzed } = await resolveAnalysisBase({ db: this.db, branchId, headSha });
+        if (baseSha == null) throw new NoActiveSnapshotHeadShaError(branchId);
+
         this.logger.info("Resolved main branch and shas", { branchId, headSha, baseSha });
 
-        // Idempotency: re-delivered webhooks (GitHub retry, client repost) for an
-        // unchanged main carry the same head as the active snapshot. Drop them
-        // rather than re-running diffs. A real new commit moves headSha, so this
-        // only collapses true duplicates.
-        if (headSha === baseSha) {
+        // A re-delivered webhook for unchanged main carries the active snapshot's head. A real commit moves
+        // headSha, so this only collapses true duplicates.
+        if (alreadyAnalyzed) {
             this.logger.info("Skipping main diffs: head matches active snapshot, no new commits", {
                 branchId,
                 headSha,
@@ -353,26 +246,96 @@ export class DiffsTriggerService extends Service {
             return { branchId, skipped: true };
         }
 
-        const prepared = await this.preparer.prepare({
+        // Deliberately not activation-gated: activation only suppresses automatic PR analysis. A migrated org's
+        // baseline snapshot must keep updating on main pushes, or every later PR diff computes against a stale base.
+        await this.startRun({
             branchId,
             organizationId,
             headSha,
-            baseSha,
             url,
             webhookUrl,
             webhookHeaders,
-            isMainBranchRun: true,
-        });
-        if (prepared.skipped) return { branchId, skipped: true };
-
-        this.logger.info("Main branch diffs analysis triggered successfully", {
-            branchId,
-            snapshotId: prepared.snapshotId,
-            deploymentId: prepared.deploymentId,
-            headSha,
-            baseSha,
         });
 
-        return { branchId, snapshotId: prepared.snapshotId, deploymentId: prepared.deploymentId };
+        this.logger.info("Main branch diffs analysis triggered successfully", { branchId, headSha, baseSha });
+
+        return { branchId };
+    }
+
+    /**
+     * A URL is recorded only for a preview that ALREADY exists: one Autonoma hosts would point the branch at the
+     * previous deploy. Sequential on purpose - both mutate the branch row, so concurrency only contends on its lock.
+     */
+    private async startRun(params: {
+        branchId: string;
+        organizationId: string;
+        headSha: string;
+        /** The PR base, for a branch with no active snapshot yet. Main always has one, so it passes none. */
+        baseSha?: string;
+        url?: string;
+        webhookUrl?: string;
+        webhookHeaders?: Record<string, string>;
+    }): Promise<void> {
+        const { branchId, organizationId, headSha, baseSha, url, webhookUrl, webhookHeaders } = params;
+
+        if (url != null) {
+            await recordBranchDeployment({
+                db: this.db,
+                logger: this.logger,
+                branchId,
+                organizationId,
+                url,
+                webhookUrl,
+                webhookHeaders,
+            });
+        }
+        await this.startAnalysisRun({ branchId, headSha, baseSha });
+    }
+
+    /**
+     * Undefined when there is no pending snapshot, when it is for a different head (a newer push must supersede
+     * rather than attach), or when the branch has no deployment yet.
+     */
+    private async findInFlightRunForHead(
+        branchId: string,
+        headSha: string,
+    ): Promise<{ snapshotId: string } | undefined> {
+        const branch = await this.db.branch.findUnique({
+            where: { id: branchId },
+            select: {
+                deploymentId: true,
+                pendingSnapshot: { select: { id: true, status: true, headSha: true } },
+            },
+        });
+        const pending = branch?.pendingSnapshot;
+        if (pending == null || pending.status !== "processing") return undefined;
+        if (pending.headSha !== headSha) return undefined;
+        if (branch?.deploymentId == null) {
+            this.logger.warn("In-flight snapshot for head has no branch deployment; cannot attach, will supersede", {
+                branchId,
+                snapshot: { snapshotId: pending.id },
+                extra: { headSha },
+            });
+            return undefined;
+        }
+        return { snapshotId: pending.id };
+    }
+
+    /** Under activation, this is what lets an automatic preview-ready run through - fired once the preview is live. */
+    private async autoRunsOnReady(branchId: string): Promise<boolean> {
+        const branch = await this.db.branch.findUnique({
+            where: { id: branchId },
+            select: { application: { select: { triggerConfig: { select: { autoRunOnReadyForReview: true } } } } },
+        });
+        return branch?.application.triggerConfig?.autoRunOnReadyForReview === true;
+    }
+
+    /** Whether this org is migrated to activation, in which case an automatic run is suppressed. */
+    private async isActivationGated(organizationId: string): Promise<boolean> {
+        const settings = await this.db.organizationSettings.findUnique({
+            where: { organizationId },
+            select: { activationEnabled: true },
+        });
+        return settings?.activationEnabled === true;
     }
 }

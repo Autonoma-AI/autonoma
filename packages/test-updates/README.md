@@ -6,39 +6,41 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 
 ### Main entry point (`@autonoma/test-updates`)
 
-| Export | Type | Description |
-|--------|------|-------------|
-| `TestSuiteUpdater` | Class | Top-level orchestrator for a test suite update session |
-| `SnapshotDraft` | Class | Lower-level handle on a pending (processing) snapshot: `loadById`/`loadPending`/`start`, plus persist-only `updatePlan`/`addTestCase` (no generations queued). Used by the investigation agent to write proposed edits onto a detached twin without touching branch pointers. |
-| `createDetachedSnapshot` | Function | Clones a branch's baseline suite (pinned assignments + scenario recipe versions) into a snapshot wired to NO branch pointer - a detached fork. Used by the shadow investigation agent so its generations never touch the branch's pending/active snapshot. Returns `undefined` when there is no baseline to fork from. |
-| `summarizeChangesForSnapshots` | Function | Suite-change counts (added/removed/updated) for many snapshots in one query, keyed by snapshot id. Prefer this over calling `summarizeChangesForSnapshot` per snapshot: the single-snapshot path builds the full change list, loading every assignment's test case and plan prose to produce three integers. |
-| `settleAnalysisRunState` | Function | Idempotently settles an authoritative analysis snapshot, its unfinished generations, and its optional `AnalysisJob`. The snapshot transition is the mutex, so a caller that loses a race receives `settled: false` and must skip external side effects. |
-| `DiffsRunPreparer` | Class | The shared "start a PR run" core behind both the API webhook paths and the PreviewKit Temporal path: creates the branch deployment + real pending snapshot, then starts the analysis pipeline on it (the only PR-analysis pipeline). Supersedes a branch's in-flight run, including closing out a pre-cutover diffs run. |
-| `MissingJobProviderError` | Error | Thrown when `queuePendingGenerations` is called without a job provider |
-| `IncompleteGenerationsError` | Error | Thrown when finalizing a snapshot that still has pending/queued/running generations |
-| `FakeGenerationProvider` | Class | In-memory stub for tests - records fired batches |
-| `SnapshotNotPendingError` | Error | Snapshot is not in "processing" state |
-| `BranchAlreadyHasPendingSnapshotError` | Error | Branch already has an open draft |
-| `ApplicationNotFoundError` | Error | Branch not found or does not belong to the specified organization |
-| `PLAN_AUTHORING_GUIDE` | String | The shared E2E test-plan authoring ruleset (mutation + functional source-of-truth assertion, allowed/banned verbs, i18n resolution). Owned here and consumed by both the diffs agent (`@autonoma/diffs` re-exports it) and the investigation selector, so both author plans to one bar. Lives in `src/plan-authoring/`. |
+| Export                                 | Type     | Description                                                                                                                                                                                                                                                                                                                             |
+| -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TestSuiteUpdater`                     | Class    | Top-level orchestrator for a test suite update session                                                                                                                                                                                                                                                                                  |
+| `SnapshotDraft`                        | Class    | Lower-level handle on a pending (processing) snapshot: `loadById`/`loadPending`/`start`, plus persist-only `updatePlan`/`addTestCase` (no generations queued). Used by the investigation agent to write proposed edits onto a detached twin without touching branch pointers.                                                           |
+| `createDetachedSnapshot`               | Function | Clones a branch's baseline suite (pinned assignments + scenario recipe versions) into a snapshot wired to NO branch pointer - a detached fork. Used by the shadow investigation agent so its generations never touch the branch's pending/active snapshot. Returns `undefined` when there is no baseline to fork from.                  |
+| `summarizeChangesForSnapshots`         | Function | Suite-change counts (added/removed/updated) for many snapshots in one query, keyed by snapshot id. Prefer this over calling `summarizeChangesForSnapshot` per snapshot: the single-snapshot path builds the full change list, loading every assignment's test case and plan prose to produce three integers.                            |
+| `settleAnalysisRunState`               | Function | Idempotently settles an authoritative analysis snapshot, its unfinished generations, and its optional `AnalysisJob`. The snapshot transition is the mutex, so a caller that loses a race receives `settled: false` and must skip external side effects.                                                                                 |
+| `startAnalysisRun`                     | Function | Opens a branch's analysis run: its pending snapshot plus the `AnalysisJob` tracking it, superseding whatever run the branch had in flight. Scopes the job to the branch's own organization, so no caller passes one. Deliberately does NOT start a pipeline - the caller owns what happens next, which is what lets previewkit run source-only impact analysis before deciding whether to build a preview at all. |
+| `resolveAnalysisBase`                  | Function | The sha a branch's next run diffs against - its active-snapshot head, or the caller's fallback (the PR base) for a branch never analyzed - plus whether the head already IS that base. Shared by the API trigger, which answers a merge-gate request synchronously, and by the run's own `openAnalysisRun`: they have to agree, or a run is dropped or opened empty. |
+| `recordBranchDeployment`               | Function | Records where a branch's tests point and repoints the branch at it, injecting the previewkit bypass header when the URL belongs to a preview. Called at whatever moment the URL becomes known: at trigger time for a customer-deployed preview, and only once the build is live for one we build ourselves.                             |
+| `MissingJobProviderError`              | Error    | Thrown when `queuePendingGenerations` is called without a job provider                                                                                                                                                                                                                                                                  |
+| `IncompleteGenerationsError`           | Error    | Thrown when finalizing a snapshot that still has pending/queued/running generations                                                                                                                                                                                                                                                     |
+| `FakeGenerationProvider`               | Class    | In-memory stub for tests - records fired batches                                                                                                                                                                                                                                                                                        |
+| `SnapshotNotPendingError`              | Error    | Snapshot is not in "processing" state                                                                                                                                                                                                                                                                                                   |
+| `BranchAlreadyHasPendingSnapshotError` | Error    | Branch already has an open draft                                                                                                                                                                                                                                                                                                        |
+| `ApplicationNotFoundError`             | Error    | Branch not found or does not belong to the specified organization                                                                                                                                                                                                                                                                       |
+| `PLAN_AUTHORING_GUIDE`                 | String   | The shared E2E test-plan authoring ruleset (mutation + functional source-of-truth assertion, allowed/banned verbs, i18n resolution). Owned here and consumed by both the diffs agent (`@autonoma/diffs` re-exports it) and the investigation selector, so both author plans to one bar. Lives in `src/plan-authoring/`.                 |
 
 **Types:** `GenerationProvider`, `PendingGeneration`, `GenerationJobOptions`, `TestSuiteInfo`, `SnapshotChange`, `SnapshotChangeSummary`, `SnapshotComparison`
 
 **Changes (command pattern):**
 
-| Change class | Description |
-|-------------|-------------|
-| `AddTest` | Adds a test case with a plan and schedules generation |
-| `UpdateTest` | Updates the plan for an existing test case and queues regeneration |
-| `ImportTest` | Adopts an existing test case into the snapshot with a given plan and queues generation. The merge flow's counterpart to `UpdateTest`, for a test the snapshot does not assign yet (authored on a branch that merged in). Deliberately not `AddTest`: the `TestCase` already exists application-wide, and minting a second one would fork the test's identity |
-| `RemoveTest` | Removes a test case from the snapshot |
-| `RegenerateSteps` | Queues a new generation for a test case's existing plan |
-| `DiscardChange` | Reverts a test case to its previous snapshot state |
+| Change class      | Description                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AddTest`         | Adds a test case with a plan and schedules generation                                                                                                                                                                                                                                                                                                        |
+| `UpdateTest`      | Updates the plan for an existing test case and queues regeneration                                                                                                                                                                                                                                                                                           |
+| `ImportTest`      | Adopts an existing test case into the snapshot with a given plan and queues generation. The merge flow's counterpart to `UpdateTest`, for a test the snapshot does not assign yet (authored on a branch that merged in). Deliberately not `AddTest`: the `TestCase` already exists application-wide, and minting a second one would fork the test's identity |
+| `RemoveTest`      | Removes a test case from the snapshot                                                                                                                                                                                                                                                                                                                        |
+| `RegenerateSteps` | Queues a new generation for a test case's existing plan                                                                                                                                                                                                                                                                                                      |
+| `DiscardChange`   | Reverts a test case to its previous snapshot state                                                                                                                                                                                                                                                                                                           |
 
 ### Temporal entry point (`@autonoma/test-updates/temporal`)
 
-| Export | Type | Description |
-|--------|------|-------------|
+| Export                       | Type  | Description                                  |
+| ---------------------------- | ----- | -------------------------------------------- |
 | `TemporalGenerationProvider` | Class | Fires generation jobs via Temporal Workflows |
 
 ## Usage
@@ -50,23 +52,27 @@ import { TestSuiteUpdater, AddTest, UpdateTest, RemoveTest } from "@autonoma/tes
 
 // Start a new update session (creates a pending snapshot)
 const updater = await TestSuiteUpdater.startUpdate({
-  db,
-  branchId: "branch-123",
-  jobProvider: myGenerationProvider, // optional - needed for queuePendingGenerations
-  organizationId: "org-456",        // optional - ownership check
+    db,
+    branchId: "branch-123",
+    jobProvider: myGenerationProvider, // optional - needed for queuePendingGenerations
+    organizationId: "org-456", // optional - ownership check
 });
 
 // Apply changes
-await updater.apply(new AddTest({
-  name: "Login flow",
-  plan: "Navigate to /login, enter credentials, click Sign In, assert dashboard is visible",
-  scenarioId: "scenario-789", // optional
-}));
+await updater.apply(
+    new AddTest({
+        name: "Login flow",
+        plan: "Navigate to /login, enter credentials, click Sign In, assert dashboard is visible",
+        scenarioId: "scenario-789", // optional
+    }),
+);
 
-await updater.apply(new UpdateTest({
-  testCaseId: "tc-abc",
-  plan: "Updated plan text",
-}));
+await updater.apply(
+    new UpdateTest({
+        testCaseId: "tc-abc",
+        plan: "Updated plan text",
+    }),
+);
 
 await updater.apply(new RemoveTest({ testCaseId: "tc-def" }));
 ```

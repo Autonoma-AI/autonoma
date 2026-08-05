@@ -9,13 +9,13 @@ import {
     type SuggestedEnvVar,
     detectSensitive,
     previewConfigSchema,
+    projectManifest,
 } from "@autonoma/types";
 import { type LanguageModel, generateObject } from "ai";
 import {
     type PreviewFailure,
     buildServiceSummaries,
     classifyPreviewFailures,
-    projectManifest,
     toAppBuildOutcomeMap,
 } from "../routes/deployments/preview-summary";
 import { Service } from "../routes/service";

@@ -7,11 +7,10 @@ export interface PreviewkitSecretsUpsertResult {
 }
 
 export interface OnboardingPreviewkitClient {
-    isConfigured(): boolean;
     deployApplicationMain(applicationId: string, organizationId: string): Promise<void>;
     redeploy(repoFullName: string, prNumber: number, organizationId: string): Promise<void>;
     /** First deploy for an open PR with no preview environment yet (e.g. a draft the webhook skipped). */
-    deployPullRequest(organizationId: string, githubRepositoryId: number, prNumber: number): Promise<void>;
+    startRunForPullRequest(organizationId: string, githubRepositoryId: number, prNumber: number): Promise<void>;
 }
 
 export interface OnboardingPreviewkitSecretsService {
@@ -83,11 +82,6 @@ export interface OnboardingDiffsTrigger {
         url: string;
         webhookUrl?: string;
     }): Promise<{ snapshotId?: string; skipped?: boolean }>;
-    /**
-     * Recover investigation comments dropped by the onboarding gate: re-run a fresh investigation for every
-     * open PR that never received an investigation comment, so it posts now that onboarding is complete.
-     */
-    reinvestigateOpenPrs(applicationId: string, organizationId: string): Promise<void>;
 }
 
 export interface OnboardingManagerOptions {

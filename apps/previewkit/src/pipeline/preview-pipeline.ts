@@ -9,12 +9,13 @@ import {
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
-import { buildPreviewFrontDoorUrl } from "@autonoma/types";
+import { buildPreviewFrontDoorUrl, resolvePrimaryUrl } from "@autonoma/types";
 import type {
-    BuildPreviewImagesOutput,
     DeployPreviewEnvironmentInput,
     DeployPreviewEnvironmentOutput,
+    PreviewDeployTarget,
     PreviewServiceResult,
+    BuildPreviewImagesOutput,
 } from "@autonoma/types";
 import { BuildAbortedError, BuildError, type Builder } from "../builder/builder";
 import { buildPreviewCacheReference, buildPreviewImageReference } from "../builder/image-reference";
@@ -42,13 +43,10 @@ import {
 import type { DeployResult, Deployer } from "../deployer/deployer";
 import { type EnvInjector, type PublicUrlInfo } from "../deployer/env-injector";
 import { runHookJob } from "../deployer/hook-job-runner";
-import { resolvePrimaryUrl } from "../diffs/resolve-primary-url";
-import { resolveSdkAppUrl } from "../diffs/resolve-sdk-app-url";
 import { detectBlueprintFacts } from "../dockerfile-builder/detect-blueprint-facts";
 import { generateDockerfile } from "../dockerfile-builder/generate-dockerfile";
 import { resolveBuildTurboFilter } from "../dockerfile-builder/resolve-build-turbo-filter";
 import { env } from "../env";
-import type { PullRequestEvent } from "../git-provider/git-provider";
 import type { GitProvider } from "../git-provider/git-provider";
 import { logger } from "../logger";
 import { enrichRepositoryShas } from "../multirepo/enrich-repository-shas";
@@ -164,8 +162,8 @@ export class PreviewPipeline {
      * that opted out (not linked, or no preview config). Config is latest-only:
      * every deploy and redeploy resolves the Application's current config.
      */
-    async prepare(event: PullRequestEvent): Promise<PreparePreviewResult> {
-        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
+    async prepare(target: PreviewDeployTarget): Promise<PreparePreviewResult> {
+        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = target;
         const shortSha = headSha.slice(0, 7);
 
         logger.info("Preparing preview deployment", { repo: repoFullName, pr: prNumber, sha: shortSha });
@@ -279,7 +277,7 @@ export class PreviewPipeline {
         });
         logger.info("Prepare step 5/6 ensured namespace", { repo: repoFullName, pr: prNumber, namespace });
 
-        logger.info("Prepare step 6/6 recording environment-created event", {
+        logger.info("Prepare step 6/6 recording environment-created target", {
             repo: repoFullName,
             pr: prNumber,
             namespace,
@@ -289,15 +287,15 @@ export class PreviewPipeline {
                 repoFullName,
                 prNumber,
                 headSha,
-                headRef: event.headRef,
+                headRef: target.headRef,
                 namespace,
                 organizationId,
                 githubRepositoryId,
                 commentId,
-                branchId: event.branchId,
+                branchId: target.branchId,
             }),
         );
-        logger.info("Prepare step 6/6 recorded environment-created event", {
+        logger.info("Prepare step 6/6 recorded environment-created target", {
             repo: repoFullName,
             pr: prNumber,
             namespace,
@@ -320,12 +318,12 @@ export class PreviewPipeline {
      * repository has no resolvable branch) or any build fails.
      */
     async build(
-        event: PullRequestEvent,
+        target: PreviewDeployTarget,
         namespace: string,
         signal?: AbortSignal,
         appName?: string | undefined,
     ): Promise<BuildPreviewImagesOutput> {
-        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
+        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = target;
         const shortSha = headSha.slice(0, 7);
 
         // Per-app redeploy (rebuild mode): build ONLY this app. The full config is
@@ -389,7 +387,7 @@ export class PreviewPipeline {
             // Skip env-level phase writes when scoped: a per-app rebuild must not
             // flip a live environment's status to pending/building.
             if (!isScoped) await this.statusWriter.updatePhase(repoFullName, prNumber, "pending", "cloning");
-            const clonePlans = this.planDependencyClones(storedConfig, repoFullName, event.headRef);
+            const clonePlans = this.planDependencyClones(storedConfig, repoFullName, target.headRef);
             logger.info("Build step 3/6 cloning primary + dependency repos", {
                 repo: repoFullName,
                 pr: prNumber,
@@ -694,9 +692,9 @@ export class PreviewPipeline {
         if (input.appName != null && input.appName !== "") {
             return this.deployScopedApp(input, input.appName, signal);
         }
-        const { event, commentId, imageTags, buildOutcomes, warnings } = input;
+        const { target, commentId, imageTags, buildOutcomes, warnings } = input;
         const skippedApps = input.skippedApps ?? {};
-        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
+        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = target;
         // Re-hydrate the merged config across the Temporal activity boundary. The
         // config's resource policy was already applied upstream (the stored
         // config's overrides were honored), so this re-parse must preserve those values
@@ -878,7 +876,6 @@ export class PreviewPipeline {
         const readyAppNames = new Set(finalOutcomes.filter((o) => o.status === "ok").map((o) => o.name));
         const readyCount = readyAppNames.size;
         const totalCount = finalOutcomes.length;
-
         // Persist the final per-app verdict for every app - ready, deploy_failed,
         // or skipped - before the all-failed guard below, so a built-but-undeployed
         // app is a distinct row even when no app came up at all.
@@ -946,11 +943,7 @@ export class PreviewPipeline {
 
         const primaryApps = mergedConfig.apps.filter((a) => isSameRepository(a.repository, repoFullName));
         const previewUrl = finalOutcomes.find((o) => o.status === "ok")?.url;
-        const primaryUrl = resolvePrimaryUrl(primaryApps, result.urls);
-        // Scoped to the whole topology, unlike the primary URL: the app serving the
-        // Environment Factory handler can be a connected repo's API, and its
-        // declaration only reaches the merged config.
-        const sdkAppUrl = resolveSdkAppUrl({ all: mergedConfig.apps, primaryRepo: primaryApps }, result.urls);
+        const primaryUrl = resolvePrimaryUrl({ apps: primaryApps }, result.urls);
 
         const output: DeployPreviewEnvironmentOutput = {
             ready: readyCount === totalCount,
@@ -962,7 +955,6 @@ export class PreviewPipeline {
         };
         if (previewUrl != null) output.previewUrl = previewUrl;
         if (primaryUrl != null) output.primaryUrl = primaryUrl;
-        if (sdkAppUrl != null) output.sdkAppUrl = sdkAppUrl;
 
         logger.info("Preview environment deployed", {
             repo: repoFullName,
@@ -1016,8 +1008,8 @@ export class PreviewPipeline {
         appName: string,
         signal?: AbortSignal,
     ): Promise<DeployPreviewEnvironmentOutput> {
-        const { event, imageTags, buildOutcomes, warnings } = input;
-        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = event;
+        const { target, imageTags, buildOutcomes, warnings } = input;
+        const { repoFullName, prNumber, headSha, organizationId, githubRepositoryId } = target;
         const mergedConfig = trustedPreviewConfigSchema.parse(JSON.parse(input.mergedConfigJson));
 
         const targetApp = mergedConfig.apps.find((a) => a.name === appName);
@@ -1161,8 +1153,13 @@ export class PreviewPipeline {
      * Re-throws on failure (after recording `deploy_failed`) so the activity's
      * retry policy can ride out a transient k8s error.
      */
-    async restartApp(event: PullRequestEvent, namespace: string, appName: string, signal?: AbortSignal): Promise<void> {
-        const { repoFullName, prNumber } = event;
+    async restartApp(
+        target: PreviewDeployTarget,
+        namespace: string,
+        appName: string,
+        signal?: AbortSignal,
+    ): Promise<void> {
+        const { repoFullName, prNumber } = target;
         logger.info("Restarting app", { repo: repoFullName, pr: prNumber, namespace, app: appName });
 
         signal?.throwIfAborted();
@@ -1213,18 +1210,18 @@ export class PreviewPipeline {
      * Step 4 - the GitHub side effects that must land: update the PR comment with
      * the per-app status table, set the final commit status, and create the GitHub
      * deployment + deployment status (for the Deployments UI and any BYO
-     * `deployment_status` workflow). For PreviewKit-managed apps the diffs run is
-     * started by the runner directly (Temporal, see `triggerDiffsAfterDeploy`),
-     * not by this deployment event.
+     * `deployment_status` workflow). For PreviewKit-managed apps the analysis run
+     * is owned by the orchestrator that asked for this build, not started from
+     * this deployment target.
      */
     async finalize(
-        event: PullRequestEvent,
+        target: PreviewDeployTarget,
         _namespace: string,
         commentId: string,
         feedbackEnabled: boolean,
         result: DeployPreviewEnvironmentOutput,
     ): Promise<void> {
-        const { repoFullName, prNumber, headSha } = event;
+        const { repoFullName, prNumber, headSha } = target;
 
         logger.info("Finalizing preview deploy", {
             repo: repoFullName,
@@ -1294,7 +1291,7 @@ export class PreviewPipeline {
             });
             const deploymentId = await this.provider.createDeployment(
                 repoFullName,
-                event.headRef,
+                target.headRef,
                 "preview",
                 result.urls,
             );
@@ -1332,13 +1329,13 @@ export class PreviewPipeline {
      * status. Best-effort: never throws.
      */
     async fail(
-        event: PullRequestEvent,
+        target: PreviewDeployTarget,
         namespace: string,
         commentId: string,
         feedbackEnabled: boolean,
         error: string,
     ): Promise<void> {
-        const { repoFullName, prNumber, headSha } = event;
+        const { repoFullName, prNumber, headSha } = target;
         logger.error("Preview deployment failed", { repo: repoFullName, pr: prNumber, namespace, error });
 
         logger.info("Fail step 1/3 recording failed status", { repo: repoFullName, pr: prNumber, namespace });
@@ -1998,7 +1995,7 @@ async function recordSafe(fn: () => Promise<void>): Promise<void> {
     try {
         await fn();
     } catch (err) {
-        logger.error("Failed to record Previewkit DB event", err);
+        logger.error("Failed to record Previewkit DB target", err);
     }
 }
 

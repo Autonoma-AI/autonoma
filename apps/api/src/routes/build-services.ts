@@ -3,17 +3,12 @@ import { analytics } from "@autonoma/analytics";
 import { createBillingService, type BillingService } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import type { GitHubApp } from "@autonoma/github";
-import { logger } from "@autonoma/logger";
 import { LokiLogStore } from "@autonoma/logger/loki-log-store";
 import { ScenarioRecipeStore, type EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
 import type { StorageProvider } from "@autonoma/storage";
-import { DiffsRunPreparer, type GenerationProvider } from "@autonoma/test-updates";
-import type {
-    TriggerPreviewDeployParams,
-    TriggerPreviewRedeployAppParams,
-    TriggerPreviewTeardownParams,
-} from "@autonoma/types";
-import type { PipelineWorkflows } from "@autonoma/workflow";
+import type { GenerationProvider } from "@autonoma/test-updates";
+import type { TriggerPreviewRedeployAppParams, PreviewTeardownTarget } from "@autonoma/types";
+import type { AnalysisRunWorkflowInput, PreviewBuildWorkflowInput } from "@autonoma/workflow";
 import type Redis from "ioredis";
 import { ApplicationSetupService } from "../application-setup/application-setup.service";
 import type { Auth } from "../auth";
@@ -22,7 +17,6 @@ import { ParkedSessionStore } from "../demo/parked-session.store";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { env } from "../env";
 import { ActivationTriggerConfigService } from "../github/activation-trigger-config.service";
-import { PreviewAnalysisRunTrigger } from "../github/analysis-run-trigger";
 import { BranchContributorService } from "../github/branch-contributor.service";
 import { BugFixOutcomeService } from "../github/bug-fix-outcome.service";
 import { FalsePositiveCandidateService } from "../github/false-positive-candidate.service";
@@ -113,9 +107,10 @@ export interface ServicesParams {
     getVercelEncryptionHelper: () => EncryptionHelper;
     generationProvider: GenerationProvider;
     githubApp: GitHubApp;
-    pipelineWorkflows: PipelineWorkflows;
-    triggerPreviewDeploy: (params: TriggerPreviewDeployParams) => Promise<void>;
-    triggerPreviewTeardown: (params: TriggerPreviewTeardownParams) => Promise<void>;
+    /** Required, not optional: production and tests must exercise the same seam. */
+    startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<void>;
+    startPreviewBuild: (input: PreviewBuildWorkflowInput) => Promise<void>;
+    triggerPreviewTeardown: (target: PreviewTeardownTarget) => Promise<void>;
     triggerPreviewRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
 }
 
@@ -132,8 +127,8 @@ export function buildServices({
     getVercelEncryptionHelper,
     generationProvider,
     githubApp,
-    pipelineWorkflows,
-    triggerPreviewDeploy,
+    startAnalysisRun,
+    startPreviewBuild,
     triggerPreviewTeardown,
     triggerPreviewRedeployApp,
 }: ServicesParams): Services {
@@ -158,27 +153,22 @@ export function buildServices({
         conn,
         githubService,
         billingService,
-        triggerPreviewDeploy,
+        startAnalysisRun,
+        startPreviewBuild,
         triggerPreviewTeardown,
         triggerPreviewRedeployApp,
     );
-    const diffsRunPreparer = new DiffsRunPreparer({
-        db: conn,
-        logger: logger.child({ name: "DiffsRunPreparer" }),
-        workflows: pipelineWorkflows,
-    });
-    const diffsTriggerService = new DiffsTriggerService(conn, githubService, diffsRunPreparer, pipelineWorkflows);
+    const diffsTriggerService = new DiffsTriggerService(conn, githubService, startAnalysisRun);
     const onboardingOptions = {
         previewkitClient: {
-            isConfigured: () => env.PREVIEWKIT_ENABLED,
             deployApplicationMain: async (applicationId: string, organizationId: string) => {
-                await previewkitTrigger.deployMainBranch(applicationId, organizationId);
+                await previewkitTrigger.startMainBranchRun(applicationId, organizationId);
             },
             redeploy: async (repoFullName: string, prNumber: number, organizationId: string) => {
-                await previewkitTrigger.redeploy(repoFullName, prNumber, organizationId);
+                await previewkitTrigger.startRunForRedeploy({ repoFullName, prNumber }, { organizationId });
             },
-            deployPullRequest: async (organizationId: string, githubRepositoryId: number, prNumber: number) => {
-                await previewkitTrigger.deployPullRequest(organizationId, githubRepositoryId, prNumber);
+            startRunForPullRequest: async (organizationId: string, githubRepositoryId: number, prNumber: number) => {
+                await previewkitTrigger.startRunForPullRequest(organizationId, githubRepositoryId, prNumber);
             },
         },
         previewkitSecretsService,
@@ -236,8 +226,8 @@ export function buildServices({
             env.MERGE_GATE_ENABLED,
             analytics,
             falsePositiveCandidatesService,
+            diffsTriggerService,
             new MergeGateSlackNotifier(env.SLACK_BOT_TOKEN, env.MERGE_GATE_SLACK_CHANNEL),
-            new PreviewAnalysisRunTrigger(conn, diffsTriggerService),
         ),
         activationTriggerConfig: new ActivationTriggerConfigService(conn, githubService),
         branchContributor: branchContributorService,

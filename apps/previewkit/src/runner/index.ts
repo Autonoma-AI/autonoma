@@ -1,5 +1,4 @@
 import { runWithSentry } from "@autonoma/logger";
-import type { PreviewDeployEvent } from "@autonoma/types";
 import { createPreviewkitServices } from "../create-services";
 import { env } from "../env";
 import { logger, type PreviewContext, withObservabilityContext } from "../logger";
@@ -21,9 +20,9 @@ void runWithSentry({ name: "previewkit-runner", dsn: env.SENTRY_DSN }, async () 
     logger.info("Preview job runner started", {
         extra: {
             mode: spec.mode,
-            repo: spec.event.repoFullName,
-            pr: spec.event.prNumber,
-            sha: spec.event.headSha.slice(0, 7),
+            repo: spec.target.repoFullName,
+            pr: spec.target.prNumber,
+            sha: spec.target.headSha?.slice(0, 7),
         },
     });
 
@@ -32,7 +31,7 @@ void runWithSentry({ name: "previewkit-runner", dsn: env.SENTRY_DSN }, async () 
     installSignalHandler(spec, abortController);
 
     try {
-        const outcome = await withObservabilityContext({ preview: previewContext(spec.event) }, () =>
+        const outcome = await withObservabilityContext({ preview: previewContext(spec.target) }, () =>
             runPreviewJob(services, spec, abortController.signal, defaultRunPreviewJobDeps),
         );
         logger.info("Preview job runner finished", { extra: { mode: spec.mode, outcome } });
@@ -77,6 +76,7 @@ function installSignalHandler(spec: PreviewJobSpec, abortController: AbortContro
     });
 }
 
-function previewContext(event: PreviewDeployEvent): PreviewContext {
-    return { repo: event.repoFullName, headRef: event.headRef === "" ? undefined : event.headRef };
+/** A teardown target has no ref; the canonical group leaves it off rather than carrying a blank. */
+function previewContext(target: { repoFullName: string; headRef?: string }): PreviewContext {
+    return { repo: target.repoFullName, headRef: target.headRef };
 }

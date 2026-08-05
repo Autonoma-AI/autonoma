@@ -631,9 +631,6 @@ importers:
       '@autonoma/utils':
         specifier: workspace:*
         version: link:../../packages/utils
-      '@autonoma/workflow':
-        specifier: workspace:*
-        version: link:../../packages/workflow
       '@aws-sdk/client-ecr':
         specifier: ^3.1048.0
         version: 3.1048.0
@@ -961,6 +958,9 @@ importers:
       '@autonoma/ai':
         specifier: workspace:*
         version: link:../../../packages/ai
+      '@autonoma/analytics':
+        specifier: workspace:*
+        version: link:../../../packages/analytics
       '@autonoma/db':
         specifier: workspace:*
         version: link:../../../packages/db
@@ -973,6 +973,9 @@ importers:
       '@autonoma/job-run-completion-notification':
         specifier: workspace:*
         version: link:../../jobs/run-completion-notification
+      '@autonoma/k8s':
+        specifier: workspace:*
+        version: link:../../../packages/k8s
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../../../packages/logger
@@ -2038,9 +2041,15 @@ importers:
 
   packages/k8s:
     dependencies:
+      '@autonoma/db':
+        specifier: workspace:*
+        version: link:../db
       '@autonoma/logger':
         specifier: workspace:*
         version: link:../logger
+      '@autonoma/types':
+        specifier: workspace:*
+        version: link:../types
       '@aws-crypto/sha256-js':
         specifier: ^5.2.0
         version: 5.2.0

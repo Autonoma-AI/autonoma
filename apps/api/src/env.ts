@@ -1,13 +1,17 @@
 import { env as billingEnv } from "@autonoma/billing/env";
 import { env as dbEnv } from "@autonoma/db/env";
 import { base64PrivateKey } from "@autonoma/github/schemas";
+import { env as previewkitJobsEnv } from "@autonoma/k8s/previewkit-jobs/env";
 import { env as loggerEnv } from "@autonoma/logger/env";
 import { env as storageEnv } from "@autonoma/storage/env";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
 
+// `previewkitJobsEnv` carries what the previewkit Job launcher needs - NAMESPACE, DATABASE_URL, SENTRY_ENV and
+// PREVIEWKIT_SECRETS_CMK. Extending it rather than redeclaring those keeps this API and the general worker, the
+// two processes that launch runner Jobs, unable to disagree about which database or CMK a runner is handed.
 export const env = createEnv({
-    extends: [loggerEnv, dbEnv, storageEnv, billingEnv],
+    extends: [loggerEnv, dbEnv, storageEnv, billingEnv, previewkitJobsEnv],
     server: {
         API_PORT: z.string(),
         INTERNAL_DOMAIN: z.string().optional().default("autonoma.app"),
@@ -140,23 +144,6 @@ export const env = createEnv({
         // read from the database before returning them to the browser. Must match BYPASS_TOKEN_KEY in Previewkit.
         PREVIEWKIT_BYPASS_TOKEN_KEY: z.string().min(64).optional(),
 
-        // KMS key that wraps the previewkit encryption keys in
-        // previewkit_encryption_key (a key id, ARN, or `alias/...`). Not a secret: the
-        // wrapped keys live in the database and only `kms:Decrypt` on this CMK can
-        // open them. Its presence marks an environment as provisioned for
-        // database-stored secrets: without it no key can be unwrapped and the secret
-        // routes refuse rather than answer emptily. Naming it is needed only to MINT
-        // (mintSecretKey, @autonoma/secrets) - unwrapping names no CMK, since a
-        // symmetric KMS ciphertext identifies its own key. One CMK is shared by every
-        // environment; see packages/secrets/README.md for why IAM does not isolate them.
-        PREVIEWKIT_SECRETS_CMK: z.string().min(1).optional(),
-
-        // Enables preview environments: pull_request webhooks and the
-        // /v1/previewkit lifecycle routes launch the preview deploy/teardown
-        // Kubernetes Jobs (apps/previewkit/src/runner). Leave off for dev /
-        // self-host without preview infrastructure - webhooks silently skip and
-        // the lifecycle routes return 503.
-        PREVIEWKIT_ENABLED: z.stringbool().default(false),
         // Global master switch for previewkit compute-usage billing enforcement. Off by default: while off, no
         // org's new deploy/redeploy is ever declined for a zero balance, no matter its per-org
         // `previewkitBillingEnabled` setting - usage still accrues and windows still get billed
@@ -164,20 +151,8 @@ export const env = createEnv({
         // org whose setting is enabled actually get blocked. Two gates (this env switch + the per-org setting) so
         // a flip is deliberate, per-org, and instantly reversible for the whole fleet.
         PREVIEWKIT_BILLING_ENABLED: z.stringbool().default(false),
-        // The API's own Kubernetes namespace (production / beta / alpha). The
-        // previewkit launcher reads the per-env `previewkit-runner-image` ConfigMap
-        // from here to pin the runner image, then creates the runner Job in the
-        // shared `previewkit` namespace. Required when PREVIEWKIT_ENABLED is on.
-        NAMESPACE: z.string().min(1).optional(),
-        // This API's own Temporal address/namespace, forwarded to previewkit runner Jobs so their post-deploy
-        // diffs trigger starts the workflow on THIS env's Temporal (@autonoma/workflow reads its own copy from
-        // process.env; these are declared here only to forward per-Job via the launcher). Optional: unset means
-        // the runner no-ops the trigger.
-        TEMPORAL_ADDRESS: z.string().min(1).optional(),
-        TEMPORAL_NAMESPACE: z.string().min(1).optional(),
-        // Shared secret for incoming service-to-service calls: authenticates the
-        // native /v1/previewkit/* routes (requireApiKeyOrService) and
-        // /v1/diffs/internal/trigger (Authorization: Bearer <secret>).
+        // Shared secret for incoming service-to-service calls: authenticates the native /v1/previewkit/*
+        // routes (requireApiKeyOrService) via `Authorization: Bearer <secret>`.
         PREVIEWKIT_SERVICE_SECRET: z.string().min(1).optional(),
         // VPC-internal Grafana Loki backing the previewkit log streams
         // (GET .../logs/stream, both ?source=build and ?source=app). Build
@@ -196,10 +171,8 @@ export const env = createEnv({
         // IAM identity mapped into the preview cluster's RBAC
         // (deployment/previewkit/cluster/api-liveness-rbac.yaml).
         //
-        // Declared optional so dev / self-host / CI (PREVIEWKIT_ENABLED off) boot
-        // without them, but REQUIRED when PREVIEWKIT_ENABLED is true - enforced by
-        // the createFinalSchema refine below, which is where the fail-fast
-        // rationale lives.
+        // Optional: only preview liveness reads them, and it degrades to "unknown" when they are absent, so a
+        // deployment without cross-cluster reach still boots and still builds previews.
         PREVIEWKIT_EKS_CLUSTER_NAME: z.string().min(1).optional(),
         PREVIEWKIT_EKS_CLUSTER_ENDPOINT: z.url().optional(),
         PREVIEWKIT_EKS_CLUSTER_CA: z.string().min(1).optional(),
@@ -226,23 +199,4 @@ export const env = createEnv({
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,
-    // Fail fast at boot, not later at runtime. When previews are enabled this API
-    // is expected to read preview power/health from the preview cluster, so its
-    // coordinates are required. Degrading to "unknown" would only defer the
-    // failure to whoever first needs the signal (a preview list view) - better to
-    // break on start (caught on beta) and fix the config once. A conditional
-    // refine rather than required fields so the vars stay optional where previews
-    // are off (dev / self-host / CI must boot without them).
-    createFinalSchema: (shape) =>
-        z
-            .object(shape)
-            .refine(
-                (val) =>
-                    !(val.PREVIEWKIT_ENABLED && (val.PREVIEWKIT_EKS_CLUSTER_NAME == null || val.AWS_REGION == null)),
-                {
-                    message:
-                        "PREVIEWKIT_ENABLED=true requires PREVIEWKIT_EKS_CLUSTER_NAME and AWS_REGION (preview liveness reads the preview cluster's Kubernetes API).",
-                    path: ["PREVIEWKIT_EKS_CLUSTER_NAME"],
-                },
-            ),
 });

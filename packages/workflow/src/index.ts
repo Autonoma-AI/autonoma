@@ -3,17 +3,17 @@ export {
     type TriggerBatchGenerationParams,
     triggerBatchGeneration,
 } from "./triggers/batch-generation";
-export { cancelDiffsJob, findLatestWorkflowBySnapshotId } from "./triggers/diffs";
+export { findLatestWorkflowBySnapshotId } from "./triggers/diffs";
 export {
-    cancelInvestigationJob,
     type TriggerInvestigationJobParams,
     triggerInvestigationJob,
     type TriggerInvestigationMergeJobParams,
     triggerInvestigationMergeJob,
 } from "./triggers/investigation";
-export { cancelAnalysisJob, type TriggerAnalysisJobParams, triggerAnalysisJob } from "./triggers/analysis";
-export { type PipelineWorkflows, temporalPipelineWorkflows } from "./triggers/pipeline-workflows";
-export { triggerPrDiffsJob, type TriggerPrDiffsJobParams } from "./triggers/trigger-pr-diffs";
+export { triggerAnalysisRun } from "./triggers/analysis-run";
+export type { AnalysisRunWorkflowInput } from "./workflows/analysis-run.workflow";
+export { triggerPreviewBuild } from "./triggers/preview-build";
+export type { PreviewBuildWorkflowInput } from "./workflows/preview-build.workflow";
 export type { TestPlanItem, WorkflowArchitecture } from "./types";
 export { triggerRefinementLoop, type TriggerRefinementLoopParams } from "./triggers/refinement-loop";
 export { getTemporalClient, resetTemporalClient } from "./client";

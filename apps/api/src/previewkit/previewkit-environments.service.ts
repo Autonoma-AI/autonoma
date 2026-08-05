@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
-import { previewConfigSchema } from "@autonoma/types";
+import { parseStringRecord, previewConfigSchema } from "@autonoma/types";
 import { sleep } from "@autonoma/utils/sleep";
 
 /** Env statuses at which a deploy has settled (nothing more will happen without a new trigger). */
@@ -363,14 +363,4 @@ export function toEnvironmentStatus(
         urls: parseStringRecord(row.urls),
         error: row.error ?? undefined,
     };
-}
-
-/** Coerce a Prisma Json value into a flat Record<string,string>, dropping non-string values. */
-function parseStringRecord(value: unknown): Record<string, string> {
-    if (typeof value !== "object" || value == null || Array.isArray(value)) return {};
-    const out: Record<string, string> = {};
-    for (const [key, val] of Object.entries(value)) {
-        if (typeof val === "string") out[key] = val;
-    }
-    return out;
 }

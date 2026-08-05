@@ -140,9 +140,8 @@ type RunAnalysisNotStartedReason = Extract<RouterOutputs["github"]["runAnalysis"
 const RUN_NOT_STARTED_MESSAGE: Record<RunAnalysisNotStartedReason, string> = {
     gate_disabled: "Autonoma is not enabled for this app yet.",
     activation_off: "On-request analysis is not enabled for this app yet.",
-    no_trigger: "Autonoma is not fully set up for this app yet.",
-    no_preview: "This PR has no live preview to analyze yet.",
     already_analyzed: "This PR's latest commit was already analyzed - push a new commit to re-run.",
+    failed: "Something went wrong starting the run. Please try again.",
 };
 
 export function useRunAnalysis() {

@@ -13,10 +13,12 @@
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",
+        "@autonoma/analytics": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/diffs": "workspace:*",
         "@autonoma/github": "workspace:*",
         "@autonoma/job-run-completion-notification": "workspace:*",
+        "@autonoma/k8s": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/scenario": "workspace:*",
         "@autonoma/test-updates": "workspace:*",

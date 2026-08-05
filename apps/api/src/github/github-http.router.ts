@@ -12,7 +12,6 @@ import { investigationMergeTriggerService } from "../investigation/investigation
 import { previewkitTriggerService } from "../previewkit/previewkit-service";
 import type { PreviewDeployAction } from "../previewkit/previewkit-trigger.service";
 import { BranchesService } from "../routes/branches/branches.service";
-import { PreviewAnalysisRunTrigger } from "./analysis-run-trigger";
 import { BranchContributorService } from "./branch-contributor.service";
 import { BugFixOutcomeService } from "./bug-fix-outcome.service";
 import { FalsePositiveCandidateService } from "./false-positive-candidate.service";
@@ -35,15 +34,14 @@ const githubService = new GitHubInstallationService(db, githubApp);
 const prCacheService = new PullRequestCacheService(db, githubService);
 const branchesService = new BranchesService(db, githubService, storageProvider, prCacheService);
 const falsePositiveCandidatesService = new FalsePositiveCandidateService(db, branchesService);
-const analysisRunTrigger = new PreviewAnalysisRunTrigger(db, diffsTriggerService);
 const mergeGateService = new MergeGateService(
     db,
     githubApp,
     env.MERGE_GATE_ENABLED,
     analytics,
     falsePositiveCandidatesService,
+    diffsTriggerService,
     new MergeGateSlackNotifier(env.SLACK_BOT_TOKEN, env.MERGE_GATE_SLACK_CHANNEL),
-    analysisRunTrigger,
 );
 const branchContributorService = new BranchContributorService(db, githubService);
 const bugFixOutcomeService = new BugFixOutcomeService(db, analytics, env.MERGE_GATE_ENABLED, branchContributorService);
@@ -190,14 +188,6 @@ githubHttpRouter.post("/webhook", async (ctx) => {
         return ctx.json({ ok: true, ignored: true });
     }
 
-    // push fires for every branch of every connected repo; only one that
-    // updates a live main-branch preview environment is modeled. Irrelevant
-    // pushes are dropped here before any deploy work is dispatched.
-    if (eventType === "push" && !(await pushUpdatesMainBranchPreview(organizationId, payload))) {
-        logger.info("GitHub webhook: push does not update a main-branch preview", { organizationId, deliveryId });
-        return ctx.json({ ok: true, ignored: true });
-    }
-
     // Ack immediately and process in the background. Superseding an in-flight
     // preview deploy waits (tens of seconds) for the old run to cancel
     // gracefully before starting its replacement; awaiting that here would blow
@@ -256,12 +246,12 @@ async function dispatchWebhookEvent(
             return;
         case "pull_request_ready_for_review":
             // A draft marked ready for review is no longer a draft, so the
-            // draft gate in deployFromWebhook lets it through and the preview
+            // draft gate in startRunFromPullRequestWebhook lets it through and the preview
             // builds even for orgs that skip draft PRs. The activation
             // auto-run-on-ready trigger is NOT fired here: the preview does not
             // exist yet at this moment (it is built in response to this event),
             // so the run would find no preview. It fires later, once the preview
-            // is live, from the shared DiffsRunPreparer (see `autoRunsOnReady`).
+            // is live, from the shared PR-diffs trigger (see `autoRunsOnReady`).
             await prCacheService.updateFromWebhook(organizationId, payload);
             await startPullRequestDeploy("ready_for_review", organizationId, payload);
             await mergeGateService.postPendingFromWebhook(organizationId, payload);
@@ -304,12 +294,8 @@ async function startPullRequestDeploy(
     organizationId: string,
     payload: Record<string, unknown>,
 ): Promise<void> {
-    if (!env.PREVIEWKIT_ENABLED) {
-        logger.info("Skipping preview deploy: PREVIEWKIT_ENABLED is off", { action, organizationId });
-        return;
-    }
     try {
-        await previewkitTriggerService.deployFromWebhook(action, organizationId, payload);
+        await previewkitTriggerService.startRunFromPullRequestWebhook(action, organizationId, payload);
     } catch (error) {
         if (!(error instanceof InsufficientPreviewCreditsError)) throw error;
         logger.info("Skipped preview deploy: organization is out of credits", { action, organizationId });
@@ -326,22 +312,9 @@ async function startInvestigationMerge(organizationId: string, payload: Record<s
     await investigationMergeTriggerService.onPullRequestClosed(organizationId, payload);
 }
 
-/** Teardown path for pull_request.closed; same previews-enabled gate as the deploy path. */
+/** Teardown path for pull_request.closed. */
 async function startPullRequestTeardown(organizationId: string, payload: Record<string, unknown>): Promise<void> {
-    if (!env.PREVIEWKIT_ENABLED) {
-        logger.info("Skipping preview teardown: PREVIEWKIT_ENABLED is off", { organizationId });
-        return;
-    }
     await previewkitTriggerService.teardownFromWebhook(organizationId, payload);
-}
-
-/** Pre-record relevance check for push: is there a live main-branch environment tracking the pushed branch? */
-async function pushUpdatesMainBranchPreview(
-    organizationId: string,
-    payload: Record<string, unknown>,
-): Promise<boolean> {
-    if (!env.PREVIEWKIT_ENABLED) return false;
-    return await previewkitTriggerService.pushTargetsMainBranchEnvironment(organizationId, payload);
 }
 
 /**
@@ -349,12 +322,8 @@ async function pushUpdatesMainBranchPreview(
  * pushed head, the same way `synchronize` updates a PR environment.
  */
 async function startMainBranchPushDeploy(organizationId: string, payload: Record<string, unknown>): Promise<void> {
-    if (!env.PREVIEWKIT_ENABLED) {
-        logger.info("Skipping main-branch push deploy: PREVIEWKIT_ENABLED is off", { organizationId });
-        return;
-    }
     try {
-        await previewkitTriggerService.deployMainBranchFromPushWebhook(organizationId, payload);
+        await previewkitTriggerService.startMainBranchRunFromPushWebhook(organizationId, payload);
     } catch (error) {
         if (!(error instanceof InsufficientPreviewCreditsError)) throw error;
         logger.info("Skipped main-branch push deploy: organization is out of credits", { organizationId });

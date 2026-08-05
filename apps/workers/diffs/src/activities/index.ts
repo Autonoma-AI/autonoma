@@ -7,14 +7,17 @@ import type {
 } from "@autonoma/workflow/activities";
 import { heartbeat } from "@temporalio/activity";
 
-export { prepareDiffsRun } from "./prepare-diffs-run";
 export { analyzeDiffs } from "./analyze-diffs";
 export { markDiffsGenerating } from "./mark-diffs-generating";
 export { finalizeDiffs } from "./finalize-diffs";
 export { reviewGeneration } from "./review/generation";
 export { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 
+// Opening the run is the one analysis step with nothing long-running to do, so it skips the heartbeat wrapper.
+export { openAnalysisRun } from "./analysis/open-analysis-run";
+
 import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-test";
+import { openAnalysisRun } from "./analysis/open-analysis-run";
 import { openMergeGate as openMergeGateImpl } from "./analysis/open-merge-gate";
 import { persistAnalysisClassification as persistAnalysisClassificationImpl } from "./analysis/persist-classification";
 import { revertSelfHealPlan as revertSelfHealPlanImpl } from "./analysis/revert-self-heal-plan";
@@ -26,7 +29,6 @@ import { analyzeDiffs } from "./analyze-diffs";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
 import { finalizeDiffs } from "./finalize-diffs";
 import { markDiffsGenerating } from "./mark-diffs-generating";
-import { prepareDiffsRun } from "./prepare-diffs-run";
 import { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 import { reviewGeneration } from "./review/generation";
 
@@ -76,7 +78,6 @@ export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassi
 
 // Compile-time check: ensure exported activities match the DiffsActivities contract.
 ({
-    prepareDiffsRun,
     analyzeDiffs,
     markDiffsGenerating,
     finalizeDiffs,
@@ -88,12 +89,14 @@ export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassi
 // shared InvestigationActivities contract (the workflow proxy that calls it is typed against it); the diffs
 // worker registers only that one method from it, so `Pick` rather than the full interface.
 ({
+    openAnalysisRun,
     openMergeGate,
     runImpactAnalysis,
     runReporter,
     settleAnalysisRun,
 }) satisfies AnalysisActivities;
 ({ classifyInvestigationRun }) satisfies Pick<InvestigationActivities, "classifyInvestigationRun">;
+
 // The Investigator's own writes (self-heal, the revert that undoes it, the `invalid_test` removal, per-iteration
 // classification), on their own contract - only the diffs worker implements them, so they stay off the
 // AnalysisActivities contract the frozen investigation worker shares.

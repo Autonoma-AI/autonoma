@@ -5,7 +5,7 @@ import { getTemporalClient } from "../client";
 import { getWorkflowSearchAttributes } from "../search-attributes";
 import { TaskQueue } from "../task-queues";
 import type { TestPlanItem, WorkflowArchitecture, WorkflowRef } from "../types";
-import { WORKFLOW_TYPE } from "../workflows/workflow-types";
+import { WORKFLOW_TYPE } from "../workflow-types";
 
 export interface TriggerBatchGenerationParams {
     snapshotId: string;

@@ -61,6 +61,9 @@ Webhook response schemas for the Environment Factory protocol:
 
 - `Architecture` - Enum: `ios`, `android`, `web`
 - `OverlayPoint` / `getStepOverlayPoints` - Extracts a step output's resolved interaction points (the click target, or a drag's start/end), tagged with their role. Shared by the UI overlay and the reviewer's screenshot annotation.
+- `PreviewkitManifest` / `projectManifest` - The manifest-shaped projection (apps, services, addons) of a preview environment's stored `resolvedConfig`, parsed at read time since the merged config is the single source of truth. Returns an empty projection for an absent or unparseable config.
+- `parseStringRecord` - Coerces a stored JSON object (an environment's `urls` map, an addon's outputs) into a sorted `string -> string` record, dropping non-string and empty values.
+- `resolvePrimaryUrl` / `resolveSdkAppUrl` / `resolveDeclaredSdkAppUrl` - Derive a preview's origins from a manifest plus its URL map: the origin tests browse (the `primary` app, with fallbacks), the origin hosting the Environment Factory handler (the `sdk_implemented` app, falling back to primary), and the explicitly declared SDK origin only (no fallback, so a caller can tell an explicit answer from the fallback).
 
 ## Usage
 

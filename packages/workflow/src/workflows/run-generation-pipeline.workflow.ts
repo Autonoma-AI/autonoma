@@ -1,7 +1,7 @@
 import { executeChild, proxyActivities } from "@temporalio/workflow";
 import type { GeneralActivities, RunGenerationPipelineInput } from "../activities/general-activities";
 import { TaskQueue } from "../task-queues";
-import { WORKFLOW_TYPE } from "./workflow-types";
+import { WORKFLOW_TYPE } from "../workflow-types";
 
 const general = proxyActivities<GeneralActivities>({
     startToCloseTimeout: "10m",

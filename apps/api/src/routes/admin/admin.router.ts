@@ -33,17 +33,18 @@ export const adminRouter = router({
     ),
     /**
      * Re-runs the Previewkit pipeline for a preview environment (all apps, at
-     * the PR's current head SHA). Admin-gated; delegates to the deployments
-     * service, which calls Previewkit's redeploy endpoint.
+     * the PR's current head SHA). Admin-gated, so the lookup is unscoped.
      */
     redeployPreviewkitEnvironment: internalProcedure
         .input(z.object({ environmentId: z.string().min(1) }))
-        .mutation(({ ctx: { services }, input }) => services.deployments.redeployEnvironment(input.environmentId)),
+        .mutation(({ ctx: { services }, input }) =>
+            services.previewkitTrigger.startRunForRedeploy({ environmentId: input.environmentId }),
+        ),
     /**
      * Redeploys a SINGLE app within a preview environment. `mode: "rebuild"`
      * rebuilds just that app at the PR's current head SHA and redeploys only it;
      * `"restart"` re-rolls its pods using the running image. Sibling apps are
-     * left untouched. Admin-gated; delegates to the deployments service.
+     * left untouched. Admin-gated, so the lookup is unscoped.
      */
     redeployPreviewkitApp: internalProcedure
         .input(
@@ -54,7 +55,7 @@ export const adminRouter = router({
             }),
         )
         .mutation(({ ctx: { services }, input }) =>
-            services.deployments.redeployApp(input.environmentId, input.app, input.mode),
+            services.previewkitTrigger.redeployApp({ environmentId: input.environmentId }, input.app, input.mode),
         ),
     /**
      * Applications eligible for a main-branch preview deploy (linked to a GitHub
@@ -65,13 +66,14 @@ export const adminRouter = router({
         services.deployments.listDeployableApplications(),
     ),
     /**
-     * Deploys an Application's main branch into preview environment 0. Admin-gated;
-     * delegates to the deployments service, which starts the deploy workflow (or
-     * forwards to Previewkit's main-branch endpoint on the legacy path).
+     * Deploys an Application's main branch into preview environment 0. Admin-gated,
+     * so the application lookup is unscoped.
      */
     deployPreviewkitMainBranch: internalProcedure
         .input(z.object({ applicationId: z.string().min(1) }))
-        .mutation(({ ctx: { services }, input }) => services.deployments.deployMainBranch(input.applicationId)),
+        .mutation(({ ctx: { services }, input }) =>
+            services.previewkitTrigger.startMainBranchRun(input.applicationId, undefined),
+        ),
     /**
      * Resolves the manual Environment Factory options for a preview environment:
      * the linked application's scenarios, the preview's app URLs, and a suggested

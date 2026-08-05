@@ -760,12 +760,21 @@ export interface AppRole {
 }
 
 /**
- * The app whose preview URL is THE preview URL: the one marked `primary`, else
- * the first declared. This is what a reviewer opens and what the agents browse.
+ * The app a reviewer opens and the agents browse: the one marked `primary`, else the first declared. That fallback
+ * is a GUESS, defensible only when there is nothing to choose between - ask {@link isPrimaryAppAmbiguous} first.
  */
 export function resolvePrimaryAppName(apps: readonly AppRole[]): string | undefined {
     const primary = apps.find((app) => app.primary === true) ?? apps[0];
     return primary?.name;
+}
+
+/**
+ * Whether {@link resolvePrimaryAppName} is about to guess: several apps, none marked `primary`, so declaration
+ * order alone decides. A wrong guess points the browsing agents at the wrong application, and whatever they report
+ * is filed on the customer's PR and billed. #2062 makes it a config error instead.
+ */
+export function isPrimaryAppAmbiguous(apps: readonly AppRole[]): boolean {
+    return apps.length > 1 && !apps.some((app) => app.primary === true);
 }
 
 /**
@@ -787,6 +796,15 @@ export function declaredSdkAppName(apps: readonly AppRole[]): string | undefined
  */
 export function resolveSdkAppName(apps: readonly AppRole[]): string | undefined {
     return declaredSdkAppName(apps) ?? resolvePrimaryAppName(apps);
+}
+
+/**
+ * Whether {@link resolveSdkAppName} is about to guess: several apps, none marked `sdk_implemented`, so the
+ * handler's address comes from the primary app - which may itself have been guessed. A wrong answer sends scenario
+ * up/down to an app with no handler. Tracked with the primary-app guess in #2062.
+ */
+export function isSdkAppAmbiguous(apps: readonly AppRole[]): boolean {
+    return apps.length > 1 && !apps.some((app) => app.sdk_implemented === true);
 }
 
 /** A `{{target.property}}` connection token parsed into its parts. */

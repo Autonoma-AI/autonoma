@@ -4,7 +4,6 @@ import { db } from "@autonoma/db";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { S3Storage } from "@autonoma/storage";
 import { TemporalGenerationProvider } from "@autonoma/test-updates/temporal";
-import { temporalPipelineWorkflows } from "@autonoma/workflow";
 import type { Context as HonoContext } from "hono";
 import type { AuthSession, AuthUser } from "./auth";
 import { buildAuth } from "./auth";
@@ -70,8 +69,8 @@ export function createServiceContext() {
             getVercelEncryptionHelper,
             generationProvider,
             githubApp,
-            pipelineWorkflows: temporalPipelineWorkflows,
-            triggerPreviewDeploy: previewkitTriggers.deploy,
+            startAnalysisRun: previewkitTriggers.startAnalysisRun,
+            startPreviewBuild: previewkitTriggers.startPreviewBuild,
             triggerPreviewTeardown: previewkitTriggers.teardown,
             triggerPreviewRedeployApp: previewkitTriggers.redeployApp,
         }),

@@ -1,7 +1,6 @@
 export { batchGenerationWorkflow } from "./batch-generation.workflow";
 export { singleGenerationWorkflow } from "./single-generation.workflow";
 export { diffsAnalysisWorkflow } from "./diffs.workflow";
-export { triggerPrDiffsWorkflow, type TriggerPrDiffsInput } from "./trigger-pr-diffs.workflow";
 export {
     refinementLoopWorkflow,
     type RefinementLoopInput,
@@ -10,6 +9,11 @@ export {
 export { runGenerationPipelineWorkflow } from "./run-generation-pipeline.workflow";
 export { investigationWorkflow, type InvestigationWorkflowInput } from "./investigation.workflow";
 export { investigationMergeWorkflow, type InvestigationMergeWorkflowInput } from "./investigation-merge.workflow";
-export { analysisWorkflow, type AnalysisWorkflowInput } from "./analysis.workflow";
+export { analysisRunWorkflow, type AnalysisRunWorkflowInput } from "./analysis-run.workflow";
+export {
+    previewBuildWorkflow,
+    type PreviewBuildWorkflowInput,
+    type PreviewBuildWorkflowOutput,
+} from "./preview-build.workflow";
 export { investigatorWorkflow, type InvestigatorWorkflowInput } from "./investigator.workflow";
-export { WORKFLOW_TYPE, type WorkflowType } from "./workflow-types";
+export { WORKFLOW_TYPE, type WorkflowType } from "../workflow-types";

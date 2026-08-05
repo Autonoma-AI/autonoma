@@ -1,7 +1,12 @@
 import { type Prisma, type PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import type { PreviewRedeployAppMode } from "@autonoma/types";
-import { env } from "../../env";
+import {
+    parseStringRecord,
+    type PreviewRedeployAppMode,
+    projectManifest,
+    resolvePrimaryUrl,
+    resolveSdkAppUrl,
+} from "@autonoma/types";
 import type { PreviewkitTriggerService } from "../../previewkit/previewkit-trigger.service";
 import { Service } from "../service";
 import {
@@ -14,10 +19,6 @@ import {
     legacyPreviewSummary,
     mapBuildStatus,
     missingPreviewSummary,
-    parseStringRecord,
-    projectManifest,
-    resolvePrimaryUrl,
-    resolveSdkAppUrl,
     toAppBuildOutcomeMap,
 } from "./preview-summary";
 
@@ -230,56 +231,10 @@ export class DeploymentsService extends Service {
     }
 
     /**
-     * Triggers a redeploy of a preview environment by starting the deploy
-     * workflow at the environment's current head SHA - re-runs the full
-     * pipeline (all apps) for the PR. Admin-only.
-     */
-    async redeployEnvironment(environmentId: string): Promise<void> {
-        this.logger.info("Redeploying previewkit environment", { environmentId });
-
-        const environment = await this.db.previewkitEnvironment.findUnique({
-            where: { id: environmentId },
-            select: { repoFullName: true, prNumber: true },
-        });
-        if (environment == null) {
-            throw new NotFoundError("Preview environment not found");
-        }
-
-        if (!env.PREVIEWKIT_ENABLED) {
-            throw new Error("Preview environments are not configured: PREVIEWKIT_ENABLED is off.");
-        }
-
-        await this.previewkitTrigger.redeploy(environment.repoFullName, environment.prNumber);
-    }
-
-    /**
-     * Triggers a redeploy of a SINGLE app within a preview environment. `mode`
-     * "rebuild" rebuilds that app's image at the environment's current head SHA
-     * and redeploys only it; "restart" re-rolls its pods using the running
-     * image. Sibling apps are left untouched. The trigger service validates that
-     * the app exists in the environment. Admin-only.
-     */
-    async redeployApp(environmentId: string, app: string, mode: PreviewRedeployAppMode): Promise<void> {
-        this.logger.info("Redeploying previewkit app", { environmentId, app, mode });
-
-        const environment = await this.db.previewkitEnvironment.findUnique({
-            where: { id: environmentId },
-            select: { repoFullName: true, prNumber: true },
-        });
-        if (environment == null) {
-            throw new NotFoundError("Preview environment not found");
-        }
-
-        if (!env.PREVIEWKIT_ENABLED) {
-            throw new Error("Preview environments are not configured: PREVIEWKIT_ENABLED is off.");
-        }
-
-        await this.previewkitTrigger.redeployApp(environment.repoFullName, environment.prNumber, app, mode);
-    }
-
-    /**
      * Triggers a redeploy of one app after verifying that the preview environment
-     * belongs to the requested application and the caller's organization.
+     * belongs to the requested application and the caller's organization. The
+     * application lookup is the only work owned here - it turns the application
+     * into the repository scope the trigger narrows its own lookup by.
      */
     async redeployAppForApplication(
         applicationId: string,
@@ -294,35 +249,16 @@ export class DeploymentsService extends Service {
             extra: { environmentId, app, mode },
         });
 
-        const environment = await this.db.$transaction(async (tx) => {
-            const application = await tx.application.findFirst({
-                where: { id: applicationId, organizationId },
-                select: { githubRepositoryId: true },
-            });
-            if (application == null || application.githubRepositoryId == null) throw new NotFoundError();
-
-            return await tx.previewkitEnvironment.findFirst({
-                where: {
-                    id: environmentId,
-                    organizationId,
-                    githubRepositoryId: application.githubRepositoryId,
-                },
-                select: { repoFullName: true, prNumber: true },
-            });
+        const application = await this.db.application.findFirst({
+            where: { id: applicationId, organizationId },
+            select: { githubRepositoryId: true },
         });
-        if (environment == null) throw new NotFoundError("Preview environment not found");
+        if (application?.githubRepositoryId == null) throw new NotFoundError();
 
-        if (env.PREVIEWKIT_ENABLED === false) {
-            throw new Error("Preview environments are not configured: PREVIEWKIT_ENABLED is off.");
-        }
-
-        await this.previewkitTrigger.redeployApp(
-            environment.repoFullName,
-            environment.prNumber,
-            app,
-            mode,
+        await this.previewkitTrigger.redeployApp({ environmentId }, app, mode, {
             organizationId,
-        );
+            githubRepositoryId: application.githubRepositoryId,
+        });
 
         this.logger.info("Application preview app redeploy triggered", {
             application: { applicationId },
@@ -363,22 +299,6 @@ export class DeploymentsService extends Service {
             slug: application.slug,
             organization: application.organization,
         }));
-    }
-
-    /**
-     * Deploys an Application's main branch into preview environment 0 (the stable
-     * non-PR environment) by starting the deploy workflow - the trigger service
-     * resolves the repo and branch head from GitHub and validates the
-     * application. Admin-only.
-     */
-    async deployMainBranch(applicationId: string): Promise<void> {
-        this.logger.info("Deploying main-branch preview", { applicationId });
-
-        if (!env.PREVIEWKIT_ENABLED) {
-            throw new Error("Preview environments are not configured: PREVIEWKIT_ENABLED is off.");
-        }
-
-        await this.previewkitTrigger.deployMainBranch(applicationId, undefined);
     }
 
     async listByPr(applicationId: string, prNumber: number, organizationId: string) {
@@ -685,8 +605,10 @@ export class DeploymentsService extends Service {
             prNumber: environment.prNumber,
             branch: branchName,
             status,
-            primaryUrl,
-            sdkAppUrl,
+            // `null` rather than `undefined` only here, at the wire boundary: this is one variant of a summary union
+            // whose other variants report an absent URL as null, and the shape is serialized to the UI.
+            primaryUrl: primaryUrl ?? null,
+            sdkAppUrl: sdkAppUrl ?? null,
             phase: environment.phase,
             error: buildingOverPriorAttempt ? null : environment.error,
             headSha: currentHeadSha ?? environment.headSha,
@@ -712,7 +634,7 @@ export class DeploymentsService extends Service {
             actions: {
                 openPreview: {
                     enabled: primaryUrl != null && status !== "failed" && status !== "missing" && status !== "stopped",
-                    href: primaryUrl,
+                    href: primaryUrl ?? null,
                     reason: primaryUrl == null ? "No preview URL is available yet." : null,
                 },
             },

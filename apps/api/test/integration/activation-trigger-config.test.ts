@@ -2,9 +2,9 @@ import { randomBytes } from "node:crypto";
 import { PostHogAnalytics } from "@autonoma/analytics";
 import { ApplicationArchitecture } from "@autonoma/db";
 import { expect } from "vitest";
+import type { TriggerDiffsResult, TriggerPrDiffsParams } from "../../src/diffs/diffs-trigger.service";
 import { DEFAULT_ANALYSIS_TRIGGER_LABEL } from "../../src/github/activation-trigger-config";
 import { ActivationTriggerConfigService } from "../../src/github/activation-trigger-config.service";
-import type { AnalysisRunTrigger, RequestRunOutcome, RequestRunParams } from "../../src/github/analysis-run-trigger";
 import { MergeGateService } from "../../src/github/merge-gate.service";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
@@ -29,13 +29,13 @@ class RecordingAnalytics extends PostHogAnalytics {
 }
 
 /** Records the runs requested through the trigger so we can assert exactly one run was fired (and with what). */
-class RecordingRunTrigger implements AnalysisRunTrigger {
-    public calls: RequestRunParams[] = [];
-    constructor(private readonly outcome: RequestRunOutcome = { started: true }) {}
+class RecordingPrDiffsTrigger {
+    public calls: TriggerPrDiffsParams[] = [];
+    constructor(private readonly result: TriggerDiffsResult = { branchId: "branch-1" }) {}
 
-    async requestRun(params: RequestRunParams): Promise<RequestRunOutcome> {
+    async triggerPrDiffs(params: TriggerPrDiffsParams): Promise<TriggerDiffsResult> {
         this.calls.push(params);
-        return this.outcome;
+        return this.result;
     }
 }
 
@@ -133,7 +133,7 @@ apiTestSuite({
             harness,
         }) => {
             const analytics = new RecordingAnalytics();
-            const trigger = new RecordingRunTrigger({ started: true });
+            const trigger = new RecordingPrDiffsTrigger();
             const fixture = await createRepoApp(harness);
             await setActivationGate(harness);
 
@@ -143,7 +143,6 @@ apiTestSuite({
                 true,
                 analytics,
                 harness.services.falsePositiveCandidates,
-                undefined,
                 trigger,
             );
 
@@ -160,9 +159,9 @@ apiTestSuite({
             expect(trigger.calls).toHaveLength(1);
             expect(trigger.calls[0]).toMatchObject({
                 organizationId: harness.organizationId,
-                repoFullName: fixture.repoFullName,
-                githubRepositoryId: fixture.repoId,
+                repoId: fixture.repoId,
                 prNumber: PR_NUMBER,
+                requested: true,
             });
 
             // The activation is persisted on the check row for the resolved head, sourced to the UI.
@@ -186,7 +185,7 @@ apiTestSuite({
             harness,
         }) => {
             const analytics = new RecordingAnalytics();
-            const trigger = new RecordingRunTrigger({ started: true });
+            const trigger = new RecordingPrDiffsTrigger();
             const fixture = await createRepoApp(harness);
             // Gate enabled but activation off: an un-migrated org still runs automatically, so a request is a no-op.
             await setActivationGate(harness, { activationEnabled: false });
@@ -197,7 +196,6 @@ apiTestSuite({
                 true,
                 analytics,
                 harness.services.falsePositiveCandidates,
-                undefined,
                 trigger,
             );
 
@@ -216,11 +214,10 @@ apiTestSuite({
         test("the build-services-wired mergeGate has a run trigger, so the UI button is not dead", async ({
             harness,
         }) => {
-            // Regression guard for the real DI. Every other case builds a MergeGateService by hand with an injected
-            // trigger, which verifies the LOGIC but never the WIRING. `harness.services.mergeGate` comes from
-            // buildServices - the exact graph the API serves - so this catches build-services forgetting the 7th
-            // analysisRunTrigger arg. Without it, requestAnalysisRun resolves no trigger and the UI "Run analysis"
-            // button always returns { status: "not_started", reason: "no_trigger" } - it can never start a run.
+            // Regression guard for the real DI. Every other case builds a MergeGateService by hand, which verifies
+            // the LOGIC but never the WIRING; `harness.services.mergeGate` comes from buildServices - the exact
+            // graph the API serves. A missing trigger is now a compile error rather than a runtime reason, so what
+            // is left to check is that the wired graph reaches the trigger and answers the UI at all.
             const fixture = await createRepoApp(harness);
             await setActivationGate(harness);
 
@@ -230,10 +227,7 @@ apiTestSuite({
                 prNumber: PR_NUMBER,
             });
 
-            // The wired trigger is reached, so the request gets past the no-trigger guard. It may still not start a
-            // run in the test env (no live preview), but the reason must never be "no_trigger".
-            const reason = result.status === "not_started" ? result.reason : undefined;
-            expect(reason).not.toBe("no_trigger");
+            expect(["started", "not_started"]).toContain(result.status);
         });
     },
 });

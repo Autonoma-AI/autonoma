@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { analytics } from "@autonoma/analytics";
 import { logger, runWithSentry } from "@autonoma/logger";
 import { TaskQueue } from "@autonoma/workflow";
 import { createTemporalWorker, workflowsPath } from "@autonoma/workflow/worker";
@@ -20,6 +21,13 @@ const MAX_CONCURRENT_ACTIVITIES = 4;
 
 runWithSentry({ name: "worker-general", dsn: env.SENTRY_DSN_WORKER_GENERAL }, async () => {
     logger.info("Starting general worker");
+
+    // Sole emitter of the build warrant, and `analytics.capture` silently no-ops without a key.
+    if (env.POSTHOG_KEY != null) {
+        analytics.init(env.POSTHOG_KEY, env.POSTHOG_HOST);
+    } else {
+        logger.warn("Analytics disabled: POSTHOG_KEY is not set, so preview build warrants go uncaptured");
+    }
 
     const worker = await createTemporalWorker({
         taskQueue: TaskQueue.GENERAL,

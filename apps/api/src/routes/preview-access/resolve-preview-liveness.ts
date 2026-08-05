@@ -24,10 +24,10 @@ export function resolvePreviewLivenessService(): PreviewLivenessService | undefi
     resolved = true;
 
     if (env.PREVIEWKIT_EKS_CLUSTER_NAME == null || env.AWS_REGION == null) {
-        // Only reachable when previewkit is disabled: env.ts hard-requires these
-        // when PREVIEWKIT_ENABLED, so an enabled-but-unconfigured env never boots.
-        // Here the feature simply does not apply (dev / self-host / CI).
-        logger.info("Preview liveness disabled: previewkit not enabled");
+        // Nothing enforces these at boot: previews build without cross-cluster reach, only liveness needs it.
+        // Warn rather than info - in a deployment that serves previews this is a misconfiguration, and the
+        // symptom (every preview reporting "unknown") does not name its cause.
+        logger.warn("Preview liveness unavailable: PREVIEWKIT_EKS_CLUSTER_NAME or AWS_REGION is unset");
         return undefined;
     }
 

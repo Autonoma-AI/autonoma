@@ -1,25 +1,3 @@
-export interface PullRequestEvent {
-    action: "opened" | "synchronize" | "closed" | "reopened" | "ready_for_review";
-    prNumber: number;
-    repoFullName: string;
-    // Resolved by the upstream API from the installation that fired the webhook.
-    // Required on every action — teardown carries it for logging/auditing even
-    // though the actual cleanup is namespace-scoped.
-    organizationId: string;
-    // The GitHub-side numeric repo id (`repository.id` from the webhook).
-    // Used to join into Application via the (organizationId, githubRepositoryId) unique.
-    githubRepositoryId: number;
-    headSha: string;
-    headRef: string;
-    baseSha: string;
-    baseRef: string;
-    cloneUrl: string;
-    // The autonoma Branch this environment deploys (the PR's feature branch, or the main branch for env 0),
-    // resolved by the upstream API when a matching Application exists. Carried opaquely so the runner can link
-    // the environment row to the branch. Undefined for repos with no onboarded Application.
-    branchId?: string;
-}
-
 export interface GitRepository {
     id: number;
     name: string;

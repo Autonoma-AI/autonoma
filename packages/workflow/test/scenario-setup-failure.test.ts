@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { categorizeInfraFailure, infraFailureResult, scenarioSetupFailureResult } from "../src/scenario-setup-failure";
+import {
+    categorizeInfraFailure,
+    infraFailureResult,
+    scenarioSetupFailureResult,
+} from "../src/rules/scenario-setup-failure";
 
 describe("scenarioSetupFailureResult", () => {
     it("produces a real verdict (never a missing-verdict / classification_error result)", () => {

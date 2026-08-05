@@ -10,7 +10,7 @@ import { resolvePreviewkitTriggers } from "./previewkit-triggers";
  * Starts the preview deploy/teardown/redeploy lifecycle by launching a
  * Kubernetes Job per operation (apps/previewkit/src/runner), behind the trigger
  * seam. Used by the public `/v1/previewkit/*` router and the GitHub webhook
- * handler; gated by `PREVIEWKIT_ENABLED` at the call sites. Mirrors the diffs
+ * handler. Mirrors the diffs
  * wiring in `../diffs/diffs-service.ts`.
  */
 const triggers = resolvePreviewkitTriggers();
@@ -19,7 +19,8 @@ export const previewkitTriggerService = new PreviewkitTriggerService(
     db,
     new GitHubInstallationService(db, buildGitHubApp(env)),
     createBillingService(db),
-    triggers.deploy,
+    triggers.startAnalysisRun,
+    triggers.startPreviewBuild,
     triggers.teardown,
     triggers.redeployApp,
 );

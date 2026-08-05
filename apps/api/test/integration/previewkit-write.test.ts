@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { integrationTestSuite } from "@autonoma/integration-test";
 import type { PreviewConfig, PreviewRedeployAppMode, SecretItem } from "@autonoma/types";
 import { expect } from "vitest";
+import type { PreviewEnvironmentKey } from "../../src/previewkit/previewkit-trigger.service";
 import { PreviewkitWriteService } from "../../src/previewkit/previewkit-write.service";
 import type { PreviewkitSecretsUpsertResult } from "../../src/routes/onboarding/onboarding-dependencies";
 import { PreviewkitConfigService } from "../../src/routes/onboarding/previewkit-config-service";
@@ -47,6 +48,17 @@ function fakeSecretWriter() {
     };
 }
 
+/**
+ * These paths always address the environment by (repo, PR) - they are reached from an application whose PR is
+ * already in hand. Throwing on the id form keeps the fake honest if that ever changes.
+ */
+function prKey(key: PreviewEnvironmentKey): { repoFullName: string; prNumber: number } {
+    if ("environmentId" in key) {
+        throw new Error(`expected a (repo, PR) key but got environmentId ${key.environmentId}`);
+    }
+    return key;
+}
+
 /** Records per-app redeploys (with mode) and whole-environment redeploys separately. */
 function fakeRedeployer() {
     const calls: { repoFullName: string; prNumber: number; appName: string; mode: PreviewRedeployAppMode }[] = [];
@@ -55,16 +67,15 @@ function fakeRedeployer() {
         calls,
         envCalls,
         redeployApp: async (
-            repoFullName: string,
-            prNumber: number,
+            key: PreviewEnvironmentKey,
             appName: string,
             mode: PreviewRedeployAppMode,
-            _callerOrgId?: string,
         ): Promise<void> => {
+            const { repoFullName, prNumber } = prKey(key);
             calls.push({ repoFullName, prNumber, appName, mode });
         },
-        redeploy: async (repoFullName: string, prNumber: number, _callerOrgId?: string): Promise<void> => {
-            envCalls.push({ repoFullName, prNumber });
+        startRunForRedeploy: async (key: PreviewEnvironmentKey): Promise<void> => {
+            envCalls.push(prKey(key));
         },
     };
 }

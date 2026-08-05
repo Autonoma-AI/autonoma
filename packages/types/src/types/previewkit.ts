@@ -8,18 +8,16 @@
  * inside the runner.
  */
 
-/** Serializable mirror of apps/previewkit's `PullRequestEvent`. */
-export interface PreviewDeployEvent {
-    action: "opened" | "synchronize" | "closed" | "reopened" | "ready_for_review";
-    prNumber: number;
+/**
+ * `prNumber` is 0 for the main-branch environment - GitHub PR numbers start at 1.
+ */
+export interface PreviewDeployTarget {
     repoFullName: string;
+    prNumber: number;
     organizationId: string;
     githubRepositoryId: number;
     headSha: string;
     headRef: string;
-    baseSha: string;
-    baseRef: string;
-    cloneUrl: string;
     /**
      * The autonoma `Branch` this environment deploys (the PR's feature branch, or the main branch for env 0),
      * resolved by the API when a matching `Application` exists. Carried opaquely so the runner can link the
@@ -27,6 +25,25 @@ export interface PreviewDeployEvent {
      * onboarded Application.
      */
     branchId?: string;
+}
+
+/** A rebuild or restart of ONE app inside a live environment, at the head that environment already carries. */
+export interface PreviewRedeployTarget {
+    repoFullName: string;
+    prNumber: number;
+    organizationId: string;
+    githubRepositoryId: number;
+    headSha: string;
+    headRef: string;
+}
+
+/** Deleting an environment. No head ref, and the sha is optional: a close webhook does not carry one. */
+export interface PreviewTeardownTarget {
+    repoFullName: string;
+    prNumber: number;
+    organizationId: string;
+    /** The deployed commit, for the teardown commit status. Absent from a close webhook; read from the env row. */
+    headSha?: string;
 }
 
 /** Serializable mirror of apps/previewkit's per-app `AppBuildOutcome`. */
@@ -57,7 +74,7 @@ export interface BuildPreviewImagesOutput {
 }
 
 export interface DeployPreviewEnvironmentInput {
-    event: PreviewDeployEvent;
+    target: PreviewDeployTarget;
     namespace: string;
     commentId: string;
     mergedConfigJson: string;
@@ -95,31 +112,16 @@ export interface DeployPreviewEnvironmentOutput {
     warnings: string[];
     /** First ready app url, for the comment header. */
     previewUrl?: string;
-    /** Primary app url, for the GitHub deployment status (diffs trigger). */
+    /** Primary app url, for the GitHub deployment status. */
     primaryUrl?: string;
-    /**
-     * Url of the app hosting the Environment Factory handler (`sdk_implemented`,
-     * else the primary app) - the origin scenario up/down calls are sent to.
-     */
-    sdkAppUrl?: string;
 }
 
 /** `rebuild` re-builds the image then redeploys; `restart` re-rolls the running pods. */
 export type PreviewRedeployAppMode = "rebuild" | "restart";
 
-/** Params to launch a full preview deploy for a (repo, PR). */
-export interface TriggerPreviewDeployParams {
-    event: PreviewDeployEvent;
-}
-
-/** Params to launch a preview teardown for a (repo, PR). */
-export interface TriggerPreviewTeardownParams {
-    event: PreviewDeployEvent;
-}
-
 /** Params to launch a single-app redeploy within a live preview environment. */
 export interface TriggerPreviewRedeployAppParams {
-    event: PreviewDeployEvent;
+    target: PreviewRedeployTarget;
     /** The environment's namespace, resolved from the env row by the caller. */
     namespace: string;
     /** The single app to redeploy. */

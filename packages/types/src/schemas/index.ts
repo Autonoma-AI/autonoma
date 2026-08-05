@@ -19,6 +19,7 @@ export * from "./api-key";
 export * from "./secrets";
 export * from "./previewkit-builtins";
 export * from "./previewkit-config";
+export * from "./previewkit-job-spec";
 export * from "./previewkit-node-build";
 export * from "./previewkit-node-pm";
 export * from "./previewkit-presets";

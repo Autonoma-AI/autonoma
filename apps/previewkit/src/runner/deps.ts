@@ -1,7 +1,6 @@
 import { db } from "@autonoma/db";
-import type { PreviewDeployEvent } from "@autonoma/types";
+import type { PreviewTeardownTarget } from "@autonoma/types";
 import { markBuildSuperseded } from "../db";
-import { triggerDiffsAfterDeploy } from "../diffs/trigger-diffs-after-deploy";
 import { logger as rootLogger } from "../logger";
 import type { RunPreviewJobDeps } from "./run-preview-job";
 
@@ -13,29 +12,26 @@ import type { RunPreviewJobDeps } from "./run-preview-job";
 export const defaultRunPreviewJobDeps: RunPreviewJobDeps = {
     markSuperseded: markBuildSuperseded,
     resolveTeardownHeadSha,
-    triggerDiffs: (event, result) =>
-        triggerDiffsAfterDeploy(event, result, rootLogger.child({ name: "triggerDiffsAfterDeploy" })),
 };
 
 /**
- * Webhook close events arrive with `headSha: ""` - fall back to the environment
- * row's stored sha so the teardown commit status lands on the deployed commit.
- * Mirrors `resolveTeardownHeadSha` in the (Temporal) activity layer.
+ * A close webhook carries no sha, so fall back to the environment row's - the teardown commit status has to land
+ * on the deployed commit. Still absent afterwards when there is no row, and the caller skips the status then.
  */
-async function resolveTeardownHeadSha(event: PreviewDeployEvent): Promise<PreviewDeployEvent> {
-    if (event.headSha !== "") return event;
+async function resolveTeardownHeadSha(target: PreviewTeardownTarget): Promise<PreviewTeardownTarget> {
+    if (target.headSha != null) return target;
     const logger = rootLogger.child({ name: "resolveTeardownHeadSha" });
     const row = await db.previewkitEnvironment
         .findUnique({
-            where: { repoFullName_prNumber: { repoFullName: event.repoFullName, prNumber: event.prNumber } },
+            where: { repoFullName_prNumber: { repoFullName: target.repoFullName, prNumber: target.prNumber } },
             select: { headSha: true },
         })
         .catch((err: unknown) => {
             logger.warn("Failed to look up environment headSha for teardown; proceeding without it", {
-                extra: { repo: event.repoFullName, pr: event.prNumber, err },
+                extra: { repo: target.repoFullName, pr: target.prNumber, err },
             });
             return null;
         });
-    if (row == null) return event;
-    return { ...event, headSha: row.headSha };
+    if (row == null) return target;
+    return { ...target, headSha: row.headSha };
 }

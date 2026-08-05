@@ -30,29 +30,19 @@ export async function upsertPrBranch({
     organizationId,
     prNumber,
     name,
-}: UpsertPrBranchParams): Promise<{ id: string; activeSnapshotHeadSha?: string }> {
+}: UpsertPrBranchParams): Promise<{ id: string }> {
     const logger = rootLogger.child({ name: "upsertPrBranch" });
     logger.info("Upserting PR branch", { applicationId, prNumber, extra: { name } });
 
     return db.$transaction(async (tx) => {
         const existing = await tx.featureBranchInfo.findUnique({
             where: { applicationId_prNumber: { applicationId, prNumber } },
-            select: {
-                branch: {
-                    select: {
-                        id: true,
-                        activeSnapshot: { select: { headSha: true } },
-                    },
-                },
-            },
+            select: { branch: { select: { id: true } } },
         });
 
         if (existing != null) {
             await tx.branch.update({ where: { id: existing.branch.id }, data: { name } });
-            return {
-                id: existing.branch.id,
-                activeSnapshotHeadSha: existing.branch.activeSnapshot?.headSha ?? undefined,
-            };
+            return { id: existing.branch.id };
         }
 
         const created = await tx.branch.create({
@@ -62,12 +52,9 @@ export async function upsertPrBranch({
                 organizationId,
                 prInfo: { create: { applicationId, prNumber, prState: "open" } },
             },
-            select: {
-                id: true,
-                activeSnapshot: { select: { headSha: true } },
-            },
+            select: { id: true },
         });
         logger.info("Created new PR branch", { branchId: created.id, applicationId, prNumber });
-        return { id: created.id, activeSnapshotHeadSha: created.activeSnapshot?.headSha ?? undefined };
+        return { id: created.id };
     });
 }

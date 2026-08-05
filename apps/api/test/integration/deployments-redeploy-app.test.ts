@@ -1,6 +1,5 @@
 import { ApplicationArchitecture } from "@autonoma/db";
 import { expect } from "vitest";
-import { env } from "../../src/env";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
 
@@ -11,31 +10,21 @@ apiTestSuite({
             const fixture = await createRedeployFixture(harness, 1_201, 51_201);
             harness.triggerWorkflow.mockClear();
 
-            const previewkitWasEnabled = env.PREVIEWKIT_ENABLED;
-            env.PREVIEWKIT_ENABLED = true;
-            try {
-                await harness.request().deployments.redeployApp({
-                    applicationId: fixture.applicationId,
-                    environmentId: fixture.environmentId,
-                    app: "web",
-                    mode: "rebuild",
-                });
-            } finally {
-                env.PREVIEWKIT_ENABLED = previewkitWasEnabled;
-            }
+            await harness.request().deployments.redeployApp({
+                applicationId: fixture.applicationId,
+                environmentId: fixture.environmentId,
+                app: "web",
+                mode: "rebuild",
+            });
 
             expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                event: {
-                    action: "synchronize",
+                target: {
                     prNumber: fixture.prNumber,
                     repoFullName: fixture.repoFullName,
                     organizationId: harness.organizationId,
                     githubRepositoryId: fixture.githubRepositoryId,
                     headSha: "redeploy-head",
                     headRef: "feature/redeploy",
-                    baseSha: "",
-                    baseRef: "",
-                    cloneUrl: "",
                 },
                 namespace: fixture.namespace,
                 appName: "web",

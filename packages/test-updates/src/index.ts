@@ -22,17 +22,18 @@ export * from "./changes";
 export { fetchTestSuiteInfo } from "./queries/fetch-info";
 export { createDetachedSnapshot, type CreateDetachedSnapshotParams } from "./queries/create-detached-snapshot";
 export { buildSdkUrl } from "./queries/sdk-url";
+export { recordBranchDeployment, type RecordBranchDeploymentParams } from "./queries/record-branch-deployment";
+export { startAnalysisRun, type StartAnalysisRunParams } from "./queries/start-analysis-run";
+export {
+    resolveAnalysisBase,
+    type ResolveAnalysisBaseParams,
+    type AnalysisBase,
+} from "./queries/resolve-analysis-base";
 export {
     settleAnalysisRunState,
     type SettleAnalysisRunStateInput,
     type SettleAnalysisRunStateResult,
 } from "./queries/settle-analysis-run-state";
-export {
-    DiffsRunPreparer,
-    type DiffsRunPreparerDeps,
-    type PrepareDiffsRunParams,
-    type PrepareDiffsRunResult,
-} from "./queries/prepare-diffs-run";
 export {
     findMergeSourceSnapshot,
     type FindMergeSourceSnapshotParams,

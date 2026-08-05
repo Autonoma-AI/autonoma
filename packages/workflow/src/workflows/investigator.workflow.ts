@@ -17,7 +17,7 @@ import type {
     WebActivities,
 } from "../activities";
 import { rootFailureMessage } from "../root-failure-message";
-import { categorizeInfraFailure } from "../scenario-setup-failure";
+import { categorizeInfraFailure } from "../rules/scenario-setup-failure";
 import { TaskQueue } from "../task-queues";
 
 /**

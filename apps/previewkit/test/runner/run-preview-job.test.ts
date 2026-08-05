@@ -2,7 +2,7 @@ import type {
     BuildPreviewImagesOutput,
     DeployPreviewEnvironmentInput,
     DeployPreviewEnvironmentOutput,
-    PreviewDeployEvent,
+    PreviewDeployTarget,
 } from "@autonoma/types";
 import { describe, expect, it, vi } from "vitest";
 import type { PreparePreviewResult } from "../../src/pipeline/preview-pipeline";
@@ -15,17 +15,13 @@ import {
     type TeardownRunner,
 } from "../../src/runner/run-preview-job";
 
-const event: PreviewDeployEvent = {
-    action: "synchronize",
+const target: PreviewDeployTarget = {
     prNumber: 42,
     repoFullName: "acme/widgets",
     organizationId: "org_1",
     githubRepositoryId: 99,
     headSha: "abc123def4567890",
     headRef: "feature/x",
-    baseSha: "base000",
-    baseRef: "main",
-    cloneUrl: "https://github.com/acme/widgets.git",
 };
 
 const buildOutput: BuildPreviewImagesOutput = {
@@ -67,7 +63,7 @@ class FakeDeployPipeline implements DeployPipeline {
         return this.prepareResult;
     }
     async build(
-        _e: PreviewDeployEvent,
+        _e: PreviewDeployTarget,
         _ns: string,
         _signal?: AbortSignal,
         appName?: string,
@@ -91,7 +87,7 @@ class FakeDeployPipeline implements DeployPipeline {
         this.calls.push("fail");
         this.failError = error;
     }
-    async restartApp(_e: PreviewDeployEvent, _ns: string, appName: string): Promise<void> {
+    async restartApp(_e: PreviewDeployTarget, _ns: string, appName: string): Promise<void> {
         this.calls.push("restart");
         this.restartAppName = appName;
         if (this.restartError != null) throw this.restartError;
@@ -99,14 +95,14 @@ class FakeDeployPipeline implements DeployPipeline {
 }
 
 class FakeTeardownPipeline implements TeardownRunner {
-    readonly torndown: PreviewDeployEvent[] = [];
-    async teardown(e: PreviewDeployEvent): Promise<void> {
+    readonly torndown: PreviewDeployTarget[] = [];
+    async teardown(e: PreviewDeployTarget): Promise<void> {
         this.torndown.push(e);
     }
 }
 
 function deploySpec(): PreviewJobSpec {
-    return { mode: "deploy", event };
+    return { mode: "deploy", target };
 }
 
 function runners(
@@ -192,7 +188,7 @@ describe("runPreviewJob deploy mode", () => {
 
         expect(outcome).toBe("superseded");
         expect(pipeline.failError).toBeUndefined();
-        expect(markSuperseded).toHaveBeenCalledWith("preview-acme-widgets-pr-42", event.headSha);
+        expect(markSuperseded).toHaveBeenCalledWith("preview-acme-widgets-pr-42", target.headSha);
     });
 });
 
@@ -201,7 +197,7 @@ describe("runPreviewJob teardown mode", () => {
         const teardown = new FakeTeardownPipeline();
         const outcome = await runPreviewJob(
             runners(new FakeDeployPipeline(), teardown),
-            { mode: "teardown", event },
+            { mode: "teardown", target },
             new AbortController().signal,
             fakeDeps(),
         );
@@ -215,7 +211,7 @@ describe("runPreviewJob teardown mode", () => {
 describe("runPreviewJob redeploy-app mode", () => {
     const redeploySpec = (redeployMode: "rebuild" | "restart"): PreviewJobSpec => ({
         mode: "redeploy-app",
-        event,
+        target,
         namespace: "preview-acme-widgets-pr-42",
         appName: "web",
         redeployMode,

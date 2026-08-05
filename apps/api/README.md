@@ -44,8 +44,6 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `ALLOWED_ORIGINS`                           | No       | `http://localhost:3000`    | Comma-separated CORS origins                                                                                                                                                                                                                                                                           |
 | `INTERNAL_DOMAIN`                           | No       | `autonoma.app`             | Domain for internal users and cross-subdomain cookies                                                                                                                                                                                                                                                  |
 | `AGENT_VERSION`                             | No       | `latest`                   | Version tag for Temporal worker agent images                                                                                                                                                                                                                                                           |
-| `TEMPORAL_ADDRESS`                          | No       | -                          | This API's Temporal address, forwarded to previewkit runner Jobs so a ready PR preview triggers its run on this env's Temporal                                                                                                                                                                          |
-| `TEMPORAL_NAMESPACE`                        | No       | -                          | Temporal namespace paired with `TEMPORAL_ADDRESS`                                                                                                                                                                                                                                                      |
 | `POSTHOG_KEY`                               | No       | -                          | PostHog API key (analytics disabled if absent)                                                                                                                                                                                                                                                         |
 | `POSTHOG_HOST`                              | No       | `https://us.i.posthog.com` | PostHog ingest host                                                                                                                                                                                                                                                                                    |
 | `LLM_PROXY_ENABLED`                         | No       | `false`                    | Master switch for the managed LLM proxy (`/v1/llm-proxy`, planner CLI). Mounted only when this AND `STRIPE_ENABLED` are true.                                                                                                                                                                          |
@@ -55,11 +53,11 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `LLM_PROXY_MAX_OUTPUT_TOKENS`               | No       | `32768`                    | Per-request `max_tokens` ceiling. The proxy clamps (and defaults) each request to this so an allowlisted model can't be driven with an unbounded generation.                                                                                                                                           |
 | `LLM_PROXY_MAX_REQUEST_BYTES`               | No       | `16000000`                 | Per-request body-size ceiling (bytes). Sized to comfortably fit a full ~1M-token context-window request (which the planner legitimately builds) plus JSON/UTF-8 overhead; only blocks payloads several times the model's own limit. Oversized payloads are rejected with `413`.                        |
 | `GITHUB_PR_CACHE_REVALIDATE_WINDOW_MINUTES` | No       | `5`                        | Throttle window for the read-triggered PR-metadata cache revalidate (per app); one open-list call, plus one closed-list call when PRs need merged-vs-closed classification                                                                                                                             |
-| `MERGE_GATE_ENABLED`                        | No       | `false`                    | Global master kill switch for the Autonoma merge gate (the blocking `Autonoma` check). Effective gate = this AND the org's `OrganizationSettings.mergeGateEnabled`. Must match the diffs worker's value. Never enable fleet-wide without per-org opt-in.                                                  |
-| `MERGE_GATE_SLACK_CHANNEL`                  | No       | -                          | Channel (`C0123…` id or `#name`) the merge-gate skip alert posts to via the `SLACK_BOT_TOKEN` bot (`chat.postMessage`; who + PR + reason). Unset (or no bot token) = alerts are silently skipped.        |
+| `MERGE_GATE_ENABLED`                        | No       | `false`                    | Global master kill switch for the Autonoma merge gate (the blocking `Autonoma` check). Effective gate = this AND the org's `OrganizationSettings.mergeGateEnabled`. Must match the diffs worker's value. Never enable fleet-wide without per-org opt-in.                                               |
+| `MERGE_GATE_SLACK_CHANNEL`                  | No       | -                          | Channel (`C0123…` id or `#name`) the merge-gate skip alert posts to via the `SLACK_BOT_TOKEN` bot (`chat.postMessage`; who + PR + reason). Unset (or no bot token) = alerts are silently skipped.                                                                                                      |
 | `TESTING`                                   | No       | `false`                    | Test environment flag - prevents loading production modules                                                                                                                                                                                                                                            |
-| `AUTONOMA_SHARED_SECRET`                    | No       | -                          | HMAC secret shared with the Autonoma self-hosted E2E test runner, used to verify signatures on `POST /api/autonoma`. When unset (the default in prod and most alphas), the endpoint mounts an inert `503`.                                                                                              |
-| `AUTONOMA_SIGNING_SECRET`                   | No       | -                          | Server-private secret that signs the refs-token authorizing `down` teardown on `/api/autonoma`. Must be set together with `AUTONOMA_SHARED_SECRET` to activate the endpoint.                                                                                                                            |
+| `AUTONOMA_SHARED_SECRET`                    | No       | -                          | HMAC secret shared with the Autonoma self-hosted E2E test runner, used to verify signatures on `POST /api/autonoma`. When unset (the default in prod and most alphas), the endpoint mounts an inert `503`.                                                                                             |
+| `AUTONOMA_SIGNING_SECRET`                   | No       | -                          | Server-private secret that signs the refs-token authorizing `down` teardown on `/api/autonoma`. Must be set together with `AUTONOMA_SHARED_SECRET` to activate the endpoint.                                                                                                                           |
 
 Additionally, the inherited env schemas require database (`DATABASE_URL`), logger (`SENTRY_DSN`, `NODE_ENV`), and storage (`S3_BUCKET`, AWS credentials) variables.
 
@@ -179,29 +177,29 @@ default and bounded by the global `MERGE_GATE_ENABLED` kill switch; enabled per 
       to mark the PR ready first (a draft has no preview to run against), rather than bouncing off `no_preview`.
       `postPending` auto-creates that label on the repo for activation orgs (before it takes the per-head check
       lock, since the label is repo-level and best-effort) so a developer can find and add it.
-  Unlike `comment`, the `label` trigger does not run an explicit write-access check: GitHub already gates adding a
-  PR label (triage+), so the action itself is the authorization.
-  There is also one **automatic** trigger, `ApplicationTriggerConfig.autoRunOnReadyForReview` (off by default): when
-  a repo opts in, an activation org auto-runs the analysis as soon as a non-draft PR's preview is live. Crucially it
-  fires from the shared `DiffsRunPreparer` (`autoRunsOnReady` lets the automatic preview-ready run through the
-  activation gate), NOT from the `pull_request.ready_for_review` webhook - at webhook time the preview does not
-  exist yet (it is built in response to that event), so triggering there would always find no preview. Because it
-  rides the automatic run path rather than `requestAnalysisRun`, the diffs worker's **`openMergeGate`** step (the
-  analysis pipeline's stage 0) flips the un-requested neutral check to the in-progress "Analyzing" state and stamps
-  `activation_source = ready_for_review` at run start, mirroring the on-demand triggers; the worker's finalize then
-  posts the verdict.
-  Per-repo trigger config lives on `ApplicationTriggerConfig` (1:1 with `Application`); absence means the code
-  defaults apply (see `readActivationTriggerConfig`). Because a migrated org's un-requested PR has no run,
-  `postPending` posts a COMPLETED `neutral` "No analysis requested - comment `/start analysis` to run." check
-  rather than a hanging `in_progress` one, so a required check never wedges the merge. The automatic PR run is
-  suppressed in the shared `DiffsRunPreparer.prepare` (both the preview-ready and Vercel paths funnel through it)
-  via a `requested` flag; main-branch baseline runs pass `isMainBranchRun` and are never gated (the base snapshot
-  must keep updating), and un-migrated orgs (the fleet default) keep the current automatic behavior and the
-  `in_progress` check.
+      Unlike `comment`, the `label` trigger does not run an explicit write-access check: GitHub already gates adding a
+      PR label (triage+), so the action itself is the authorization.
+      There is also one **automatic** trigger, `ApplicationTriggerConfig.autoRunOnReadyForReview` (off by default): when
+      a repo opts in, an activation org auto-runs the analysis as soon as a non-draft PR's preview is live. Crucially it
+      fires from the shared PR-diffs trigger (`autoRunsOnReady` lets the automatic preview-ready run through the
+      activation gate), NOT from the `pull_request.ready_for_review` webhook - at webhook time the preview does not
+      exist yet (it is built in response to that event), so triggering there would always find no preview. Because it
+      rides the automatic run path rather than `requestAnalysisRun`, the diffs worker's **`openMergeGate`** step (the
+      analysis pipeline's stage 0) flips the un-requested neutral check to the in-progress "Analyzing" state and stamps
+      `activation_source = ready_for_review` at run start, mirroring the on-demand triggers; the worker's finalize then
+      posts the verdict.
+      Per-repo trigger config lives on `ApplicationTriggerConfig` (1:1 with `Application`); absence means the code
+      defaults apply (see `readActivationTriggerConfig`). Because a migrated org's un-requested PR has no run,
+      `postPending` posts a COMPLETED `neutral` "No analysis requested - comment `/start analysis` to run." check
+      rather than a hanging `in_progress` one, so a required check never wedges the merge. The automatic PR run is
+      suppressed in the shared PR-diffs trigger (both the preview-ready and Vercel paths funnel through it)
+      via a `requested` flag; main-branch baseline runs pass `isMainBranchRun` and are never gated (the base snapshot
+      must keep updating), and un-migrated orgs (the fleet default) keep the current automatic behavior and the
+      `in_progress` check.
 - **One run per commit (dedupe)**: `requestAnalysisRun` takes a per-head advisory lock, so triggers for the same
   head serialize. A second trigger whose head already has an in-flight run (in-progress check + activation stamp)
   no-ops in the trigger handler; for a genuinely concurrent pair the handler pre-check cannot intercept (both
-  read "not in flight" before either takes the lock), `DiffsRunPreparer.prepare` attaches a `requested` run to the
+  read "not in flight" before either takes the lock), the trigger attaches a `requested` run to the
   existing pending snapshot for that head instead of superseding it, so no duplicate snapshot/run is created. In
   that race the later trigger still overwrites the recorded `activationSource` and emits a second
   `merge_gate.activated`; this is accepted, as de-duplicating it would require changing the untouchable
@@ -256,7 +254,7 @@ A blocked deploy throws `InsufficientPreviewCreditsError` (`402` on the `/v1/pre
 routes) and posts a PR comment explaining why before throwing, so every trigger path - GitHub
 webhook, HTTP route, or admin action - surfaces the same explanation regardless of how the deploy
 was started. Usage still accrues and bills via the separate 15-minute usage-meter sweep
-(`apps/cronjobs`) whether or not enforcement is on; this gate only controls whether a *new* deploy
+(`apps/cronjobs`) whether or not enforcement is on; this gate only controls whether a _new_ deploy
 is allowed to start.
 
 ### PreviewKit topology suggestions

@@ -27,8 +27,8 @@ import { payloadBuilder, renderMarkdown } from "@autonoma/github/comment";
 import { type Logger, logger } from "@autonoma/logger";
 import { ANALYSIS_VERDICT } from "@autonoma/types";
 import { z } from "zod";
+import type { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { readActivationTriggerConfig } from "./activation-trigger-config";
-import type { AnalysisRunTrigger, RequestRunOutcome, RunNotStartedReason } from "./analysis-run-trigger";
 import type { FalsePositiveCandidateService } from "./false-positive-candidate.service";
 import type { MergeGateSlackNotifier } from "./merge-gate-slack-notifier";
 
@@ -117,6 +117,12 @@ const issueCommentWebhookSchema = z.object({
     repository: z.object({ id: z.number(), full_name: z.string() }),
 });
 
+/** The {@link DiffsTriggerService} surface the merge gate needs - only the PR trigger. */
+type PrDiffsTrigger = Pick<DiffsTriggerService, "triggerPrDiffs">;
+
+/** `already_analyzed` is the only DECLINE, so anything else that is not `started` is a failure. */
+export type RequestedRunOutcome = "started" | "already_analyzed" | "failed";
+
 /** The repo + PR identity every merge-gate operation is keyed by. */
 export interface RepoPrRef {
     organizationId: string;
@@ -139,13 +145,12 @@ export interface RequestAnalysisRunParams extends RepoPrRef {
 
 /**
  * The outcome of asking for an analysis run, so a caller (the dashboard's Run button) can tell the user whether a
- * run actually began rather than always claiming success. `not_started` separates the org/PR reasons a run could
- * not begin from a thrown error: `gate_disabled`/`activation_off` when the org does not honor explicit requests,
- * `no_trigger` when no run trigger is wired, and the {@link RunNotStartedReason} values when nothing was analyzable.
+ * run actually began rather than always claiming success. `gate_disabled` / `activation_off` are the org settings
+ * that decline an explicit request; the rest is whatever the trigger itself reported.
  */
 export type RequestAnalysisRunResult =
     | { status: "started" }
-    | { status: "not_started"; reason: "gate_disabled" | "activation_off" | "no_trigger" | RunNotStartedReason };
+    | { status: "not_started"; reason: "gate_disabled" | "activation_off" | Exclude<RequestedRunOutcome, "started"> };
 
 export interface ApplySkipParams extends RepoPrRef {
     actorLogin: string;
@@ -190,9 +195,9 @@ export class MergeGateService {
         private readonly mergeGateEnabled: boolean,
         private readonly analytics: PostHogAnalytics,
         private readonly falsePositiveCandidates: FalsePositiveCandidateService,
+        /** Starts the run an explicit request asked for - required, so no caller can build a gate that cannot run. */
+        private readonly prDiffsTrigger: PrDiffsTrigger,
         private readonly slackNotifier?: MergeGateSlackNotifier,
-        // Starts the run a merge-gate trigger asked for.
-        private readonly analysisRunTrigger?: AnalysisRunTrigger,
     ) {
         this.logger = logger.child({ name: this.constructor.name });
         this.checkRuns = createGitHubCheckRunStore(db);
@@ -342,28 +347,19 @@ export class MergeGateService {
             return { status: "not_started", reason: "activation_off" };
         }
 
-        const trigger = this.analysisRunTrigger;
-        if (trigger == null) {
-            this.logger.error("Merge gate: requestAnalysisRun has no run trigger wired; cannot start a run", {
-                organizationId: params.organizationId,
-                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
-            });
-            return { status: "not_started", reason: "no_trigger" };
-        }
-
         const client = await this.getInstallationClient(params.organizationId);
         return await this.checkRuns.runExclusive(params.repoFullName, params.headSha, async () => {
             const checkRunId = await this.flipCheckToInProgress(client, params);
 
-            const outcome = await this.fireRequestedRun(trigger, params);
-            if (!outcome.started) {
+            const outcome = await this.fireRequestedRun(params);
+            if (outcome !== "started") {
                 await this.restoreUnrequestedCheck(client, checkRunId, params);
-                await this.postCouldNotStartReply(client, params, outcome.reason);
+                await this.postCouldNotStartReply(client, params, outcome);
                 this.logger.info("Merge gate: requestAnalysisRun started no run; restored un-requested check", {
                     organizationId: params.organizationId,
-                    extra: { repoFullName: params.repoFullName, prNumber: params.prNumber, reason: outcome.reason },
+                    extra: { repoFullName: params.repoFullName, prNumber: params.prNumber, outcome },
                 });
-                return { status: "not_started", reason: outcome.reason ?? "no_preview" };
+                return { status: "not_started", reason: outcome };
             }
 
             await this.checkRuns.setActivation(params.repoFullName, params.headSha, {
@@ -480,25 +476,24 @@ export class MergeGateService {
         return checkRunId;
     }
 
-    /** Fire the requested run, containing a trigger failure as a non-started outcome so the check can roll back. */
-    private async fireRequestedRun(
-        trigger: AnalysisRunTrigger,
-        params: RequestAnalysisRunParams,
-    ): Promise<RequestRunOutcome> {
+    /** A trigger failure becomes an outcome rather than propagating, so the caller can roll the check back. */
+    private async fireRequestedRun(params: RequestAnalysisRunParams): Promise<RequestedRunOutcome> {
         try {
-            return await trigger.requestRun({
+            const result = await this.prDiffsTrigger.triggerPrDiffs({
                 organizationId: params.organizationId,
-                repoFullName: params.repoFullName,
-                githubRepositoryId: params.githubRepositoryId,
+                repoId: params.githubRepositoryId,
                 prNumber: params.prNumber,
+                requested: true,
             });
+            // `requested: true` bypasses the activation gate, so the sole remaining skip is head === base.
+            return result.skipped === true ? "already_analyzed" : "started";
         } catch (err) {
             this.logger.error("Merge gate: run trigger threw; treating as not started", {
                 organizationId: params.organizationId,
                 extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
                 err,
             });
-            return { started: false };
+            return "failed";
         }
     }
 
@@ -571,18 +566,21 @@ export class MergeGateService {
     private async postCouldNotStartReply(
         client: GitHubInstallationClient,
         params: RequestAnalysisRunParams,
-        reason?: RunNotStartedReason,
+        outcome: Exclude<RequestedRunOutcome, "started">,
     ): Promise<void> {
         const mention = params.actorLogin != null ? `@${params.actorLogin} ` : "";
+        // A failure has judged nothing, so the run may still be owed. Reporting it as "already analyzed" would dress
+        // the failure up as a deliberate no-op and leave the requester nothing to do.
         const body =
-            reason === "already_analyzed"
+            outcome === "already_analyzed"
                 ? `${mention}this PR's current commit was already analyzed - there is nothing new to run.`
-                : `${mention}could not start the analysis: no live preview was found for this PR. Redeploy the preview and try again.`;
+                : `${mention}could not start the analysis - something went wrong on our end. ` +
+                  "Please try again, and contact Autonoma if it keeps happening.";
         try {
             await client.postComment(params.repoFullName, params.prNumber, body);
             this.logger.info("Merge gate: posted could-not-start reply", {
                 organizationId: params.organizationId,
-                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber, reason },
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber, outcome },
             });
         } catch (err) {
             this.logger.warn("Merge gate: failed to post could-not-start reply", {

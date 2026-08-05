@@ -5,24 +5,6 @@ import type {
     RunHealingAgentForRefinementOutput,
 } from "./general-activities";
 
-export interface PrepareDiffsRunInput {
-    organizationId: string;
-    branchId: string;
-    headSha: string;
-    /** Fallback base sha (the PR base) used when the branch has no active-snapshot head yet. */
-    baseSha: string;
-    /** The preview origin the diffs run seeds and tests against. */
-    url: string;
-    /**
-     * Origin of the app hosting the Environment Factory handler, when the topology
-     * splits front and API. The persisted SDK endpoint is built from this; absent,
-     * it falls back to `url`.
-     */
-    sdkAppUrl?: string;
-}
-
-export type PrepareDiffsRunResult = { skipped: true } | { skipped: false; snapshotId: string };
-
 export interface AnalyzeDiffsInput {
     snapshotId: string;
 }
@@ -43,7 +25,6 @@ export interface FinalizeDiffsInput {
  * pool already provisioned for diffs.
  */
 export interface DiffsActivities {
-    prepareDiffsRun(input: PrepareDiffsRunInput): Promise<PrepareDiffsRunResult>;
     analyzeDiffs(input: AnalyzeDiffsInput): Promise<void>;
     markDiffsGenerating(input: MarkDiffsGeneratingInput): Promise<void>;
     finalizeDiffs(input: FinalizeDiffsInput): Promise<void>;

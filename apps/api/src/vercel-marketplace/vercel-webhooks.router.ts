@@ -490,7 +490,7 @@ async function handleCheckRunStart(payload: CheckRunStartPayload): Promise<void>
         return;
     }
 
-    if (result.snapshotId == null) {
+    if (result.skipped === true) {
         logger.info("Diffs trigger was a no-op for Vercel deployment", { deploymentId: deployment.id, ...result });
         await updateVercelCheckRun(accessToken, deployment.id, checkRun.id, "completed", {
             conclusion: "skipped",
@@ -514,7 +514,6 @@ async function handleCheckRunStart(payload: CheckRunStartPayload): Promise<void>
                 vercelDeploymentId: deployment.id,
                 vercelCheckRunId: checkRun.id,
                 projectConnectionId: projectConnection.id,
-                branchSnapshotId: result.snapshotId,
             },
         });
     } else {

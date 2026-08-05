@@ -40,6 +40,35 @@ async function withBillingEnforced(
     }
 }
 
+/** Marks the application as deploying its own previews (Vercel and the like) for the duration of `fn`. */
+async function withExternalDeploys(
+    harness: APITestHarness,
+    applicationId: string,
+    fn: () => Promise<void>,
+): Promise<void> {
+    const previous = await harness.db.onboardingState.findUnique({
+        where: { applicationId },
+        select: { previewEnvironmentMode: true },
+    });
+    await harness.db.onboardingState.upsert({
+        where: { applicationId },
+        create: { applicationId, previewEnvironmentMode: "existing_deploys" },
+        update: { previewEnvironmentMode: "existing_deploys" },
+    });
+    try {
+        await fn();
+    } finally {
+        if (previous == null) {
+            await harness.db.onboardingState.delete({ where: { applicationId } });
+        } else {
+            await harness.db.onboardingState.update({
+                where: { applicationId },
+                data: { previewEnvironmentMode: previous.previewEnvironmentMode },
+            });
+        }
+    }
+}
+
 async function setCreditBalance(harness: APITestHarness, organizationId: string, creditBalance: number): Promise<void> {
     await harness.db.billingCustomer.upsert({
         where: { organizationId },
@@ -72,6 +101,7 @@ function gateTestService(harness: APITestHarness): PreviewkitTriggerService {
                     : { allowed: true as const };
             },
         },
+        harness.triggerWorkflow,
         harness.triggerWorkflow,
         harness.triggerWorkflow,
         harness.triggerWorkflow,
@@ -167,13 +197,13 @@ apiTestSuite({
         return { app, service };
     },
     cases: (test) => {
-        test("deployFromWebhook eagerly creates the PR branch and threads its id into the deploy event", async ({
+        test("startRunFromPullRequestWebhook eagerly creates the PR branch and threads its id into the deploy target", async ({
             harness,
             seedResult: { app, service },
         }) => {
             harness.triggerWorkflow.mockClear();
 
-            await service.deployFromWebhook("synchronize", harness.organizationId, pullRequestPayload(7));
+            await service.startRunFromPullRequestWebhook("synchronize", harness.organizationId, pullRequestPayload(7));
 
             // A snapshot-less branch is created before any diff runs.
             const branch = await harness.db.branch.findFirst({
@@ -184,30 +214,21 @@ apiTestSuite({
             expect(branch!.name).toBe("feature/pr-7");
             expect(branch!.snapshots).toHaveLength(0);
 
-            expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                event: {
-                    action: "synchronize",
-                    prNumber: 7,
-                    repoFullName: REPO_FULL_NAME,
-                    organizationId: harness.organizationId,
-                    githubRepositoryId: REPO_ID,
-                    headSha: "head-7",
-                    headRef: "feature/pr-7",
-                    baseSha: "main-sha-2",
-                    baseRef: "main",
-                    cloneUrl: "https://github.com/acme/web.git",
-                    branchId: branch!.id,
-                },
+            // The run owns the build decision, so a resolved branch starts a run and no build is launched here.
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+            expect(harness.startAnalysisRun).toHaveBeenCalledWith({
+                branchId: branch!.id,
+                headSha: "head-7",
+                baseSha: "main-sha-2",
             });
         });
 
-        test("deployFromWebhook reuses the same branch across pushes to the same PR", async ({
+        test("startRunFromPullRequestWebhook reuses the same branch across pushes to the same PR", async ({
             harness,
             seedResult: { app, service },
         }) => {
-            await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(8));
-            await service.deployFromWebhook("synchronize", harness.organizationId, pullRequestPayload(8));
+            await service.startRunFromPullRequestWebhook("opened", harness.organizationId, pullRequestPayload(8));
+            await service.startRunFromPullRequestWebhook("synchronize", harness.organizationId, pullRequestPayload(8));
 
             const branches = await harness.db.branch.findMany({
                 where: { applicationId: app.id, prInfo: { prNumber: 8 } },
@@ -216,7 +237,7 @@ apiTestSuite({
             expect(branches).toHaveLength(1);
         });
 
-        test("deployFromWebhook deploys an un-onboarded repo with no branch link", async ({
+        test("startRunFromPullRequestWebhook deploys an un-onboarded repo with no branch link", async ({
             harness,
             seedResult: { service },
         }) => {
@@ -236,7 +257,7 @@ apiTestSuite({
                 },
             };
 
-            await service.deployFromWebhook("opened", harness.organizationId, unlinkedRepoPayload);
+            await service.startRunFromPullRequestWebhook("opened", harness.organizationId, unlinkedRepoPayload);
 
             // No Application for this repo -> no branch created, deploy still fires unlinked. Scope to this
             // suite's org: the integration DB is shared across suites, so an unscoped count is not isolated.
@@ -246,22 +267,27 @@ apiTestSuite({
             expect(branchCount).toBe(0);
             expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
             expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                event: expect.objectContaining({ prNumber: 30, branchId: undefined }),
+                target: expect.objectContaining({ prNumber: 30, repoFullName: "acme/unlinked" }),
+                reason: "branch_not_resolvable",
             });
         });
 
-        test("deployFromWebhook skips a draft PR when previewkitBuildDraft is disabled", async ({
+        test("startRunFromPullRequestWebhook skips a draft PR when previewkitBuildDraft is disabled", async ({
             harness,
             seedResult: { service },
         }) => {
             harness.triggerWorkflow.mockClear();
 
-            await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(20, true));
+            await service.startRunFromPullRequestWebhook(
+                "opened",
+                harness.organizationId,
+                pullRequestPayload(20, true),
+            );
 
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
 
-        test("deployFromWebhook builds a draft PR when previewkitBuildDraft is enabled", async ({
+        test("startRunFromPullRequestWebhook builds a draft PR when previewkitBuildDraft is enabled", async ({
             harness,
             seedResult: { service },
         }) => {
@@ -272,38 +298,74 @@ apiTestSuite({
                 update: { previewkitBuildDraft: true },
             });
 
-            await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(21, true));
+            harness.startAnalysisRun.mockClear();
+            await service.startRunFromPullRequestWebhook(
+                "opened",
+                harness.organizationId,
+                pullRequestPayload(21, true),
+            );
 
-            expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
+            expect(harness.startAnalysisRun).toHaveBeenCalledTimes(1);
 
             await harness.db.organizationSettings.delete({ where: { organizationId: harness.organizationId } });
         });
 
-        test("deployFromWebhook builds a ready-for-review PR even when previewkitBuildDraft is disabled", async ({
+        test("startRunFromPullRequestWebhook builds a ready-for-review PR even when previewkitBuildDraft is disabled", async ({
             harness,
             seedResult: { service },
         }) => {
             harness.triggerWorkflow.mockClear();
+            harness.startAnalysisRun.mockClear();
 
             // A PR marked ready for review is no longer a draft (draft: false),
             // so it deploys regardless of the org's draft-build setting.
-            await service.deployFromWebhook("ready_for_review", harness.organizationId, pullRequestPayload(22, false));
-
-            expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    event: expect.objectContaining({ action: "ready_for_review", prNumber: 22 }),
-                }),
+            await service.startRunFromPullRequestWebhook(
+                "ready_for_review",
+                harness.organizationId,
+                pullRequestPayload(22, false),
             );
+
+            expect(harness.startAnalysisRun).toHaveBeenCalledTimes(1);
+            expect(harness.startAnalysisRun).toHaveBeenCalledWith(expect.objectContaining({ headSha: "head-22" }));
         });
 
-        test("deployFromWebhook skips an unparseable payload without triggering", async ({
+        test("startRunFromPullRequestWebhook skips an unparseable payload without triggering", async ({
             harness,
             seedResult: { service },
         }) => {
             harness.triggerWorkflow.mockClear();
 
-            await service.deployFromWebhook("opened", harness.organizationId, { repository: { id: REPO_ID } });
+            await service.startRunFromPullRequestWebhook("opened", harness.organizationId, {
+                repository: { id: REPO_ID },
+            });
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+        });
+
+        test("startRunFromPullRequestWebhook skips a repo the customer deploys previews for itself", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+            harness.startAnalysisRun.mockClear();
+
+            await withExternalDeploys(harness, app.id, async () => {
+                await service.startRunFromPullRequestWebhook("opened", harness.organizationId, pullRequestPayload(41));
+            });
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+            expect(harness.startAnalysisRun).not.toHaveBeenCalled();
+        });
+
+        test("teardownFromWebhook skips a repo the customer deploys previews for itself", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+
+            await withExternalDeploys(harness, app.id, async () => {
+                await service.teardownFromWebhook(harness.organizationId, pullRequestPayload(42));
+            });
 
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
@@ -318,28 +380,20 @@ apiTestSuite({
 
             expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
             expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                event: {
-                    action: "closed",
-                    prNumber: 9,
-                    repoFullName: REPO_FULL_NAME,
-                    organizationId: harness.organizationId,
-                    githubRepositoryId: REPO_ID,
-                    headSha: "head-9",
-                    headRef: "feature/pr-9",
-                    baseSha: "",
-                    baseRef: "",
-                    cloneUrl: "",
-                },
+                repoFullName: REPO_FULL_NAME,
+                prNumber: 9,
+                organizationId: harness.organizationId,
+                headSha: "head-9",
             });
         });
 
-        test("deployMainBranch resolves the branch head and deploys environment 0", async ({
+        test("startMainBranchRun resolves the branch head and deploys environment 0", async ({
             harness,
             seedResult: { app, service },
         }) => {
             harness.triggerWorkflow.mockClear();
 
-            const result = await service.deployMainBranch(app.id, harness.organizationId);
+            const result = await service.startMainBranchRun(app.id, harness.organizationId);
 
             expect(result).toEqual({
                 applicationId: app.id,
@@ -355,30 +409,20 @@ apiTestSuite({
                 select: { mainBranchId: true },
             });
             expect(appRow.mainBranchId).not.toBeNull();
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                event: {
-                    action: "synchronize",
-                    prNumber: 0,
-                    repoFullName: REPO_FULL_NAME,
-                    organizationId: harness.organizationId,
-                    githubRepositoryId: REPO_ID,
-                    headSha: "main-sha-2",
-                    headRef: "main",
-                    baseSha: "main-sha-2",
-                    baseRef: "main",
-                    cloneUrl: "https://github.com/acme/web.git",
-                    branchId: appRow.mainBranchId,
-                },
+            expect(harness.startAnalysisRun).toHaveBeenCalledWith({
+                branchId: appRow.mainBranchId,
+                headSha: "main-sha-2",
+                baseSha: "main-sha-2",
             });
         });
 
-        test("deployMainBranch rejects an application outside the caller's org", async ({
+        test("startMainBranchRun rejects an application outside the caller's org", async ({
             seedResult: { app, service },
         }) => {
-            await expect(service.deployMainBranch(app.id, "some-other-org")).rejects.toThrow(NotFoundError);
+            await expect(service.startMainBranchRun(app.id, "some-other-org")).rejects.toThrow(NotFoundError);
         });
 
-        test("deployMainBranch rejects a disabled application", async ({ harness, seedResult: { service } }) => {
+        test("startMainBranchRun rejects a disabled application", async ({ harness, seedResult: { service } }) => {
             const disabledApp = await harness.services.applications.createApplication({
                 name: "Disabled App",
                 organizationId: harness.organizationId,
@@ -393,12 +437,12 @@ apiTestSuite({
                 data: { githubRepositoryId: REPO_ID + 1, disabled: true },
             });
 
-            await expect(service.deployMainBranch(disabledApp.id, harness.organizationId)).rejects.toThrow(
+            await expect(service.startMainBranchRun(disabledApp.id, harness.organizationId)).rejects.toThrow(
                 ConflictError,
             );
         });
 
-        test("deployMainBranch rejects an application with no linked repository", async ({
+        test("startMainBranchRun rejects an application with no linked repository", async ({
             harness,
             seedResult: { service },
         }) => {
@@ -410,18 +454,21 @@ apiTestSuite({
                 file: "s3://bucket/file.png",
             });
 
-            await expect(service.deployMainBranch(unlinkedApp.id, harness.organizationId)).rejects.toThrow(
+            await expect(service.startMainBranchRun(unlinkedApp.id, harness.organizationId)).rejects.toThrow(
                 ConflictError,
             );
         });
 
-        test("deployMainBranch rejects a suspended installation", async ({ harness, seedResult: { app, service } }) => {
+        test("startMainBranchRun rejects a suspended installation", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
             await harness.db.gitHubInstallation.update({
                 where: { organizationId: harness.organizationId },
                 data: { status: "suspended" },
             });
             try {
-                await expect(service.deployMainBranch(app.id, harness.organizationId)).rejects.toThrow(
+                await expect(service.startMainBranchRun(app.id, harness.organizationId)).rejects.toThrow(
                     /GitHub installation is suspended/,
                 );
             } finally {
@@ -432,7 +479,7 @@ apiTestSuite({
             }
         });
 
-        test("deployMainBranch maps GitHub 404s to NotFoundError", async ({ harness, seedResult: { app } }) => {
+        test("startMainBranchRun maps GitHub 404s to NotFoundError", async ({ harness, seedResult: { app } }) => {
             const notFound = Object.assign(new Error("Not Found"), { status: 404 });
             const deploySpy = vi.fn().mockResolvedValue(undefined);
 
@@ -448,8 +495,9 @@ apiTestSuite({
                 deploySpy,
                 deploySpy,
                 deploySpy,
+                deploySpy,
             );
-            await expect(repoMissing.deployMainBranch(app.id, harness.organizationId)).rejects.toThrow(
+            await expect(repoMissing.startMainBranchRun(app.id, harness.organizationId)).rejects.toThrow(
                 /Linked GitHub repository not found/,
             );
 
@@ -472,14 +520,15 @@ apiTestSuite({
                 deploySpy,
                 deploySpy,
                 deploySpy,
+                deploySpy,
             );
-            await expect(branchMissing.deployMainBranch(app.id, harness.organizationId)).rejects.toThrow(
+            await expect(branchMissing.startMainBranchRun(app.id, harness.organizationId)).rejects.toThrow(
                 /Deploy branch 'main' not found/,
             );
             expect(deploySpy).not.toHaveBeenCalled();
         });
 
-        test("deployMainBranch errors when the configured deploy branch is gone (no silent fallback)", async ({
+        test("startMainBranchRun errors when the configured deploy branch is gone (no silent fallback)", async ({
             harness,
             seedResult: { app },
         }) => {
@@ -521,78 +570,69 @@ apiTestSuite({
                 deploySpy,
                 deploySpy,
                 deploySpy,
+                deploySpy,
             );
 
-            await expect(service.deployMainBranch(app.id, harness.organizationId)).rejects.toThrow(
+            await expect(service.startMainBranchRun(app.id, harness.organizationId)).rejects.toThrow(
                 /Deploy branch 'autonoma' not found/,
             );
             expect(deploySpy).not.toHaveBeenCalled();
         });
 
-        test("deployMainBranchFromPushWebhook updates environment 0 on a push to the tracked branch", async ({
+        test("startMainBranchRunFromPushWebhook updates environment 0 on a push to the tracked branch", async ({
             harness,
             seedResult: { service },
         }) => {
             await setMainBranchEnvironment(harness, "main", "ready");
             harness.triggerWorkflow.mockClear();
 
-            await expect(
-                service.pushTargetsMainBranchEnvironment(harness.organizationId, pushPayload("main", "push-sha-1")),
-            ).resolves.toBe(true);
-
-            await service.deployMainBranchFromPushWebhook(harness.organizationId, pushPayload("main", "push-sha-1"));
+            await service.startMainBranchRunFromPushWebhook(harness.organizationId, pushPayload("main", "push-sha-1"));
 
             const appRow = await harness.db.application.findFirstOrThrow({
                 where: { organizationId: harness.organizationId, githubRepositoryId: REPO_ID },
                 select: { mainBranchId: true },
             });
-            expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
-            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                event: {
-                    action: "synchronize",
-                    prNumber: 0,
-                    repoFullName: REPO_FULL_NAME,
-                    organizationId: harness.organizationId,
-                    githubRepositoryId: REPO_ID,
-                    headSha: "push-sha-1",
-                    headRef: "main",
-                    baseSha: "push-sha-1",
-                    baseRef: "main",
-                    cloneUrl: "https://github.com/acme/web.git",
-                    branchId: appRow.mainBranchId,
-                },
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+            expect(harness.startAnalysisRun).toHaveBeenCalledWith({
+                branchId: appRow.mainBranchId,
+                headSha: "push-sha-1",
+                baseSha: "push-sha-1",
             });
         });
 
-        test("deployMainBranchFromPushWebhook ignores a push to a branch the environment does not track", async ({
+        test("startMainBranchRunFromPushWebhook ignores a push to a branch the environment does not track", async ({
             harness,
             seedResult: { service },
         }) => {
             await setMainBranchEnvironment(harness, "main", "ready");
             harness.triggerWorkflow.mockClear();
 
-            await service.deployMainBranchFromPushWebhook(harness.organizationId, pushPayload("develop", "push-sha-2"));
+            await service.startMainBranchRunFromPushWebhook(
+                harness.organizationId,
+                pushPayload("develop", "push-sha-2"),
+            );
 
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
 
-        test("deployMainBranchFromPushWebhook ignores a push when the environment is torn down", async ({
+        test("startMainBranchRunFromPushWebhook ignores a push when the environment is torn down", async ({
             harness,
             seedResult: { service },
         }) => {
             await setMainBranchEnvironment(harness, "main", "torn_down");
             harness.triggerWorkflow.mockClear();
 
-            await service.deployMainBranchFromPushWebhook(harness.organizationId, pushPayload("main", "push-sha-3"));
+            await service.startMainBranchRunFromPushWebhook(harness.organizationId, pushPayload("main", "push-sha-3"));
 
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
 
-        test("deployMainBranchFromPushWebhook ignores a repo without a main-branch environment", async ({
+        test("startMainBranchRunFromPushWebhook ignores a repo without a main-branch environment", async ({
             harness,
             seedResult: { service },
         }) => {
             harness.triggerWorkflow.mockClear();
+            harness.startAnalysisRun.mockClear();
             const unrelatedRepoPush = {
                 ref: "refs/heads/main",
                 after: "push-sha-4",
@@ -604,28 +644,28 @@ apiTestSuite({
                 },
             };
 
-            await expect(
-                service.pushTargetsMainBranchEnvironment(harness.organizationId, unrelatedRepoPush),
-            ).resolves.toBe(false);
-
-            await service.deployMainBranchFromPushWebhook(harness.organizationId, unrelatedRepoPush);
+            await service.startMainBranchRunFromPushWebhook(harness.organizationId, unrelatedRepoPush);
 
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+            expect(harness.startAnalysisRun).not.toHaveBeenCalled();
         });
 
-        test("deployMainBranchFromPushWebhook ignores branch deletions, zero-sha pushes and tag pushes", async ({
+        test("startMainBranchRunFromPushWebhook ignores branch deletions, zero-sha pushes and tag pushes", async ({
             harness,
             seedResult: { service },
         }) => {
             await setMainBranchEnvironment(harness, "main", "ready");
             harness.triggerWorkflow.mockClear();
 
-            await service.deployMainBranchFromPushWebhook(
+            await service.startMainBranchRunFromPushWebhook(
                 harness.organizationId,
                 pushPayload("main", "push-sha-5", true),
             );
-            await service.deployMainBranchFromPushWebhook(harness.organizationId, pushPayload("main", "0".repeat(40)));
-            await service.deployMainBranchFromPushWebhook(harness.organizationId, {
+            await service.startMainBranchRunFromPushWebhook(
+                harness.organizationId,
+                pushPayload("main", "0".repeat(40)),
+            );
+            await service.startMainBranchRunFromPushWebhook(harness.organizationId, {
                 ref: "refs/tags/v1.0.0",
                 after: "push-sha-6",
                 deleted: false,
@@ -639,25 +679,25 @@ apiTestSuite({
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
 
-        test("deployMainBranchFromPushWebhook scopes to the webhook's organization", async ({
+        test("startMainBranchRunFromPushWebhook scopes to the webhook's organization", async ({
             harness,
             seedResult: { service },
         }) => {
             await setMainBranchEnvironment(harness, "main", "ready");
             harness.triggerWorkflow.mockClear();
 
-            await service.deployMainBranchFromPushWebhook("some-other-org", pushPayload("main", "push-sha-7"));
+            await service.startMainBranchRunFromPushWebhook("some-other-org", pushPayload("main", "push-sha-7"));
 
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
 
-        test("deployMainBranchFromPushWebhook skips an unparseable payload without triggering", async ({
+        test("startMainBranchRunFromPushWebhook skips an unparseable payload without triggering", async ({
             harness,
             seedResult: { service },
         }) => {
             harness.triggerWorkflow.mockClear();
 
-            await service.deployMainBranchFromPushWebhook(harness.organizationId, { ref: "refs/heads/main" });
+            await service.startMainBranchRunFromPushWebhook(harness.organizationId, { ref: "refs/heads/main" });
 
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
@@ -682,21 +722,21 @@ apiTestSuite({
                 },
             });
 
-            await service.redeploy(REPO_FULL_NAME, 12, harness.organizationId);
+            await service.startRunForRedeploy(
+                { repoFullName: REPO_FULL_NAME, prNumber: 12 },
+                { organizationId: harness.organizationId },
+            );
 
             expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                event: {
-                    action: "synchronize",
+                target: {
                     prNumber: 12,
                     repoFullName: REPO_FULL_NAME,
                     organizationId: harness.organizationId,
                     githubRepositoryId: REPO_ID,
                     headSha: "head-12",
                     headRef: "feature/pr-12",
-                    baseSha: "",
-                    baseRef: "",
-                    cloneUrl: "",
                 },
+                reason: "force_build",
             });
         });
 
@@ -726,21 +766,21 @@ apiTestSuite({
                 },
             });
 
-            await service.redeploy(REPO_FULL_NAME, 15, harness.organizationId);
+            await service.startRunForRedeploy(
+                { repoFullName: REPO_FULL_NAME, prNumber: 15 },
+                { organizationId: harness.organizationId },
+            );
 
             expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                event: {
-                    action: "synchronize",
+                target: {
                     prNumber: 15,
                     repoFullName: REPO_FULL_NAME,
                     organizationId: harness.organizationId,
                     githubRepositoryId: REPO_ID,
                     headSha: "pr-15-new-head",
                     headRef: "feature/pr-15",
-                    baseSha: "",
-                    baseRef: "",
-                    cloneUrl: "",
                 },
+                reason: "force_build",
             });
         });
 
@@ -752,21 +792,21 @@ apiTestSuite({
             // Stored at main-sha-1 while the fake repo's main branch has advanced to main-sha-2.
             await setMainBranchEnvironment(harness, "main", "ready");
 
-            await service.redeploy(REPO_FULL_NAME, 0, harness.organizationId);
+            await service.startRunForRedeploy(
+                { repoFullName: REPO_FULL_NAME, prNumber: 0 },
+                { organizationId: harness.organizationId },
+            );
 
             expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                event: {
-                    action: "synchronize",
+                target: {
                     prNumber: 0,
                     repoFullName: REPO_FULL_NAME,
                     organizationId: harness.organizationId,
                     githubRepositoryId: REPO_ID,
                     headSha: "main-sha-2",
                     headRef: "main",
-                    baseSha: "",
-                    baseRef: "",
-                    cloneUrl: "",
                 },
+                reason: "force_build",
             });
         });
 
@@ -784,7 +824,12 @@ apiTestSuite({
                 },
             });
 
-            await expect(service.redeploy(REPO_FULL_NAME, 13, harness.organizationId)).rejects.toThrow(ConflictError);
+            await expect(
+                service.startRunForRedeploy(
+                    { repoFullName: REPO_FULL_NAME, prNumber: 13 },
+                    { organizationId: harness.organizationId },
+                ),
+            ).rejects.toThrow(ConflictError);
         });
 
         test("redeploy scopes to the caller's organization", async ({ harness, seedResult: { service } }) => {
@@ -801,10 +846,15 @@ apiTestSuite({
                 },
             });
 
-            await expect(service.redeploy(REPO_FULL_NAME, 14, "some-other-org")).rejects.toThrow(NotFoundError);
+            await expect(
+                service.startRunForRedeploy(
+                    { repoFullName: REPO_FULL_NAME, prNumber: 14 },
+                    { organizationId: "some-other-org" },
+                ),
+            ).rejects.toThrow(NotFoundError);
         });
 
-        test("redeployApp reconstructs the event, namespace, app + mode", async ({
+        test("redeployApp reconstructs the target, namespace, app + mode", async ({
             harness,
             seedResult: { service },
         }) => {
@@ -823,20 +873,18 @@ apiTestSuite({
                 },
             });
 
-            await service.redeployApp(REPO_FULL_NAME, 20, "web", "rebuild", harness.organizationId);
+            await service.redeployApp({ repoFullName: REPO_FULL_NAME, prNumber: 20 }, "web", "rebuild", {
+                organizationId: harness.organizationId,
+            });
 
             expect(harness.triggerWorkflow).toHaveBeenCalledWith({
-                event: {
-                    action: "synchronize",
+                target: {
                     prNumber: 20,
                     repoFullName: REPO_FULL_NAME,
                     organizationId: harness.organizationId,
                     githubRepositoryId: REPO_ID,
                     headSha: "head-20",
                     headRef: "feature/pr-20",
-                    baseSha: "",
-                    baseRef: "",
-                    cloneUrl: "",
                 },
                 namespace: "preview-acme-web-pr-20",
                 appName: "web",
@@ -860,7 +908,9 @@ apiTestSuite({
                 },
             });
 
-            await service.redeployApp(REPO_FULL_NAME, 21, "web", "restart", harness.organizationId);
+            await service.redeployApp({ repoFullName: REPO_FULL_NAME, prNumber: 21 }, "web", "restart", {
+                organizationId: harness.organizationId,
+            });
 
             expect(harness.triggerWorkflow).toHaveBeenCalledWith(
                 expect.objectContaining({ appName: "web", mode: "restart", namespace: "preview-acme-web-pr-21" }),
@@ -883,7 +933,9 @@ apiTestSuite({
             });
 
             await expect(
-                service.redeployApp(REPO_FULL_NAME, 22, "api", "rebuild", harness.organizationId),
+                service.redeployApp({ repoFullName: REPO_FULL_NAME, prNumber: 22 }, "api", "rebuild", {
+                    organizationId: harness.organizationId,
+                }),
             ).rejects.toThrow(NotFoundError);
         });
 
@@ -903,7 +955,9 @@ apiTestSuite({
             });
 
             await expect(
-                service.redeployApp(REPO_FULL_NAME, 23, "web", "rebuild", harness.organizationId),
+                service.redeployApp({ repoFullName: REPO_FULL_NAME, prNumber: 23 }, "web", "rebuild", {
+                    organizationId: harness.organizationId,
+                }),
             ).rejects.toThrow(ConflictError);
         });
 
@@ -922,9 +976,11 @@ apiTestSuite({
                 },
             });
 
-            await expect(service.redeployApp(REPO_FULL_NAME, 24, "web", "rebuild", "some-other-org")).rejects.toThrow(
-                NotFoundError,
-            );
+            await expect(
+                service.redeployApp({ repoFullName: REPO_FULL_NAME, prNumber: 24 }, "web", "rebuild", {
+                    organizationId: "some-other-org",
+                }),
+            ).rejects.toThrow(NotFoundError);
         });
 
         test("deploy is blocked and comments on the PR when the org is out of credits and both gates are on", async ({
@@ -937,7 +993,7 @@ apiTestSuite({
 
             await withBillingEnforced(harness, harness.organizationId, async () => {
                 await expect(
-                    service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(40)),
+                    service.startRunFromPullRequestWebhook("opened", harness.organizationId, pullRequestPayload(40)),
                 ).rejects.toThrow(InsufficientPreviewCreditsError);
             });
 
@@ -955,7 +1011,7 @@ apiTestSuite({
             await setCreditBalance(harness, harness.organizationId, 1_000);
 
             await withBillingEnforced(harness, harness.organizationId, async () => {
-                await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(41));
+                await service.startRunFromPullRequestWebhook("opened", harness.organizationId, pullRequestPayload(41));
             });
 
             expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
@@ -973,7 +1029,7 @@ apiTestSuite({
             });
 
             try {
-                await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(42));
+                await service.startRunFromPullRequestWebhook("opened", harness.organizationId, pullRequestPayload(42));
                 expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
             } finally {
                 await harness.db.organizationSettings.upsert({
@@ -994,7 +1050,7 @@ apiTestSuite({
             const wasGloballyEnabled = env.PREVIEWKIT_BILLING_ENABLED;
             env.PREVIEWKIT_BILLING_ENABLED = true;
             try {
-                await service.deployFromWebhook("opened", harness.organizationId, pullRequestPayload(43));
+                await service.startRunFromPullRequestWebhook("opened", harness.organizationId, pullRequestPayload(43));
                 expect(harness.triggerWorkflow).toHaveBeenCalledTimes(1);
             } finally {
                 env.PREVIEWKIT_BILLING_ENABLED = wasGloballyEnabled;
@@ -1021,7 +1077,9 @@ apiTestSuite({
 
             await withBillingEnforced(harness, harness.organizationId, async () => {
                 await expect(
-                    service.redeployApp(REPO_FULL_NAME, 44, "web", "rebuild", harness.organizationId),
+                    service.redeployApp({ repoFullName: REPO_FULL_NAME, prNumber: 44 }, "web", "rebuild", {
+                        organizationId: harness.organizationId,
+                    }),
                 ).rejects.toThrow(InsufficientPreviewCreditsError);
             });
 

@@ -1,0 +1,492 @@
+import type { AnalysisRunOutcome, PreviewDeployTarget } from "@autonoma/types";
+import { Context } from "@temporalio/activity";
+import type { TestWorkflowEnvironment } from "@temporalio/testing";
+import { Worker } from "@temporalio/worker";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type {
+    AnalysisActivities,
+    AnalysisInvestigationTarget,
+    ClassifyInvestigationRunInput,
+    InvestigationTestResult,
+    LaunchPreviewBuildInput,
+    PreviewBuildWarrantReason,
+    PreviewkitActivities,
+    ReadPreviewBuildStatusOutput,
+    ReportPreviewBuildWarrantInput,
+} from "../src/activities";
+import { previewBuildWorkflowId } from "../src/preview-build-id";
+import { warrantsBuild } from "../src/rules/build-warrant";
+import { TaskQueue } from "../src/task-queues";
+import { analysisRunWorkflow } from "../src/workflows/analysis-run.workflow";
+import { teardownTestWorkflowEnvironment } from "./fixtures/teardown-test-workflow-environment";
+import { createTimeSkippingTestEnvironment } from "./fixtures/test-workflow-environment";
+import { workflowBundle } from "./fixtures/workflow-bundle";
+
+/**
+ * The REAL run in the time-skipping environment with mocked activities, so every assertion is on an observable
+ * outcome - whether a build was scheduled at all, its order against impact analysis, how the run settled.
+ */
+
+const ORGANIZATION_ID = "org-1";
+const REPO = "acme/widgets";
+const HEAD_SHA = "head000";
+const SNAPSHOT_ID = "snap-1";
+const PREVIEW_URL = "https://web-pr-7.preview.example.com";
+const SLUG = "checkout-flow";
+
+/** How long an activity waits for a concurrently-scheduled sibling before declaring the flow serial. */
+const CONCURRENCY_WAIT_MS = 10_000;
+
+/** A mutable per-test script the mocked activities read. */
+interface Harness {
+    previewTarget?: PreviewDeployTarget;
+    everBuilt: boolean;
+    targets: AnalysisInvestigationTarget[];
+    impactError?: Error;
+    snapshotSkipped: boolean;
+    snapshotError?: Error;
+    /** Blocks impact analysis until the build launches, so a serial flow deadlocks rather than passing. */
+    impactWaitsForBuild: boolean;
+    /** Blocks impact analysis until cancelled - the hook for interrupting mid-flow. */
+    impactBlocksUntilCancelled: boolean;
+
+    buildLaunches: LaunchPreviewBuildInput[];
+    buildStatus: ReadPreviewBuildStatusOutput;
+    cancelledJobs: string[];
+    gateReports: ReportPreviewBuildWarrantInput[];
+    settlements: AnalysisRunOutcome[];
+    reporterRuns: number;
+    /** Snapshot ids passed to `attachPreviewDeployment` - proof a URL lands only once the preview is live. */
+    attachedUrls: string[];
+    webRuns: string[];
+    events: string[];
+
+    buildLaunched: Promise<void>;
+    notifyBuildLaunched: () => void;
+    impactStarted: Promise<void>;
+    notifyImpactStarted: () => void;
+}
+
+const harness: Harness = {
+    everBuilt: false,
+    targets: [],
+    snapshotSkipped: false,
+    impactWaitsForBuild: false,
+    impactBlocksUntilCancelled: false,
+    buildLaunches: [],
+    buildStatus: { state: "ready", primaryUrl: PREVIEW_URL },
+    cancelledJobs: [],
+    gateReports: [],
+    settlements: [],
+    reporterRuns: 0,
+    attachedUrls: [],
+    webRuns: [],
+    events: [],
+    buildLaunched: Promise.resolve(),
+    notifyBuildLaunched: () => undefined,
+    impactStarted: Promise.resolve(),
+    notifyImpactStarted: () => undefined,
+};
+
+/** Monotonic counter for unique workflow ids and snapshot ids across executions. */
+let executionCounter = 0;
+/** The build workflow id the run under test would use, so a test can ask whether a build was started at all. */
+let currentBuildId = "";
+
+/**
+ * Asked of the WORKFLOW, not the launch activity: `startChild` resolves once the child has started, so the child
+ * either exists by then or never will. The activity it then runs is scheduled asynchronously and would race.
+ */
+async function buildWasStarted(): Promise<boolean> {
+    try {
+        await env.client.workflow.getHandle(currentBuildId).describe();
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** Only skips: a build reports its own reason from inside the child, asynchronously, and would race. */
+function skipReports(): PreviewBuildWarrantReason[] {
+    return harness.gateReports.map((report) => report.reason).filter((reason) => !warrantsBuild(reason));
+}
+
+function target(): AnalysisInvestigationTarget {
+    return {
+        slug: SLUG,
+        testCaseId: "tc-checkout",
+        testGenerationId: "gen-1",
+        reason: "the diff touched checkout",
+        origin: "pre_existing",
+    };
+}
+
+function deployEvent(overrides: Partial<PreviewDeployTarget> = {}): PreviewDeployTarget {
+    return {
+        prNumber: 7,
+        repoFullName: REPO,
+        organizationId: ORGANIZATION_ID,
+        githubRepositoryId: 99,
+        headSha: HEAD_SHA,
+        headRef: "feature/checkout",
+        branchId: "branch-1",
+        ...overrides,
+    };
+}
+
+/**
+ * Rejects if a concurrently-scheduled sibling never arrives, so a regression that makes the flow serial fails with
+ * a clear message instead of hanging until the suite's own timeout.
+ */
+function requireConcurrent(signal: Promise<void>): Promise<void> {
+    return Promise.race([
+        signal,
+        new Promise<never>((_resolve, reject) => {
+            setTimeout(
+                () => reject(new Error("the build was not launched concurrently with impact analysis")),
+                CONCURRENCY_WAIT_MS,
+            ).unref();
+        }),
+    ]);
+}
+
+/** Blocks an activity until the workflow cancels it, so a test can interrupt the flow mid-analysis. */
+function untilCancelled(): Promise<never> {
+    return new Promise<never>((_resolve, reject) => {
+        Context.current().cancellationSignal.addEventListener("abort", () => reject(new Error("cancelled")), {
+            once: true,
+        });
+    });
+}
+
+const analysisActivities: AnalysisActivities = {
+    async openAnalysisRun() {
+        harness.events.push("snapshot");
+        if (harness.snapshotError != null) throw harness.snapshotError;
+        return harness.snapshotSkipped ? { skipped: true } : { skipped: false, snapshotId: SNAPSHOT_ID };
+    },
+    async openMergeGate() {
+        return { status: "skipped" };
+    },
+    async runImpactAnalysis() {
+        harness.events.push("impact:start");
+        harness.notifyImpactStarted();
+        if (harness.impactError != null) throw harness.impactError;
+        if (harness.impactBlocksUntilCancelled) await untilCancelled();
+        if (harness.impactWaitsForBuild) await requireConcurrent(harness.buildLaunched);
+        harness.events.push("impact:end");
+        return { targets: harness.targets, reasoning: "scripted" };
+    },
+    async runReporter() {
+        harness.reporterRuns += 1;
+        harness.events.push("reporter");
+        return { issuesOpened: 0, issuesCarried: 0, issuesResolved: 0, verdict: "passed", clientBugCount: 0 };
+    },
+    async settleAnalysisRun(input) {
+        harness.settlements.push(input.outcome);
+        harness.events.push(`settle:${input.outcome.kind}`);
+        return { settled: true, generationsFailed: 0, discardedChangeCount: 0 };
+    },
+};
+
+const previewkitActivities: PreviewkitActivities = {
+    async resolvePreviewTarget() {
+        const target = harness.previewTarget;
+        return target != null ? { organizationId: target.organizationId, target } : { organizationId: ORGANIZATION_ID };
+    },
+    async hasBranchEverBuiltPreview() {
+        return { everBuilt: harness.everBuilt };
+    },
+    async launchPreviewBuild(input) {
+        harness.buildLaunches.push(input);
+        harness.events.push("build:launch");
+        harness.notifyBuildLaunched();
+        return { jobName: `pk-deploy-${harness.buildLaunches.length}` };
+    },
+    async cancelPreviewBuild(input) {
+        harness.cancelledJobs.push(input.jobName);
+        harness.events.push("build:cancel");
+        return Promise.resolve();
+    },
+    async readPreviewBuildStatus() {
+        return harness.buildStatus;
+    },
+    async attachPreviewDeployment(input) {
+        harness.attachedUrls.push(input.url);
+        harness.events.push("attach");
+        return { deploymentId: "deployment-1" };
+    },
+    async reportPreviewBuildWarrant(input) {
+        harness.gateReports.push(input);
+        return Promise.resolve();
+    },
+};
+
+// The Investigator child runs for real when the gate lets a build through, so the test scripts its two activities to
+// a clean `passed` verdict. `webRuns` is then the observable proof that the fan-out happened.
+const investigatorActivities = {
+    async classifyInvestigationRun(_input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult> {
+        return {
+            slug: SLUG,
+            plan: "1. Open checkout.",
+            runSuccess: true,
+            stepCount: 2,
+            verdict: {
+                category: "passed",
+                isClientBug: false,
+                ran: true,
+                confidence: "high",
+                headline: "checkout works",
+                falsePositiveRisk: "none",
+                whatHappened: "n/a",
+                rootCause: "n/a",
+                remediation: "n/a",
+                evidence: [{ source: "run", detail: "n/a" }],
+            },
+        };
+    },
+    persistAnalysisClassification() {
+        return Promise.resolve({ findingId: "finding-1", filed: true });
+    },
+};
+
+const webActivities = {
+    runWebGeneration(input: { testGenerationId: string }): Promise<void> {
+        harness.webRuns.push(input.testGenerationId);
+        harness.events.push("investigator:run");
+        return Promise.resolve();
+    },
+};
+
+let env: TestWorkflowEnvironment;
+let workers: Worker[];
+let runner: Promise<unknown>;
+
+beforeAll(async () => {
+    env = await createTimeSkippingTestEnvironment();
+    // One worker per queue, matching production - which is also what makes a stage proxied to the wrong queue
+    // fail here rather than in the cluster.
+    const diffsWorker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue: TaskQueue.DIFFS,
+        workflowBundle: workflowBundle(),
+        activities: { ...analysisActivities, ...investigatorActivities },
+    });
+    // Needs the bundle too: the preview build is a WORKFLOW on this queue.
+    const generalWorker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue: TaskQueue.GENERAL,
+        workflowBundle: workflowBundle(),
+        activities: previewkitActivities,
+    });
+    const webWorker = await Worker.create({
+        connection: env.nativeConnection,
+        taskQueue: TaskQueue.WEB,
+        activities: webActivities,
+    });
+    workers = [diffsWorker, generalWorker, webWorker];
+    runner = Promise.all(workers.map((worker) => worker.run()));
+});
+
+afterAll(async () => {
+    await teardownTestWorkflowEnvironment({ env, workers, runner });
+});
+
+beforeEach(() => {
+    harness.previewTarget = undefined;
+    harness.everBuilt = false;
+    harness.targets = [];
+    harness.impactError = undefined;
+    harness.snapshotSkipped = false;
+    harness.snapshotError = undefined;
+    harness.impactWaitsForBuild = false;
+    harness.impactBlocksUntilCancelled = false;
+    harness.buildLaunches = [];
+    harness.buildStatus = { state: "ready", primaryUrl: PREVIEW_URL };
+    harness.cancelledJobs = [];
+    harness.gateReports = [];
+    harness.settlements = [];
+    harness.reporterRuns = 0;
+    harness.attachedUrls = [];
+    harness.webRuns = [];
+    harness.events = [];
+    harness.buildLaunched = new Promise((resolve) => {
+        harness.notifyBuildLaunched = resolve;
+    });
+    harness.impactStarted = new Promise((resolve) => {
+        harness.notifyImpactStarted = resolve;
+    });
+});
+
+function startRun(target: PreviewDeployTarget = deployEvent()) {
+    executionCounter += 1;
+    // Own commit and own repo per execution: a build child that outlives its test must not write into the next
+    // one's harness, and the build workflow is keyed per commit.
+    const scoped: PreviewDeployTarget = {
+        ...target,
+        repoFullName: `${target.repoFullName}-${executionCounter}`,
+        headSha: `${target.headSha}-${executionCounter}`,
+    };
+    currentBuildId = previewBuildWorkflowId(scoped);
+    harness.previewTarget = scoped;
+    return env.client.workflow.start(analysisRunWorkflow, {
+        // Matches production: the run orchestrates on `general` and proxies its cloning stages to `diffs`.
+        taskQueue: TaskQueue.GENERAL,
+        workflowId: `previewkit-run-test-${executionCounter}`,
+        args: [
+            {
+                branchId: scoped.branchId ?? "branch-1",
+                headSha: scoped.headSha,
+            },
+        ],
+    });
+}
+
+async function runToCompletion(target: PreviewDeployTarget = deployEvent()): Promise<void> {
+    const handle = await startRun(target);
+    await handle.result();
+}
+
+describe("analysisRunWorkflow build gate", () => {
+    it("skips the build when a never-previewed branch's diff selects no tests", async () => {
+        await runToCompletion();
+
+        expect(await buildWasStarted()).toBe(false);
+        expect(harness.attachedUrls).toEqual([]);
+        expect(harness.reporterRuns).toBe(1);
+        expect(harness.settlements).toEqual([{ kind: "succeeded" }]);
+        expect(skipReports()).toEqual(["no_test_work"]);
+    });
+
+    it("builds and then investigates when a never-previewed branch's diff selects a test", async () => {
+        harness.targets = [target()];
+
+        await runToCompletion();
+
+        expect(await buildWasStarted()).toBe(true);
+        expect(harness.attachedUrls).toEqual([PREVIEW_URL]);
+        expect(harness.webRuns).toEqual(["gen-1"]);
+        expect(harness.settlements).toEqual([{ kind: "succeeded" }]);
+        // The build is decided AFTER the selection, and the Investigators only run once its URL is recorded.
+        expect(harness.events).toEqual([
+            "snapshot",
+            "impact:start",
+            "impact:end",
+            "build:launch",
+            "attach",
+            "investigator:run",
+            "reporter",
+            "settle:succeeded",
+        ]);
+    });
+
+    it("launches the build without waiting for impact analysis once the branch has a preview", async () => {
+        harness.everBuilt = true;
+        harness.impactWaitsForBuild = true;
+
+        await runToCompletion();
+
+        expect(await buildWasStarted()).toBe(true);
+        // The build leads the whole run: it is under way before impact analysis finishes, which is what keeps an
+        // established preview refreshing as fast as it did before any gate existed.
+        expect(harness.events.indexOf("build:launch")).toBeLessThan(harness.events.indexOf("impact:end"));
+        expect(harness.settlements).toEqual([{ kind: "succeeded" }]);
+    });
+
+    /**
+     * The invariant an established preview rests on: analysis informs the build but can never deny it. A pipeline
+     * that dies before it starts - a Temporal blip, one transient DB error on the un-retried snapshot activity -
+     * must still leave the customer with the refresh they are entitled to.
+     */
+    it("still builds for a branch with a preview when the pipeline fails before it starts", async () => {
+        harness.everBuilt = true;
+        harness.snapshotError = new Error("snapshot creation exploded");
+
+        const handle = await startRun();
+        await expect(handle.result()).rejects.toThrow("Workflow execution failed");
+
+        // Started before the run was opened, so the failure that follows cannot deny it.
+        expect(await buildWasStarted()).toBe(true);
+    });
+
+    // The mirror image: on a never-previewed branch the gate is entitled to deny, so the same failure builds nothing.
+    it("builds nothing for a never-previewed branch when the pipeline fails before it starts", async () => {
+        harness.snapshotError = new Error("snapshot creation exploded");
+
+        const handle = await startRun();
+        await expect(handle.result()).rejects.toThrow("Workflow execution failed");
+
+        expect(await buildWasStarted()).toBe(false);
+    });
+
+    // Main is not a different KIND of run - the gate simply cannot apply to it, as with an already-previewed
+    // branch. It builds eagerly and then analyses like anything else.
+    it("always builds the main-branch preview, and still runs the analysis", async () => {
+        harness.impactWaitsForBuild = true;
+
+        await runToCompletion(deployEvent({ prNumber: 0, branchId: "branch-main" }));
+
+        expect(await buildWasStarted()).toBe(true);
+        expect(harness.reporterRuns).toBe(1);
+        expect(harness.settlements).toEqual([{ kind: "succeeded" }]);
+    });
+
+    it("rebuilds an already-analyzed head whose earlier build was attempted and lost", async () => {
+        harness.snapshotSkipped = true;
+        harness.buildStatus = { state: "superseded" };
+
+        await runToCompletion();
+
+        expect(await buildWasStarted()).toBe(true);
+        expect(harness.settlements).toEqual([]);
+    });
+
+    // A commit the gate refused leaves no build record, so a second trigger for that head must honour the
+    // earlier verdict rather than build "just in case".
+    it("does not rebuild an already-analyzed head the gate previously refused", async () => {
+        harness.snapshotSkipped = true;
+        harness.buildStatus = { state: "missing" };
+
+        await runToCompletion();
+
+        expect(await buildWasStarted()).toBe(false);
+        expect(harness.settlements).toEqual([]);
+        expect(skipReports()).toEqual(["no_test_work"]);
+    });
+
+    // A build that never comes up must fail the run: Investigators with no environment report engine artifacts.
+    it("fails the run when the build settles without a live preview", async () => {
+        harness.targets = [target()];
+        harness.buildStatus = { state: "failed", error: "image build exploded" };
+
+        const handle = await startRun();
+        await expect(handle.result()).rejects.toThrow("Workflow execution failed");
+
+        expect(harness.attachedUrls).toEqual([]);
+        expect(harness.webRuns).toEqual([]);
+        expect(harness.settlements).toEqual([{ kind: "failed", reason: expect.stringContaining("failed") }]);
+    });
+
+    it("skips the build and settles as failed when the gate cannot be decided", async () => {
+        harness.impactError = new Error("impact exploded");
+
+        const handle = await startRun();
+        await expect(handle.result()).rejects.toThrow("Workflow execution failed");
+
+        expect(await buildWasStarted()).toBe(false);
+        expect(harness.reporterRuns).toBe(0);
+        expect(harness.settlements).toEqual([{ kind: "failed", reason: "impact exploded" }]);
+        expect(skipReports()).toEqual(["analysis_indeterminate"]);
+    });
+
+    it("settles the run even when the flow is cancelled mid-analysis", async () => {
+        harness.impactBlocksUntilCancelled = true;
+
+        const handle = await startRun();
+        await harness.impactStarted;
+        await handle.cancel();
+
+        await expect(handle.result()).rejects.toThrow("Workflow execution cancelled");
+        expect(harness.settlements).toEqual([{ kind: "failed", reason: expect.any(String) }]);
+    });
+});

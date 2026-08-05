@@ -1,8 +1,9 @@
 # @autonoma/k8s
 
 Kubernetes helpers for the Autonoma platform. Provides a `KubeConfig` factory,
-image resolution from a cluster ConfigMap, cross-cluster EKS authentication, and
-read-only preview power/health liveness derived from workload state.
+image resolution from a cluster ConfigMap, cross-cluster EKS authentication,
+read-only preview power/health liveness derived from workload state, and the
+previewkit runner-Job launcher.
 
 > For workflow orchestration, see `packages/workflow` (Temporal-based).
 
@@ -11,21 +12,22 @@ read-only preview power/health liveness derived from workload state.
 The package is split so consumers only load what they need (the `.` entry
 validates a required `NAMESPACE` env var; the subpaths do not):
 
-| Import | Contents |
-|--------|----------|
-| `@autonoma/k8s` | `makeKubeConfig`, `getImage`, `K8sClient` / `K8sJobOptions` types |
-| `@autonoma/k8s/eks` | `EksKubeconfigLoader` - cross-cluster EKS auth via STS-presigned tokens |
-| `@autonoma/k8s/preview-liveness` | `PreviewFleetClient`, `classifyNamespace`, liveness types |
+| Import                           | Contents                                                                |
+| -------------------------------- | ----------------------------------------------------------------------- |
+| `@autonoma/k8s`                  | `makeKubeConfig`, `getImage`, `K8sClient` / `K8sJobOptions` types       |
+| `@autonoma/k8s/eks`              | `EksKubeconfigLoader` - cross-cluster EKS auth via STS-presigned tokens |
+| `@autonoma/k8s/preview-liveness` | `PreviewFleetClient`, `classifyNamespace`, liveness types               |
+| `@autonoma/k8s/previewkit-jobs`  | `PreviewkitJobLauncher`, `previewEnvKey`, the injected K8s seams        |
 
 ### `.` - core helpers
 
-| Export | Type | Description |
-|--------|------|-------------|
-| `makeKubeConfig()` | Function | Creates a `KubeConfig` loaded from the default context (in-cluster or local kubeconfig) |
-| `getImage(key)` | Async function | Resolves a container image URI from the `image-version` ConfigMap in the configured namespace |
-| `ImageKey` | Type | Union of valid image identifiers (e.g. `"web"`, `"ios"`, `"reviewer"`) |
-| `K8sClient` | Interface | Contract for creating, deleting, and querying K8s jobs |
-| `K8sJobOptions` | Interface | Options bag for `K8sClient.createJob` - name, namespace, image, env, labels |
+| Export             | Type           | Description                                                                                   |
+| ------------------ | -------------- | --------------------------------------------------------------------------------------------- |
+| `makeKubeConfig()` | Function       | Creates a `KubeConfig` loaded from the default context (in-cluster or local kubeconfig)       |
+| `getImage(key)`    | Async function | Resolves a container image URI from the `image-version` ConfigMap in the configured namespace |
+| `ImageKey`         | Type           | Union of valid image identifiers (e.g. `"web"`, `"ios"`, `"reviewer"`)                        |
+| `K8sClient`        | Interface      | Contract for creating, deleting, and querying K8s jobs                                        |
+| `K8sJobOptions`    | Interface      | Options bag for `K8sClient.createJob` - name, namespace, image, env, labels                   |
 
 ### `/eks` - cross-cluster auth
 
@@ -48,16 +50,56 @@ Gatekeeper.
 `listFleet()` returns `Map<namespace, NamespaceLiveness>`, each a
 `PreviewPowerState` rolled up from its workloads:
 
-| State | Meaning |
-|-------|---------|
-| `asleep` | Scaled to zero by the Gatekeeper idle loop (its `wake-replicas` annotation is the fingerprint) |
-| `waking` | Replicas requested but not all Ready yet, no fatal container state - the normal cold-start transient |
-| `healthy` | Every managed workload has its full replica count Ready |
-| `error` | A workload is broken and will not self-heal (crashloop, image-pull failure, bad config, progress deadline) |
+| State     | Meaning                                                                                                    |
+| --------- | ---------------------------------------------------------------------------------------------------------- |
+| `asleep`  | Scaled to zero by the Gatekeeper idle loop (its `wake-replicas` annotation is the fingerprint)             |
+| `waking`  | Replicas requested but not all Ready yet, no fatal container state - the normal cold-start transient       |
+| `healthy` | Every managed workload has its full replica count Ready                                                    |
+| `error`   | A workload is broken and will not self-heal (crashloop, image-pull failure, bad config, progress deadline) |
 
 `classifyNamespace(input)` is the pure function behind it - given the workload
 and pod objects it always returns the same verdict, which is what the kind
 integration suite pins against real API responses.
+
+### `/previewkit-jobs` - the preview runner-Job launcher
+
+`PreviewkitJobLauncher` creates one Kubernetes Job per preview operation
+(`launchDeploy` / `launchTeardown` / `launchRedeployApp`), each running
+`apps/previewkit`'s one-shot runner. It resolves the SHA-pinned runner image from
+the `previewkit-runner-image` ConfigMap in its own namespace, supersedes any
+in-flight deploy-family Job for the same `(repo, PR)` (the per-environment mutex
+carried on the `previewkit.dev/env` label), and bakes its own `DATABASE_URL` and
+`SENTRY_ENV` into the Job so the runner writes to the launching environment's
+database.
+
+`launchDeploy` returns the server-assigned Job name, and `cancelDeploy(jobName)`
+stops that one Job. The pairing matters: the `previewkit.dev/env` label is per
+`(repo, PR)`, so cancelling a superseded build by label would delete whichever
+newer commit had already launched. A build is superseded by label and cancelled
+by name.
+
+The `PREVIEWKIT_JOB_SPEC` payload it writes is parsed against `previewJobSpecSchema`
+(`@autonoma/types`) before serializing - the same definition the runner parses it back
+with, so a spec the runner would reject fails at launch rather than inside a Job nobody
+is watching.
+
+Its Kubernetes dependencies are two narrow injected seams - `PreviewJobsApi` (a
+slice of `BatchV1Api`) and `ConfigMapReader` (a slice of `CoreV1Api`) - which real
+clients satisfy structurally, so tests pass lightweight fakes.
+
+Two processes launch these Jobs: the API owns teardown and per-app redeploy, and
+the general worker owns the deploy build (it runs the activity that decides,
+mid-orchestration, whether a build is worth running). They run as **different**
+service accounts - `api` and `worker-general` - so both must be subjects of the
+`previewkit-job-launcher-ephemeral` RoleBinding in the `previewkit` namespace and
+of the `configmaps: get` grant in their own namespace. A third launching workload
+means adding it to both.
+
+Configuration comes from `@autonoma/k8s/previewkit-jobs/env`, which each host
+`extends` rather than assembling its own; `getInClusterPreviewkitJobLauncher()`
+therefore takes no arguments, and the hosts cannot disagree about which database
+a runner writes to or which CMK it unwraps keys with. A host missing one of those
+variables fails at boot instead of at its first launch.
 
 ## Usage
 
@@ -99,8 +141,8 @@ fleet.get("preview-acme-web-pr-42")?.state; // "asleep" | "waking" | "healthy" |
 Only the `.` entry reads env (via `@t3-oss/env-core`); `/eks` and
 `/preview-liveness` take their configuration as constructor arguments.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
+| Variable    | Required             | Description                                                     |
+| ----------- | -------------------- | --------------------------------------------------------------- |
 | `NAMESPACE` | Yes (for `getImage`) | Kubernetes namespace used to read the `image-version` ConfigMap |
 
 ## Architecture Notes

@@ -11,7 +11,7 @@ type ConfigStore = Pick<PreviewkitConfigService, "getConfig" | "save">;
 /** The secret write capability this service needs; narrowed so tests can inject a fake. */
 type SecretWriter = Pick<PreviewkitSecretsService, "upsert" | "delete">;
 /** The redeploy capability this service needs; narrowed so tests can inject a fake. */
-type Redeployer = Pick<PreviewkitTriggerService, "redeployApp" | "redeploy">;
+type Redeployer = Pick<PreviewkitTriggerService, "redeployApp" | "startRunForRedeploy">;
 
 /** A structural change to one app of a preview config. Only provided fields are applied. */
 export interface AppConfigPatch {
@@ -131,7 +131,7 @@ export class PreviewkitWriteService {
         ))
             ? "rebuild"
             : "restart";
-        await this.trigger.redeployApp(repoFullName, prNumber, appName, action, organizationId);
+        await this.trigger.redeployApp({ repoFullName, prNumber }, appName, action, { organizationId });
 
         this.logger.info("Preview secret applied", { applicationId, extra: { appName, key, removing, action } });
         return { appName, key, removed: removing, fingerprint, action };
@@ -179,7 +179,7 @@ export class PreviewkitWriteService {
             };
         }
 
-        await this.trigger.redeployApp(repoFullName, prNumber, appName, "rebuild", organizationId);
+        await this.trigger.redeployApp({ repoFullName, prNumber }, appName, "rebuild", { organizationId });
         this.logger.info("Preview config edit applied", { applicationId, extra: { appName } });
         return { saved: true, applied: true, action: "rebuild", app: patchedApp };
     }
@@ -229,7 +229,7 @@ export class PreviewkitWriteService {
             };
         }
 
-        await this.trigger.redeploy(repoFullName, prNumber, organizationId);
+        await this.trigger.startRunForRedeploy({ repoFullName, prNumber }, { organizationId });
         this.logger.info("Preview config document applied", { applicationId });
         return { saved: true, applied: true, apps, services };
     }

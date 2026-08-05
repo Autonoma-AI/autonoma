@@ -5,7 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { expect } from "vitest";
-import type { AnalysisRunTrigger, RequestRunOutcome, RequestRunParams } from "../../src/github/analysis-run-trigger";
+import type { TriggerDiffsResult, TriggerPrDiffsParams } from "../../src/diffs/diffs-trigger.service";
 import { MergeGateService } from "../../src/github/merge-gate.service";
 import { registerDebugTools } from "../../src/mcp/debug-tools";
 import { McpAnalytics } from "../../src/mcp/mcp-analytics";
@@ -34,13 +34,13 @@ class RecordingAnalytics extends PostHogAnalytics {
 }
 
 /** Records the runs requested through the trigger so we can assert exactly one run was fired (and with what). */
-class RecordingRunTrigger implements AnalysisRunTrigger {
-    public calls: RequestRunParams[] = [];
-    constructor(private readonly outcome: RequestRunOutcome = { started: true }) {}
+class RecordingPrDiffsTrigger {
+    public calls: TriggerPrDiffsParams[] = [];
+    constructor(private readonly result: TriggerDiffsResult = { branchId: "branch-1" }) {}
 
-    async requestRun(params: RequestRunParams): Promise<RequestRunOutcome> {
+    async triggerPrDiffs(params: TriggerPrDiffsParams): Promise<TriggerDiffsResult> {
         this.calls.push(params);
-        return this.outcome;
+        return this.result;
     }
 }
 
@@ -71,7 +71,7 @@ apiTestSuite({
             harness,
         }) => {
             const analytics = new RecordingAnalytics();
-            const trigger = new RecordingRunTrigger({ started: true });
+            const trigger = new RecordingPrDiffsTrigger();
             const fixture = await createRepoApp(harness);
             await setActivationGate(harness);
 
@@ -81,7 +81,6 @@ apiTestSuite({
                 true,
                 analytics,
                 harness.services.falsePositiveCandidates,
-                undefined,
                 trigger,
             );
 
@@ -98,9 +97,10 @@ apiTestSuite({
             expect(trigger.calls).toHaveLength(1);
             expect(trigger.calls[0]).toMatchObject({
                 organizationId: harness.organizationId,
-                repoFullName: fixture.repoFullName,
-                githubRepositoryId: fixture.repoId,
+                repoId: fixture.repoId,
                 prNumber: PR_NUMBER,
+                // What makes it a REQUEST: it bypasses the activation gate this org sits behind.
+                requested: true,
             });
 
             // The activation is persisted on the check row for the resolved head, sourced to MCP.
@@ -129,7 +129,7 @@ apiTestSuite({
             harness,
         }) => {
             const analytics = new RecordingAnalytics();
-            const trigger = new RecordingRunTrigger({ started: true });
+            const trigger = new RecordingPrDiffsTrigger();
             const fixture = await createRepoApp(harness);
             // Gate enabled but activation off: an un-migrated org still runs automatically, so a request is a no-op.
             await setActivationGate(harness, { activationEnabled: false });
@@ -140,7 +140,6 @@ apiTestSuite({
                 true,
                 analytics,
                 harness.services.falsePositiveCandidates,
-                undefined,
                 trigger,
             );
 

@@ -6,15 +6,12 @@ import {
     type PrismaClient,
 } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import { previewConfigSchema } from "@autonoma/types";
+import { parseStringRecord, previewConfigSchema, projectManifest, resolvePrimaryUrl } from "@autonoma/types";
 import {
     buildServiceSummaries,
     classifyPreviewFailures,
     derivePreviewStatus,
     isBuildingOverPriorAttempt,
-    parseStringRecord,
-    projectManifest,
-    resolvePrimaryUrl,
     toAppBuildOutcomeMap,
     type PreviewFailure,
 } from "../deployments/preview-summary";
@@ -174,7 +171,7 @@ function diagnosticsFromPreviewStatus({
     status: ReturnType<typeof derivePreviewStatus>;
     phase?: string;
     error?: string;
-    primaryUrl: string | null;
+    primaryUrl?: string;
     logs: PreviewDiagnosticsLogs;
     failures: PreviewFailure[];
 }): PreviewDiagnostics {

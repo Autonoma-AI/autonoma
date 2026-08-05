@@ -29,16 +29,16 @@ happen on the existing `web` worker via the generation activity.
    written to main here** - a repair that is correct for this branch can be wrong for main + every other in-flight
    branch (the branch may have changed the schema or added a bad test), and if the PR never merges, a global write
    would break main permanently. So repairs stay branch-scoped:
-   - `recipe_only`: **stageRecipeCandidateOnTwin** overwrites the twin's recipe version's `create` graph
-     (branch-scoped - a real run resolves the recipe by `[scenarioId, snapshotId]`) -> re-seed + re-run ->
-     **classifyInvestigationRun**. On success the candidate stays on the twin (reported validated-on-the-twin) and
-     reaches main only when the PR merges (see merge-with-main below); on failure **revertTwinRecipe** restores the
-     twin so a failed candidate is never carried. It is never activated on main mid-PR.
-   - `fix_test`: validate the edited plan on the twin (`validatePlan`: draft plan + shadow generation, re-seed +
-     re-run + edit/retry). The validated `finalPlan` is what `persistInvestigationEdits` writes onto the branch
-     (twin) snapshot; it reaches main only when the PR merges (via the merge reconciler). No direct main write.
-   - `recipe_and_sdk`: never auto-applied (the factory needs a client code change we can't make); the concrete
-     factory change is surfaced in our existing PR comment.
+    - `recipe_only`: **stageRecipeCandidateOnTwin** overwrites the twin's recipe version's `create` graph
+      (branch-scoped - a real run resolves the recipe by `[scenarioId, snapshotId]`) -> re-seed + re-run ->
+      **classifyInvestigationRun**. On success the candidate stays on the twin (reported validated-on-the-twin) and
+      reaches main only when the PR merges (see merge-with-main below); on failure **revertTwinRecipe** restores the
+      twin so a failed candidate is never carried. It is never activated on main mid-PR.
+    - `fix_test`: validate the edited plan on the twin (`validatePlan`: draft plan + shadow generation, re-seed +
+      re-run + edit/retry). The validated `finalPlan` is what `persistInvestigationEdits` writes onto the branch
+      (twin) snapshot; it reaches main only when the PR merges (via the merge reconciler). No direct main write.
+    - `recipe_and_sdk`: never auto-applied (the factory needs a client code change we can't make); the concrete
+      factory change is surfaced in our existing PR comment.
 5. **reconcileInvestigationFindings** (here) - clone the repo and run the tool-using reconciliation agent over the
    run's PROBLEM findings: several tests can surface the SAME underlying issue (one seed gap, one code defect), and
    the agent groups those and returns merges. Read-only; contained (a failure reports no merges). The merges are
@@ -98,38 +98,9 @@ merge activity runs under the `investigationMergeWorkflow`, triggered by the API
 
 ## Trigger
 
-The parallel launch is in `apps/api` (`DiffsTriggerService`), fire-and-forget behind the
-`INVESTIGATION_SHADOW_ENABLED` flag - it never blocks or fails the diffs trigger.
-
-## Merged analysis pipeline (shadow)
-
-This worker also hosts the **merged analysis pipeline** (`analysisWorkflow` in `@autonoma/workflow`) - the eventual
-replacement for BOTH `diffs` and `investigation`. It is launched by the same `DiffsTriggerService` slot, on the
-SAME detached twin, behind its own `ANALYSIS_SHADOW_ENABLED` flag, and takes a `mode` param (`shadow` |
-`authoritative`). In `shadow` mode it is inert to production: it never promotes the twin and files no user-facing
-Bug/Issue rows - it only writes the shadow store and a `DeployedComparison` against the diffs output.
-`authoritative` mode (promotion + real filing) is dormant until the cutover.
-
-Its four stages (`src/activities/analysis/`, satisfying `AnalysisActivities`, plus the `investigatorWorkflow`
-child in `@autonoma/workflow`):
-
-1. **runImpactAnalysis** - asserts the twin is a pending detached snapshot, then reuses `selectInvestigationTests`
-   to select the diff-affected tests (materializing one shadow generation each) and returns them as targets.
-2. **Investigator fan-out** - one `investigatorWorkflow` child per target (bounded concurrency): `scenario up` ->
-   run the shadow generation on the web worker -> `classifyInvestigationRun` -> `scenario down`. It collapses the
-   verdict to `passed` | `client_bug` and emits a candidate finding; it runs the test ONCE (no self-heal loop, no
-   plan edits) and files nothing. A test that cannot be evaluated yields no finding.
-3. **reconcileAnalysis** - holistically deduplicates the candidate findings (`dedupeAnalysisFindings` in
-   `@autonoma/investigation`: one structured pass over the WHOLE set, so several tests surfacing the same
-   underlying issue collapse into one finding that unions their evidence - `coveredSlugs` + `members`), derives
-   the shadow verdict from the deduped set (`client_bug` if any finding is a client bug, else `passed`), builds
-   the shadow-vs-diffs `DeployedComparison`, and upserts the `AnalysisShadowRun` store row (verdict, counts,
-   deduped findings blob, comparison blob). Single-concern: no plan edits, deletions, re-runs, or finalize, and
-   it files no user-facing rows. The dedup is best-effort - a model failure reports the candidates un-merged.
-4. **finalizeAnalysis** - workflow plumbing; never promotes in shadow mode.
-
-The remaining `[analysis-merge]` issues flesh these out (the self-heal loop + full verdict taxonomy, up-front
-new-test materialization, richer per-finding evidence, and the shadow-vs-diffs comparison).
+Nothing launches an investigation automatically. `investigationMergeWorkflow` still runs on `pull_request.closed`
+(merged) behind `INVESTIGATION_SHADOW_ENABLED`; a shadow investigation itself is started only by hand, via
+`scripts/trigger-investigation.ts`.
 
 ### The shadow store (`AnalysisShadowRun`)
 
@@ -182,7 +153,7 @@ added to the twin suite. See the workflow in `@autonoma/workflow` and `activitie
 - Shadow `TestGeneration` rows are real rows, but carry `shadow = true` so they are excluded from every
   user-facing generation view and from the refinement loop's per-test-case dedup/invariant. The `shadow` flag
   (not the investigation-parent snapshot filter) is the authoritative guard: shadow rows can land on the PR's
-  *active* snapshot, not just the detached investigation twin, so the twin-snapshot separation alone does not
+  _active_ snapshot, not just the detached investigation twin, so the twin-snapshot separation alone does not
   hide them. The investigation workflow can stop mid-run and orphan un-run shadow rows in `pending`; the marker
   keeps those invisible so they never pollute the customer's UI. (A reaper for the orphaned rows is a possible
   follow-up; today they are harmless because they are filtered everywhere.)

@@ -1,12 +1,8 @@
 import type { BillingService } from "@autonoma/billing";
-import type { PrismaClient } from "@autonoma/db";
+import type { Prisma, PreviewkitStatus, PrismaClient } from "@autonoma/db";
 import { ConflictError, InsufficientPreviewCreditsError, NotFoundError } from "@autonoma/errors";
-import type {
-    PreviewRedeployAppMode,
-    TriggerPreviewDeployParams,
-    TriggerPreviewRedeployAppParams,
-    TriggerPreviewTeardownParams,
-} from "@autonoma/types";
+import type { PreviewRedeployAppMode, PreviewTeardownTarget, TriggerPreviewRedeployAppParams } from "@autonoma/types";
+import type { AnalysisRunWorkflowInput, PreviewBuildWorkflowInput } from "@autonoma/workflow";
 import { z } from "zod";
 import { env } from "../env";
 import { githubErrorStatus, normalizeBranchName } from "../github/git-ref";
@@ -22,17 +18,16 @@ export const MAIN_BRANCH_ENVIRONMENT_NUMBER = 0;
 
 export type PreviewDeployAction = "opened" | "synchronize" | "reopened" | "ready_for_review";
 
-export interface PreviewkitDeployRequest {
+export interface PreviewkitRunRequest {
     repoFullName: string;
     prNumber: number;
     organizationId: string;
     githubRepositoryId: number;
     headSha: string;
     headRef: string;
+    /** The commit a run diffs against, when the trigger read one from GitHub. */
     baseSha?: string | undefined;
-    baseRef?: string | undefined;
-    cloneUrl: string;
-    /** The autonoma Branch this environment deploys (PR feature branch, or main branch for env 0); forwarded to the runner to link the env row. */
+    /** The autonoma Branch this environment deploys (PR feature branch, or main branch for env 0). */
     branchId?: string | undefined;
 }
 
@@ -40,10 +35,21 @@ export interface PreviewkitTeardownRequest {
     repoFullName: string;
     prNumber: number;
     organizationId: string;
-    githubRepositoryId: number;
     /** Optional; the teardown activity falls back to the environment row's stored sha. */
     headSha?: string | undefined;
-    headRef?: string | undefined;
+}
+
+/**
+ * How a caller addresses one preview environment. Both forms are unique keys, so a caller passes whichever it
+ * already holds - the id from an admin or app-scoped view, the pair from a webhook or the public HTTP surface.
+ */
+export type PreviewEnvironmentKey = { environmentId: string } | { repoFullName: string; prNumber: number };
+
+/** Narrows a lookup to what the caller may reach. Both absent for admin and service callers. */
+export interface PreviewEnvironmentScope {
+    organizationId?: string | undefined;
+    /** Ties the environment to one Application's linked repository. */
+    githubRepositoryId?: number | undefined;
 }
 
 export interface MainBranchDeployResult {
@@ -60,7 +66,6 @@ interface MainBranchPushTarget {
     branch: string;
     headSha: string;
     githubRepositoryId: number;
-    cloneUrl: string;
 }
 
 /** The GitHub reads the main-branch preflight and redeploy head-resolution need, plus posting the credits-blocked comment. */
@@ -103,27 +108,25 @@ const ZERO_SHA = /^0+$/;
 const resolvedConfigAppsSchema = z.object({ apps: z.array(z.object({ name: z.string() })) });
 
 /**
- * Starts preview-environment Temporal workflows directly from the API - the
- * native replacement for forwarding deploy/teardown/redeploy over HTTP to
- * Previewkit. One workflow execution per PR per action; deploy and teardown
- * share a deterministic workflowId, so starting either supersedes whatever is
- * in flight for that PR (the trigger functions own that policy).
+ * Preflight, then a fire-and-forget trigger. The run owns everything downstream, including whether the commit
+ * warrants a build at all; teardown and per-app redeploy launch their Job directly, having nothing to decide.
  */
 export class PreviewkitTriggerService extends Service {
     constructor(
         private readonly db: PrismaClient,
         private readonly githubInstallationService: PreviewkitGitHubReader,
         private readonly billingService: Pick<BillingService, "checkPreviewDeployCreditsGate">,
-        private readonly triggerDeploy: (params: TriggerPreviewDeployParams) => Promise<void>,
-        private readonly triggerTeardown: (params: TriggerPreviewTeardownParams) => Promise<void>,
+        private readonly startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<void>,
+        private readonly startPreviewBuild: (input: PreviewBuildWorkflowInput) => Promise<void>,
+        private readonly triggerTeardown: (target: PreviewTeardownTarget) => Promise<void>,
         private readonly triggerRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>,
     ) {
         super();
     }
 
-    /** Starts a deploy workflow for a PR. */
-    async deploy(request: PreviewkitDeployRequest, action: PreviewDeployAction = "opened"): Promise<void> {
-        this.logger.info("Triggering preview deploy", {
+    /** Credits are checked HERE so every caller surfaces the same refusal. */
+    async startRun(request: PreviewkitRunRequest, action: PreviewDeployAction = "opened"): Promise<void> {
+        this.logger.info("Starting a preview run", {
             repo: request.repoFullName,
             pr: request.prNumber,
             action,
@@ -131,49 +134,51 @@ export class PreviewkitTriggerService extends Service {
 
         await this.assertDeployCreditsAvailable(request.organizationId, request.repoFullName, request.prNumber);
 
-        await this.triggerDeploy({
-            event: {
-                action,
-                prNumber: request.prNumber,
+        if (request.branchId == null) {
+            await this.startBuildWithoutRun(request);
+            return;
+        }
+
+        await this.startAnalysisRun({
+            branchId: request.branchId,
+            headSha: request.headSha,
+            baseSha: request.baseSha,
+        });
+    }
+
+    /** No Application, so no run to open - but lack of analysis wiring must not cost a customer their preview. */
+    private async startBuildWithoutRun(request: PreviewkitRunRequest): Promise<void> {
+        this.logger.info("Starting a preview build with no analysis run: no branch resolved for this repo", {
+            repo: request.repoFullName,
+            pr: request.prNumber,
+        });
+        await this.startPreviewBuild({
+            target: {
                 repoFullName: request.repoFullName,
+                prNumber: request.prNumber,
                 organizationId: request.organizationId,
                 githubRepositoryId: request.githubRepositoryId,
                 headSha: request.headSha,
                 headRef: request.headRef,
-                baseSha: request.baseSha ?? "",
-                baseRef: request.baseRef ?? "",
-                cloneUrl: request.cloneUrl,
-                branchId: request.branchId,
             },
+            reason: "branch_not_resolvable",
         });
     }
 
-    /** Starts a teardown workflow for a PR (terminates an in-flight deploy first via the shared workflowId). */
+    /** Launches a teardown Job for a PR (SIGTERMs an in-flight deploy first via the shared per-environment key). */
     async teardown(request: PreviewkitTeardownRequest): Promise<void> {
         this.logger.info("Triggering preview teardown", { repo: request.repoFullName, pr: request.prNumber });
 
         await this.triggerTeardown({
-            event: {
-                action: "closed",
-                prNumber: request.prNumber,
-                repoFullName: request.repoFullName,
-                organizationId: request.organizationId,
-                githubRepositoryId: request.githubRepositoryId,
-                headSha: request.headSha ?? "",
-                headRef: request.headRef ?? "",
-                baseSha: "",
-                baseRef: "",
-                cloneUrl: "",
-            },
+            repoFullName: request.repoFullName,
+            prNumber: request.prNumber,
+            organizationId: request.organizationId,
+            headSha: request.headSha,
         });
     }
 
-    /**
-     * Deploy entry point for `pull_request` opened/synchronize/reopened
-     * webhooks. An unparseable payload is logged and skipped (GitHub retries
-     * non-2xx deliveries, and a malformed payload won't get better).
-     */
-    async deployFromWebhook(
+    /** An unparseable payload is skipped, not retried: GitHub redelivers non-2xx, and malformed will not improve. */
+    async startRunFromPullRequestWebhook(
         action: PreviewDeployAction,
         organizationId: string,
         payload: Record<string, unknown>,
@@ -189,11 +194,7 @@ export class PreviewkitTriggerService extends Service {
 
         const { pull_request: pr, repository: repo } = parsed.data;
 
-        const app = await this.db.application.findUnique({
-            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId: repo.id } },
-            select: { onboardingState: { select: { previewEnvironmentMode: true } } },
-        });
-        if (app?.onboardingState?.previewEnvironmentMode === "existing_deploys") {
+        if (await this.usesExternalDeploys(organizationId, repo.id)) {
             this.logger.info("Skipping PreviewKit deploy: application uses existing_deploys (e.g. Vercel)", {
                 action,
                 organizationId,
@@ -213,9 +214,22 @@ export class PreviewkitTriggerService extends Service {
             return;
         }
 
+        if (await this.isActivationGated(organizationId)) {
+            this.logger.info(
+                "Activation: skipping the automatic preview run; a run starts only on an explicit request",
+                {
+                    action,
+                    organizationId,
+                    repo: repo.full_name,
+                    pr: pr.number,
+                },
+            );
+            return;
+        }
+
         const branchId = await this.resolveBranchIdForPr(organizationId, repo.id, pr.number, pr.head.ref);
 
-        await this.deploy(
+        await this.startRun(
             {
                 repoFullName: repo.full_name,
                 prNumber: pr.number,
@@ -224,8 +238,6 @@ export class PreviewkitTriggerService extends Service {
                 headSha: pr.head.sha,
                 headRef: pr.head.ref,
                 baseSha: pr.base.sha,
-                baseRef: pr.base.ref,
-                cloneUrl: repo.clone_url,
                 branchId,
             },
             action,
@@ -233,10 +245,8 @@ export class PreviewkitTriggerService extends Service {
     }
 
     /**
-     * Eagerly find-or-create the autonoma Branch a PR maps to, so a preview environment is linked to its branch
-     * before any diff runs. Best-effort: a repo with no onboarded Application (or any transient failure) yields
-     * `undefined` and the deploy proceeds unlinked - branch creation then falls back to the lazy diff-trigger
-     * path. Never throws, so it cannot block a preview deploy.
+     * Find-or-create the Branch a PR maps to, before any diff runs. Never throws: an un-onboarded repo or a
+     * transient failure yields `undefined` and the run proceeds unlinked, rather than costing a preview.
      */
     private async resolveBranchIdForPr(
         organizationId: string,
@@ -275,14 +285,8 @@ export class PreviewkitTriggerService extends Service {
     }
 
     /**
-     * Declines a NEW deploy/redeploy (never teardown) when the org's combined
-     * credit balance is at or below zero, provided both the global
-     * `PREVIEWKIT_BILLING_ENABLED` switch and the org's own
-     * `previewkitBillingEnabled` setting are on - either off is a no-op, so
-     * enforcement rolls out per org without affecting anyone else. Posts a PR
-     * comment explaining why before throwing, so every caller (webhook, HTTP
-     * route, admin action) surfaces the same explanation on the PR regardless
-     * of how the deploy was triggered.
+     * Declines a new run (never teardown) on a zero balance. Dual-switched - global and per-org, either off is a
+     * no-op - so enforcement rolls out per org. Comments on the PR before throwing, so every caller explains itself.
      */
     private async assertDeployCreditsAvailable(
         organizationId: string,
@@ -320,17 +324,37 @@ export class PreviewkitTriggerService extends Service {
         throw new InsufficientPreviewCreditsError();
     }
 
-    /**
-     * Whether the organization opted into building previews for draft PRs.
-     * Defaults to false when no settings row exists, so draft PRs are skipped
-     * unless an org explicitly turns `previewkitBuildDraft` on.
-     */
+    /** Defaults to false, so drafts are skipped unless an org opts in. */
     private async isDraftBuildEnabled(organizationId: string): Promise<boolean> {
         const settings = await this.db.organizationSettings.findUnique({
             where: { organizationId },
             select: { previewkitBuildDraft: true },
         });
         return settings?.previewkitBuildDraft ?? false;
+    }
+
+    /**
+     * Under activation no automatic run starts - not the analysis, nor the build its verdict would warrant. An
+     * explicit request still runs, which is why this is asked at the one entry point meaning "GitHub pushed".
+     */
+    private async isActivationGated(organizationId: string): Promise<boolean> {
+        const settings = await this.db.organizationSettings.findUnique({
+            where: { organizationId },
+            select: { activationEnabled: true },
+        });
+        return settings?.activationEnabled === true;
+    }
+
+    /**
+     * Whether the customer deploys this repo's previews themselves (Vercel and the like). Only the webhook entries
+     * need to ask - every other path is reached through an environment Autonoma already hosts.
+     */
+    private async usesExternalDeploys(organizationId: string, githubRepositoryId: number): Promise<boolean> {
+        const application = await this.db.application.findUnique({
+            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
+            select: { onboardingState: { select: { previewEnvironmentMode: true } } },
+        });
+        return application?.onboardingState?.previewEnvironmentMode === "existing_deploys";
     }
 
     /** Teardown entry point for `pull_request.closed` webhooks. */
@@ -346,11 +370,7 @@ export class PreviewkitTriggerService extends Service {
 
         const { pull_request: pr, repository: repo } = parsed.data;
 
-        const app = await this.db.application.findUnique({
-            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId: repo.id } },
-            select: { onboardingState: { select: { previewEnvironmentMode: true } } },
-        });
-        if (app?.onboardingState?.previewEnvironmentMode === "existing_deploys") {
+        if (await this.usesExternalDeploys(organizationId, repo.id)) {
             this.logger.info("Skipping PreviewKit teardown: application uses existing_deploys (e.g. Vercel)", {
                 organizationId,
                 repo: repo.full_name,
@@ -363,18 +383,12 @@ export class PreviewkitTriggerService extends Service {
             repoFullName: repo.full_name,
             prNumber: pr.number,
             organizationId,
-            githubRepositoryId: repo.id,
             headSha: pr.head.sha,
-            headRef: pr.head.ref,
         });
     }
 
-    /**
-     * Deploys an Application's main branch into environment 0 (GitHub PR
-     * numbers start at 1, so 0 is the stable non-PR environment). Resolves the
-     * branch head on GitHub, then starts the same deploy workflow.
-     */
-    async deployMainBranch(applicationId: string, callerOrgId: string | undefined): Promise<MainBranchDeployResult> {
+    /** Deploys the main branch into environment 0, resolving its head on GitHub first. */
+    async startMainBranchRun(applicationId: string, callerOrgId: string | undefined): Promise<MainBranchDeployResult> {
         this.logger.info("Triggering main-branch preview deploy", { applicationId });
 
         const application = await this.db.application.findFirst({
@@ -417,10 +431,8 @@ export class PreviewkitTriggerService extends Service {
         if (repo == null) throw new NotFoundError("Linked GitHub repository not found or inaccessible");
 
         const githubRepositoryId = application.githubRepositoryId;
-        // The deploy ref is the app's configured branch: an explicit choice, or the
-        // repo default written at link time. It resolves to the repo default only
-        // when neither is set, never as a silent fallback for a ref that has gone
-        // missing - a chosen branch that no longer exists errors below.
+        // The repo default applies only when nothing is configured, never as a silent fallback for a ref that has
+        // gone missing - a chosen branch that no longer exists errors below.
         const deployRef = application.mainBranchInfo?.githubRef ?? application.mainBranch?.name ?? repo.defaultBranch;
         const branchName = normalizeBranchName(deployRef);
         const headSha = await this.githubInstallationService
@@ -432,7 +444,7 @@ export class PreviewkitTriggerService extends Service {
 
         if (headSha == null) throw new NotFoundError(`Deploy branch '${branchName}' not found on GitHub`);
 
-        await this.deploy(
+        await this.startRun(
             {
                 repoFullName: repo.fullName,
                 prNumber: MAIN_BRANCH_ENVIRONMENT_NUMBER,
@@ -441,8 +453,6 @@ export class PreviewkitTriggerService extends Service {
                 headSha,
                 headRef: branchName,
                 baseSha: headSha,
-                baseRef: branchName,
-                cloneUrl: `https://github.com/${repo.fullName}.git`,
                 branchId: application.mainBranchId ?? undefined,
             },
             "synchronize",
@@ -458,26 +468,15 @@ export class PreviewkitTriggerService extends Service {
     }
 
     /**
-     * True when a `push` webhook would update a main-branch environment. The
-     * webhook router checks this before recording the delivery - push fires
-     * for every branch of every connected repo, and the ones that don't touch
-     * a main-branch environment are noise.
+     * Environment 0 has no pull request, so `push` is the only signal that its branch moved - and it fires for
+     * every branch of every connected repo, which is why most deliveries here resolve to nothing.
      */
-    async pushTargetsMainBranchEnvironment(organizationId: string, payload: Record<string, unknown>): Promise<boolean> {
+    async startMainBranchRunFromPushWebhook(organizationId: string, payload: Record<string, unknown>): Promise<void> {
         const target = await this.resolveMainBranchPushTarget(organizationId, payload);
-        return target != null;
-    }
-
-    /**
-     * Deploy entry point for `push` webhooks. A push to the branch a live
-     * main-branch environment tracks redeploys environment 0 at the pushed
-     * head - the same update a PR environment gets from `synchronize`. Any
-     * other push (different branch, no environment, torn down, branch
-     * deletion, tag) is skipped.
-     */
-    async deployMainBranchFromPushWebhook(organizationId: string, payload: Record<string, unknown>): Promise<void> {
-        const target = await this.resolveMainBranchPushTarget(organizationId, payload);
-        if (target == null) return;
+        if (target == null) {
+            this.logger.info("Push does not update a main-branch preview environment", { organizationId });
+            return;
+        }
 
         this.logger.info("Push updates main-branch environment", {
             repo: target.repoFullName,
@@ -487,7 +486,7 @@ export class PreviewkitTriggerService extends Service {
 
         const branchId = await this.resolveMainBranchId(organizationId, target.githubRepositoryId);
 
-        await this.deploy(
+        await this.startRun(
             {
                 repoFullName: target.repoFullName,
                 prNumber: MAIN_BRANCH_ENVIRONMENT_NUMBER,
@@ -496,19 +495,13 @@ export class PreviewkitTriggerService extends Service {
                 headSha: target.headSha,
                 headRef: target.branch,
                 baseSha: target.headSha,
-                baseRef: target.branch,
-                cloneUrl: target.cloneUrl,
                 branchId,
             },
             "synchronize",
         );
     }
 
-    /**
-     * Resolve the Application's main Branch id so a main-branch preview environment (PR 0) is linked to it, the
-     * counterpart of `resolveBranchIdForPr` for the non-PR environment. Best-effort: an un-onboarded repo (or a
-     * transient failure) yields `undefined` and the deploy proceeds unlinked. Never throws.
-     */
+    /** `resolveBranchIdForPr` for environment 0. Never throws; an un-onboarded repo runs unlinked. */
     private async resolveMainBranchId(organizationId: string, githubRepositoryId: number): Promise<string | undefined> {
         try {
             const application = await this.db.application.findUnique({
@@ -532,11 +525,7 @@ export class PreviewkitTriggerService extends Service {
         }
     }
 
-    /**
-     * Resolves a push webhook to the main-branch environment it updates, or
-     * undefined when the push is irrelevant: a tag push, a branch deletion, a
-     * branch the environment doesn't track, or no live environment 0 at all.
-     */
+    /** Undefined when the push is irrelevant: a tag, a deletion, an untracked branch, or no live environment 0. */
     private async resolveMainBranchPushTarget(
         organizationId: string,
         payload: Record<string, unknown>,
@@ -576,76 +565,61 @@ export class PreviewkitTriggerService extends Service {
             branch,
             headSha: after,
             githubRepositoryId: repository.id,
-            cloneUrl: repository.clone_url,
         };
     }
 
     /**
-     * Re-runs the deploy at the newest head GitHub reports for the environment's
-     * PR (or tracked branch, for the main-branch environment), falling back to
-     * the stored head when GitHub can't resolve one - so a redeploy picks up
-     * commits pushed since the last webhook-driven deploy. Config is
-     * latest-only, so the redeploy resolves the Application's current config
-     * (not the one the environment was originally deployed with). `callerOrgId`
-     * narrows to the caller's own environments; pass undefined for
-     * admin/service callers.
+     * Re-runs at the newest head GitHub reports, so a redeploy picks up commits pushed since the last webhook.
+     * Config is latest-only: the redeploy resolves the Application's current config, not the deployed one.
      */
-    async redeploy(repoFullName: string, prNumber: number, callerOrgId?: string): Promise<void> {
+    async startRunForRedeploy(key: PreviewEnvironmentKey, scope: PreviewEnvironmentScope = {}): Promise<void> {
+        const { environment, githubRepositoryId } = requireRedeployable(
+            await this.db.previewkitEnvironment.findFirst({
+                where: environmentWhere(key, scope),
+                select: {
+                    repoFullName: true,
+                    prNumber: true,
+                    headSha: true,
+                    headRef: true,
+                    organizationId: true,
+                    githubRepositoryId: true,
+                    status: true,
+                },
+            }),
+        );
+
+        const { repoFullName, prNumber } = environment;
         this.logger.info("Triggering preview redeploy", { repo: repoFullName, pr: prNumber });
-
-        const environment = await this.db.previewkitEnvironment.findFirst({
-            where: {
-                repoFullName,
-                prNumber,
-                ...(callerOrgId != null ? { organizationId: callerOrgId } : {}),
-            },
-            select: {
-                headSha: true,
-                headRef: true,
-                organizationId: true,
-                githubRepositoryId: true,
-                status: true,
-            },
-        });
-
-        if (environment == null) throw new NotFoundError("Environment not found");
-        if (environment.status === "torn_down") {
-            throw new ConflictError("Environment has been torn down and cannot be redeployed");
-        }
-        if (environment.githubRepositoryId == null) {
-            throw new ConflictError("Environment predates redeploy support and cannot be redeployed");
-        }
 
         const { headSha, headRef } = await this.resolveLatestHead(
             environment.organizationId,
-            environment.githubRepositoryId,
+            githubRepositoryId,
             repoFullName,
             prNumber,
             { headSha: environment.headSha, headRef: environment.headRef },
         );
 
-        await this.deploy(
-            {
+        await this.assertDeployCreditsAvailable(environment.organizationId, repoFullName, prNumber);
+
+        // A redeploy asks for the preview itself, not a verdict on a commit, so nothing may refuse it.
+        await this.startPreviewBuild({
+            target: {
                 repoFullName,
                 prNumber,
                 organizationId: environment.organizationId,
-                githubRepositoryId: environment.githubRepositoryId,
+                githubRepositoryId,
                 headSha,
                 headRef,
-                cloneUrl: "",
             },
-            "synchronize",
-        );
+            reason: "force_build",
+        });
     }
 
     /**
-     * Starts a FIRST deploy for an open PR that has no preview environment yet
-     * (a draft PR the webhook skipped, or a missed delivery), resolving the
-     * PR's current head from GitHub. Deploying a draft here is deliberate: this
-     * is an explicit user action, unlike the webhook's noise-avoidance skip -
-     * though later pushes to a still-draft PR will not rebuild it.
+     * A first run for an open PR with no environment yet, at the head GitHub currently reports. Deploying a draft
+     * here is deliberate - an explicit request, unlike the webhook's noise-avoidance skip.
      */
-    async deployPullRequest(organizationId: string, githubRepositoryId: number, prNumber: number): Promise<void> {
+    async startRunForPullRequest(organizationId: string, githubRepositoryId: number, prNumber: number): Promise<void> {
         this.logger.info("Triggering first preview deploy for a PR without an environment", {
             organizationId,
             pr: prNumber,
@@ -662,7 +636,7 @@ export class PreviewkitTriggerService extends Service {
 
         const branchId = await this.resolveBranchIdForPr(organizationId, githubRepositoryId, prNumber, pr.headRef);
 
-        await this.deploy(
+        await this.startRun(
             {
                 repoFullName: repo.fullName,
                 prNumber,
@@ -671,8 +645,6 @@ export class PreviewkitTriggerService extends Service {
                 headSha: pr.headSha,
                 headRef: pr.headRef,
                 baseSha: pr.baseSha,
-                baseRef: pr.baseRef,
-                cloneUrl: `https://github.com/${repo.fullName}.git`,
                 branchId,
             },
             "opened",
@@ -680,11 +652,8 @@ export class PreviewkitTriggerService extends Service {
     }
 
     /**
-     * Resolves the newest head for a redeploy: a PR environment follows the
-     * PR's current head, the main-branch environment (PR 0) follows its tracked
-     * branch. Best-effort - any GitHub failure (deleted branch, uninstalled
-     * app, transient error) logs and falls back to the stored head so a
-     * redeploy always works.
+     * A PR environment follows its PR's head; environment 0 follows its tracked branch. Any GitHub failure falls
+     * back to the stored head, so a redeploy always works.
      */
     private async resolveLatestHead(
         organizationId: string,
@@ -720,20 +689,38 @@ export class PreviewkitTriggerService extends Service {
     }
 
     /**
-     * Redeploys a SINGLE app within a live environment. `mode` "rebuild"
-     * rebuilds that app's image at the environment's current head SHA (against
-     * the Application's current config - config is latest-only) and redeploys
-     * only it; "restart" re-rolls its pods using the running image. Siblings are
-     * left untouched either way. `callerOrgId` narrows to the caller's own
-     * environments; pass undefined for admin/service callers.
+     * One app within a live environment: "rebuild" rebuilds its image at the environment's head, "restart" re-rolls
+     * its pods on the running image. Siblings are untouched either way.
      */
     async redeployApp(
-        repoFullName: string,
-        prNumber: number,
+        key: PreviewEnvironmentKey,
         appName: string,
         mode: PreviewRedeployAppMode,
-        callerOrgId?: string,
+        scope: PreviewEnvironmentScope = {},
     ): Promise<void> {
+        const { environment, githubRepositoryId } = requireRedeployable(
+            await this.db.previewkitEnvironment.findFirst({
+                where: environmentWhere(key, scope),
+                select: {
+                    namespace: true,
+                    repoFullName: true,
+                    prNumber: true,
+                    headSha: true,
+                    headRef: true,
+                    organizationId: true,
+                    githubRepositoryId: true,
+                    status: true,
+                    resolvedConfig: true,
+                    appInstances: { select: { appName: true } },
+                },
+            }),
+        );
+
+        if (!environmentHasApp(environment.appInstances, environment.resolvedConfig, appName)) {
+            throw new NotFoundError(`App "${appName}" not found in this environment`);
+        }
+
+        const { repoFullName, prNumber } = environment;
         this.logger.info("Triggering per-app preview redeploy", {
             repo: repoFullName,
             pr: prNumber,
@@ -741,49 +728,16 @@ export class PreviewkitTriggerService extends Service {
             mode,
         });
 
-        const environment = await this.db.previewkitEnvironment.findFirst({
-            where: {
-                repoFullName,
-                prNumber,
-                ...(callerOrgId != null ? { organizationId: callerOrgId } : {}),
-            },
-            select: {
-                namespace: true,
-                headSha: true,
-                headRef: true,
-                organizationId: true,
-                githubRepositoryId: true,
-                status: true,
-                resolvedConfig: true,
-                appInstances: { select: { appName: true } },
-            },
-        });
-
-        if (environment == null) throw new NotFoundError("Environment not found");
-        if (environment.status === "torn_down") {
-            throw new ConflictError("Environment has been torn down and cannot be redeployed");
-        }
-        if (environment.githubRepositoryId == null) {
-            throw new ConflictError("Environment predates redeploy support and cannot be redeployed");
-        }
-        if (!environmentHasApp(environment.appInstances, environment.resolvedConfig, appName)) {
-            throw new NotFoundError(`App "${appName}" not found in this environment`);
-        }
-
         await this.assertDeployCreditsAvailable(environment.organizationId, repoFullName, prNumber);
 
         await this.triggerRedeployApp({
-            event: {
-                action: "synchronize",
-                prNumber,
+            target: {
                 repoFullName,
+                prNumber,
                 organizationId: environment.organizationId,
-                githubRepositoryId: environment.githubRepositoryId,
+                githubRepositoryId,
                 headSha: environment.headSha,
                 headRef: environment.headRef,
-                baseSha: "",
-                baseRef: "",
-                cloneUrl: "",
             },
             namespace: environment.namespace,
             appName,
@@ -793,10 +747,52 @@ export class PreviewkitTriggerService extends Service {
 }
 
 /**
- * True when the environment declares `appName` - checked against its per-app
- * instance rows first (authoritative), falling back to the stored resolved
- * config for environments that predate instance rows.
+ * The `where` for a redeploy lookup. Both keys are unique, so a caller addresses the environment with whichever it
+ * holds rather than translating one into the other; the scope narrows to what that caller is allowed to reach.
  */
+function environmentWhere(
+    key: PreviewEnvironmentKey,
+    scope: PreviewEnvironmentScope,
+): Prisma.PreviewkitEnvironmentWhereInput {
+    if ("environmentId" in key) {
+        return {
+            id: key.environmentId,
+            organizationId: scope.organizationId,
+            githubRepositoryId: scope.githubRepositoryId,
+        };
+    }
+    return {
+        repoFullName: key.repoFullName,
+        prNumber: key.prNumber,
+        organizationId: scope.organizationId,
+        githubRepositoryId: scope.githubRepositoryId,
+    };
+}
+
+/**
+ * The preflight both redeploy entry points share. Hands back the repository id separately because the schema
+ * allows it to be absent, and nothing can be launched without one.
+ */
+function requireRedeployable<T extends RedeployableEnvironment>(
+    environment: T | null,
+): { environment: T; githubRepositoryId: number } {
+    if (environment == null) throw new NotFoundError("Preview environment not found");
+    if (environment.status === "torn_down") {
+        throw new ConflictError("Environment has been torn down and cannot be redeployed");
+    }
+    const { githubRepositoryId } = environment;
+    if (githubRepositoryId == null) {
+        throw new ConflictError("Environment predates redeploy support and cannot be redeployed");
+    }
+    return { environment, githubRepositoryId };
+}
+
+interface RedeployableEnvironment {
+    status: PreviewkitStatus;
+    githubRepositoryId: number | null;
+}
+
+/** Instance rows are authoritative; the stored config is the fallback for environments predating them. */
 function environmentHasApp(
     appInstances: Array<{ appName: string }>,
     resolvedConfig: unknown,

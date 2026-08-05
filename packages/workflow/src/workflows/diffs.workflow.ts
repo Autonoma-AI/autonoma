@@ -2,7 +2,7 @@ import { executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type { DiffsActivities } from "../activities";
 import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
-import { WORKFLOW_TYPE } from "./workflow-types";
+import { WORKFLOW_TYPE } from "../workflow-types";
 
 const longRunning = proxyActivities<DiffsActivities>({
     startToCloseTimeout: "30m",

@@ -9,7 +9,7 @@ import {
     SdkClient,
     SdkHttpError,
 } from "@autonoma/scenario";
-import type { PreviewConfig } from "@autonoma/types";
+import { type PreviewConfig, resolveSdkAppName } from "@autonoma/types";
 import { resolvePreviewkitBypassToken } from "@autonoma/utils";
 import { env } from "../../env";
 import { DryRunSubject } from "./dry-run-subject";
@@ -411,7 +411,7 @@ export class OnboardingSdkCapabilityService {
         organizationId: string,
         config: PreviewConfig,
     ): Promise<void> {
-        const canonicalAppName = resolveSdkAppName(config);
+        const canonicalAppName = resolveSdkAppName(config.apps);
         if (canonicalAppName == null) return;
         const appNames = config.apps.map((app) => app.name);
 
@@ -821,7 +821,7 @@ export class OnboardingSdkCapabilityService {
         organizationId: string,
     ): Promise<void> {
         const previewkitClient = this.options.previewkitClient;
-        if (previewkitClient == null || !previewkitClient.isConfigured()) {
+        if (previewkitClient == null) {
             throw new BadRequestError("PreviewKit deploys are not configured for this environment");
         }
         await previewkitClient.redeploy(repoFullName, prNumber, organizationId);
@@ -851,7 +851,7 @@ export class OnboardingSdkCapabilityService {
         prNumber: number,
     ): Promise<void> {
         const previewkitClient = this.options.previewkitClient;
-        if (previewkitClient == null || !previewkitClient.isConfigured()) {
+        if (previewkitClient == null) {
             throw new BadRequestError("PreviewKit deploys are not configured for this environment");
         }
 
@@ -870,7 +870,7 @@ export class OnboardingSdkCapabilityService {
             throw new BadRequestError("This application's previews are managed by an external provider");
         }
 
-        await previewkitClient.deployPullRequest(organizationId, application.githubRepositoryId, prNumber);
+        await previewkitClient.startRunForPullRequest(organizationId, application.githubRepositoryId, prNumber);
         this.logger.info("First preview deploy requested for PR target", {
             applicationId,
             extra: { prNumber },
@@ -881,11 +881,6 @@ export class OnboardingSdkCapabilityService {
 function isStringRecord(value: unknown): value is Record<string, string> {
     if (value == null || typeof value !== "object" || Array.isArray(value)) return false;
     return Object.values(value).every((v) => typeof v === "string");
-}
-
-function resolveSdkAppName(config: PreviewConfig): string | undefined {
-    const primary = config.apps.find((app) => app.primary === true);
-    return primary?.name ?? config.apps[0]?.name;
 }
 
 /**

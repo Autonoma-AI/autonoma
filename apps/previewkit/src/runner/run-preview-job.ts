@@ -1,12 +1,12 @@
 import type {
-    BuildPreviewImagesOutput,
     DeployPreviewEnvironmentInput,
     DeployPreviewEnvironmentOutput,
-    PreviewDeployEvent,
+    PreviewDeployTarget,
+    PreviewTeardownTarget,
+    BuildPreviewImagesOutput,
 } from "@autonoma/types";
 import * as Sentry from "@sentry/node";
 import { PreviewPlatformError } from "../errors";
-import type { PullRequestEvent } from "../git-provider/git-provider";
 import { logger as rootLogger, type Logger } from "../logger";
 import type { PreparePreviewResult } from "../pipeline/preview-pipeline";
 import type { PreviewJobSpec } from "./job-spec";
@@ -22,9 +22,9 @@ const PLATFORM_ERROR_USER_MESSAGE =
  * with its heavy collaborators) and tests pass a lightweight fake.
  */
 export interface DeployPipeline {
-    prepare(event: PullRequestEvent): Promise<PreparePreviewResult>;
+    prepare(target: PreviewDeployTarget): Promise<PreparePreviewResult>;
     build(
-        event: PullRequestEvent,
+        target: PreviewDeployTarget,
         namespace: string,
         signal?: AbortSignal,
         appName?: string,
@@ -34,25 +34,25 @@ export interface DeployPipeline {
         signal?: AbortSignal,
     ): Promise<DeployPreviewEnvironmentOutput>;
     finalize(
-        event: PullRequestEvent,
+        target: PreviewDeployTarget,
         namespace: string,
         commentId: string,
         feedbackEnabled: boolean,
         result: DeployPreviewEnvironmentOutput,
     ): Promise<void>;
     fail(
-        event: PullRequestEvent,
+        target: PreviewDeployTarget,
         namespace: string,
         commentId: string,
         feedbackEnabled: boolean,
         error: string,
     ): Promise<void>;
-    restartApp(event: PullRequestEvent, namespace: string, appName: string, signal?: AbortSignal): Promise<void>;
+    restartApp(target: PreviewDeployTarget, namespace: string, appName: string, signal?: AbortSignal): Promise<void>;
 }
 
 /** The slice of `TeardownPipeline` the runner drives. */
 export interface TeardownRunner {
-    teardown(event: PullRequestEvent): Promise<void>;
+    teardown(target: PreviewTeardownTarget): Promise<void>;
 }
 
 export interface PreviewJobRunners {
@@ -68,14 +68,8 @@ export interface PreviewJobRunners {
 export interface RunPreviewJobDeps {
     /** Finalize only the superseded run's build row (never the env row). */
     markSuperseded: (namespace: string, headSha: string) => Promise<void>;
-    /** Resolve the deployed-commit sha for a teardown whose event has none. */
-    resolveTeardownHeadSha: (event: PreviewDeployEvent) => Promise<PreviewDeployEvent>;
-    /**
-     * Start the diffs run (as a Temporal job) once a PR preview env is ready. The impl applies its own guards
-     * (Temporal unconfigured, main env 0, no branchId, not ready, no primary url) and may throw - `runDeploy`
-     * isolates it so a failure never flips the already-`ready` outcome.
-     */
-    triggerDiffs: (event: PreviewDeployEvent, result: DeployPreviewEnvironmentOutput) => Promise<void>;
+    /** Resolve the deployed-commit sha for a teardown whose target has none. */
+    resolveTeardownHeadSha: (target: PreviewTeardownTarget) => Promise<PreviewTeardownTarget>;
 }
 
 /**
@@ -111,27 +105,27 @@ export async function runPreviewJob(
 ): Promise<PreviewJobOutcome> {
     const logger = rootLogger.child({ name: "runPreviewJob" });
     if (spec.mode === "teardown") {
-        return await runTeardown(runners.teardownPipeline, spec.event, deps, logger);
+        return await runTeardown(runners.teardownPipeline, spec.target, deps, logger);
     }
     if (spec.mode === "redeploy-app") {
         return await runRedeployApp(runners.previewPipeline, spec, signal, logger);
     }
-    return await runDeploy(runners.previewPipeline, spec.event, signal, deps, logger);
+    return await runDeploy(runners.previewPipeline, spec.target, signal, deps, logger);
 }
 
 async function runDeploy(
     previewPipeline: DeployPipeline,
-    event: PreviewDeployEvent,
+    target: PreviewDeployTarget,
     signal: AbortSignal,
     deps: RunPreviewJobDeps,
     logger: Logger,
 ): Promise<PreviewJobOutcome> {
-    const ids = { extra: { repo: event.repoFullName, pr: event.prNumber, sha: event.headSha.slice(0, 7) } };
+    const ids = { extra: { repo: target.repoFullName, pr: target.prNumber, sha: target.headSha.slice(0, 7) } };
 
     // Prepare runs before the try, mirroring the workflow: a prepare failure
     // means config/namespace could not be resolved, so there is nothing to
     // finalize - let it propagate (non-zero exit) so the Job retries.
-    const prep = await previewPipeline.prepare(event);
+    const prep = await previewPipeline.prepare(target);
     if (prep.skipped) {
         logger.info("Preview deploy skipped (repo not linked or no preview config)", ids);
         return "skipped";
@@ -139,11 +133,11 @@ async function runDeploy(
 
     let deployed: DeployPreviewEnvironmentOutput | undefined;
     try {
-        const built = await previewPipeline.build(event, prep.namespace, signal);
+        const built = await previewPipeline.build(target, prep.namespace, signal);
         logger.info("Preview images built", { extra: { ...ids.extra, apps: Object.keys(built.imageTags).length } });
 
         const deployInput: DeployPreviewEnvironmentInput = {
-            event,
+            target,
             namespace: prep.namespace,
             commentId: prep.commentId,
             mergedConfigJson: built.mergedConfigJson,
@@ -157,19 +151,7 @@ async function runDeploy(
             extra: { ...ids.extra, readyCount: deployed.readyCount, totalCount: deployed.totalCount },
         });
 
-        await previewPipeline.finalize(event, prep.namespace, prep.commentId, prep.feedbackEnabled, deployed);
-
-        // Start the diffs run now the env is ready. Isolated: the environment is already persisted `ready`, so a
-        // failed trigger must not reach the outer catch (which, with a non-null `deployed`, would mislabel the
-        // outcome `finalize_failed`).
-        try {
-            await deps.triggerDiffs(event, deployed);
-        } catch (err) {
-            Sentry.captureException(err);
-            logger.error("Failed to trigger diffs after deploy; leaving environment ready", {
-                extra: { ...ids.extra, message: errorMessage(err) },
-            });
-        }
+        await previewPipeline.finalize(target, prep.namespace, prep.commentId, prep.feedbackEnabled, deployed);
 
         logger.info("Preview deploy completed", ids);
         return "ready";
@@ -179,7 +161,7 @@ async function runDeploy(
         // row (the successor run owns it) - finalize only this run's build row.
         if (signal.aborted) {
             logger.info("Preview deploy superseded; finalizing build row only", ids);
-            await deps.markSuperseded(prep.namespace, event.headSha);
+            await deps.markSuperseded(prep.namespace, target.headSha);
             return "superseded";
         }
 
@@ -200,7 +182,7 @@ async function runDeploy(
                 // so the customer-facing status never carries raw cluster internals.
                 logger.fatal("Preview deploy hit a platform error", { extra: { ...ids.extra, message } });
                 await previewPipeline.fail(
-                    event,
+                    target,
                     prep.namespace,
                     prep.commentId,
                     prep.feedbackEnabled,
@@ -209,7 +191,7 @@ async function runDeploy(
                 return "deploy_failed";
             }
             logger.error("Preview deploy failed; running failure finalizer", { extra: { ...ids.extra, message } });
-            await previewPipeline.fail(event, prep.namespace, prep.commentId, prep.feedbackEnabled, message);
+            await previewPipeline.fail(target, prep.namespace, prep.commentId, prep.feedbackEnabled, message);
             return "deploy_failed";
         }
         logger.error("Preview finalize failed after a successful deploy; leaving environment ready", {
@@ -221,13 +203,13 @@ async function runDeploy(
 
 async function runTeardown(
     teardownPipeline: TeardownRunner,
-    event: PreviewDeployEvent,
+    target: PreviewTeardownTarget,
     deps: RunPreviewJobDeps,
     logger: Logger,
 ): Promise<PreviewJobOutcome> {
-    const ids = { extra: { repo: event.repoFullName, pr: event.prNumber } };
+    const ids = { extra: { repo: target.repoFullName, pr: target.prNumber } };
     logger.info("Tearing down preview environment", ids);
-    const resolvedEvent = await deps.resolveTeardownHeadSha(event);
+    const resolvedEvent = await deps.resolveTeardownHeadSha(target);
     await teardownPipeline.teardown(resolvedEvent);
     logger.info("Preview environment torn down", ids);
     return "torn_down";
@@ -247,17 +229,17 @@ async function runRedeployApp(
     signal: AbortSignal,
     logger: Logger,
 ): Promise<PreviewJobOutcome> {
-    const { event, namespace, appName, redeployMode } = spec;
-    const ids = { extra: { repo: event.repoFullName, pr: event.prNumber, app: appName, mode: redeployMode } };
+    const { target, namespace, appName, redeployMode } = spec;
+    const ids = { extra: { repo: target.repoFullName, pr: target.prNumber, app: appName, mode: redeployMode } };
     try {
         if (redeployMode === "restart") {
-            await previewPipeline.restartApp(event, namespace, appName, signal);
+            await previewPipeline.restartApp(target, namespace, appName, signal);
             logger.info("Preview per-app restart completed", ids);
             return "restarted";
         }
-        const built = await previewPipeline.build(event, namespace, signal, appName);
+        const built = await previewPipeline.build(target, namespace, signal, appName);
         const deployInput: DeployPreviewEnvironmentInput = {
-            event,
+            target,
             namespace,
             commentId: "",
             mergedConfigJson: built.mergedConfigJson,

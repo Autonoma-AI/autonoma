@@ -37,12 +37,28 @@ export type {
 
 export type {
     DiffsActivities,
-    PrepareDiffsRunInput,
-    PrepareDiffsRunResult,
     AnalyzeDiffsInput,
     MarkDiffsGeneratingInput,
     FinalizeDiffsInput,
 } from "./diffs-activities";
+
+export type {
+    PreviewkitActivities,
+    ResolvePreviewTargetInput,
+    ResolvePreviewTargetOutput,
+    HasBranchEverBuiltPreviewInput,
+    HasBranchEverBuiltPreviewOutput,
+    LaunchPreviewBuildInput,
+    LaunchPreviewBuildOutput,
+    CancelPreviewBuildInput,
+    ReadPreviewBuildStatusInput,
+    ReadPreviewBuildStatusOutput,
+    PreviewBuildState,
+    AttachPreviewDeploymentInput,
+    AttachPreviewDeploymentOutput,
+    PreviewBuildWarrantReason,
+    ReportPreviewBuildWarrantInput,
+} from "./previewkit-activities";
 
 export type { WebActivities, RunWebGenerationInput } from "./web-activities";
 
@@ -95,6 +111,8 @@ export type {
     AnalysisInvestigationTarget,
     AnalysisCandidateFinding,
     AnalysisCandidateClassification,
+    OpenAnalysisRunInput,
+    OpenAnalysisRunOutput,
     OpenMergeGateInput,
     OpenMergeGateOutput,
     RunImpactAnalysisInput,
@@ -113,4 +131,5 @@ export type {
     PersistAnalysisClassificationInput,
     PersistAnalysisClassificationOutput,
 } from "./analysis-activities";
-export { REFINEMENT_MAX_ITERATIONS, maxIterationsForTrigger } from "../refinement-max-iterations";
+export { REFINEMENT_MAX_ITERATIONS, maxIterationsForTrigger } from "../rules/refinement-max-iterations";
+export { warrantsBuild } from "../rules/build-warrant";

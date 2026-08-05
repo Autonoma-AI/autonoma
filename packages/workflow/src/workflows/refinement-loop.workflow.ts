@@ -1,10 +1,10 @@
 import { CancellationScope, executeChild, log, proxyActivities } from "@temporalio/workflow";
 import type { DiffsActivities } from "../activities/diffs-activities";
 import type { GeneralActivities } from "../activities/general-activities";
-import { maxIterationsForTrigger } from "../refinement-max-iterations";
 import { rootFailureMessage } from "../root-failure-message";
+import { maxIterationsForTrigger } from "../rules/refinement-max-iterations";
 import { TaskQueue } from "../task-queues";
-import { WORKFLOW_TYPE } from "./workflow-types";
+import { WORKFLOW_TYPE } from "../workflow-types";
 
 const general = proxyActivities<GeneralActivities>({
     startToCloseTimeout: "10m",

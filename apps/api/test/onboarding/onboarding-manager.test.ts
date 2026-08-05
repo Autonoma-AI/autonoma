@@ -270,10 +270,9 @@ integrationTestSuite({
             const appId = await createApp();
             await linkRepository(harness, appId, 91_005);
             const previewkitClient = {
-                isConfigured: vi.fn(() => true),
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitClient,
@@ -633,10 +632,9 @@ integrationTestSuite({
             await linkRepository(harness, appId, 91_007);
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitClient: {
-                    isConfigured: () => true,
                     deployApplicationMain: async () => undefined,
                     redeploy: async () => undefined,
-                    deployPullRequest: async () => undefined,
+                    startRunForPullRequest: async () => undefined,
                 },
             });
             await harness.db.onboardingState.upsert({
@@ -1432,10 +1430,9 @@ integrationTestSuite({
                 },
             });
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitClient,
@@ -1444,7 +1441,7 @@ integrationTestSuite({
             await manager.redeploySdkDryRunTarget(appId, orgId, "pr-41");
 
             expect(previewkitClient.redeploy).toHaveBeenCalledWith("acme/app", 41, orgId);
-            expect(previewkitClient.deployPullRequest).not.toHaveBeenCalled();
+            expect(previewkitClient.startRunForPullRequest).not.toHaveBeenCalled();
             const updated = await harness.db.previewkitEnvironment.findUnique({
                 where: { id: environment.id },
                 select: { status: true },
@@ -1452,7 +1449,7 @@ integrationTestSuite({
             expect(updated?.status).toBe("building");
         });
 
-        test("redeploySdkDryRunTarget first-deploys a preview-less PR via deployPullRequest", async ({
+        test("redeploySdkDryRunTarget first-deploys a preview-less PR via startRunForPullRequest", async ({
             harness,
             seedResult: { orgId, createApp },
         }) => {
@@ -1470,10 +1467,9 @@ integrationTestSuite({
                 },
             });
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitClient,
@@ -1481,7 +1477,7 @@ integrationTestSuite({
 
             await manager.redeploySdkDryRunTarget(appId, orgId, "pr-42");
 
-            expect(previewkitClient.deployPullRequest).toHaveBeenCalledWith(orgId, repoId, 42);
+            expect(previewkitClient.startRunForPullRequest).toHaveBeenCalledWith(orgId, repoId, 42);
             expect(previewkitClient.redeploy).not.toHaveBeenCalled();
         });
 
@@ -1491,10 +1487,9 @@ integrationTestSuite({
         }) => {
             const appId = await createApp();
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitClient,
@@ -1504,7 +1499,7 @@ integrationTestSuite({
                 /Unknown dry-run target/,
             );
             expect(previewkitClient.redeploy).not.toHaveBeenCalled();
-            expect(previewkitClient.deployPullRequest).not.toHaveBeenCalled();
+            expect(previewkitClient.startRunForPullRequest).not.toHaveBeenCalled();
         });
 
         test("listSdkDryRunTargets sorts the auto-detected SDK PR first, then main, then PRs newest-first", async ({
@@ -1574,10 +1569,9 @@ integrationTestSuite({
                 delete: vi.fn(async () => true),
             };
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitSecretsService: secretsService,
@@ -1668,10 +1662,9 @@ integrationTestSuite({
                 delete: vi.fn(async () => true),
             };
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitSecretsService: secretsService,
@@ -1749,10 +1742,9 @@ integrationTestSuite({
                 delete: vi.fn(async () => true),
             };
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitSecretsService: secretsService,
@@ -1819,10 +1811,9 @@ integrationTestSuite({
                 delete: vi.fn(async () => true),
             };
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitSecretsService: secretsService,
@@ -1892,10 +1883,9 @@ integrationTestSuite({
                 delete: vi.fn(async () => true),
             };
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitSecretsService: secretsService,
@@ -1966,10 +1956,9 @@ integrationTestSuite({
                 delete: vi.fn(async () => true),
             };
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitSecretsService: secretsService,
@@ -2020,10 +2009,9 @@ integrationTestSuite({
                 delete: vi.fn(async () => true),
             };
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitSecretsService: secretsService,
@@ -2086,10 +2074,9 @@ integrationTestSuite({
                 delete: vi.fn(async () => true),
             };
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitSecretsService: secretsService,
@@ -2151,10 +2138,9 @@ integrationTestSuite({
                 delete: vi.fn(async () => true),
             };
             const previewkitClient = {
-                isConfigured: () => true,
                 deployApplicationMain: vi.fn(async () => undefined),
                 redeploy: vi.fn(async () => undefined),
-                deployPullRequest: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
             };
             const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
                 previewkitSecretsService: secretsService,
