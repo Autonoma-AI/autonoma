@@ -434,63 +434,59 @@ export function buildAllLaunchers(opts: LauncherOptions): AgentLauncher[] {
     return [new ClaudeLauncher(opts), new CodexLauncher(opts)];
 }
 
-/** What probing PATH for coding agents concluded. */
-export interface LauncherSelection {
-    /** The agent to hand off to, or undefined when none was settled on. */
-    launcher?: AgentLauncher;
-    /**
-     * How many agents were found installed.
-     *
-     * Carried out of the probe rather than left for the caller to work out, because
-     * the caller's message depends on it: "none installed" and "several installed and
-     * nobody to ask which" both leave a run without an agent, and only the first is
-     * fixed by installing something. A second probe to answer that could disagree
-     * with the one the selection was actually made on.
-     */
-    availableCount: number;
-}
-
 /**
- * Probe PATH and pick the launcher to hand off to. Zero available -> no launcher
- * (the caller decides: manual fallback interactively, hard error otherwise);
- * exactly one -> use it (announce, don't prompt for a choice of one); multiple ->
- * prompt to pick when interactive, else none (can't disambiguate headlessly -
- * name one with `--agent`). A preset id (from `--agent`) short-circuits detection
+ * Probe PATH and pick the launcher to hand off to, or undefined when nothing is
+ * installed - the one case a caller cannot resolve, and the only one this reports.
+ *
+ * Zero available -> undefined (the caller decides: manual fallback interactively,
+ * hard error otherwise); exactly one -> use it, announced rather than offered as a
+ * choice of one; several -> prompt when there is someone to prompt, and take the
+ * first when there is not. A preset id (from `--agent`) short-circuits detection
  * when that agent is available.
  */
 export async function selectLauncher(
     launchers: AgentLauncher[],
     presetId?: string,
     interactive = true,
-): Promise<LauncherSelection> {
+): Promise<AgentLauncher | undefined> {
     const availability = await Promise.all(launchers.map((l) => l.isAvailable()));
     const available = launchers.filter((_, i) => availability[i]);
-    const availableCount = available.length;
     debugLog("Detected available agents", { available: available.map((l) => l.id), presetId, interactive });
 
     if (presetId != null) {
         const preset = available.find((l) => l.id === presetId);
-        if (preset != null) return { launcher: preset, availableCount };
+        if (preset != null) return preset;
         p.log.warn(`Requested agent "${presetId}" is not installed or not supported.`);
     }
 
-    if (availableCount === 0) return { availableCount };
+    if (available.length === 0) return undefined;
 
-    if (availableCount === 1) {
+    if (available.length === 1) {
         const only = available[0]!;
         p.log.info(`Found ${only.label} - will use it for the integration.`);
-        return { launcher: only, availableCount };
+        return only;
     }
 
-    // Multiple agents and no usable preset: can't prompt headlessly.
-    if (!interactive) return { availableCount };
+    // Several installed and nobody to ask. Take the first rather than give up: the
+    // preview environment is the most valuable thing this run does, and headless is
+    // exactly where there is nobody to answer a prompt - refusing here skips that
+    // work and leaves the rest of the run planning tests against an app with nowhere
+    // to deploy. Which agent does the job barely matters; not doing it does.
+    if (!interactive) {
+        const first = available[0]!;
+        p.log.warn(
+            `Several coding agents are installed and there is nobody to ask - using ${first.label}. ` +
+                `Pass --agent to choose.`,
+        );
+        return first;
+    }
 
     const selected = await p.select({
         message: "Which agent should implement the integration?",
         options: available.map((l) => ({ value: l.id, label: l.label })),
     });
     if (p.isCancel(selected)) throw new Error("Agent selection cancelled");
-    return { launcher: available.find((l) => l.id === selected), availableCount };
+    return available.find((l) => l.id === selected);
 }
 
 /**

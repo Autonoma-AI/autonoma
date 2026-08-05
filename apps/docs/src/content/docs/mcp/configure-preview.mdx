@@ -64,7 +64,7 @@ AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... AUTONOMA_APPLICATION_ID=... \
   --coding-agent claude --frontend apps/web --backend apps/api
 ```
 
-It never opens a browser - the coding agent it starts is authorized with the run's API key as a bearer header instead - never blocks on a question, and reports each step as it starts and finishes so the process that launched it can follow along. Anything that would have been asked has to arrive as a flag; where a choice would be arbitrary it refuses with a clear error rather than guessing. See [running unattended](/test-planner/#running-unattended) for the full flag list.
+It never opens a browser - the coding agent it starts is authorized with the run's API key as a bearer header instead - never blocks on a question, and reports each step as it starts and finishes so the process that launched it can follow along. Anything that would have been asked has to arrive as a flag; where guessing wrong would spend the run on the wrong thing it refuses with a clear error instead, and where the choice is cheap - which of two installed coding agents to use - it picks one and says which. See [running unattended](/test-planner/#running-unattended) for the full flag list.
 
 This is the whole of the headless path. It replaces registering the MCP by hand and pairing yourself, and it does more than that ever did - the same one invocation carries on through the test suite, the SDK integration and the dry run.
 

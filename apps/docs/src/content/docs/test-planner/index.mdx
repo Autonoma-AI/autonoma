@@ -175,7 +175,8 @@ With nobody to answer a question, everything that would have been asked has to a
 - **It never opens a browser.** The coding agent's Autonoma connection is authorized with the `AUTONOMA_API_TOKEN` the run already holds, sent as a bearer header. There is no sign-in step to complete.
 - **It never blocks on a question.** Where it has to assume an answer it says so on stdout, naming what was asked and what it took.
 - **It reports each step as it starts and finishes**, with how long it took, so the process that launched it can follow along.
-- **It refuses rather than guesses** when a choice would be arbitrary - two coding agents installed and no `--coding-agent`, several frontends and no `--frontend`. A wrong guess spawns the wrong tool and burns a long run, so it fails with a clear error instead.
+- **It refuses rather than guesses** when a wrong guess would spend the run on the wrong thing - several frontends and no `--frontend` plans a test suite for an app you did not mean, so it fails with a clear error instead.
+- **It chooses, and says so, where the choice is cheap.** Two coding agents installed and no `--coding-agent` picks the first and names it in a warning. Refusing there would skip the preview environment entirely and leave every later step planning against an app with nowhere to deploy - far worse than running the other agent. Pass `--coding-agent` to decide it yourself.
 
 The coding agent it starts runs headless too (`claude -p`, `codex exec`), fully autonomous by default.
 

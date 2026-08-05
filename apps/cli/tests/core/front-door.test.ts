@@ -143,21 +143,7 @@ describe("runPreviewHandoff", () => {
             launchers: [launcher("claude", false), launcher("codex", false)],
         });
 
-        expect(result).toEqual({ kind: "no-agent", ambiguous: false });
-    });
-
-    // Both leave the run without an agent, but only one of them is fixed by
-    // installing something - and telling someone to install what they already have
-    // is worse than saying nothing.
-    test("tells having none apart from having several and nobody to ask", async () => {
-        const result = await runPreviewHandoff({
-            plan: plan(),
-            config: config(),
-            nonInteractive: true,
-            launchers: [launcher("claude", true), launcher("codex", true)],
-        });
-
-        expect(result).toEqual({ kind: "no-agent", ambiguous: true });
+        expect(result).toEqual({ kind: "no-agent" });
     });
 });
 
@@ -166,15 +152,8 @@ describe("describeIncompletePreview", () => {
         expect(describeIncompletePreview({ kind: "verified" })).toBeUndefined();
     });
 
-    test("tells a caller with several agents to name one, not to install one", () => {
-        const message = describeIncompletePreview({ kind: "no-agent", ambiguous: true }) ?? "";
-
-        expect(message).toContain("--agent");
-        expect(message).not.toContain("Install");
-    });
-
     test("tells a caller with none to install one", () => {
-        const message = describeIncompletePreview({ kind: "no-agent", ambiguous: false }) ?? "";
+        const message = describeIncompletePreview({ kind: "no-agent" }) ?? "";
 
         expect(message).toContain("Install Claude Code or the Codex CLI");
     });

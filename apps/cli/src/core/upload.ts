@@ -126,9 +126,11 @@ export async function uploadArtifacts(config: AppConfig, outputDir: string): Pro
     await postJson(`${setupUrl}/artifacts`, autonomaApiToken, { testCases, artifacts, commitSha: gitInfo?.sha });
     await patchJson(setupUrl, autonomaApiToken, { status: "completed" });
 
+    // Reports what landed and stops there. Where to go next is the closing summary's
+    // job, and it is the only one of the two that knows whether there is a browser to
+    // go back to - a headless run has neither that nor anyone to read the suggestion.
     p.log.success(
         `Uploaded ${testCases.length} test case${testCases.length === 1 ? "" : "s"} and ` +
-            `${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"}. ` +
-            "Return to your browser to continue onboarding.",
+            `${artifacts.length} artifact${artifacts.length === 1 ? "" : "s"}.`,
     );
 }

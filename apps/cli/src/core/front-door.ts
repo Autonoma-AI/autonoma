@@ -86,9 +86,8 @@ export interface PreviewHandoffDeps {
 /** How the preview handoff ended, for the caller to report and decide on. */
 export type PreviewHandoffResult =
     | PreviewPhaseOutcome
-    /** No agent was picked. `ambiguous` when several were installed and nobody could
-     *  be asked which - a different problem from having none, with a different fix. */
-    | { kind: "no-agent"; ambiguous: boolean };
+    /** No coding agent is installed, so there was nothing to hand the preview to. */
+    | { kind: "no-agent" };
 
 /**
  * Run the preview phase: register the MCP server with the user's coding agent, hand
@@ -107,19 +106,12 @@ export async function runPreviewHandoff(deps: PreviewHandoffDeps): Promise<Previ
     const interactive = !nonInteractive;
 
     const launchers = deps.launchers ?? buildAllLaunchers({ cwd: config.projectRoot, env: process.env });
-    const { launcher, availableCount } = await selectLauncher(launchers, config.agent, interactive);
+    const launcher = await selectLauncher(launchers, config.agent, interactive);
     if (launcher == null) {
-        // "None installed" and "several installed and nobody to ask which" both leave
-        // the run without an agent, but only one is fixed by installing something, and
-        // telling a user to install what they already have is worse than saying
-        // nothing. The count comes from the selection's own probe, so the message can
-        // never describe a different reading than the one it was decided on.
-        const ambiguous = availableCount > 1;
-        captureLog("warn", "No coding agent available for the preview phase", {
-            source: "front_door",
-            ambiguous,
-        });
-        return { kind: "no-agent", ambiguous };
+        // The only way to get here is with nothing installed: several installed and
+        // nobody to ask resolves to the first rather than to no agent at all.
+        captureLog("warn", "No coding agent available for the preview phase", { source: "front_door" });
+        return { kind: "no-agent" };
     }
 
     // Asked, not assumed - the same question the SDK handoff puts to the user later in
@@ -151,12 +143,6 @@ export async function runPreviewHandoff(deps: PreviewHandoffDeps): Promise<Previ
 export function describeIncompletePreview(result: PreviewHandoffResult): string | undefined {
     if (result.kind === "verified") return undefined;
     if (result.kind === "no-agent") {
-        if (result.ambiguous) {
-            return (
-                "More than one supported coding agent is installed and there was nobody to ask which to use, so " +
-                "the preview environment was skipped. Name one with --agent claude or --agent codex and run again."
-            );
-        }
         return (
             "No supported coding agent was found on your PATH, so the preview environment was skipped. " +
             "Install Claude Code or the Codex CLI and run again, or set the preview up in the Autonoma app."

@@ -119,32 +119,27 @@ describe("parsePermissionMode", () => {
 
 describe("selectLauncher", () => {
     test("no available agents -> no launcher (manual fallback)", async () => {
-        const { launcher, availableCount } = await selectLauncher([fakeLauncher("claude", false)]);
+        const launcher = await selectLauncher([fakeLauncher("claude", false)]);
         expect(launcher).toBeUndefined();
-        expect(availableCount).toBe(0);
         expect(selectMock).not.toHaveBeenCalled();
     });
 
     test("exactly one available -> uses it without prompting", async () => {
         const only = fakeLauncher("claude", true);
-        const { launcher, availableCount } = await selectLauncher([only]);
+        const launcher = await selectLauncher([only]);
         expect(launcher).toBe(only);
-        expect(availableCount).toBe(1);
         expect(selectMock).not.toHaveBeenCalled();
     });
 
     test("multiple available -> prompts to pick", async () => {
         selectMock.mockResolvedValue("codex");
-        const { launcher } = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", true)]);
+        const launcher = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", true)]);
         expect(launcher?.id).toBe("codex");
         expect(selectMock).toHaveBeenCalledTimes(1);
     });
 
     test("preset short-circuits when the preset agent is available", async () => {
-        const { launcher } = await selectLauncher(
-            [fakeLauncher("claude", true), fakeLauncher("codex", true)],
-            "claude",
-        );
+        const launcher = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", true)], "claude");
         expect(launcher?.id).toBe("claude");
         expect(selectMock).not.toHaveBeenCalled();
     });
@@ -152,24 +147,18 @@ describe("selectLauncher", () => {
     test("an unavailable preset falls back to normal selection", async () => {
         // Preset asks for codex, which isn't installed; only claude is available,
         // so it's used without a prompt.
-        const { launcher } = await selectLauncher(
-            [fakeLauncher("claude", true), fakeLauncher("codex", false)],
-            "codex",
-        );
+        const launcher = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", false)], "codex");
         expect(launcher?.id).toBe("claude");
     });
 
-    // The headless ambiguous case: nothing is chosen, but the count says why - which
-    // is what lets the caller tell "install one" from "name one with --agent" without
-    // probing PATH a second time and risking a different answer.
-    test("reports how many were installed when it cannot disambiguate headlessly", async () => {
-        const { launcher, availableCount } = await selectLauncher(
-            [fakeLauncher("claude", true), fakeLauncher("codex", true)],
-            undefined,
-            false,
-        );
-        expect(launcher).toBeUndefined();
-        expect(availableCount).toBe(2);
+    // Headless has nobody to ask by definition, so a refusal here would cost the run
+    // its preview environment - and everything after it would plan tests against an
+    // app with nowhere to deploy. Which agent does the work barely matters.
+    test("takes the first available when it cannot ask which, rather than none", async () => {
+        const claude = fakeLauncher("claude", true);
+        const launcher = await selectLauncher([claude, fakeLauncher("codex", true)], undefined, false);
+
+        expect(launcher).toBe(claude);
         expect(selectMock).not.toHaveBeenCalled();
     });
 });

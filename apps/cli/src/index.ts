@@ -618,9 +618,17 @@ async function finishFrontDoorRun(
     }
 }
 
-/** Where to go next, which depends on whether Autonoma is already reviewing this app. */
-function nextStepLine(finish: FinishPhaseResult | undefined): string {
+/**
+ * Where to go next, which depends on whether Autonoma is already reviewing this app -
+ * and, when it is not, on whether anyone is here to be sent anywhere.
+ *
+ * A headless run is the one place there is no browser to return to and, often, nobody
+ * reading at all: an instruction there is a line that cannot be followed, so it states
+ * what is left instead. The summary above it already lists which parts are outstanding.
+ */
+function nextStepLine(finish: FinishPhaseResult | undefined, nonInteractive: boolean): string {
     if (finish?.live === true) return "Autonoma is reviewing your pull requests - open one to see it work.";
+    if (nonInteractive) return "Setup is not finished - the steps above that are still outstanding say why.";
     return "Next: continue on autonoma.app";
 }
 
@@ -988,7 +996,7 @@ async function main() {
         const choice = await p.completion({
             title: "Your test suite is ready.",
             stats: await collectRunStats(outputDir),
-            lines: [`Saved in ${displayPath(outputDir)}`, nextStepLine(finish)],
+            lines: [`Saved in ${displayPath(outputDir)}`, nextStepLine(finish, nonInteractive)],
         });
         track("cli_completion_choice", { choice });
         if (choice === "browse") {
@@ -1008,7 +1016,7 @@ async function main() {
         p.log.success("Your test suite is ready.");
         p.log.info(`Saved in ${displayPath(outputDir)}`);
         if (finish != null) for (const line of describeFinishPhase(finish)) p.log.info(line);
-        p.log.info(nextStepLine(finish));
+        p.log.info(nextStepLine(finish, nonInteractive));
     }
     p.outro("Done");
 }
