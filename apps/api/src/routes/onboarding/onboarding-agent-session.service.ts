@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { type $Enums, Prisma, type PrismaClient } from "@autonoma/db";
-import { NotFoundError } from "@autonoma/errors";
+import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import {
     type AgentLogEntry,
@@ -37,6 +37,25 @@ const MAX_AGENT_CLIENT_LENGTH = 100;
  */
 const PAIR_RATE_LIMIT: RateLimitPolicy = { max: 10, windowMs: 60_000 };
 const PAIR_CREATE_RATE_LIMIT: RateLimitPolicy = { max: 30, windowMs: 60_000 };
+
+/**
+ * The one thing every rejected pairing says, whatever the cause - unknown code,
+ * already spent, expired, an app the caller cannot reach, an app that has since been
+ * deleted. Identical text for all of them is what stops a code being used to probe.
+ *
+ * It is written at the agent rather than at a log reader: the recoverable case is
+ * overwhelmingly an agent replaying a code from earlier in its own context, so the
+ * message has to say that reuse is never the answer and name the one action that is
+ * (ask for the code on screen now). The last line matters as much as the rest - an
+ * agent that shrugs this off and configures an app it happens to know the name of is
+ * the failure this whole exchange exists to prevent.
+ */
+const PAIRING_REJECTED_MESSAGE =
+    "Pairing code rejected. A pairing code is single-use and short-lived, and it stops working " +
+    "when the app it was minted for is deleted or a newer code is shown - so an earlier code from " +
+    "this conversation will never pair, and retrying it will not help. Ask the user for the code " +
+    'CURRENTLY on their Autonoma screen (reopening "Configure with coding agent" shows a fresh ' +
+    "one) and call pair again with that. Do not configure any app until a pair succeeds.";
 
 /** Outcome of an agent's attempt to hold the config for a write. */
 export type ClaimResult = { claimed: true } | { claimed: false; reason: "paused_by_user" };
@@ -109,6 +128,14 @@ export class OnboardingAgentSessionService {
      * caller's authenticated UI context) and stores it on the onboarding state.
      * The UI shows it next to the generic install command; the user hands it to
      * the agent.
+     *
+     * Minting also revokes every other outstanding code in the organization, so the
+     * only live code is the one currently on screen. Codes are stored per
+     * application, so without this a user who abandons one app's onboarding and
+     * starts another leaves the first app's code working: the screen shows one code
+     * while an agent handed the older one pairs successfully with a different
+     * application, and neither side can tell. Onboarding two apps side by side in one
+     * org is the cost, and it costs one click - reopening the dialog re-mints.
      */
     async createPairing(applicationId: string, organizationId: string): Promise<{ code: string; expiresAt: Date }> {
         this.logger.info("Minting agent pairing code", { applicationId, organizationId });
@@ -123,10 +150,17 @@ export class OnboardingAgentSessionService {
         for (let attempt = 0; attempt < PAIRING_CODE_MAX_ATTEMPTS; attempt++) {
             const code = generatePairingCode();
             try {
-                await this.db.onboardingState.upsert({
-                    where: { applicationId },
-                    create: { applicationId, agentPairingCode: code, agentPairingExpiresAt: expiresAt },
-                    update: { agentPairingCode: code, agentPairingExpiresAt: expiresAt },
+                // Mint and revoke commit together: half of this leaves the organization
+                // either with two live codes or with none, and both are exactly the
+                // confusion the revoke exists to remove. A collision rolls the whole
+                // attempt back, so the retry below starts from an untouched state.
+                await this.db.$transaction(async (tx) => {
+                    await tx.onboardingState.upsert({
+                        where: { applicationId },
+                        create: { applicationId, agentPairingCode: code, agentPairingExpiresAt: expiresAt },
+                        update: { agentPairingCode: code, agentPairingExpiresAt: expiresAt },
+                    });
+                    await this.revokeOtherCodesInOrg(tx, applicationId, organizationId);
                 });
                 return { code, expiresAt };
             } catch (err) {
@@ -143,8 +177,9 @@ export class OnboardingAgentSessionService {
     /**
      * Resolves a pairing code the agent presented to the app + org it was minted
      * for, verifies the OAuth user is a member of that org, and claims the config
-     * for the agent (consuming the code). Throws NotFoundError for an unknown,
-     * expired, or non-member code - all indistinguishable, so a code can't probe.
+     * for the agent (consuming the code). Throws BadRequestError carrying
+     * {@link PAIRING_REJECTED_MESSAGE} for an unknown, spent, expired, non-member or
+     * deleted-app code - all indistinguishable, so a code can't probe.
      */
     async pairAgent(code: string, principal: McpPrincipal): Promise<AgentSessionView> {
         this.logger.info("Agent pairing with code");
@@ -156,8 +191,12 @@ export class OnboardingAgentSessionService {
             PAIR_RATE_LIMIT,
             "Too many pairing attempts; wait a minute and try again.",
         );
+        // `disabled: false` is part of the lookup, not a check after it: a deleted
+        // application keeps its onboarding row, so without this a code minted moments
+        // before the delete still resolves - and pairing would flip a dead app to
+        // agent-held before the tool failed further downstream on the same app.
         const state = await this.db.onboardingState.findFirst({
-            where: { agentPairingCode: code },
+            where: { agentPairingCode: code, application: { disabled: false } },
             select: {
                 applicationId: true,
                 agentPairingExpiresAt: true,
@@ -183,7 +222,7 @@ export class OnboardingAgentSessionService {
                 userId: principal.userId,
                 extra: { known: state != null, expired: expiresAt != null && expiresAt.getTime() < Date.now() },
             });
-            throw new NotFoundError("Pairing code is invalid or expired");
+            throw new BadRequestError(PAIRING_REJECTED_MESSAGE);
         }
 
         const now = new Date();
@@ -201,7 +240,7 @@ export class OnboardingAgentSessionService {
             },
         });
         if (consumed.count === 0) {
-            throw new NotFoundError("Pairing code is invalid or expired");
+            throw new BadRequestError(PAIRING_REJECTED_MESSAGE);
         }
         this.logger.info("Agent paired and holding config", { applicationId: state.applicationId, organizationId });
         return this.requireView(state.applicationId);
@@ -465,6 +504,39 @@ export class OnboardingAgentSessionService {
         await this.db.onboardingState.updateMany({
             where: { applicationId, agentClient: null },
             data: { agentClient: trimmed.slice(0, MAX_AGENT_CLIENT_LENGTH) },
+        });
+    }
+
+    /**
+     * Clear every outstanding pairing code in this organization except the app just
+     * minted for, so the code on screen is the only one that pairs. Read first and
+     * update by id: `updateMany` cannot filter through the `application` relation.
+     * Runs on the caller's transaction, so the read and the write it decides cannot
+     * be split by a concurrent mint for a sibling app.
+     */
+    private async revokeOtherCodesInOrg(
+        tx: Prisma.TransactionClient,
+        applicationId: string,
+        organizationId: string,
+    ): Promise<void> {
+        const stale = await tx.onboardingState.findMany({
+            where: {
+                applicationId: { not: applicationId },
+                agentPairingCode: { not: null },
+                application: { organizationId },
+            },
+            select: { applicationId: true },
+        });
+        if (stale.length === 0) return;
+
+        const { count } = await tx.onboardingState.updateMany({
+            where: { applicationId: { in: stale.map((state) => state.applicationId) } },
+            data: { agentPairingCode: null, agentPairingExpiresAt: null },
+        });
+        this.logger.info("Revoked pairing codes superseded by a newer one", {
+            applicationId,
+            organizationId,
+            extra: { revoked: count },
         });
     }
 

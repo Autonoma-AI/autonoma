@@ -443,6 +443,20 @@ export class ApplicationsService extends Service {
                 extra: { removed: removedTriggers.count },
             });
 
+            // Revoke any pairing code still outstanding for this app. The onboarding
+            // state row survives the delete, so a code minted moments before it would
+            // otherwise keep pairing agents to an application that no longer exists,
+            // for the rest of its TTL - while the user, having started over, is looking
+            // at a different app's code entirely.
+            const revoked = await tx.onboardingState.updateMany({
+                where: { applicationId: id, agentPairingCode: { not: null } },
+                data: { agentPairingCode: null, agentPairingExpiresAt: null },
+            });
+            this.logger.info("Revoked pairing code for deleted application", {
+                applicationId: id,
+                extra: { revoked: revoked.count },
+            });
+
             // Free the Vercel project too, same reasoning as the GitHub repo above -
             // otherwise it stays "linked" to this now-disabled application forever,
             // invisible both as linked (app is disabled) and as available to link

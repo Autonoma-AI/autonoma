@@ -1,12 +1,34 @@
 import { randomBytes } from "node:crypto";
-import { ApplicationArchitecture } from "@autonoma/db";
-import { NotFoundError } from "@autonoma/errors";
+import { ApplicationArchitecture, type PrismaClient } from "@autonoma/db";
+import { BadRequestError, NotFoundError } from "@autonoma/errors";
+import { EncryptionHelper } from "@autonoma/utils";
 import { expect } from "vitest";
 import { resolveMcpPrincipal } from "../../src/mcp/mcp-principal";
 import { resolveMcpTarget } from "../../src/mcp/resolve-mcp-target";
 import { RateLimiterService } from "../../src/rate-limit/rate-limiter.service";
+import { ApplicationsService } from "../../src/routes/applications/applications.service";
 import { OnboardingAgentSessionService } from "../../src/routes/onboarding/onboarding-agent-session.service";
 import { apiTestSuite } from "../api-test";
+
+/**
+ * Every pairing rejection must be a BadRequestError specifically. NotFoundError is the one
+ * error the MCP layer maps to a non-error `status: "unavailable"` result, so a rejection
+ * thrown as one reaches the agent looking like "nothing here" rather than "your code is
+ * wrong" - and is recorded in analytics as a successful pair.
+ */
+const PAIRING_REJECTION = BadRequestError;
+
+async function createApp(db: PrismaClient, organizationId: string, name: string): Promise<string> {
+    const app = await db.application.create({
+        data: {
+            name,
+            slug: `${name.toLowerCase()}-${randomBytes(4).toString("hex")}`,
+            architecture: ApplicationArchitecture.WEB,
+            organizationId,
+        },
+    });
+    return app.id;
+}
 
 /**
  * An API key is minted for one organization, so over MCP it must not reach an app in another -
@@ -162,7 +184,7 @@ apiTestSuite({
                 organizationId: harness.organizationId,
             });
 
-            await expect(service.pairAgent(code, principal)).rejects.toThrow(NotFoundError);
+            await expect(service.pairAgent(code, principal)).rejects.toThrow(PAIRING_REJECTION);
 
             // The code must survive a rejected attempt, or an out-of-scope caller could burn a
             // valid code the rightful agent is about to use.
@@ -186,6 +208,65 @@ apiTestSuite({
 
             const view = await service.pairAgent(code, principal);
 
+            expect(view.applicationId).toBe(seedResult.otherAppId);
+        });
+
+        test("a pairing code stops working once its application is deleted", async ({ harness }) => {
+            const service = new OnboardingAgentSessionService(harness.db, new RateLimiterService(harness.db));
+            const applications = new ApplicationsService(
+                harness.db,
+                new EncryptionHelper(randomBytes(32).toString("hex")),
+                "main",
+            );
+            const applicationId = await createApp(harness.db, harness.organizationId, "Abandoned");
+            const { code } = await service.createPairing(applicationId, harness.organizationId);
+            const principal = await resolveMcpPrincipal(harness.db, {
+                userId: harness.userId,
+                organizationId: harness.organizationId,
+            });
+
+            await applications.deleteApplication(applicationId, harness.organizationId);
+
+            await expect(service.pairAgent(code, principal)).rejects.toThrow(PAIRING_REJECTION);
+            const state = await harness.db.onboardingState.findUnique({
+                where: { applicationId },
+                select: { agentPairingCode: true, agentPairingExpiresAt: true },
+            });
+            expect(state?.agentPairingCode).toBeNull();
+            expect(state?.agentPairingExpiresAt).toBeNull();
+        });
+
+        test("minting a code revokes the outstanding one for another app in the same org", async ({ harness }) => {
+            const service = new OnboardingAgentSessionService(harness.db, new RateLimiterService(harness.db));
+            const abandonedId = await createApp(harness.db, harness.organizationId, "Started");
+            const currentId = await createApp(harness.db, harness.organizationId, "Restarted");
+            const principal = await resolveMcpPrincipal(harness.db, {
+                userId: harness.userId,
+                organizationId: harness.organizationId,
+            });
+
+            const abandoned = await service.createPairing(abandonedId, harness.organizationId);
+            const current = await service.createPairing(currentId, harness.organizationId);
+
+            // The whole point: the code the user is no longer looking at must not pair, or an
+            // agent handed it silently configures the app they walked away from.
+            await expect(service.pairAgent(abandoned.code, principal)).rejects.toThrow(PAIRING_REJECTION);
+            const view = await service.pairAgent(current.code, principal);
+            expect(view.applicationId).toBe(currentId);
+        });
+
+        test("minting a code leaves another organization's outstanding code alone", async ({ harness, seedResult }) => {
+            const service = new OnboardingAgentSessionService(harness.db, new RateLimiterService(harness.db));
+            const { code } = await service.createPairing(seedResult.otherAppId, seedResult.otherOrgId);
+            const principal = await resolveMcpPrincipal(harness.db, {
+                userId: harness.userId,
+                organizationId: seedResult.otherOrgId,
+            });
+
+            const elsewhereId = await createApp(harness.db, harness.organizationId, "Elsewhere");
+            await service.createPairing(elsewhereId, harness.organizationId);
+
+            const view = await service.pairAgent(code, principal);
             expect(view.applicationId).toBe(seedResult.otherAppId);
         });
     },
