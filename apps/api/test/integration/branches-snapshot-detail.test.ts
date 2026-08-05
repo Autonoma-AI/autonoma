@@ -156,7 +156,7 @@ apiTestSuite({
             // single-snapshot payload (the lean PR-overview fan-out skips it for query budget).
             const detail = await harness
                 .request()
-                .branches.snapshotDetail({ snapshotId: fixture.snapshotId, includeRefinementLoop: true });
+                .branches.snapshotDetail({ snapshotId: fixture.snapshotId, includeCreatedTests: true });
 
             expect(detail.createdTests).toHaveLength(1);
             expect(detail.createdTests[0]).toMatchObject({
@@ -167,68 +167,29 @@ apiTestSuite({
             });
         });
 
-        test("uses the final refinement loop outcome instead of earlier failed attempts", async ({ harness }) => {
+        // A test case can carry several generations in one snapshot; the row reports the newest, so a retry
+        // that passed is not reported as the failure it replaced.
+        test("reports the latest generation, not an earlier failed attempt", async ({ harness }) => {
             const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Checkout check"] });
-            const assignment = fixture.assignments.checkout;
-            const plan = await harness.db.testPlan.create({
-                data: {
-                    testCaseId: assignment.testCaseId,
-                    prompt: "Complete checkout",
-                    organizationId: harness.organizationId,
-                },
-            });
-            await harness.db.testCaseAssignment.update({
-                where: { id: assignment.id },
-                data: { planId: plan.id },
-            });
+            const { plan } = await attachPlan(harness, fixture.assignments.checkout);
 
-            const loop = await harness.db.refinementLoop.create({
-                data: {
-                    snapshotId: fixture.snapshotId,
-                    triggeredBy: "diffs",
-                    status: "converged",
-                    startedAt: new Date("2026-01-01T10:00:00Z"),
-                    finishedAt: new Date("2026-01-01T10:30:00Z"),
-                    organizationId: harness.organizationId,
-                },
-            });
-            const iterationOne = await createRefinementIteration(harness, loop.id, plan.id, 1, {
-                startedAt: new Date("2026-01-01T10:00:00Z"),
-                finishedAt: new Date("2026-01-01T10:10:00Z"),
-            });
-            const iterationTwo = await createRefinementIteration(harness, loop.id, plan.id, 2, {
-                startedAt: new Date("2026-01-01T10:20:00Z"),
-                finishedAt: new Date("2026-01-01T10:30:00Z"),
-            });
-
-            // Iteration 1's generation failed its review...
             const firstGeneration = await createFailedGeneration(
                 harness,
                 fixture.snapshotId,
                 plan.id,
                 new Date("2026-01-01T10:02:00Z"),
             );
-            // ...iteration 2 regenerated and passed. A generation passing its review
-            // is the definition of "validated"; there is no replay step.
             const passingGeneration = await createSuccessfulGeneration(
                 harness,
                 fixture.snapshotId,
                 plan.id,
                 new Date("2026-01-01T10:22:00Z"),
             );
-
-            expect(iterationOne.number).toBe(1);
-            expect(iterationTwo.number).toBe(2);
             expect(firstGeneration.status).toBe("failed");
 
             const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
 
-            expect(detail.healthCounts).toMatchObject({
-                passing: 1,
-                failing: 0,
-                running: 0,
-                totalTests: 1,
-            });
+            expect(detail.healthCounts).toMatchObject({ passing: 1, failing: 0, running: 0, totalTests: 1 });
             expect(detail.executedTests).toHaveLength(1);
             expect(detail.executedTests[0]).toMatchObject({
                 generationId: passingGeneration.id,
@@ -237,68 +198,10 @@ apiTestSuite({
             });
         });
 
-        test("summary reads 'No runs' (neutral), not unhealthy, with no runs and no bugs", async ({ harness }) => {
-            // Assigned tests, zero runs, zero open bugs. Must not present as "unhealthy · 0 bugs".
-            const fixture = await createSnapshotDetailFixture(harness);
-
-            const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
-
-            expect(detail.summary.executionState).toBe("not_started");
-            expect(detail.summary.tone).toBe("neutral");
-            expect(detail.summary.label).toBe("No runs");
-            expect(detail.summary.openBugCount).toBe(0);
-            expect(detail.summary.failingByKind).toEqual({ engine: 0, app: 0 });
-        });
-
-        test("resolves to the last completed outcome when a terminated loop has a trailing pending iteration", async ({
-            harness,
-        }) => {
-            const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Healing check"] });
-            const { plan } = await attachPlan(harness, fixture.assignments.healing);
-
-            // Terminal `max_iterations` loop with a never-executed iteration #2 left in `pending`.
-            // The outcome should reflect iteration #1's failure, not appear as still running.
-            const loop = await harness.db.refinementLoop.create({
-                data: {
-                    snapshotId: fixture.snapshotId,
-                    triggeredBy: "diffs",
-                    status: "max_iterations",
-                    startedAt: new Date("2026-01-01T10:00:00Z"),
-                    finishedAt: new Date("2026-01-01T10:20:00Z"),
-                    organizationId: harness.organizationId,
-                },
-            });
-            await createRefinementIteration(harness, loop.id, plan.id, 1, {
-                startedAt: new Date("2026-01-01T10:00:00Z"),
-                finishedAt: new Date("2026-01-01T10:10:00Z"),
-            });
-            await createRefinementIteration(harness, loop.id, plan.id, 2, {
-                startedAt: new Date("2026-01-01T10:20:00Z"),
-                status: "pending",
-            });
-
-            // The only generation failed review and no replay ever ran.
-            await createFailedGeneration(harness, fixture.snapshotId, plan.id, new Date("2026-01-01T10:05:00Z"));
-
-            const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
-
-            expect(detail.executedTests).toHaveLength(1);
-            expect(detail.executedTests[0]).toMatchObject({
-                finalOutcome: "failed",
-            });
-            expect(detail.executedTests[0]?.generationId).not.toBeNull();
-            expect(detail.healthCounts).toMatchObject({ failing: 1, running: 0, passing: 0 });
-        });
-
-        test("surfaces a scenario_setup failure in a completed iteration as setup_failed", async ({ harness }) => {
+        test("surfaces a scenario_setup failure as setup_failed, not failed", async ({ harness }) => {
             const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Checkout check"] });
             const { plan } = await attachPlan(harness, fixture.assignments.checkout);
 
-            const loop = await createRefinementLoop(harness, fixture.snapshotId);
-            await createRefinementIteration(harness, loop.id, plan.id, 1, {
-                startedAt: new Date("2026-01-01T10:00:00Z"),
-                finishedAt: new Date("2026-01-01T10:10:00Z"),
-            });
             await createScenarioSetupFailedGeneration(
                 harness,
                 fixture.snapshotId,
@@ -324,44 +227,17 @@ apiTestSuite({
             });
         });
 
-        // Documents the #995 boundary: a non-completed final iteration that still carries
-        // RefinementIterationInput rows for the test case keeps masking the underlying
-        // scenario_setup failure as unresolved/pending. This slice intentionally does not fix that.
-        test("keeps a setup failure masked behind a dangling final iteration that carries inputs", async ({
-            harness,
-        }) => {
-            const fixture = await createSnapshotDetailFixture(harness, { testNames: ["Checkout check"] });
-            const { plan } = await attachPlan(harness, fixture.assignments.checkout);
-
-            const loop = await createRefinementLoop(harness, fixture.snapshotId);
-            await createRefinementIteration(harness, loop.id, plan.id, 1, {
-                startedAt: new Date("2026-01-01T10:00:00Z"),
-                finishedAt: new Date("2026-01-01T10:10:00Z"),
-            });
-            await createScenarioSetupFailedGeneration(
-                harness,
-                fixture.snapshotId,
-                plan.id,
-                new Date("2026-01-01T10:02:00Z"),
-                "The staging environment never came up.",
-            );
-            // The dangling final iteration is still in-flight but carries an input for the same plan.
-            await createRefinementIteration(harness, loop.id, plan.id, 2, {
-                startedAt: new Date("2026-01-01T10:20:00Z"),
-                status: "running",
-            });
+        test("summary reads 'No runs' (neutral), not unhealthy, with no runs and no bugs", async ({ harness }) => {
+            // Assigned tests, zero runs, zero open bugs. Must not present as "unhealthy · 0 bugs".
+            const fixture = await createSnapshotDetailFixture(harness);
 
             const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
 
-            expect(detail.healthCounts).toMatchObject({
-                setupFailed: 0,
-                failing: 0,
-                passing: 0,
-                running: 1,
-                totalTests: 1,
-            });
-            expect(detail.executedTests).toHaveLength(1);
-            expect(detail.executedTests[0]).toMatchObject({ finalOutcome: "unresolved", status: "pending" });
+            expect(detail.summary.executionState).toBe("not_started");
+            expect(detail.summary.tone).toBe("neutral");
+            expect(detail.summary.label).toBe("No runs");
+            expect(detail.summary.openBugCount).toBe(0);
+            expect(detail.summary.failingByKind).toEqual({ engine: 0, app: 0 });
         });
     },
 });
@@ -391,18 +267,6 @@ async function createPlanFor(harness: APITestHarness, assignment: { testCaseId: 
     });
 }
 
-async function createRefinementLoop(harness: APITestHarness, snapshotId: string) {
-    return harness.db.refinementLoop.create({
-        data: {
-            snapshotId,
-            triggeredBy: "diffs",
-            status: "running",
-            startedAt: new Date("2026-01-01T10:00:00Z"),
-            organizationId: harness.organizationId,
-        },
-    });
-}
-
 async function createSnapshotDetailFixture(harness: APITestHarness, input: { testNames?: string[] } = {}) {
     const application = await harness.services.applications.createApplication({
         name: `Snapshot Detail ${crypto.randomUUID()}`,
@@ -421,14 +285,6 @@ async function createSnapshotDetailFixture(harness: APITestHarness, input: { tes
         where: { id: branch.activeSnapshotId },
         data: { status: "active", baseSha: "base-sha", headSha: "head-sha" },
     });
-    await harness.db.diffsJob.create({
-        data: {
-            snapshotId: branch.activeSnapshotId,
-            status: "completed",
-            organizationId: harness.organizationId,
-        },
-    });
-
     const folder = await harness.db.folder.create({
         data: {
             name: "Default",
@@ -463,32 +319,6 @@ async function createSnapshotDetailFixture(harness: APITestHarness, input: { tes
         snapshotId: branch.activeSnapshotId,
         assignments,
     };
-}
-
-async function createRefinementIteration(
-    harness: APITestHarness,
-    loopId: string,
-    planId: string,
-    number: number,
-    input: { startedAt: Date; finishedAt?: Date; status?: "pending" | "running" | "completed" },
-) {
-    const iteration = await harness.db.refinementIteration.create({
-        data: {
-            loopId,
-            number,
-            status: input.status ?? "completed",
-            startedAt: input.startedAt,
-            finishedAt: input.finishedAt,
-        },
-    });
-    await harness.db.refinementIterationInput.create({
-        data: {
-            iterationId: iteration.id,
-            planId,
-            createdAt: input.startedAt,
-        },
-    });
-    return iteration;
 }
 
 async function createScenarioSetupFailedGeneration(

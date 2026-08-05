@@ -1,32 +1,27 @@
-import { Button, cn, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
+import { cn, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
-import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { Outlet, createFileRoute, notFound, useLocation } from "@tanstack/react-router";
 import { AnalysisJobStatus } from "components/analysis/analysis-job-status";
 import { AnalysisReportBody } from "components/analysis/analysis-report-body";
-import { SentryLogsLink, TemporalLink } from "components/observability-links";
-import type { SnapshotDetail } from "components/snapshot/diffs-timeline-types";
-import { PipelineStrip } from "components/snapshot/pipeline-strip";
+import type { SnapshotDetail } from "components/snapshot/snapshot-types";
 import { ReasoningPanel } from "components/snapshot/reasoning-panel";
-import { SnapshotReportDocument, SnapshotReportDocumentSkeleton } from "components/snapshot/report-document";
+import { SnapshotBugsPanel, SnapshotBugsPanelSkeleton } from "components/snapshot/snapshot-bugs-panel";
 import { SnapshotReportHeader } from "components/snapshot/snapshot-report-header";
 import { SnapshotReportTabs } from "components/snapshot/snapshot-report-tabs";
 import { SuiteChangesSummary } from "components/snapshot/suite-changes-summary";
-import { useAuth } from "lib/auth";
 import {
   ensureAnalysisJobData,
   ensureAnalysisReportData,
   ensureAnalysisSnapshotIssueChangesData,
-  ensureSnapshotDetailData,
+  ensureFullSnapshotDetailData,
   ensureSnapshotReportData,
-  FULL_SNAPSHOT_DETAIL,
   useAnalysisJob,
   useAnalysisReport,
-  useSnapshotDetail,
+  useFullSnapshotDetail,
   useSnapshotReport,
 } from "lib/query/branches.queries";
 import type { RouterOutputs } from "lib/trpc";
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { CheckpointTestsRun } from "../../../-components/checkpoint-tests-run";
 
@@ -43,7 +38,7 @@ export const Route = createFileRoute(
     // the prose's own Suspense boundary rather than blocking the route on a second, dependent round-trip.
     await Promise.all([
       ensureSnapshotReportData(context.queryClient, snapshotId),
-      ensureSnapshotDetailData(context.queryClient, snapshotId, FULL_SNAPSHOT_DETAIL),
+      ensureFullSnapshotDetailData(context.queryClient, snapshotId),
       ensureAnalysisJobData(context.queryClient, snapshotId),
       ensureAnalysisReportData(context.queryClient, snapshotId),
       ensureAnalysisSnapshotIssueChangesData(context.queryClient, snapshotId),
@@ -65,14 +60,13 @@ function SnapshotReportLayout() {
 function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; snapshotId: string }) {
   const { appSlug } = Route.useParams();
   const { data: report } = useSnapshotReport(snapshotId);
-  const { data: detail } = useSnapshotDetail(snapshotId, FULL_SNAPSHOT_DETAIL);
+  const { data: detail } = useFullSnapshotDetail(snapshotId);
   // The `AnalysisJob` (null for a diffs snapshot) is the page-level gate: its presence means the merged pipeline
   // ran, so render the authoritative layout even before a report exists. The report supplies the content once it
   // lands and polls until then (driven by the job's status); while it is still null the run's lifecycle status
   // stands in. Both are prefetched in the loader, so neither flashes.
   const { data: analysisJob } = useAnalysisJob(snapshotId);
   const { data: analysisReport } = useAnalysisReport(snapshotId, { jobStatus: analysisJob?.status });
-  const { isAdmin } = useAuth();
   const location = useLocation();
   const activeTab = location.pathname.includes("/changes") ? "changes" : "report";
   const showingChanges = activeTab === "changes";
@@ -80,35 +74,11 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   // render only their Outlet.
   const showingInvestigation = location.pathname.includes("/investigation");
   const showingFindings = location.pathname.includes("/findings");
-  const [pipelineOpen, setPipelineOpen] = useState(false);
-  const { changes, createdTests, diffsJob, refinementLoop } = detail;
-  const isAuthoritative = analysisJob != null;
-
   if (showingInvestigation || showingFindings) return <Outlet />;
-
-  const adminControls = isAdmin ? (
-    <div className="flex items-center gap-2">
-      {!isAuthoritative && (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setPipelineOpen((prev) => !prev)}
-          aria-expanded={pipelineOpen}
-        >
-          <GearSixIcon size={14} />
-          {pipelineOpen ? "Hide pipeline" : "Show pipeline"}
-        </Button>
-      )}
-      {diffsJob?.temporalWorkflow != null && (
-        <TemporalLink workflowId={diffsJob.temporalWorkflow.workflowId} runId={diffsJob.temporalWorkflow.runId} />
-      )}
-      <SentryLogsLink filterField="snapshotId" filterValue={snapshotId} />
-    </div>
-  ) : undefined;
 
   return (
     <div className={cn("flex flex-col gap-6", showingChanges && "lg:h-full")}>
-      <SnapshotReportHeader report={report} prNumber={prNumber} snapshotId={snapshotId} adminControls={adminControls} />
+      <SnapshotReportHeader report={report} prNumber={prNumber} snapshotId={snapshotId} />
 
       <SnapshotReportTabs appSlug={appSlug} prNumber={prNumber} snapshotId={snapshotId} activeTab={activeTab} />
 
@@ -134,16 +104,6 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
       ) : (
         <SnapshotReportBody report={report} detail={detail} prNumber={prNumber} />
       )}
-
-      {isAdmin && diffsJob != null && pipelineOpen && (
-        <PipelineStrip
-          diffsJob={diffsJob}
-          changes={changes}
-          createdTests={createdTests}
-          refinementLoop={refinementLoop}
-          snapshotId={report.snapshot.id}
-        />
-      )}
     </div>
   );
 }
@@ -161,7 +121,7 @@ function SnapshotReportBody({
     <div className="flex flex-col gap-6">
       <SuiteChangesSummary detail={detail} prNumber={prNumber} />
       <TestsRunPanel detail={detail} />
-      <SnapshotReportDocument report={report} />
+      <SnapshotBugsPanel report={report} />
     </div>
   );
 }
@@ -201,7 +161,7 @@ function PageSkeleton({ prNumber }: { prNumber: number }) {
         <Skeleton className="h-8 w-96" />
         <Skeleton className="h-5 w-160 max-w-full" />
       </header>
-      <SnapshotReportDocumentSkeleton />
+      <SnapshotBugsPanelSkeleton />
     </div>
   );
 }

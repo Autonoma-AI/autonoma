@@ -5,18 +5,6 @@ import { type TestSuiteInfo, fetchTestSuiteInfo } from "@autonoma/test-updates";
 import { createGithubApp } from "../create-services";
 import { type BranchData, loadBranchData, loadDiffsContext } from "./load-context";
 
-/**
- * Which snapshot's test suite to treat as the analysis baseline.
- *
- * Analysis grades the diff against the suite as it stood *before* this
- * snapshot's pipeline ran. At production analysis time the current snapshot's
- * assignments are still a fresh copy of that baseline, so "current" is correct
- * and cheap. Capture, however, runs after the pipeline has mutated the current
- * snapshot, so it must read the "previous" snapshot to recover the exact same
- * baseline.
- */
-export type TestSuiteSource = "current" | "previous";
-
 /** The DiffsAgent input minus the on-disk clone, which the caller owns. */
 export type DiffsAgentInputWithoutCodebase = Omit<DiffsAgentInput, "codebase">;
 
@@ -29,22 +17,14 @@ export interface AssembledDiffsAgentInput {
 
 export interface AssembleDiffsAgentInputParams {
     snapshotId: string;
-    /**
-     * Which snapshot's suite to use as the analysis baseline. Defaults to
-     * "current" (correct + cheap at production analysis time). Capture passes
-     * "previous" to recover the baseline after the pipeline has run. See
-     * {@link TestSuiteSource}.
-     */
-    testSuiteSource?: TestSuiteSource;
 }
 
 /**
  * Loads and assembles the full {@link DiffsAgentInput} (minus the codebase) for
  * a snapshot: branch data plus suite/flow context.
  *
- * This is the DB-backed side-input loader behind the retired diffs analysis
- * runner and the eval-capture utility - capture freezes the assembled input to
- * disk, the runner feeds it straight to the agent.
+ * This is the DB-backed side-input loader behind the eval-capture utility, which
+ * freezes the assembled input to disk.
  *
  * It reads the snapshot directly and never opens a `TestSuiteUpdater`: the
  * updater only loads *pending* snapshots, but capture targets finalized (active)
@@ -54,9 +34,8 @@ export interface AssembleDiffsAgentInputParams {
  */
 export async function assembleDiffsAgentInput({
     snapshotId,
-    testSuiteSource = "current",
 }: AssembleDiffsAgentInputParams): Promise<AssembledDiffsAgentInput> {
-    logger.info("Assembling diffs agent input", { extra: { snapshotId, testSuiteSource } });
+    logger.info("Assembling diffs agent input", { extra: { snapshotId } });
 
     const snapshot = await db.branchSnapshot.findUniqueOrThrow({
         where: { id: snapshotId },
@@ -73,7 +52,7 @@ export async function assembleDiffsAgentInput({
     const branchData = await loadBranchData(branchId, createGithubApp());
     logger.info("Loaded branch data", { extra: { fullName: branchData.fullName } });
 
-    const suiteInfo = await loadBaselineSuiteInfo(snapshotId, prevSnapshotId, testSuiteSource);
+    const suiteInfo = await loadBaselineSuiteInfo(snapshotId, prevSnapshotId);
     const { metadata } = await loadDiffsContext(branchData.applicationId, suiteInfo, headSha, baseSha);
     logger.info("Loaded diffs context", { extra: { existingTests: metadata.existingTests.length } });
 
@@ -81,7 +60,7 @@ export async function assembleDiffsAgentInput({
     // from each scenario's point-in-time recipe version for the *same* snapshot
     // the suite came from. This is template data (what each scenario is designed
     // to seed), not per-run instance data - analysis runs before any replay.
-    const baselineSnapshotId = resolveBaselineSnapshotId(snapshotId, prevSnapshotId, testSuiteSource);
+    const baselineSnapshotId = resolveBaselineSnapshotId(snapshotId, prevSnapshotId);
     const scenarioRecipes = await resolveScenarioRecipesForSnapshot(
         db,
         baselineSnapshotId,
@@ -94,22 +73,12 @@ export async function assembleDiffsAgentInput({
 }
 
 /**
- * Resolve the test suite that analysis grades against.
- *
- * For "current" this is the snapshot's own suite (a fresh copy of the baseline
- * at analysis time). For "previous" we read the snapshot's `prevSnapshotId`
- * suite - the unmutated baseline - which is what capture needs since the current
- * snapshot has since been rewritten by the pipeline. Falls back to the current
- * suite when there is no previous snapshot (a genesis snapshot has no baseline
- * to recover).
+ * Resolve the test suite that analysis grades against: the snapshot's
+ * `prevSnapshotId` suite, which is the baseline as it stood before this
+ * snapshot's pipeline rewrote it. Falls back to the snapshot's own suite when
+ * there is no previous snapshot (a genesis snapshot has no baseline to recover).
  */
-async function loadBaselineSuiteInfo(
-    snapshotId: string,
-    prevSnapshotId: string | null,
-    source: TestSuiteSource,
-): Promise<TestSuiteInfo> {
-    if (source === "current") return fetchTestSuiteInfo(db, snapshotId);
-
+async function loadBaselineSuiteInfo(snapshotId: string, prevSnapshotId: string | null): Promise<TestSuiteInfo> {
     if (prevSnapshotId == null) {
         logger.warn("Snapshot has no previous snapshot; falling back to its own suite as the baseline", {
             extra: { snapshotId },
@@ -125,12 +94,9 @@ async function loadBaselineSuiteInfo(
 
 /**
  * The snapshot whose point-in-time recipe versions analysis should read - the
- * same one its test suite came from. Mirrors {@link loadBaselineSuiteInfo}:
- * "current" reads this snapshot; "previous" reads `prevSnapshotId` (what capture
- * needs), falling back to the current snapshot when there is no previous one.
+ * same one its test suite came from, so it mirrors {@link loadBaselineSuiteInfo}.
  */
-function resolveBaselineSnapshotId(snapshotId: string, prevSnapshotId: string | null, source: TestSuiteSource): string {
-    if (source === "current") return snapshotId;
+function resolveBaselineSnapshotId(snapshotId: string, prevSnapshotId: string | null): string {
     return prevSnapshotId ?? snapshotId;
 }
 

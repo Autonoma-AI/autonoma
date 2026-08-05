@@ -1,13 +1,8 @@
 import { Badge, Card, CardContent } from "@autonoma/blacklight";
+import { CHANGE_BADGE_VARIANTS } from "components/snapshot/change-badge-variants";
 import type { RouterOutputs } from "lib/trpc";
 
 type SnapshotChange = RouterOutputs["snapshotEdit"]["get"]["changes"][number];
-
-const CHANGE_BADGE_VARIANTS = {
-  added: "success",
-  removed: "critical",
-  updated: "warn",
-} as const;
 
 export function ChangesPanel({ changes }: { changes: SnapshotChange[] }) {
   return (
@@ -22,7 +17,7 @@ export function ChangesPanel({ changes }: { changes: SnapshotChange[] }) {
       <div className="flex-1 overflow-y-auto p-3">
         {changes.length === 0 ? (
           <div className="flex h-full items-center justify-center">
-            <p className="text-2xs text-text-tertiary">No changes in this snapshot</p>
+            <p className="text-2xs text-text-secondary">No changes in this snapshot</p>
           </div>
         ) : (
           <div className="flex flex-col gap-2">

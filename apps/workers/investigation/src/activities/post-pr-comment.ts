@@ -57,11 +57,7 @@ export async function postInvestigationPrComment(
         resolvePreviewUrl(snapshotId),
         resolvePrimaryCheckpoint(snapshotId),
     ]);
-    // The summary and the diffs-job status both hang off the primary checkpoint but not off each other.
-    const [summaries, diffsJob] = await Promise.all([
-        getCheckpointSummaries(db, [{ id: primary.id, status: primary.status }], logger),
-        db.diffsJob.findUnique({ where: { snapshotId: primary.id }, select: { status: true } }),
-    ]);
+    const summaries = await getCheckpointSummaries(db, [{ id: primary.id, status: primary.status }], logger);
     const summary = summaries.get(primary.id);
     const stats = summary != null ? statsFromSummary(summary) : undefined;
 
@@ -79,7 +75,7 @@ export async function postInvestigationPrComment(
             repoFullName: meta.repoFullName,
             stats,
             // The findings-clean headline defers to the primary checkpoint (findings first, checkpoint second).
-            checkpointHeadline: healthyHeadlineFromSummary(summary, diffsJob?.status),
+            checkpointHeadline: healthyHeadlineFromSummary(summary),
         },
         async (s3Url) => {
             // Serve the correct content type so GitHub's image proxy renders the animated GIF clip (client bugs)

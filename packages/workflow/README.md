@@ -14,7 +14,6 @@ src/
 ├── root-failure-message.ts               # Unwraps a Temporal failure chain - not in rules/, it imports @temporalio
 ├── rules/                                # Pure decision logic - no Temporal, assertable without a test server
 │   ├── build-warrant.ts                 # Whether a commit warrants a preview build, and why
-│   ├── refinement-max-iterations.ts     # The per-trigger iteration cap
 │   └── scenario-setup-failure.ts        # Categorising a failed `scenario up`
 ├── observability/                        # Canonical ObservabilityContext for a workflow's subjects
 │   ├── load-generation-context.ts
@@ -27,8 +26,8 @@ src/
 │   ├── analysis-activities.ts           # The analysis pipeline's stages
 │   ├── previewkit-activities.ts         # Preview build lifecycle + the warrant's inputs
 │   ├── investigation-activities.ts      # Investigation / Investigator activities
-│   ├── general-activities.ts            # Scenarios, refinement, notifications
-│   ├── diffs-activities.ts              # Pre-cutover diffs activities
+│   ├── general-activities.ts            # Scenario setup/teardown + generation lifecycle
+│   ├── diffs-activities.ts              # The generation reviewer, on the diffs queue
 │   ├── web-activities.ts                # Web worker
 │   └── mobile-activities.ts             # Mobile worker
 ├── workflows/                            # Everything that runs INSIDE the workflow sandbox, and nothing else
@@ -42,18 +41,13 @@ src/
 │   ├── investigator.workflow.ts          # One test's investigation
 │   ├── investigation.workflow.ts         # Shadow investigation (manual trigger only)
 │   ├── investigation-merge.workflow.ts   # Reconcile a merged twin's edits into main
-│   ├── refinement-loop.workflow.ts       # Generation refinement loop
-│   ├── run-generation-pipeline.workflow.ts
 │   ├── batch-generation.workflow.ts      # Parallel generation
-│   ├── single-generation.workflow.ts
-│   └── diffs.workflow.ts                 # Pre-cutover diffs run; nothing starts one
+│   └── single-generation.workflow.ts
 ├── triggers/                             # Functions to start workflows via the Temporal client
 │   ├── analysis-run.ts                   # triggerAnalysisRun
 │   ├── preview-build.ts                  # triggerPreviewBuild
 │   ├── batch-generation.ts               # triggerBatchGeneration
-│   ├── investigation.ts                  # triggerInvestigationJob / triggerInvestigationMergeJob
-│   ├── refinement-loop.ts                # triggerRefinementLoop
-│   └── diffs.ts                          # findLatestWorkflowBySnapshotId (read path only)
+│   └── investigation.ts                  # triggerInvestigationJob / triggerInvestigationMergeJob
 └── worker/
     └── create-worker.ts                  # Helper to create Temporal workers
 ```
@@ -67,11 +61,9 @@ triggerPreviewBuild(input: PreviewBuildWorkflowInput): Promise<void>
 triggerBatchGeneration(params: TriggerBatchGenerationParams): Promise<void>
 triggerInvestigationJob(params: TriggerInvestigationJobParams): Promise<void>
 triggerInvestigationMergeJob(params: TriggerInvestigationMergeJobParams): Promise<void>
-triggerRefinementLoop(params: TriggerRefinementLoopParams): Promise<void>
 
 // Query functions
 findLatestWorkflowByGenerationId(generationId: string): Promise<WorkflowRef | undefined>
-findLatestWorkflowBySnapshotId(snapshotId: string): Promise<WorkflowRef | undefined>
 
 // Worker helpers
 createTemporalWorker(options: CreateWorkerOptions): Promise<Worker>
@@ -79,6 +71,9 @@ createTemporalWorker(options: CreateWorkerOptions): Promise<Worker>
 // Client
 getTemporalClient(): Promise<Client>
 resetTemporalClient(): void
+
+// Observability
+loadSnapshotObservabilityContext(snapshotId: string): Promise<ObservabilityContext>
 
 // Types
 type AnalysisRunWorkflowInput
@@ -111,7 +106,7 @@ Workflows define the orchestration logic using Temporal's deterministic workflow
 
 - **web** queue - Playwright-based browser automation activities
 - **mobile** queue - Appium-based device automation activities
-- **general** queue - Scenarios, refinement, notifications, and the preview build lifecycle
+- **general** queue - Scenario setup/teardown, generation lifecycle, and the preview build lifecycle
 - **diffs** queue - The analysis pipeline's stages, which clone the repository
 - **investigation** queue - The shadow investigation agent
 

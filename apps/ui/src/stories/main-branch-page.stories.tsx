@@ -441,9 +441,7 @@ function mainSnapshotDetail(): NonNullable<TrpcFixtures["branches"]>["snapshotDe
       branch: { id: BRANCH_ID, name: "main", applicationId: baseApplication.id, prNumber: undefined },
     },
     changes: [],
-    diffsJob: undefined,
     createdTests: [],
-    refinementLoop: undefined,
     health: "critical",
     healthCounts: { failing: 0, passing: 3, running: 0, setupFailed: 0, notAffected: 0, totalTests: 5 },
     summary: {

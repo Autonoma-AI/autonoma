@@ -151,7 +151,7 @@ added to the twin suite. See the workflow in `@autonoma/workflow` and `activitie
   a stub. The always-available tools (codebase, prior runs, vision) are fully wired.
 - Web apps only (shadow generations run on the web worker); non-web tests are skipped.
 - Shadow `TestGeneration` rows are real rows, but carry `shadow = true` so they are excluded from every
-  user-facing generation view and from the refinement loop's per-test-case dedup/invariant. The `shadow` flag
+  user-facing generation view and from the generation manager's per-test-case dedup. The `shadow` flag
   (not the investigation-parent snapshot filter) is the authoritative guard: shadow rows can land on the PR's
   _active_ snapshot, not just the detached investigation twin, so the twin-snapshot separation alone does not
   hide them. The investigation workflow can stop mid-run and orphan un-run shadow rows in `pending`; the marker

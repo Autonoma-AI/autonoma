@@ -1,7 +1,7 @@
 import { Badge } from "@autonoma/blacklight";
 import { Link } from "@tanstack/react-router";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
-import type { SnapshotDetail } from "./diffs-timeline-types";
+import type { SnapshotDetail } from "./snapshot-types";
 
 interface SummaryEntry {
   testCaseId: string;

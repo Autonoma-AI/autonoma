@@ -3,14 +3,11 @@ import type { ApplicationArchitecture } from "@autonoma/db";
 import { z } from "zod";
 import type { DiffsAgentResult } from "../src/agents/diffs/diffs-agent";
 import { DiffsAgentLoop } from "../src/agents/diffs/diffs-agent-loop";
-import { HealingAgentLoop } from "../src/agents/healing/healing-agent-loop";
 import { ReviewerLoop } from "../src/agents/reviewers/reviewer-loop";
 import type { InspectableStep, ScreenshotLoader } from "../src/agents/tools/run-evidence/run-evidence-types";
 import { Codebase } from "../src/codebase";
 import type { ExistingTestInfo } from "../src/diffs-agent";
 import { FlowIndex } from "../src/flow-index";
-import type { HealingReviewLink } from "../src/healing/actions";
-import type { RenderableReviewStep } from "../src/review/kernel";
 import type { ScenarioData } from "../src/scenario-data";
 import { ScenarioIndex } from "../src/scenario-index";
 import type { ScenarioRecipeData } from "../src/scenario-recipe";
@@ -81,36 +78,3 @@ export function makeReviewerLoop(overrides: ReviewerLoopOverrides = {}): Reviewe
     });
 }
 
-export interface HealingLoopOverrides {
-    workingDirectory?: string;
-    flowIndex?: FlowIndex;
-    scenarioIndex?: ScenarioIndex;
-    existingTests?: ExistingTestInfo[];
-    failureKeysByTestCaseId?: ReadonlyMap<string, string>;
-    failureKeys?: ReadonlySet<string>;
-    reviewLinksByTestCaseId?: ReadonlyMap<string, HealingReviewLink>;
-    stepEvidenceByFailureKey?: ReadonlyMap<string, RenderableReviewStep[]>;
-    screenshotLoader?: ScreenshotLoader;
-}
-
-export function makeHealingLoop(overrides: HealingLoopOverrides = {}): HealingAgentLoop {
-    const existingTests = overrides.existingTests ?? [];
-    return new HealingAgentLoop({
-        name: "HealingAgentTest",
-        model: FAKE_MODEL,
-        systemPrompt: "",
-        tools: [],
-        reportTool: FAKE_RESULT_TOOL as never,
-        codebase: new Codebase(overrides.workingDirectory ?? process.cwd()),
-        flowIndex:
-            overrides.flowIndex ??
-            new FlowIndex([{ id: "all", name: "All Tests", testSlugs: existingTests.map((t) => t.slug) }]),
-        scenarioIndex: overrides.scenarioIndex ?? new ScenarioIndex([]),
-        existingTests,
-        failureKeysByTestCaseId: overrides.failureKeysByTestCaseId ?? new Map(),
-        failureKeys: overrides.failureKeys ?? new Set(),
-        reviewLinksByTestCaseId: overrides.reviewLinksByTestCaseId ?? new Map(),
-        stepEvidenceByFailureKey: overrides.stepEvidenceByFailureKey ?? new Map(),
-        screenshotLoader: overrides.screenshotLoader,
-    });
-}

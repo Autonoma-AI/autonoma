@@ -321,55 +321,26 @@ export function latestSnapshotOf(snapshots: SnapshotHistoryEntry[]): SnapshotHis
     return sortSnapshotsNewestFirst(snapshots)[0];
 }
 
-const TERMINAL_DIFFS_JOB_STATUSES = new Set(["completed", "failed"]);
-const INCOMPLETE_GENERATION_STATUSES = new Set(["pending", "queued", "running"]);
-
-// The Temporal workflow link and refinement loop are only shown on the single-checkpoint page.
-// Aggregate callers (the PR overview card) omit them so the server skips an external Temporal call
-// and an extra query per snapshot. Lean callers keep the `{ snapshotId }` key so they share one
-// cache entry; the full page uses a distinct key.
-export type SnapshotDetailOptions = { includeWorkflow?: boolean; includeRefinementLoop?: boolean };
-
-// The single-checkpoint page (and its nested changes routes) render the workflow link and refinement
-// loop, so they request the full payload and share one cache entry under this key.
-export const FULL_SNAPSHOT_DETAIL: SnapshotDetailOptions = { includeWorkflow: true, includeRefinementLoop: true };
-
-function snapshotDetailQueryInput(snapshotId: string, options?: SnapshotDetailOptions) {
-    const includeWorkflow = options?.includeWorkflow === true;
-    const includeRefinementLoop = options?.includeRefinementLoop === true;
-    if (!includeWorkflow && !includeRefinementLoop) return { snapshotId };
-    return { snapshotId, includeWorkflow, includeRefinementLoop };
+// A snapshot's liveness is polled by the analysis-report/job queries, not these - there is nothing on
+// this payload that changes without those changing first.
+//
+// Two variants because the created-tests inspector costs an extra query per snapshot and only the
+// single-checkpoint page renders it. The inputs differ, so each variant has its own cache entry; every
+// caller of one shares that entry with the others.
+/** The lean payload the PR overview card fans out across every snapshot in a PR. */
+export function useSnapshotDetail(snapshotId: string) {
+    return useSuspenseQuery(trpc.branches.snapshotDetail.queryOptions({ snapshotId }));
 }
 
-export function useSnapshotDetail(snapshotId: string, options?: SnapshotDetailOptions) {
-    return useSuspenseQuery({
-        ...trpc.branches.snapshotDetail.queryOptions(snapshotDetailQueryInput(snapshotId, options)),
-        refetchInterval: (query) => {
-            const data = query.state.data;
-            if (data == null) return false;
-            // An authoritative snapshot has no diffs job; its liveness is polled by the analysis-report/job queries,
-            // not this one. With no diffs job there is nothing on this payload to keep watching for.
-            const diffsJob = data.diffsJob;
-            if (diffsJob == null) return data.refinementLoop?.status === "running" ? 5000 : false;
-            const affectedGens = diffsJob.affectedTests.map((t) => t.generation);
-            const hasIncompleteGenerations = affectedGens.some(
-                (g) => g != null && INCOMPLETE_GENERATION_STATUSES.has(g.status),
-            );
-            const hasInFlightDiffsJob = !TERMINAL_DIFFS_JOB_STATUSES.has(diffsJob.status);
-            const hasInFlightLoop = data.refinementLoop?.status === "running";
-            return hasIncompleteGenerations || hasInFlightDiffsJob || hasInFlightLoop ? 5000 : false;
-        },
-    });
+/** The lean payload plus the created-tests generation/run inspector. */
+export function useFullSnapshotDetail(snapshotId: string) {
+    return useSuspenseQuery(trpc.branches.snapshotDetail.queryOptions({ snapshotId, includeCreatedTests: true }));
 }
 
-export async function ensureSnapshotDetailData(
-    queryClient: QueryClient,
-    snapshotId: string,
-    options?: SnapshotDetailOptions,
-) {
+export async function ensureFullSnapshotDetailData(queryClient: QueryClient, snapshotId: string) {
     await ensureAPIQueryData(
         queryClient,
-        trpc.branches.snapshotDetail.queryOptions(snapshotDetailQueryInput(snapshotId, options)),
+        trpc.branches.snapshotDetail.queryOptions({ snapshotId, includeCreatedTests: true }),
     );
 }
 

@@ -7,11 +7,7 @@ import type {
 } from "@autonoma/workflow/activities";
 import { heartbeat } from "@temporalio/activity";
 
-export { analyzeDiffs } from "./analyze-diffs";
-export { markDiffsGenerating } from "./mark-diffs-generating";
-export { finalizeDiffs } from "./finalize-diffs";
 export { reviewGeneration } from "./review/generation";
-export { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 
 // Opening the run is the one analysis step with nothing long-running to do, so it skips the heartbeat wrapper.
 export { openAnalysisRun } from "./analysis/open-analysis-run";
@@ -25,11 +21,7 @@ import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impac
 import { runReporter as runReporterImpl } from "./analysis/run-reporter";
 import { selfHealAnalysisTest as selfHealAnalysisTestImpl } from "./analysis/self-heal-test";
 import { settleAnalysisRun as settleAnalysisRunImpl } from "./analysis/settle-analysis-run";
-import { analyzeDiffs } from "./analyze-diffs";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
-import { finalizeDiffs } from "./finalize-diffs";
-import { markDiffsGenerating } from "./mark-diffs-generating";
-import { runHealingAgentForRefinement } from "./refinement/run-healing-agent";
 import { reviewGeneration } from "./review/generation";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -77,13 +69,7 @@ export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
 export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassificationImpl);
 
 // Compile-time check: ensure exported activities match the DiffsActivities contract.
-({
-    analyzeDiffs,
-    markDiffsGenerating,
-    finalizeDiffs,
-    reviewGeneration,
-    runHealingAgentForRefinement,
-}) satisfies DiffsActivities;
+({ reviewGeneration }) satisfies DiffsActivities;
 
 // Compile-time check: the re-homed analysis-pipeline activities satisfy their contract. classify is part of the
 // shared InvestigationActivities contract (the workflow proxy that calls it is typed against it); the diffs

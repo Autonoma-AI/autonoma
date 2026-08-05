@@ -6,8 +6,7 @@
     "exports": {
         ".": "./src/index.ts",
         "./env": "./src/env.ts",
-        "./analysis": "./src/analysis/index.ts",
-        "./prepare-affected-tests": "./src/callbacks/trigger-tests.ts"
+        "./analysis": "./src/analysis/index.ts"
     },
     "scripts": {
         "test": "vitest",
@@ -20,7 +19,6 @@
     "dependencies": {
         "@ai-sdk/openai": "catalog:",
         "@autonoma/ai": "workspace:*",
-        "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/errors": "workspace:*",
         "@autonoma/github": "workspace:*",
@@ -31,7 +29,6 @@
         "@autonoma/test-updates": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/utils": "workspace:*",
-        "@autonoma/workflow": "workspace:*",
         "@t3-oss/env-core": "catalog:",
         "rimraf": "^6.1.3",
         "shell-quote": "catalog:",

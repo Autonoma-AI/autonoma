@@ -4,24 +4,16 @@ Local, per-step, **scored** evaluations for the diffs pipeline - the replacement
 the eyeball-only local-dev scripts. Each step keeps a corpus of on-disk cases and
 scores the agent's output with **deterministic frontmatter checks plus an LLM judge**.
 
-Four steps are currently under eval: **Diff Analysis**, **Generation Review**,
-**Diff Healing**, and the **Classifier** (the Investigator's verdict on one run).
-The reviewer and classifier evals additionally exercise
-the **multimedia rehydration path** - they download screenshots + the recording
-from S3 at run time via the production evidence loader. No media bytes are ever
-committed.
+Three steps are currently under eval: **Diff Analysis**, **Generation Review**, and
+the **Classifier** (the Investigator's verdict on one run). The reviewer and
+classifier evals additionally exercise the **multimedia rehydration path** - they
+download screenshots + the recording from S3 at run time via the production
+evidence loader. No media bytes are ever committed.
 
 Note that `analysis/` is the **impact-analysis** step (the `DiffsAgent`, which picks
 which tests a diff affects), while `classifier/` is the step that judges what a run's
 outcome MEANT. Both live under the pipeline's "analysis" banner; they grade different
 agents.
-
-Diff Resolution no longer has its own step. The Resolution agent was folded into
-the Healing agent as iteration 1 of the refinement loop, so a first-turn case
-(the affected-test generation failures) is now just another Healing fixture -
-captured and graded through the single Healing capture/eval path described below.
-New tests are authored upstream by the diffs agent (`create_test`); healing only
-heals and culls, so it has no test-authoring channel to grade.
 
 Each step lives in its own subdirectory (`<step>/`) with the same four files
 (`<step>-input.ts` schema, `<step>-frontmatter.ts` deterministic checks,
@@ -50,8 +42,7 @@ some-parent/
 ├── <this-repo>/apps/workers/diffs/evals/   # harness (public)
 └── eval-cases/                              # corpus (private), DIFFS_EVAL_CASES_DIR
     ├── analysis/cases/<name>/
-    ├── generation-review/cases/<name>/
-    └── healing/cases/<name>/
+    └── generation-review/cases/<name>/
 ```
 
 **Local setup:** clone the private repo alongside this one and point the env var
@@ -142,55 +133,6 @@ this body - never the codebase, conversation, screenshots, or video. Grade quali
 the deterministic verdict check cannot: does the reasoning cite the actual failure
 point, no hallucinated steps, correct engine-vs-app attribution?
 ```
-
-### Healing frontmatter
-
-Healing only heals and culls; it authors no tests, so the frontmatter grades two
-channels:
-
-- `expectedActions` grades the **per-failure action union**: a modify is
-  `update_plan`, a removal is `remove_test`, a bug is `report_bug` /
-  `report_engine_limitation`, a suspected-but-ungroundable issue is
-  `report_unknown_issue`, and a true scenario-data gap is `report_scenario_unsupported`.
-- `provenance` grades the **remove-vs-keep rule**. It is keyed by failing test
-  case and is semantic rather than kind-exact: `removed` means an invalid test authored _this_
-  snapshot must be `remove_test`-ed, and `kept` means a _pre-existing_ failing
-  test must be kept under any keep action and never deleted. Note `report_scenario_unsupported`
-  also removes the test from the suite, so it does **not** satisfy a `kept` disposition.
-
-```yaml
----
-description: "what this case exercises"
-skip: false
-expectedActions:                  # subset of failing test cases whose action kind matters
-    tc-abc: update_plan           # the kind the agent must emit for this test case
-    tc-def: report_bug
-    tc-ghi: remove_test
-provenance:                       # subset of the failing test cases; remove-vs-keep rule
-    tc-ghi: removed               # invalid new test -> remove_test (its failure must cite a review)
-    tc-def: kept                  # pre-existing failing test -> kept, never remove_test
----
-Free-text judge rubric. Grade qualities the deterministic checks cannot:
-    - For each update_plan: does the newPrompt actually address the cited failure?
-    - For each report_bug / report_engine_limitation / report_unknown_issue /
-      report_scenario_unsupported: is the triage correct? For report_bug, is the suspectedCause
-      genuinely grounded in code (not a report_unknown_issue in disguise)? For report_unknown_issue,
-      was grounding really out of reach? For report_scenario_unsupported, is it a true data gap
-      (not an update_plan in disguise) and does the description carry a concrete proposed extension?
-    - For each remove_test: is the cited reason plausible - an invalid test born this
-      snapshot or a deleted feature, not a pre-existing test that merely fails?
-```
-
-Healing's runtime invariant is that every input failure is handled by exactly one
-action (the agent loop throws otherwise). `expectedActions` pins action kinds only
-for the failing test cases listed in the map; omitted failures are left to the judge
-rubric or `provenance`. `expectedActions` and `provenance` keys need not be
-exhaustive, but every key must be a failing test case in `input.json`. Because
-`remove_test` is rejected at the runtime boundary unless the failure carries a source
-review, any test case expected to be removed - via `expectedActions: remove_test` or
-`provenance: removed` - must have a failure that carries a `reviewLink`, or the case
-throws at load time (the in-repo enforcement of "no `remove_test` case lacks a cited
-review").
 
 ### Classifier frontmatter
 
@@ -296,12 +238,12 @@ pnpm --filter @autonoma/worker-diffs eval
 
 ## Capturing a case
 
-Each per-step eval has its own capture command. They all resolve the relevant
-snapshot's (or iteration's) git coordinates, **validate both SHAs are fetchable**
-(refusing to write a case with a dead SHA), and freeze the production loader's output
-to disk. The reviewer captures additionally **probe every referenced S3 key** with the
-production evidence loader so a media-rotated fixture is never written. All capture
-commands read the DB; eval runs never touch it.
+Each per-step eval has its own capture command. They both resolve the case's git
+coordinates, **validate both SHAs are fetchable** (refusing to write a case with a
+dead SHA), and freeze the production loader's output to disk. The reviewer captures
+additionally **probe every referenced S3 key** with the production evidence loader so a
+media-rotated fixture is never written. All capture commands read the DB; eval runs never
+touch it.
 
 Capture **writes into the private corpus** at
 `${DIFFS_EVAL_CASES_DIR}/<step>/cases/<name>/`, so `DIFFS_EVAL_CASES_DIR` must be
@@ -312,28 +254,7 @@ the new case in the private `eval-cases` repo, never here.
 pnpm --filter @autonoma/worker-diffs capture:analysis               <snapshotId>   [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:classifier            <classificationId> [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:generation-review      <generationId> [--name <case-name>] [--force]
-pnpm --filter @autonoma/worker-diffs capture:healing                <iterationId>  [--name <case-name>] [--force]
-pnpm --filter @autonoma/worker-diffs capture:healing-from-snapshot  <snapshotId>   [--name <case-name>] [--force]
 ```
-
-A diffs **first turn** is captured with `capture:healing` like any other
-iteration - pass iteration 1 of a diffs refinement loop. The capture buckets its
-outcomes (affected tests are regenerated, so each has a generation + run, as do
-the diffs agent's new tests), so the frozen `input.json` carries those
-`failures`.
-
-**Pre-#986 / loop-less snapshots use `capture:healing-from-snapshot <snapshotId>`.**
-Before the cut-over (#986), "resolution" ran outside the refinement loop, so those
-snapshots have no `RefinementIteration` for `capture:healing` to start from. This
-command reconstructs the same first-turn `HealingInput` straight from the snapshot:
-failures from the affected-test generations (the plans diffs iteration 1 is seeded
-from) and the change / analysis reasoning / per-failure lineage from the shared
-`DiffJobContextLoader`. It is the migration path for the legacy resolution corpus,
-and produces a fixture identical in shape to an iteration-based first-turn capture.
-The suite (`existingTests` + flows) is read from the **previous** snapshot, because
-pre-#986 resolution mutated this snapshot's own assignments (modify/remove) - the
-previous snapshot holds the unmutated baseline the first turn saw, exactly as the
-old `capture:resolution` did (the "Baseline snapshot state" note below).
 
 After capture, fill in the frontmatter checks and the rubric
 in `expected.md`, then flip `skip: false`.
@@ -360,33 +281,6 @@ the snapshot's **previous** snapshot - the unmutated copy - to reproduce exactly
 This is controlled by the `testSuiteSource` option on the shared `assembleDiffsAgentInput` loader
 (`"current"` for the runner, `"previous"` for capture).
 
-**Healing - bucketing.** Healing capture re-buckets the iteration's plan outcomes via the shared
-`bucketIterationOutcomes` helper (the same code the `analyzeResults` activity uses at production
-time). Those reads only touch rows that the rest of the pipeline never mutates by id
-(`TestGeneration` and its review; `update_plan` creates a _new_ `TestPlan` rather than
-mutating the existing one, so iter-N+1's generations are keyed by a different `planId` and
-filtered out). The bucketing reproduces exactly - including a **diffs first turn**, whose seeded
-plans mix affected tests (a pre-existing test regenerated against the diff has a `TestGeneration`)
-and the diffs agent's new tests (also a `TestGeneration`); both are bucketed by generation outcome.
-
-**Per-failure diff-job context (Healing).** Healing assembles its input through the shared
-`DiffJobContextLoader` (`loadHealingContext`), the same path the reviewers use, so
-each failure now carries the full per-test refinement lineage (plan rewrites + earlier verdicts),
-the snapshot's change facts (frozen as the top-level `change` + `analysisReasoning`), and the data
-the failing subject's scenario actually seeded (`failures[].scenario`). Lineage and scenario are
-sourced from historic, immutable rows (`RefinementIterationInput` / `RefinementAction` / earlier
-`RunReview`s, and the `ScenarioInstance.generatedData` written once at UP success), so they never
-drift. `failures[].affectedReason` / `affectedReasoning` / `lineage` / `scenario` are optional, so
-fixtures captured before this still rehydrate. `change` and `analysisReasoning` are required -
-healing runs against a checked-out head SHA, downstream of a successful analysis - though
-`analysisReasoning` defaults to `""` on read for a fixture frozen before it was captured.
-
-**Final-turn gating (Healing).** Capture also freezes the loop's iteration cap as `maxIterations`,
-recovered from the iteration's `RefinementLoop.triggeredBy` (3 for both diffs and onboarding). The
-eval runs the real `HealingAgent`, which withholds the retry tool (`update_plan`) when
-`iteration === maxIterations`, so a final-turn fixture exercises the same triage-only tool set
-production does. `maxIterations` defaults to `3` for a fixture frozen before it was captured.
-
 **Live reads at capture (Reviewers).** Most reviewer inputs are immutable historic records
 (conversation, steps, screenshots, video, the codebase clone, the agent's `reasoning`) or
 schema-snapshotted at run/generation creation time (`run.plan` via `run.planId` -
@@ -403,18 +297,18 @@ and what production saw:
   name may not match what the run originally executed. Doesn't influence the verdict; just a
   display string.
 
-**Live application-level reads (Analysis + Healing).** A few fields are not snapshot-scoped and
+**Live application-level reads (Analysis).** A few fields are not snapshot-scoped and
 are read live from the application at capture time:
 
-- `testScopeGuidelines` (both steps) - free-text guidelines on the `Application` row. If the
+- `testScopeGuidelines` - free-text guidelines on the `Application` row. If the
   owner edits them between capture and eval run, the captured value will diverge from what
   production saw at the time.
-- `scenarios` (analysis + healing) - the application's enabled scenarios (analysis exposes them so
-  `create_test` can bind a `scenarioId`; healing for `update_plan` grounding). Scenarios are
-  referenced by id, so if one is deleted between capture and eval run the frozen ids become stale.
-- `folder list + names/descriptions` (analysis + healing, via `loadFlows` / the healing
-  `planAuthoring` block) - the per-folder _test slugs_ are snapshot-scoped, but the folder
-  metadata itself is read live. Folders cannot currently be product-edited, so this rarely drifts.
+- `scenarios` - the application's enabled scenarios, exposed so `create_test` can bind a
+  `scenarioId`. Scenarios are referenced by id, so if one is deleted between capture and eval
+  run the frozen ids become stale.
+- `folder list + names/descriptions` (via `loadFlows`) - the per-folder _test slugs_ are
+  snapshot-scoped, but the folder metadata itself is read live. Folders cannot currently be
+  product-edited, so this rarely drifts.
 
 A capture against a freshly-finished snapshot is always faithful; an older snapshot may pick up
 these drifts. Treat them the same way you treat flow / test ids in analysis cases: stable enough

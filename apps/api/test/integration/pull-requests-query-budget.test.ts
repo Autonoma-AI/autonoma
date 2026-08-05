@@ -81,10 +81,10 @@ apiTestSuite({
             const { queryCount: fullCount } = await measureQueries(() =>
                 harness
                     .request()
-                    .branches.snapshotDetail({ snapshotId: latestSnapshotId, includeRefinementLoop: true }),
+                    .branches.snapshotDetail({ snapshotId: latestSnapshotId, includeCreatedTests: true }),
             );
 
-            // The lean path the PR overview card uses skips the refinement-loop query. If these ever
+            // The lean path the PR overview card uses skips the created-tests query. If these ever
             // match, the opt-out regressed and the card is paying for data it never renders.
             expect(leanCount).toBeLessThan(fullCount);
         });
@@ -157,10 +157,6 @@ async function seedPullRequest(
                 prevSnapshotId,
             },
         });
-        await harness.db.diffsJob.create({
-            data: { snapshotId: snapshot.id, status: "completed", organizationId: harness.organizationId },
-        });
-
         for (let testIndex = 0; testIndex < input.testsPerSnapshot; testIndex += 1) {
             const slug = `test-${uniqueSuffix}-${snapshotIndex}-${testIndex}`;
             const testCase = await harness.db.testCase.create({

@@ -1,10 +1,6 @@
 import type { CheckpointPresentationSummary } from "@autonoma/types";
 import { unresolvedBucketLabel } from "@autonoma/types";
 
-// A completed diffs job that executed nothing is a final, healthy verdict: the analysis concluded the
-// change touches no tests. Without this the comment would read as an in-progress state forever.
-const NO_TESTS_AFFECTED_HEADLINE =
-    "Autonoma analyzed this change - no selected tests are affected, so there was nothing to run.";
 const HEALTHY_HEADLINE = "Autonoma found no issues in this PR.";
 // A findings-clean twin whose primary checkpoint still reports failures/open bugs: we must not claim
 // "no issues", so we defer to the checkpoint's own verdict.
@@ -36,24 +32,12 @@ export function statsFromSummary(summary: CheckpointPresentationSummary): Commen
     };
 }
 
-/** A completed diffs job that ran nothing: the change touches no selected tests. */
-export function isNoTestsAffected(
-    summary: CheckpointPresentationSummary | undefined,
-    diffsJobStatus: string | undefined,
-): boolean {
-    return summary?.executionState === "not_started" && diffsJobStatus === "completed";
-}
-
 /**
  * The headline for a findings-clean comment (no client bugs or actionable findings). Reflects the
  * primary checkpoint honestly - never claims "no issues" while the checkpoint still reports failures
  * or open bugs (findings first, checkpoint second).
  */
-export function healthyHeadlineFromSummary(
-    summary: CheckpointPresentationSummary | undefined,
-    diffsJobStatus: string | undefined,
-): string {
-    if (isNoTestsAffected(summary, diffsJobStatus)) return NO_TESTS_AFFECTED_HEADLINE;
+export function healthyHeadlineFromSummary(summary: CheckpointPresentationSummary | undefined): string {
     if (summary == null) return HEALTHY_HEADLINE;
 
     const checkpointReportsTrouble =

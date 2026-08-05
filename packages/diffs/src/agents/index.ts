@@ -8,9 +8,6 @@ export type { ScenarioRecipeLoop } from "./tools/scenario/scenario-recipe-loop";
 export { DiffsAgent, type DiffsAgentConfig, type DiffsAgentInput, type DiffsAgentResult } from "./diffs/diffs-agent";
 export { DiffsAgentLoop } from "./diffs/diffs-agent-loop";
 
-export { HealingAgent, type HealingAgentConfig, type HealingInput, type HealingResult } from "./healing/healing-agent";
-export { HealingAgentLoop } from "./healing/healing-agent-loop";
-
 export { ReviewerLoop } from "./reviewers/reviewer-loop";
 export {
     GenerationReviewer,

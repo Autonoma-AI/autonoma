@@ -1,6 +1,6 @@
 import { Badge, Button } from "@autonoma/blacklight";
 import { XIcon } from "@phosphor-icons/react/X";
-import { CHANGE_BADGE_VARIANTS } from "components/snapshot/snapshot-change-row";
+import { CHANGE_BADGE_VARIANTS } from "components/snapshot/change-badge-variants";
 import { useDiscardChange, useEditSession } from "lib/query/snapshot-edit.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { EditTab } from "../-edit-tab-content";

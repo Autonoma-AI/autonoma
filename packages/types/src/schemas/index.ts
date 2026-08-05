@@ -30,7 +30,6 @@ export * from "./previewkit-service-suggestion";
 export * from "./previewkit-env-suggestion";
 export * from "./previewkit-diagnosis";
 export * from "./snapshot-dependency-pin";
-export * from "./healing-actions";
 export * from "./snapshot-report";
 export * from "./checkpoint-summary";
 export * from "./pr-pipeline-status";

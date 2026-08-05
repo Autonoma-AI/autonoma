@@ -3,14 +3,10 @@ import { summarizeScenarioData } from "../../scenario-data";
 import {
     MessageBuilder,
     buildChangeContextSection,
-    buildLineageSection,
     buildStepSummary,
     sanitizeConversation,
 } from "../kernel";
 import type { GenerationContext } from "./types";
-
-const CHANGE_CONTEXT_INTRO =
-    "This generation executed against the head commit of a code change. To attribute the failure between `plan_mismatch`, `application_bug`, and `agent_limitation`, inspect what actually changed by running this in the bash tool:";
 
 /**
  * Builds the user-message script the reviewer agent sees. Pure function of the
@@ -37,14 +33,8 @@ export function buildGenerationReviewMessages(
                 "Treat this as a hint only - your verdict is the source of truth.",
         );
 
-    builder.section("Code Change Under Review", buildChangeContextSection(context.change, CHANGE_CONTEXT_INTRO));
+    builder.section("Code Change Under Review", buildChangeContextSection(context.change));
 
-    if (context.lineage.length > 0) {
-        builder.section(
-            "Refinement-Loop History (fallible signal)",
-            buildLineageSection(context.lineage, "generation"),
-        );
-    }
 
     if (context.scenario != null) {
         builder.section("Scenario Data", summarizeScenarioData(context.scenario));

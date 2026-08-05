@@ -1,5 +1,5 @@
 import { ANALYSIS_VERDICT, type AnalysisFindingView } from "@autonoma/types";
-import type { SnapshotChange } from "./diffs-timeline-types";
+import type { SnapshotChange } from "./snapshot-types";
 import type { EntryCategory, Section, TestEntry } from "./snapshot-entries";
 
 /**

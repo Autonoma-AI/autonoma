@@ -2,10 +2,11 @@ import { Badge, Button } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CameraIcon } from "@phosphor-icons/react/Camera";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
+import { useAuth } from "lib/auth";
 import { formatDuration, formatRelativeTime } from "lib/format";
 import { useInvestigationReport } from "lib/query/branches.queries";
 import type { RouterOutputs } from "lib/trpc";
-import type { ReactNode } from "react";
+import { SentryLogsLink } from "components/observability-links";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { CheckpointSummaryBadge } from "routes/_blacklight/_app-shell/app.$appSlug/pull-requests/-components/checkpoint-summary-badge";
 import { formatCheckpointMetrics } from "routes/_blacklight/_app-shell/app.$appSlug/pull-requests/-components/format-checkpoint-metrics";
@@ -15,21 +16,19 @@ import { ShaRange } from "./sha-range";
 type SnapshotReport = RouterOutputs["branches"]["snapshotReport"];
 
 /**
- * The shared snapshot-page header (title, health/summary badge, run stats, commit range). Rendered identically
- * by both the diffs and authoritative page layouts; the mode-specific admin controls (diffs pipeline toggle +
- * Temporal link, or the analysis Sentry link) are passed in via `adminControls`.
+ * The snapshot-page header: title, health/summary badge, run stats, commit range, and - for admins - the
+ * link into this snapshot's Sentry logs.
  */
 export function SnapshotReportHeader({
   report,
   prNumber,
   snapshotId,
-  adminControls,
 }: {
   report: SnapshotReport;
   prNumber: number;
   snapshotId: string;
-  adminControls?: ReactNode;
 }) {
+  const { isAdmin } = useAuth();
   // Internal-only: the shadow investigation agent's report, for comparing against the deployed agent. The hook
   // is enabled only for @autonoma.app users, so `investigation` is undefined for everyone else.
   const { data: investigation } = useInvestigationReport(snapshotId);
@@ -81,7 +80,7 @@ export function SnapshotReportHeader({
               </Button>
             </AppLink>
           )}
-          {adminControls}
+          {isAdmin && <SentryLogsLink filterField="snapshotId" filterValue={snapshotId} />}
         </div>
       </div>
 

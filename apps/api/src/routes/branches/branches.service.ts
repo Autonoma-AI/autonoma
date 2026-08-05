@@ -70,17 +70,14 @@ import {
     type SnapshotReport,
     suspectedCauseSchema,
 } from "@autonoma/types";
-import { findLatestWorkflowBySnapshotId, type WorkflowRef } from "@autonoma/workflow";
 import { z } from "zod";
 import { env } from "../../env";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
 import type { PullRequestCacheService } from "../../github/pull-request-cache.service";
 import { Service } from "../service";
 import { loadCreatedTests, type SnapshotCreatedTest } from "./created-tests";
-import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
 import { loadMainOpenProblems } from "./main-open-problems";
 import { computePrPipelineStatus } from "./pr-pipeline-status";
-import { loadRefinementLoop } from "./refinement-loop";
 import { loadSnapshotReport } from "./snapshot-report";
 import { computeTestSuiteChanges, emptyTestSuiteChanges } from "./test-suite-changes";
 
@@ -1975,18 +1972,17 @@ export class BranchesService extends Service {
         return { ...rest, prNumber: prInfo.prNumber, prTitle: prInfo.prTitle ?? undefined };
     }
 
+    /**
+     * `includeCreatedTests` is required rather than defaulted: it costs a query per snapshot, and the aggregate
+     * caller (the PR overview card, which fans this out across every snapshot in the PR) must opt out
+     * deliberately rather than inherit a default that is only right for the single-snapshot page.
+     */
     async getSnapshotDetail(
         snapshotId: string,
         organizationId: string,
-        // Defaults to the full payload so any internal caller keeps prior behavior. The tRPC router
-        // opts out of the workflow/refinement-loop work for aggregate callers (e.g. the PR overview
-        // card, which fans this out across every snapshot in the PR).
-        options: { includeWorkflow: boolean; includeRefinementLoop: boolean } = {
-            includeWorkflow: true,
-            includeRefinementLoop: true,
-        },
+        { includeCreatedTests }: { includeCreatedTests: boolean },
     ) {
-        this.logger.info("Getting snapshot detail", { snapshotId, ...options });
+        this.logger.info("Getting snapshot detail", { snapshotId, includeCreatedTests });
 
         const snapshot = await this.db.branchSnapshot.findUnique({
             where: { id: snapshotId, branch: { organizationId } },
@@ -2006,88 +2002,27 @@ export class BranchesService extends Service {
                         prInfo: { select: { prNumber: true } },
                     },
                 },
-                diffsJob: {
-                    select: {
-                        status: true,
-                        analysisReasoning: true,
-                        failureReason: true,
-                        startedAt: true,
-                        completedAt: true,
-                        affectedTests: {
-                            select: {
-                                affectedReason: true,
-                                reasoning: true,
-                                testCase: { select: { id: true, name: true, slug: true } },
-                                generation: {
-                                    select: {
-                                        id: true,
-                                        status: true,
-                                        generationReview: { select: { reasoning: true } },
-                                    },
-                                },
-                            },
-                            orderBy: { createdAt: "asc" },
-                        },
-                    },
-                },
             },
         });
 
         if (snapshot == null) throw new NotFoundError("Snapshot not found");
 
-        // An authoritative-mode snapshot has an AnalysisJob, not a DiffsJob, so it carries no diffs-pipeline metadata
-        // and `diffsJob` is absent - the page reads its findings from the AnalysisReport instead. The rest of the
-        // detail (changes, created tests, executed tests) is real and driven by the snapshot's assignments either way.
-        const diffsJob = snapshot.diffsJob ?? undefined;
-
-        // The workflow link is only rendered for a diffs snapshot (the authoritative layout gates it off). An
-        // authoritative snapshot has no diffs job, so resolving its `diffs-analysis-{snapshotId}` workflow round-trips
-        // to Temporal only to describe a workflow that does not exist and then discard the result - skip it entirely.
-        const temporalWorkflowPromise: Promise<WorkflowRef | undefined> =
-            options.includeWorkflow && snapshot.diffsJob != null
-                ? findLatestWorkflowBySnapshotId(snapshotId).catch((error) => {
-                      this.logger.warn("Could not resolve Temporal workflow for snapshot", { snapshotId, error });
-                      return undefined;
-                  })
-                : Promise.resolve(undefined);
-
         const { prInfo, ...branchRest } = snapshot.branch;
-        // Strip the raw diffs job off the flat snapshot; it is returned separately as `diffsJobWithMeta` (undefined
-        // for an authoritative snapshot, which has none).
-        const { diffsJob: _rawDiffsJob, branch: _branch, ...snapshotRest } = snapshot;
+        const { branch: _branch, ...snapshotRest } = snapshot;
         const flatSnapshot = {
             ...snapshotRest,
             branch: { ...branchRest, prNumber: prInfo?.prNumber },
         };
 
-        const [changes, temporalWorkflow, refinementLoop, firstIterationReasoning] = await Promise.all([
-            getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger),
-            temporalWorkflowPromise,
-            options.includeRefinementLoop
-                ? loadRefinementLoop(this.db, snapshotId, this.logger)
-                : Promise.resolve(undefined),
-            // The first iteration's reasoning is only rendered on the single-snapshot pipeline strip,
-            // so it loads alongside the refinement loop. The lean PR-overview fan-out (one detail per
-            // snapshot) leaves it out to avoid a per-snapshot query.
-            options.includeRefinementLoop
-                ? loadFirstIterationReasoning(this.db, snapshotId, this.logger)
-                : Promise.resolve(undefined),
-        ]);
-
-        // Absent for an authoritative snapshot; the diffs-pipeline surfaces (pipeline strip, Temporal link) that read
-        // it are not rendered there. `firstIterationReasoning`/`temporalWorkflow` are diffs-pipeline metadata, so they
-        // ride with the job or not at all.
-        const diffsJobWithMeta =
-            diffsJob != null ? { ...diffsJob, firstIterationReasoning, temporalWorkflow } : undefined;
+        const changes = await getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger);
 
         // Created tests are the assignments added vs. the previous snapshot; resolve them
         // from the already-computed changes so a single diff drives both surfaces. The
         // generation/run inspector they carry is only rendered on the single-snapshot page,
-        // so it loads alongside the refinement loop - the lean PR-overview fan-out leaves it
-        // out (the overview reads added-test runs from executedTests) to avoid extra
-        // per-snapshot queries.
+        // so the lean PR-overview fan-out leaves it out (the overview reads added-test runs
+        // from executedTests) to avoid extra per-snapshot queries.
         const createdTestCaseIds = changes.filter((c) => c.type === "added").map((c) => c.testCaseId);
-        const createdTestsPromise: Promise<SnapshotCreatedTest[]> = options.includeRefinementLoop
+        const createdTestsPromise: Promise<SnapshotCreatedTest[]> = includeCreatedTests
             ? loadCreatedTests(this.db, snapshotId, createdTestCaseIds, this.logger)
             : Promise.resolve([]);
 
@@ -2122,9 +2057,7 @@ export class BranchesService extends Service {
         return {
             snapshot: flatSnapshot,
             changes,
-            diffsJob: diffsJobWithMeta,
             createdTests,
-            refinementLoop,
             health,
             healthCounts: counts,
             summary,

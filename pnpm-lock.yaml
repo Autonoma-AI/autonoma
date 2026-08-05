@@ -1559,9 +1559,6 @@ importers:
       '@autonoma/ai':
         specifier: workspace:*
         version: link:../ai
-      '@autonoma/billing':
-        specifier: workspace:*
-        version: link:../billing
       '@autonoma/db':
         specifier: workspace:*
         version: link:../db
@@ -1592,9 +1589,6 @@ importers:
       '@autonoma/utils':
         specifier: workspace:*
         version: link:../utils
-      '@autonoma/workflow':
-        specifier: workspace:*
-        version: link:../workflow
       '@t3-oss/env-core':
         specifier: 'catalog:'
         version: 0.13.10(typescript@7.0.2)(valibot@1.2.0(typescript@7.0.2))(zod@4.3.6)

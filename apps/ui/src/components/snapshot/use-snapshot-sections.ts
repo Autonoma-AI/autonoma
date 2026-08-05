@@ -1,18 +1,18 @@
-import { FULL_SNAPSHOT_DETAIL, useAnalysisJob, useAnalysisReport, useSnapshotDetail } from "lib/query/branches.queries";
+import { useAnalysisJob, useAnalysisReport, useFullSnapshotDetail } from "lib/query/branches.queries";
 import { useMemo } from "react";
 import { buildAnalysisSections } from "./analysis-entries";
 import { buildSections, type Section, type TestEntry } from "./snapshot-entries";
 
 // Derives the categorized test-change sections for a snapshot. An authoritative snapshot's sections come from the
-// analysis run's own findings (one per test it investigated); a diffs snapshot's come from the plan diff plus the
-// diffs job's affected/created tests. Lives next to the two builders so the changes-page components can each fetch
-// their own data instead of having sections drilled through props - the underlying queries are shared via
-// react-query's cache, so calling this in several components is cheap.
+// analysis run's own findings (one per test it investigated); a legacy snapshot's come from the plan diff plus the
+// tests the run created. Lives next to the two builders so the changes-page components can each fetch their own
+// data instead of having sections drilled through props - the underlying queries are shared via react-query's
+// cache, so calling this in several components is cheap.
 export function useSnapshotSections(snapshotId: string): Section[] {
-    const { data } = useSnapshotDetail(snapshotId, FULL_SNAPSHOT_DETAIL);
+    const { data } = useFullSnapshotDetail(snapshotId);
     const { data: analysisJob } = useAnalysisJob(snapshotId);
     const { data: analysisReport } = useAnalysisReport(snapshotId, { jobStatus: analysisJob?.status });
-    const { changes, diffsJob, createdTests } = data;
+    const { changes, createdTests } = data;
     const findings = analysisReport?.findings;
     const isAuthoritative = analysisJob != null;
 
@@ -21,9 +21,8 @@ export function useSnapshotSections(snapshotId: string): Section[] {
         // failed, there are no authoritative sections - and the raw plan diff must NOT be shown, since a failed
         // run's changes are discarded. The changes page renders a run-status empty state in that case.
         if (isAuthoritative) return findings != null ? buildAnalysisSections({ findings, changes }) : [];
-        // A non-authoritative snapshot always carries a diffs job; the affected tests drive the legacy sections.
-        return buildSections({ changes, affectedTests: diffsJob?.affectedTests ?? [], createdTests });
-    }, [isAuthoritative, findings, changes, diffsJob?.affectedTests, createdTests]);
+        return buildSections({ changes, createdTests });
+    }, [isAuthoritative, findings, changes, createdTests]);
 }
 
 // Resolves the single test entry addressed by `testId` (its `urlId`) within the snapshot.

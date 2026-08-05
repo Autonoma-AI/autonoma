@@ -10,13 +10,7 @@ import { AnalysisPrIssuesHeadline } from "components/analysis/pr-issues-headline
 import { AnalysisReportProse } from "components/analysis/report-prose";
 import { ScreenshotLightbox } from "components/screenshot-lightbox";
 import { ShaRange } from "components/snapshot/sha-range";
-import {
-  CATEGORY,
-  buildSections,
-  type EntryCategory,
-  type Section,
-  type TestEntry,
-} from "components/snapshot/snapshot-entries";
+import { CATEGORY, buildSections, type EntryCategory } from "components/snapshot/snapshot-entries";
 import { formatRelativeTime } from "lib/format";
 import {
   ensureAnalysisIssuesData,
@@ -46,8 +40,6 @@ import { formatCheckpointMetrics } from "../../-components/format-checkpoint-met
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
 type SnapshotDetail = RouterOutputs["branches"]["snapshotDetail"];
 type Bug = RouterOutputs["bugs"]["listByBranch"][number];
-type PRTestEntry = TestEntry & { snapshotId: string };
-type PRTestSection = Omit<Section, "entries"> & { entries: PRTestEntry[] };
 type ExecutedTest = SnapshotDetail["executedTests"][number];
 type PRExecutedTest = ExecutedTest & { snapshotId: string; category?: EntryCategory };
 type PRTestRunSection = { key: string; title: string; entries: PRExecutedTest[] };
@@ -359,13 +351,13 @@ function AggregatedCheckpointCard({
   const latestCommitMessage = commit?.message.split("\n")[0];
   const details = useSnapshotDetails(snapshots);
   const oldestSnapshot = snapshots[snapshots.length - 1] ?? latestSnapshot;
-  const testChangeSections = useMemo(() => buildCumulativeTestChangeSections(details), [details]);
+  const editedCategories = useMemo(() => buildCumulativeEditedCategories(details), [details]);
   const testRunSections = useMemo(
-    () => buildPrTestRunSections(details, testChangeSections),
-    [details, testChangeSections],
+    () => buildPrTestRunSections(details, editedCategories),
+    [details, editedCategories],
   );
   const testRunSummary = useMemo(() => buildTestRunSummary(testRunSections), [testRunSections]);
-  const suiteChangeCount = useMemo(() => countSuiteChanges(testChangeSections), [testChangeSections]);
+  const suiteChangeCount = editedCategories.size;
   const hasBugs = bugs.length > 0;
 
   return (
@@ -430,16 +422,6 @@ function AggregatedCheckpointCard({
   );
 }
 
-function countSuiteChanges(sections: PRTestSection[]): number {
-  return sections.reduce(
-    (sum, section) =>
-      sum +
-      section.entries.filter((e) => e.category === "added" || e.category === "modified" || e.category === "removed")
-        .length,
-    0,
-  );
-}
-
 function useSnapshotDetails(snapshots: Snapshot[]): SnapshotDetail[] {
   return useSuspenseQueries({
     queries: snapshots.map((snapshot) => trpc.branches.snapshotDetail.queryOptions({ snapshotId: snapshot.id })),
@@ -447,66 +429,34 @@ function useSnapshotDetails(snapshots: Snapshot[]): SnapshotDetail[] {
   });
 }
 
-const TEST_CATEGORY_ORDER: EntryCategory[] = ["modified", "added", "checked", "removed"];
-
-const TEST_CATEGORY_TITLE: Record<EntryCategory, string> = {
-  added: "Added",
-  modified: "Edited",
-  checked: "Checked",
-  removed: "Removed",
-};
-
-function buildCumulativeTestChangeSections(details: SnapshotDetail[]): PRTestSection[] {
-  const entriesByCategory = new Map<EntryCategory, PRTestEntry[]>(
-    TEST_CATEGORY_ORDER.map((category) => [category, []]),
-  );
-  const seen = new Set<string>();
+/**
+ * How the PR's run EDITED each test it touched, across every snapshot in the PR, keyed by test case id and
+ * resolved newest-snapshot-first (`details` arrives newest-first).
+ *
+ * Only the three edited categories appear, because they are exactly the plan diff: a proposed test the run minted
+ * is `added`, a self-heal it kept is `modified`, and an `invalid_test` removal is `removed`. A test the run merely
+ * selected and checked has no plan diff by definition and is deliberately absent - this card badges edits, and the
+ * suite-changes tab is where the full per-test breakdown lives. So `size` is also the PR's suite-change count.
+ */
+function buildCumulativeEditedCategories(details: SnapshotDetail[]): Map<string, EntryCategory> {
+  const categoryByTestCaseId = new Map<string, EntryCategory>();
 
   for (const detail of details) {
-    const snapshotId = detail.snapshot.id;
-    const sections = buildSections({
-      changes: detail.changes,
-      affectedTests: detail.diffsJob?.affectedTests ?? [],
-      createdTests: detail.createdTests,
-    });
-
-    for (const section of sections) {
+    // `buildSections` keys entries by test case id, which is what the executed-test rows look up.
+    for (const section of buildSections({ changes: detail.changes, createdTests: detail.createdTests })) {
       for (const entry of section.entries) {
-        const key = entry.testSlug ?? entry.urlId;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        entriesByCategory.get(entry.category)?.push({ ...entry, snapshotId });
+        if (!categoryByTestCaseId.has(entry.urlId)) categoryByTestCaseId.set(entry.urlId, entry.category);
       }
     }
   }
 
-  return TEST_CATEGORY_ORDER.map((category) => ({
-    title: TEST_CATEGORY_TITLE[category],
-    entries: sortTestEntries(entriesByCategory.get(category) ?? []),
-  }));
+  return categoryByTestCaseId;
 }
 
-function sortTestEntries(entries: PRTestEntry[]): PRTestEntry[] {
-  return [...entries].sort((a, b) => testEntryPriority(a) - testEntryPriority(b));
-}
-
-function testEntryPriority(entry: TestEntry): number {
-  const status = entry.generation?.status;
-  if (status === "failed") return 0;
-  if (entry.category === "modified") return 1;
-  if (status === "running" || status === "pending" || status === "queued") return 2;
-  if (status === "success") return 9;
-  return 3;
-}
-
-function buildPrTestRunSections(details: SnapshotDetail[], testChangeSections: PRTestSection[]): PRTestRunSection[] {
-  const categoryByTestCaseId = new Map<string, EntryCategory>();
-  for (const section of testChangeSections) {
-    for (const entry of section.entries) {
-      if (!categoryByTestCaseId.has(entry.urlId)) categoryByTestCaseId.set(entry.urlId, entry.category);
-    }
-  }
-
+function buildPrTestRunSections(
+  details: SnapshotDetail[],
+  editedCategories: Map<string, EntryCategory>,
+): PRTestRunSection[] {
   // Include in-flight (unresolved) tests so this card agrees with the checkpoint report header
   // and the checkpoint history rail, which never drop running tests. Dropping them here made the
   // PR card report fewer tests than the rest of the UI while a checkpoint was still running.
@@ -523,7 +473,7 @@ function buildPrTestRunSections(details: SnapshotDetail[], testChangeSections: P
       if (seen.has(test.testCase.id)) continue;
       seen.add(test.testCase.id);
 
-      const category = categoryByTestCaseId.get(test.testCase.id);
+      const category = editedCategories.get(test.testCase.id);
       const entry: PRExecutedTest = { ...test, snapshotId: detail.snapshot.id, category };
       const groupKey = groupKeyForExecutedTest(entry);
       sections.get(groupKey)?.entries.push(entry);
@@ -680,14 +630,12 @@ function TestChangeSummary({ items }: { items: SummaryItem[] }) {
   );
 }
 
-function categoryLabel(category: TestEntry["category"]): string {
+function categoryLabel(category: EntryCategory): string {
   if (category === "modified") return "edited";
   return CATEGORY[category].label;
 }
 
-function categoryVariant(
-  category: TestEntry["category"],
-): "success" | "warn" | "critical" | "high" | "outline" | "neutral" {
+function categoryVariant(category: EntryCategory): "success" | "warn" | "critical" | "high" | "outline" | "neutral" {
   if (category === "added") return "outline";
   return CATEGORY[category].variant;
 }

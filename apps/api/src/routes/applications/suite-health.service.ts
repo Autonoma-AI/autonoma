@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@autonoma/db";
+import { type PrismaClient, TriggerSource } from "@autonoma/db";
 import { ANALYSIS_VERDICT, type SuiteHealth, type SuiteHealthBreakdown } from "@autonoma/types";
 import { Service } from "../service";
 import {
@@ -174,25 +174,23 @@ export class SuiteHealthService extends Service {
         });
     }
 
+    /**
+     * When the application's first run started, or undefined if it has never run. Two things key off it: the age
+     * clock (`ageDays`) and `hasEverRun`, which is what separates "waiting for your first PR" from "calibrating".
+     *
+     * Keyed to the oldest trigger-created snapshot rather than to a job row, so it spans the diffs -> analysis
+     * cutover: keying it to `AnalysisJob` would reset every pre-cutover customer's clock, and `DiffsJob` is being
+     * dropped. `MANUAL` is excluded because those snapshots are not runs - one is minted at application setup and
+     * one per suite edit in the UI, so including them would start the age clock at signup and make `hasEverRun`
+     * true for every application that exists.
+     */
     private async firstRunAt(applicationId: string, organizationId: string): Promise<Date | undefined> {
-        // "First run of any pipeline" - keying age to AnalysisJob alone would reset every existing customer's
-        // clock on the day the merged pipeline shipped.
-        const [analysis, diffs] = await Promise.all([
-            this.db.analysisJob.findFirst({
-                where: { organizationId, snapshot: { branch: { applicationId } } },
-                select: { createdAt: true },
-                orderBy: { createdAt: "asc" },
-            }),
-            this.db.diffsJob.findFirst({
-                where: { organizationId, snapshot: { branch: { applicationId } } },
-                select: { createdAt: true },
-                orderBy: { createdAt: "asc" },
-            }),
-        ]);
-
-        const candidates = [analysis?.createdAt, diffs?.createdAt].filter((date) => date != null);
-        if (candidates.length === 0) return undefined;
-        return new Date(Math.min(...candidates.map((date) => date.getTime())));
+        const oldest = await this.db.branchSnapshot.findFirst({
+            where: { branch: { applicationId, organizationId }, source: { not: TriggerSource.MANUAL } },
+            select: { createdAt: true },
+            orderBy: { createdAt: "asc" },
+        });
+        return oldest?.createdAt;
     }
 
     private async countJobs(applicationId: string, organizationId: string, since: Date): Promise<number> {

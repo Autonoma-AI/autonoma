@@ -3,17 +3,6 @@ import type { GeneralActivities, PreviewkitActivities } from "@autonoma/workflow
 export { scenarioUp, scenarioDown } from "./scenario";
 export { notifyGenerationExit } from "./notify-generation-exit";
 export { markGenerationFailed } from "./mark-generation-failed";
-export { applyHealingActions } from "./healing";
-export {
-    analyzeResults,
-    finishRefinementIteration,
-    finishErroredRefinementIterations,
-    finishRefinementLoop,
-    initRefinementLoop,
-    markRefinementIterationRunning,
-    prepareGenerationQueue,
-    finalizePendingSnapshot,
-} from "./refinement";
 
 // The previewkit build warrant's steps. None needs a heartbeat - the hours-long wait lives in the build workflow's
 // poll loop. They sit on this queue because none clones a repository, and launching a Job needs RBAC only this
@@ -27,7 +16,6 @@ export { readPreviewBuildStatus } from "./previewkit/read-preview-build-status";
 export { resolvePreviewTarget } from "./previewkit/resolve-preview-target";
 export { reportPreviewBuildWarrant } from "./previewkit/report-preview-build-warrant";
 
-import { applyHealingActions } from "./healing";
 import { markGenerationFailed } from "./mark-generation-failed";
 import { notifyGenerationExit } from "./notify-generation-exit";
 import { attachPreviewDeployment } from "./previewkit/attach-preview-deployment";
@@ -38,34 +26,10 @@ import { readPreviewBuildJobState } from "./previewkit/read-preview-build-job-st
 import { readPreviewBuildStatus } from "./previewkit/read-preview-build-status";
 import { reportPreviewBuildWarrant } from "./previewkit/report-preview-build-warrant";
 import { resolvePreviewTarget } from "./previewkit/resolve-preview-target";
-import {
-    analyzeResults,
-    finalizePendingSnapshot,
-    finishErroredRefinementIterations,
-    finishRefinementIteration,
-    finishRefinementLoop,
-    initRefinementLoop,
-    markRefinementIterationRunning,
-    prepareGenerationQueue,
-} from "./refinement";
 import { scenarioDown, scenarioUp } from "./scenario";
 
 // Compile-time check: ensure exported activities match the GeneralActivities contract.
-({
-    scenarioUp,
-    scenarioDown,
-    notifyGenerationExit,
-    markGenerationFailed,
-    applyHealingActions,
-    analyzeResults,
-    initRefinementLoop,
-    markRefinementIterationRunning,
-    finishRefinementIteration,
-    finishErroredRefinementIterations,
-    finishRefinementLoop,
-    prepareGenerationQueue,
-    finalizePendingSnapshot,
-}) satisfies GeneralActivities;
+({ scenarioUp, scenarioDown, notifyGenerationExit, markGenerationFailed }) satisfies GeneralActivities;
 
 // Compile-time check: the previewkit build warrant's steps satisfy their contract.
 ({

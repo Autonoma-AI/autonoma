@@ -17,7 +17,7 @@ const coords: CodebaseCoords = {
 };
 
 describe("generation review fixture round-trip", () => {
-    it("round-trips a context carrying change facts and lineage unchanged", () => {
+    it("round-trips a context carrying change facts unchanged", () => {
         const context: GenerationContext = {
             generationId: "gen-1",
             organizationId: "org-1",
@@ -52,26 +52,7 @@ describe("generation review fixture round-trip", () => {
                     screenshotBeforeKey: "generation/gen-1/attempt-1-before.jpeg",
                 },
             ],
-            change: {
-                baseSha: "base000",
-                headSha: "head111",
-                analysisReasoning: "Signup validation was rewritten.",
-                affectedReason: "code_change",
-                affectedReasoning: "This test fills out the signup form.",
-            },
-            lineage: [
-                {
-                    iterationNumber: 1,
-                    prompt: "Click the old Submit button",
-                    verdicts: [{ verdict: "unknown_issue", reasoning: "Selector looked stale." }],
-                },
-                {
-                    iterationNumber: 2,
-                    prompt: "Click the renamed Confirm button",
-                    healingReasoning: "Renamed Submit to Confirm in the diff.",
-                    verdicts: [],
-                },
-            ],
+            change: { baseSha: "base000", headSha: "head111" },
         };
 
         const frozen = serializeGenerationReviewInput(coords, context);
@@ -91,8 +72,7 @@ describe("generation review fixture round-trip", () => {
             testPlanPrompt: "Open the first project and verify its name",
             conversation: [{ role: "assistant", content: "I opened the project list" }],
             steps: [],
-            change: { baseSha: "base000", headSha: "head111", analysisReasoning: "Project view markup changed." },
-            lineage: [],
+            change: { baseSha: "base000", headSha: "head111" },
             scenario: {
                 scenarioName: "Single org with one project",
                 entities: {
@@ -112,7 +92,7 @@ describe("generation review fixture round-trip", () => {
         expect(rehydrated).toEqual(context);
     });
 
-    it("parses a legacy fixture with no lineage and defaults status-less steps to success", () => {
+    it("parses a legacy fixture and defaults status-less steps to success", () => {
         const legacy: unknown = {
             codebase: coords,
             context: {
@@ -131,8 +111,6 @@ describe("generation review fixture round-trip", () => {
         const parsed: GenerationReviewCaseInput = generationReviewCaseInputSchema.parse(legacy);
         const { context } = rehydrateGenerationReviewInput(parsed);
 
-        expect(context.change?.analysisReasoning).toBe("");
-        expect(context.lineage).toEqual([]);
         expect(context.generationId).toBe("gen-legacy");
         expect(context.steps[0]?.status).toBe("success");
     });

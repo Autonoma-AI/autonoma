@@ -4,10 +4,6 @@ import { expect, vi } from "vitest";
 import { OnboardingManager } from "../../src/routes/onboarding/onboarding-manager";
 import { OnboardingTestHarness } from "./onboarding-harness";
 
-vi.mock("@autonoma/workflow", () => ({
-    triggerRefinementLoop: vi.fn(async () => undefined),
-}));
-
 const fakeScenarioManager = {
     discoverWithConfig: async () => ({ models: [] }),
 } as unknown as ScenarioManager;

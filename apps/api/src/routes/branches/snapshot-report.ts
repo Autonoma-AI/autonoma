@@ -12,9 +12,8 @@ import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { Logger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
-import type { SnapshotReport, SnapshotReportSelectedTest } from "@autonoma/types";
+import type { SnapshotReport } from "@autonoma/types";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
-import { loadFirstIterationReasoning } from "./first-iteration-reasoning";
 import { loadBugsForSnapshot } from "./snapshot-report-bugs";
 import { buildResultsBlock } from "./snapshot-report-results";
 import { buildTriggerBlock } from "./snapshot-report-trigger";
@@ -54,19 +53,6 @@ export async function loadSnapshotReport({
                     prInfo: { select: { prNumber: true } },
                 },
             },
-            diffsJob: {
-                select: {
-                    analysisReasoning: true,
-                    affectedTests: {
-                        select: {
-                            affectedReason: true,
-                            reasoning: true,
-                            testCase: { select: { id: true, name: true, slug: true } },
-                        },
-                        orderBy: { createdAt: "asc" },
-                    },
-                },
-            },
         },
     });
 
@@ -82,15 +68,13 @@ export async function loadSnapshotReport({
         notAffected: 0,
         totalTests: 0,
     };
-    const [trigger, executedTests, bugs, firstIterationReasoning, openBugCountBySnapshot, authoritativeBySnapshot] =
-        await Promise.all([
-            buildTriggerBlock({ snapshot, github, organizationId, logger }),
-            listExecutedTestsForSnapshot(db, snapshotId),
-            loadBugsForSnapshot(db, snapshotId, storageProvider, logger),
-            loadFirstIterationReasoning(db, snapshotId, logger),
-            countOpenBugsBySnapshot(db, [snapshotId]),
-            loadAuthoritativeCheckpointInputs(db, organizationId, [snapshotId], logger),
-        ]);
+    const [trigger, executedTests, bugs, openBugCountBySnapshot, authoritativeBySnapshot] = await Promise.all([
+        buildTriggerBlock({ snapshot, github, organizationId, logger }),
+        listExecutedTestsForSnapshot(db, snapshotId),
+        loadBugsForSnapshot(db, snapshotId, storageProvider, logger),
+        countOpenBugsBySnapshot(db, [snapshotId]),
+        loadAuthoritativeCheckpointInputs(db, organizationId, [snapshotId], logger),
+    ]);
     const results = buildResultsBlock(executedTests, logger);
     const authoritative = authoritativeBySnapshot.get(snapshotId);
     // An authoritative snapshot's header badge derives from the AnalysisReport verdict, not the legacy health/Bug
@@ -99,14 +83,6 @@ export async function loadSnapshotReport({
         authoritative != null
             ? authoritativeSnapshotHealth(authoritative)
             : (healthEntry?.health ?? computeSnapshotHealth(snapshot.status, healthCounts));
-
-    const selected: SnapshotReportSelectedTest[] = (snapshot.diffsJob?.affectedTests ?? []).map((t) => ({
-        testCaseId: t.testCase.id,
-        name: t.testCase.name,
-        slug: t.testCase.slug,
-        affectedReason: t.affectedReason ?? undefined,
-        reasoning: t.reasoning ?? undefined,
-    }));
 
     const openBugs = bugs.filter((b) => b.status === "open");
     const issueOccurrenceCount = openBugs.reduce((sum, b) => sum + b.occurrences, 0);
@@ -131,7 +107,6 @@ export async function loadSnapshotReport({
 
     logger.info("Snapshot report assembled", {
         snapshotId,
-        selectedTests: selected.length,
         bugs: bugs.length,
         filesChanged: trigger.filesChanged.length,
     });
@@ -151,14 +126,8 @@ export async function loadSnapshotReport({
             },
         },
         trigger,
-        selection: {
-            totalSuiteTests: healthCounts.totalTests,
-            selected,
-            analysisReasoning: snapshot.diffsJob?.analysisReasoning ?? undefined,
-        },
         results,
         bugs,
-        firstIterationReasoning,
         health,
         healthCounts,
         summary,

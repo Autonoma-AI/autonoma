@@ -55,7 +55,7 @@ export async function captureAnalysis(params: CaptureAnalysisParams): Promise<st
     // pipeline has already rewritten this snapshot's own assignments, so reading
     // them would not reflect what analysis actually saw. The previous snapshot
     // holds the unmutated baseline the production run started from.
-    const { agentInput } = await assembleDiffsAgentInput({ snapshotId, testSuiteSource: "previous" });
+    const { agentInput } = await assembleDiffsAgentInput({ snapshotId });
     const frozenInput = serializeAnalysisInput(coords, agentInput);
 
     await mkdir(caseDir, { recursive: true });

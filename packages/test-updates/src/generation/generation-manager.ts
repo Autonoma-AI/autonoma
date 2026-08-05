@@ -217,14 +217,13 @@ export class GenerationManager {
 
     /**
      * Validates deployment, marks pending generations as queued, and returns
-     * the list ready for dispatch. Does NOT fire any jobs - callers that need
-     * to start a workflow per generation do that themselves (see
-     * `queuePendingGenerations` for the fire-and-forget HTTP path).
+     * the list ready for dispatch. Does NOT fire any jobs - that is
+     * `queuePendingGenerations`' job.
      *
      * If validation fails, marks all pending generations as failed and returns
      * an empty list.
      */
-    async prepareGenerationQueue(): Promise<PendingGeneration[]> {
+    private async prepareGenerationQueue(): Promise<PendingGeneration[]> {
         const pending = await this.getPendingGenerations();
 
         if (pending.length === 0) {
@@ -262,8 +261,7 @@ export class GenerationManager {
      * Fires generation jobs for all pending generations and marks them as queued.
      *
      * Validates deployment configuration before firing. If validation fails,
-     * marks all pending generations as failed. For workflow callers that need to
-     * dispatch the batch themselves, see `prepareGenerationQueue`.
+     * marks all pending generations as failed.
      *
      * @returns Whether any generations were queued.
      * @throws {MissingJobProviderError} If no job provider was supplied at construction time.

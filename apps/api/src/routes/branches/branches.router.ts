@@ -50,17 +50,15 @@ export const branchesRouter = router({
         .input(
             z.object({
                 snapshotId: z.string(),
-                // The Temporal workflow lookup (external call) and refinement loop query are only
-                // rendered on the single-checkpoint page. Callers that aggregate many snapshots (the
-                // PR overview card) leave these off to avoid an N-snapshot fan-out of expensive work.
-                includeWorkflow: z.boolean().default(false),
-                includeRefinementLoop: z.boolean().default(false),
+                // The created-tests generation/run inspector is only rendered on the single-checkpoint
+                // page. Callers that aggregate many snapshots (the PR overview card) leave it off to
+                // avoid an N-snapshot fan-out of per-snapshot queries.
+                includeCreatedTests: z.boolean().default(false),
             }),
         )
         .query(({ ctx: { services, organizationId }, input }) =>
             services.branches.getSnapshotDetail(input.snapshotId, organizationId, {
-                includeWorkflow: input.includeWorkflow,
-                includeRefinementLoop: input.includeRefinementLoop,
+                includeCreatedTests: input.includeCreatedTests,
             }),
         ),
 

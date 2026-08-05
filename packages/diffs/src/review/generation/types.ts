@@ -2,7 +2,7 @@ import type { ModelMessage } from "@autonoma/ai";
 import type { ApplicationArchitecture } from "@autonoma/db";
 import type { OverlayPoint } from "@autonoma/types";
 import type { ScenarioData } from "../../scenario-data";
-import type { ChangeContext, IterationLineage, ReviewStep } from "../kernel";
+import type { ChangeContext, ReviewStep } from "../kernel";
 
 /**
  * One reviewed generation step, sourced from the `StepAttempt` timeline (every
@@ -28,11 +28,11 @@ export interface GenerationContext {
     organizationId: string;
     /** What the execution agent self-reported. The reviewer's verdict overrides this. */
     selfReportedStatus: "success" | "failed" | "running" | "queued" | "pending";
-    /** The test case's name - the loop-stable label the diff system never rewrites. */
+    /** The test case's name - the stable label the diff system never rewrites. */
     testCaseName: string;
     /**
-     * The test case's description - the loop-stable statement of intent (unlike the
-     * plan prompt, which the diff system rewrites during healing). Meant to be set on
+     * The test case's description - the stable statement of intent (unlike the plan
+     * prompt, which the Investigator rewrites when it self-heals). Meant to be set on
      * every test case; missing only on older cases not yet backfilled. Anchors the
      * `scenario_unsupported` verdict - without it the reviewer can't reliably tell a
      * true data gap from a worded-wrong plan, so it conservatively falls back to
@@ -55,12 +55,6 @@ export interface GenerationContext {
      * generation executes against a checked-out head SHA).
      */
     change?: ChangeContext;
-    /**
-     * Point-in-time refinement-loop history for this test, one entry per iteration
-     * (the plan it scoped and the verdicts it reached), oldest first. Empty for
-     * first-iteration reviews and for tests outside a refinement loop.
-     */
-    lineage: IterationLineage[];
     /**
      * Materialized snapshot of the data the generation's scenario actually
      * created. Omitted when the generation has no scenario instance, UP never

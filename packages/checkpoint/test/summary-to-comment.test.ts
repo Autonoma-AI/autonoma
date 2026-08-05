@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SnapshotHealthCounts } from "../src/health";
 import { buildCheckpointSummary } from "../src/presentation";
-import { healthyHeadlineFromSummary, isNoTestsAffected, statsFromSummary } from "../src/summary-to-comment";
+import { healthyHeadlineFromSummary, statsFromSummary } from "../src/summary-to-comment";
 
 function counts(overrides: Partial<SnapshotHealthCounts> = {}): SnapshotHealthCounts {
     return {
@@ -50,21 +50,6 @@ describe("statsFromSummary", () => {
 });
 
 describe("healthyHeadlineFromSummary", () => {
-    it("reports 'no selected tests are affected' when the diffs job completed with nothing to run", () => {
-        const summary = buildCheckpointSummary({
-            snapshotStatus: "active",
-            counts: counts({ totalTests: 8, notAffected: 8 }),
-            openBugCount: 0,
-            failingByKind: NO_APP_ISSUES,
-        });
-
-        expect(summary.executionState).toBe("not_started");
-        expect(isNoTestsAffected(summary, "completed")).toBe(true);
-        expect(healthyHeadlineFromSummary(summary, "completed")).toBe(
-            "Autonoma analyzed this change - no selected tests are affected, so there was nothing to run.",
-        );
-    });
-
     it("claims no issues only when the checkpoint itself is clean", () => {
         const summary = buildCheckpointSummary({
             snapshotStatus: "active",
@@ -74,7 +59,7 @@ describe("healthyHeadlineFromSummary", () => {
         });
 
         expect(summary.executionState).toBe("passed");
-        expect(healthyHeadlineFromSummary(summary, "completed")).toBe("Autonoma found no issues in this PR.");
+        expect(healthyHeadlineFromSummary(summary)).toBe("Autonoma found no issues in this PR.");
     });
 
     it("never claims no issues while the checkpoint still reports open bugs", () => {
@@ -85,7 +70,7 @@ describe("healthyHeadlineFromSummary", () => {
             failingByKind: { engine: 0, app: 1 },
         });
 
-        expect(healthyHeadlineFromSummary(summary, "completed")).toBe(
+        expect(healthyHeadlineFromSummary(summary)).toBe(
             "Autonoma could not complete every selected test in this PR.",
         );
     });
@@ -99,12 +84,12 @@ describe("healthyHeadlineFromSummary", () => {
         });
 
         expect(summary.executionState).toBe("running");
-        expect(healthyHeadlineFromSummary(summary, "processing")).toBe(
+        expect(healthyHeadlineFromSummary(summary)).toBe(
             "Autonoma is running the selected tests for this PR.",
         );
     });
 
     it("falls back to the healthy copy when there is no summary", () => {
-        expect(healthyHeadlineFromSummary(undefined, undefined)).toBe("Autonoma found no issues in this PR.");
+        expect(healthyHeadlineFromSummary(undefined)).toBe("Autonoma found no issues in this PR.");
     });
 });

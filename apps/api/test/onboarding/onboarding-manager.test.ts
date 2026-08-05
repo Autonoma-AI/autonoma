@@ -12,10 +12,6 @@ import {
 } from "../../src/routes/onboarding/states/onboarding-state";
 import { OnboardingTestHarness } from "./onboarding-harness";
 
-vi.mock("@autonoma/workflow", () => ({
-    triggerRefinementLoop: vi.fn(async () => undefined),
-}));
-
 const fakeScenarioManager = {
     discoverWithConfig: async () => ({ models: [] }),
 } as unknown as ScenarioManager;

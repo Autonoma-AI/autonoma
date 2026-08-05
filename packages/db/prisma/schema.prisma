@@ -653,6 +653,8 @@ model Branch {
 
   previewkitEnvironment PreviewkitEnvironment?
 
+  @@index([applicationId])
+
   @@map("branch")
 }
 
@@ -776,7 +778,7 @@ model BranchSnapshot {
   refinementLoop       RefinementLoop?
   vercelDeployments    VercelDeployment[]
 
-  @@index([branchId])
+  @@index([branchId, createdAt])
   @@map("branch_snapshot")
 }
 

@@ -1,19 +1,18 @@
 import type { ChangeContext } from "./widened-context";
 
+const INTRO =
+    "This generation executed against the head commit of a code change. To attribute the failure between `plan_mismatch`, `application_bug`, and `agent_limitation`, inspect what actually changed by running this in the bash tool:";
+
 /**
  * Renders the DB-sourced change facts the loader gathered, plus the explicit
  * instruction to inspect the actual diff via `git diff` in bash. The raw
  * changed-file list and hunks are deliberately not embedded - the reviewer
  * pulls them from the checked-out tree itself so the prompt stays small and
  * the agent grounds its attribution in the real diff.
- *
- * `intro` is the subject-specific lead-in sentence (it names the subject - a
- * replay vs a generation - and the verdict choice the diff informs), letting
- * both reviewers share the identical diff-facts body below it.
  */
-export function buildChangeContextSection(change: ChangeContext, intro: string): string {
+export function buildChangeContextSection(change: ChangeContext): string {
     const lines = [
-        intro,
+        INTRO,
         "",
         "```bash",
         `git diff ${change.baseSha}..${change.headSha}`,
@@ -22,18 +21,6 @@ export function buildChangeContextSection(change: ChangeContext, intro: string):
         `- **Base SHA** (before the change): \`${change.baseSha}\``,
         `- **Head SHA** (under test): \`${change.headSha}\``,
     ];
-
-    lines.push("", "### Change Analysis", change.analysisReasoning);
-
-    if (change.affectedReason != null || change.affectedReasoning != null) {
-        lines.push("", "### Why This Test Was Flagged");
-        if (change.affectedReason != null) {
-            lines.push(`- **Affected reason**: \`${change.affectedReason}\``);
-        }
-        if (change.affectedReasoning != null) {
-            lines.push(change.affectedReasoning);
-        }
-    }
 
     return lines.join("\n");
 }

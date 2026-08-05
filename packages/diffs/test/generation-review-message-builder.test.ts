@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildGenerationReviewMessages } from "../src/review/generation/message-builder";
 import type { GenerationContext } from "../src/review/generation/types";
 
-/** Minimal generation context with the always-present `change`; tests layer lineage/scenario on top. */
+/** Minimal generation context with the always-present `change`; tests layer scenario data on top. */
 function baseContext(overrides: Partial<GenerationContext> = {}): GenerationContext {
     return {
         generationId: "gen-1",
@@ -11,8 +11,7 @@ function baseContext(overrides: Partial<GenerationContext> = {}): GenerationCont
         selfReportedStatus: "failed",
         testPlanPrompt: "Sign up and reach the welcome screen",
         conversation: [{ role: "assistant", content: "I typed the email" }],
-        change: { baseSha: "base000", headSha: "head111", analysisReasoning: "Signup validation was rewritten." },
-        lineage: [],
+        change: { baseSha: "base000", headSha: "head111" },
         steps: [
             {
                 order: 0,
@@ -39,15 +38,7 @@ function leadingText(messages: ReturnType<typeof buildGenerationReviewMessages>)
 describe("buildGenerationReviewMessages", () => {
     it("renders the change-context section with a git diff command when change is present", () => {
         const messages = buildGenerationReviewMessages(
-            baseContext({
-                change: {
-                    baseSha: "base000",
-                    headSha: "head111",
-                    analysisReasoning: "Signup validation was rewritten.",
-                    affectedReason: "code_change",
-                    affectedReasoning: "This test fills out the signup form.",
-                },
-            }),
+            baseContext({ change: { baseSha: "base000", headSha: "head111" } }),
             undefined,
         );
 
@@ -57,55 +48,12 @@ describe("buildGenerationReviewMessages", () => {
         // Generation framing names the generation-specific verdict choice.
         expect(text).toContain("plan_mismatch");
         expect(text).toContain("agent_limitation");
-        expect(text).toContain("### Change Analysis");
-        expect(text).toContain("Signup validation was rewritten.");
-        expect(text).toContain("### Why This Test Was Flagged");
-        expect(text).toContain("This test fills out the signup form.");
     });
 
     it("throws when change is absent - the reviewer requires the diff anchor", () => {
         const context = baseContext();
         delete context.change;
         expect(() => buildGenerationReviewMessages(context, undefined)).toThrow(/requires change context/);
-    });
-
-    it("renders the lineage plan-delta and the anchoring guard when lineage is present", () => {
-        const messages = buildGenerationReviewMessages(
-            baseContext({
-                lineage: [
-                    {
-                        iterationNumber: 1,
-                        prompt: "Click the old Submit button",
-                        verdicts: [{ verdict: "agent_limitation", reasoning: "Selector looked stale." }],
-                    },
-                    {
-                        iterationNumber: 2,
-                        prompt: "Click the renamed Confirm button",
-                        healingReasoning: "Renamed Submit to Confirm in the diff.",
-                        verdicts: [],
-                    },
-                ],
-            }),
-            undefined,
-        );
-
-        const text = leadingText(messages);
-        expect(text).toContain("## Refinement-Loop History (fallible signal)");
-        expect(text).toContain("### Plan Changes");
-        // Generation-specific subject noun.
-        expect(text).toContain("The generation you are reviewing executed the **current** plan");
-        expect(text).toContain("Previous plan (iteration 1)");
-        expect(text).toContain("Current plan (iteration 2");
-        expect(text).toContain("Renamed Submit to Confirm in the diff.");
-        expect(text).toContain("### Prior Verdicts On This Test");
-        expect(text).toContain("**Iteration 1** judged this `agent_limitation`");
-        // The anchoring guard: prior verdicts are a fallible lead, not the answer.
-        expect(text).toContain("fallible lead to investigate, never as the answer");
-    });
-
-    it("omits the lineage section when lineage is absent", () => {
-        const text = leadingText(buildGenerationReviewMessages(baseContext(), undefined));
-        expect(text).not.toContain("## Refinement-Loop History");
     });
 
     it("renders the bounded scenario-data summary when scenario data is present", () => {

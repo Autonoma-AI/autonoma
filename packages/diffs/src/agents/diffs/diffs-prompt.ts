@@ -1,6 +1,6 @@
 import type { DiffAnalysis, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
-import { buildPlanAuthoringContext } from "../../healing/plan-authoring";
+import { buildPlanAuthoringContext } from "../../plan-authoring";
 import { type ScenarioRecipeData, summarizeScenarioRecipes } from "../../scenario-recipe";
 
 /**
@@ -79,7 +79,7 @@ Explore the patch yourself with \`bash\`, scoping to what you need rather than p
             "ALREADY marked as affected with `affectedReason: merge_conflict` - you do not need to (and must not) " +
             "call `mark_affected_test` for them. Instead, for each one, call `explain_merge_conflict` with a " +
             "`reasoning` that explains how the plans diverge. Use `read_tests` to inspect the current plans before " +
-            "writing the reasoning - pass every conflict slug in one call. The refinement loop will re-plan them using all the legs listed below.\n";
+            "writing the reasoning - pass every conflict slug in one call. They will be re-planned using all the legs listed below.\n";
         for (const c of preClassifiedConflicts) {
             prompt += `\n- **${c.slug}** (${c.testName}) - PRs involved: ${c.involvedPrNumbers.join(", ")}`;
             for (const v of c.versions) {
@@ -127,7 +127,7 @@ Tests will be automatically run and reviewed after your analysis completes - you
 ## 2. Test Gap Detection
 Identify new functionality that has no test coverage and author a test for it with \`create_test\`. Focus on user-facing behavior introduced by the diff.
 
-You are the sole author of new tests in this flow. Each \`create_test\` mints a real test immediately (test case + plan + a pending generation); it is then generated, run, and healed alongside the affected tests in the refinement loop. There is **no later review gate** that culls a redundant-but-passing test, so:
+You are the sole author of new tests in this flow. Each \`create_test\` mints a real test immediately (test case + plan + a pending generation); it is then generated and run alongside the affected tests. There is **no later review gate** that culls a redundant-but-passing test, so:
 
 - **Only author tests you are confident are real, non-redundant flows.** When in doubt, do not create the test.
 - **Write the complete, generation-ready plan body** in \`plan\` - the full instructions a generator turns into steps, not a high-level summary. There is no later step that fills in the details.

@@ -1,4 +1,3 @@
-import { AffectedReason, GenerationReviewVerdict } from "@autonoma/db";
 import { type GenerationContext, sanitizeConversation, scenarioDataSchema } from "@autonoma/diffs";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
@@ -17,10 +16,9 @@ import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
  *
  * `change` is required - every reviewed generation executes against a checked-out
  * head SHA. The changed-file list and diff hunks are never frozen here - the
- * reviewer derives them from the rehydrated codebase via `git diff`. `lineage`
- * defaults to empty (non-empty only for iteration-2+ cases) and `scenario` stays
- * optional, so cases captured before each existed still parse; the `scenario`
- * payload is the materialized generated-data graph, frozen verbatim.
+ * reviewer derives them from the rehydrated codebase via `git diff`. `scenario`
+ * stays optional, so cases captured before it existed still parse; its payload is
+ * the materialized generated-data graph, frozen verbatim.
  */
 export const generationReviewCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
@@ -55,25 +53,7 @@ export const generationReviewCaseInputSchema = z.object({
                 screenshotAfterKey: z.string().optional(),
             }),
         ),
-        change: z.object({
-            baseSha: z.string(),
-            headSha: z.string(),
-            // Defaulted so a fixture frozen before analysis reasoning was captured
-            // still rehydrates.
-            analysisReasoning: z.string().default(""),
-            affectedReason: z.enum(AffectedReason).optional(),
-            affectedReasoning: z.string().optional(),
-        }),
-        lineage: z
-            .array(
-                z.object({
-                    iterationNumber: z.number().int().positive(),
-                    prompt: z.string(),
-                    healingReasoning: z.string().optional(),
-                    verdicts: z.array(z.object({ verdict: z.enum(GenerationReviewVerdict), reasoning: z.string() })),
-                }),
-            )
-            .default([]),
+        change: z.object({ baseSha: z.string(), headSha: z.string() }),
         scenario: scenarioDataSchema.optional(),
     }),
 });

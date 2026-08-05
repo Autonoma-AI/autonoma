@@ -89,7 +89,6 @@ export {
 } from "./authoritative";
 export {
     statsFromSummary,
-    isNoTestsAffected,
     healthyHeadlineFromSummary,
     type CommentTestStats,
 } from "./summary-to-comment";
@@ -100,12 +99,3 @@ export {
     type SnapshotExecutedTest,
     type SnapshotExecutedTestFinalOutcome,
 } from "./executed-tests";
-export {
-    computeIterationOutcomes,
-    type RefinementIterationOutcomes,
-    type RefinementGenerationRow,
-    type TestCaseLite,
-    type OutcomeValidated,
-    type OutcomeFailedAtGeneration,
-    type OutcomeAwaiting,
-} from "./refinement-outcomes";

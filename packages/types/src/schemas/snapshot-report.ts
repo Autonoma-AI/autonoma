@@ -24,21 +24,6 @@ export const snapshotReportTriggerSchema = z.object({
 });
 export type SnapshotReportTrigger = z.infer<typeof snapshotReportTriggerSchema>;
 
-export const snapshotReportSelectedTestSchema = z.object({
-    testCaseId: z.string(),
-    name: z.string(),
-    slug: z.string(),
-    affectedReason: z.string().optional(),
-    reasoning: z.string().optional(),
-});
-export type SnapshotReportSelectedTest = z.infer<typeof snapshotReportSelectedTestSchema>;
-
-export const snapshotReportSelectionSchema = z.object({
-    totalSuiteTests: z.number(),
-    selected: z.array(snapshotReportSelectedTestSchema),
-    analysisReasoning: z.string().optional(),
-});
-
 export const snapshotReportTestResultSchema = z.object({
     testCaseId: z.string(),
     name: z.string(),
@@ -96,10 +81,8 @@ export const snapshotReportSchema = z.object({
         branch: z.object({ id: z.string(), name: z.string(), prNumber: z.number().optional() }),
     }),
     trigger: snapshotReportTriggerSchema,
-    selection: snapshotReportSelectionSchema,
     results: snapshotReportResultsSchema,
     bugs: z.array(snapshotReportBugSchema),
-    firstIterationReasoning: z.string().optional(),
     health: reportHealthSchema,
     healthCounts: snapshotReportHealthCountsSchema,
     summary: checkpointPresentationSummarySchema.optional(),

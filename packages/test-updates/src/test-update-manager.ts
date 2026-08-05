@@ -203,22 +203,6 @@ export class TestSuiteUpdater {
         return result;
     }
 
-    /**
-     * Validates deployment, marks pending generations as queued, and returns the
-     * list ready for dispatch. Use this when the caller (e.g. a Temporal workflow)
-     * will spawn the generation workflow itself rather than going through the
-     * provider's fire-and-forget path.
-     */
-    public async prepareGenerationQueue() {
-        this.logger.info("Preparing generation queue");
-
-        const prepared = await this.generationManager.prepareGenerationQueue();
-
-        this.logger.info("Generation queue prepared", { count: prepared.length });
-
-        return prepared;
-    }
-
     /** Returns all pending generation records for this snapshot. */
     public async getPendingGenerations() {
         return this.generationManager.getPendingGenerations();

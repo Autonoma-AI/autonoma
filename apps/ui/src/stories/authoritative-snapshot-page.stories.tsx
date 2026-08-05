@@ -355,7 +355,6 @@ const snapshotReport: NonNullable<TrpcFixtures["branches"]> = {
       filesChanged: [],
       filesChangedTruncated: false,
     },
-    selection: { totalSuiteTests: 24, selected: [] },
     // `results` is what the pipeline leaves behind: it counts GenerationReviews, and the merged pipeline writes
     // none, so every investigated test lands in `pending`. The header reads `summary.analysis` instead.
     results: {
@@ -421,10 +420,7 @@ const snapshotDetail: NonNullable<TrpcFixtures["branches"]> = {
         previousPlan: "1. Add two items.\n2. Assert the cart badge reads 2.",
       },
     ],
-    // An authoritative snapshot has no diffs job; the report is what drives this page.
-    diffsJob: undefined,
     createdTests: [],
-    refinementLoop: undefined,
     health: "critical",
     healthCounts: { failing: 3, passing: 2, running: 0, setupFailed: 0, notAffected: 0, totalTests: 5 },
     summary: {

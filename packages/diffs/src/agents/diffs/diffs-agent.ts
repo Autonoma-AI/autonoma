@@ -3,7 +3,7 @@ import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { Codebase } from "../../codebase";
 import type { DiffAnalysis, ExistingTestInfo, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
-import { PLAN_AUTHORING_GUIDE } from "../../healing";
+import { PLAN_AUTHORING_GUIDE } from "@autonoma/test-updates";
 import { readPrChangedFiles, readPrCommitSubjects } from "../../pr-range";
 import type { ScenarioIndex } from "../../scenario-index";
 import type { ScenarioRecipeData } from "../../scenario-recipe";

@@ -25,11 +25,6 @@ export {
     GenerationReviewer,
     type GenerationReviewerConfig,
     type GenerationReviewInput,
-    HealingAgent,
-    HealingAgentLoop,
-    type HealingAgentConfig,
-    type HealingInput,
-    type HealingResult,
     ListFlowsTool,
     ListScenariosTool,
     ListTestsTool,
@@ -89,33 +84,13 @@ export { Codebase } from "./codebase";
 // PR-range git reads: the one implementation Impact Analysis and the classifier share.
 export { readPrChangedFiles, readPrCommitSubjects, readPrDiffStat, type PrRange } from "./pr-range";
 
-export type { FailureRecord, SnapshotInfo, PlanAuthoringInput } from "./healing/types";
 export {
-    bucketIterationOutcomes,
-    bucketPlanOutcomes,
-    type BucketedIterationOutcomes,
-    type BucketedPlanOutcomes,
-} from "./refinement/bucket-iteration-outcomes";
-export {
-    healingActionSchema,
-    type HealingAction,
-    type UpdatePlanAction,
-    type ReportBugAction,
-    type ReportEngineLimitationAction,
-    type RemoveTestAction,
-    type HealingEvidenceItem,
-    type HealingReviewLink,
-} from "./healing/actions";
-export { BugMatcher, type BugCandidate } from "./healing/bug-matcher";
-export { resolveOrCreateBug, type ResolveOrCreateBugParams } from "./healing/file-bug";
-export {
-    PLAN_AUTHORING_GUIDE,
     buildPlanAuthoringContext,
     type FlowSummary,
     type PlanAuthoringContextInput,
     type ScenarioDetail,
     type ScenarioSummary,
-} from "./healing/plan-authoring";
+} from "./plan-authoring";
 
 export {
     tryUploadVideo,
@@ -123,19 +98,14 @@ export {
     sanitizeConversation,
     StorageEvidenceLoader,
     buildChangeContextSection,
-    buildLineageSection,
     buildStepSummary,
     type RenderableReviewStep,
     type ReviewStep,
     type VideoDownloader,
     type EvidenceLoader,
     type ChangeContext,
-    type IterationLineage,
-    type IterationVerdict,
 } from "./review/kernel";
 export { buildGenerationReviewMessages, type GenerationContext, type GenerationStepData } from "./review/generation";
-export type { SnapshotChangeContext } from "./review/snapshot";
-export type { HealingContext, HealingFailureSubject, HealingSubjectContext } from "./review/snapshot";
 
 // Scenario-data capability - reusable, agent-agnostic resolution + presentation
 // + in-memory disclosure of the data a run's scenario actually created.

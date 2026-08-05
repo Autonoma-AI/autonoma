@@ -1,7 +1,6 @@
 import { Badge, Panel, PanelBody, PanelHeader, PanelTitle, Skeleton } from "@autonoma/blacklight";
 import type { RouterOutputs } from "lib/trpc";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
-import { ReasoningPanel } from "./reasoning-panel";
 
 type SnapshotReport = RouterOutputs["branches"]["snapshotReport"];
 type SeverityBadgeVariant = "critical" | "high" | "warn" | "secondary";
@@ -13,44 +12,16 @@ const SEVERITY_BADGE: Record<string, SeverityBadgeVariant> = {
   low: "secondary",
 };
 
-export function SnapshotReportDocument({ report }: { report: SnapshotReport }) {
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ReasoningPanel
-          title="Impact analysis"
-          content={report.selection.analysisReasoning}
-          empty="Analysis has not produced a summary yet."
-        />
-        <ReasoningPanel
-          title="Resolution"
-          content={report.firstIterationReasoning}
-          empty="No resolution has been recorded for this snapshot."
-        />
-      </div>
-      <BugsFoundPanel report={report} />
-    </div>
-  );
+export function SnapshotBugsPanelSkeleton() {
+  return <Skeleton className="h-64 w-full" />;
 }
 
-export function SnapshotReportDocumentSkeleton() {
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Skeleton className="h-80 w-full" />
-        <Skeleton className="h-80 w-full" />
-      </div>
-      <Skeleton className="h-64 w-full" />
-    </div>
-  );
-}
-
-function BugsFoundPanel({ report }: { report: SnapshotReport }) {
+export function SnapshotBugsPanel({ report }: { report: SnapshotReport }) {
   return (
     <Panel>
       <PanelHeader>
         <PanelTitle>Bugs found</PanelTitle>
-        <span className="font-mono text-2xs text-text-tertiary">
+        <span className="font-mono text-2xs text-text-secondary">
           {report.bugs.length} {report.bugs.length === 1 ? "bug" : "bugs"}
         </span>
       </PanelHeader>
@@ -81,7 +52,7 @@ function BugsFoundPanel({ report }: { report: SnapshotReport }) {
                   <Badge variant={SEVERITY_BADGE[bug.severity] ?? "secondary"}>{bug.severity}</Badge>
                 </div>
                 <p className="mt-1 line-clamp-1 text-xs leading-relaxed text-text-secondary">{bug.description}</p>
-                <div className="mt-1 truncate font-mono text-2xs text-text-tertiary">
+                <div className="mt-1 truncate font-mono text-2xs text-text-secondary">
                   {bug.testSlug ?? "No linked test"} · x{bug.occurrences}{" "}
                   {bug.occurrences === 1 ? "occurrence" : "occurrences"}
                   {bug.stepIndex != null

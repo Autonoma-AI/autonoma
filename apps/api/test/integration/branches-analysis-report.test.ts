@@ -103,14 +103,11 @@ apiTestSuite({
             expect(report).toBeNull();
         });
 
-        test("snapshotDetail loads for an authoritative snapshot that has no diffs job", async ({ harness }) => {
+        test("snapshotDetail loads for an authoritative snapshot", async ({ harness }) => {
             const { snapshotId } = await createAuthoritativeSnapshot(harness);
 
             const detail = await harness.request().branches.snapshotDetail({ snapshotId });
 
-            // No DiffsJob exists (authoritative snapshots track status via an AnalysisJob); the detail reports it as
-            // absent rather than synthesizing a fake terminal job, and the rest of the payload still loads.
-            expect(detail.diffsJob).toBeUndefined();
             expect(detail.changes).toEqual([]);
         });
     },

@@ -1,6 +1,4 @@
 import {
-    type AffectedReason,
-    type GenerationReviewVerdict,
     type GenerationStatus,
     type Prisma,
     type PrismaClient,
@@ -62,27 +60,6 @@ export interface SeedScenario {
     upWebhookCreate?: Prisma.InputJsonValue;
 }
 
-/** One refinement iteration to materialize in a lineage graph. */
-export interface SeedIteration {
-    /** 1-based iteration number; iteration 1 is the seed iteration. */
-    number: number;
-    /** The plan prompt this iteration's generation executed. */
-    planPrompt: string;
-    /**
-     * The healing agent's reasoning that produced *this* iteration's plan. Maps
-     * to an `update_plan` action attached to the previous iteration. Omit for the
-     * seed iteration (1), whose plan no healing agent authored.
-     */
-    healingReasoning?: string;
-    /**
-     * A completed review verdict for this iteration's generation. Omit to leave
-     * the generation without a completed review (so it contributes no prior verdict).
-     */
-    verdict?: { verdict: GenerationReviewVerdict; reasoning: string };
-    /** Marks this iteration's generation as the subject under review. Exactly one required. */
-    subject?: boolean;
-}
-
 /**
  * One generation attempt, materialized as a `StepAttempt` row (the timeline the
  * loader reads). A success carries `output`; a failure carries `error` +
@@ -106,10 +83,6 @@ export interface SeedGenerationParams {
     /** When omitted, the snapshot is created without SHAs (exercises the SHA-missing path). */
     baseSha?: string;
     headSha?: string;
-    /** When provided, a DiffsJob is created carrying this analysis reasoning. */
-    analysisReasoning?: string;
-    /** When provided, an AffectedTest row links this generation with the given reason + reasoning. */
-    affected?: { reason: AffectedReason; reasoning: string };
     /** Defaults to "failed". */
     status?: GenerationStatus;
     reasoning?: string;
@@ -136,75 +109,6 @@ export interface SeededGeneration {
     snapshotId: string;
     testCaseId: string;
     planId: string;
-}
-
-/** One refinement iteration in a generation-subject lineage graph. */
-export interface SeedGenerationIteration {
-    number: number;
-    planPrompt: string;
-    healingReasoning?: string;
-    /** A completed GenerationReview verdict for this iteration's generation. Omit to contribute no prior verdict. */
-    verdict?: { verdict: GenerationReviewVerdict; reasoning: string };
-    /** Marks this iteration as the subject - it materializes the failing generation. Exactly one required. */
-    subject?: boolean;
-}
-
-export interface SeedGenerationLineageParams {
-    organizationId: string;
-    applicationId: string;
-    baseSha?: string;
-    headSha?: string;
-    testName?: string;
-    iterations: SeedGenerationIteration[];
-    /** Steps attached to the subject generation. */
-    steps?: SeedGenerationStep[];
-    conversation?: ModelMessage[];
-}
-
-export interface SeededGenerationLineage {
-    subjectGenerationId: string;
-    snapshotId: string;
-    testCaseId: string;
-    loopId: string;
-}
-
-/**
- * One failing test in a healing iteration. Its `iterations` describe the full
- * refinement chain oldest-first; the entry flagged `subject: true` is the
- * iteration whose generation is the *current* failure healing must address
- * (earlier iterations contribute the lineage: their plan rewrites + verdicts).
- */
-export interface SeedHealingSubject {
-    testName: string;
-    /** When provided, an AffectedTest row links the failing subject with this reason + reasoning. */
-    affected?: { reason: AffectedReason; reasoning: string };
-    iterations: SeedIteration[];
-    /** Attach a scenario instance to the failing subject whose generated-data graph the loader materializes. */
-    scenario?: { name: string; status?: ScenarioInstanceStatus; generatedData?: unknown };
-}
-
-export interface SeedHealingIterationParams {
-    organizationId: string;
-    applicationId: string;
-    baseSha?: string;
-    headSha?: string;
-    analysisReasoning?: string;
-    subjects: SeedHealingSubject[];
-}
-
-/** A failing subject as the workflow would describe it to {@link DiffJobContextLoader.loadHealingContext}. */
-export interface SeededHealingSubject {
-    failureKey: string;
-    sourceId: string;
-    planId: string;
-    testCaseId: string;
-    testName: string;
-}
-
-export interface SeededHealingIteration {
-    snapshotId: string;
-    loopId: string;
-    subjects: SeededHealingSubject[];
 }
 
 let testSeq = 0;
@@ -366,9 +270,8 @@ export class DiffJobContextHarness implements IntegrationHarness {
 
     /**
      * Materialize a complete generation graph the loader reads from: a snapshot
-     * (optionally with SHAs + a DiffsJob), a test case + plan, the generation
-     * with its executed steps + (optional) conversation stored in the harness
-     * storage, and an optional AffectedTest linking the generation.
+     * (optionally with SHAs), a test case + plan, and the generation with its
+     * executed steps + (optional) conversation stored in the harness storage.
      */
     async seedGeneration(params: SeedGenerationParams): Promise<SeededGeneration> {
         const { organizationId, applicationId } = params;
@@ -388,17 +291,6 @@ export class DiffJobContextHarness implements IntegrationHarness {
                 headSha: params.headSha ?? null,
             },
         });
-
-        if (params.analysisReasoning != null || params.affected != null) {
-            await this.db.diffsJob.create({
-                data: {
-                    snapshotId: snapshot.id,
-                    organizationId,
-                    status: "completed",
-                    analysisReasoning: params.analysisReasoning ?? null,
-                },
-            });
-        }
 
         const testCase = await this.db.testCase.create({
             data: {
@@ -434,323 +326,7 @@ export class DiffJobContextHarness implements IntegrationHarness {
             scenarioInstanceId,
         });
 
-        if (params.affected != null) {
-            await this.db.affectedTest.create({
-                data: {
-                    snapshotId: snapshot.id,
-                    testCaseId: testCase.id,
-                    affectedReason: params.affected.reason,
-                    reasoning: params.affected.reasoning,
-                    generationId: generation.id,
-                    organizationId,
-                },
-            });
-        }
-
         return { generationId: generation.id, snapshotId: snapshot.id, testCaseId: testCase.id, planId: plan.id };
-    }
-
-    /**
-     * Materialize a refinement-loop lineage graph whose subject is a *generation*
-     * (not a run): earlier iterations execute runs with completed RunReviews, and
-     * the subject iteration materializes a generation against its healed plan.
-     * Mirrors {@link seedRefinementLineage} so the loader's lineage walk - which is
-     * subject-agnostic - can be exercised from the generation entry point.
-     */
-    async seedGenerationRefinementLineage(params: SeedGenerationLineageParams): Promise<SeededGenerationLineage> {
-        const { organizationId, applicationId } = params;
-        const suffix = uniqueSuffix();
-
-        const branch = await this.db.branch.create({
-            data: { name: `branch-${suffix}`, organizationId, applicationId },
-        });
-        const folder = await this.db.folder.create({
-            data: { name: `folder-${suffix}`, applicationId, organizationId },
-        });
-        const snapshot = await this.db.branchSnapshot.create({
-            data: {
-                branchId: branch.id,
-                source: "MANUAL",
-                baseSha: params.baseSha ?? null,
-                headSha: params.headSha ?? null,
-            },
-        });
-        const testCase = await this.db.testCase.create({
-            data: {
-                name: params.testName ?? `Test ${suffix}`,
-                slug: `test-${suffix}`,
-                applicationId,
-                folderId: folder.id,
-                organizationId,
-            },
-        });
-        const loop = await this.db.refinementLoop.create({
-            data: { snapshotId: snapshot.id, triggeredBy: "diffs", organizationId },
-        });
-
-        const firstPlan = await this.createPlan(
-            testCase.id,
-            params.iterations[0]?.planPrompt ?? "seed",
-            organizationId,
-        );
-        const assignment = await this.db.testCaseAssignment.create({
-            data: { snapshotId: snapshot.id, testCaseId: testCase.id, planId: firstPlan.id },
-        });
-
-        const created: Array<{ id: string }> = [];
-        let subjectGenerationId: string | undefined;
-
-        for (const [index, spec] of params.iterations.entries()) {
-            const plan = index === 0 ? firstPlan : await this.createPlan(testCase.id, spec.planPrompt, organizationId);
-
-            const iteration = await this.db.refinementIteration.create({
-                data: { loopId: loop.id, number: spec.number, status: "completed" },
-            });
-            await this.db.refinementIterationInput.create({
-                data: { iterationId: iteration.id, planId: plan.id },
-            });
-
-            const previous = created[index - 1];
-            if (spec.healingReasoning != null && previous != null) {
-                await this.db.refinementAction.create({
-                    data: {
-                        iterationId: previous.id,
-                        planId: plan.id,
-                        testCaseId: testCase.id,
-                        kind: "update_plan",
-                        payload: {},
-                        reasoning: spec.healingReasoning,
-                    },
-                });
-            }
-
-            await this.db.testCaseAssignment.update({ where: { id: assignment.id }, data: { planId: plan.id } });
-
-            if (spec.subject === true) {
-                const generation = await this.createGeneration({
-                    organizationId,
-                    snapshotId: snapshot.id,
-                    planId: plan.id,
-                    status: "failed",
-                    conversation: params.conversation,
-                    steps: params.steps ?? [],
-                });
-                subjectGenerationId = generation.id;
-            } else {
-                const generation = await this.createGeneration({
-                    organizationId,
-                    snapshotId: snapshot.id,
-                    planId: plan.id,
-                    status: "failed",
-                    steps: [],
-                });
-                if (spec.verdict != null) {
-                    await this.db.generationReview.create({
-                        data: {
-                            generationId: generation.id,
-                            organizationId,
-                            status: "completed",
-                            verdict: spec.verdict.verdict,
-                            reasoning: spec.verdict.reasoning,
-                        },
-                    });
-                }
-            }
-
-            created.push({ id: iteration.id });
-        }
-
-        if (subjectGenerationId == null) {
-            throw new Error("seedGenerationRefinementLineage requires exactly one iteration flagged subject: true");
-        }
-
-        return { subjectGenerationId, snapshotId: snapshot.id, testCaseId: testCase.id, loopId: loop.id };
-    }
-
-    /**
-     * Materialize a complete healing-iteration graph the loader's
-     * `loadHealingContext` reads: one snapshot (optionally with SHAs + a DiffsJob
-     * carrying analysis reasoning), a single refinement loop with shared
-     * iterations, and one failing subject per entry in `params.subjects`. Each
-     * subject gets its own test case, a per-iteration plan chain (linked to the
-     * shared iterations via RefinementIterationInput, with `update_plan` actions
-     * carrying healing reasoning and earlier runs carrying completed reviews),
-     * an optional AffectedTest, and an optional scenario on the failing subject.
-     * Returns the failing subjects shaped as the workflow would pass them in.
-     */
-    async seedHealingIteration(params: SeedHealingIterationParams): Promise<SeededHealingIteration> {
-        const { organizationId, applicationId } = params;
-        const suffix = uniqueSuffix();
-
-        const branch = await this.db.branch.create({
-            data: { name: `branch-${suffix}`, organizationId, applicationId },
-        });
-        const folder = await this.db.folder.create({
-            data: { name: `folder-${suffix}`, applicationId, organizationId },
-        });
-        const snapshot = await this.db.branchSnapshot.create({
-            data: {
-                branchId: branch.id,
-                source: "MANUAL",
-                baseSha: params.baseSha ?? null,
-                headSha: params.headSha ?? null,
-            },
-        });
-
-        // AffectedTest.snapshotId FKs to DiffsJob.snapshotId, and analysisReasoning
-        // lives on the DiffsJob - create one whenever either is in play.
-        const anyAffected = params.subjects.some((subject) => subject.affected != null);
-        if (params.analysisReasoning != null || anyAffected) {
-            await this.db.diffsJob.create({
-                data: {
-                    snapshotId: snapshot.id,
-                    organizationId,
-                    status: "completed",
-                    analysisReasoning: params.analysisReasoning ?? null,
-                },
-            });
-        }
-
-        const loop = await this.db.refinementLoop.create({
-            data: { snapshotId: snapshot.id, triggeredBy: "diffs", organizationId },
-        });
-
-        // Iterations are shared across every test in the loop (numbered per loop),
-        // so create them once; each subject links its per-iteration plan to them.
-        const maxNumber = Math.max(...params.subjects.flatMap((subject) => subject.iterations.map((it) => it.number)));
-        const iterationByNumber = new Map<number, string>();
-        for (const number of Array.from({ length: maxNumber }, (_unused, index) => index + 1)) {
-            const iteration = await this.db.refinementIteration.create({
-                data: { loopId: loop.id, number, status: "completed" },
-            });
-            iterationByNumber.set(number, iteration.id);
-        }
-
-        const subjects: SeededHealingSubject[] = [];
-        for (const [index, spec] of params.subjects.entries()) {
-            subjects.push(
-                await this.seedHealingSubject({
-                    snapshotId: snapshot.id,
-                    folderId: folder.id,
-                    organizationId,
-                    applicationId,
-                    iterationByNumber,
-                    index,
-                    spec,
-                }),
-            );
-        }
-
-        return { snapshotId: snapshot.id, loopId: loop.id, subjects };
-    }
-
-    private async seedHealingSubject(args: {
-        snapshotId: string;
-        folderId: string;
-        organizationId: string;
-        applicationId: string;
-        iterationByNumber: Map<number, string>;
-        index: number;
-        spec: SeedHealingSubject;
-    }): Promise<SeededHealingSubject> {
-        const { snapshotId, folderId, organizationId, applicationId, iterationByNumber, index, spec } = args;
-        const suffix = uniqueSuffix();
-
-        const testCase = await this.db.testCase.create({
-            data: {
-                name: spec.testName,
-                slug: `test-${index}-${suffix}`,
-                applicationId,
-                folderId,
-                organizationId,
-            },
-        });
-
-        const firstPlan = await this.createPlan(testCase.id, spec.iterations[0]?.planPrompt ?? "seed", organizationId);
-        const assignment = await this.db.testCaseAssignment.create({
-            data: { snapshotId, testCaseId: testCase.id, planId: firstPlan.id },
-        });
-
-        const scenarioInstanceId =
-            spec.scenario != null
-                ? await this.createScenarioInstance(organizationId, applicationId, spec.scenario)
-                : undefined;
-
-        let subjectInfo: { sourceId: string; planId: string } | undefined;
-
-        for (const [iterIndex, it] of spec.iterations.entries()) {
-            const plan =
-                iterIndex === 0 ? firstPlan : await this.createPlan(testCase.id, it.planPrompt, organizationId);
-
-            const iterationId = iterationByNumber.get(it.number);
-            if (iterationId == null) throw new Error(`No shared iteration seeded for number ${it.number}`);
-            await this.db.refinementIterationInput.create({ data: { iterationId, planId: plan.id } });
-
-            // The rewrite that produced this plan is attached to the previous
-            // iteration (the one whose healing generation authored it).
-            const previousIterationId = iterationByNumber.get(it.number - 1);
-            if (it.healingReasoning != null && previousIterationId != null) {
-                await this.db.refinementAction.create({
-                    data: {
-                        iterationId: previousIterationId,
-                        planId: plan.id,
-                        testCaseId: testCase.id,
-                        kind: "update_plan",
-                        payload: {},
-                        reasoning: it.healingReasoning,
-                    },
-                });
-            }
-
-            await this.db.testCaseAssignment.update({ where: { id: assignment.id }, data: { planId: plan.id } });
-
-            const isSubject = it.subject === true;
-            const generation = await this.createGeneration({
-                organizationId,
-                snapshotId,
-                planId: plan.id,
-                status: "failed",
-                steps: [],
-                scenarioInstanceId: isSubject ? scenarioInstanceId : undefined,
-            });
-            if (it.verdict != null) {
-                await this.db.generationReview.create({
-                    data: {
-                        generationId: generation.id,
-                        organizationId,
-                        status: "completed",
-                        verdict: it.verdict.verdict,
-                        reasoning: it.verdict.reasoning,
-                    },
-                });
-            }
-            if (isSubject) subjectInfo = { sourceId: generation.id, planId: plan.id };
-        }
-
-        if (subjectInfo == null) {
-            throw new Error("seedHealingIteration requires exactly one iteration flagged subject: true per subject");
-        }
-
-        if (spec.affected != null) {
-            await this.db.affectedTest.create({
-                data: {
-                    snapshotId,
-                    testCaseId: testCase.id,
-                    affectedReason: spec.affected.reason,
-                    reasoning: spec.affected.reasoning,
-                    generationId: subjectInfo.sourceId,
-                    organizationId,
-                },
-            });
-        }
-
-        return {
-            failureKey: subjectInfo.sourceId,
-            sourceId: subjectInfo.sourceId,
-            planId: subjectInfo.planId,
-            testCaseId: testCase.id,
-            testName: spec.testName,
-        };
     }
 
     private async createGeneration(args: {
