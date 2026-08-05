@@ -3,7 +3,7 @@ import { useLocation, useParams, useRouter } from "@tanstack/react-router";
 import { useAuth } from "lib/auth";
 import { useOrgByAppSlug, useSwitchToOrg } from "lib/query/admin.queries";
 import { useEffect, useRef } from "react";
-import { clearLastApp } from "../-last-app";
+import { clearLastAppId } from "../-last-app";
 
 // Literal route id (instead of importing the Route) to avoid a circular import
 // with route.tsx, which renders this component as its notFoundComponent.
@@ -45,7 +45,7 @@ export function AppNotFound() {
       { orgId },
       {
         onSuccess: () => {
-          clearLastApp();
+          clearLastAppId();
           void router.navigate({ href: location.href, reloadDocument: true });
         },
       },
@@ -60,7 +60,7 @@ export function AppNotFound() {
       { orgId: soleTarget.orgId },
       {
         onSuccess: () => {
-          clearLastApp();
+          clearLastAppId();
           void router.navigate({ href: location.href, reloadDocument: true });
         },
       },

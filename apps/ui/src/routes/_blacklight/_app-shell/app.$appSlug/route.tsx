@@ -2,14 +2,14 @@ import { Outlet, createFileRoute, notFound } from "@tanstack/react-router";
 import { ensureBranchData } from "lib/query/branches.queries";
 import { prefetchSuiteHealth } from "lib/query/suite-health.queries";
 import { trpc } from "lib/trpc";
-import { setLastApp } from "../-last-app";
+import { setLastAppId } from "../-last-app";
 import { AppNotFound } from "./-app-not-found";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug")({
   loader: ({ context: { queryClient, applications }, params: { appSlug } }) => {
     const app = applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
-    setLastApp(app.slug);
+    setLastAppId(app.id);
 
     // The sidebar renders on every app page but mounts only once these loaders resolve, so its two
     // app-scoped reads would otherwise fire a round trip of their own after the page has painted -

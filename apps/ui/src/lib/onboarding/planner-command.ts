@@ -60,6 +60,16 @@ function copyHeader(): string {
 
 /** Everything the planner needs to attach a run to an Autonoma application. */
 export interface PlannerCommandEnv {
+    /**
+     * Which Autonoma to talk to.
+     *
+     * Emitted always, from the same `VITE_API_URL` every other call in this app is
+     * built from, rather than left to the CLI's own default. The command is copied
+     * off whichever Autonoma the user is looking at, and its app id only exists
+     * there - so a command copied from beta that silently addressed production
+     * would fail on an application production has never heard of.
+     */
+    apiUrl: string;
     /** Authenticates the run; also what it uploads with. */
     apiToken: string;
     /** The setup its uploads belong to. */
@@ -83,6 +93,7 @@ export interface PlannerCommandEnv {
 export function buildPlannerCommand(env: PlannerCommandEnv, { masked = false } = {}): string {
     const secret = (value: string): string => (masked ? MASKED_VALUE : value);
     const pairs = [
+        `AUTONOMA_API_URL=${env.apiUrl}`,
         env.sharedSecret != null ? `AUTONOMA_SHARED_SECRET=${secret(env.sharedSecret)}` : undefined,
         env.distinctId != null ? `AUTONOMA_DISTINCT_ID=${env.distinctId}` : undefined,
         `AUTONOMA_API_TOKEN=${secret(env.apiToken)}`,

@@ -17,7 +17,7 @@ import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplications } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
 import { Suspense, useState } from "react";
-import { setLastApp } from "../_app-shell/-last-app";
+import { setLastAppId } from "../_app-shell/-last-app";
 import { DeployRequestIdleIndicator, isPreviewDeployRequestPhase } from "./-components/deploy-request-indicator";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 
@@ -89,7 +89,7 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
         // the app short of `completed` (so its PR comments stay suppressed)
         // unless the user later notices "Continue setup".
         onSuccess: async () => {
-          setLastApp(application.slug);
+          setLastAppId(application.id);
           await router.invalidate();
           void navigate({ to: "/onboarding", search: buildOnboardingSearch("diff-trigger", appId), replace: true });
         },

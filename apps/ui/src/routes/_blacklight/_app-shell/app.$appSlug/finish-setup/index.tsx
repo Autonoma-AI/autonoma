@@ -39,6 +39,7 @@ import { type PreviewLogSource, PreviewLogsTabs } from "components/build-logs/pr
 import { AGENT_DIALOG_DESCRIPTION, ConnectAgentDialog } from "components/connect-agent-dialog";
 import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { NoVercelDeploymentsNotice } from "components/no-vercel-deployments-notice";
+import { getApiOrigin } from "lib/api-origin";
 import { useAuth } from "lib/auth";
 import { type DryRunOutcome, formatDryRunError } from "lib/format-dry-run-error";
 import { AGENT_INSTRUCTIONS } from "lib/onboarding/agent-instructions";
@@ -1619,6 +1620,7 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
   const commandEnv =
     setup.status === "ready"
       ? {
+          apiUrl: getApiOrigin(),
           apiToken: setup.apiKey,
           generationId: setup.setupId,
           applicationId,

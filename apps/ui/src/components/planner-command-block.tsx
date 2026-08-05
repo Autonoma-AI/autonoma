@@ -2,6 +2,7 @@ import { Button, Skeleton } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
+import { getApiOrigin } from "lib/api-origin";
 import { useAuth } from "lib/auth";
 import {
   buildPlannerCommand,
@@ -93,7 +94,7 @@ function CopyableCommand({ applicationId, generationId, sharedSecret, distinctId
   // What is rendered and what is copied differ on purpose, and by more than masking:
   // on screen the token does not exist yet. It is minted by `copy` below.
   const shown = buildPlannerCommand(
-    { apiToken: "", generationId, applicationId, sharedSecret, distinctId },
+    { apiUrl: getApiOrigin(), apiToken: "", generationId, applicationId, sharedSecret, distinctId },
     { masked: true },
   );
 
@@ -113,7 +114,14 @@ function CopyableCommand({ applicationId, generationId, sharedSecret, distinctId
 
     minting.current
       .then((apiToken) => {
-        const env: PlannerCommandEnv = { apiToken, generationId, applicationId, sharedSecret, distinctId };
+        const env: PlannerCommandEnv = {
+          apiUrl: getApiOrigin(),
+          apiToken,
+          generationId,
+          applicationId,
+          sharedSecret,
+          distinctId,
+        };
         return navigator.clipboard.writeText(buildPlannerCommandForCopy(env));
       })
       .then(() => {

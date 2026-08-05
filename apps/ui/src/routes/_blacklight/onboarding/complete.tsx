@@ -5,7 +5,7 @@ import { Link, Navigate, createFileRoute, useNavigate } from "@tanstack/react-ro
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplications } from "lib/query/applications.queries";
 import { Suspense, useEffect } from "react";
-import { setLastApp } from "../_app-shell/-last-app";
+import { setLastAppId } from "../_app-shell/-last-app";
 
 export const Route = createFileRoute("/_blacklight/onboarding/complete")({
   component: () => <Navigate to="/onboarding" search={buildOnboardingSearch("complete")} />,
@@ -37,7 +37,7 @@ function CompletePageContent({ appId }: { appId?: string }) {
 
   useEffect(() => {
     if (application != null) {
-      setLastApp(application.slug);
+      setLastAppId(application.id);
     }
 
     const timer = setTimeout(() => {

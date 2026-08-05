@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import { buildPlannerCommand, buildPlannerCommandForCopy, PLANNER_DOCS_URL } from "./planner-command";
 
 const ENV = {
+    apiUrl: "https://api.autonoma.app",
     apiToken: "ask_live_token",
     generationId: "setup_1",
     applicationId: "app_1",
@@ -12,13 +13,25 @@ const ENV = {
 describe("buildPlannerCommand", () => {
     test("carries every variable a run needs, in a single pasteable line", () => {
         expect(buildPlannerCommand(ENV)).toBe(
-            "AUTONOMA_SHARED_SECRET=shh_live_secret AUTONOMA_DISTINCT_ID=user_1 AUTONOMA_API_TOKEN=ask_live_token " +
+            "AUTONOMA_API_URL=https://api.autonoma.app AUTONOMA_SHARED_SECRET=shh_live_secret AUTONOMA_DISTINCT_ID=user_1 AUTONOMA_API_TOKEN=ask_live_token " +
                 "AUTONOMA_GENERATION_ID=setup_1 AUTONOMA_APPLICATION_ID=app_1 npx @autonoma-ai/planner@latest",
         );
     });
 
+    // The app id in the command exists only on the Autonoma the command was copied
+    // from. Left to its own default the CLI would address production about an
+    // application production has never heard of, which is what made a command copied
+    // off beta unusable.
+    test("addresses the Autonoma it was copied from, not whichever one is the default", () => {
+        const command = buildPlannerCommand({ ...ENV, apiUrl: "https://api.beta.autonoma.app" });
+
+        expect(command).toContain("AUTONOMA_API_URL=https://api.beta.autonoma.app");
+        expect(command).not.toContain("api.autonoma.app ");
+    });
+
     test("omits what the app does not have yet rather than emitting an empty value", () => {
         const command = buildPlannerCommand({
+            apiUrl: "https://api.autonoma.app",
             apiToken: "ask_live_token",
             generationId: "setup_1",
             applicationId: "app_1",

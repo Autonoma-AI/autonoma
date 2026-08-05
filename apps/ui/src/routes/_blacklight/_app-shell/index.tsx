@@ -14,7 +14,7 @@ import { buildResumeSearch } from "lib/onboarding/navigate-to-onboarding";
 import { getOnboardingProgress } from "lib/onboarding/onboarding-progress";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { type ReactNode, useState } from "react";
-import { getLastApp } from "./-last-app";
+import { getLastAppId } from "./-last-app";
 
 const APP_TYPE_LABELS: Record<string, string> = {
   WEB: "Web application",
@@ -59,8 +59,8 @@ export const Route = createFileRoute("/_blacklight/_app-shell/")({
     if (onboardedApps.length === 0) return;
 
     // At least one app is ready - deep-link into it. Prefer the last viewed, otherwise the first.
-    const lastAppSlug = getLastApp();
-    const targetApp = onboardedApps.find((a) => a.slug === lastAppSlug) ?? onboardedApps[0];
+    const lastAppId = getLastAppId();
+    const targetApp = onboardedApps.find((a) => a.id === lastAppId) ?? onboardedApps[0];
     if (targetApp == null) return;
 
     throw redirect({
