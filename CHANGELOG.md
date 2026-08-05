@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.260805.2](https://github.com/Autonoma-AI/agent/compare/v1.260805.1...v1.260805.2) (2026-08-05)
+
+
+### Features
+
+* **analysis:** classifier capture-to-replay eval harness ([#2149](https://github.com/Autonoma-AI/agent/issues/2149)) ([571d8d1](https://github.com/Autonoma-AI/agent/commit/571d8d1e5b78c17435b524d7c784b712d17c61ce))
+* **ui:** the connect screen hands out one command ([#2173](https://github.com/Autonoma-AI/agent/issues/2173)) ([005be90](https://github.com/Autonoma-AI/agent/commit/005be9001b0f115e764b771ce4abb58d2305cb85))
+
+
+### Bug Fixes
+
+* **cli:** make the completion-watch cleanup test deterministic ([#2190](https://github.com/Autonoma-AI/agent/issues/2190)) ([fb40807](https://github.com/Autonoma-AI/agent/commit/fb408072bea3884a337114941aa25264d8a4028b))
+* **deployment:** raise worker-general memory to 2Gi to stop OOMKills ([#2180](https://github.com/Autonoma-AI/agent/issues/2180)) ([89781ca](https://github.com/Autonoma-AI/agent/commit/89781ca0c962f40d63356cfd9fe3abeb30d343b9))
+* **previewkit:** fail a declined preview build in seconds, not 30 minutes ([#2187](https://github.com/Autonoma-AI/agent/issues/2187)) ([6678bc5](https://github.com/Autonoma-AI/agent/commit/6678bc52246dd5d4ac14622379f2900816475d72))
+* **secrets:** skip the write when a secret is re-asserted unchanged ([#2168](https://github.com/Autonoma-AI/agent/issues/2168)) ([c3f9329](https://github.com/Autonoma-AI/agent/commit/c3f9329e909f8406c9e45ba2a529584dd68178ff))
+* **workflow:** cap the workflow cache instead of deriving it from the heap ([#2182](https://github.com/Autonoma-AI/agent/issues/2182)) ([35aa04f](https://github.com/Autonoma-AI/agent/commit/35aa04fee15b269bf41065a32d8fa6cc8b8fbffe))
+
 ## [1.260805.1](https://github.com/Autonoma-AI/agent/compare/v1.260804.1...v1.260805.1) (2026-08-05)
 
 
