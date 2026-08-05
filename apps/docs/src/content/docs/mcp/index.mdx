@@ -10,10 +10,14 @@ import TabItem from "../../../components/TabItem.astro"
 
 Everything on this page is that one installation. What your agent does with it is decided by what you ask for, not by what you connected to:
 
-- **Use it for onboarding** - set an app up: pick how it gets its previews, configure and deploy them (or wire your own pipeline), validate your SDK endpoint, and get your scenario recipes provisioning. You start this from inside Autonoma, which gives your agent a pairing code. → [Set up a preview with a coding agent](/mcp/configure-preview)
-- **Use it for debugging** - once Autonoma is reviewing your pull requests: read what it flagged and why, pull logs and deploy status, fix the cause in your repo, and ask for a re-check. No pairing code - your agent identifies the app from your git remote. → the rest of this page.
+- **Use it for onboarding** - set an app up: pick how it gets its previews, configure and deploy them (or wire your own pipeline), validate your SDK endpoint, and get your scenario recipes provisioning. **You do not install anything for this one.** Autonoma hands you a single command that registers this server for you and starts an agent on the job. → [Set up a preview with a coding agent](/mcp/configure-preview)
+- **Use it for debugging** - once Autonoma is reviewing your pull requests: read what it flagged and why, pull logs and deploy status, fix the cause in your repo, and ask for a re-check. Your agent identifies the app from your git remote. → the rest of this page, which is where you install it by hand.
 
 You do not install anything twice, and you do not pick a mode. The same tools are there for both.
+
+:::note
+Setting an app up? You can stop reading here. The [planner CLI](/test-planner/) does the installation below for you, in one command, and then keeps going through your test suite and test data. This page is for the debugging job, and for anyone who would rather wire the server up themselves.
+:::
 
 ## Connection details
 
@@ -37,9 +41,11 @@ You need an Autonoma account with your app connected. For the debugging job you 
 
 The OAuth flow needs a browser. Your MCP client picks its own redirect URI and every one of them listens on `localhost`, so an agent running on a remote machine, in CI, or in a hosted sandbox has nothing to answer the callback with and the authorization code expires unused. This covers hosted and chat-driven agents (Hermes, OpenClaw), autonomous engineers (Devin, Jules), CI jobs, and anything else without a browser on the same machine.
 
-**If you are one of those agents:** use the **Remote agent** tab on Autonoma's connect screen. It is the configuration built for you - one block carrying the endpoint, an API key, and the instruction to start on. And whatever tab a user copied from, the block already ends with the same fallback in a comment, so a browser sign-in you cannot complete is never a dead end: take the `Authorization: Bearer` header from the comment and carry on.
+**If you are one of those agents and you are setting an app up:** none of this applies to you - run the [planner CLI](/test-planner/#running-unattended) with `--non-interactive` instead. It authorizes itself with an API key, never opens a browser, and does the whole setup in one invocation.
 
-> **If you found this page through `llms.txt` or the `.well-known/ai-catalog.json` file**, you are already in the right place. Use the [connection details](#connection-details) with an API key bearer token — no browser needed.
+**If you are one of those agents and you are debugging a pull request:** use the **Remote agent** tab on Autonoma's connect dialog. It is the configuration built for you - one block carrying the endpoint, an API key, and the instruction to start on. And whatever tab a user copied from, the block already ends with the same fallback in a comment, so a browser sign-in you cannot complete is never a dead end: take the `Authorization: Bearer` header from the comment and carry on.
+
+> **If you found this page through `llms.txt` or the `.well-known/ai-catalog.json` file**, you are already in the right place. Use the [connection details](#connection-details) with an API key bearer token - no browser needed.
 
 For those, send an Autonoma API key as a plain bearer token and skip OAuth entirely:
 
@@ -182,23 +188,25 @@ Refresh MCP servers from Cascade's settings, then complete the browser sign-in. 
 
 <TabItem label="Codex">
 
-Codex reaches remote servers through the `mcp-remote` bridge, which also handles the OAuth browser flow. Add it to `~/.codex/config.toml`:
+Codex speaks Streamable HTTP natively. Add the server and sign in, from a terminal:
 
-```toml
-# ~/.codex/config.toml
-[mcp_servers.autonoma]
-command = "npx"
-args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp"]
+```bash
+codex mcp add autonoma --url https://api.autonoma.app/v1/mcp
+codex mcp login autonoma
 ```
 
-With no browser to complete that flow, pass an [API key](#headless-agents-and-ci) through the bridge instead:
+With no browser to complete that sign-in, drop the `login` line and authenticate with an [API key](#headless-agents-and-ci) from an environment variable instead:
 
-```toml
-# ~/.codex/config.toml
-[mcp_servers.autonoma]
-command = "npx"
-args = ["-y", "mcp-remote", "https://api.autonoma.app/v1/mcp", "--header", "Authorization: Bearer ${AUTONOMA_API_KEY}"]
+```bash
+codex mcp add autonoma --url https://api.autonoma.app/v1/mcp \
+  --bearer-token-env-var AUTONOMA_API_KEY
 ```
+
+`--bearer-token-env-var` names the variable rather than taking the value, so the key stays out of `~/.codex/config.toml` and out of your shell history.
+
+:::note
+Older instructions bridged Codex to remote servers with `mcp-remote` and a hand-edited `[mcp_servers.autonoma]` block in `~/.codex/config.toml`. `codex mcp add --url` supersedes that - use it instead.
+:::
 
 </TabItem>
 
@@ -227,7 +235,7 @@ Any MCP client that speaks Streamable HTTP can connect with the [connection deta
 Client config formats change over time. If a snippet above no longer matches, keep the [connection details](#connection-details) and follow your client's current "add an MCP server" instructions.
 :::
 
-That is the whole installation, and it covers both jobs. **Setting an app up?** [Set up a preview with a coding agent](/mcp/configure-preview) picks up from here: the pairing code that pins your app, how your agent chooses the preview path, and what it does on each. The rest of this page is the debugging job.
+That is the whole installation, and it covers both jobs. **Setting an app up?** [Set up a preview with a coding agent](/mcp/configure-preview) picks up from here: how your agent chooses the preview path and what it does on each - though the one command Autonoma gives you does this installation for you, so most people never need this page for that job. The rest of this page is the debugging job.
 
 ## Point your agent at it
 

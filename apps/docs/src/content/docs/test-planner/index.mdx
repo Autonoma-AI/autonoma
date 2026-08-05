@@ -1,27 +1,66 @@
 ---
 title: Test Planner
-description: The planner is a CLI that reads your codebase and generates a complete, natural-language E2E test suite - pages, flows, scenarios, and the test-data helpers to run them - in one command.
+description: The planner CLI is how you set Autonoma up. One command sets up your preview environment, generates your end-to-end test suite, wires the SDK and proves your test data - interactively, or unattended with `--non-interactive` for a hosted agent or a CI job.
 ---
 
-<p class="lead">The planner is a command-line tool that reads your codebase and generates a complete end-to-end test suite: the pages and flows to cover, the data each test needs, and the helpers that create and clean up that data. One command, and it runs on managed Autonoma credits - no LLM API key required.</p>
+<p class="lead">The planner is the command Autonoma hands you, and it does the whole setup: a preview environment, a complete end-to-end test suite read from your codebase, the SDK integration that creates your test data, and a dry run proving it works. One invocation, start to finish, on managed Autonoma credits - no LLM API key required.</p>
 
 ![The planner reads your codebase and produces a knowledge base, scenarios, and a test suite](/img/test-planner/pipeline.jpg)
 
 ## Run it
 
-You launch the planner from the **Finish setup → Upload test artifacts** step in the dashboard, which hands you a ready-to-paste command with your token, generation id and application id baked in:
+Autonoma shows you this command when you connect your app, with your token and ids already baked in. Copy it, open a terminal in your project, and paste:
 
 ```bash
 AUTONOMA_SHARED_SECRET=... AUTONOMA_DISTINCT_ID=... AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... AUTONOMA_APPLICATION_ID=... npx @autonoma-ai/planner@latest
 ```
 
+That is the whole of setup. There is no second command, no step list to work through, and nothing to install - `npx` fetches the planner and runs it.
+
+:::caution[Run it in a terminal, not inside a coding agent you already have open]
+The command takes the terminal over and starts a coding agent of its own. Pasting it into a session that is already running leaves two agents fighting over one screen.
+
+**If you are a coding agent on the user's machine** (Claude Code, Codex, Cursor): hand this command to the person you are working with rather than running it. **If you are a hosted agent with no human beside you** (a CI job, an autonomous engineer): run it yourself and add `--non-interactive` - see [running unattended](#running-unattended).
+:::
+
+### What it needs from Autonoma
+
+The command carries its own configuration as environment variables, so the only one you ever set by hand is a token for a standalone run.
+
+| Variable | Required | What it does |
+| --- | --- | --- |
+| `AUTONOMA_API_TOKEN` | yes | The run's credential. Create one under **Settings → API keys** |
+| `AUTONOMA_APPLICATION_ID` | no | The app this run belongs to. With it, the run also sets up the preview environment and validates the result; without it the planner runs standalone against any repository |
+| `AUTONOMA_GENERATION_ID` | for upload | The setup its generated artifacts are uploaded against |
+| `AUTONOMA_SHARED_SECRET` | no | Signs the SDK and webhook requests the run makes on your behalf |
+| `AUTONOMA_API_URL` | no | Point at a non-production Autonoma. Defaults to production |
+| `AUTONOMA_DEBUG` | no | Set to anything for verbose diagnostics on stderr |
+| `DONT_TRACK` | no | Set to anything to turn off analytics, logs and session replay together |
+
+### Where a run starts
+
+The planner reads your app's setup status when it launches and begins at the first thing still outstanding, so re-running it never redoes finished work:
+
+- **No preview environment yet** - it starts there, then continues into the pipeline.
+- **A preview you already set up** (by hand, or on a previous run) - straight to the pipeline.
+- **Everything but the scenario dry run** - straight to the dry run.
+- **No `AUTONOMA_APPLICATION_ID`** - the planner runs standalone against the repository and uploads nothing.
+
+If it is interrupted, `--resume` picks up from the step that did not finish.
+
+### While it runs
+
+The run holds your app's setup for as long as it is going, so Autonoma stops offering you the steps it is doing and points you back at your terminal. **Take over** in the web app hands those steps back to you - your run keeps going either way, so stop it in the terminal too if you meant to take the work back.
+
+The same command also appears on **Finish setup** in Autonoma, for an app whose preview you set up by hand. It is the same command and the same run; it simply has less left to do.
+
 ![The Upload test artifacts step in Autonoma. A "Finish setup" stepper reads 0 of 3 complete, with step 1 "CLI - upload test artifacts" active and steps 2 "SDK" and 3 "Dry run" ahead of it. The step explains that the planner runs in your repo, generates your test suite and uploads it, and that nothing is committed to your repo. Under a label reading "Run in your terminal" sits a command block prefixed with a shell prompt, holding the full npx line with your shared secret, distinct id, API token, generation id and application id filled in, and beneath it a bright lime "Copy command" button; clicking anywhere in the block copies it too. Below that, a row labelled "Waiting for uploads" carries a 0/4 count and four pending chips - recipe.json, qa-tests/, AUTONOMA.md and scenarios.md - each with an empty circle, and each revealing what the file is on hover](/img/test-planner/upload-artifacts.png)
 
-Hit **Copy command**, then paste it into your terminal. The four chips under it are how you watch the upload land: the count climbs and each one fills in as the planner sends it. Hover a chip to see what that file is.
+The four chips are how you watch the upload land: the count climbs and each one fills in as the planner sends it. Hover a chip to see what that file is.
 
 That `npx` line downloads and runs the planner, published on npm as `@autonoma-ai/planner`. `npx` runs it without installing it, so there is no `autonoma-planner` command on your `PATH` afterwards - keep using the full `npx` form for every command below. Run it from the root of the repo you want to test. It works against your **frontend** (to map pages and flows) and your **backend** (to map data models and wire up test data). If those live in separate repos, run it where it can reach both.
 
-It works through seven steps; everything it produces is readable live in the dashboard as it's written.
+Everything it produces is readable live in the dashboard as it's written.
 
 ## Watch it work
 
@@ -37,15 +76,26 @@ Navigate with the arrow keys (or `h/j/k/l`): move between panels, open any produ
 
 | # | Step | What it does | Output |
 | --- | --- | --- | --- |
-| 1 | **Map your project structure** | Finds your frontend(s) and backend(s) so later steps scan only what matters. | `project-map.json` |
-| 2 | **Find your pages** | Maps every page and route in your app. | `pages.json` |
-| 3 | **Build a knowledge base** | Learns your features, flows, and UI patterns. | `AUTONOMA.md` |
-| 4 | **Map your data models** | Finds what your app stores and how each record is created. | `entity-audit.md` |
-| 5 | **Design test scenarios** | Decides the realistic data each test runs against. | `scenarios.md` |
-| 6 | **Set up test data** | Hands the [Environment Factory](/environment-factory/) integration to your own coding agent, which implements it, validates it live, and produces the recipe. | `recipe.json` |
-| 7 | **Generate the tests** | Writes the E2E tests as natural-language markdown, covering every page and feature. | `qa-tests/` |
+| 1 | **Preview environment** | Hands your own coding agent the job of setting up a real per-pull-request deployment for Autonoma to test against. Skipped when you already have one. | a live preview |
+| 2 | **Map your project structure** | Finds your frontend(s) and backend(s) so later steps scan only what matters. | `project-map.json` |
+| 3 | **Find your pages** | Maps every page and route in your app. | `pages.json` |
+| 4 | **Build a knowledge base** | Learns your features, flows, and UI patterns. | `AUTONOMA.md` |
+| 5 | **Map your data models** | Finds what your app stores and how each record is created. | `entity-audit.md` |
+| 6 | **Design test scenarios** | Decides the realistic data each test runs against. | `scenarios.md` |
+| 7 | **Set up test data** | Hands the [Environment Factory](/environment-factory/) integration to your own coding agent, which implements it, validates it live, and produces the recipe. | `recipe.json` |
+| 8 | **Generate the tests** | Writes the E2E tests as natural-language markdown, covering every page and feature, then uploads the suite. | `qa-tests/` |
 
-### Step 6: your coding agent wires the test data
+### Step 1: your coding agent sets up the preview environment
+
+Autonoma tests against a **preview environment** - a real deployment of your app, built per pull request. Working out how your app should get one means reading your build, your services and your environment, which your coding agent can do far faster than you can describe it.
+
+So the planner hands that job over. It registers Autonoma's [MCP server](/mcp/) with your agent and then starts a **fresh session** on the task. Registering first is the whole trick: an agent loads its MCP servers at startup, so it can never pick up one it registered itself - which is why this has to come from a command rather than from inside a session you already have open.
+
+What the agent does next depends on which path your app takes - Autonoma-hosted previews, Vercel, or your own pipeline. All three are covered in [set up a preview with a coding agent](/mcp/configure-preview), along with the tools it uses and what you see in the Autonoma UI while it works.
+
+The planner reads whether the preview is up from Autonoma rather than from the agent's exit code - an interactive session does not exit when its work is done, and its exit status says nothing about whether a deployment landed. That is also what makes this identical across all three paths. If the preview never comes up, the run carries on generating your test suite and tells you: only the scenario dry run needs a live preview.
+
+### Step 7: your coding agent wires the test data
 
 Setting up test data means wiring the [Environment Factory](/environment-factory/) into your backend - real code in your repo. Instead of handing you instructions to paste somewhere, the planner launches your **locally installed coding agent** (Claude Code or Codex CLI) in one session, the same way `git commit` opens your editor: the dashboard steps aside, your agent takes the terminal, and control returns when it's done.
 
@@ -91,19 +141,47 @@ uploading anything.
 Use `upload` to recover from that. It reads what is already on disk and re-sends it.
 :::
 
-Flags go after the subcommand:
+Flags go after the subcommand. `--help` prints all of this, plus what each step does:
 
 ```bash
 --project <path>            # target a repo other than the current directory
 --frontend <path>           # in a monorepo, the frontend directory to plan tests for
---backends <path,path>      # the backend/data-layer directories it depends on
---step <name>               # run or re-run a single step
---resume                    # continue from where a previous run stopped
---non-interactive           # run unattended, plain output (CI)
---model <id>                # pick a different Autonoma-hosted model (still no key needed)
---agent <name>              # which coding agent handles the test-data step: claude | codex (default: auto-detect)
+--backend <path>            # a backend/data layer it talks to. Repeatable, or comma-separated
+--non-interactive           # run unattended - see below
+--coding-agent <name>       # which agent handles the preview and SDK steps: claude | codex
 --permission-mode <mode>    # its autonomy: bypassPermissions (default) | acceptEdits | default
+--resume                    # continue from where a previous run stopped
+--fresh                     # discard a previous run's output and start over
+--step <name>               # run a single step and stop - for debugging one step, not for sequencing a run
+--model <id>                # pick a different Autonoma-hosted model (still no key needed)
+--slug <name>               # override the output folder name under ~/.autonoma/
+--help                      # every action this can take
 ```
+
+`--agent` and `--backends` are accepted as aliases of `--coding-agent` and `--backend`.
+
+## Running unattended
+
+Hand the same command to a hosted agent, an autonomous engineer, or a CI job and add `--non-interactive`. It runs the entire pipeline in **one invocation** - there is no step list to sequence, and nothing to call back into:
+
+```bash
+AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... AUTONOMA_APPLICATION_ID=... \
+  npx @autonoma-ai/planner@latest --non-interactive \
+  --coding-agent claude --frontend apps/web --backend apps/api
+```
+
+With nobody to answer a question, everything that would have been asked has to arrive as a flag. What the run does about that:
+
+- **It never opens a browser.** The coding agent's Autonoma connection is authorized with the `AUTONOMA_API_TOKEN` the run already holds, sent as a bearer header. There is no sign-in step to complete.
+- **It never blocks on a question.** Where it has to assume an answer it says so on stdout, naming what was asked and what it took.
+- **It reports each step as it starts and finishes**, with how long it took, so the process that launched it can follow along.
+- **It refuses rather than guesses** when a choice would be arbitrary - two coding agents installed and no `--coding-agent`, several frontends and no `--frontend`. A wrong guess spawns the wrong tool and burns a long run, so it fails with a clear error instead.
+
+The coding agent it starts runs headless too (`claude -p`, `codex exec`), fully autonomous by default.
+
+:::note
+The run sets an environment variable when it spawns a coding agent, and refuses to spawn another while that variable is set. Without it, an agent that runs the planner would have the planner spawn an agent, which would run the planner - so a nested invocation stops rather than recursing.
+:::
 
 ## Output
 
