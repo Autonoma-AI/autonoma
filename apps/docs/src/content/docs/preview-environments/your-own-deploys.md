@@ -19,12 +19,12 @@ The question is not "do previews already exist" - it is **where the test data la
 
 An Autonoma-hosted preview gets its own database, so a test run creates and destroys rows in an environment nothing else shares. Your own previews usually point at a real shared database - commonly staging, sometimes production. A test run writes into it, and anything it creates that no tenant owns **stays there**. Picture a marketplace whose previews share one database: a run creates listings, and real users see them.
 
-| Your situation | Pick |
-| --- | --- |
-| No preview environments today | Autonoma-hosted - there is nothing to connect to |
-| Previews today, and every row hangs off a tenant (an org, account, or workspace you can delete whole) | Either. Your own is less to change |
-| Previews today, but the data is **not** cleanly tenant-scoped | Autonoma-hosted, despite the previews you already have |
-| Not sure | Autonoma-hosted |
+| Your situation                                                                                        | Pick                                                   |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| No preview environments today                                                                         | Autonoma-hosted - there is nothing to connect to       |
+| Previews today, and every row hangs off a tenant (an org, account, or workspace you can delete whole) | Either. Your own is less to change                     |
+| Previews today, but the data is **not** cleanly tenant-scoped                                         | Autonoma-hosted, despite the previews you already have |
+| Not sure                                                                                              | Autonoma-hosted                                        |
 
 The two mistakes are not symmetrical. Choosing Autonoma-hosted when you did not need to costs a preview environment we build for you anyway. Choosing your own pipeline when your data is not tenant-scoped writes test data into your real database, in front of your users, and it cannot be taken back.
 
@@ -38,26 +38,26 @@ The two mistakes are not symmetrical. Choosing Autonoma-hosted when you did not 
 
 One `POST`, signed with a shared secret:
 
-| | |
-| --- | --- |
-| **Endpoint** | `https://api.autonoma.app/v1/onboarding/deployment-signal` |
-| **Method** | `POST`, `content-type: application/json` |
-| **Signature** | `x-signature: <hex>` - HMAC-SHA256 of the **exact raw body bytes**, keyed with your shared secret |
-| **Secret** | Shown on the **Connect your deploys** onboarding step; store it as `AUTONOMA_SHARED_SECRET` in your pipeline |
+|               |                                                                                                              |
+| ------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Endpoint**  | `https://api.autonoma.app/v1/onboarding/deployment-signal`                                                   |
+| **Method**    | `POST`, `content-type: application/json`                                                                     |
+| **Signature** | `x-signature: <hex>` - HMAC-SHA256 of the **exact raw body bytes**, keyed with your shared secret            |
+| **Secret**    | Shown on the **Connect your deploys** onboarding step; store it as `AUTONOMA_SHARED_SECRET` in your pipeline |
 
 Sign the exact bytes you send. Serializing the JSON a second time after signing - a re-`JSON.stringify`, a formatter, a proxy that rewrites the body - changes the digest, and the call is rejected.
 
 ### Body
 
-| Field | Required | What it does |
-| --- | --- | --- |
-| `applicationId` | yes | The app this preview belongs to. Shown on the onboarding step |
-| `previewUrl` | yes | The URL Autonoma opens in a browser |
-| `branch` | pair | The deployed branch. Send **with** `prNumber` |
-| `prNumber` | pair | The pull request number. Send **with** `branch` |
-| `sdkUrl` | no | Only when your [Environment Factory](/environment-factory/) endpoint is on a different origin than `previewUrl` |
-| `sha` | no | The deployed commit |
-| `provider` | no | Free-text label for where the deploy came from |
+| Field           | Required | What it does                                                                                                    |
+| --------------- | -------- | --------------------------------------------------------------------------------------------------------------- |
+| `applicationId` | yes      | The app this preview belongs to. Shown on the onboarding step                                                   |
+| `previewUrl`    | yes      | The URL Autonoma opens in a browser                                                                             |
+| `branch`        | pair     | The deployed branch. Send **with** `prNumber`                                                                   |
+| `prNumber`      | pair     | The pull request number. Send **with** `branch`                                                                 |
+| `sdkUrl`        | no       | Only when your [Environment Factory](/environment-factory/) endpoint is on a different origin than `previewUrl` |
+| `sha`           | no       | The deployed commit                                                                                             |
+| `provider`      | no       | Free-text label for where the deploy came from                                                                  |
 
 `branch` and `prNumber` travel together, and this is the detail most worth getting right:
 
@@ -80,33 +80,33 @@ It hangs off GitHub's `deployment_status` event, which is convenient when your h
 name: Autonoma preview signal
 
 on:
-  deployment_status:
+    deployment_status:
 
 jobs:
-  notify:
-    if: github.event.deployment_status.state == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Notify Autonoma
-        env:
-          AUTONOMA_SHARED_SECRET: ${{ secrets.AUTONOMA_SHARED_SECRET }}
-          AUTONOMA_ENDPOINT: https://api.autonoma.app/v1/onboarding/deployment-signal
-          AUTONOMA_APPLICATION_ID: your-application-id
-          PREVIEW_URL: ${{ github.event.deployment_status.target_url }}
-          PREVIEW_SHA: ${{ github.event.deployment.sha || github.sha }}
-        run: |
-          BODY=$(jq -nc \
-            --arg applicationId "$AUTONOMA_APPLICATION_ID" \
-            --arg previewUrl "$PREVIEW_URL" \
-            --arg sha "$PREVIEW_SHA" \
-            --arg provider "custom" \
-            '{applicationId:$applicationId,previewUrl:$previewUrl,provider:$provider}
-              + (if $sha == "" then {} else {sha:$sha} end)')
-          SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$AUTONOMA_SHARED_SECRET" -hex | sed 's/^.* //')
-          curl -sS -X POST "$AUTONOMA_ENDPOINT" \
-            -H "content-type: application/json" \
-            -H "x-signature: $SIG" \
-            --data "$BODY"
+    notify:
+        if: github.event.deployment_status.state == 'success'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Notify Autonoma
+              env:
+                  AUTONOMA_SHARED_SECRET: ${{ secrets.AUTONOMA_SHARED_SECRET }}
+                  AUTONOMA_ENDPOINT: https://api.autonoma.app/v1/onboarding/deployment-signal
+                  AUTONOMA_APPLICATION_ID: your-application-id
+                  PREVIEW_URL: ${{ github.event.deployment_status.target_url }}
+                  PREVIEW_SHA: ${{ github.event.deployment.sha || github.sha }}
+              run: |
+                  BODY=$(jq -nc \
+                    --arg applicationId "$AUTONOMA_APPLICATION_ID" \
+                    --arg previewUrl "$PREVIEW_URL" \
+                    --arg sha "$PREVIEW_SHA" \
+                    --arg provider "custom" \
+                    '{applicationId:$applicationId,previewUrl:$previewUrl,provider:$provider}
+                      + (if $sha == "" then {} else {sha:$sha} end)')
+                  SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$AUTONOMA_SHARED_SECRET" -hex | sed 's/^.* //')
+                  curl -sS -X POST "$AUTONOMA_ENDPOINT" \
+                    -H "content-type: application/json" \
+                    -H "x-signature: $SIG" \
+                    --data "$BODY"
 ```
 
 Copy it from the onboarding step rather than from here - that copy has your real `applicationId` filled in.
@@ -136,7 +136,7 @@ Watch for two separate milestones:
 
 Your agent can do all of this - read how your pipeline actually deploys, write the call into the right step, open a pull request, and poll Autonoma until it sees a real signal land. Run the command Autonoma gives you during onboarding; it starts your agent on the job. See [set up a preview with a coding agent](/mcp/configure-preview).
 
-See [Set up a preview with a coding agent](/mcp/configure-preview/) for the install and the tools it uses on this path: `get_signal_setup`, `get_signal_status`, `confirm_signal_setup`, and `finish_onboarding` to take the app live.
+See [Set up a preview with a coding agent](/mcp/configure-preview/) for the install and the tools it uses on this path: `get_signal_setup`, `get_signal_status`, `confirm_signal_setup`, and `go_live` to take the app live.
 
 ## After the preview is connected
 

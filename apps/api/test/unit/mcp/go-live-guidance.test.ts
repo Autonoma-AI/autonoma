@@ -4,7 +4,7 @@ import {
     describeUnfinishedStep,
     describeUnverifiedPreview,
     describeWentLive,
-} from "../../../src/mcp/finish-onboarding-guidance";
+} from "../../../src/mcp/go-live-guidance";
 
 describe("describeUnfinishedStep", () => {
     // The wall this closes: the state machine's own rejection is `Cannot go live
@@ -14,7 +14,7 @@ describe("describeUnfinishedStep", () => {
         const refusal = describeUnfinishedStep("previewkit_configuring", "idle");
         expect(refusal).toContain("previewkit_configuring");
         expect(refusal).toContain("trigger_deploy");
-        expect(refusal).toContain("finish_onboarding again");
+        expect(refusal).toContain("go_live again");
     });
 
     it("sends an app with no repository to the GitHub tools", () => {

@@ -2,7 +2,7 @@ import type { OnboardingPreviewEnvironmentMode, OnboardingStep } from "@autonoma
 import type { PreviewDiagnosticsStatus } from "../routes/onboarding/preview-readiness";
 
 /**
- * What `finish_onboarding` tells an agent, in each of the situations it can be
+ * What `go_live` tells an agent, in each of the situations it can be
  * called from.
  *
  * The onboarding state machine rejects an out-of-order transition with `Cannot
@@ -17,7 +17,7 @@ export function describeUnfinishedStep(step: OnboardingStep, previewStatus: Prev
     return (
         `Nothing to finish: this app is on the "${step}" step, which is before its preview is verified, and going ` +
         `live commits Autonoma to reviewing pull requests against a preview that does not exist yet. ` +
-        `${nextStepFor(step, previewStatus)} Then call finish_onboarding again.`
+        `${nextStepFor(step, previewStatus)} Then call go_live again.`
     );
 }
 
@@ -75,12 +75,12 @@ const NEXT_STEP: Record<OnboardingStep, (previewStatus: PreviewDiagnosticsStatus
         "get_signal_status until `signalReceived` is true.",
 
     // Reachable only if the preview stopped being ready between the step read and
-    // this message, since finish_onboarding acts on these rather than refusing.
+    // this message, since go_live acts on these rather than refusing.
     preview_verified: () =>
-        "This app's preview was verified, so finish_onboarding takes it live once the preview is up again. " +
+        "This app's preview was verified, so go_live takes it live once the preview is up again. " +
         "Poll get_session_status until diagnostics.status is `ready`.",
     diff_trigger: () =>
-        "This app is one call from live: finish_onboarding advances it as soon as its preview is ready. " +
+        "This app is one call from live: go_live advances it as soon as its preview is ready. " +
         "Poll get_session_status until diagnostics.status is `ready`.",
     completed: () => "This app is already live; nothing here moves it further.",
 };
@@ -114,7 +114,7 @@ export function describeUnverifiedPreview(previewStatus: PreviewDiagnosticsStatu
         `This app reached a verified preview, but its preview is \`${previewStatus}\` right now, so onboarding will ` +
         "not advance - going live would point pull-request reviews at an environment that is not up. Nothing is " +
         "missing from the setup: poll get_session_status until diagnostics.status is `ready` (if it is `failed`, " +
-        "read `recentLogs`, fix the cause and redeploy), then call finish_onboarding again."
+        "read `recentLogs`, fix the cause and redeploy), then call go_live again."
     );
 }
 
@@ -140,7 +140,7 @@ export function describeWentLive(mode: OnboardingPreviewEnvironmentMode | undefi
 }
 
 /**
- * The answer to a second finish_onboarding on an app that is already live. Not
+ * The answer to a second go_live on an app that is already live. Not
  * an error - a retrying agent should read "done" and move on - but explicitly
  * not a no-op it can repeat to force anything, since the reason PR reviews are
  * missing is never the onboarding step at that point.

@@ -43,7 +43,7 @@ const HISTORICAL_ONBOARDING_TOOLS = [
     "request_env",
     "trigger_deploy",
     "get_session_status",
-    "finish_onboarding",
+    "go_live",
     "get_vercel_setup",
     "link_vercel_project",
     "create_vercel_deployment",
