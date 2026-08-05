@@ -29,11 +29,14 @@ interface ToolOutcome {
  * success, and latency - making MCP usage observable per customer and per tool.
  *
  * Org attribution is indirect on purpose: a tool only learns its organization
- * once it resolves the repo it was called with, deep inside the handler. Rather
- * than thread that id back out of every handler, {@link track} opens a fresh
- * observability scope around the handler, {@link observeOrgResolution} records the
- * org into it as the repo is resolved, and {@link track} reads it back to tag the
- * event. The scope is opened per call (not per HTTP request), so attribution never
+ * once it resolves the application it was called with, deep inside the handler.
+ * Rather than thread that id back out of every handler, {@link track} opens a fresh
+ * observability scope around the handler, {@link observeOrgResolution} and
+ * {@link observeTargetResolution} record the org into it as the application is
+ * resolved, and {@link track} reads it back to tag the event. A resolver that is
+ * handed to tools unwrapped leaves every one of them attributed to no org.
+ *
+ * The scope is opened per call (not per HTTP request), so attribution never
  * depends on the transport propagating an outer async context, and one tool's org
  * can't leak into another's event within the same request.
  */
@@ -64,17 +67,19 @@ export class McpAnalytics {
     }
 
     /**
-     * Same as {@link observeOrgResolution} but for a resolver that returns the richer
-     * repo context (org + linked application); records `organizationId` into the scope
-     * and passes the whole context through untouched.
+     * Same as {@link observeOrgResolution} but for a resolver that answers with a context
+     * carrying the org alongside the rest of what it resolved. The input is whatever identity
+     * that resolver takes - a `repoFullName`, or the either-form target input - so every way a
+     * tool names an application can be observed through one wrapper. Records `organizationId`
+     * into the scope and passes the resolved context through untouched.
      */
-    observeRepoContextResolution<T extends { organizationId: string }>(
-        resolve: (repoFullName: string) => Promise<T>,
-    ): (repoFullName: string) => Promise<T> {
-        return async (repoFullName) => {
-            const context = await resolve(repoFullName);
-            extendObservabilityContext({ organization: { organizationId: context.organizationId } });
-            return context;
+    observeTargetResolution<TInput, TResolved extends { organizationId: string }>(
+        resolve: (input: TInput) => Promise<TResolved>,
+    ): (input: TInput) => Promise<TResolved> {
+        return async (input) => {
+            const resolved = await resolve(input);
+            extendObservabilityContext({ organization: { organizationId: resolved.organizationId } });
+            return resolved;
         };
     }
 

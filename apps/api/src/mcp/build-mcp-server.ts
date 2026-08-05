@@ -48,9 +48,10 @@ export function buildMcpServer(surface: McpSurface, deps: BuildMcpServerDeps): M
     );
 
     const repoReader = { db, listRepositories: (orgId: string) => services.github.listRepositories(orgId) };
-    // The org is discovered deep inside a handler (from the repoFullName a tool names), so this
-    // records it onto the call's observability context for the analytics event to read back.
-    const observedRepoContext = analytics.observeRepoContextResolution((repoFullName: string) =>
+    // The org is discovered deep inside a handler (from the application a tool names), so both
+    // resolvers record it onto the call's observability context for the analytics event to read
+    // back. A resolver reaching a handler unwrapped costs every tool behind it its org attribution.
+    const observedRepoContext = analytics.observeTargetResolution((repoFullName: string) =>
         resolveRepoContext(repoReader, principal, repoFullName),
     );
     const guard = createWriteGuard(services);
@@ -66,7 +67,9 @@ export function buildMcpServer(surface: McpSurface, deps: BuildMcpServerDeps): M
 
     registerOnboardingTools(server, { services, db, principal, analytics, guard });
 
-    const resolveTarget = (input: McpTargetInput) => resolveMcpTarget(repoReader, principal, input);
+    const resolveTarget = analytics.observeTargetResolution((input: McpTargetInput) =>
+        resolveMcpTarget(repoReader, principal, input),
+    );
 
     registerReadTools(server, { services, analytics, resolveTarget });
     registerApplyConfigTool(server, { services, analytics, resolveTarget, guard });

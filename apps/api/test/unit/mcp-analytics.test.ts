@@ -1,5 +1,8 @@
 import { PostHogAnalytics } from "@autonoma/analytics";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
+import { buildMcpServer } from "../../src/mcp/build-mcp-server";
 import { McpAnalytics } from "../../src/mcp/mcp-analytics";
 
 interface CapturedEvent {
@@ -100,5 +103,58 @@ describe("McpAnalytics", () => {
 
         expect(analytics.captures[0]?.properties?.organizationId).toBeUndefined();
         expect(analytics.captures[0]?.groups).toBeUndefined();
+    });
+});
+
+/** The application both identity forms resolve to below, and the org that owns it. */
+const APPLICATION = { id: "app-1", organizationId: "org-7" };
+
+/**
+ * Calls `list_scenarios` on a real server over stand-in data and hands back the event it emitted.
+ * Going through the server (rather than the wrapper directly) is the point: whether a tool is
+ * attributed is decided by how its resolver was wired, which only this path exercises.
+ */
+async function callListScenarios(args: { applicationId?: string; repoFullName?: string }) {
+    const analytics = new RecordingAnalytics();
+    const server = buildMcpServer("mcp", {
+        services: { scenarios: { listScenarios: async () => [] } },
+        db: {
+            application: { findFirst: async () => APPLICATION },
+            previewkitEnvironment: {
+                findMany: async () => [{ organizationId: APPLICATION.organizationId, githubRepositoryId: 5 }],
+            },
+        },
+        principal: { userId: "user-1", organizationIds: [APPLICATION.organizationId] },
+        analytics: new McpAnalytics(analytics, "mcp", "user-1"),
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "test-client", version: "0.0.0" });
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    try {
+        const result = await client.callTool({ name: "list_scenarios", arguments: args });
+        return { isError: result.isError === true, captured: analytics.captures[0] };
+    } finally {
+        await client.close();
+        await server.close();
+    }
+}
+
+describe("the org a tool call is attributed to", () => {
+    it("is the owner of the application named by applicationId", async () => {
+        const { isError, captured } = await callListScenarios({ applicationId: APPLICATION.id });
+
+        expect(isError).toBe(false);
+        expect(captured?.properties?.organizationId).toBe(APPLICATION.organizationId);
+        expect(captured?.groups).toEqual({ organization: APPLICATION.organizationId });
+    });
+
+    it("is the owner of the application named by repoFullName", async () => {
+        const { isError, captured } = await callListScenarios({ repoFullName: "acme/app" });
+
+        expect(isError).toBe(false);
+        expect(captured?.properties?.organizationId).toBe(APPLICATION.organizationId);
+        expect(captured?.groups).toEqual({ organization: APPLICATION.organizationId });
     });
 });
