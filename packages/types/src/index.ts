@@ -5,6 +5,8 @@ export * from "./schemas/vercel";
 export * from "./sensitive-detection";
 export * from "./preview-url";
 export * from "./app-links";
+export * from "./agent-handoff-links";
+export * from "./sdk-error-signals";
 export * from "./designated-run";
 export * from "./deployment-signal-template";
 export * from "./constants/index";

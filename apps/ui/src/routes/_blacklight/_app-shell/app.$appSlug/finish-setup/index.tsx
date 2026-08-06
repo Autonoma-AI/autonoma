@@ -59,6 +59,7 @@ import {
   useVercelDeploymentStatus,
 } from "lib/onboarding/onboarding-api";
 import { buildPlannerCommand } from "lib/onboarding/planner-command";
+import { ENVIRONMENT_FACTORY_GUIDE_URL, FRAMEWORK_EXAMPLE_URL } from "lib/onboarding/sdk-docs-links";
 import { ensureAPIQueryData } from "lib/query/api-queries";
 import {
   useArtifactStatus,
@@ -74,6 +75,7 @@ import { type RouterOutputs, trpc } from "lib/trpc";
 import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { useCurrentApplication } from "../../-use-current-application";
 import { AgentFinishingScreen } from "./-components/agent-finishing-screen";
+import { SdkValidationErrorNote } from "./-sdk-validation-error-note";
 import { testCaseFolder } from "./-test-case-folder";
 
 type FinishStepId = "cli" | "sdk" | "dry-run";
@@ -119,9 +121,9 @@ const SDK_FINISH_STEP: FinishStepDefinition = {
       <Code>feat: autonoma-sdk</Code> and validate it against that PR's preview below, so you iterate on a branch
       instead of pushing to main.
       <span className="mt-2 block text-text-secondary">
-        <DocLink href="https://docs.autonoma.app/guides/environment-factory">Environment Factory guide</DocLink>
+        <DocLink href={ENVIRONMENT_FACTORY_GUIDE_URL}>Environment Factory guide</DocLink>
         {" · "}
-        <DocLink href="https://docs.autonoma.app/examples/typescript#nextjs-app-router">framework example</DocLink>
+        <DocLink href={FRAMEWORK_EXAMPLE_URL}>framework example</DocLink>
       </span>
     </>
   ),
@@ -692,7 +694,12 @@ function formatVercelDeploymentLabel(deployment: {
  * poll to READY and auto-retry - mirroring the managed-target self-heal.
  */
 function VercelSdkValidationSection({ applicationId, selectedTargetId, onSelectTarget }: SdkStepProps) {
+  const app = useCurrentApplication();
   const { data: state } = useOnboardingState(applicationId);
+  // A Vercel deployment is also listed as a dry-run target under its own id, which is where the
+  // resolved `<url>/api/autonoma` endpoint lives - read it from there rather than re-deriving the
+  // SDK path in the browser.
+  const { data: targets } = useSdkDryRunTargets(applicationId);
   const {
     data: deployments,
     isLoading,
@@ -721,6 +728,7 @@ function VercelSdkValidationSection({ applicationId, selectedTargetId, onSelectT
   const isRedeploying = retryDeploymentId != null;
   const isValidating = discover.isPending || state.discoveryInProgress || isRedeploying;
   const showDiscoveryError = state.lastDiscoveryError != null && !isValidating;
+  const selectedVercelTarget = targets.targets.find((target) => target.id === selectedDeploymentId);
 
   useEffect(() => {
     if (retryDeploymentId == null || !isReady || discover.isPending) return;
@@ -835,11 +843,16 @@ function VercelSdkValidationSection({ applicationId, selectedTargetId, onSelectT
         </p>
       )}
 
-      {showDiscoveryError && (
-        <div className="flex items-start gap-2 border border-status-critical/30 bg-status-critical/5 px-3 py-2">
-          <WarningCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
-          <p className="font-mono text-2xs text-status-critical">{state.lastDiscoveryError}</p>
-        </div>
+      {showDiscoveryError && state.lastDiscoveryError != null && (
+        <SdkValidationErrorNote
+          error={state.lastDiscoveryError}
+          applicationId={applicationId}
+          applicationName={app.name}
+          targetId={selectedVercelTarget?.id}
+          sdkUrl={selectedVercelTarget?.sdkUrl}
+          previewUrl={selectedVercelTarget?.previewUrl}
+          targetLabel={selectedVercelTarget?.label}
+        />
       )}
     </div>
   );
@@ -1301,23 +1314,27 @@ function ExternalSdkStepBody({ applicationId, selectedTargetId, onSelectTarget }
         }
       />
 
-      {showDiscoveryError && (
+      {showDiscoveryError && state.lastDiscoveryError != null && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-start gap-2 border border-status-critical/30 bg-status-critical/5 px-3 py-2">
-            <WarningCircleIcon size={14} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
-            <p className="font-mono text-2xs text-status-critical">{state.lastDiscoveryError}</p>
-          </div>
+          {/* The note carries the agent handoff, so this box no longer offers one of its own -
+              a preview that never answered has no handler bug for an agent to find. */}
+          <SdkValidationErrorNote
+            error={state.lastDiscoveryError}
+            applicationId={applicationId}
+            applicationName={app.name}
+            targetId={selectedTarget?.id}
+            sdkUrl={selectedTarget?.sdkUrl}
+            previewUrl={selectedTarget?.previewUrl}
+            targetLabel={selectedTarget != null ? formatTargetLabel(selectedTarget) : undefined}
+            pullRequestUrl={pullRequestUrl}
+            repoFullName={selectedTarget?.repoFullName}
+          />
           <div className="flex flex-col gap-3 border border-border-dim bg-surface-raised px-3 py-3">
             <p className="text-sm text-text-secondary">
-              Autonoma reached this preview, but the SDK endpoint returned a server error. Runtime logs help when the
-              SDK handler logs thrown errors; if they only show startup output, inspect the SDK route and add logging
-              around the handler or discover path before re-validating.
+              The preview's runtime logs help when the SDK handler logs thrown errors; if they only show startup output,
+              inspect the SDK route and add logging around the handler or discover path before re-validating.
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="accent" size="sm" className="gap-2" onClick={() => setAgentDialogOpen(true)}>
-                <RobotIcon size={14} weight="bold" />
-                Debug with coding agent
-              </Button>
               <Link to="/app/$appSlug/preview-config" params={{ appSlug: app.slug }} target="_blank">
                 <Button variant="outline" size="sm" className="gap-2">
                   <ArrowSquareOutIcon size={14} weight="bold" />

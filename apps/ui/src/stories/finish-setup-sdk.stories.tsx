@@ -336,6 +336,63 @@ function vercelNoDeploymentsFixtures(): TrpcFixtures {
   };
 }
 
+const VERCEL_DEPLOYMENT_ID = "dpl_4da3EDmjqM6LjJSyPDkQteQBxoUa";
+const VERCEL_PREVIEW_URL = "https://acme-web-git-feat-autonoma-sdk.vercel.app";
+
+const vercelDeployments: RouterOutputs["onboarding"]["listVercelDeployments"] = [
+  {
+    id: VERCEL_DEPLOYMENT_ID,
+    url: VERCEL_PREVIEW_URL,
+    target: "preview",
+    branch: "feat/autonoma-sdk",
+    createdAt: FIXTURE_EPOCH.toISOString(),
+  },
+];
+
+/**
+ * The same deployment as a dry-run target - its id IS the target id, which is how the SDK step
+ * resolves the endpoint it validated against.
+ */
+const vercelTargets: SdkDryRunTargets = {
+  targets: [
+    {
+      id: VERCEL_DEPLOYMENT_ID,
+      kind: "pr",
+      source: "vercel",
+      label: "Preview - feat/autonoma-sdk",
+      availability: "ready",
+      previewUrl: VERCEL_PREVIEW_URL,
+      sdkUrl: `${VERCEL_PREVIEW_URL}/api/autonoma`,
+      requiresSharedSecretInput: false,
+      isAutoDetected: false,
+    },
+  ],
+};
+
+/**
+ * The Vercel path after a validation the user's own handler failed: the endpoint answered 404
+ * because it is gated off outside development. The note says whose bug it is and hands the whole
+ * failure to a coding agent.
+ */
+function vercelDiscoveryErrorFixtures(): TrpcFixtures {
+  return {
+    onboarding: {
+      getState: {
+        ...makeOnboardingState(),
+        lastDiscoveryError: "SDK returned HTTP 404: Autonoma endpoint is disabled in production",
+      },
+      listSdkDryRunTargets: vercelTargets,
+      prepareSdkTarget: { status: "ready" },
+      listAvailableVercelProjects: linkedVercelProject,
+      listVercelDeployments: vercelDeployments,
+    },
+    github: { getCommit: headCommit },
+    applicationSetups: { artifactStatus },
+    applications: { list: [baseApplication], getSharedSecret: { sharedSecret: "your_shared_secret_here" } },
+    ...sidebarFixtures,
+  };
+}
+
 /**
  * The CLI step: nothing uploaded yet, so the page opens on it and the checklist
  * reads as pending. The step mints its own API token + generation id through
@@ -573,6 +630,72 @@ export const TargetFailed: Story = {
 export const VercelNoReadyDeployments: Story = {
   args: { path: PATH },
   parameters: { msw: { handlers: appShellHandlers(vercelNoDeploymentsFixtures()) } },
+};
+
+/**
+ * A validation the customer's own handler failed (404 - the route is gated off outside
+ * development). The failure is theirs to fix, so it carries the "Fix with coding agent" handoff.
+ */
+export const VercelSdkDiscoveryError: Story = {
+  args: { path: PATH },
+  parameters: { msw: { handlers: appShellHandlers(vercelDiscoveryErrorFixtures()) } },
+};
+
+/**
+ * The handoff itself: install steps for the chosen client, then the brief describing THIS failure -
+ * copyable, or prefilled into Claude Code / ChatGPT / Cursor, the way the pull-request comment
+ * hands a finding over.
+ */
+export const VercelSdkDiscoveryErrorHandoff: Story = {
+  args: { path: PATH },
+  parameters: { msw: { handlers: appShellHandlers(vercelDiscoveryErrorFixtures()) } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const fix = await canvas.findByRole("button", { name: /Fix with coding agent/ }, { timeout: 10_000 });
+    await userEvent.click(fix);
+    // The dialog portals outside the canvas element, so query the document body.
+    await within(document.body).findByText(/Copy prompt/, undefined, { timeout: 10_000 });
+  },
+};
+
+/** The same class of failure on the bring-your-own-preview path. */
+export const SdkDiscoveryError: Story = {
+  args: { path: PATH },
+  parameters: {
+    msw: {
+      handlers: [
+        logStreamHandler({ build: failedBuildFrames, app: idleAppFrames }),
+        ...appShellHandlers(
+          sdkStepFixtures(readyTargets, {
+            ...makeOnboardingState(),
+            lastDiscoveryError:
+              'SDK returned HTTP 400: Invalid request body: no factory registered for model "organizations". Register one with `defineFactory(...)` and add it to HandlerConfig.factories.',
+          }),
+        ),
+      ],
+    },
+  },
+};
+
+/**
+ * A preview that never answered - a 503 from the ingress while the pod wakes up. Nothing in the
+ * repo is broken, so this one asks for a retry and offers no agent.
+ */
+export const SdkDiscoveryErrorTransient: Story = {
+  args: { path: PATH },
+  parameters: {
+    msw: {
+      handlers: [
+        logStreamHandler({ build: failedBuildFrames, app: idleAppFrames }),
+        ...appShellHandlers(
+          sdkStepFixtures(readyTargets, {
+            ...makeOnboardingState(),
+            lastDiscoveryError: "SDK returned HTTP 503: Service is unavailable",
+          }),
+        ),
+      ],
+    },
+  },
 };
 
 export const TargetNoPreview: Story = {

@@ -34,17 +34,15 @@ import {
   type AgentStep,
   type InstallSnippetInput,
 } from "./connect-agent-snippets";
+import { MCP_SERVER_NAME } from "./mcp-server-name";
 
 /** Public docs page for connecting a coding agent - install, pairing, and what the tools do. */
 export const MCP_DOCS_URL = "https://docs.autonoma.app/mcp/";
 
-/**
- * MCP server name every install snippet registers. One name because there is one server:
- * it carries the onboarding tools and the pull-request debugging tools alike, and which
- * job an agent is doing is decided by the prompt it is started on, not by what it connected
- * to. Example prompts still say it verbatim - see {@link NameTheMcpNote}.
- */
-export const MCP_SERVER_NAME = "autonoma";
+// Defined apart from this component so a prompt builder can name the server without pulling the
+// dialog (and the tRPC client behind it) in with it. Re-exported because every caller already
+// imports it from here.
+export { MCP_SERVER_NAME };
 
 /**
  * What the dialog says above the install steps on a surface where the user has usually

@@ -1,6 +1,7 @@
 import { Button } from "@autonoma/blacklight";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { useState, type ReactNode } from "react";
+import { AgentHandoffActions } from "./agent-handoff-actions";
 import { ConnectAgentDialog } from "./connect-agent-dialog";
 import { NameTheMcpNote } from "./name-the-mcp-note";
 
@@ -13,6 +14,15 @@ export interface FixWithAgentButtonProps {
   instruction: string;
   /** What the agent can do once connected, shown under the prompt. The MCP-by-name note is added for you. */
   capabilities: ReactNode;
+  /**
+   * The full brief describing THIS failure - the error, the endpoint, the contract. When present
+   * the dialog offers it as a copyable prompt and as "open in <agent>" deep-links, the way the
+   * pull-request comment hands a finding over. Without it the agent gets only `instruction`, which
+   * tells it what to look at but not what went wrong.
+   */
+  prompt?: string;
+  /** Pre-selects the repository in Claude Code's deep-link, when the surface knows it. */
+  repoFullName?: string;
   label?: string;
   variant?: "accent" | "ghost" | "outline";
   size?: "xs" | "sm";
@@ -32,6 +42,8 @@ export interface FixWithAgentButtonProps {
 export function FixWithAgentButton({
   instruction,
   capabilities,
+  prompt,
+  repoFullName,
   label = "Fix with coding agent",
   // Outline rather than the accent the finish-setup steps use: those sit in a neutral row,
   // where accent is the only thing drawing the eye. Here the button sits inside an
@@ -56,6 +68,7 @@ export function FixWithAgentButton({
         capabilities={
           <>
             <NameTheMcpNote /> {capabilities}
+            {prompt != null && <AgentHandoffActions prompt={prompt} repoFullName={repoFullName} />}
           </>
         }
       />

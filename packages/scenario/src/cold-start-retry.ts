@@ -1,23 +1,11 @@
 import type { Logger } from "@autonoma/logger";
+import { isColdStartMessage, isColdStartStatus } from "@autonoma/types";
 import { sleep as defaultSleep } from "@autonoma/utils/sleep";
 import { SdkHttpError } from "./sdk-http-error";
 
-/**
- * Gateway statuses an ingress returns while a scaled-to-zero ("serverless") preview
- * is waking up - the request itself wakes the pod, so a retry usually lands warm.
- */
-const COLD_START_STATUS_CODES = new Set([502, 503, 504]);
-
-/**
- * Connection-level failures from an SDK endpoint whose pod is not accepting
- * connections yet. `SdkClient` folds undici's `error.cause` into the message, so a
- * refused/reset connection reads "fetch failed: connect ECONNREFUSED ..." and the
- * specific reasons below match (not just the generic "fetch failed"). Kept to FAST
- * failures only: a timeout is deliberately excluded (it burns the full request
- * budget and is more likely a hung endpoint than a cold one), so retrying it would
- * blow past the bounded schedule below.
- */
-const COLD_START_MESSAGE_PATTERNS = [/ECONNREFUSED/i, /ECONNRESET/i, /socket hang up/i, /fetch failed/i];
+// The signatures themselves live in `@autonoma/types`, because the UI classifies a persisted
+// failure message with the same rules this retry loop uses.
+export { isColdStartMessage } from "@autonoma/types";
 
 /**
  * Backoff between cold-start retries, in ms. The length is the number of retries
@@ -33,23 +21,9 @@ const DEFAULT_COLD_START_DELAYS_MS = [2_000, 5_000, 10_000, 15_000];
  * NOT cold starts - retrying those just fails the same way (or wastes the budget).
  */
 export function isColdStartError(err: unknown): boolean {
-    if (err instanceof SdkHttpError) return COLD_START_STATUS_CODES.has(err.status);
+    if (err instanceof SdkHttpError) return isColdStartStatus(err.status);
     if (err instanceof Error) return isColdStartMessage(err.message);
     return false;
-}
-
-/**
- * Whether an error MESSAGE carries a cold-start signature. Used when the original
- * error object is gone and only a persisted string remains (e.g.
- * `scenarioInstance.lastError`, which the SDK client formats as "SDK returned HTTP
- * <code>: ..."). Derives from the same status codes / patterns as
- * {@link isColdStartError} so the two never drift.
- */
-export function isColdStartMessage(message: string): boolean {
-    for (const code of COLD_START_STATUS_CODES) {
-        if (message.includes(`HTTP ${code}`)) return true;
-    }
-    return COLD_START_MESSAGE_PATTERNS.some((pattern) => pattern.test(message));
 }
 
 export interface ColdStartRetryOptions {

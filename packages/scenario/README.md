@@ -98,7 +98,7 @@ In production, `ScenarioManager` constructs `SdkClient` with a `DbSdkCallRecorde
 
 The scenario ID and snapshot ID are resolved by the caller (the scenario-up job) and passed explicitly to `ScenarioManager.up()`.
 
-`up()` also takes an opt-in `coldStartRetry` flag. Previews that scale to zero return a 502/503/504 (or refuse the connection) on the first hit while the pod wakes; with the flag set, `up()` retries only that cold-start signature - bounded to ~30s, never a real error or a timeout - via `withColdStartRetry` (`cold-start-retry.ts`). The onboarding dry-run opts in; the production path does not yet.
+`up()` also takes an opt-in `coldStartRetry` flag. Previews that scale to zero return a 502/503/504 (or refuse the connection) on the first hit while the pod wakes; with the flag set, `up()` retries only that cold-start signature - bounded to ~30s, never a real error or a timeout - via `withColdStartRetry` (`cold-start-retry.ts`). The onboarding dry-run opts in; the production path does not yet. The signature itself (`isColdStartMessage`, `isColdStartStatus`) lives in `@autonoma/types` and is re-exported here, because the UI classifies a persisted failure message with the same rules to decide whether it is worth handing to a coding agent.
 
 ### Instance expiration
 
