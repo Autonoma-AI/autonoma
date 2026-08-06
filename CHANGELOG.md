@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.260806.2](https://github.com/Autonoma-AI/agent/compare/v1.260806.1...v1.260806.2) (2026-08-06)
+
+
+### Bug Fixes
+
+* **previewkit:** stop a skipped analysis run from cancelling its own preview build ([#2228](https://github.com/Autonoma-AI/agent/issues/2228)) ([d39037c](https://github.com/Autonoma-AI/agent/commit/d39037cc39763e1a540b290d94dff9ea704bd37f))
+
 ## [1.260806.1](https://github.com/Autonoma-AI/agent/compare/v1.260805.2...v1.260806.1) (2026-08-06)
 
 
