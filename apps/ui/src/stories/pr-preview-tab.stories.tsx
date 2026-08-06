@@ -3,6 +3,7 @@ import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/bas
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { HttpResponse, http } from "msw";
+import superjson from "superjson";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
 const BUILD_STARTED_AT = new Date("2026-01-01T11:27:14.000Z");
@@ -398,6 +399,12 @@ const readyPreviewTabFixtures: TrpcFixtures = {
   },
 };
 
+/** Same healthy environment, but previewkit has no deployment row for it yet. */
+const noDeploymentHistoryFixtures: TrpcFixtures = {
+  ...readyPreviewTabFixtures,
+  deployments: { ...readyPreviewTabFixtures.deployments, history: [] },
+};
+
 /**
  * Page-story coverage for the PR's Preview tab - the fixed-viewport "control room" redesign. Renders
  * the real route tree end to end (shared PR header + tab bar, resource rail, app inspector, logs,
@@ -470,6 +477,57 @@ export const Ready: Story = {
   parameters: {
     msw: {
       handlers: [
+        logStreamHandler({ build: readyBuildFrames, app: readyAppFrames }),
+        ...appShellHandlers(readyPreviewTabFixtures),
+      ],
+    },
+  },
+};
+
+/**
+ * An environment previewkit knows about but has no deployment row for yet. The summary strip falls back
+ * to "No deployments yet." with History disabled - the state where reaching the previewkit config
+ * matters most, since a preview that never deployed is usually a config problem.
+ */
+export const NoDeployments: Story = {
+  args: { path: PREVIEW_PATH },
+  parameters: {
+    msw: {
+      handlers: [
+        logStreamHandler({ build: readyBuildFrames, app: readyAppFrames }),
+        ...appShellHandlers(noDeploymentHistoryFixtures),
+      ],
+    },
+  },
+};
+
+/**
+ * Fails `deployments.history` (and whatever shares its tRPC batch, which is why the runtime badge is
+ * absent too) so the strip renders its DeploymentSummaryErrorBoundary. Pins that the Preview settings
+ * link is a sibling of that boundary rather than a child: a failed deployment fetch is precisely when a
+ * reader wants the config, so it must not disappear with the summary.
+ */
+const deploymentHistoryFails = http.get("*/v1/trpc/*", ({ request }) => {
+  const procedures = new URL(request.url).pathname.replace(/^.*\/v1\/trpc\//, "").split(",");
+  if (!procedures.includes("deployments.history")) return undefined;
+  return HttpResponse.json(
+    procedures.map((procedure) => ({
+      error: superjson.serialize({
+        message: "Deployment history is unavailable.",
+        code: -32603,
+        data: { code: "INTERNAL_SERVER_ERROR", httpStatus: 500, path: procedure },
+      }),
+    })),
+  );
+});
+
+export const DeploymentHistoryUnavailable: Story = {
+  args: { path: PREVIEW_PATH },
+  parameters: {
+    msw: {
+      // The narrow history override has to win over the catch-all fixture handler, so it goes first.
+      handlers: [
+        deploymentHistoryFails,
         logStreamHandler({ build: readyBuildFrames, app: readyAppFrames }),
         ...appShellHandlers(readyPreviewTabFixtures),
       ],

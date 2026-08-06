@@ -7,9 +7,12 @@ import {
   DialogHeader,
   DialogTitle,
   Skeleton,
+  buttonVariants,
+  cn,
 } from "@autonoma/blacklight";
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
 import { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
+import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { PreviewLivenessBadge } from "components/preview-liveness-badge";
 import { PREVIEW_STATUS_HELP, PreviewStatusBadge } from "components/preview-status-badge";
@@ -21,9 +24,13 @@ import {
 } from "lib/query/preview-access.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Component, type ReactNode, Suspense, useState } from "react";
+import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { DEPLOYMENT_STATUS_META, DeploymentRow, type DeploymentHistoryRow } from "./deployment-row";
 
 type PreviewSummary = RouterOutputs["deployments"]["previewSummaryById"];
+
+/** The strip's trailing cell, sharing DeploymentSummary's vertical padding so the two rows align. */
+const TRAILING_CELL_CLASS = "flex shrink-0 items-center py-3 pr-4";
 
 /**
  * Environment-level summary strip shown once above the resource rail + logs: the current deployment's
@@ -64,6 +71,29 @@ export function EnvironmentSummaryStrip({
           </DeploymentSummaryErrorBoundary>
         )}
       </QueryErrorResetBoundary>
+      <PreviewSettingsLink />
+    </div>
+  );
+}
+
+/**
+ * Sits beside the deployment summary rather than inside it because it needs none of its data, so it
+ * survives the summary's loading and error states - a failed deploy fetch is when the config is most
+ * wanted. Environment-scoped, unlike the rail's Rebuild/Restart, which act on the selected service.
+ */
+function PreviewSettingsLink() {
+  return (
+    <div className={TRAILING_CELL_CLASS}>
+      {/* The label needs no "Preview" qualifier on a screen that is already the preview, but the shell's
+          global Settings link is on the same page - so the accessible name keeps the distinction. */}
+      <AppLink
+        to="/app/$appSlug/preview-config"
+        aria-label="Preview settings"
+        className={cn(buttonVariants({ variant: "outline", size: "xs" }), "gap-1.5")}
+      >
+        <GearSixIcon size={13} />
+        Settings
+      </AppLink>
     </div>
   );
 }
@@ -204,6 +234,9 @@ export function EnvironmentSummaryStripSkeleton() {
   return (
     <div className="flex items-stretch border border-border-dim bg-surface-base">
       <DeploymentSummarySkeleton />
+      <div className={TRAILING_CELL_CLASS}>
+        <Skeleton className="h-6 w-24" />
+      </div>
     </div>
   );
 }
