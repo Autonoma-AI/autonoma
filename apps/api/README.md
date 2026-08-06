@@ -238,6 +238,26 @@ default and bounded by the global `MERGE_GATE_ENABLED` kill switch; enabled per 
   the resolving push (via `resolveFixingPushAuthors`, mapped from the issue's `resolvedAt`), riding their logins on
   `bug.fixed`.
 
+### Explicit deploy requests are not refusable
+
+`PreviewkitTriggerService` has two kinds of entry point, and they answer to different authorities.
+
+A trigger that came from GitHub (`startRunFromPullRequestWebhook`, `startMainBranchRunFromPushWebhook`)
+opens an analysis run, and that run decides whether the commit warrants a preview at all - impact
+analysis selecting no tests means no build.
+
+A trigger that came from a person or an agent - the UI redeploy button, `apply_config` and
+`trigger_deploy` over MCP, the `/v1/previewkit` HTTP routes, the admin actions - is a request for the
+preview itself, not a verdict on the commit. Those paths (`startRunForRedeploy`,
+`startRunForPullRequest`) launch the build directly with reason `force_build` and never consult
+analysis, because an application whose test suite does not exist yet selects nothing and would be
+refused every time - which is exactly the state an application is in while it is being set up.
+
+A redeploy of an environment that does not exist yet first-deploys instead of reporting the
+environment missing: the repository id is read from another environment the organization has for the
+same repo, the head from GitHub, and environment 0 goes through `startMainBranchRun` (only the
+Application knows which branch it deploys). The credits gate still applies to all of it.
+
 ### Previewkit deploy credits gate
 
 A new preview deploy or per-app redeploy (never teardown) is declined once an org's combined

@@ -109,8 +109,10 @@ const ZERO_SHA = /^0+$/;
 const resolvedConfigAppsSchema = z.object({ apps: z.array(z.object({ name: z.string() })) });
 
 /**
- * Preflight, then a fire-and-forget trigger. The run owns everything downstream, including whether the commit
- * warrants a build at all; teardown and per-app redeploy launch their Job directly, having nothing to decide.
+ * Preflight, then a fire-and-forget trigger. A run started BY GITHUB owns everything downstream, including
+ * whether the commit warrants a build at all; an explicit deploy request builds directly and cannot be refused
+ * (see {@link PreviewkitTriggerService.startExplicitBuild}), as do teardown and per-app redeploy, which have
+ * nothing to decide.
  */
 export class PreviewkitTriggerService extends Service {
     constructor(
@@ -163,6 +165,36 @@ export class PreviewkitTriggerService extends Service {
                 headRef: request.headRef,
             },
             reason: "branch_not_resolvable",
+        });
+    }
+
+    /**
+     * The build behind every explicit "deploy this branch" - a person in the UI, an agent over MCP, an admin.
+     * Such a request asks for the preview itself rather than a verdict on the commit, so no analysis stands in
+     * front of it: impact analysis on a branch with no test suite yet selects nothing and would refuse the build,
+     * which is precisely the state an application is in while it is being set up.
+     */
+    private async startExplicitBuild(request: PreviewkitRunRequest): Promise<void> {
+        this.logger.info("Starting an explicitly requested preview build", {
+            organizationId: request.organizationId,
+            repo: request.repoFullName,
+            pr: request.prNumber,
+        });
+
+        await this.assertDeployCreditsAvailable(request.organizationId, request.repoFullName, request.prNumber);
+
+        await this.startPreviewBuild({
+            target: {
+                repoFullName: request.repoFullName,
+                prNumber: request.prNumber,
+                organizationId: request.organizationId,
+                githubRepositoryId: request.githubRepositoryId,
+                headSha: request.headSha,
+                headRef: request.headRef,
+                branchId: request.branchId,
+            },
+            reason: "force_build",
+            branchId: request.branchId,
         });
     }
 
@@ -580,23 +612,29 @@ export class PreviewkitTriggerService extends Service {
 
     /**
      * Re-runs at the newest head GitHub reports, so a redeploy picks up commits pushed since the last webhook.
-     * Config is latest-only: the redeploy resolves the Application's current config, not the deployed one.
+     * Config is latest-only: the redeploy resolves the Application's current config, not the deployed one. An
+     * environment that was never built is deployed for the first time rather than reported missing.
      */
     async startRunForRedeploy(key: PreviewEnvironmentKey, scope: PreviewEnvironmentScope = {}): Promise<void> {
-        const { environment, githubRepositoryId } = requireRedeployable(
-            await this.db.previewkitEnvironment.findFirst({
-                where: environmentWhere(key, scope),
-                select: {
-                    repoFullName: true,
-                    prNumber: true,
-                    headSha: true,
-                    headRef: true,
-                    organizationId: true,
-                    githubRepositoryId: true,
-                    status: true,
-                },
-            }),
-        );
+        const found = await this.db.previewkitEnvironment.findFirst({
+            where: environmentWhere(key, scope),
+            select: {
+                repoFullName: true,
+                prNumber: true,
+                headSha: true,
+                headRef: true,
+                organizationId: true,
+                githubRepositoryId: true,
+                status: true,
+            },
+        });
+
+        if (found == null) {
+            await this.firstDeployForMissingEnvironment(key, scope);
+            return;
+        }
+
+        const { environment, githubRepositoryId } = requireRedeployable(found);
 
         const { repoFullName, prNumber } = environment;
         this.logger.info("Triggering preview redeploy", { repo: repoFullName, pr: prNumber });
@@ -609,25 +647,84 @@ export class PreviewkitTriggerService extends Service {
             { headSha: environment.headSha, headRef: environment.headRef },
         );
 
-        await this.assertDeployCreditsAvailable(environment.organizationId, repoFullName, prNumber);
-
-        // A redeploy asks for the preview itself, not a verdict on a commit, so nothing may refuse it.
-        await this.startPreviewBuild({
-            target: {
-                repoFullName,
-                prNumber,
-                organizationId: environment.organizationId,
-                githubRepositoryId,
-                headSha,
-                headRef,
-            },
-            reason: "force_build",
+        await this.startExplicitBuild({
+            repoFullName,
+            prNumber,
+            organizationId: environment.organizationId,
+            githubRepositoryId,
+            headSha,
+            headRef,
         });
     }
 
     /**
-     * A first run for an open PR with no environment yet, at the head GitHub currently reports. Deploying a draft
-     * here is deliberate - an explicit request, unlike the webhook's noise-avoidance skip.
+     * A redeploy of an environment that was never built. The caller still asked for this preview, so it is
+     * deployed for the first time instead of being told the environment is missing: a branch impact analysis
+     * declined to build has no environment row, and asking by hand is how someone gets out of exactly that.
+     *
+     * Only a repo-keyed request can be recovered - an environment id names a row, and a row that is not there
+     * names nothing - and only for a caller whose organization is known, since the deploy runs as that org.
+     */
+    private async firstDeployForMissingEnvironment(
+        key: PreviewEnvironmentKey,
+        scope: PreviewEnvironmentScope,
+    ): Promise<void> {
+        if ("environmentId" in key) throw new NotFoundError("Preview environment not found");
+
+        const { repoFullName, prNumber } = key;
+        const organizationId = scope.organizationId;
+        if (organizationId == null) throw new NotFoundError("Preview environment not found");
+
+        const githubRepositoryId =
+            scope.githubRepositoryId ?? (await this.resolveRepositoryId(organizationId, repoFullName));
+        if (githubRepositoryId == null) {
+            throw new NotFoundError(
+                `No preview environment for ${repoFullName}#${prNumber}, and this organization has no environment for ${repoFullName} to deploy from`,
+            );
+        }
+
+        this.logger.info("No environment to redeploy; deploying this preview for the first time", {
+            organizationId,
+            repo: repoFullName,
+            pr: prNumber,
+        });
+
+        if (prNumber !== MAIN_BRANCH_ENVIRONMENT_NUMBER) {
+            await this.startRunForPullRequest(organizationId, githubRepositoryId, prNumber);
+            return;
+        }
+
+        // Environment 0 has no pull request to read a head from; the Application's stored deploy ref is the only
+        // thing that says which branch it deploys, so the main-branch entry point owns this case.
+        const application = await this.db.application.findUnique({
+            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
+            select: { id: true },
+        });
+        if (application == null) {
+            throw new NotFoundError(`No application deploys ${repoFullName}, so its base preview cannot be deployed`);
+        }
+        await this.startMainBranchRun(application.id, organizationId);
+    }
+
+    /**
+     * The repository id behind a repo full name, read from any environment the organization already has for that
+     * repository - the id belongs to the repo, not to one environment. Undefined when it has none, where nothing
+     * here can name a repository on GitHub with any confidence.
+     */
+    private async resolveRepositoryId(organizationId: string, repoFullName: string): Promise<number | undefined> {
+        const known = await this.db.previewkitEnvironment.findFirst({
+            where: { organizationId, repoFullName, githubRepositoryId: { not: null } },
+            select: { githubRepositoryId: true },
+            orderBy: { createdAt: "desc" },
+        });
+        return known?.githubRepositoryId ?? undefined;
+    }
+
+    /**
+     * A first deploy for an open PR with no environment yet, at the head GitHub currently reports. Deploying a
+     * draft here is deliberate - an explicit request, unlike the webhook's noise-avoidance skip - and so is
+     * building without opening an analysis run: the request is for the preview, and a selection that comes back
+     * empty must not be able to take it away.
      */
     async startRunForPullRequest(organizationId: string, githubRepositoryId: number, prNumber: number): Promise<void> {
         this.logger.info("Triggering first preview deploy for a PR without an environment", {
@@ -646,19 +743,15 @@ export class PreviewkitTriggerService extends Service {
 
         const branchId = await this.resolveBranchIdForPr(organizationId, githubRepositoryId, prNumber, pr.headRef);
 
-        await this.startRun(
-            {
-                repoFullName: repo.fullName,
-                prNumber,
-                organizationId,
-                githubRepositoryId,
-                headSha: pr.headSha,
-                headRef: pr.headRef,
-                baseSha: pr.baseSha,
-                branchId,
-            },
-            "opened",
-        );
+        await this.startExplicitBuild({
+            repoFullName: repo.fullName,
+            prNumber,
+            organizationId,
+            githubRepositoryId,
+            headSha: pr.headSha,
+            headRef: pr.headRef,
+            branchId,
+        });
     }
 
     /**

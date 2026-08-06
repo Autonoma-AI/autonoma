@@ -709,6 +709,109 @@ apiTestSuite({
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
         });
 
+        test("startRunForPullRequest builds the PR itself instead of letting a run decide", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+            harness.startAnalysisRun.mockClear();
+            harness.githubApp.defaultClient.addPullRequest(REPO_FULL_NAME, {
+                number: 61,
+                title: "Add the Autonoma SDK handler",
+                headRef: "feature/pr-61",
+                baseSha: "main-sha-2",
+                commits: ["pr-61-head"],
+            });
+
+            await service.startRunForPullRequest(harness.organizationId, REPO_ID, 61);
+
+            const branch = await harness.db.branch.findFirst({
+                where: { applicationId: app.id, prInfo: { prNumber: 61 } },
+                select: { id: true },
+            });
+            expect(branch).not.toBeNull();
+
+            // An application with no test suite selects no tests, so a run would refuse the build outright.
+            expect(harness.startAnalysisRun).not.toHaveBeenCalled();
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
+                target: {
+                    prNumber: 61,
+                    repoFullName: REPO_FULL_NAME,
+                    organizationId: harness.organizationId,
+                    githubRepositoryId: REPO_ID,
+                    headSha: "pr-61-head",
+                    headRef: "feature/pr-61",
+                    branchId: branch!.id,
+                },
+                reason: "force_build",
+                branchId: branch!.id,
+            });
+        });
+
+        test("startRunForPullRequest refuses a closed pull request", async ({ harness, seedResult: { service } }) => {
+            harness.githubApp.defaultClient.addPullRequest(REPO_FULL_NAME, {
+                number: 62,
+                title: "Already merged",
+                headRef: "feature/pr-62",
+                baseSha: "main-sha-2",
+                commits: ["pr-62-head"],
+                state: "closed",
+            });
+
+            await expect(service.startRunForPullRequest(harness.organizationId, REPO_ID, 62)).rejects.toThrow(
+                ConflictError,
+            );
+        });
+
+        test("redeploy first-deploys a PR that has no environment yet", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            // The repository id comes from the organization's other environment for the same repo.
+            await setMainBranchEnvironment(harness, "main", "ready");
+            harness.triggerWorkflow.mockClear();
+            harness.startAnalysisRun.mockClear();
+            harness.githubApp.defaultClient.addPullRequest(REPO_FULL_NAME, {
+                number: 63,
+                title: "No environment yet",
+                headRef: "feature/pr-63",
+                baseSha: "main-sha-2",
+                commits: ["pr-63-head"],
+            });
+
+            await service.startRunForRedeploy(
+                { repoFullName: REPO_FULL_NAME, prNumber: 63 },
+                { organizationId: harness.organizationId },
+            );
+
+            expect(harness.startAnalysisRun).not.toHaveBeenCalled();
+            expect(harness.triggerWorkflow).toHaveBeenCalledWith({
+                target: expect.objectContaining({
+                    prNumber: 63,
+                    repoFullName: REPO_FULL_NAME,
+                    headSha: "pr-63-head",
+                    headRef: "feature/pr-63",
+                }),
+                reason: "force_build",
+                branchId: expect.any(String),
+            });
+        });
+
+        test("redeploy reports not found when the organization has no environment for the repo", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+
+            await expect(
+                service.startRunForRedeploy(
+                    { repoFullName: "acme/never-deployed", prNumber: 64 },
+                    { organizationId: harness.organizationId },
+                ),
+            ).rejects.toThrow(NotFoundError);
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+        });
+
         test("redeploy falls back to the stored head when GitHub can't resolve the PR", async ({
             harness,
             seedResult: { service },
