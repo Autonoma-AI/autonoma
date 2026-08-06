@@ -119,6 +119,7 @@ export { EmptyState, type EmptyStateProps } from "./components/ui/empty-state";
 export { Switch } from "./components/ui/switch";
 export { Pagination, paginationSlots, type PaginationProps } from "./components/ui/pagination";
 export { SortableTable, type SortableTableProps, type ColumnDef } from "./components/ui/table";
+export { TableSkeleton, type TableSkeletonProps } from "./components/ui/table-skeleton";
 export { Tabs, TabsList, TabsTrigger, TabsContent, tabsListVariants } from "./components/ui/tabs";
 export { VerdictHero, type VerdictHeroCta, type VerdictHeroProps } from "./components/ui/verdict-hero";
 export {

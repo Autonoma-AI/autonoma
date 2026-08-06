@@ -59,9 +59,26 @@ pnpm --filter @autonoma/ui storybook:shoot -- --story pages-mypage--default
 ```
 
 - Story id = lowercased title with `/` -> `-`, then `--`, then the **kebab-cased** export name: `Pages/MyPage` + `Default` -> `pages-mypage--default`, and `WithOptimizedToggle` -> `--with-optimized-toggle` (NOT `--withoptimizedtoggle`). A wrong id silently screenshots Storybook's "Couldn't find story" error page, so for any multi-word export confirm the id against `curl -s localhost:6006/index.json`.
-- Flags: `--story` (repeatable), `--out` (default `screenshots/`, gitignored), `--viewport 1440x900`, `--full-page`, `--settle-ms 500`, `--allow-unmocked`.
+- Flags: `--story` (repeatable), `--out` (default `screenshots/`, gitignored), `--viewport 1440x900`, `--full-page`, `--settle-ms 500`, `--wait-until networkidle`, `--allow-unmocked`.
 - The script EXITS 1 listing any tRPC procedure that had no fixture - add the missing fixtures rather than passing `--allow-unmocked`.
 - ALWAYS Read the PNG yourself before uploading. Never post a screenshot showing an error state, empty shell, or "Something went wrong".
+
+### Shooting a loading state
+
+The default `--wait-until networkidle` waits for the network to go quiet, so it can only ever photograph a **settled** screen. A story that holds a query open to show its skeleton never reaches idle, and the run dies on `page.goto: Timeout 30000ms exceeded`. Wait for the document instead, and pick the moment with `--settle-ms`:
+
+```bash
+pnpm --filter @autonoma/ui storybook:shoot -- --wait-until domcontentloaded --settle-ms 4000 \
+  --story waiting-screens--home
+```
+
+`apps/ui/src/stories/waiting-screens.stories.tsx` is the worked example: each export leaves one tRPC procedure unanswered, so the screen holds still in its waiting state. A **stalled procedure needs no fixture** - it never resolves, so the fixture-error exit does not fire.
+
+Three things that make a skeleton screenshot lie:
+
+- The script injects `DISABLE_MOTION_CSS` and sets `reducedMotion: "reduce"`, which kills `animate-pulse` - so a skeleton must read correctly as a flat shape, not rely on the pulse.
+- A skeleton drawn in the same colour as the panel behind it is invisible in the PNG even though it is present in the DOM; check the computed background if a panel looks empty.
+- **The first story shot against a freshly started Storybook can come back blank**, because Vite is still compiling the route tree on that first request and `--settle-ms` elapses before anything paints. It looks exactly like the regression you are testing for. Shoot a throwaway story first, or re-shoot the suspicious one once the server is warm, before believing a black frame.
 
 ## Publishing to the PR
 

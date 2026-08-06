@@ -1,13 +1,33 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { chromium } from "playwright";
+import { type Page, chromium } from "playwright";
+
+/**
+ * `satisfies` against Playwright's own union, so a value it stops accepting fails the build here rather
+ * than at runtime in a screenshot run.
+ */
+const WAIT_UNTIL_VALUES = ["load", "domcontentloaded", "networkidle", "commit"] as const satisfies readonly NonNullable<
+    NonNullable<Parameters<Page["goto"]>[1]>["waitUntil"]
+>[];
+type WaitUntil = (typeof WAIT_UNTIL_VALUES)[number];
 
 const DEFAULT_STORYBOOK_URL = "http://localhost:6006";
 const DEFAULT_OUT_DIR = "screenshots";
 const DEFAULT_VIEWPORT = { width: 1440, height: 900 };
 const DEFAULT_SETTLE_MS = 500;
+const DEFAULT_WAIT_UNTIL: WaitUntil = "networkidle";
 const FIXTURE_ERROR_MARKER = "[storybook-fixtures]";
+
+const WAIT_UNTIL: ReadonlySet<string> = new Set(WAIT_UNTIL_VALUES);
+
+function isWaitUntil(value: string): value is WaitUntil {
+    return WAIT_UNTIL.has(value);
+}
+
+function formatWaitUntilValues(): string {
+    return WAIT_UNTIL_VALUES.join(", ");
+}
 
 const DISABLE_MOTION_CSS = `
     *, *::before, *::after {
@@ -24,6 +44,7 @@ interface CliOptions {
     viewport: { width: number; height: number };
     fullPage: boolean;
     settleMs: number;
+    waitUntil: WaitUntil;
     /** CSS selector to hover before capturing, for states that only exist under a pointer. */
     hover?: string;
     allowUnmocked: boolean;
@@ -37,6 +58,11 @@ interface CliOptions {
  *
  * Usage:
  *   pnpm --filter @autonoma/ui storybook:shoot -- --story pages-apphome--default
+ *
+ * To capture a LOADING state, wait for the document rather than the network -
+ * a story that holds a query open never reaches `networkidle`, so the default
+ * would time out instead of photographing the skeleton:
+ *   ... --story waiting-screens--home --wait-until domcontentloaded --settle-ms 4000
  */
 async function main() {
     const options = parseCliOptions();
@@ -80,7 +106,7 @@ async function shootStory(
         });
 
         const url = `${options.storybookUrl}/iframe.html?id=${encodeURIComponent(storyId)}&viewMode=story`;
-        await page.goto(url, { waitUntil: "networkidle" });
+        await page.goto(url, { waitUntil: options.waitUntil });
         await page.addStyleTag({ content: DISABLE_MOTION_CSS });
         await page.evaluate(() => document.fonts.ready);
         // A real pointer, not a synthetic one: tooltips and other hover-only states are driven
@@ -108,6 +134,7 @@ function parseCliOptions(): CliOptions {
             viewport: { type: "string" },
             "full-page": { type: "boolean" },
             "settle-ms": { type: "string" },
+            "wait-until": { type: "string" },
             hover: { type: "string" },
             "allow-unmocked": { type: "boolean" },
         },
@@ -127,9 +154,19 @@ function parseCliOptions(): CliOptions {
         viewport: parseViewport(values.viewport),
         fullPage: values["full-page"] ?? false,
         settleMs: values["settle-ms"] != null ? Number(values["settle-ms"]) : DEFAULT_SETTLE_MS,
+        waitUntil: parseWaitUntil(values["wait-until"]),
         hover: values.hover,
         allowUnmocked: values["allow-unmocked"] ?? false,
     };
+}
+
+function parseWaitUntil(raw: string | undefined): WaitUntil {
+    if (raw == null) return DEFAULT_WAIT_UNTIL;
+    if (!isWaitUntil(raw)) {
+        console.error(`Invalid --wait-until "${raw}", expected one of: ${formatWaitUntilValues()}`);
+        process.exit(1);
+    }
+    return raw;
 }
 
 function parseViewport(raw: string | undefined): { width: number; height: number } {

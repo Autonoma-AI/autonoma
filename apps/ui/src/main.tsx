@@ -1,7 +1,10 @@
 import "@autonoma/blacklight/styles.css";
 import * as Sentry from "@sentry/react";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, QueryErrorResetBoundary } from "@tanstack/react-query";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
+import { isTRPCClientError } from "@trpc/client";
+import { RouteErrorState } from "components/route-error-state";
+import { RoutePendingSkeleton } from "components/route-pending-skeleton";
 import posthog from "posthog-js";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -91,9 +94,32 @@ if (env.VITE_SENTRY_DSN != null) {
   });
 }
 
+/**
+ * Reports what the query cache cannot. `lib/trpc.ts`'s `queryCache.onError` already captures every failed
+ * query, and a loader that awaits one throws the same error onward - so capturing indiscriminately here
+ * would double-report the common case. What is genuinely unreported is everything else: a render-time
+ * throw, or a `beforeLoad`/loader failure that was not a tRPC call.
+ */
+function reportUncaughtRouteError(error: Error) {
+  if (isTRPCClientError(error)) return;
+  Sentry.captureException(error);
+}
+
+/**
+ * `defaultPendingComponent` and `defaultErrorComponent` are not just fallbacks - they are what CREATES the
+ * per-route boundaries. TanStack only wraps a match in Suspense (and in a catch boundary) when the route
+ * has a pending (or error) component; without these, 63 of 70 routes had none, so every wait and every
+ * throw escaped to the root Outlet's `<Suspense fallback={null}>` and blanked the whole app, sidebar
+ * included. With them, a wait or a failure is contained at the deepest route that owns it.
+ *
+ * `lib/storybook/page-story.tsx` mirrors these options; a story shows none of this if they drift.
+ */
 const router = createRouter({
   routeTree,
   defaultPendingMs: 200,
+  defaultPendingComponent: RoutePendingSkeleton,
+  defaultErrorComponent: RouteErrorState,
+  defaultOnCatch: reportUncaughtRouteError,
   scrollRestoration: true,
   context: { auth: authClient, queryClient, trpc },
 });
@@ -110,7 +136,11 @@ if (rootElement == null) throw new Error("Root element not found");
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
+      {/* Scopes the reset `RouteErrorState` calls: without a provider react-query falls back to a
+          module-level singleton, so one route's retry would clear every errored query in the app. */}
+      <QueryErrorResetBoundary>
+        <RouterProvider router={router} />
+      </QueryErrorResetBoundary>
     </QueryClientProvider>
   </StrictMode>,
 );

@@ -31,8 +31,36 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/tests
       throw redirect({ to: "/app/$appSlug/tests", params: { appSlug }, search: { branch: undefined } });
     }
   },
+  // `TestsPage` reads the selected branch at its top with no boundary of its own, so both the loader's wait
+  // and that read land here. The title is static; the branch picker and counts are not.
+  pendingComponent: TestsPending,
   component: TestsPage,
 });
+
+function TestsPending() {
+  return (
+    <div className="flex flex-col gap-6">
+      <header className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-medium tracking-tight text-text-primary">Tests</h1>
+            <Skeleton className="h-8 w-32" />
+          </div>
+          <Skeleton className="mt-2 h-3 w-40" />
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1 gap-4">
+        <div className="w-72 shrink-0 overflow-hidden">
+          <div className="h-full border border-border-mid bg-surface-raised">
+            <TreePanelSkeleton />
+          </div>
+        </div>
+        <div className="min-w-0 flex-1 overflow-hidden border border-border-mid bg-surface-raised" />
+      </div>
+    </div>
+  );
+}
 
 function TreePanelSkeleton() {
   return (

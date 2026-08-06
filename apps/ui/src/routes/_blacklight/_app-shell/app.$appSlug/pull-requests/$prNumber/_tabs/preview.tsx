@@ -26,15 +26,30 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
   loader: async ({ context, params: { appSlug, prNumber } }) => {
     const app = context.applications.find((a) => a.slug === appSlug);
     if (app == null) throw notFound();
-    await ensureBranchByPrData(context.queryClient, app.id, prNumber);
-    await ensurePreviewEnvironmentSummaryData(context.queryClient, app.id, prNumber);
+    // Both are keyed by (applicationId, prNumber) only, so neither waits on the other - sequential awaits
+    // here cost the tab a whole round trip of blank screen for nothing.
+    await Promise.all([
+      ensureBranchByPrData(context.queryClient, app.id, prNumber),
+      ensurePreviewEnvironmentSummaryData(context.queryClient, app.id, prNumber),
+    ]);
   },
   validateSearch: (search: Record<string, unknown>): PreviewSearch => ({
     service: typeof search.service === "string" ? search.service : undefined,
     logs: search.logs === "build" || search.logs === "app" ? search.logs : undefined,
   }),
+  // The same skeleton the body suspends into, so the loader's wait and the render's wait look identical.
+  pendingComponent: PreviewTabPending,
   component: PreviewTab,
 });
+
+/** The loader runs before `PreviewTab`'s padded wrapper exists, so the pending state supplies it. */
+function PreviewTabPending() {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col p-6">
+      <PreviewPageSkeleton />
+    </div>
+  );
+}
 
 function PreviewTab() {
   const { prNumber } = Route.useParams();

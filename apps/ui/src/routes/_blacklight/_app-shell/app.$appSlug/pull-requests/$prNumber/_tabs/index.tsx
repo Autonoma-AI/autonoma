@@ -51,18 +51,23 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
     const branch = await ensureBranchByPrData(context.queryClient, app.id, prNumber);
     // Prefetch the latest snapshot's analysis job + report so the authoritative-vs-diffs gate resolves without a
     // client-side waterfall. Both resolve to null for a diffs PR (cheap), leaving today's layout untouched.
-    const snapshots = await ensureSnapshotHistoryData(context.queryClient, branch.id);
+    //
+    // The issues read is branch-scoped, so it only needs `branch.id` and rides along with the snapshot history
+    // instead of waiting behind it - which is what keeps this chain two round trips deep rather than three. It
+    // prewarms the issues-first report column so it never suspends once the report lands; empty for a diffs branch.
+    const [snapshots] = await Promise.all([
+      ensureSnapshotHistoryData(context.queryClient, branch.id),
+      ensureAnalysisIssuesData(context.queryClient, branch.id),
+    ]);
     const latest = latestSnapshotOf(snapshots);
     if (latest != null) {
       await Promise.all([
         ensureAnalysisJobData(context.queryClient, latest.id),
         ensureAnalysisReportData(context.queryClient, latest.id),
-        // Branch-scoped, so keyed by branch (not snapshot); prewarms the issues-first report column so it never
-        // suspends once the report lands. Empty for a diffs branch.
-        ensureAnalysisIssuesData(context.queryClient, branch.id),
       ]);
     }
   },
+  pendingComponent: OverviewSkeleton,
   component: OverviewTab,
 });
 
@@ -352,10 +357,7 @@ function AggregatedCheckpointCard({
   const details = useSnapshotDetails(snapshots);
   const oldestSnapshot = snapshots[snapshots.length - 1] ?? latestSnapshot;
   const editedCategories = useMemo(() => buildCumulativeEditedCategories(details), [details]);
-  const testRunSections = useMemo(
-    () => buildPrTestRunSections(details, editedCategories),
-    [details, editedCategories],
-  );
+  const testRunSections = useMemo(() => buildPrTestRunSections(details, editedCategories), [details, editedCategories]);
   const testRunSummary = useMemo(() => buildTestRunSummary(testRunSections), [testRunSections]);
   const suiteChangeCount = editedCategories.size;
   const hasBugs = bugs.length > 0;
@@ -766,11 +768,15 @@ function AggregatedCheckpointCardSkeleton() {
   );
 }
 
+/**
+ * Mirrors the Overview tab's two stacked regions - the pipeline strip and the checkpoint card - rather than
+ * two anonymous bars, so the card that arrives lands where its outline already was.
+ */
 function OverviewSkeleton() {
   return (
     <div className="flex flex-col gap-5 p-6">
       <Skeleton className="h-16 w-full" />
-      <Skeleton className="h-96 w-full" />
+      <AggregatedCheckpointCardSkeleton />
     </div>
   );
 }

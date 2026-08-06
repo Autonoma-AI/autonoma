@@ -1,5 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { Outlet, createRootRouteWithContext, useLocation, useRouterState } from "@tanstack/react-router";
+import { RoutePendingSkeleton } from "components/route-pending-skeleton";
 import { useIsMobile } from "hooks/use-is-mobile";
 import { Monitor } from "lucide-react";
 import posthog from "posthog-js";
@@ -142,9 +143,11 @@ function RootLayout() {
   }
 
   if (session.isPending) {
+    // The app's first paint. Deliberately the neutral skeleton rather than the shell's silhouette: the
+    // session has not resolved yet, so we do not know whether this lands in the app or on /login.
     return (
-      <div className="blacklight flex min-h-screen items-center justify-center bg-surface-void">
-        <span className="text-text-tertiary">Loading…</span>
+      <div className="blacklight min-h-screen bg-surface-void">
+        <RoutePendingSkeleton />
       </div>
     );
   }

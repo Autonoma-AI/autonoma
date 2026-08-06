@@ -27,8 +27,14 @@ import { CheckpointSummaryBadge } from "./-components/checkpoint-summary-badge";
 import { CheckpointTestsRun } from "./-components/checkpoint-tests-run";
 import { formatCheckpointMetrics } from "./-components/format-checkpoint-metrics";
 import { PrStatusBadge } from "./-components/pr-status-badge";
-import { EnvironmentSummaryStrip } from "./-components/preview/environment-summary-strip";
-import { PreviewEnvironmentExplorer } from "./-components/preview/preview-environment-explorer";
+import {
+  EnvironmentSummaryStrip,
+  EnvironmentSummaryStripSkeleton,
+} from "./-components/preview/environment-summary-strip";
+import {
+  PreviewEnvironmentExplorer,
+  PreviewEnvironmentExplorerSkeleton,
+} from "./-components/preview/preview-environment-explorer";
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
 
@@ -51,28 +57,47 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
     service: typeof search.service === "string" ? search.service : undefined,
     logs: search.logs === "build" || search.logs === "app" ? search.logs : undefined,
   }),
+  pendingComponent: MainBranchPending,
   component: MainBranchPage,
 });
+
+/** The header is static, so the loader's wait shows it for real and skeletons only the body. */
+function MainBranchPending() {
+  return (
+    <div className="flex flex-col gap-6">
+      <MainBranchHeader />
+      <MainBranchSkeleton />
+    </div>
+  );
+}
+
+function MainBranchHeader() {
+  return (
+    <header className="flex flex-wrap items-center gap-3">
+      <div>
+        <h1 className="flex items-center gap-2 text-2xl font-medium tracking-tight text-text-primary">
+          <GitBranchIcon size={22} className="text-text-secondary" />
+          Main branch
+        </h1>
+        <p className="mt-1 font-mono text-xs text-text-secondary">
+          Health, checkpoints and open problems on your default branch
+        </p>
+      </div>
+    </header>
+  );
+}
 
 function MainBranchPage() {
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-wrap items-center gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-medium tracking-tight text-text-primary">
-            <GitBranchIcon size={22} className="text-text-secondary" />
-            Main branch
-          </h1>
-          <p className="mt-1 font-mono text-xs text-text-secondary">
-            Health, checkpoints and open problems on your default branch
-          </p>
-        </div>
-      </header>
+      <MainBranchHeader />
 
       <Suspense fallback={<MainBranchSkeleton />}>
         <MainBranchContent />
       </Suspense>
 
+      {/* `null` because this section legitimately renders nothing for an application without a previewkit
+          environment; the skeleton lives inside, once we know there IS one. */}
       <Suspense fallback={null}>
         <MainBranchPreviewSection />
       </Suspense>
@@ -136,7 +161,27 @@ function MainBranchPreviewSection() {
 
   if (summary.source !== "previewkit") return undefined;
 
-  return <MainBranchPreviewExplorer applicationId={app.id} environmentId={summary.environmentId} />;
+  // The boundary sits here rather than around this component: most applications have no previewkit
+  // environment and this returns nothing at all, so a skeleton one level up would promise a section that
+  // never arrives.
+  return (
+    <Suspense fallback={<MainBranchPreviewSkeleton />}>
+      <MainBranchPreviewExplorer applicationId={app.id} environmentId={summary.environmentId} />
+    </Suspense>
+  );
+}
+
+/** Mirrors `MainBranchPreviewExplorer`, reusing the same two skeletons the PR Preview tab does. */
+function MainBranchPreviewSkeleton() {
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-sm font-semibold text-text-primary">Preview environment</h2>
+      <EnvironmentSummaryStripSkeleton />
+      <div className="flex h-[32rem] flex-col">
+        <PreviewEnvironmentExplorerSkeleton />
+      </div>
+    </section>
+  );
 }
 
 function MainBranchPreviewExplorer({ applicationId, environmentId }: { applicationId: string; environmentId: string }) {

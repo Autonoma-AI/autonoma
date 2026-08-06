@@ -10,6 +10,7 @@ import {
   DialogTitle,
   Input,
   Label,
+  Skeleton,
   cn,
 } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
@@ -19,7 +20,7 @@ import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { useQueryClient } from "@tanstack/react-query";
 import { GITHUB_INSTALLED_RETURN_PATH, useGithubConfig, useGithubRepositories } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
-import { type FormEvent, useState } from "react";
+import { Suspense, type FormEvent, useState } from "react";
 import { nextDraftId, type RepoDraft } from "./topology-draft";
 
 // Cap the install-tab close poll so it can never leak indefinitely (~5 min).
@@ -48,14 +49,56 @@ interface AddAppDialogProps {
  * newly-connected repo captures its fallback branch here so the repo's settings
  * live next to the app instead of in a separate top-of-page band.
  */
-export function AddAppDialog({
-  open,
+export function AddAppDialog({ open, onOpenChange, ...bodyProps }: AddAppDialogProps) {
+  // The frame is outside the boundary so the dialog appears the instant it is asked for. The repo list and
+  // install config are read inside `AddAppDialogBody`, which suspends - before this split those reads sat
+  // above the `<Dialog>`, so clicking "add an app" did nothing visible until GitHub answered.
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogBackdrop />
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Add an app from another repo</DialogTitle>
+          <DialogDescription>
+            Pick the repository this app is built from. Its apps deploy into the same preview environment as your
+            primary repo.
+          </DialogDescription>
+        </DialogHeader>
+        <Suspense fallback={<AddAppDialogBodySkeleton />}>
+          <AddAppDialogBody onOpenChange={onOpenChange} {...bodyProps} />
+        </Suspense>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddAppDialogBodySkeleton() {
+  return (
+    <>
+      <div className="flex flex-col gap-2 px-6 pb-2">
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-9 w-full" />
+      </div>
+      <DialogFooter>
+        <DialogClose render={<Button variant="outline" type="button" />}>Cancel</DialogClose>
+        <Button type="button" disabled>
+          Add app
+        </Button>
+      </DialogFooter>
+    </>
+  );
+}
+
+type AddAppDialogBodyProps = Omit<AddAppDialogProps, "open">;
+
+function AddAppDialogBody({
   onOpenChange,
   primaryRepoFullName,
   repos,
   onAddToExistingRepo,
   onAddToNewRepo,
-}: AddAppDialogProps) {
+}: AddAppDialogBodyProps) {
   const queryClient = useQueryClient();
   const { data: installationRepos } = useGithubRepositories();
   // Opened in a new tab, so GitHub returns to the "close this tab" page - not back
@@ -131,118 +174,105 @@ export function AddAppDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogBackdrop />
-      <DialogContent className="max-w-lg">
-        <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>Add an app from another repo</DialogTitle>
-            <DialogDescription>
-              Pick the repository this app is built from. Its apps deploy into the same preview environment as your
-              primary repo.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 px-6 pb-2">
-            {repos.length === 0 && availableRepos.length === 0 ? (
-              <p className="text-sm text-text-secondary">
-                No other repos are connected to the Autonoma GitHub App yet. Grant it access to the repo you need - this
-                tab keeps your progress.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {showSearch ? (
-                  <div className="relative">
-                    <MagnifyingGlassIcon
-                      size={14}
-                      className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-3 text-text-secondary"
-                    />
-                    <Input
-                      value={query}
-                      onChange={(event) => setQuery(event.target.value)}
-                      placeholder="Search repos"
-                      className="pl-9"
-                      autoFocus
-                    />
-                  </div>
-                ) : undefined}
-                <div className="max-h-80 space-y-2 overflow-y-auto">
-                  {filteredDeps.map((repo) => (
-                    <RepoOption
-                      key={`dep:${repo.repo}`}
-                      selected={selection === `dep:${repo.repo}`}
-                      title={repo.repo}
-                      subtitle="Already added"
-                      onSelect={() => setSelection(`dep:${repo.repo}`)}
-                    />
-                  ))}
-                  {filteredAvailable.map((repo) => (
-                    <RepoOption
-                      key={`new:${repo.fullName}`}
-                      selected={selection === `new:${repo.fullName}`}
-                      title={repo.fullName}
-                      subtitle="Connect to this preview"
-                      onSelect={() => selectNewRepo(repo.fullName, repo.defaultBranch)}
-                    />
-                  ))}
-                  {noMatches ? (
-                    <p className="px-1 py-6 text-center text-2xs text-text-secondary">
-                      No repos match &ldquo;{query.trim()}&rdquo;.
-                    </p>
-                  ) : undefined}
-                </div>
-              </div>
-            )}
-
-            {selectedNewRepo != null ? (
-              <div className="space-y-3 border border-border-dim bg-surface-raised p-4">
-                <div className="max-w-xs">
-                  <Label htmlFor="pk-add-app-fallback">Fallback branch</Label>
-                  <Input
-                    id="pk-add-app-fallback"
-                    value={fallbackBranch}
-                    onChange={(event) => setFallbackBranch(event.target.value)}
-                    placeholder="main"
-                    className="font-mono"
-                  />
-                  <p className="mt-1 text-2xs text-text-secondary">
-                    Deployed when branch matching finds no matching branch.{" "}
-                    <a
-                      href={MULTIREPO_DOCS_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-primary-ink underline underline-offset-2"
-                    >
-                      Learn more
-                    </a>
-                  </p>
-                </div>
+    <form onSubmit={handleSubmit}>
+      <div className="space-y-4 px-6 pb-2">
+        {repos.length === 0 && availableRepos.length === 0 ? (
+          <p className="text-sm text-text-secondary">
+            No other repos are connected to the Autonoma GitHub App yet. Grant it access to the repo you need - this tab
+            keeps your progress.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {showSearch ? (
+              <div className="relative">
+                <MagnifyingGlassIcon
+                  size={14}
+                  className="-translate-y-1/2 pointer-events-none absolute top-1/2 left-3 text-text-secondary"
+                />
+                <Input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Search repos"
+                  className="pl-9"
+                  autoFocus
+                />
               </div>
             ) : undefined}
-
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="w-fit gap-2 text-text-secondary"
-              onClick={openGithubInstall}
-              disabled={installUrl == null}
-            >
-              <GitBranchIcon size={14} />
-              Connect another repo on GitHub
-              <ArrowSquareOutIcon size={13} />
-            </Button>
+            <div className="max-h-80 space-y-2 overflow-y-auto">
+              {filteredDeps.map((repo) => (
+                <RepoOption
+                  key={`dep:${repo.repo}`}
+                  selected={selection === `dep:${repo.repo}`}
+                  title={repo.repo}
+                  subtitle="Already added"
+                  onSelect={() => setSelection(`dep:${repo.repo}`)}
+                />
+              ))}
+              {filteredAvailable.map((repo) => (
+                <RepoOption
+                  key={`new:${repo.fullName}`}
+                  selected={selection === `new:${repo.fullName}`}
+                  title={repo.fullName}
+                  subtitle="Connect to this preview"
+                  onSelect={() => selectNewRepo(repo.fullName, repo.defaultBranch)}
+                />
+              ))}
+              {noMatches ? (
+                <p className="px-1 py-6 text-center text-2xs text-text-secondary">
+                  No repos match &ldquo;{query.trim()}&rdquo;.
+                </p>
+              ) : undefined}
+            </div>
           </div>
+        )}
 
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" type="button" />}>Cancel</DialogClose>
-            <Button type="submit" disabled={selection == null}>
-              Add app
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
+        {selectedNewRepo != null ? (
+          <div className="space-y-3 border border-border-dim bg-surface-raised p-4">
+            <div className="max-w-xs">
+              <Label htmlFor="pk-add-app-fallback">Fallback branch</Label>
+              <Input
+                id="pk-add-app-fallback"
+                value={fallbackBranch}
+                onChange={(event) => setFallbackBranch(event.target.value)}
+                placeholder="main"
+                className="font-mono"
+              />
+              <p className="mt-1 text-2xs text-text-secondary">
+                Deployed when branch matching finds no matching branch.{" "}
+                <a
+                  href={MULTIREPO_DOCS_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary-ink underline underline-offset-2"
+                >
+                  Learn more
+                </a>
+              </p>
+            </div>
+          </div>
+        ) : undefined}
+
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="w-fit gap-2 text-text-secondary"
+          onClick={openGithubInstall}
+          disabled={installUrl == null}
+        >
+          <GitBranchIcon size={14} />
+          Connect another repo on GitHub
+          <ArrowSquareOutIcon size={13} />
+        </Button>
+      </div>
+
+      <DialogFooter>
+        <DialogClose render={<Button variant="outline" type="button" />}>Cancel</DialogClose>
+        <Button type="submit" disabled={selection == null}>
+          Add app
+        </Button>
+      </DialogFooter>
+    </form>
   );
 }
 

@@ -1,4 +1,4 @@
-import { Badge, Skeleton } from "@autonoma/blacklight";
+import { Badge, TableSkeleton } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
 import { useSuspenseQuery } from "@tanstack/react-query";
@@ -38,7 +38,7 @@ function AdminIssuesPage() {
           </p>
         </header>
 
-        <Suspense fallback={<TableSkeleton />}>
+        <Suspense fallback={<TableSkeleton rows={4} className="gap-2" rowClassName="rounded-md" />}>
           <IssuesTable />
         </Suspense>
       </div>
@@ -120,15 +120,5 @@ function IssueRow({ issue }: { issue: Issue }) {
         )}
       </td>
     </tr>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="flex flex-col gap-2">
-      {[1, 2, 3, 4].map((i) => (
-        <Skeleton key={i} className="h-10 w-full rounded-md" />
-      ))}
-    </div>
   );
 }

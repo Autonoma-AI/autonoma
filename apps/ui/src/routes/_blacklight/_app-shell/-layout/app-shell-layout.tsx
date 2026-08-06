@@ -10,7 +10,7 @@ import {
   useToastManager,
 } from "@autonoma/blacklight";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
-import { Link, useLocation, useMatchRoute } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import { useAuth, useAuthClient } from "lib/auth";
 import { toastManager } from "lib/toast-manager";
 import { type ReactNode, useState } from "react";
@@ -18,6 +18,8 @@ import { DemoBanner } from "./demo-banner";
 import { DemoModal } from "./demo-modal";
 import { FeedbackModal } from "./feedback-modal";
 import { Sidebar, useAppNav, useSidebarCollapsed } from "./sidebar";
+import { sidebarGridTemplate } from "./sidebar-grid";
+import { useHidesAppNav } from "./use-hides-app-nav";
 
 function GridBackground() {
   return (
@@ -86,21 +88,16 @@ function AppShellToasts() {
 export function AppShellLayout({ children }: { children: ReactNode }) {
   const { isAdmin } = useAuth();
   const { pathname } = useLocation();
-  const matchRoute = useMatchRoute();
   const { items: appNavItems } = useAppNav();
   const isAdminPage = pathname === "/admin" || pathname.startsWith("/admin/");
   const [collapsed, setCollapsed] = useSidebarCollapsed();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
-  // Finish setup is a linear task the app can't run generations without, and its
-  // own stepper is the only progress that matters there. The app nav beside it
-  // reads as a competing second set of steps and invites wandering off mid-flow,
-  // so the page keeps the minimal chrome (logo + sign out) and its own "Back to
-  // home" link as the way out.
-  const isFinishSetupPage = matchRoute({ to: "/app/$appSlug/finish-setup" }) !== false;
+  // The page keeps the minimal chrome (logo + sign out) and its own "Back to home" link as the way out.
+  const hidesAppNav = useHidesAppNav();
 
   const hasAppNav = appNavItems.length > 0;
-  const hasNav = (hasAppNav || (isAdminPage && isAdmin)) && !isFinishSetupPage;
+  const hasNav = (hasAppNav || (isAdminPage && isAdmin)) && !hidesAppNav;
 
   if (!hasNav) {
     return (
@@ -119,7 +116,7 @@ export function AppShellLayout({ children }: { children: ReactNode }) {
       <TooltipProvider>
         <div
           className="grid h-full overflow-hidden transition-[grid-template-columns] duration-200"
-          style={{ gridTemplateColumns: collapsed ? "60px 1fr" : "200px 1fr" }}
+          style={{ gridTemplateColumns: sidebarGridTemplate(collapsed) }}
         >
           <Sidebar
             collapsed={collapsed}

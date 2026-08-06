@@ -7,8 +7,8 @@ import {
   PanelBody,
   PanelHeader,
   PanelTitle,
-  Skeleton,
   SortableTable,
+  TableSkeleton,
 } from "@autonoma/blacklight";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
@@ -28,7 +28,7 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/admin
     return ensureGenerationsListData(context.queryClient, app.id);
   },
   component: GenerationsPage,
-  pendingComponent: TableSkeleton,
+  pendingComponent: GenerationsTableSkeleton,
 });
 
 type GenerationItem = ReturnType<typeof useGenerations>["data"][number];
@@ -177,7 +177,7 @@ function GenerationsTable() {
   );
 }
 
-function TableSkeleton() {
+function GenerationsTableSkeleton() {
   return (
     <Panel>
       <PanelHeader className="flex items-center gap-2">
@@ -185,11 +185,7 @@ function TableSkeleton() {
         <PanelTitle>All generations</PanelTitle>
       </PanelHeader>
       <PanelBody className="p-4">
-        <div className="flex flex-col gap-3">
-          {["sk-1", "sk-2", "sk-3", "sk-4", "sk-5", "sk-6"].map((id) => (
-            <Skeleton key={id} className="h-10 w-full" />
-          ))}
-        </div>
+        <TableSkeleton rows={6} />
       </PanelBody>
     </Panel>
   );

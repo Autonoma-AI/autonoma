@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
   Input,
   Skeleton,
+  TableSkeleton,
   cn,
 } from "@autonoma/blacklight";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
@@ -120,7 +121,7 @@ function AdminPreviewkitPage() {
           <DeployMainBranchSection />
         </Suspense>
 
-        <Suspense fallback={<TableSkeleton />}>
+        <Suspense fallback={<EnvironmentsTableSkeleton />}>
           <EnvironmentsTable />
         </Suspense>
       </div>
@@ -756,18 +757,14 @@ function EnvFactoryResult({
   );
 }
 
-function TableSkeleton() {
+function EnvironmentsTableSkeleton() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
         <Skeleton className="h-9 w-full max-w-sm" />
         <Skeleton className="ml-auto h-4 w-16" />
       </div>
-      <div className="flex flex-col gap-2 rounded-md border border-border-dim p-2">
-        {[1, 2, 3, 4, 5].map((i) => (
-          <Skeleton key={i} className="h-9 w-full" />
-        ))}
-      </div>
+      <TableSkeleton rows={5} rowClassName="h-9" className="gap-2 rounded-md border border-border-dim p-2" />
     </div>
   );
 }

@@ -9,6 +9,9 @@ import { GenerationsPanel } from "./-generations-panel";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/generation-progress/")({
   component: GenerationProgressPage,
+  // Not dead despite there being no loader to be pending for: a route's `pendingComponent` is also the
+  // Suspense fallback the router wraps its component in, and this page suspends on `useMainBranch()` and
+  // `useEditSession()` with no boundary of its own.
   pendingComponent: GenerationProgressSkeleton,
 });
 

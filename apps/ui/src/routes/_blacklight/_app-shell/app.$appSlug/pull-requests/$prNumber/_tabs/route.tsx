@@ -19,8 +19,19 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
       ensurePrPipelineStatusData(context.queryClient, app.id, branch.id),
     ]);
   },
+  // Without this the layout's own wait escapes past the app shell, so the sidebar goes with it. The header
+  // is the only thing this route owns; the Outlet's body brings its own pending state.
+  pendingComponent: PRTabsPending,
   component: PRTabsLayout,
 });
+
+function PRTabsPending() {
+  return (
+    <div className="-m-6 flex h-[calc(100%+3rem)] flex-col overflow-hidden">
+      <PRHeaderSkeleton />
+    </div>
+  );
+}
 
 function PRTabsLayout() {
   const { prNumber } = Route.useParams();

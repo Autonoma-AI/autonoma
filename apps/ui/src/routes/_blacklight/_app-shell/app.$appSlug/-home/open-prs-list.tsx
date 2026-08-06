@@ -1,4 +1,4 @@
-import { Badge, EmptyState, Pagination } from "@autonoma/blacklight";
+import { Badge, EmptyState, Pagination, Skeleton } from "@autonoma/blacklight";
 import { ArrowUpRightIcon } from "@phosphor-icons/react/ArrowUpRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { Link } from "@tanstack/react-router";
@@ -138,10 +138,10 @@ export function OpenPrsListSkeleton() {
         <div className="flex-1">
           {["sk-1", "sk-2", "sk-3", "sk-4", "sk-5"].map((id) => (
             <div key={id} className="flex items-center gap-3 border-t border-border-dim px-4 py-3 first:border-t-0">
-              <div className="size-3.5 shrink-0 animate-pulse rounded-full bg-surface-raised" />
+              <Skeleton className="size-3.5 shrink-0 rounded-full" />
               <div className="flex flex-1 flex-col gap-1.5">
-                <div className="h-3.5 w-2/5 animate-pulse bg-surface-raised" />
-                <div className="h-3 w-3/5 animate-pulse bg-surface-raised" />
+                <Skeleton className="h-3.5 w-2/5" />
+                <Skeleton className="h-3 w-3/5" />
               </div>
             </div>
           ))}

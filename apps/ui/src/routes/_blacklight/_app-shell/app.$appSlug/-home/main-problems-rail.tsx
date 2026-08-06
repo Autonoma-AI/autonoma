@@ -1,3 +1,4 @@
+import { Skeleton } from "@autonoma/blacklight";
 import type { MainOpenProblem, MainProblemSource } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { MainProblemLink } from "components/main-problems/main-problem-link";
@@ -82,8 +83,8 @@ export function MainProblemsRailSkeleton() {
     <RailShell count={0}>
       {["sk-1", "sk-2", "sk-3"].map((id) => (
         <div key={id} className="flex flex-col gap-1.5 border-b border-border-dim px-4 py-3">
-          <div className="h-3 w-4/5 animate-pulse bg-surface-raised" />
-          <div className="h-2.5 w-2/5 animate-pulse bg-surface-raised" />
+          <Skeleton className="h-3 w-4/5" />
+          <Skeleton className="h-2.5 w-2/5" />
         </div>
       ))}
     </RailShell>

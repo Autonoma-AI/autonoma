@@ -1,9 +1,8 @@
-import { Skeleton } from "@autonoma/blacklight";
 import { createFileRoute } from "@tanstack/react-router";
 import { toPageParam } from "lib/page-param";
 import { ensureMainOpenProblemsData } from "lib/query/branches.queries";
 import { ensureLatestPullRequestsData } from "lib/query/latest-prs.queries";
-import { Suspense } from "react";
+import { type ReactNode, Suspense } from "react";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { HomeHeader } from "./-home/home-header";
 import { MainProblemsRail, MainProblemsRailSkeleton } from "./-home/main-problems-rail";
@@ -25,21 +24,53 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/")({
       ensureMainOpenProblemsData(context.queryClient, app.id),
     ]);
   },
+  pendingComponent: HomePending,
   component: HomePage,
 });
+
+/** `-m-6` + `h-[calc(100%+3rem)]` cancels the app-shell's p-6 so the page fills the viewport exactly; the
+ * columns scroll internally instead of the whole page. Shared with the pending state so nothing shifts. */
+function HomeFrame({ children }: { children: ReactNode }) {
+  return <div className="-m-6 flex h-[calc(100%+3rem)] flex-col overflow-hidden">{children}</div>;
+}
+
+/**
+ * The app name and architecture come from the route context, which the app shell already resolved - so the
+ * header is real while the panels load, rather than a bar standing in for text we have.
+ */
+function HomePending() {
+  const app = useCurrentApplication();
+
+  return (
+    <HomeFrame>
+      <HomeHeader appName={app.name} architecture={app.architecture} />
+      <HomeBodySkeleton />
+    </HomeFrame>
+  );
+}
 
 function HomePage() {
   const app = useCurrentApplication();
 
-  // `-m-6` + `h-[calc(100%+3rem)]` cancels the app-shell's p-6 so the page fills the
-  // viewport exactly; the columns scroll internally instead of the whole page.
   return (
-    <div className="-m-6 flex h-[calc(100%+3rem)] flex-col overflow-hidden">
+    <HomeFrame>
       <HomeHeader appName={app.name} architecture={app.architecture} />
 
-      <Suspense fallback={<Skeleton className="m-6 flex-1" />}>
+      <Suspense fallback={<HomeBodySkeleton />}>
         <HomeBody />
       </Suspense>
+    </HomeFrame>
+  );
+}
+
+/** The two-column body, in outline. Same layout as `HomeBody`'s, so the panels land where their outlines were. */
+function HomeBodySkeleton() {
+  return (
+    <div className="flex min-h-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-6 py-5">
+        <OpenPrsListSkeleton />
+      </div>
+      <MainProblemsRailSkeleton />
     </div>
   );
 }

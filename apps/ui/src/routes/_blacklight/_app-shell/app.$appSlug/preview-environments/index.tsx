@@ -7,6 +7,7 @@ import {
   DataTableHeaderCell,
   DataTableRow,
   Skeleton,
+  TableSkeleton,
 } from "@autonoma/blacklight";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { BrowsersIcon } from "@phosphor-icons/react/Browsers";
@@ -58,7 +59,7 @@ function PreviewEnvironmentsPage() {
     <section className="flex-1 overflow-auto p-6 lg:p-8">
       <div className="mx-auto flex max-w-4xl flex-col gap-6">
         <PreviewEnvironmentsHeader />
-        <Suspense fallback={<TableSkeleton />}>
+        <Suspense fallback={<TableSkeleton rows={4} className="gap-2 rounded-md border border-border-dim p-2" />}>
           <EnvironmentsTable />
         </Suspense>
       </div>
@@ -196,16 +197,6 @@ function EnvironmentRow({
   );
 }
 
-function TableSkeleton() {
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-border-dim p-2">
-      {[1, 2, 3, 4].map((i) => (
-        <Skeleton key={i} className="h-10 w-full" />
-      ))}
-    </div>
-  );
-}
-
 function PreviewEnvironmentsPageSkeleton() {
   return (
     <section className="flex-1 overflow-auto p-6 lg:p-8">
@@ -215,7 +206,7 @@ function PreviewEnvironmentsPageSkeleton() {
           <Skeleton className="h-6 w-56" />
           <Skeleton className="h-4 w-80" />
         </div>
-        <TableSkeleton />
+        <TableSkeleton rows={4} className="gap-2 rounded-md border border-border-dim p-2" />
       </div>
     </section>
   );
