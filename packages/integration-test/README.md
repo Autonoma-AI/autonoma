@@ -58,7 +58,7 @@ export class MyHarness implements IntegrationHarness {
   constructor(public readonly db: PrismaClient, private container: StartedPostgreSqlContainer) {}
 
   static async create(): Promise<MyHarness> {
-    const container = await new PostgreSqlContainer("postgres:17-alpine").start();
+    const container = await new PostgreSqlContainer("postgres:18-alpine").start();
     const db = createClient(container.getConnectionUri());
     return new MyHarness(db, container);
   }

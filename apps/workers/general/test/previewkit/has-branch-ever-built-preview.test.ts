@@ -11,7 +11,7 @@ declare global {
     var prisma: PrismaClient | undefined;
 }
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 
 /** Monotonic counter for unique names across the suite (one shared container, no per-test truncation). */
 let seq = 0;

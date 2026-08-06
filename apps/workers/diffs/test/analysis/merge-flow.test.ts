@@ -13,7 +13,7 @@ import { runMergeFlow } from "../../src/analysis/merge-flow";
 
 const execFileAsync = promisify(execFile);
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 const MAIN_BRANCH_REF = "main";
 const PR_NUMBER = 77;
 const FEATURE_HEAD_SHA = "feature-head-sha";

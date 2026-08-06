@@ -84,7 +84,7 @@ export class WebhookServer {
     }
 }
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 
 export class ScenarioTestHarness implements IntegrationHarness {
     public readonly db: PrismaClient;

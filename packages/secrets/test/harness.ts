@@ -4,7 +4,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import type { TestAPI } from "vitest";
 import { FakeKeyProvider } from "./fake-key-provider";
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 
 export class SecretsHarness implements IntegrationHarness {
     /** Rebuilt per test so key-provider call counts start clean. */

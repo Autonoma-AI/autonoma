@@ -12,7 +12,7 @@ declare global {
     var prisma: PrismaClient | undefined;
 }
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 const ORIGINAL_PLAN = "1. Open checkout.\n2. Assert the total.";
 const REVISED_PLAN = "1. Open checkout.\n2. Assert the label the app actually shows.";
 

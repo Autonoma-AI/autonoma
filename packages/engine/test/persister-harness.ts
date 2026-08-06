@@ -3,7 +3,7 @@ import { type IntegrationHarness, stopContainer } from "@autonoma/integration-te
 import type { StorageProvider } from "@autonoma/storage";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 
 /**
  * In-memory storage provider for tests. Records every upload so tests can assert

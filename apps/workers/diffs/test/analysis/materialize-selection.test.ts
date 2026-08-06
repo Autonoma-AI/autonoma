@@ -11,7 +11,7 @@ declare global {
     var prisma: PrismaClient | undefined;
 }
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 const logger = rootLogger.child({ name: "materializeSelection.test" });
 
 let seq = 0;

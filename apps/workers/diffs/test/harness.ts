@@ -12,7 +12,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
 import type { ModelMessage } from "ai";
 import type { TestAPI } from "vitest";
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 
 /**
  * Minimal in-memory {@link StorageProvider} for the loader's generation path:

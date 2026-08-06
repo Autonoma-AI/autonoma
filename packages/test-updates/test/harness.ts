@@ -7,7 +7,7 @@ import { GenerationManager } from "../src/generation/generation-manager";
 import { SnapshotDraft, type TestSuiteInfo } from "../src/snapshot-draft";
 import { TestSuiteUpdater } from "../src/test-update-manager";
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 
 export class TestUpdatesHarness implements IntegrationHarness {
     public readonly db: PrismaClient;

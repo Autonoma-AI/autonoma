@@ -3,7 +3,7 @@ import { type IntegrationHarness, integrationTestSuite, stopContainer } from "@a
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { TestAPI } from "vitest";
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 
 export class CheckpointHarness implements IntegrationHarness {
     public readonly db: PrismaClient;

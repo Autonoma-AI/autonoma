@@ -11,7 +11,7 @@ declare global {
     var prisma: PrismaClient | undefined;
 }
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 let seq = 0;
 const next = () => seq++;
 

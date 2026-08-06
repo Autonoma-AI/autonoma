@@ -9,7 +9,7 @@ declare global {
     var prisma: PrismaClient | undefined;
 }
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 const HEAD_SHA = "head1111111111111111111111111111111111111";
 const BASE_SHA = "base2222222222222222222222222222222222222";
 

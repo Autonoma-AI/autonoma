@@ -8,7 +8,7 @@ import { expect } from "vitest";
 import { type ReverifiedTest, reverifyOpenIssues } from "../../src/analysis/reverify-issues";
 import { findOrCreateTestCase } from "./seed-generation";
 
-const POSTGRES_IMAGE = "postgres:17-alpine";
+const POSTGRES_IMAGE = "postgres:18-alpine";
 
 /** Monotonic counter for unique org/app slugs across the suite (one shared container, no per-test truncation). */
 let seq = 0;
