@@ -22,6 +22,7 @@ export function mapTestSuiteToContext(suiteInfo: TestSuiteInfo): {
             id: testCase.id,
             name: testCase.name,
             slug: testCase.slug,
+            description: testCase.description,
             prompt: testCase.plan.prompt,
         });
     }

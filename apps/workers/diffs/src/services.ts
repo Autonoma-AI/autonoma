@@ -19,6 +19,7 @@ export function createModelSession(): ModelSession {
     return openModelSession({
         openaiApiKey: env.OPENAI_API_KEY,
         classifierModelId: env.INVESTIGATION_CLASSIFIER_MODEL,
+        impactModelId: env.INVESTIGATION_IMPACT_MODEL,
         videoModelId: env.INVESTIGATION_VIDEO_MODEL,
     });
 }

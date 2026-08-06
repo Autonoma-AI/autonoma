@@ -11,6 +11,7 @@ type ListTestsInput = z.infer<typeof listTestsInputSchema>;
 interface ListTestsEntry {
     slug: string;
     name: string;
+    description?: string;
 }
 
 interface ListTestsOutput {
@@ -35,7 +36,9 @@ export class ListTestsTool extends AgentTool<ListTestsInput, ListTestsOutput, Te
         super({
             name: "list_tests",
             description:
-                "List all tests in a specific flow (folder). Returns the slug and name of each test. " +
+                "List all tests in a specific flow (folder). Returns the slug, name and description of each " +
+                "test - the description is what the test claims the app does, which is what tells you whether " +
+                "a change puts it at risk. " +
                 "Use read_tests (which accepts an array of slugs) to read the full instructions of one or more tests in a single call.",
             inputSchema: listTestsInputSchema,
         });
@@ -48,7 +51,7 @@ export class ListTestsTool extends AgentTool<ListTestsInput, ListTestsOutput, Te
         const testsBySlug = new Map(loop.existingTests.map((t) => [t.slug, t]));
         const tests: ListTestsEntry[] = slugs.map((slug) => {
             const test = testsBySlug.get(slug);
-            return { slug, name: test?.name ?? slug };
+            return { slug, name: test?.name ?? slug, description: test?.description };
         });
 
         return { flowName, tests, count: tests.length };

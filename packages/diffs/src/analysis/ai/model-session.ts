@@ -23,7 +23,8 @@ import {
  * - `reporter`: the Reporter agent's model - it must BOTH read screenshots (vision) AND reason across
  *   findings/issues/time, so it sits at a stronger native OpenAI gpt-5.6 tier.
  * - `impact`: the Impact Analysis selector (`DiffsAgent`) - a text-only codebase-exploration loop over the diff
- *   and the suite, deciding which tests the run investigates at all. Native OpenAI, like the classifier.
+ *   and the suite, deciding which tests the run investigates at all. It reads no screenshots, so unlike the
+ *   other three it is not tied to one provider.
  */
 export type InvestigationModelName = "smart-video" | "classifier" | "reporter" | "impact";
 
@@ -33,7 +34,7 @@ export interface InvestigationModelConfig {
     classifierModelId?: string;
     /** Override the Reporter model id (default gpt-5.6-terra - the stronger vision+reasoning tier). */
     reporterModelId?: string;
-    /** Override the Impact Analysis model id (default gpt-5.6-luna). */
+    /** Override the Impact Analysis model id (default gemini-3-flash-preview). */
     impactModelId?: string;
     /** Override the `analyze_video` model id (default minimax/minimax-m3), to revert without a code change. */
     videoModelId?: string;
@@ -64,7 +65,7 @@ interface NativeOpenAIModel {
 
 const DEFAULT_CLASSIFIER_MODEL = "gpt-5.6-luna";
 const DEFAULT_REPORTER_MODEL = "gpt-5.6-terra";
-const DEFAULT_IMPACT_MODEL = "gpt-5.6-luna";
+const DEFAULT_IMPACT_MODEL = "gemini-3-flash-preview";
 const DEFAULT_VIDEO_MODEL = "minimax/minimax-m3";
 
 /**
@@ -75,6 +76,14 @@ const DEFAULT_VIDEO_MODEL = "minimax/minimax-m3";
 const VIDEO_MODELS: Record<string, ModelEntry> = {
     "minimax/minimax-m3": MODEL_ENTRIES.MINIMAX_M3,
     "google/gemini-3-flash-preview": OPENROUTER_MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW,
+};
+
+/**
+ * The non-native-OpenAI models the `impact` capability can resolve to, keyed by id. NOT the full set it
+ * accepts - {@link resolveImpactEntry} falls through to {@link NATIVE_OPENAI_MODELS} for the rest.
+ */
+const IMPACT_MODELS: Record<string, ModelEntry> = {
+    "gemini-3-flash-preview": MODEL_ENTRIES.GEMINI_3_FLASH_PREVIEW,
 };
 
 /**
@@ -111,7 +120,7 @@ export function openModelSession(config: InvestigationModelConfig): ModelSession
         "classifier",
     );
     const reporterEntry = resolveNativeEntry(openai, config.reporterModelId ?? DEFAULT_REPORTER_MODEL, "reporter");
-    const impactEntry = resolveNativeEntry(openai, config.impactModelId ?? DEFAULT_IMPACT_MODEL, "impact");
+    const impactEntry = resolveImpactEntry(openai, config.impactModelId ?? DEFAULT_IMPACT_MODEL);
 
     const registry = new ModelRegistry<InvestigationModelName>({
         models: {
@@ -132,12 +141,27 @@ export function openModelSession(config: InvestigationModelConfig): ModelSession
 
 /** Resolve one native-OpenAI capability key to a {@link ModelEntry}, throwing a clear error on an unknown id. */
 function resolveNativeEntry(openai: OpenAIProvider, modelId: string, capability: string): ModelEntry {
-    const model = NATIVE_OPENAI_MODELS[modelId];
-    if (!model) {
+    const entry = nativeEntry(openai, modelId);
+    if (entry == null) {
         throw new Error(
             `Unknown ${capability} model id "${modelId}". Valid ids: ${Object.keys(NATIVE_OPENAI_MODELS).join(", ")}`,
         );
     }
+    return entry;
+}
+
+function resolveImpactEntry(openai: OpenAIProvider, modelId: string): ModelEntry {
+    const entry = IMPACT_MODELS[modelId] ?? nativeEntry(openai, modelId);
+    if (entry == null) {
+        const validIds = [...Object.keys(IMPACT_MODELS), ...Object.keys(NATIVE_OPENAI_MODELS)];
+        throw new Error(`Unknown impact model id "${modelId}". Valid ids: ${validIds.join(", ")}`);
+    }
+    return entry;
+}
+
+function nativeEntry(openai: OpenAIProvider, modelId: string): ModelEntry | undefined {
+    const model = NATIVE_OPENAI_MODELS[modelId];
+    if (model == null) return undefined;
     return {
         createModel: () => model.createModel(openai),
         pricing: model.pricing,

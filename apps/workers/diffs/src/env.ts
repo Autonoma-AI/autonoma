@@ -18,10 +18,11 @@ export const env = createEnv({
         // without it: createModelSession throws at call time instead, failing one analysis run rather than the
         // whole worker. The OpenRouter/Gemini/Groq keys are read by @autonoma/ai from its own env.
         OPENAI_API_KEY: z.string().min(1).optional(),
-        INVESTIGATION_CLASSIFIER_MODEL: z.string().default("gpt-5.6-luna"),
-        // The `analyze_video` model, overridable so a bad video model can be reverted (e.g. to
-        // google/gemini-3-flash-preview) without a deploy. Must be one of the model session's VIDEO_MODELS.
-        INVESTIGATION_VIDEO_MODEL: z.string().default("minimax/minimax-m3"),
+        // Optional rather than defaulted: the model session owns each capability's default, and a `.default()`
+        // here would be a second copy of it.
+        INVESTIGATION_CLASSIFIER_MODEL: z.string().optional(),
+        INVESTIGATION_IMPACT_MODEL: z.string().optional(),
+        INVESTIGATION_VIDEO_MODEL: z.string().optional(),
         // Optional Loki base URL for the classifier's get_app_logs tool (e.g. http://loki.autonoma.app:3100).
         LOKI_URL: z.string().optional(),
         // Master switch for the authoritative analysis PR comment. ON by default, matching the pipeline it reports

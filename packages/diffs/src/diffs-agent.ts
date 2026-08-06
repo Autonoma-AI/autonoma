@@ -15,6 +15,7 @@ export interface ExistingTestInfo {
     id: string;
     name: string;
     slug: string;
+    description?: string;
     prompt: string;
 }
 

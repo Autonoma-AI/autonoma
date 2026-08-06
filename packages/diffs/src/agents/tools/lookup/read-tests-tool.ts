@@ -13,7 +13,7 @@ const readTestsInputSchema = z.object({
 
 type ReadTestsInput = z.infer<typeof readTestsInputSchema>;
 
-type TestEntry = { name: string; instruction: string } | { error: string };
+type TestEntry = { name: string; description?: string; instruction: string } | { error: string };
 
 interface ReadTestsOutput {
     results: Record<string, TestEntry>;
@@ -25,7 +25,8 @@ export class ReadTestsTool extends AgentTool<ReadTestsInput, ReadTestsOutput, Te
         super({
             name: "read_tests",
             description:
-                "Read the full instructions (prompts) of one or more tests by slug in a single call. " +
+                "Read the full instructions (prompts) of one or more tests by slug in a single call, alongside " +
+                "each test's description (what it claims the app does). " +
                 "Pass every slug you need in the `slugs` array - do not call this tool repeatedly for individual slugs. " +
                 "Returns a `results` object keyed by slug.",
             inputSchema: readTestsInputSchema,
@@ -41,7 +42,7 @@ export class ReadTestsTool extends AgentTool<ReadTestsInput, ReadTestsOutput, Te
                 results[slug] = { error: `Test "${slug}" not found.` };
                 continue;
             }
-            results[slug] = { name: test.name, instruction: test.prompt };
+            results[slug] = { name: test.name, description: test.description, instruction: test.prompt };
         }
         return { results };
     }

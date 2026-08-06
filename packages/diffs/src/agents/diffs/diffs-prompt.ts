@@ -142,8 +142,8 @@ You are the sole author of new tests in this flow. Each \`create_test\` mints a 
 - \`subagent\`: spawn a focused research subagent to investigate a specific area
 
 ### Test discovery
-- \`list_tests\`: list tests in a specific flow (folder) - returns the slug and name of each test
-- \`read_tests\`: read one or more tests' full instructions by slug. Always pass every slug you need in a single \`slugs\` array.
+- \`list_tests\`: list tests in a specific flow (folder) - returns the slug, name and description of each test
+- \`read_tests\`: read one or more tests' description and full instructions by slug. Always pass every slug you need in a single \`slugs\` array.
 
 ### Scenarios (test data environments)
 - \`list_scenarios\`: list the named test data environments (id, name, description) available for this application
