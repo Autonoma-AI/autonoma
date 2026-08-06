@@ -34,6 +34,7 @@ The `ExecutionAgent` wraps the Vercel AI SDK's `ToolLoopAgent`. Each iteration:
 | **hover** | Yes | Moves cursor over an element |
 | **read** | Yes | Extracts text from a UI element using `TextExtractor` |
 | **refresh** | Yes | Reloads the page |
+| **navigate** | Yes | Navigates to a URL via `NavigationDriver` |
 | **save-clipboard** | Yes | Saves clipboard contents |
 
 ## LLM Tools (non-command)
@@ -63,7 +64,6 @@ Every command is defined by a `CommandSpec`:
 ```ts
 interface CommandSpec {
   interaction: string      // command name (e.g., "click")
-  modelInput: object       // what the LLM provides (natural language description)
   params: object           // resolved parameters recorded with the step
   output: { outcome: string } // what the command returns
 }
@@ -71,9 +71,10 @@ interface CommandSpec {
 
 `Command<TSpec, TContext>` is the abstract base class all commands extend. Key members:
 - `interaction` - command name (becomes the LLM tool name)
-- `inputSchema` / `paramsSchema` - Zod schemas
-- `description()` - shown to the AI
-- `execute(input, context)` - performs the action
+- `paramsSchema` - Zod schema for `params`
+- `execute(params, context)` - performs the action
+
+What the LLM sees lives on the matching `CommandTool` (`execution-agent/agent/tools/commands/<name>.tool.ts`), which supplies `description()`, `inputSchema()`, and an `extractParams()` that turns the model's natural-language input into `params`.
 
 ## Runner & Artifacts
 
@@ -94,10 +95,13 @@ interface CommandSpec {
 
 ## Adding a New Command
 
-1. Define a `CommandSpec` type for the command's interaction, input, params, and output.
-2. Create a class extending `Command<YourSpec, YourContext>`.
-3. Implement `interaction`, `inputSchema`, `paramsSchema`, `description()`, `execute()`.
-4. Register it in the `CommandRegistry` via `registry.addCommand(new YourCommand(...))`.
+Each command is a triplet of files. Mirror an existing one (e.g. `commands/commands/click/`):
+
+1. **`<name>.def.ts`** - the `CommandSpec` interface (`interaction`, `params`, `output`) plus a base param Zod schema, re-exported from `commands/command-defs.ts`.
+2. **`<name>.command.ts`** - a `Command<YourSpec, YourContext>` subclass implementing `interaction`, `paramsSchema`, and `execute(params, context)`. Add platform variants (`web-<name>.command.ts`, `mobile-<name>.command.ts`) when behavior differs. Export it from `commands/commands/index.ts`.
+3. **`<name>.tool.ts`** (under `execution-agent/agent/tools/commands/`) - a `CommandTool` subclass implementing `description()`, `inputSchema()`, and `extractParams()`. Export it from that directory's `index.ts` and add it to the `commandTools` list the platform passes to its `ExecutionAgentFactory`.
+
+The `execution-agent` skill also covers the required `CommandUI` entry in `@autonoma/blacklight` - without it, recorded steps silently render as "Unknown" in the app.
 
 ## Dependencies
 
