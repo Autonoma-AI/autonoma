@@ -40,9 +40,6 @@ export class GenerationPersister<TSpec extends CommandSpec> {
     private readonly logger: Logger;
 
     private organizationId?: string;
-    private testPlanId?: string;
-    private testCaseId?: string;
-    private snapshotId?: string;
     private stepInputListId?: string;
     private stepOutputListId?: string;
 
@@ -73,7 +70,6 @@ export class GenerationPersister<TSpec extends CommandSpec> {
                         prompt: true,
                         testCase: {
                             select: {
-                                id: true,
                                 name: true,
                                 application: { select: { name: true, architecture: true, customInstructions: true } },
                             },
@@ -95,15 +91,11 @@ export class GenerationPersister<TSpec extends CommandSpec> {
                     },
                 },
                 scenarioInstance: { select: { auth: true, resolvedVariables: true } },
-                snapshotId: true,
                 organizationId: true,
             },
         });
 
         this.organizationId = generation.organizationId;
-        this.testPlanId = generation.testPlan.id;
-        this.testCaseId = generation.testPlan.testCase.id;
-        this.snapshotId = generation.snapshotId;
 
         const stepInputList = await this.db.stepInputList.create({
             data: { planId: generation.testPlan.id, organizationId: this.organizationId },
@@ -380,24 +372,6 @@ export class GenerationPersister<TSpec extends CommandSpec> {
             where: { id: this.id },
             data: { videoUrl, optimizedVideoUrl },
         });
-
-        if (result.success && this.testCaseId != null && this.snapshotId != null) {
-            this.logger.info("Upserting test case assignment", {
-                testCaseId: this.testCaseId,
-                snapshotId: this.snapshotId,
-            });
-            await this.db.testCaseAssignment.upsert({
-                where: { snapshotId_testCaseId: { snapshotId: this.snapshotId, testCaseId: this.testCaseId } },
-                create: {
-                    snapshotId: this.snapshotId,
-                    testCaseId: this.testCaseId,
-                    planId: this.testPlanId,
-                },
-                update: {
-                    planId: this.testPlanId,
-                },
-            });
-        }
     }
 
     /**
