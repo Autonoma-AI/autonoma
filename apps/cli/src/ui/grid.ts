@@ -72,6 +72,28 @@ export class Grid {
         this.cells = Array.from({ length: h }, () => Array.from({ length: w }, (): Cell => ({ ch: " " })));
     }
 
+    /**
+     * Reset every cell to a blank space, reusing the existing `cells` arrays.
+     *
+     * Allocation is the leak: a 100x30 terminal allocates 3000 Cell objects
+     * per render, and at 10 renders/second (the clock tick) that is
+     * ~30k objects/second of short-lived garbage. V8's GC runs constantly
+     * to reclaim it, and the GC pauses block the event loop, starving the
+     * pipeline. Clearing in place avoids the allocation entirely.
+     */
+    clear(): void {
+        for (let y = 0; y < this.h; y++) {
+            const row = this.cells[y]!;
+            for (let x = 0; x < this.w; x++) {
+                const c = row[x]!;
+                c.ch = " ";
+                c.color = undefined;
+                c.bg = undefined;
+                c.bold = undefined;
+            }
+        }
+    }
+
     set(x: number, y: number, ch: string, st: Style = {}): void {
         if (y < 0 || y >= this.h || x < 0 || x >= this.w) return;
         // A control char (\n, \t, ...) inside a cell breaks the emitted row
@@ -163,23 +185,50 @@ export class Grid {
      * Flatten into per-row ANSI strings (24-bit color escapes). One string per
      * row keeps the Ink tree tiny - rendering thousands of nested <Text> spans
      * per frame is what makes large dashboards crawl.
+     *
+     * Builds the string directly from cells, skipping the intermediate Seg[][]
+     * that `rows()` produces. The Seg array was allocated per render and
+     * immediately discarded - avoiding it cuts another ~600 short-lived objects
+     * per frame.
      */
     ansiRows(): string[] {
-        return this.rows().map((segs) => {
-            let out = "";
-            for (const s of segs) {
-                const codes: string[] = [];
-                if (s.bold) codes.push("1");
-                if (s.color != null) codes.push(fgCode(s.color));
-                if (s.bg != null) codes.push(bgCode(s.bg));
-                if (codes.length === 0) {
-                    out += s.text;
+        const out: string[] = [];
+        for (let y = 0; y < this.h; y++) {
+            const row = this.cells[y]!;
+            let line = "";
+            let curCh = "";
+            let curColor: string | undefined;
+            let curBg: string | undefined;
+            let curBold = false;
+            let hasStyle = false;
+            const flush = () => {
+                if (!hasStyle) {
+                    line += curCh;
                 } else {
-                    out += `\x1b[${codes.join(";")}m${s.text}\x1b[0m`;
+                    const codes: string[] = [];
+                    if (curBold) codes.push("1");
+                    if (curColor != null) codes.push(fgCode(curColor));
+                    if (curBg != null) codes.push(bgCode(curBg));
+                    line += `\x1b[${codes.join(";")}m${curCh}\x1b[0m`;
                 }
+                curCh = "";
+            };
+            for (let x = 0; x < this.w; x++) {
+                const c = row[x]!;
+                const cBold = !!c.bold;
+                if (c.color !== curColor || c.bg !== curBg || cBold !== curBold) {
+                    if (curCh !== "") flush();
+                    curColor = c.color;
+                    curBg = c.bg;
+                    curBold = cBold;
+                    hasStyle = curColor != null || curBg != null || curBold;
+                }
+                curCh += c.ch;
             }
-            return out;
-        });
+            if (curCh !== "") flush();
+            out.push(line);
+        }
+        return out;
     }
 
     /** Flatten into per-row spans, merging adjacent cells with identical style. */

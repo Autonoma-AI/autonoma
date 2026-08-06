@@ -32,4 +32,47 @@ describe("grid", () => {
         // A cell with no explicit color gets a dim gray, not left default-bright.
         expect(cells[2]![0]!.color).toBeDefined();
     });
+
+    test("clear resets every cell to a blank space without allocating new arrays", () => {
+        const g = new Grid(5, 2);
+        g.text(0, 0, "hello", { color: "#ccff00", bold: true });
+        g.text(0, 1, "world", { color: "#ff0000" });
+
+        const row0 = g.cells[0]!;
+        const row1 = g.cells[1]!;
+
+        g.clear();
+
+        // Same array references - no reallocation.
+        expect(g.cells[0]).toBe(row0);
+        expect(g.cells[1]).toBe(row1);
+
+        // Every cell is a blank space with no style.
+        for (const row of g.cells) {
+            for (const cell of row) {
+                expect(cell.ch).toBe(" ");
+                expect(cell.color).toBeUndefined();
+                expect(cell.bg).toBeUndefined();
+                expect(cell.bold).toBeUndefined();
+            }
+        }
+    });
+
+    test("ansiRows produces the same output before and after optimization", () => {
+        const g = new Grid(15, 3);
+        g.text(0, 0, "plain", {});
+        g.text(0, 1, "colored", { color: "#ccff00", bold: true });
+        g.text(0, 2, "bg", { bg: "#333333" });
+
+        const rows = g.ansiRows();
+        expect(rows).toHaveLength(3);
+        // Plain row has no escape codes.
+        expect(rows[0]).not.toContain("\x1b[");
+        // Colored row has bold + fg color.
+        expect(rows[1]).toContain("\x1b[1;38;2;");
+        expect(rows[1]).toContain("colored");
+        // BG-only row has bg color.
+        expect(rows[2]).toContain("\x1b[48;2;");
+        expect(rows[2]).toContain("bg");
+    });
 });
