@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AnalysisVerdict } from "@autonoma/types";
-import { MockLanguageModelV3 } from "ai/test";
+import { MockLanguageModelV4 } from "ai/test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ReporterAgent } from "../../../src/analysis/report/reporter-agent";
 import type {
@@ -25,9 +25,9 @@ interface ScriptedCall {
 }
 
 /** A model that emits a fixed sequence of tool calls, one per step - drives the real loop deterministically. */
-function scriptedModel(calls: ScriptedCall[]): MockLanguageModelV3 {
+function scriptedModel(calls: ScriptedCall[]): MockLanguageModelV4 {
     let step = 0;
-    return new MockLanguageModelV3({
+    return new MockLanguageModelV4({
         doGenerate: async () => {
             const call = calls[Math.min(step, calls.length - 1)];
             step += 1;

@@ -61,7 +61,7 @@ export function createLoggingMiddleware(
     pricing: CostFunction,
 ): LanguageModelMiddleware {
     return {
-        specificationVersion: "v3",
+        specificationVersion: "v4",
         wrapGenerate: async ({ doGenerate, model, params }) => {
             const baseInfo = {
                 name: options.model,

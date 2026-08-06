@@ -1,4 +1,4 @@
-import { MockLanguageModelV3 } from "ai/test";
+import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { CostCollector } from "../src/registry/cost-collector";
 import { simpleCostFunction } from "../src/registry/costs";
@@ -6,7 +6,7 @@ import type { ModelEntry } from "../src/registry/model-entries";
 import { type LanguageModel, ModelRegistry } from "../src/registry/model-registry";
 
 function fakeModelEntry(): ModelEntry {
-    const model: LanguageModel = new MockLanguageModelV3({
+    const model: LanguageModel = new MockLanguageModelV4({
         modelId: "fake-model",
         provider: "fake-provider",
         doGenerate: async () => ({

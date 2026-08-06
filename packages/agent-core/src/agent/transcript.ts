@@ -51,7 +51,14 @@ function stripMessage(message: ModelMessage): ModelMessage {
     return message;
 }
 
-/** Only a `content` output can hold media (via `toModelOutput`); every other output type is text or JSON. */
+/**
+ * Only a `content` output can hold media (via `toModelOutput`); every other output type is text or JSON.
+ *
+ * Everything that is not text is elided, rather than the file-shaped variants being listed out. The AI SDK
+ * spells one file a dozen ways (`file`, `file-data`, `file-url`, `image-data`, `image-url`, provider file
+ * references) and adds more each major version, so an allow-list of text is the only form of this check that
+ * cannot silently start leaking megabytes of base64 into stored transcripts when the union grows.
+ */
 function stripToolResult(part: ToolResultPart): ToolResultPart {
     if (part.output.type !== "content") return part;
     return {
@@ -59,7 +66,7 @@ function stripToolResult(part: ToolResultPart): ToolResultPart {
         output: {
             type: "content",
             value: part.output.value.map((item) =>
-                item.type === "media" ? { type: "text", text: MEDIA_PLACEHOLDER } : item,
+                item.type === "text" ? item : { type: "text", text: MEDIA_PLACEHOLDER },
             ),
         },
     };

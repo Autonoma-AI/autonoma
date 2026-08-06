@@ -44,7 +44,7 @@ export class FetchEvidenceTool extends AgentTool<FetchEvidenceInput, FetchEviden
             type: "content",
             value: [
                 { type: "text", text: `Screenshot ${out.assetId} (${out.label}):` },
-                { type: "media", data: out.base64, mediaType: "image/png" },
+                { type: "file-data", data: out.base64, mediaType: "image/png" },
                 {
                     type: "text",
                     text: `To embed this screenshot, use \`![caption](evidence:${out.assetId})\` - only this fetched id is valid.`,

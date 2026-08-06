@@ -59,6 +59,8 @@ export function buildMessages({ userPrompt, images, rawMessages, video }: Genera
     ];
 }
 
-export function extractMessages<TOOLS extends ToolSet>(generateResult: GenerateTextResult<TOOLS, any>): ModelMessage[] {
-    return generateResult.response.messages;
+export function extractMessages<TOOLS extends ToolSet>(
+    generateResult: GenerateTextResult<TOOLS, any, any>,
+): ModelMessage[] {
+    return generateResult.responseMessages;
 }

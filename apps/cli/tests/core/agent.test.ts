@@ -8,7 +8,7 @@ interface GenerateCall {
 }
 
 const generateCalls: GenerateCall[] = [];
-let generateImpl: () => Promise<{ response: { messages: ModelMessage[] } }>;
+let generateImpl: () => Promise<{ responseMessages: ModelMessage[] }>;
 
 vi.mock("ai", async (importOriginal) => {
     const actual = await importOriginal<typeof AiModule>();
@@ -43,7 +43,7 @@ function makeConfig(): AgentConfig {
     };
 }
 
-const emptyGeneration = { response: { messages: [] as ModelMessage[] } };
+const emptyGeneration = { responseMessages: [] as ModelMessage[] };
 
 beforeAll(() => {
     process.env.DONT_TRACK = "1";
@@ -73,7 +73,7 @@ describe("runAgent", () => {
         let result: string | undefined;
         generateImpl = async () => {
             if (generateCalls.length >= 2) result = "done";
-            return { response: { messages: [{ role: "assistant", content: "I think I'm done" }] } };
+            return { responseMessages: [{ role: "assistant", content: "I think I'm done" }] };
         };
 
         const value = await runAgent(makeConfig(), "do the task", () => result);

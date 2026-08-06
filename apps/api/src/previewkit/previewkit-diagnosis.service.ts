@@ -362,7 +362,7 @@ export class PreviewkitDiagnosisService extends Service {
                 }),
                 providerOptions: GEMINI_PROVIDER_OPTIONS,
                 maxRetries: AI_MAX_RETRIES,
-                timeout: AI_REQUEST_TIMEOUT_MS,
+                abortSignal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
                 experimental_telemetry: { isEnabled: true },
             });
             return object.findings.length > 0 ? object : heuristic;

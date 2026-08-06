@@ -29,7 +29,7 @@
         "@autonoma/logger": "workspace:*",
         "@autonoma/utils": "workspace:*",
         "@google/genai": "^1.42.0",
-        "@openrouter/ai-sdk-provider": "^2.10.0",
+        "@openrouter/ai-sdk-provider": "^3.0.0",
         "@t3-oss/env-core": "catalog:",
         "ai": "catalog:",
         "zod": "catalog:"

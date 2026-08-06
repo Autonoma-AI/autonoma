@@ -1,5 +1,5 @@
 import { APICallError } from "ai";
-import { MockLanguageModelV3 } from "ai/test";
+import { MockLanguageModelV4 } from "ai/test";
 import { describe, expect, it } from "vitest";
 import { TextGenerationFailedError, TextGenerator } from "../src/text/text-generator";
 
@@ -8,8 +8,11 @@ const FAST_RETRY = { maxRetries: 3, initialDelayInMs: 1, backoffFactor: 1, maxDe
 
 function answering(text: string) {
     return {
-        finishReason: "stop" as const,
-        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        finishReason: { unified: "stop" as const, raw: "stop" },
+        usage: {
+            inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+            outputTokens: { total: 1, text: 1, reasoning: 0 },
+        },
         content: [{ type: "text" as const, text }],
         warnings: [],
     };
@@ -28,7 +31,7 @@ function providerError(statusCode: number, isRetryable: boolean): APICallError {
 describe("TextGenerator", () => {
     it("returns the model's text and forwards inline media alongside the prompt", async () => {
         const prompts: unknown[] = [];
-        const model = new MockLanguageModelV3({
+        const model = new MockLanguageModelV4({
             doGenerate: async ({ prompt }) => {
                 prompts.push(prompt);
                 return answering("an error toast read 'Something went wrong'");
@@ -55,7 +58,7 @@ describe("TextGenerator", () => {
 
     it("retries a retryable provider error until it succeeds", async () => {
         let attempts = 0;
-        const model = new MockLanguageModelV3({
+        const model = new MockLanguageModelV4({
             doGenerate: async () => {
                 attempts++;
                 if (attempts < 3) throw providerError(429, true);
@@ -70,7 +73,7 @@ describe("TextGenerator", () => {
 
     it("fails fast on a non-retryable provider error, wrapped", async () => {
         let attempts = 0;
-        const model = new MockLanguageModelV3({
+        const model = new MockLanguageModelV4({
             doGenerate: async () => {
                 attempts++;
                 throw providerError(401, false);
@@ -86,7 +89,7 @@ describe("TextGenerator", () => {
 
     it("gives up after exhausting the retry budget", async () => {
         let attempts = 0;
-        const model = new MockLanguageModelV3({
+        const model = new MockLanguageModelV4({
             doGenerate: async () => {
                 attempts++;
                 throw providerError(503, true);

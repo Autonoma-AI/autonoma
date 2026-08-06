@@ -188,7 +188,7 @@ export async function runAgent<T>(
                     agent: config.id,
                     nudge: nudges,
                 });
-                messages.push(...generation.response.messages);
+                messages.push(...generation.responseMessages);
                 messages.push({ role: "user", content: NUDGE_PROMPT });
                 generation = await agent.generate({ messages, ...callOptions });
             }

@@ -28,7 +28,7 @@ interface StepFrame {
 }
 
 /** One item of a `content` tool result: the model reads interleaved captions and images. */
-type ModelContentItem = { type: "text"; text: string } | { type: "media"; data: string; mediaType: string };
+type ModelContentItem = { type: "text"; text: string } | { type: "file-data"; data: string; mediaType: string };
 
 type ViewStepDetailsOutput =
     | { found: false; stepOrder: number; availableSteps: number[] }
@@ -119,7 +119,7 @@ export class ViewStepDetailsTool extends AgentTool<ViewStepDetailsInput, ViewSte
                 ? `Screenshot ${frame.timing} step ${out.stepOrder}. ${ANNOTATION_LABEL}`
                 : `Screenshot ${frame.timing} step ${out.stepOrder}:`;
             value.push({ type: "text", text: caption });
-            value.push({ type: "media", data: frame.base64, mediaType: "image/png" });
+            value.push({ type: "file-data", data: frame.base64, mediaType: "image/png" });
         }
         if (out.frames.length === 0) {
             value.push({ type: "text", text: "No screenshot was captured either side of this step." });

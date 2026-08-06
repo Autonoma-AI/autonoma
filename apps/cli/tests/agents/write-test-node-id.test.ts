@@ -45,7 +45,7 @@ describe("write_test nodeId resolution", () => {
         // The AI SDK types `execute` as optional on the tool wrapper.
         return await tool.execute?.(
             { folder: "admin", filename, test: spec(title), nodeId },
-            { toolCallId: "call-1", messages: [] },
+            { toolCallId: "call-1", messages: [], context: {} },
         );
     }
 

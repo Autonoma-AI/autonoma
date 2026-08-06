@@ -323,10 +323,10 @@ export class AgentLoop<TResult = unknown> {
             prepareStep: async (args) =>
                 applyCompactor(await this.prepareStep(args), args, this.compactor, this.logger),
             onStepFinish: (result) => {
-                // `response.messages` is CUMULATIVE, not per-step: the SDK appends to a single array across the
-                // whole loop and snapshots it onto each step, so the latest copy is the entire conversation.
-                // Capturing it here is what lets a later throw still carry the transcript.
-                this.modelMessages = result.response.messages;
+                // `response.messages` is PER-STEP: it holds only what this step produced, so the running
+                // transcript has to be accumulated here rather than overwritten by the latest snapshot.
+                // Accumulating as we go is what lets a later throw still carry the conversation so far.
+                this.modelMessages.push(...result.response.messages);
                 return this.onStepFinish(result);
             },
         });
@@ -334,7 +334,7 @@ export class AgentLoop<TResult = unknown> {
         const generationResult = await this.generateWithTranscript(userPrompt, () =>
             agent.generate({ messages: userPrompt }),
         );
-        const conversation = this.transcriptFor(userPrompt, generationResult.response.messages);
+        const conversation = this.transcriptFor(userPrompt, generationResult.responseMessages);
 
         // Checked before the result: a fatal tool failure means the run was compromised, so even a result the
         // model managed to report in the same step is not one to trust.

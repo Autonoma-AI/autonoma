@@ -386,7 +386,7 @@ class ScreenshotTool extends AgentTool<{ note: string }, { base64: string }> {
         if (!output.success) return { type: "error-json" as const, value: { error: output.error } };
         return {
             type: "content" as const,
-            value: [{ type: "media" as const, data: output.result.base64, mediaType: "image/png" }],
+            value: [{ type: "file-data" as const, data: output.result.base64, mediaType: "image/png" }],
         };
     }
 }

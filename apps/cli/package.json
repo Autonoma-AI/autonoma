@@ -35,7 +35,7 @@
         "tui:frames": "tsx scripts/render-tui-frames.tsx"
     },
     "dependencies": {
-        "@openrouter/ai-sdk-provider": "^2.10.0",
+        "@openrouter/ai-sdk-provider": "^3.0.0",
         "@t3-oss/env-core": "catalog:",
         "@trpc/client": "catalog:",
         "ai": "catalog:",

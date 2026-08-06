@@ -48,7 +48,7 @@ export class ViewFinalScreenshotTool extends AgentTool<
             type: "content",
             value: [
                 { type: "text", text: "Final screenshot:" },
-                { type: "media", data: output.result.base64, mediaType: "image/png" },
+                { type: "file-data", data: output.result.base64, mediaType: "image/png" },
             ],
         };
     }

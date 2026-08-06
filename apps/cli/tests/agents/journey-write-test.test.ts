@@ -69,7 +69,7 @@ describe("journey generation write path", () => {
 
             const result = await tool.execute?.(
                 { folder: "journeys", filename: "document-lifecycle.md", test: JOURNEY, nodeId },
-                { toolCallId: "call-1", messages: [] },
+                { toolCallId: "call-1", messages: [], context: {} },
             );
 
             expect(result).toMatchObject({ path: "qa-tests/journeys/document-lifecycle.md" });
@@ -83,7 +83,7 @@ describe("journey generation write path", () => {
         for (const filename of ["first.md", "second.md"]) {
             await tool.execute?.(
                 { folder: "journeys", filename, test: JOURNEY, nodeId: `journeys/${filename}` },
-                { toolCallId: "call-1", messages: [] },
+                { toolCallId: "call-1", messages: [], context: {} },
             );
         }
 

@@ -109,7 +109,7 @@ describe("finish gate is non-fatal and hands errors back to the agent", () => {
         // tool() exposes the execute we passed as a typed public property.
         const execute = finish.execute;
         if (execute == null) throw new Error("finish tool is missing an execute handler");
-        const result = await execute(input, { toolCallId: "test", messages: [] });
+        const result = await execute(input, { toolCallId: "test", messages: [], context: {} });
         const error = result != null && "error" in result ? result.error : undefined;
         const success = result != null && "success" in result ? result.success : undefined;
         return { result: { error, success }, captured };

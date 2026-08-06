@@ -65,7 +65,7 @@ describe("write_test -> review handoff", () => {
 
         await tool.execute?.(
             { folder: "admin", filename: "create-user.md", test: spec(), nodeId: "admin" },
-            { toolCallId: "call-1", messages: [] },
+            { toolCallId: "call-1", messages: [], context: {} },
         );
 
         expect(handedOver).toHaveLength(1);
