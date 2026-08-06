@@ -83,7 +83,8 @@ Notes:
 
 ### Artifacts and their one‑liners
 The middle column lists files as they're produced, each with a friendly description and
-a status (`PENDING` → `RECEIVING` → `DONE`):
+a status (`PENDING` → `WRITING` → `DONE`; generated tests then carry their review verdict in
+the same cell - `REVIEWING` → `✓ REVIEWED` or `FIXING`):
 - `pages.json` — "Every route in the app"
 - `AUTONOMA.md` — "What your app does"
 - `entity-audit.md` — "What your app stores"

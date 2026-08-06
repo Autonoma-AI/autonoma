@@ -13,6 +13,7 @@ import { formatException } from "../../core/errors";
 import { loadGitignorePatterns } from "../../core/gitignore";
 import { captureLog } from "../../core/logs";
 import { getModel } from "../../core/model";
+import { activeAgentNow } from "../../core/progress";
 import { INVALID_DIR, isTestFile, TEST_FILE_GLOB, TESTS_DIR } from "../../core/test-files";
 import { buildBashTool, buildGlobTool, buildGrepTool, buildListDirectoryTool, buildReadFileTool } from "../../tools";
 import { type DiscoveredFeature, loadFeatures, runFeatureDiscovery } from "../00b-feature-discovery/index";
@@ -469,6 +470,11 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
             // The scan stops early enough that its findings can still be fixed
             // inside the same budget.
             const scanDeadline = Date.now() + Math.floor((reviewDeadline - Date.now()) * REVIEW_SCAN_SHARE);
+            // The strip switches to the review ratio on runConsolidatedReview's
+            // first onProgress call, which is the earliest point the total is
+            // known. Until then setPhase above already relabels it with the
+            // cycle, so the run never reads as idle.
+            const reviewStartedAt = activeAgentNow() ?? Date.now();
             const reviewResult = await runConsolidatedReview(
                 input.outputDir,
                 input.projectRoot,
@@ -476,6 +482,7 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
                 scanDeadline,
                 settled,
                 cycle === 0 ? pipelined : [],
+                (done, total) => state.setReviewProgress(done, total, reviewStartedAt),
             );
             for (const path of reviewResult.passedPaths) settled.add(path);
 
@@ -600,6 +607,10 @@ IMPORTANT: Do NOT try to finish early. Process every node via next_node until it
             // second pass with less budget left.
             if (scanCutShort) break;
         }
+
+        // Restore the node-exploration sub-progress so the strip no longer
+        // shows a review ratio after the review cycles are done.
+        state.clearReviewProgress();
 
         // --- Final validation sweep: move structurally invalid tests to _invalid/ ---
         state.setPhase("checking every test");

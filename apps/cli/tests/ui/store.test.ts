@@ -157,6 +157,70 @@ describe("run store", () => {
         expect(s.artifacts["AUTONOMA.md"]?.status).toBe("DONE");
     });
 
+    test("a test carries its review verdict on its own row", () => {
+        const store = makeStore();
+        store.startStep("testGenerator");
+        store.noteWrite("qa-tests/cart/add-to-cart.md");
+        vi.advanceTimersByTime(1000);
+
+        store.setArtifactReview("qa-tests/cart/add-to-cart.md", "REVIEWING");
+        expect(store.getState().artifacts["qa-tests/cart/add-to-cart.md"]?.status).toBe("REVIEWING");
+        store.setArtifactReview("qa-tests/cart/add-to-cart.md", "REVIEWED");
+        expect(store.getState().artifacts["qa-tests/cart/add-to-cart.md"]?.status).toBe("REVIEWED");
+    });
+
+    test("a review verdict never yanks the hero off the file the user is on", () => {
+        const store = makeStore();
+        store.startStep("testGenerator");
+        store.noteWrite("qa-tests/a.md");
+        store.noteWrite("qa-tests/b.md");
+        const writtenAt = store.getState().artifacts["qa-tests/a.md"]?.updatedAt;
+
+        vi.advanceTimersByTime(5000);
+        store.setArtifactReview("qa-tests/a.md", "REVIEWED");
+
+        // updatedAt means "last written" and drives follow-the-newest; a verdict
+        // on an older test must not make it look like the newest write.
+        expect(store.getState().artifacts["qa-tests/a.md"]?.updatedAt).toBe(writtenAt);
+        expect(store.getState().live.artifactId).toBe("qa-tests/b.md");
+    });
+
+    test("a review status survives the step settling to DONE", () => {
+        const store = makeStore();
+        store.startStep("testGenerator");
+        store.noteWrite("qa-tests/reviewed.md");
+        store.noteWrite("qa-tests/plain.md");
+        store.setArtifactReview("qa-tests/reviewed.md", "REVIEWED");
+
+        store.endStep("testGenerator", "done");
+        const s = store.getState();
+        expect(s.artifacts["qa-tests/reviewed.md"]?.status).toBe("REVIEWED");
+        expect(s.artifacts["qa-tests/plain.md"]?.status).toBe("DONE");
+    });
+
+    test("settleReviews drops unfinished reviews to DONE and keeps the verdicts", () => {
+        const store = makeStore();
+        store.startStep("testGenerator");
+        for (const path of ["qa-tests/a.md", "qa-tests/b.md", "qa-tests/c.md"]) store.noteWrite(path);
+        store.setArtifactReview("qa-tests/a.md", "REVIEWED");
+        store.setArtifactReview("qa-tests/b.md", "REVIEWING");
+        store.setArtifactReview("qa-tests/c.md", "FIXING");
+
+        store.settleReviews();
+        const s = store.getState();
+        expect(s.artifacts["qa-tests/a.md"]?.status).toBe("REVIEWED");
+        expect(s.artifacts["qa-tests/b.md"]?.status).toBe("DONE");
+        expect(s.artifacts["qa-tests/c.md"]?.status).toBe("DONE");
+    });
+
+    test("a review status for a file that was never written is ignored", () => {
+        const store = makeStore();
+        store.startStep("testGenerator");
+        store.setArtifactReview("qa-tests/never-written.md", "REVIEWED");
+        expect(store.getState().artifacts["qa-tests/never-written.md"]).toBeUndefined();
+        expect(store.getState().artifactOrder).toEqual([]);
+    });
+
     test("after esc back to the explainer, the next write re-follows into the hero", () => {
         const store = makeStore();
         store.startStep("kb");

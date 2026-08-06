@@ -176,6 +176,49 @@ function testWritingScene(): RunStore {
     return store;
 }
 
+function reviewPassScene(): RunStore {
+    const store = makeStore();
+    runStepsThrough(store, "recipeBuilder");
+    store.startStep("testGenerator");
+    // Generation is done: 41/41 nodes. The review pass is what the run is
+    // actually doing now, and without its own sub-progress the strip would
+    // show "41/41 nodes" while the ETA read ~1 min left for many minutes.
+    store.setSubProgress("testGenerator", {
+        done: 4,
+        total: 10,
+        unit: "reviewed",
+        note: "review cycle 1/4",
+        startedAt: 0,
+    });
+    // Every review state on a row at once: the strip says how far the pass has
+    // got, the rows say which tests it got to and whether each one cleared.
+    store.noteWrite("qa-tests/cart/add-to-cart.md");
+    store.noteWrite("qa-tests/cart/apply-coupon.md");
+    store.noteWrite("qa-tests/account/edit-profile.md");
+    store.noteWrite("qa-tests/account/change-password.md");
+    store.setArtifactReview("qa-tests/cart/add-to-cart.md", "REVIEWED");
+    store.setArtifactReview("qa-tests/cart/apply-coupon.md", "FIXING");
+    store.setArtifactReview("qa-tests/account/edit-profile.md", "REVIEWING");
+    // The hero shows the test under review, not whichever file was written last -
+    // otherwise the header names one test and the body shows another.
+    store.setLiveFile("qa-tests/account/edit-profile.md", SAMPLE_MD, "markdown");
+    store.pushActivity({ call: "review", arg: "10 tests × 4 rubrics" });
+    store.pushActivity({ call: "read", arg: "qa-tests/cart/add-to-cart.md", metric: "412 lines" });
+    store.pushActivity({ call: "grep", arg: "addToCart" });
+    store.pushActivity({ call: "subagent", arg: "selectors · qa-tests/cart/add-to-cart.md", metric: "passed" });
+    store.pushActivity({ call: "subagent", arg: "coverage · qa-tests/cart/add-to-cart.md", metric: "passed" });
+    store.pushActivity({ call: "subagent", arg: "assertions · qa-tests/cart/add-to-cart.md", metric: "passed" });
+    store.pushActivity({
+        call: "subagent",
+        arg: "data-contract · qa-tests/cart/apply-coupon.md",
+        metric: "2 findings",
+    });
+    store.pushActivity({ call: "read", arg: "qa-tests/account/edit-profile.md", metric: "168 lines" });
+    store.pushActivity({ call: "test", arg: "qa-tests/cart/apply-coupon.md", metric: "rewriting" });
+    store.setActivity("reviewing qa-tests/account/edit-profile.md");
+    return store;
+}
+
 function completeScene(): RunStore {
     const store = makeStore();
     runStepsThrough(store, "recipeBuilder");
@@ -293,6 +336,7 @@ export function buildScenes(): Scene[] {
             store: countdownScene(),
         },
         { id: "tests", label: "test generation - hero shows a test file", store: testWritingScene() },
+        { id: "review", label: "review pass - nodes done, reviewing tests", store: reviewPassScene() },
         { id: "done", label: "complete", store: completeScene() },
         { id: "completion", label: "completion - the closing summary and its two choices", store: completionScene() },
         { id: "browsing", label: "browsing - reading the results after the run, q to exit", store: browsingScene() },

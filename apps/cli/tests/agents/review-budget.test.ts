@@ -92,3 +92,56 @@ describe("review budget", () => {
         expect(result.failed).toBe(result.feedback.length);
     });
 });
+
+describe("review progress callback", () => {
+    let outputDir: string;
+
+    async function writeTest(relPath: string) {
+        const abs = join(outputDir, "qa-tests", relPath);
+        await mkdir(dirname(abs), { recursive: true });
+        await writeFile(abs, `---\nflow: "core"\n---\n\n1. click: Save\n`, "utf-8");
+    }
+
+    beforeEach(async () => {
+        outputDir = await mkdtemp(join(tmpdir(), "review-progress-"));
+        reviewed.length = 0;
+        msPerPass = 0;
+        failEverything = false;
+    });
+
+    afterEach(async () => {
+        await rm(outputDir, { recursive: true, force: true });
+    });
+
+    test("calls onProgress with (0, total) before the scan starts", async () => {
+        for (let i = 0; i < 4; i++) await writeTest(`admin/test-${i}.md`);
+
+        const calls: { reviewed: number; total: number }[] = [];
+        await runConsolidatedReview(
+            outputDir,
+            "/project",
+            MODEL,
+            Date.now() + 60_000,
+            new Set(),
+            [],
+            (reviewed, total) => calls.push({ reviewed, total }),
+        );
+
+        // First call is (0, total) to signal the review has started.
+        expect(calls[0]).toEqual({ reviewed: 0, total: 16 });
+    });
+
+    test("calls onProgress after each (test, rubric) job settles", async () => {
+        for (let i = 0; i < 3; i++) await writeTest(`admin/test-${i}.md`);
+
+        const calls: number[] = [];
+        await runConsolidatedReview(outputDir, "/project", MODEL, Date.now() + 60_000, new Set(), [], (reviewed) =>
+            calls.push(reviewed),
+        );
+
+        // 3 tests × 4 rubrics = 12 jobs. First call is (0, 12), then 1..12.
+        expect(calls).toHaveLength(13);
+        expect(calls[0]).toBe(0);
+        expect(calls.at(-1)).toBe(12);
+    });
+});

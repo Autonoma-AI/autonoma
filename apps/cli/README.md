@@ -35,7 +35,9 @@ answer.
 
 On an interactive terminal the pipeline phase runs inside a live Ink dashboard: a horizontal
 pipeline strip across the top (step status, spinner on the running step, sub-progress), the
-file list on the left (each generated file with its status), and a wide document viewer showing
+file list on the left (each generated file with its status - a test also carries its review
+verdict there: `REVIEWING`, `✓ REVIEWED`, or `FIXING` while a fix agent rewrites it), and a
+wide document viewer showing
 the file currently being written, live from disk - known documents (frontmatter, pages.json)
 render as readable cards and tables instead of raw source. An IDE-style ACTIVITY panel at the
 bottom streams the agent's tool calls. Navigate with arrows or `h/j/k/l` (left/right switch

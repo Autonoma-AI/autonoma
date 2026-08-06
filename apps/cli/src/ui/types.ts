@@ -2,8 +2,24 @@ import type { StepName, StepStatus } from "../core/state";
 
 export type { StepName, StepStatus };
 
-/** Lifecycle of a file in the ARTIFACTS column. */
-export type ArtifactStatus = "PENDING" | "WRITING" | "DONE";
+/**
+ * Lifecycle of a file in the ARTIFACTS column. The last three apply only to
+ * generated tests: a test is written (WRITING -> DONE), then judged by the
+ * review pass (REVIEWING), and ends either cleared (REVIEWED) or handed to a
+ * fix agent (FIXING) that rewrites it - which puts it back through WRITING and
+ * another review cycle.
+ */
+export type ArtifactStatus = "PENDING" | "WRITING" | "DONE" | "REVIEWING" | "REVIEWED" | "FIXING";
+
+/** The states only the review pass sets - see `RunStore.setArtifactReview`. */
+export type ReviewArtifactStatus = Extract<ArtifactStatus, "REVIEWING" | "REVIEWED" | "FIXING">;
+
+const REVIEW_STATUSES: ReadonlySet<ArtifactStatus> = new Set<ReviewArtifactStatus>(["REVIEWING", "REVIEWED", "FIXING"]);
+
+/** Whether a status carries a review verdict that a blanket "DONE" would erase. */
+export function isReviewStatus(status: ArtifactStatus): boolean {
+    return REVIEW_STATUSES.has(status);
+}
 
 /** How the hero panel should render a file's contents. */
 export type ContentKind = "markdown" | "json" | "plain";
@@ -15,6 +31,14 @@ export interface SubProgress {
     /** Optional estimate shown alongside the ratio (e.g. "~120 tests" on the
      * tests step, where the final test count isn't known upfront). */
     note?: string;
+    /**
+     * When this sub-progress started, in the same clock as `StepNode.startedAt`
+     * (agent-time). When present and `done` is zero, the ETA uses elapsed time
+     * as a fallback for the fraction rather than reporting 0% / 0 remaining -
+     * which is what a freshly-started phase with no completions yet looks like
+     * to a pure done/total ratio.
+     */
+    startedAt?: number;
 }
 
 export interface StepNode {

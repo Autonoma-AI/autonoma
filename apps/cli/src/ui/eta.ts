@@ -54,6 +54,16 @@ function budgetFor(step: StepNode, sizes: ProjectSizes): number {
 /** How "done" a running step is: real sub-progress when we have it, else time. */
 function runningFraction(step: StepNode, now: number, budget: number): number {
     if (step.sub && step.sub.total > 0) {
+        // A sub-progress that has started but not yet completed its first unit
+        // reads as 0% to a pure ratio, even though work is visibly underway. A
+        // time-based fallback bridges that gap: it is bounded by the step's own
+        // reserve so it can never overshoot what the ratio would reach, and is
+        // abandoned the moment the first completion arrives.
+        if (step.sub.done === 0 && step.sub.startedAt != null) {
+            const elapsed = now - step.sub.startedAt;
+            const unspendable = Math.min(budget, RUNNING_MIN_REMAINING_MS);
+            return clamp01((budget - unspendable) * (elapsed / budget));
+        }
         return clamp01(step.sub.done / step.sub.total);
     }
     if (step.startedAt != null) {
@@ -67,11 +77,17 @@ function runningFraction(step: StepNode, now: number, budget: number): number {
  * remaining units. The strongest signal there is - it prices THIS repo on
  * THIS machine - so once enough of the step is observed it overrides the
  * budget-based remainder.
+ *
+ * When `done` is zero but `startedAt` is present (the review pass just
+ * started), there is no per-unit pace yet, so the budget-based remainder
+ * takes over - which, thanks to RUNNING_MIN_REMAINING_MS, keeps a floor
+ * under the ETA instead of collapsing to zero.
  */
 function liveRemainingMs(step: StepNode, now: number): number | undefined {
     if (step.sub == null || step.sub.total <= 0 || step.startedAt == null) return undefined;
+    if (step.sub.done < LIVE_RATE_MIN_DONE) return undefined;
     const elapsed = now - step.startedAt;
-    if (step.sub.done < LIVE_RATE_MIN_DONE || elapsed < LIVE_RATE_MIN_ELAPSED_MS) return undefined;
+    if (elapsed < LIVE_RATE_MIN_ELAPSED_MS) return undefined;
     return (elapsed / step.sub.done) * Math.max(0, step.sub.total - step.sub.done);
 }
 

@@ -296,6 +296,93 @@ describe("dashboard sub-progress reporting", () => {
             setActiveStore(undefined);
         }
     });
+
+    test("setReviewProgress replaces node progress with review-specific progress", async () => {
+        const { createStore, setActiveStore } = await import("../../src/ui/store");
+        const store = createStore({ outputDir: "/out", meta: { title: "t", project: "p", version: "0" } });
+        setActiveStore(store);
+        try {
+            store.startStep("testGenerator");
+            const state = new CoverageState();
+            state.enqueue(makeNode({ id: "a" }));
+            state.enqueue(makeNode({ id: "b" }));
+            state.nextNode();
+            state.markTested("a", ["qa-tests/a.md"]);
+            state.nextNode();
+            state.markTested("b", ["qa-tests/b.md"]);
+            // Nodes are done: 2/2.
+            expect(store.getState().steps.testGenerator.sub).toMatchObject({ done: 2, total: 2, unit: "nodes" });
+
+            // The review pass replaces the sub-progress with its own ratio.
+            state.setPhase("review cycle 1/4");
+            state.setReviewProgress(3, 10, 12345);
+            expect(store.getState().steps.testGenerator.sub).toMatchObject({
+                done: 3,
+                total: 10,
+                unit: "reviewed",
+                note: "review cycle 1/4",
+                startedAt: 12345,
+            });
+        } finally {
+            setActiveStore(undefined);
+        }
+    });
+
+    test("clearReviewProgress restores the node-exploration sub-progress", async () => {
+        const { createStore, setActiveStore } = await import("../../src/ui/store");
+        const store = createStore({ outputDir: "/out", meta: { title: "t", project: "p", version: "0" } });
+        setActiveStore(store);
+        try {
+            store.startStep("testGenerator");
+            const state = new CoverageState();
+            state.enqueue(makeNode({ id: "a" }));
+            state.enqueue(makeNode({ id: "b" }));
+            state.nextNode();
+            state.markTested("a", ["qa-tests/a.md"]);
+            state.nextNode();
+            state.markTested("b", ["qa-tests/b.md"]);
+
+            state.setPhase("review cycle 1/4");
+            state.setReviewProgress(5, 10, 0);
+            expect(store.getState().steps.testGenerator.sub?.unit).toBe("reviewed");
+
+            state.clearReviewProgress();
+            expect(store.getState().steps.testGenerator.sub).toMatchObject({
+                done: 2,
+                total: 2,
+                unit: "nodes",
+            });
+        } finally {
+            setActiveStore(undefined);
+        }
+    });
+
+    test("clearReviewProgress settles rows left mid-review, keeping the verdicts", async () => {
+        const { createStore, setActiveStore } = await import("../../src/ui/store");
+        const store = createStore({ outputDir: "/out", meta: { title: "t", project: "p", version: "0" } });
+        setActiveStore(store);
+        try {
+            store.startStep("testGenerator");
+            const state = new CoverageState();
+            state.enqueue(makeNode({ id: "a" }));
+            state.nextNode();
+            state.markTested("a", ["qa-tests/a.md"]);
+
+            store.noteWrite("qa-tests/cleared.md");
+            store.noteWrite("qa-tests/cut-off.md");
+            store.setArtifactReview("qa-tests/cleared.md", "REVIEWED");
+            store.setArtifactReview("qa-tests/cut-off.md", "REVIEWING");
+
+            // The budget ran out mid-review: nothing may be left claiming to be
+            // under review once the pass is over.
+            state.clearReviewProgress();
+            const s = store.getState();
+            expect(s.artifacts["qa-tests/cleared.md"]?.status).toBe("REVIEWED");
+            expect(s.artifacts["qa-tests/cut-off.md"]?.status).toBe("DONE");
+        } finally {
+            setActiveStore(undefined);
+        }
+    });
 });
 
 describe("state persistence is per-generator", () => {

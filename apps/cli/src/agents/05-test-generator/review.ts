@@ -7,6 +7,8 @@ import { createStepLogger } from "../../core/display";
 import { captureLog } from "../../core/logs";
 import { runPool } from "../../core/pool";
 import { isTestFile, TEST_FILE_GLOB, TESTS_DIR } from "../../core/test-files";
+import { getActiveStore } from "../../ui/store";
+import type { ReviewArtifactStatus } from "../../ui/types";
 import { loadRecipeContext } from "./recipe-context";
 import { runReviewPass } from "./review-pass";
 import { ALL_RUBRICS, type DimensionResult } from "./rubrics";
@@ -22,6 +24,16 @@ import { ALL_RUBRICS, type DimensionResult } from "./rubrics";
 const REVIEW_CONCURRENCY = 16;
 
 export type ReviewResult = Record<string, DimensionResult>;
+
+/**
+ * Show a test's review state on its own row in the FILES list. The strip's
+ * "4/10 reviewed" says how far the pass has got; this says which tests it got
+ * to, and whether each one cleared. Paths here are relative to the tests dir,
+ * while artifacts key on output-dir-relative ones. A no-op headless.
+ */
+function markReview(relativePath: string, status: ReviewArtifactStatus): void {
+    getActiveStore()?.setArtifactReview(join(TESTS_DIR, relativePath), status);
+}
 
 export interface TestReviewFeedback {
     testPath: string;
@@ -93,6 +105,7 @@ export async function reviewOneTest({
     test,
     dataContract,
 }: ReviewOneTestInput): Promise<SingleTestReview> {
+    markReview(test.relativePath, "REVIEWING");
     const reported = new Map<string, ReviewResult>();
     await Promise.all(
         ALL_RUBRICS.map(async (rubric) => {
@@ -114,13 +127,15 @@ export async function reviewOneTest({
     );
 
     const dimensions = mergeRubricResults(reported);
+    const failedDimensions = Object.entries(dimensions)
+        .filter(([, dim]) => !dim.pass)
+        .map(([key]) => key);
+    markReview(test.relativePath, failedDimensions.length === 0 ? "REVIEWED" : "FIXING");
     return {
         relativePath: test.relativePath,
         content: test.content,
         dimensions,
-        failedDimensions: Object.entries(dimensions)
-            .filter(([, dim]) => !dim.pass)
-            .map(([key]) => key),
+        failedDimensions,
     };
 }
 
@@ -158,6 +173,11 @@ export interface ConsolidatedReviewResult {
  * predicates - and a test that flips back to failing gets deleted and rewritten
  * for no reason. That is why cycle counts used to move backwards (10 passed,
  * then 7) instead of converging.
+ *
+ * `onProgress` receives `(reviewed, total)` after each (test, rubric) job settles,
+ * so the caller can report sub-progress to the dashboard - without it the review
+ * pass is invisible in the TUI and the ETA reads "99% / ~1 min left" for the
+ * duration.
  */
 export async function runConsolidatedReview(
     outputDir: string,
@@ -166,6 +186,7 @@ export async function runConsolidatedReview(
     deadline: number,
     settled: ReadonlySet<string> = new Set(),
     precomputed: readonly SingleTestReview[] = [],
+    onProgress?: (reviewed: number, total: number) => void,
 ): Promise<ConsolidatedReviewResult> {
     const testsDir = join(outputDir, TESTS_DIR);
     const logger = createStepLogger("review", 5);
@@ -214,6 +235,12 @@ export async function runConsolidatedReview(
         writtenFiles: [],
     });
 
+    // Push an explicit activity row for the review start so the ACTIVITY feed
+    // surfaces the review pass even when the individual review agents' first
+    // steps have not landed yet. Without this the feed's last row stays on the
+    // generator's final tool call for potentially minutes.
+    getActiveStore()?.pushActivity({ call: "review", arg: `${toReview.length} tests × ${ALL_RUBRICS.length} rubrics` });
+
     let passed = 0;
     let failed = 0;
     const feedback: TestReviewFeedback[] = [];
@@ -224,9 +251,21 @@ export async function runConsolidatedReview(
     const byTest = new Map<string, Map<string, ReviewResult>>();
     let reviewed = 0;
 
+    // Signal the review has started before the first job settles, so the strip
+    // switches from "13/13 nodes" to "Review 0/N" immediately rather than after
+    // the slowest rubric of the first batch finishes.
+    onProgress?.(0, jobs.length);
+
     const outcome = await runPool(
         jobs,
-        { limit: REVIEW_CONCURRENCY, shouldContinue: () => Date.now() <= deadline },
+        {
+            limit: REVIEW_CONCURRENCY,
+            shouldContinue: () => Date.now() <= deadline,
+            onProgress,
+            // Jobs are (test, rubric) pairs, so a test's row lights up on its
+            // first dispatched rubric; the store ignores the repeats.
+            onStart: (job) => markReview(job.test.relativePath, "REVIEWING"),
+        },
         (job) => runReviewPass(job.test.content, job.test.relativePath, job.rubric, projectRoot, model, scenarioData),
     );
 
@@ -275,8 +314,13 @@ export async function runConsolidatedReview(
         if (failedDimensions.length === 0) {
             passed++;
             passedPaths.push(test.relativePath);
+            markReview(test.relativePath, "REVIEWED");
         } else {
             failed++;
+            // FIXING, not "failed": the caller feeds every one of these to a fix
+            // agent right after this returns, and the row stays on it until the
+            // rewrite lands.
+            markReview(test.relativePath, "FIXING");
             feedback.push({
                 testPath: test.path,
                 relativePath: test.relativePath,

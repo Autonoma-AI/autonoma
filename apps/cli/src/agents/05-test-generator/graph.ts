@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { reportSubProgress } from "../../core/progress";
+import { getActiveStore } from "../../ui/store";
 
 /** Persisted BFS progress: which nodes are explored and what each one wrote. */
 export const BFS_STATE_FILE = ".bfs-state.json";
@@ -193,6 +194,31 @@ export class CoverageState {
     setPhase(phase: string | undefined): void {
         this.phase = phase;
         this.reportProgress();
+    }
+
+    /**
+     * Report the review pass as its own sub-progress, distinct from node
+     * exploration. The step strip already shows "13/13 nodes" once generation
+     * finishes; this replaces it with "Review 4/10" so the run does not look
+     * done while the longest silent phase is still ahead.
+     *
+     * `done`/`total` count the tests reviewed this cycle. `startedAt` lets the
+     * ETA bridge the gap before the first completion arrives.
+     */
+    setReviewProgress(done: number, total: number, startedAt: number): void {
+        if (!this.reportsProgress) return;
+        const note = this.phase;
+        reportSubProgress("testGenerator", done, total, "reviewed", note, startedAt);
+    }
+
+    /**
+     * The review pass is over: restore the node-exploration sub-progress on the
+     * strip, and settle the per-test rows so nothing is left claiming to be
+     * under review or awaiting a fix that the budget cut off.
+     */
+    clearReviewProgress(): void {
+        this.reportProgress();
+        getActiveStore()?.settleReviews();
     }
 
     /** Processed nodes (tested or skipped) over the known graph size, labelled

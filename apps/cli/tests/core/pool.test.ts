@@ -86,4 +86,75 @@ describe("runPool", () => {
 
         expect(outcome.completed).toHaveLength(3);
     });
+
+    it("calls onProgress after each job settles with the running count and total", async () => {
+        const items = Array.from({ length: 6 }, (_, i) => i);
+        const calls: { settled: number; total: number }[] = [];
+
+        await runPool(
+            items,
+            { limit: 2, onProgress: (settled, total) => calls.push({ settled, total }) },
+            async (i) => {
+                await new Promise((res) => setTimeout(res, 5));
+                return i;
+            },
+        );
+
+        // 6 jobs, each settling once -> 6 progress calls.
+        expect(calls).toHaveLength(6);
+        // Total is always the full item count.
+        expect(calls.every((c) => c.total === 6)).toBe(true);
+        // Settled counts up 1..6 in completion order.
+        expect(calls.map((c) => c.settled)).toEqual([1, 2, 3, 4, 5, 6]);
+    });
+
+    it("counts failed jobs in onProgress, not just completed ones", async () => {
+        const items = [1, 2, 3];
+        const calls: number[] = [];
+
+        await runPool(items, { limit: 2, onProgress: (settled) => calls.push(settled) }, async (i) => {
+            if (i === 2) throw new Error("boom");
+            return i;
+        });
+
+        // All 3 jobs settled (1 failed, 2 completed) -> 3 progress calls.
+        expect(calls).toHaveLength(3);
+        expect(calls.at(-1)).toBe(3);
+    });
+
+    it("announces each job through onStart before its work runs", async () => {
+        const items = ["a", "b", "c", "d"];
+        const started: string[] = [];
+        const finished: string[] = [];
+
+        await runPool(items, { limit: 2, onStart: (item) => started.push(item) }, async (item) => {
+            await new Promise((res) => setTimeout(res, 5));
+            finished.push(item);
+            return item;
+        });
+
+        expect(started).toEqual(items);
+        // The point of onStart: work in flight is visible before it lands. With
+        // 2 slots, two jobs have started before the first one finishes.
+        expect(started.slice(0, 2)).toEqual(["a", "b"]);
+        expect(finished).toHaveLength(4);
+    });
+
+    it("does not call onStart for items the deadline skipped", async () => {
+        const items = Array.from({ length: 10 }, (_, i) => i);
+        const started: number[] = [];
+        let dispatched = 0;
+
+        const outcome = await runPool(
+            items,
+            { limit: 2, shouldContinue: () => dispatched < 4, onStart: (i) => started.push(i) },
+            async (i) => {
+                dispatched++;
+                return i;
+            },
+        );
+
+        expect(started).toHaveLength(outcome.completed.length);
+        expect(outcome.skipped.some((i) => started.includes(i))).toBe(false);
+    });
 });

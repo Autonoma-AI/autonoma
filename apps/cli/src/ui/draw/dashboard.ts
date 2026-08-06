@@ -31,7 +31,7 @@ const FILES_FRACTION = 0.27;
 /** Readable measure for centered empty-state copy. */
 const EMPTY_BODY_MAX_W = 72;
 
-/** Longest status cell ("● WRITING"); reserves the gap between name and status. */
+/** Longest status cell ("✓ REVIEWED"); reserves the gap between name and status. */
 const STATUS_CELL_W = 11;
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -164,6 +164,14 @@ function artifactStatusCell(a: Artifact, now: number): { t: string; color: strin
             const frame = SPINNER_FRAMES[Math.floor(now / WRITING_SPINNER_MS) % SPINNER_FRAMES.length]!;
             return { t: `${frame} WRITING`, color: theme.sky };
         }
+        // Deliberately no spinner on REVIEWING: 16 review agents run at once, so
+        // a spinner per row would set most of the list twitching at 5fps.
+        case "REVIEWING":
+            return { t: "REVIEWING", color: theme.violet };
+        case "REVIEWED":
+            return { t: "✓ REVIEWED", color: theme.green };
+        case "FIXING":
+            return { t: "FIXING", color: theme.amber };
         default:
             return { t: "PENDING", color: theme.faint };
     }
@@ -215,7 +223,9 @@ function drawFiles(g: Grid, geo: Geometry, state: RunState, base: number, bottom
         // (already descriptive) file name up top.
         const label = a.title ?? a.name;
         const detail = a.title != null ? [a.name, a.description].filter((s) => s != null).join(" · ") : a.description;
-        const nameColor = highlighted ? theme.accent : active || a.status === "DONE" ? theme.text : theme.secondary;
+        // Anything past PENDING has real content on disk, review states included.
+        const written = a.status !== "PENDING";
+        const nameColor = highlighted ? theme.accent : written ? theme.text : theme.secondary;
         const nameMax = geo.div - 2 - STATUS_CELL_W - 2 - 5;
         const shown = label.length > nameMax ? label.slice(0, Math.max(1, nameMax - 1)) + "…" : label;
         g.text(5, row, shown, { color: nameColor, bold: highlighted || active, bg });
@@ -368,6 +378,7 @@ function callColor(call: string): string {
     if (call === "done" || call === "success") return theme.green;
     if (call === "warn" || call === "checkpoint") return theme.amber;
     if (call === "error") return theme.red;
+    if (call === "review") return theme.violet;
     return theme.secondary;
 }
 

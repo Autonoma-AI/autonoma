@@ -5,6 +5,7 @@ import { agentNow, formatClock } from "./eta";
 import { navReducer, type NavAction } from "./nav";
 import { answerFor, initialDraft, promptReducer, type PromptAction } from "./prompt";
 import { STEP_BUDGET, STEP_ORDER, UI_STEP_LABELS, UI_STEP_WHY } from "./steps";
+import { isReviewStatus } from "./types";
 import type {
     Artifact,
     ArtifactStatus,
@@ -17,6 +18,7 @@ import type {
     ProjectSizes,
     PromptAnswer,
     PromptRequest,
+    ReviewArtifactStatus,
     RunOutcome,
     RunState,
     StepName,
@@ -62,6 +64,20 @@ export interface RunStore {
     noteWrite(relPath: string): void;
     handleFsChange(relPath: string): void;
     setLiveFile(relPath: string, text: string, kind: ContentKind): void;
+
+    /**
+     * Move a test through the review pass's states. Kept apart from the write
+     * lifecycle `noteWrite` drives: a test is written once and then judged (and
+     * possibly rewritten) repeatedly, so the verdict has to be pushed rather
+     * than inferred from disk activity. A no-op for a path never written.
+     */
+    setArtifactReview(relPath: string, status: ReviewArtifactStatus): void;
+    /**
+     * The review pass is over. Anything still mid-review - or awaiting a fix the
+     * budget cut off - drops back to DONE: written, never cleared. REVIEWED
+     * verdicts stand.
+     */
+    settleReviews(): void;
 
     // run end
     finish(outcome: RunOutcome): void;
@@ -377,12 +393,14 @@ export function createStore(opts: StoreOptions): RunStore {
         },
 
         endStep(name, status) {
-            // Settle the step's artifacts to DONE when it completes successfully.
+            // Settle the step's artifacts to DONE when it completes successfully -
+            // except the ones the review pass already spoke for, whose verdict a
+            // blanket DONE would erase.
             const artifacts = { ...state.artifacts };
             if (status === "done") {
                 for (const id of state.steps[name].artifactIds) {
                     const art = artifacts[id];
-                    if (art) artifacts[id] = { ...art, status: "DONE" };
+                    if (art != null && !isReviewStatus(art.status)) artifacts[id] = { ...art, status: "DONE" };
                 }
             }
             set({
@@ -485,6 +503,28 @@ export function createStore(opts: StoreOptions): RunStore {
 
         setLiveFile(relPath, text, kind) {
             setLiveText(relPath, text, kind);
+        },
+
+        setArtifactReview(path, status) {
+            const relPath = relOf(path);
+            const art = state.artifacts[relPath];
+            if (art == null || art.status === status) return;
+            // `updatedAt` deliberately untouched: it means "last written", and
+            // follow-the-newest reads it - bumping it here would yank the hero
+            // onto whichever test the review pass happened to judge last.
+            set({ ...state, artifacts: { ...state.artifacts, [relPath]: { ...art, status } } });
+        },
+
+        settleReviews() {
+            const artifacts = { ...state.artifacts };
+            let changed = false;
+            for (const [id, art] of Object.entries(artifacts)) {
+                if (art.status !== "REVIEWING" && art.status !== "FIXING") continue;
+                artifacts[id] = { ...art, status: "DONE" };
+                changed = true;
+            }
+            if (!changed) return;
+            set({ ...state, artifacts });
         },
 
         finish(outcome) {

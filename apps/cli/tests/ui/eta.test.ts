@@ -92,6 +92,52 @@ describe("eta model", () => {
         expect(formatEtaLabel(eta)).not.toBe("complete");
     });
 
+    test("a review pass with startedAt but zero completions reads as underway, not 0%", () => {
+        const store = createStore({ outputDir: "/out", meta: META });
+        for (const name of STEP_ORDER) {
+            if (name !== "testGenerator") store.endStep(name, "done");
+        }
+        store.startStep("testGenerator");
+        // All nodes processed, then the review pass starts. done=0 with
+        // startedAt means work is happening but no unit has finished yet.
+        store.setSubProgress("testGenerator", {
+            done: 0,
+            total: 40,
+            unit: "reviewed",
+            note: "review cycle 1/4",
+            startedAt: 0,
+        });
+
+        const eta = computeEta(store.getState());
+        // Not 0% - the time-fallback bridges the gap.
+        expect(eta.pct).toBeGreaterThan(0);
+        // Not complete - the step is still running.
+        expect(eta.complete).toBe(false);
+        // ETA has a floor under it from RUNNING_MIN_REMAINING_MS.
+        expect(eta.etaMs).toBeGreaterThanOrEqual(30_000);
+    });
+
+    test("a review pass with some completions shows real ratio progress", () => {
+        const store = createStore({ outputDir: "/out", meta: META });
+        for (const name of STEP_ORDER) {
+            if (name !== "testGenerator") store.endStep(name, "done");
+        }
+        store.startStep("testGenerator");
+        store.setSubProgress("testGenerator", {
+            done: 20,
+            total: 40,
+            unit: "reviewed",
+            note: "review cycle 1/4",
+            startedAt: 0,
+        });
+
+        const eta = computeEta(store.getState());
+        expect(eta.complete).toBe(false);
+        // 20/40 of the test generator's budget consumed, but with the floor.
+        expect(eta.pct).toBeLessThan(100);
+        expect(eta.etaMs).toBeGreaterThan(0);
+    });
+
     test("only a finished run reads 100%", () => {
         const store = createStore({ outputDir: "/out", meta: META });
         for (const name of STEP_ORDER) store.endStep(name, "done");

@@ -7,7 +7,7 @@
  * one starts - on a fan-out whose jobs vary in length that costs most of the
  * parallelism you thought you had.
  */
-export interface PoolOptions {
+export interface PoolOptions<T> {
     /** Maximum jobs in flight. Values below 1 are treated as 1. */
     limit: number;
     /**
@@ -16,6 +16,20 @@ export interface PoolOptions {
      * deadline without discarding work it has already paid for.
      */
     shouldContinue?: () => boolean;
+    /**
+     * Called after each job settles (completed or failed), with the number of
+     * jobs that have settled and the total. A no-op by default; the review pass
+     * uses it to report sub-progress so the dashboard does not sit at 99% while
+     * 16 agents are still reading files.
+     */
+    onProgress?: (settled: number, total: number) => void;
+    /**
+     * Called with each item as its job is dispatched, before the work begins.
+     * Lets a caller show what is in flight rather than only what has finished -
+     * the review pass marks a test as under review the moment its first rubric
+     * starts, instead of leaving the row idle until the slowest one lands.
+     */
+    onStart?: (item: T, index: number) => void;
 }
 
 export interface PoolOutcome<T, R> {
@@ -29,7 +43,7 @@ export interface PoolOutcome<T, R> {
 
 export async function runPool<T, R>(
     items: readonly T[],
-    { limit, shouldContinue }: PoolOptions,
+    { limit, shouldContinue, onProgress, onStart }: PoolOptions<T>,
     work: (item: T, index: number) => Promise<R>,
 ): Promise<PoolOutcome<T, R>> {
     const completed: PoolOutcome<T, R>["completed"] = [];
@@ -41,7 +55,11 @@ export async function runPool<T, R>(
     // A rejected job is recorded rather than rethrown: letting it escape would
     // abandon every other job still in flight, and their rejections would then
     // surface as unhandled.
+    const total = items.length;
+    const settled = { n: 0 };
+    const fireProgress = () => onProgress?.(settled.n, total);
     const dispatch = (item: T, index: number): void => {
+        onStart?.(item, index);
         const promise = work(item, index)
             .then((result) => {
                 completed.push({ item, index, result });
@@ -51,6 +69,8 @@ export async function runPool<T, R>(
             })
             .finally(() => {
                 inFlight.delete(promise);
+                settled.n++;
+                fireProgress();
             });
         inFlight.add(promise);
     };

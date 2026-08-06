@@ -50,4 +50,5 @@ plan/
 **/.claude/worktrees
 # Storybook screenshot output (uploaded to S3, never committed - PNGs are LFS-tracked)
 apps/ui/screenshots/
+apps/cli/screenshots/
 storybook-static/
