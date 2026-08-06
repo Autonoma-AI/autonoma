@@ -440,6 +440,31 @@ describe("analysisRunWorkflow build gate", () => {
         expect(harness.settlements).toEqual([{ kind: "succeeded" }]);
     });
 
+    /**
+     * Every environment-0 trigger lands here: its base sha IS its head sha, so the run is always skipped, while the
+     * main-branch warrant is unconditional. Returning without the child would have `REQUEST_CANCEL` kill the build
+     * the warrant just promised - and the environment row is written late enough that no preview survives it.
+     */
+    it("waits for the eager build rather than cancelling it when the run is skipped", async () => {
+        harness.snapshotSkipped = true;
+
+        await runToCompletion(deployEvent({ prNumber: 0, branchId: "branch-main" }));
+
+        const build = await env.client.workflow.getHandle(currentBuildId).describe();
+        expect(build.status.name).toBe("COMPLETED");
+    });
+
+    /** The restart path starts its own child, so it owes it the same wait the eager one does. */
+    it("waits for a restarted build rather than cancelling it", async () => {
+        harness.snapshotSkipped = true;
+        harness.buildStatus = { state: "ready", primaryUrl: PREVIEW_URL };
+
+        await runToCompletion();
+
+        const build = await env.client.workflow.getHandle(currentBuildId).describe();
+        expect(build.status.name).toBe("COMPLETED");
+    });
+
     it("rebuilds an already-analyzed head whose earlier build was attempted and lost", async () => {
         harness.snapshotSkipped = true;
         harness.buildStatus = { state: "superseded" };

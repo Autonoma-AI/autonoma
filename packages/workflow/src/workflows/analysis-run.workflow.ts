@@ -1,6 +1,13 @@
 import type { ObservabilityContext } from "@autonoma/logger";
 import type { PreviewDeployTarget } from "@autonoma/types";
-import { type ChildWorkflowHandle, log, ParentClosePolicy, proxyActivities, startChild } from "@temporalio/workflow";
+import {
+    type ChildWorkflowHandle,
+    isCancellation,
+    log,
+    ParentClosePolicy,
+    proxyActivities,
+    startChild,
+} from "@temporalio/workflow";
 import type {
     AnalysisActivities,
     PreviewBuildWarrantReason,
@@ -10,6 +17,7 @@ import type {
 } from "../activities";
 import { previewIds } from "../observability/preview-ids";
 import { previewBuildWorkflowId } from "../preview-build-id";
+import { rootFailureMessage } from "../root-failure-message";
 import {
     unconditionalWarrant,
     warrantForJudgedHead,
@@ -152,10 +160,29 @@ async function settleSkippedRun(params: {
     branchId: string;
     ids: ObservabilityContext;
 }): Promise<void> {
+    const build = await buildOwnedBySkippedRun(params);
+    if (build == null) return;
+    await awaitStartedBuild(build, params.ids);
+}
+
+/**
+ * The build this run is leaving behind, or undefined when it leaves none. Every branch that has one returns it
+ * rather than awaiting in place, so a child can never be started down one path and abandoned by it.
+ */
+async function buildOwnedBySkippedRun(params: {
+    target?: PreviewDeployTarget;
+    eager?: BuildHandle;
+    branchId: string;
+    ids: ObservabilityContext;
+}): Promise<BuildHandle | undefined> {
     const { target, eager, branchId, ids } = params;
-    if (target == null || eager != null) {
+    if (eager != null) {
+        log.info("Analysis run skipped: it already started this head's build", ids);
+        return eager;
+    }
+    if (target == null) {
         log.info("Analysis run skipped: head already analyzed", ids);
-        return;
+        return undefined;
     }
 
     const attempted = await previewkitReads.readPreviewBuildStatus({
@@ -167,11 +194,26 @@ async function settleSkippedRun(params: {
     if (!warrantsBuild(reason)) {
         await reportBuildWarrant({ target, branchId, reason });
         log.info("Not rebuilding an already-judged commit that was found unwarranted", ids);
-        return;
+        return undefined;
     }
 
-    await startBuild({ target, reason, branchId });
+    const restarted = await startBuild({ target, reason, branchId });
     log.info("Preview build restarted for an already-analyzed head", ids);
+    return restarted;
+}
+
+/**
+ * A child is `REQUEST_CANCEL`, so a run that closes over one cancels the build it just promised. Nothing here
+ * consumes the URL, so the outcome is the child's own to record and a failure is logged rather than propagated.
+ */
+async function awaitStartedBuild(build: BuildHandle, ids: ObservabilityContext): Promise<void> {
+    try {
+        const built = await build.result();
+        log.info("Preview build finished for a skipped run", { ...ids, extra: { primaryUrl: built.primaryUrl } });
+    } catch (error) {
+        if (isCancellation(error)) throw error;
+        log.warn("Preview build failed for a skipped run", { ...ids, extra: { message: rootFailureMessage(error) } });
+    }
 }
 
 /** Reach a selection on the previewkit path, building the preview when - and only when - it is warranted. */
