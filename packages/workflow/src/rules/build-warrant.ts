@@ -21,14 +21,22 @@ export function warrantsBuild(reason: PreviewBuildWarrantReason): boolean {
 /**
  * Why this commit is warranted a build whatever impact analysis finds, or undefined when the selection decides.
  *
- * Both exemptions exist because refusing would take away something the customer already has: main has no pull
- * request whose diff could be judged, and a branch whose preview URL has been seen keeps refreshing it.
+ * The first two exist because refusing would take away something the customer already has: main has no pull
+ * request whose diff could be judged, and a branch whose preview URL has been seen keeps refreshing it. The third
+ * because refusing would take away the only way to get it - see the comment on the check itself.
  */
 export function unconditionalWarrant(facts: {
     prNumber: number;
     everPreviewed: boolean;
+    onboardingComplete: boolean;
 }): PreviewBuildWarrantReason | undefined {
     if (facts.prNumber <= MAIN_BRANCH_ENVIRONMENT_NUMBER) return "main_branch_preview";
+    // Before onboarding finishes there is no suite to select from, so a selection of zero is a
+    // fact about the app's age rather than about the commit. Refusing on it is circular: the
+    // preview is how the customer implements the SDK handler that produces the suite that the
+    // selection would need. The other two exemptions exist because refusing takes away something
+    // the customer already has; this one because it takes away the only way to get it.
+    if (!facts.onboardingComplete) return "onboarding_incomplete";
     return facts.everPreviewed ? "branch_already_previewed" : undefined;
 }
 

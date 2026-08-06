@@ -10,29 +10,39 @@ import {
 // The complete truth table: every reason appears exactly once, so a wrong one fails a named assertion.
 
 describe("unconditionalWarrant", () => {
-    const cases: Array<[string, { prNumber: number; everPreviewed: boolean }, PreviewBuildWarrantReason | undefined]> =
+    const cases: Array<
         [
-            [
-                "the main-branch environment has no diff to judge",
-                { prNumber: 0, everPreviewed: false },
-                "main_branch_preview",
-            ],
-            [
-                "a main-branch environment that has been previewed is still main",
-                { prNumber: 0, everPreviewed: true },
-                "main_branch_preview",
-            ],
-            [
-                "a branch the customer has already seen a URL for keeps refreshing",
-                { prNumber: 7, everPreviewed: true },
-                "branch_already_previewed",
-            ],
-            [
-                "a first-ever preview on a real PR is the selection's to decide",
-                { prNumber: 7, everPreviewed: false },
-                undefined,
-            ],
-        ];
+            string,
+            { prNumber: number; everPreviewed: boolean; onboardingComplete: boolean },
+            PreviewBuildWarrantReason | undefined,
+        ]
+    > = [
+        [
+            "the main-branch environment has no diff to judge",
+            { prNumber: 0, everPreviewed: false, onboardingComplete: true },
+            "main_branch_preview",
+        ],
+        [
+            "a main-branch environment that has been previewed is still main",
+            { prNumber: 0, everPreviewed: true, onboardingComplete: true },
+            "main_branch_preview",
+        ],
+        [
+            "a branch the customer has already seen a URL for keeps refreshing",
+            { prNumber: 7, everPreviewed: true, onboardingComplete: true },
+            "branch_already_previewed",
+        ],
+        [
+            "a first-ever preview on a real PR is the selection's to decide",
+            { prNumber: 7, everPreviewed: false, onboardingComplete: true },
+            undefined,
+        ],
+        [
+            "an app still onboarding has no suite for the selection to be about",
+            { prNumber: 7, everPreviewed: false, onboardingComplete: false },
+            "onboarding_incomplete",
+        ],
+    ];
 
     for (const [name, facts, expected] of cases) {
         it(name, () => {
@@ -42,8 +52,8 @@ describe("unconditionalWarrant", () => {
 
     // Both build, so a test asserting only "a build started" cannot tell them apart.
     it("distinguishes the two unconditional reasons", () => {
-        expect(unconditionalWarrant({ prNumber: 0, everPreviewed: true })).not.toBe(
-            unconditionalWarrant({ prNumber: 7, everPreviewed: true }),
+        expect(unconditionalWarrant({ prNumber: 0, everPreviewed: true, onboardingComplete: true })).not.toBe(
+            unconditionalWarrant({ prNumber: 7, everPreviewed: true, onboardingComplete: true }),
         );
     });
 });

@@ -1,5 +1,6 @@
 import { db } from "@autonoma/db";
 import { OctokitGitHubApp } from "@autonoma/github";
+import { isOnboardingComplete } from "@autonoma/github/comment";
 import { logger as rootLogger } from "@autonoma/logger";
 import { autonomaHostsPreviews } from "@autonoma/test-updates";
 import type { ResolvePreviewTargetInput, ResolvePreviewTargetOutput } from "@autonoma/workflow/activities";
@@ -28,7 +29,7 @@ export async function resolvePreviewTarget(input: ResolvePreviewTargetInput): Pr
                 select: {
                     organizationId: true,
                     githubRepositoryId: true,
-                    onboardingState: { select: { previewEnvironmentMode: true } },
+                    onboardingState: { select: { previewEnvironmentMode: true, step: true } },
                 },
             },
         },
@@ -42,22 +43,26 @@ export async function resolvePreviewTarget(input: ResolvePreviewTargetInput): Pr
 
     const hasRecordedPreview = branch.deploymentId != null;
     const organizationId = application.organizationId;
+    // Read once here rather than in the workflow: this query already joins the onboarding row, so
+    // asking for the step costs nothing, and a second activity to fetch it would be a round trip
+    // for a column we already had in hand.
+    const onboardingComplete = isOnboardingComplete(application.onboardingState?.step);
     if (!autonomaHostsPreviews(application.onboardingState?.previewEnvironmentMode)) {
         logger.info("The customer deploys this preview; the run is analysis only", {
             branch: { branchId },
             extra: { mode: application.onboardingState?.previewEnvironmentMode, hasRecordedPreview },
         });
-        return { organizationId, hasRecordedPreview };
+        return { organizationId, hasRecordedPreview, onboardingComplete };
     }
     if (application.githubRepositoryId == null) {
         logger.warn("Application is previewkit-managed but linked to no repository; cannot build a preview", {
             branch: { branchId },
         });
-        return { organizationId, hasRecordedPreview };
+        return { organizationId, hasRecordedPreview, onboardingComplete };
     }
 
     const repoFullName = await resolveRepoFullName(organizationId, application.githubRepositoryId);
-    if (repoFullName == null) return { organizationId, hasRecordedPreview };
+    if (repoFullName == null) return { organizationId, hasRecordedPreview, onboardingComplete };
 
     const prNumber = branch.prInfo?.prNumber ?? MAIN_BRANCH_ENVIRONMENT_NUMBER;
 

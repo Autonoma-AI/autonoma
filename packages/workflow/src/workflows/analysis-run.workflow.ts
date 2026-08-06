@@ -85,7 +85,19 @@ export async function analysisRunWorkflow(input: AnalysisRunWorkflowInput): Prom
 
     // An unconditional warrant starts the build here, ahead of opening the run: nothing
     // fallible may sit in front of a refresh the customer is entitled to.
-    const eager = target != null ? await startEagerBuild(target, branchId, ids) : undefined;
+    const eager =
+        target != null ? await startEagerBuild(target, branchId, ids, resolved.onboardingComplete) : undefined;
+
+    // Nothing downstream can say anything useful yet, so stop after the build. Impact analysis
+    // needs a suite to select from and there is none until onboarding produces one; the comment
+    // and merge-gate stages already refuse to act on a half-onboarded app for the same reason
+    // (`isOnboardingComplete` in post-analysis-comment and apply-merge-gate-verdict). Running it
+    // anyway spends a model call to reach a selection of zero that means nothing, and - before
+    // the exemption above - that zero was what refused the build the customer was waiting for.
+    if (resolved.onboardingComplete === false) {
+        log.info("Onboarding is not finished: built the preview and skipped analysis", ids);
+        return;
+    }
 
     const run = await analysis.openAnalysisRun({ branchId, headSha, baseSha });
     if (run.skipped) {
@@ -140,10 +152,15 @@ async function startEagerBuild(
     target: PreviewDeployTarget,
     branchId: string,
     ids: ObservabilityContext,
+    onboardingComplete?: boolean,
 ): Promise<BuildHandle | undefined> {
     // The one fact the rule needs that is not already in hand.
     const { everBuilt } = await previewkitReads.hasBranchEverBuiltPreview({ branchId });
-    const reason = unconditionalWarrant({ prNumber: target.prNumber, everPreviewed: everBuilt });
+    const reason = unconditionalWarrant({
+        prNumber: target.prNumber,
+        everPreviewed: everBuilt,
+        onboardingComplete: onboardingComplete ?? false,
+    });
     log.info("Preview build warrant evaluated", { ...ids, extra: { unconditional: reason != null, reason } });
 
     if (reason == null) return undefined;

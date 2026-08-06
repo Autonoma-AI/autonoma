@@ -20,6 +20,14 @@ export interface ResolvePreviewTargetOutput {
      * cannot produce one itself, so this is what says whether there is anything to analyze against.
      */
     hasRecordedPreview: boolean;
+    /**
+     * Whether the owning application has finished onboarding.
+     *
+     * Impact analysis cannot say anything useful before it has: a suite it could select from does not exist yet,
+     * so the selection is empty by construction rather than by judgement. Absent when the branch resolves to no
+     * application, where there is nothing to know.
+     */
+    onboardingComplete?: boolean;
 }
 
 export interface HasBranchEverBuiltPreviewInput {
@@ -107,13 +115,14 @@ export interface AttachPreviewDeploymentOutput {
     deploymentId: string;
 }
 
-/** The first five stand on their own; the last three are the verdict impact analysis reached. */
+/** The first six stand on their own; the last three are the verdict impact analysis reached. */
 export type PreviewBuildWarrantReason =
     | "main_branch_preview"
     | "branch_not_resolvable"
     | "head_already_analyzed"
     | "branch_already_previewed"
     | "force_build"
+    | "onboarding_incomplete"
     | "analysis_selected_tests"
     | "no_test_work"
     | "analysis_indeterminate";

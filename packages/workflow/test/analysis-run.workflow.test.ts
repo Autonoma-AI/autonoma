@@ -43,6 +43,8 @@ interface Harness {
     everBuilt: boolean;
     /** Whether the branch already has a deployment. Only read when there is no `previewTarget`. */
     hasRecordedPreview: boolean;
+    /** Every existing case is an onboarded app; the deadlock case flips it. */
+    onboardingComplete: boolean;
     targets: AnalysisInvestigationTarget[];
     impactError?: Error;
     snapshotSkipped: boolean;
@@ -72,6 +74,7 @@ interface Harness {
 const harness: Harness = {
     everBuilt: false,
     hasRecordedPreview: true,
+    onboardingComplete: true,
     targets: [],
     snapshotSkipped: false,
     impactWaitsForBuild: false,
@@ -196,8 +199,17 @@ const previewkitActivities: PreviewkitActivities = {
     async resolvePreviewTarget() {
         const target = harness.previewTarget;
         return target != null
-            ? { organizationId: target.organizationId, target, hasRecordedPreview: harness.hasRecordedPreview }
-            : { organizationId: ORGANIZATION_ID, hasRecordedPreview: harness.hasRecordedPreview };
+            ? {
+                  organizationId: target.organizationId,
+                  target,
+                  hasRecordedPreview: harness.hasRecordedPreview,
+                  onboardingComplete: harness.onboardingComplete,
+              }
+            : {
+                  organizationId: ORGANIZATION_ID,
+                  hasRecordedPreview: harness.hasRecordedPreview,
+                  onboardingComplete: harness.onboardingComplete,
+              };
     },
     async hasBranchEverBuiltPreview() {
         return { everBuilt: harness.everBuilt };
@@ -304,6 +316,7 @@ beforeEach(() => {
     harness.previewTarget = undefined;
     harness.everBuilt = false;
     harness.hasRecordedPreview = true;
+    harness.onboardingComplete = true;
     harness.targets = [];
     harness.impactError = undefined;
     harness.snapshotSkipped = false;
@@ -365,6 +378,34 @@ describe("analysisRunWorkflow build gate", () => {
         expect(harness.reporterRuns).toBe(1);
         expect(harness.settlements).toEqual([{ kind: "succeeded" }]);
         expect(skipReports()).toEqual(["no_test_work"]);
+    });
+
+    // The deadlock #1937 created: onboarding needs a preview to implement the SDK handler, the
+    // handler produces the suite, and the suite is what a selection could be about. Judging the
+    // commit on an empty selection refused the build that was the only way out.
+    it("builds without analysing while the app is still onboarding", async () => {
+        harness.onboardingComplete = false;
+
+        await runToCompletion();
+
+        expect(await buildWasStarted()).toBe(true);
+        // The build and nothing else: no snapshot, no selection, no stages, because there is
+        // nothing for them to be about yet.
+        expect(harness.events).toEqual(["build:launch"]);
+        expect(harness.reporterRuns).toBe(0);
+    });
+
+    // The base preview is what onboarding configures first, and it must keep building while the
+    // app is mid-onboarding - it is exempt for its own reason (no pull request to judge), and the
+    // eager build runs before the analysis is skipped rather than instead of it.
+    it("still builds the main-branch environment while the app is onboarding", async () => {
+        harness.onboardingComplete = false;
+        harness.previewTarget = { ...target(), prNumber: 0 };
+
+        await runToCompletion();
+
+        expect(await buildWasStarted()).toBe(true);
+        expect(harness.events).toEqual(["build:launch"]);
     });
 
     it("builds and then investigates when a never-previewed branch's diff selects a test", async () => {
