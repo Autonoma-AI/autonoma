@@ -210,14 +210,17 @@ export interface CountdownState {
     endsAt: number;
 }
 
-/** The opening welcome overlay, shown once before a fresh run begins. Waits
- * for the user to press enter (no auto-dismiss). */
+/** A big centered modal that blocks the run until the user presses enter. Used
+ * for the opening welcome, and for anything else that must be read before the
+ * run can sensibly continue. */
 export interface WelcomeState {
     title: string;
     /** Body paragraphs, wrapped at draw time. */
     lines: string[];
     /** The call to action, e.g. "Press enter to begin". */
     cta: string;
+    /** Label above the title. Defaults to the welcome banner. */
+    eyebrow?: string;
 }
 
 /** A headline count on the completion overlay, e.g. 24 / "pages". */

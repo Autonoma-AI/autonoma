@@ -5,10 +5,12 @@ import { wrapPlain } from "./wrap";
 
 const MODAL_MAX_W = 84;
 const MODAL_FILL = "#141414";
+const DEFAULT_EYEBROW = "WELCOME TO AUTONOMA";
 
 /**
- * The opening welcome: a big centered modal introducing Autonoma before the
- * pipeline starts. Waits for the user to press enter (the store dismisses it).
+ * A big centered modal that owns the screen until the user presses enter (the
+ * store dismisses it). Introduces Autonoma before the pipeline starts, and
+ * carries anything else the run cannot sensibly continue past unread.
  */
 export function drawWelcomeModal(g: Grid, state: RunState): void {
     const wel = state.welcome;
@@ -35,7 +37,7 @@ export function drawWelcomeModal(g: Grid, state: RunState): void {
     const bg = MODAL_FILL;
 
     let cy = y + 1;
-    g.text(x + 4, cy, "◆ WELCOME TO AUTONOMA", { color: theme.accent, bold: true, bg });
+    g.text(x + 4, cy, `◆ ${wel.eyebrow ?? DEFAULT_EYEBROW}`, { color: theme.accent, bold: true, bg });
     cy += 2;
 
     for (const line of titleLines) {

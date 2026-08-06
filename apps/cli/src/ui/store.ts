@@ -115,7 +115,7 @@ export interface RunStore {
     skipCountdown(): void;
 
     /** Show the opening welcome overlay; resolves when the user presses enter. */
-    runWelcome(opts: { title: string; lines: string[]; cta: string }): Promise<void>;
+    runWelcome(opts: { title: string; lines: string[]; cta: string; eyebrow?: string }): Promise<void>;
     /** Enter on the welcome: dismiss it and resolve. */
     dismissWelcome(): void;
 
@@ -649,11 +649,11 @@ export function createStore(opts: StoreOptions): RunStore {
             resolve?.();
         },
 
-        runWelcome({ title, lines, cta }) {
+        runWelcome({ title, lines, cta, eyebrow }) {
             return new Promise<void>((resolve) => {
                 welcomeResolve = resolve;
                 if (process.stdout.isTTY) process.stdout.write(BELL);
-                set({ ...state, welcome: { title, lines, cta } });
+                set({ ...state, welcome: { title, lines, cta, eyebrow } });
             });
         },
 

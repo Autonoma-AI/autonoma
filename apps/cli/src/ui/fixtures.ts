@@ -303,6 +303,27 @@ function welcomeScene(): RunStore {
     return store;
 }
 
+function noAgentScene(): RunStore {
+    const store = makeStore();
+    runStepsThrough(store, "scenarioRecipe");
+    store.startStep("recipeBuilder");
+    void store.runWelcome({
+        eyebrow: "NO CODING AGENT FOUND",
+        title: "Finish this step in the coding agent you already use",
+        lines: [
+            "Autonoma can launch Claude Code or Codex for you, but neither is on your PATH.",
+            "Any coding agent can do this step just as well - Cursor, Windsurf, Copilot, Zed, " +
+                "or whatever you have open. Point yours at this project and paste it this:",
+            "Read ~/.autonoma/acme-storefront/INTEGRATION.md and follow its instructions exactly.",
+            "That file is the complete spec: the endpoint to implement, the factories to " +
+                "register, and the completion marker it must write when it is done.",
+            "When your agent reports it finished, come back here and run:  autonoma-planner --resume",
+        ],
+        cta: "Press enter once you have handed it over",
+    });
+    return store;
+}
+
 function countdownScene(): RunStore {
     const store = makeStore();
     runStepsThrough(store, "scenarioRecipe");
@@ -334,6 +355,11 @@ export function buildScenes(): Scene[] {
             id: "countdown",
             label: "pre-handoff countdown - about to switch to the coding agent",
             store: countdownScene(),
+        },
+        {
+            id: "no-agent",
+            label: "no coding agent on PATH - hand the step to Cursor or similar",
+            store: noAgentScene(),
         },
         { id: "tests", label: "test generation - hero shows a test file", store: testWritingScene() },
         { id: "review", label: "review pass - nodes done, reviewing tests", store: reviewPassScene() },

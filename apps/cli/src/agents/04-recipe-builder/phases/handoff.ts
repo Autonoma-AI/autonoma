@@ -19,6 +19,17 @@ export const MAX_LAUNCH_ATTEMPTS = 2;
 /** Breathing room before the terminal switches to the coding agent. */
 const HANDOFF_COUNTDOWN_SECONDS = 10;
 
+/**
+ * Why the integration never ran. Both the handoff and the completion phase can hit
+ * this - completion reaches it on a `--resume` into a run that paused here - and they
+ * must say the same thing, because the recipe being absent is the symptom, not the cause.
+ */
+const NO_AGENT_FOUND = "Autonoma can launch Claude Code or Codex for you, but neither is on your PATH.";
+const NO_AGENT_FOUND_HEADLESS =
+    "--non-interactive SDK implementation requires an installed, supported coding agent, but none " +
+    "was resolved on your PATH (name one with --agent if more than one is present). Install one, " +
+    "or run interactively.";
+
 /** Points the agent at the rendered prompt file it must read and follow. */
 function launchMessage(promptFile: string): string {
     return (
@@ -68,13 +79,9 @@ export async function runHandoffPhase(
     if (launcher == null) {
         // Non-interactive requires an agent - there is no manual fallback without a TTY.
         if (!deps.interactive) {
-            return {
-                kind: "handback",
-                summary:
-                    "--non-interactive SDK implementation requires an installed, supported coding agent, but none was resolved on your PATH (name one with --agent if more than one is present). Install one, or run interactively.",
-            };
+            return { kind: "handback", summary: NO_AGENT_FOUND_HEADLESS };
         }
-        return manualFallback(outputDir, recipePath, deps.cliCommand, "No supported agent found on your PATH.");
+        return manualFallback(outputDir, recipePath, deps.cliCommand, NO_AGENT_FOUND);
     }
 
     const permissionMode = deps.interactive
@@ -131,9 +138,20 @@ export async function runCompletionPhase(
             return { kind: "advance" };
         }
 
-        const failure = describeIncompleteRecipe(read, uploadProblems, recipePath, deps.cliCommand);
-
         const launcher = await selectLauncher(deps.launchers, state.agentId ?? deps.presetAgentId, deps.interactive);
+
+        // Nothing was ever produced and nothing could have produced it: no agent is
+        // installed and none has run. The absent recipe is the symptom - reporting it
+        // sends the developer looking for a file, when what they need is the missing
+        // agent and the manual instructions. A recipe that exists (even a broken one)
+        // means something did run, so those keep their own diagnosis below.
+        const nothingEverRan = read.status === "absent" && launcher == null && (state.launchAttempts ?? 0) === 0;
+        if (nothingEverRan) {
+            if (!deps.interactive) return { kind: "handback", summary: NO_AGENT_FOUND_HEADLESS };
+            return await manualFallback(outputDir, recipePath, deps.cliCommand, NO_AGENT_FOUND);
+        }
+
+        const failure = describeIncompleteRecipe(read, uploadProblems, recipePath, deps.cliCommand);
         if (launcher != null && (state.launchAttempts ?? 0) < MAX_LAUNCH_ATTEMPTS) {
             p.log.warn("The integration isn't complete yet. Launching the agent to finish it...");
             state.agentId = launcher.id;
@@ -278,12 +296,25 @@ async function manualFallback(
     why: string,
 ): Promise<PhaseOutcome> {
     const promptFile = await writeIntegrationPrompt({ outputDir, recipePath, cliCommand });
-    p.note(
-        `${why}\n\n` +
-            `The full integration instructions have been written to:\n  ${promptFile}\n\n` +
-            `Implement them with your AI assistant (or by hand), get your app running locally, then\n` +
-            `re-run with --resume. The CLI will continue to test generation.`,
-        "Implement the integration yourself",
-    );
-    return { kind: "pause", summary: "Integration handed off for manual implementation - resume when it's ready." };
+    // A modal, not a note: this is the one step the CLI cannot do for itself, and a
+    // line scrolling past in the activity feed is how people end up stuck believing
+    // the run failed. It blocks until acknowledged.
+    await p.welcome({
+        eyebrow: "NO CODING AGENT FOUND",
+        title: "Finish this step in the coding agent you already use",
+        lines: [
+            why,
+            "Any coding agent can do this step just as well - Cursor, Windsurf, Copilot, Zed, " +
+                "or whatever you have open. Point yours at this project and paste it this:",
+            `Read ${promptFile} and follow its instructions exactly.`,
+            "That file is the complete spec: the endpoint to implement, the factories to " +
+                "register, and the completion marker it must write when it is done.",
+            `When your agent reports it finished, come back here and run:  ${cliCommand} --resume`,
+        ],
+        cta: "Press enter once you have handed it over",
+    });
+    return {
+        kind: "pause",
+        summary: `${why} Integration handed off for manual implementation - resume when it's ready.`,
+    };
 }

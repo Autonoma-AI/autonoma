@@ -444,7 +444,9 @@ export function drawDashboard(g: Grid, state: RunState): void {
         : { k: "^C ^C", label: "exit", color: theme.red };
 
     if (state.welcome != null) {
-        drawHints(g, H - 1, [{ k: "enter", label: "begin", color: theme.accent }], [exitHint]);
+        // "begin" only fits the opening modal; any other use of it is mid-run.
+        const label = state.welcome.eyebrow == null ? "begin" : "continue";
+        drawHints(g, H - 1, [{ k: "enter", label, color: theme.accent }], [exitHint]);
         drawWelcomeModal(g, state);
         return;
     }

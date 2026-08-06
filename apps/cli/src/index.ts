@@ -723,6 +723,11 @@ async function main() {
     const projectArg = args.value("project");
     const resumeCommand = `autonoma-planner --resume` + (projectArg != null ? ` --project ${projectArg}` : "");
     let mountedUi: MountedDashboard | undefined;
+    // Which step ended the run short. The dashboard's log is wiped when it
+    // unmounts, so a run that stops mid-pipeline has to say so again on the real
+    // console - otherwise the last thing on screen is a frame frozen on a step
+    // that never finished, followed by a bare "Done", and it reads as a crash.
+    let stoppedAt: { label: string; kind: "paused" | "failed" } | undefined;
     installInterruptHandler({
         // exitCode defaults to 0 for a user-initiated Ctrl+C (progress saved, a clean stop);
         // an external SIGTERM/SIGHUP passes the conventional 143/129 so the flushed exit still
@@ -963,12 +968,14 @@ async function main() {
             state = await runStepWithRecovery(step, outputDir, state, config, nonInteractive);
 
             if (state.steps[step] === "paused") {
+                stoppedAt = { label: STEP_LABELS[step], kind: "paused" };
                 break;
             }
 
             // Only reached when the user chose to stop after a failure, or in
             // non-interactive mode where there's nobody to ask.
             if (state.steps[step] === "failed") {
+                stoppedAt = { label: STEP_LABELS[step], kind: "failed" };
                 p.log.error("Pipeline stopped due to failure.");
                 p.log.warn(`Your progress is saved. To retry this step, run:\n  ${resumeCommand}`);
                 process.exitCode = 1;
@@ -1048,6 +1055,10 @@ async function main() {
         p.log.info(`Saved in ${displayPath(outputDir)}`);
         if (finish != null) for (const line of describeFinishPhase(finish)) p.log.info(line);
         p.log.info(nextStepLine(finish, nonInteractive));
+    } else if (stoppedAt != null) {
+        const verb = stoppedAt.kind === "paused" ? "paused at" : "stopped at";
+        p.log.warn(`The run ${verb} "${stoppedAt.label}" and did not finish.`);
+        p.log.info(`Your progress is saved. Continue with:\n  ${resumeCommand}`);
     }
     p.outro("Done");
 }

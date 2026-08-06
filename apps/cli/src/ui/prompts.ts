@@ -93,7 +93,7 @@ export function note(message: string, title?: string): void {
  * The opening welcome overlay, shown once before a fresh run. Resolves when the
  * user presses enter. Headless runs print the intro and continue.
  */
-export async function welcome(opts: { title: string; lines: string[]; cta: string }): Promise<void> {
+export async function welcome(opts: { title: string; lines: string[]; cta: string; eyebrow?: string }): Promise<void> {
     const store = getActiveStore();
     if (store == null) {
         console.log(`◆ ${opts.title}\n${opts.lines.map((l) => `  ${l}`).join("\n")}`);

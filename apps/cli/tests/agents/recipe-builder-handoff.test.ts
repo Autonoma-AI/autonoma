@@ -183,6 +183,35 @@ describe("runRecipeBuilder handoff + completion", () => {
         expect(launcher.calls).toBe(0);
     });
 
+    test("resuming with no agent and no recipe blames the missing agent, not the missing file", async () => {
+        // The recipe is absent *because* no agent is installed to write one. Reporting
+        // "no completed recipe.json" sends the developer hunting for a file that was
+        // never going to exist - they need the manual instructions instead.
+        await seedStuckCompletionPhase();
+        await rm(join(dir, RECIPE_FILE));
+        const launcher = fakeLauncher({ exitCode: 0, writeMarker: false, available: false, outputDir: dir });
+
+        const result = await runRecipeBuilder(baseInput(launcher));
+
+        expect(launcher.calls).toBe(0);
+        expect(result.summary).toContain("PATH");
+        expect(result.summary).not.toContain("recipe.json");
+        // A pause, so `--resume` picks the run back up once it's implemented by hand.
+        expect(result.paused).toBe(true);
+    });
+
+    test("non-interactive with no agent and no recipe reports the missing agent", async () => {
+        await seedStuckCompletionPhase();
+        await rm(join(dir, RECIPE_FILE));
+        const launcher = fakeLauncher({ exitCode: 0, writeMarker: false, available: false, outputDir: dir });
+
+        const result = await runRecipeBuilder({ ...baseInput(launcher), nonInteractive: true });
+
+        expect(result.success).toBe(false);
+        expect(result.paused).toBeFalsy(); // headless has no manual fallback to pause into
+        expect(result.summary).toContain("PATH");
+    });
+
     test("no supported agent -> manual fallback pauses without launching", async () => {
         await seedHandoffPhase(false);
         const launcher = fakeLauncher({ exitCode: 0, writeMarker: false, available: false, outputDir: dir });
