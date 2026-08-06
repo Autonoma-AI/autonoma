@@ -246,35 +246,6 @@ export class TestGenerationsService extends Service {
         };
     }
 
-    async deleteGeneration(generationId: string, organizationId: string) {
-        this.logger.info("Deleting generation", { generationId, organizationId });
-
-        const generation = await this.db.testGeneration.findFirst({
-            // Shadow generations are internal measurement rows, not addressable by the customer - same hiding
-            // rule as getGenerationDetail, so a guessed id cannot delete one.
-            where: { id: generationId, organizationId, shadow: false },
-            select: { outputsId: true, testPlan: { select: { testCaseId: true } } },
-        });
-        if (generation == null) return;
-
-        await this.db.$transaction(async (tx) => {
-            // The generation only points at its StepOutputList via the
-            // non-cascading outputsId, so the TestCase cascade below won't remove
-            // it - delete it explicitly to avoid orphaning it. (Its StepOutputs
-            // are cleaned up either way, since StepOutput.stepInputId cascades.)
-            if (generation.outputsId != null) {
-                await tx.stepOutputList.delete({ where: { id: generation.outputsId } });
-            }
-
-            // Delete the TestCase - cascades to TestPlan → TestGeneration and StepInputList → StepInput
-            await tx.testCase.delete({
-                where: { id: generation.testPlan.testCaseId },
-            });
-        });
-
-        this.logger.info("Generation deleted", { generationId });
-    }
-
     async listGenerations(organizationId: string, applicationId?: string) {
         this.logger.info("Listing generations", { organizationId, applicationId });
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { protectedProcedure, writeProcedure, router } from "../../trpc";
+import { protectedProcedure, router } from "../../trpc";
 
 export const generationsRouter = router({
     list: protectedProcedure
@@ -12,11 +12,5 @@ export const generationsRouter = router({
         .input(z.object({ generationId: z.string() }))
         .query(({ ctx: { services, organizationId, user }, input }) =>
             services.testGenerations.getGenerationDetail(input.generationId, organizationId, user.role === "admin"),
-        ),
-
-    delete: writeProcedure
-        .input(z.object({ generationId: z.string() }))
-        .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.testGenerations.deleteGeneration(input.generationId, organizationId),
         ),
 });

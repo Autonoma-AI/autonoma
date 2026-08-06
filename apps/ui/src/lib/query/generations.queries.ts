@@ -1,5 +1,4 @@
-import { type QueryClient, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useAPIMutation } from "lib/query/api-queries";
+import { type QueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { ensureAPIQueryData } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
@@ -42,20 +41,4 @@ export async function ensureGenerationsListData(queryClient: QueryClient, applic
 
 export async function ensureGenerationDetailData(queryClient: QueryClient, generationId: string) {
     await ensureAPIQueryData(queryClient, trpc.generations.detail.queryOptions({ generationId }));
-}
-
-export function useDeleteGeneration() {
-    const queryClient = useQueryClient();
-    const currentApp = useCurrentApplication();
-    return useAPIMutation({
-        ...trpc.generations.delete.mutationOptions({
-            onSettled: () => {
-                void queryClient.invalidateQueries({
-                    queryKey: trpc.generations.list.queryKey({ applicationId: currentApp.id }),
-                });
-            },
-        }),
-        successToast: { title: "Generation deleted" },
-        errorToast: { title: "Failed to delete generation" },
-    });
 }

@@ -1,6 +1,5 @@
 import {
   Badge,
-  Button,
   type ColumnDef,
   Input,
   Panel,
@@ -12,14 +11,12 @@ import {
 } from "@autonoma/blacklight";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
-import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { createFileRoute } from "@tanstack/react-router";
 import { formatDate } from "lib/format";
 import { ensureGenerationsListData, useGenerations } from "lib/query/generations.queries";
 import { useState } from "react";
 import { toGenerationBadgeVariant, toGenerationStatusLabel } from "../-home/helpers";
 import { AppLink } from "../../-app-link";
-import { DeleteGenerationDialog } from "../generations/-delete-generation-dialog";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/admin/generations")({
   loader: ({ context, params: { appSlug } }) => {
@@ -34,19 +31,12 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/admin
 type GenerationItem = ReturnType<typeof useGenerations>["data"][number];
 
 function GenerationsTable() {
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | undefined>(undefined);
   const [search, setSearch] = useState("");
   const { data: generations } = useGenerations();
 
   const query = search.trim().toLowerCase();
   const filteredGenerations =
     query === "" ? generations : generations.filter((gen) => gen.testName.toLowerCase().includes(query));
-
-  function handleDeleteClick(e: React.MouseEvent, id: string, name: string) {
-    e.preventDefault();
-    e.stopPropagation();
-    setDeleteTarget({ id, name });
-  }
 
   const columns: ColumnDef<GenerationItem, unknown>[] = [
     {
@@ -99,23 +89,6 @@ function GenerationsTable() {
         <span className="whitespace-nowrap text-sm text-text-secondary">{formatDate(row.original.createdAt)}</span>
       ),
     },
-    {
-      id: "actions",
-      header: "",
-      size: 60,
-      enableSorting: false,
-      cell: ({ row }) => (
-        <div className="flex w-full justify-end">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={(e) => handleDeleteClick(e, row.original.id, row.original.testName)}
-          >
-            <TrashIcon size={14} className="text-text-secondary" />
-          </Button>
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -162,17 +135,6 @@ function GenerationsTable() {
           />
         </PanelBody>
       </Panel>
-
-      {deleteTarget != null && (
-        <DeleteGenerationDialog
-          open={deleteTarget != null}
-          onOpenChange={(open) => {
-            if (!open) setDeleteTarget(undefined);
-          }}
-          generationId={deleteTarget.id}
-          generationName={deleteTarget.name}
-        />
-      )}
     </div>
   );
 }
