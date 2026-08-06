@@ -33,6 +33,9 @@ export const Route = createRootRouteWithContext<RouteContext>()({
   component: RootLayout,
 });
 
+/** PostHog group type for a customer. Must match the key the backend passes to `analytics.capture`. */
+const ORGANIZATION_GROUP = "organization";
+
 function usePosthogIdentify() {
   const { user, isAuthenticated, activeOrganizationId } = useAuth();
 
@@ -44,6 +47,16 @@ function usePosthogIdentify() {
       name: user.name,
       organizationId: activeOrganizationId,
     });
+
+    // Every backend event is captured with `groups: { organization }`, so without
+    // this the browser's half of a funnel carries no group and any org-aggregated
+    // insight silently drops it. That is not hypothetical for onboarding: the
+    // machine-driven steps (`surface: signal | system`) have no acting user and
+    // are attributed to the org, so the activation funnel has to be org-scoped -
+    // and would break at the first client step.
+    if (activeOrganizationId != null) {
+      posthog.group(ORGANIZATION_GROUP, activeOrganizationId);
+    }
   }, [isAuthenticated, user, activeOrganizationId]);
 }
 
