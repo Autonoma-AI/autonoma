@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.26](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.25...cli-v0.1.26) (2026-08-06)
+
+
+### Features
+
+* **cli:** make the test review pass visible in the TUI ([#2225](https://github.com/Autonoma-AI/agent/issues/2225)) ([41e43fb](https://github.com/Autonoma-AI/agent/commit/41e43fbd5b74b456fc031a0439a5518d1275abda))
+* **cli:** stop asking questions that have only one answer ([#2223](https://github.com/Autonoma-AI/agent/issues/2223)) ([e41006b](https://github.com/Autonoma-AI/agent/commit/e41006b0be21171b3586a0ca06cf1a53bb8735bf))
+
+
+### Bug Fixes
+
+* **cli:** stop the TUI from leaking ~2.6 MB/s of short-lived Grid allocations ([#2226](https://github.com/Autonoma-AI/agent/issues/2226)) ([a29bead](https://github.com/Autonoma-AI/agent/commit/a29beadd9de462f616de091867d5c48e9c7b73cb))
+
 ## [0.1.25](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.24...cli-v0.1.25) (2026-08-06)
 
 
