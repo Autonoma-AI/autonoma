@@ -10,6 +10,7 @@ import {
 } from "@temporalio/workflow";
 import type {
     AnalysisActivities,
+    OpenAnalysisSkipReason,
     PreviewBuildWarrantReason,
     PreviewkitActivities,
     ResolvePreviewTargetOutput,
@@ -101,7 +102,7 @@ export async function analysisRunWorkflow(input: AnalysisRunWorkflowInput): Prom
 
     const run = await analysis.openAnalysisRun({ branchId, headSha, baseSha });
     if (run.skipped) {
-        await settleSkippedRun({ target, eager, branchId, ids });
+        await settleSkippedRun({ target, eager, branchId, ids, skipReason: run.reason });
         return;
     }
 
@@ -168,14 +169,16 @@ async function startEagerBuild(
 }
 
 /**
- * A re-delivered trigger for a head already judged. Where the selection decides, honour the earlier verdict: re-judging
- * is impossible without a run, but whether a build was ever attempted for this commit is a fact.
+ * A run that opened no snapshot: a re-delivered trigger for a head already judged, or an application no run can reach
+ * a verdict on. Where the selection decides, honour the earlier verdict: re-judging is impossible without a run, but
+ * whether a build was ever attempted for this commit is a fact.
  */
 async function settleSkippedRun(params: {
     target?: PreviewDeployTarget;
     eager?: BuildHandle;
     branchId: string;
     ids: ObservabilityContext;
+    skipReason: OpenAnalysisSkipReason;
 }): Promise<void> {
     const build = await buildOwnedBySkippedRun(params);
     if (build == null) return;
@@ -191,11 +194,18 @@ async function buildOwnedBySkippedRun(params: {
     eager?: BuildHandle;
     branchId: string;
     ids: ObservabilityContext;
+    skipReason: OpenAnalysisSkipReason;
 }): Promise<BuildHandle | undefined> {
-    const { target, eager, branchId, ids } = params;
+    const { target, eager, branchId, ids, skipReason } = params;
     if (eager != null) {
         log.info("Analysis run skipped: it already started this head's build", ids);
         return eager;
+    }
+    // Only a head we have already judged has an earlier verdict to honour. An application no run can reach a verdict
+    // on has nothing to re-judge, and `warrantForJudgedHead` below would call it analyzed when it never was.
+    if (skipReason !== "already_analyzed") {
+        log.info("Analysis run skipped: the application can produce no test work", { ...ids, extra: { skipReason } });
+        return undefined;
     }
     if (target == null) {
         log.info("Analysis run skipped: head already analyzed", ids);

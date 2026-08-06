@@ -2,27 +2,15 @@ import { db } from "@autonoma/db";
 import { type Codebase, resolveScenarioRecipesForSnapshot } from "@autonoma/diffs";
 import type { GitHubApp } from "@autonoma/github";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import {
-    AddTest,
-    RegenerateSteps,
-    type TestSuiteInfo,
-    TestSuiteUpdater,
-    fetchTestSuiteInfo,
-} from "@autonoma/test-updates";
-import type { AnalysisTestOrigin } from "@autonoma/types";
+import { type TestSuiteInfo, TestSuiteUpdater, fetchTestSuiteInfo } from "@autonoma/test-updates";
 import type { AnalysisInvestigationTarget } from "@autonoma/workflow/activities";
 import { createGithubApp } from "../create-services";
 import { type BranchData, loadBranchData, loadDiffsContext } from "./load-context";
+import { type AgentSelection, materializeSelection } from "./materialize-selection";
 import { EMPTY_MERGE_FLOW_RESULT, type MergeFlowResult, runMergeFlow } from "./merge-flow";
+import { resolveTargets } from "./resolve-targets";
 import { reverifyOpenIssues } from "./reverify-issues";
 import { runDiffsAgent } from "./run-diffs-agent";
-
-/**
- * Why a newly-authored test is in the run set - passed to the classifier as context. The DiffsAgent authors it
- * as a COMPLETE plan for functionality this PR adds, so the run confirms the app supports the scenario it covers.
- */
-const NEW_TEST_REASON =
-    "New test authored by Impact Analysis for functionality this PR adds - run it to confirm the app supports the scenario it covers.";
 
 export interface SelectImpactTargetsParams {
     /** The run's own snapshot the pipeline operates on. */
@@ -179,16 +167,6 @@ async function absorbMergedBranchWork({
     return result;
 }
 
-interface AgentSelection {
-    /** The DiffsAgent's overall summary of what the diff affects and why - the selection reasoning. */
-    reasoning: string;
-    affectedTests: { slug: string; reasoning: string }[];
-    createdTests: { name: string; description: string; plan: string; folderName: string; scenarioId?: string }[];
-    flowFolderId(folderName: string): string | undefined;
-    /** slug -> testCaseId for the tests this snapshot assigns (affected tests are among these). */
-    testCaseIdBySlug: Map<string, string>;
-}
-
 /**
  * Build the DiffsAgent input from the snapshot's suite - read AFTER the merge flow applied, so it already carries
  * the imported plans and no longer carries the propagated deletions - and run the agent.
@@ -244,7 +222,11 @@ async function runSelection({
 
     return {
         reasoning: result.reasoning,
-        affectedTests: result.affectedTests.map((test) => ({ slug: test.slug, reasoning: test.reasoning })),
+        affectedTests: result.affectedTests.map((test) => ({
+            slug: test.slug,
+            reasoning: test.reasoning,
+            affectedReason: test.affectedReason,
+        })),
         createdTests: result.createdTests.map((test) => ({
             name: test.name,
             description: test.description,
@@ -255,110 +237,6 @@ async function runSelection({
         flowFolderId: (folderName) => metadata.flowIndex.getFlow(folderName)?.id,
         testCaseIdBySlug: new Map(suiteInfo.testCases.map((testCase) => [testCase.slug, testCase.id])),
     };
-}
-
-/** One queued generation the stage is responsible for, before it is resolved to an Investigator target. */
-interface MaterializedTarget {
-    generationId: string;
-    reason: string;
-    origin: AnalysisTestOrigin;
-}
-
-/** Materialize the agent's selection on the run's own snapshot via the update actions. */
-async function materializeSelection({
-    updater,
-    agentResult,
-    logger,
-}: {
-    updater: TestSuiteUpdater;
-    agentResult: AgentSelection;
-    logger: Logger;
-}): Promise<MaterializedTarget[]> {
-    const materialized: MaterializedTarget[] = [];
-
-    // New tests first (AddTest mints test case + plan + assignment + queues a generation). Tagged `proposed` because
-    // the TestCase exists only for this run, which is what makes its finding read as an added test.
-    for (const test of agentResult.createdTests) {
-        const folderId = agentResult.flowFolderId(test.folderName);
-        if (folderId == null) throw new Error(`Folder "${test.folderName}" not found for authored test "${test.name}"`);
-        const { generationId } = await updater.apply(
-            new AddTest({
-                name: test.name,
-                description: test.description,
-                plan: test.plan,
-                folderId,
-                scenarioId: test.scenarioId,
-            }),
-        );
-        materialized.push({ generationId, reason: NEW_TEST_REASON, origin: "proposed" });
-    }
-
-    // Affected tests (RegenerateSteps clears the pinned plan's steps + queues a generation to regenerate them).
-    // Tagged `pre_existing` because the TestCase is a real suite member this PR's diff affected.
-    for (const affected of agentResult.affectedTests) {
-        const testCaseId = agentResult.testCaseIdBySlug.get(affected.slug);
-        if (testCaseId == null) {
-            logger.warn("Affected test is not in the snapshot's suite; skipping", { extra: { slug: affected.slug } });
-            continue;
-        }
-        const generationId = await updater.apply(new RegenerateSteps({ testCaseId }));
-        materialized.push({ generationId, reason: affected.reasoning, origin: "pre_existing" });
-    }
-
-    return materialized;
-}
-
-/** Resolve each materialized generation to its test + scenario + architecture (one read), keeping web targets. */
-async function resolveTargets(
-    materialized: MaterializedTarget[],
-    logger: Logger,
-): Promise<AnalysisInvestigationTarget[]> {
-    if (materialized.length === 0) {
-        logger.info("Impact Analysis materialized no targets");
-        return [];
-    }
-
-    const rows = await db.testGeneration.findMany({
-        where: { id: { in: materialized.map((entry) => entry.generationId) } },
-        select: {
-            id: true,
-            testPlan: {
-                select: {
-                    scenario: { select: { id: true } },
-                    testCase: { select: { id: true, slug: true, application: { select: { architecture: true } } } },
-                },
-            },
-        },
-    });
-    const rowById = new Map(rows.map((row) => [row.id, row]));
-
-    const targets: AnalysisInvestigationTarget[] = [];
-    for (const entry of materialized) {
-        const row = rowById.get(entry.generationId);
-        if (row == null) {
-            // A generation this stage queued is gone, so its test silently leaves the run set. The run set is deduped
-            // so that nothing here replaces another's generation: reaching this means something else deleted it.
-            logger.warn("Dropping a target whose generation is gone", {
-                extra: { generationId: entry.generationId },
-            });
-            continue;
-        }
-        if (row.testPlan.testCase.application.architecture !== "WEB") {
-            logger.info("Skipping non-web target - the Investigator runs web generations only", {
-                extra: { slug: row.testPlan.testCase.slug },
-            });
-            continue;
-        }
-        targets.push({
-            slug: row.testPlan.testCase.slug,
-            testCaseId: row.testPlan.testCase.id,
-            testGenerationId: entry.generationId,
-            scenarioId: row.testPlan.scenario?.id,
-            reason: entry.reason,
-            origin: entry.origin,
-        });
-    }
-    return targets;
 }
 
 /** The distinct scenario ids the suite's plans reference (for point-in-time recipe resolution). */

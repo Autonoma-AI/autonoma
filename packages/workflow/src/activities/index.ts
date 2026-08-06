@@ -45,6 +45,7 @@ export type {
     AnalysisCandidateClassification,
     OpenAnalysisRunInput,
     OpenAnalysisRunOutput,
+    OpenAnalysisSkipReason,
     OpenMergeGateInput,
     OpenMergeGateOutput,
     RunImpactAnalysisInput,

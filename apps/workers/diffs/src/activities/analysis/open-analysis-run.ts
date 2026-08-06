@@ -1,7 +1,11 @@
-import { db } from "@autonoma/db";
+import { ApplicationArchitecture, db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { resolveAnalysisBase, startAnalysisRun } from "@autonoma/test-updates";
-import type { OpenAnalysisRunInput, OpenAnalysisRunOutput } from "@autonoma/workflow/activities";
+import type {
+    OpenAnalysisRunInput,
+    OpenAnalysisRunOutput,
+    OpenAnalysisSkipReason,
+} from "@autonoma/workflow/activities";
 
 const logger = rootLogger.child({ name: "openAnalysisRun" });
 
@@ -19,6 +23,17 @@ export async function openAnalysisRun(input: OpenAnalysisRunInput): Promise<Open
     const { branchId, headSha } = input;
     logger.info("Opening the analysis run", { branch: { branchId }, extra: { headSha } });
 
+    // Asked before anything is created: an application no run can say anything about is refused here rather than
+    // aborting midway, once the AnalysisJob, the snapshot and a clone already exist.
+    const unsupported = await findUnsupportedReason(branchId);
+    if (unsupported != null) {
+        logger.info("Run skipped: the application can produce no test work", {
+            branch: { branchId },
+            extra: { reason: unsupported },
+        });
+        return { skipped: true, reason: unsupported };
+    }
+
     const { baseSha, alreadyAnalyzed } = await resolveAnalysisBase({
         db,
         branchId,
@@ -31,7 +46,7 @@ export async function openAnalysisRun(input: OpenAnalysisRunInput): Promise<Open
     // rather than suppressing the run outright.
     if (alreadyAnalyzed) {
         logger.info("Run skipped: head already analyzed", { branch: { branchId } });
-        return { skipped: true };
+        return { skipped: true, reason: "already_analyzed" };
     }
     if (baseSha == null) throw new NoAnalysisBaseError(branchId);
 
@@ -39,4 +54,18 @@ export async function openAnalysisRun(input: OpenAnalysisRunInput): Promise<Open
 
     logger.info("Analysis run opened", { snapshot: { snapshotId } });
     return { skipped: false, snapshotId };
+}
+
+/** The branch's application, when it is one no analysis run could reach a verdict on. */
+async function findUnsupportedReason(branchId: string): Promise<OpenAnalysisSkipReason | undefined> {
+    const branch = await db.branch.findUniqueOrThrow({
+        where: { id: branchId },
+        select: { application: { select: { architecture: true, _count: { select: { folders: true } } } } },
+    });
+
+    if (branch.application.architecture !== ApplicationArchitecture.WEB) return "unsupported_architecture";
+    // A TestCase requires a folder, so no folders means no suite to draw affected tests from AND nowhere for the
+    // agent to author a new one - every run would reach the same predetermined empty selection.
+    if (branch.application._count.folders === 0) return "no_test_folders";
+    return undefined;
 }

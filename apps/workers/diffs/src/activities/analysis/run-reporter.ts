@@ -332,14 +332,25 @@ async function persistReporterResult(
     impactReasoning: string | undefined,
     logger: Logger,
 ): Promise<RunReporterOutput> {
-    const [snapshot, findingCategories] = await Promise.all([
+    const [snapshot, findingCategories, queuedTestCount] = await Promise.all([
         db.branchSnapshot.findUnique({
             where: { id: snapshotId },
             select: { branchId: true, branch: { select: { organizationId: true } } },
         }),
         loadFindingCategories(snapshotId),
+        countQueuedTests(snapshotId),
     ]);
     if (snapshot == null) throw new Error(`Snapshot ${snapshotId} not found; cannot persist the reporter result`);
+    // Every queued test is guaranteed a verdict - a crashed Investigator is contained as an `engine_artifact` finding
+    // by its parent, and that persist is per-target and swallowed on failure. Fewer verdicts than queued tests
+    // therefore means containment lost one, and the report would read as a clean verdict over a test that never ran.
+    // One-directional: a finding can outlive the generation that produced it (an earlier iteration's, or a test the
+    // run removed), so MORE verdicts than queued tests is normal.
+    if (queuedTestCount > findingCategories.length) {
+        throw new Error(
+            `Snapshot ${snapshotId} queued ${queuedTestCount} test(s) but only ${findingCategories.length} produced a verdict; refusing to write a report`,
+        );
+    }
     const { branchId } = snapshot;
     const organizationId = snapshot.branch.organizationId;
 
@@ -425,6 +436,18 @@ async function loadFindingCategories(snapshotId: string): Promise<string[]> {
         select: { currentClassification: { select: { category: true } } },
     });
     return rows.flatMap((row) => (row.currentClassification == null ? [] : [row.currentClassification.category]));
+}
+
+/**
+ * How many distinct tests this run queued work for. Counted by test case rather than by generation because the
+ * self-heal loop runs a fresh generation per iteration, so one test can hold several.
+ */
+async function countQueuedTests(snapshotId: string): Promise<number> {
+    const generations = await db.testGeneration.findMany({
+        where: { snapshotId },
+        select: { testPlan: { select: { testCaseId: true } } },
+    });
+    return new Set(generations.map((generation) => generation.testPlan.testCaseId)).size;
 }
 
 /** The branch's open bug-kind issues - the count that drives the verdict. */

@@ -9,6 +9,7 @@ import type {
     ClassifyInvestigationRunInput,
     InvestigationTestResult,
     LaunchPreviewBuildInput,
+    OpenAnalysisSkipReason,
     PreviewBuildWarrantReason,
     PreviewkitActivities,
     ReadPreviewBuildStatusOutput,
@@ -48,6 +49,7 @@ interface Harness {
     targets: AnalysisInvestigationTarget[];
     impactError?: Error;
     snapshotSkipped: boolean;
+    snapshotSkipReason: OpenAnalysisSkipReason;
     snapshotError?: Error;
     /** Blocks impact analysis until the build launches, so a serial flow deadlocks rather than passing. */
     impactWaitsForBuild: boolean;
@@ -77,6 +79,7 @@ const harness: Harness = {
     onboardingComplete: true,
     targets: [],
     snapshotSkipped: false,
+    snapshotSkipReason: "already_analyzed",
     impactWaitsForBuild: false,
     impactBlocksUntilCancelled: false,
     buildLaunches: [],
@@ -169,7 +172,8 @@ const analysisActivities: AnalysisActivities = {
     async openAnalysisRun() {
         harness.events.push("snapshot");
         if (harness.snapshotError != null) throw harness.snapshotError;
-        return harness.snapshotSkipped ? { skipped: true } : { skipped: false, snapshotId: SNAPSHOT_ID };
+        if (harness.snapshotSkipped) return { skipped: true, reason: harness.snapshotSkipReason };
+        return { skipped: false, snapshotId: SNAPSHOT_ID };
     },
     async openMergeGate() {
         return { status: "skipped" };
@@ -320,6 +324,7 @@ beforeEach(() => {
     harness.targets = [];
     harness.impactError = undefined;
     harness.snapshotSkipped = false;
+    harness.snapshotSkipReason = "already_analyzed";
     harness.snapshotError = undefined;
     harness.impactWaitsForBuild = false;
     harness.impactBlocksUntilCancelled = false;
@@ -527,6 +532,33 @@ describe("analysisRunWorkflow build gate", () => {
         expect(await buildWasStarted()).toBe(false);
         expect(harness.settlements).toEqual([]);
         expect(skipReports()).toEqual(["no_test_work"]);
+    });
+
+    // An application no run can reach a verdict on has no earlier verdict to honour, so the already-judged rebuild
+    // path must not run for it - `buildStatus: superseded` would otherwise rebuild.
+    it("does not rebuild when the application can produce no test work", async () => {
+        harness.snapshotSkipped = true;
+        harness.snapshotSkipReason = "no_test_folders";
+        harness.buildStatus = { state: "superseded" };
+
+        await runToCompletion();
+
+        expect(await buildWasStarted()).toBe(false);
+        expect(harness.settlements).toEqual([]);
+    });
+
+    // Being untestable must not cost the customer the refresh they are entitled to: the eager build is a child with
+    // REQUEST_CANCEL, so returning without it would kill the build the warrant already promised.
+    it("waits for the eager build when the application can produce no test work", async () => {
+        harness.everBuilt = true;
+        harness.snapshotSkipped = true;
+        harness.snapshotSkipReason = "no_test_folders";
+
+        await runToCompletion();
+
+        const build = await env.client.workflow.getHandle(currentBuildId).describe();
+        expect(build.status.name).toBe("COMPLETED");
+        expect(harness.settlements).toEqual([]);
     });
 
     // A build that never comes up must fail the run: Investigators with no environment report engine artifacts.

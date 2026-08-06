@@ -231,11 +231,22 @@ export interface OpenAnalysisRunInput {
 }
 
 /**
- * `skipped` when the head was already analyzed (a re-delivered trigger, or a redeploy of an unchanged commit):
- * there is no selection to make and no run to settle. A previewkit run still builds for it - the customer asked
- * for a fresh preview of a commit we have already judged.
+ * Why no run was opened.
+ *
+ * - `already_analyzed`: a re-delivered trigger, or a redeploy of an unchanged commit. Transient, and a previewkit run
+ *   still builds for it - the customer asked for a fresh preview of a commit we have already judged.
+ * - `unsupported_architecture`: the Investigator runs web generations only.
+ * - `no_test_folders`: a new test can only be placed in a folder that exists, so an application with none can produce
+ *   no test work at all - neither an affected test to re-run nor a new one to author.
+ *
+ * The last two are properties of the application that no run can change, so no build is restarted for them.
  */
-export type OpenAnalysisRunOutput = { skipped: true } | { skipped: false; snapshotId: string };
+export type OpenAnalysisSkipReason = "already_analyzed" | "unsupported_architecture" | "no_test_folders";
+
+/** A skipped run has no selection to make and no AnalysisJob to settle. */
+export type OpenAnalysisRunOutput =
+    | { skipped: true; reason: OpenAnalysisSkipReason }
+    | { skipped: false; snapshotId: string };
 
 /** A serializable verdict, structurally assignable from the classifier's own `RunVerdict`. */
 export interface InvestigationEvidence {

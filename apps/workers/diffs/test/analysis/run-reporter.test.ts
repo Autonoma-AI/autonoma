@@ -384,5 +384,81 @@ integrationTestSuite({
             const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
             expect(report?.impactReasoning).toBe("The diff touches checkout.");
         });
+
+        test("writes a report when the run queued nothing at all", async ({ harness }) => {
+            const run = await harness.seedRun([]);
+
+            const result = await runReporter(
+                { snapshotId: run.snapshotId, impactReasoning: "Documentation only." },
+                {
+                    produceResult: fixedResult({
+                        reportMarkdown: "## Report",
+                        reportEvidenceManifest: [],
+                        summary: "Nothing here needed testing.",
+                        issues: [],
+                    }),
+                },
+            );
+
+            expect(result.verdict).toBe("passed");
+            const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
+            expect(report?.testCount).toBe(0);
+        });
+
+        // Containment is persisted per target and swallowed on failure, so a run can lose ONE verdict and still have
+        // others - the guard has to compare counts, not just catch the all-or-nothing case.
+        test("refuses to write a report when one of several queued tests produced no verdict", async ({ harness }) => {
+            const run = await harness.seedRun([{ slug: "checkout", category: "passed" }]);
+            await seedGenerationForSlug(harness.db, {
+                applicationId: run.applicationId,
+                organizationId: run.organizationId,
+                snapshotId: run.snapshotId,
+                slug: "search",
+            });
+
+            await expect(
+                runReporter(
+                    { snapshotId: run.snapshotId },
+                    {
+                        produceResult: fixedResult({
+                            reportMarkdown: "## Report",
+                            reportEvidenceManifest: [],
+                            summary: "Everything held up.",
+                            issues: [],
+                        }),
+                    },
+                ),
+            ).rejects.toThrow(/queued 2 test\(s\) but only 1/);
+
+            const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
+            expect(report).toBeNull();
+        });
+
+        test("refuses to write a report when a queued test produced no verdict", async ({ harness }) => {
+            const run = await harness.seedRun([]);
+            await seedGenerationForSlug(harness.db, {
+                applicationId: run.applicationId,
+                organizationId: run.organizationId,
+                snapshotId: run.snapshotId,
+                slug: "checkout",
+            });
+
+            await expect(
+                runReporter(
+                    { snapshotId: run.snapshotId },
+                    {
+                        produceResult: fixedResult({
+                            reportMarkdown: "## Report",
+                            reportEvidenceManifest: [],
+                            summary: "Nothing ran.",
+                            issues: [],
+                        }),
+                    },
+                ),
+            ).rejects.toThrow(/queued 1 test/);
+
+            const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
+            expect(report).toBeNull();
+        });
     },
 });
