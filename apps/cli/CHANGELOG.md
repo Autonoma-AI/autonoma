@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.1.25](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.24...cli-v0.1.25) (2026-08-06)
+
+
+### Features
+
+* **cli:** formbricks SDK-integration eval case ([#2033](https://github.com/Autonoma-AI/agent/issues/2033)) ([88465d2](https://github.com/Autonoma-AI/agent/commit/88465d28aae25f1935fcd3d59f5c0a2373050986))
+* **cli:** hand the SDK and dry run back to an agent when they do not pass ([#2222](https://github.com/Autonoma-AI/agent/issues/2222)) ([6f3e41f](https://github.com/Autonoma-AI/agent/commit/6f3e41fab6cf11c661e491e68779c1e724ca51d3))
+* **cli:** let the agent check its recipe and prove it survives concurrent runs ([#2191](https://github.com/Autonoma-AI/agent/issues/2191)) ([446aead](https://github.com/Autonoma-AI/agent/commit/446aead437fd2ebe87b12838aa560e3013369971))
+* **cli:** make the unattended path expressible and legible ([#2176](https://github.com/Autonoma-AI/agent/issues/2176)) ([d2d1443](https://github.com/Autonoma-AI/agent/commit/d2d144307fade3e106f1d841a7ec60ef4ecd627c))
+* **cli:** read onboarding state and mint pairing codes ([#2160](https://github.com/Autonoma-AI/agent/issues/2160)) ([52786d8](https://github.com/Autonoma-AI/agent/commit/52786d8dc9c335f1b15ea776086d44cd147eb059))
+* **cli:** register the onboarding MCP with the agent it spawns ([#2161](https://github.com/Autonoma-AI/agent/issues/2161)) ([8951d46](https://github.com/Autonoma-AI/agent/commit/8951d464ff423c85fa6dcb28f1b74e0a6ddd71c0))
+* **cli:** set up the preview environment before the pipeline ([#2169](https://github.com/Autonoma-AI/agent/issues/2169)) ([7b26a25](https://github.com/Autonoma-AI/agent/commit/7b26a25ecdfec60652a6ce225d2330d7bf69bb07))
+* **cli:** the run proves the scenarios before it calls itself done ([#2175](https://github.com/Autonoma-AI/agent/issues/2175)) ([8a31784](https://github.com/Autonoma-AI/agent/commit/8a317844f4b8926a56ca9fe508d238e626972412))
+* **ui:** hand finish setup to the agent that is doing it ([#2177](https://github.com/Autonoma-AI/agent/issues/2177)) ([c8f6ed2](https://github.com/Autonoma-AI/agent/commit/c8f6ed2827e425aee4be99dfe1064478e99cd39d))
+
+
+### Bug Fixes
+
+* **cli:** choose an agent headlessly instead of skipping the preview ([#2209](https://github.com/Autonoma-AI/agent/issues/2209)) ([3d7cf21](https://github.com/Autonoma-AI/agent/commit/3d7cf214f712ab8bc29bf7319927495306dec960))
+* **cli:** make the completion-watch cleanup test deterministic ([#2190](https://github.com/Autonoma-AI/agent/issues/2190)) ([fb40807](https://github.com/Autonoma-AI/agent/commit/fb408072bea3884a337114941aa25264d8a4028b))
+* **cli:** make the preview handoff survive a real run ([#2171](https://github.com/Autonoma-AI/agent/issues/2171)) ([daf554a](https://github.com/Autonoma-AI/agent/commit/daf554ab56dc3eabd2638f861252875a2b1e7508))
+* **cli:** pick the dry-run preview by the branch the repo is on ([#2208](https://github.com/Autonoma-AI/agent/issues/2208)) ([97f6484](https://github.com/Autonoma-AI/agent/commit/97f6484cc98269b9c17d6c70cd55013d25704e31))
+* **cli:** take the app live itself instead of leaving it to the agent ([#2218](https://github.com/Autonoma-AI/agent/issues/2218)) ([f860f42](https://github.com/Autonoma-AI/agent/commit/f860f4202e5fed13fdad394508f9ae83a274bf8b))
+
 ## [0.1.24](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.23...cli-v0.1.24) (2026-07-31)
 
 
