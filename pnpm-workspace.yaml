@@ -100,5 +100,16 @@ minimumReleaseAgeExclude:
   - undici@6.28.0 || 7.29.0
   - ip-address@10.2.1 || 10.2.2 || 10.3.1
 
+overrides:
+  '@hono/node-server@<2.0.5': ^2.0.5
+  '@opentelemetry/core@<2.8.0': ^2.8.0
+  fast-xml-parser@<5.7.0: ^5.7.0
+  fast-xml-parser@>=5.0.0 <5.3.8: ^5.3.8
+  fast-xml-parser@>=5.0.0 <5.5.6: ^5.5.6
+  fast-xml-parser@>=5.0.0 <5.5.7: ^5.5.7
+  find-my-way@<=9.6.0: ^9.6.1
+  uuid@<11.1.1: ^11.1.1
+  valibot@<=1.4.1: ^1.4.2
+
 patchedDependencies:
   ink@7.1.1: patches/ink@7.1.1.patch
