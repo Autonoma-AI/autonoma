@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.260806.1](https://github.com/Autonoma-AI/agent/compare/v1.260805.2...v1.260806.1) (2026-08-06)
+
+
+### Features
+
+* **api:** instrument the Vercel onboarding funnel in PostHog ([#2181](https://github.com/Autonoma-AI/agent/issues/2181)) ([3527c96](https://github.com/Autonoma-AI/agent/commit/3527c96d52f9ebdfa68f9d73e39c7631614d6f5c))
+* **cli:** hand the SDK and dry run back to an agent when they do not pass ([#2222](https://github.com/Autonoma-AI/agent/issues/2222)) ([6f3e41f](https://github.com/Autonoma-AI/agent/commit/6f3e41fab6cf11c661e491e68779c1e724ca51d3))
+* **cli:** let the agent check its recipe and prove it survives concurrent runs ([#2191](https://github.com/Autonoma-AI/agent/issues/2191)) ([446aead](https://github.com/Autonoma-AI/agent/commit/446aead437fd2ebe87b12838aa560e3013369971))
+* **cli:** make the unattended path expressible and legible ([#2176](https://github.com/Autonoma-AI/agent/issues/2176)) ([d2d1443](https://github.com/Autonoma-AI/agent/commit/d2d144307fade3e106f1d841a7ec60ef4ecd627c))
+* **cli:** the run proves the scenarios before it calls itself done ([#2175](https://github.com/Autonoma-AI/agent/issues/2175)) ([8a31784](https://github.com/Autonoma-AI/agent/commit/8a317844f4b8926a56ca9fe508d238e626972412))
+* **deployment:** Karpenter, External Secrets and ARC for the cluster ([#2162](https://github.com/Autonoma-AI/agent/issues/2162)) ([7f6a34e](https://github.com/Autonoma-AI/agent/commit/7f6a34ee5b6d7a5b2b1c301d80f55feca8a4a23e))
+* **ui:** hand finish setup to the agent that is doing it ([#2177](https://github.com/Autonoma-AI/agent/issues/2177)) ([c8f6ed2](https://github.com/Autonoma-AI/agent/commit/c8f6ed2827e425aee4be99dfe1064478e99cd39d))
+
+
+### Bug Fixes
+
+* **analysis:** don't open a run for a preview the customer has not deployed ([#2215](https://github.com/Autonoma-AI/agent/issues/2215)) ([ec0fab5](https://github.com/Autonoma-AI/agent/commit/ec0fab53a0a7ff5888a8387cc32deabdf0a93f2f))
+* **api:** don't skip an unlinked repo's preview when gating on onboarding choice ([#2219](https://github.com/Autonoma-AI/agent/issues/2219)) ([105455d](https://github.com/Autonoma-AI/agent/commit/105455d940488aa50bc3f24a2984279791ee4017))
+* **cli:** choose an agent headlessly instead of skipping the preview ([#2209](https://github.com/Autonoma-AI/agent/issues/2209)) ([3d7cf21](https://github.com/Autonoma-AI/agent/commit/3d7cf214f712ab8bc29bf7319927495306dec960))
+* **cli:** pick the dry-run preview by the branch the repo is on ([#2208](https://github.com/Autonoma-AI/agent/issues/2208)) ([97f6484](https://github.com/Autonoma-AI/agent/commit/97f6484cc98269b9c17d6c70cd55013d25704e31))
+* **cli:** take the app live itself instead of leaving it to the agent ([#2218](https://github.com/Autonoma-AI/agent/issues/2218)) ([f860f42](https://github.com/Autonoma-AI/agent/commit/f860f4202e5fed13fdad394508f9ae83a274bf8b))
+* **platform:** allow previewkit VPC ingress to Loki ([#2188](https://github.com/Autonoma-AI/agent/issues/2188)) ([a99a52f](https://github.com/Autonoma-AI/agent/commit/a99a52f313f22782af89f4e2f4441c13727b321a))
+* **ui:** address the right Autonoma, and the right application ([#2216](https://github.com/Autonoma-AI/agent/issues/2216)) ([57dcbdc](https://github.com/Autonoma-AI/agent/commit/57dcbdc8570dd9fd3152282962d9f6177a03a5c6))
+* **ui:** let the agent advance onboarding instead of asking the user to ([#2212](https://github.com/Autonoma-AI/agent/issues/2212)) ([aa6a03c](https://github.com/Autonoma-AI/agent/commit/aa6a03c95d65656ed58c2603db88785623ab2f4f))
+* **ui:** make the copied command paste safely into any shell ([#2220](https://github.com/Autonoma-AI/agent/issues/2220)) ([44a06df](https://github.com/Autonoma-AI/agent/commit/44a06dfc8bb10b3cc9c22ac5ec3f8d83c80667e0))
+* **ui:** spin the outstanding rows on the agent finish-setup screen ([#2211](https://github.com/Autonoma-AI/agent/issues/2211)) ([9c2dffb](https://github.com/Autonoma-AI/agent/commit/9c2dffb7ff7c85e32bcfb3ace14afeae58b0ce4b))
+
 ## [1.260805.2](https://github.com/Autonoma-AI/agent/compare/v1.260805.1...v1.260805.2) (2026-08-05)
 
 
