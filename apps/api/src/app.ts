@@ -1,7 +1,7 @@
 import { AI_CATALOG_PATH, aiCatalog, aiCatalogLinkHeader, llmsTxt } from "@autonoma/agent-guidance";
-import { analytics } from "@autonoma/analytics";
+import { analytics, withPostHogSession } from "@autonoma/analytics";
 import { logger } from "@autonoma/logger";
-import { isPreviewOrigin } from "@autonoma/types";
+import { isPreviewOrigin, POSTHOG_SESSION_HEADER } from "@autonoma/types";
 import * as Sentry from "@sentry/node";
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from "better-auth/plugins";
@@ -46,7 +46,10 @@ const corsOptions = {
     },
     credentials: true,
     // `Last-Event-ID` is sent by the SSE client (fetch-event-source) on reconnect.
-    allowHeaders: ["Content-Type", "Authorization", "Last-Event-ID"],
+    // The PostHog session header must be listed or the browser's preflight fails
+    // and every cross-origin tRPC call from a preview environment breaks - the
+    // allow-list is matched literally, unlike `Headers.get`.
+    allowHeaders: ["Content-Type", "Authorization", "Last-Event-ID", POSTHOG_SESSION_HEADER],
 };
 
 export function createApiApp() {
@@ -60,6 +63,13 @@ export function createApiApp() {
         await next();
         c.header("Link", aiCatalogLinkHeader(), { append: true });
     });
+
+    // Binds the browser's PostHog session id for the whole request, so any event
+    // captured while serving it carries `$session_id` and resolves to that
+    // session's recording. Registered before every route, because Hono runs
+    // handlers in registration order and a route handler ends the chain. A
+    // request without the header (a job, a Vercel callback, curl) runs unbound.
+    app.use("*", (c, next) => withPostHogSession(c.req.header(POSTHOG_SESSION_HEADER), next));
 
     app.use("*", async (c, next) =>
         Sentry.withScope(async (scope) => {

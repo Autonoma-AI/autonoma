@@ -1,5 +1,5 @@
 import type { AppRouter } from "@autonoma/api/router";
-import { isPreviewHostname } from "@autonoma/types";
+import { isPreviewHostname, POSTHOG_SESSION_HEADER } from "@autonoma/types";
 import * as Sentry from "@sentry/react";
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { createTRPCClient, httpBatchLink, httpLink, splitLink } from "@trpc/client";
@@ -72,9 +72,24 @@ export const queryClient = new QueryClient({
 
 const isPreviewEnvironment = isPreviewHostname(window.location.hostname, env.VITE_INTERNAL_DOMAIN);
 
+/**
+ * Sends the browser's PostHog session id so events the API captures while
+ * serving the request resolve to this session's recording - the difference
+ * between knowing an onboarding step failed and being able to watch someone hit
+ * it. Mirrors what the CLI already does with its run id.
+ *
+ * `get_session_id()` answers `""` before `posthog.init` (dev, or no key), so the
+ * header is simply omitted there rather than sent empty.
+ */
+function analyticsHeaders(): Record<string, string> {
+    const sessionId = posthog.get_session_id();
+    return sessionId !== "" ? { [POSTHOG_SESSION_HEADER]: sessionId } : {};
+}
+
 const linkOptions = {
     url: isPreviewEnvironment ? `${env.VITE_API_URL}/v1/trpc` : "/v1/trpc",
     transformer: superjson,
+    headers: analyticsHeaders,
     ...(isPreviewEnvironment && {
         fetch: (url: RequestInfo | URL, options?: RequestInit) => fetch(url, { ...options, credentials: "include" }),
     }),
