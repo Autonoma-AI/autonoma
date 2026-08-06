@@ -150,8 +150,9 @@ the changes loose in your working tree. When it reports the session complete, th
 the recipe it produced and continues to test generation.
 
 - `--agent <name>` - preselect the agent to hand off to (`claude` or `codex`). Omit to auto-detect;
-  if both are installed you're prompted to pick, and headless - where there is nobody to ask - the
-  first is used and named in a warning.
+  if both are installed you're prompted to pick once and that choice is remembered for later runs
+  (in `~/.autonoma/preferences.json`), and headless - where there is nobody to ask - the first is
+  used and named in a warning. The flag always wins over what was remembered.
 - `--permission-mode <mode>` - how much autonomy the agent runs with: `default` (approve each
   command), `acceptEdits` (auto-edit files, approve commands), or `bypassPermissions` (fully
   autonomous, the default). Both the agent and the mode you pick are persisted for `--resume`. For

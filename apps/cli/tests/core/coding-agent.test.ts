@@ -14,6 +14,16 @@ vi.mock("../../src/ui/prompts", () => ({
 const spawnMock = vi.fn();
 vi.mock("cross-spawn", () => ({ default: (...args: unknown[]) => spawnMock(...args) }));
 
+let storedAgentId: string | undefined;
+const savedPreferences: { agentId?: string }[] = [];
+vi.mock("../../src/core/preferences", () => ({
+    readPreferences: () => Promise.resolve(storedAgentId == null ? {} : { agentId: storedAgentId }),
+    updatePreferences: (update: { agentId?: string }) => {
+        savedPreferences.push(update);
+        return Promise.resolve();
+    },
+}));
+
 import {
     buildAllLaunchers,
     ClaudeLauncher,
@@ -87,6 +97,8 @@ function restoreTerminalDetection(): void {
 
 beforeEach(() => {
     withTerminal(true);
+    storedAgentId = undefined;
+    savedPreferences.length = 0;
     selectMock.mockReset();
     spawnCalls = [];
     exitCodes = new Map();
@@ -149,6 +161,53 @@ describe("selectLauncher", () => {
         // so it's used without a prompt.
         const launcher = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", false)], "codex");
         expect(launcher?.id).toBe("claude");
+    });
+
+    // Which coding agent someone uses is a fact about their machine, not about the
+    // repository they happen to be in - so asking again in the next one asks a
+    // question they have already answered.
+    test("uses the agent picked last time instead of asking again", async () => {
+        storedAgentId = "codex";
+
+        const launcher = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", true)]);
+
+        expect(launcher?.id).toBe("codex");
+        expect(selectMock).not.toHaveBeenCalled();
+    });
+
+    // A flag is this run's instruction; a remembered choice is a standing one.
+    test("lets --agent override what was remembered", async () => {
+        storedAgentId = "codex";
+
+        const launcher = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", true)], "claude");
+
+        expect(launcher?.id).toBe("claude");
+    });
+
+    test("falls back to the picker when the remembered agent is gone", async () => {
+        storedAgentId = "codex";
+        selectMock.mockResolvedValue("claude");
+
+        const launcher = await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", false)]);
+
+        expect(launcher?.id).toBe("claude");
+    });
+
+    test("remembers a deliberate pick", async () => {
+        selectMock.mockResolvedValue("codex");
+
+        await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", true)]);
+
+        expect(savedPreferences).toEqual([{ agentId: "codex" }]);
+    });
+
+    // Storing these would answer a question nobody was asked - and answer it wrongly
+    // the moment a second agent is installed.
+    test("does not remember a choice it made on the user's behalf", async () => {
+        await selectLauncher([fakeLauncher("claude", true)]);
+        await selectLauncher([fakeLauncher("claude", true), fakeLauncher("codex", true)], undefined, false);
+
+        expect(savedPreferences).toEqual([]);
     });
 
     // Headless has nobody to ask by definition, so a refusal here would cost the run

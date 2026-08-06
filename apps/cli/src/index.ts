@@ -175,15 +175,42 @@ async function resolveScopeSelection(
  * frontend pick; the flow can only move forward or back, never abort the run.
  */
 async function promptScopeSelection(map: ProjectMap): Promise<ScopeSelection> {
+    // A question with one answer is not a question. A monolith has exactly one of
+    // each, and asking someone to pick it off a list of one is a step that only ever
+    // has the outcome the CLI already knew. Announced rather than silent, so the run
+    // still says what it is planning against.
+    const onlyFrontend = map.frontends.length === 1 ? map.frontends[0] : undefined;
+    const onlyBackend = map.backends.length === 1 ? map.backends[0] : undefined;
+    if (onlyFrontend != null) {
+        p.log.info(`Planning tests for ${onlyFrontend.path} [${onlyFrontend.framework}] - the only frontend found.`);
+        if (map.backends.length === 0) return { frontend: onlyFrontend.path, backends: [] };
+        if (onlyBackend != null) {
+            p.log.info(`Using ${onlyBackend.path} - the only backend found.`);
+            return { frontend: onlyFrontend.path, backends: [onlyBackend.path] };
+        }
+    }
+
     while (true) {
-        const frontend = await p.select({
-            message: "Which frontend do you want to plan tests for?",
-            detail: "One frontend per run - the whole test suite is planned against it.",
-            options: map.frontends.map((f) => ({ value: f.path, label: `${f.path}  [${f.framework}]`, hint: f.why })),
-        });
+        const frontend =
+            onlyFrontend?.path ??
+            (await p.select({
+                message: "Which frontend do you want to plan tests for?",
+                detail: "One frontend per run - the whole test suite is planned against it.",
+                options: map.frontends.map((f) => ({
+                    value: f.path,
+                    label: `${f.path}  [${f.framework}]`,
+                    hint: f.why,
+                })),
+            }));
         if (p.isCancel(frontend)) continue;
 
         if (map.backends.length === 0) return { frontend, backends: [] };
+        // One backend and several frontends: which frontend was a real question, which
+        // backend it talks to is not.
+        if (onlyBackend != null) {
+            p.log.info(`Using ${onlyBackend.path} - the only backend found.`);
+            return { frontend, backends: [onlyBackend.path] };
+        }
 
         // Resolve dependsOn through the same tolerant matcher the non-interactive path uses, so a
         // dependency named by its data-layer schema path still pre-checks its owning backend option

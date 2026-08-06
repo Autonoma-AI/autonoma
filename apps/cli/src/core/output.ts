@@ -3,7 +3,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { debugLog } from "./debug";
 
-const AUTONOMA_HOME = join(homedir(), ".autonoma");
+/**
+ * Everything this CLI keeps between runs. Per-project output lives in a directory
+ * under it; anything about the machine rather than a project sits alongside those.
+ */
+export const AUTONOMA_HOME = join(homedir(), ".autonoma");
 
 /** Probe file the writability check writes and removes. */
 const WRITE_PROBE_FILE = ".write-probe";

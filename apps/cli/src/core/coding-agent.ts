@@ -3,6 +3,7 @@ import spawn from "cross-spawn";
 import which from "which";
 import * as p from "../ui/prompts";
 import { debugLog } from "./debug";
+import { readPreferences, updatePreferences } from "./preferences";
 
 /** Ceiling on a client's own `mcp` subcommands, which talk to the server to health-check it. */
 const MCP_COMMAND_TIMEOUT_MS = 60_000;
@@ -453,10 +454,19 @@ export async function selectLauncher(
     const available = launchers.filter((_, i) => availability[i]);
     debugLog("Detected available agents", { available: available.map((l) => l.id), presetId, interactive });
 
-    if (presetId != null) {
-        const preset = available.find((l) => l.id === presetId);
-        if (preset != null) return preset;
-        p.log.warn(`Requested agent "${presetId}" is not installed or not supported.`);
+    // `--agent` first, then whatever was picked last time. A flag is this run's
+    // instruction and a remembered choice is a standing one, so the flag wins - and
+    // neither is trusted to still be installed, which is why both fall through.
+    const remembered = presetId ?? (await readPreferences()).agentId;
+    if (remembered != null) {
+        const preset = available.find((l) => l.id === remembered);
+        if (preset != null) {
+            if (presetId == null) p.log.info(`Using ${preset.label} - the agent you picked last time.`);
+            return preset;
+        }
+        // Only complain about a flag. A remembered agent that is no longer installed
+        // is not a mistake anyone made; it just falls through to the picker.
+        if (presetId != null) p.log.warn(`Requested agent "${presetId}" is not installed or not supported.`);
     }
 
     if (available.length === 0) return undefined;
@@ -486,6 +496,12 @@ export async function selectLauncher(
         options: available.map((l) => ({ value: l.id, label: l.label })),
     });
     if (p.isCancel(selected)) throw new Error("Agent selection cancelled");
+
+    // Remembered only here, where someone actually chose. The single-installed case
+    // above and the headless first-pick are decisions the CLI made on their behalf,
+    // and storing one would answer a question they were never asked - wrongly, the
+    // moment they install a second agent.
+    await updatePreferences({ agentId: selected });
     return available.find((l) => l.id === selected);
 }
 
