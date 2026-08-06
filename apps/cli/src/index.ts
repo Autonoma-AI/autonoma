@@ -17,7 +17,7 @@ import { describeDryRunOutcome } from "./core/dry-run-phase";
 import { formatException, describeKnownError, supportReference, isUserCancellation } from "./core/errors";
 import { describeFinishPhase, runFinishPhase, type FinishPhaseResult } from "./core/finish-phase";
 import { flushTelemetry } from "./core/flush-telemetry";
-import type { FrontDoorPlan } from "./core/front-door";
+import { runSdkRepairHandoff, type FrontDoorPlan } from "./core/front-door";
 import { KNOWN_FLAGS, renderHelp } from "./core/help";
 import { installInterruptHandler, installTerminationDiagnostics, restoreTerminal } from "./core/interrupt";
 import { captureLog } from "./core/logs";
@@ -591,17 +591,21 @@ function ensureAutonomaAuth(): boolean {
  */
 async function finishFrontDoorRun(
     frontDoor: FrontDoorPlan,
-    projectRoot: string,
+    config: ReturnType<typeof loadConfig>,
+    nonInteractive: boolean,
 ): Promise<FinishPhaseResult | undefined> {
     try {
         // Read fresh rather than reusing the run's saved git info: that was recorded
         // at analysis start, and the SDK handoff has since put the handler on a branch
         // of its own. The branch we are on NOW is the one whose preview carries it.
-        const gitInfo = await readGitInfo(projectRoot);
+        const gitInfo = await readGitInfo(config.projectRoot);
         const result = await runFinishPhase({
             client: frontDoor.client,
             applicationId: frontDoor.applicationId,
             checkedOutBranch: gitInfo?.branch,
+            // Only reached when the direct calls did not pass. What is wrong then needs
+            // the repo and a decision, which is an agent's job rather than an API call's.
+            repair: () => runSdkRepairHandoff({ plan: frontDoor, config, nonInteractive }),
         });
         track("cli_dry_run_finished", { outcome: result.dryRun.kind, live: result.live });
 
@@ -984,7 +988,7 @@ async function main() {
     // complete run - a paused or failed one has no SDK handler to validate and no
     // scenarios to provision through it.
     const finish =
-        frontDoor != null && allStepsDone ? await finishFrontDoorRun(frontDoor, config.projectRoot) : undefined;
+        frontDoor != null && allStepsDone ? await finishFrontDoorRun(frontDoor, config, nonInteractive) : undefined;
 
     const anyFailed = Object.values(state.steps).some((s) => s === "failed");
     getActiveStore()?.finish({ kind: allStepsDone ? "complete" : anyFailed ? "failed" : "paused" });

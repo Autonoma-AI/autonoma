@@ -60,7 +60,8 @@ function previewClient({ failTakeLive = false } = {}) {
         takeLiveCalls,
         createAgentPairing: () => Promise.resolve("ABCD2345"),
         refreshPreviewReadiness: () => Promise.resolve(),
-        getOnboardingState: () => Promise.resolve({ step: "preview_verified" }),
+        getOnboardingState: () =>
+            Promise.resolve({ step: "preview_verified", sdkConfigured: false, dryRunPassed: false }),
         takeAppLive: (applicationId: string) => {
             takeLiveCalls.push(applicationId);
             return failTakeLive

@@ -15,7 +15,8 @@ import { debugLog } from "./debug";
 import { resume, suspend } from "./interrupt";
 import { captureLog } from "./logs";
 import { resolveEntryPhase, type OnboardingPhase } from "./onboarding-phase";
-import { runPreviewPhase, type OnboardingReader, type PreviewPhaseOutcome } from "./preview-phase";
+import { runPreviewPhase, type PreviewPhaseOutcome } from "./preview-phase";
+import { runSdkRepairPhase, type SdkReadiness, type SdkRepairOutcome } from "./sdk-repair-phase";
 
 /** What a run has left to do, and what it needs to do it. */
 export interface FrontDoorPlan {
@@ -81,7 +82,15 @@ async function claimHoldForRun(client: AutonomaClient, applicationId: string, ph
  * satisfies it structurally, so nothing is threaded or cast at the real call site -
  * and the handoff can be exercised without standing up the whole client.
  */
-export interface PreviewHandoffClient extends OnboardingReader {
+export interface PreviewHandoffClient {
+    /**
+     * Declared rather than inherited from the two phase readers: they each ask for the
+     * part of the state they use, and one call cannot return two different shapes. The
+     * union is what the real client returns, and it satisfies both.
+     */
+    getOnboardingState(applicationId: string): Promise<{ step: string } & SdkReadiness>;
+    refreshPreviewReadiness(applicationId: string): Promise<void>;
+    createAgentPairing(applicationId: string): Promise<string>;
     takeAppLive(applicationId: string): Promise<{ alreadyLive: boolean; step: string }>;
 }
 
@@ -179,6 +188,46 @@ async function takeAppLive(plan: { client: PreviewHandoffClient; applicationId: 
             "Your preview is up, but Autonoma is not reviewing your pull requests yet - take the app live in the " +
                 "Autonoma app to finish.",
         );
+    }
+}
+
+/**
+ * Hand the outstanding SDK and dry-run work to a fresh coding agent.
+ *
+ * Same handover the preview phase performs, for the same reason: a CLI process is not
+ * an agent session, so it can register the MCP server and then spawn an agent that
+ * picks it up. Returns undefined when there is no agent to hand to, which leaves the
+ * run reporting what it found instead.
+ */
+export async function runSdkRepairHandoff(deps: PreviewHandoffDeps): Promise<SdkRepairOutcome | undefined> {
+    const { plan, config, nonInteractive } = deps;
+    const interactive = !nonInteractive;
+
+    const launchers = deps.launchers ?? buildAllLaunchers({ cwd: config.projectRoot, env: process.env });
+    const launcher = await selectLauncher(launchers, config.agent, interactive);
+    if (launcher == null) {
+        captureLog("warn", "No coding agent available for the SDK repair phase", { source: "front_door" });
+        return undefined;
+    }
+
+    const preset = parsePermissionMode(config.permissionMode);
+    const permissionMode: PermissionMode = interactive
+        ? await selectPermissionMode(preset)
+        : (preset ?? DEFAULT_PERMISSION_MODE);
+
+    suspend();
+    try {
+        return await runSdkRepairPhase({
+            client: plan.client,
+            applicationId: plan.applicationId,
+            launcher,
+            permissionMode,
+            apiToken: interactive ? undefined : config.autonomaApiToken,
+            mcpUrl: resolveMcpUrl(config.autonomaApiUrl),
+            interactive,
+        });
+    } finally {
+        resume();
     }
 }
 

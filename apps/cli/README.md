@@ -150,7 +150,8 @@ the changes loose in your working tree. When it reports the session complete, th
 the recipe it produced and continues to test generation.
 
 - `--agent <name>` - preselect the agent to hand off to (`claude` or `codex`). Omit to auto-detect;
-  if both are installed you're prompted to pick.
+  if both are installed you're prompted to pick, and headless - where there is nobody to ask - the
+  first is used and named in a warning.
 - `--permission-mode <mode>` - how much autonomy the agent runs with: `default` (approve each
   command), `acceptEdits` (auto-edit files, approve commands), or `bypassPermissions` (fully
   autonomous, the default). Both the agent and the mode you pick are persisted for `--resume`. For
@@ -201,26 +202,30 @@ environment carrying your SDK handler (the pull request the platform recognizes 
 your main preview), waits for it to deploy, asks the handler to describe your data models, then
 provisions and tears down every scenario against it, one at a time.
 
-The CLI makes those calls itself rather than asking your coding agent to make them, because they
-need no judgement - only the credentials and the app id the run already holds. Your agent keeps
-the work that needs your repo.
+The CLI makes those calls itself rather than asking your coding agent to make them, because on a
+healthy app they need no judgement - only the credentials and the app id the run already holds.
 
 Waiting is bounded twice, because "still building" and "no preview at all" are different
 problems. A build gets a generous ceiling (20 minutes - it covers a cold image build). A pull
 request with no preview environment gets a minute, since that state is either a webhook that has
-not caught up yet or a draft pull request that will never get one; the run says which rather
-than reporting a build that never started.
+not caught up yet or a draft pull request that will never get one.
 
-Two kinds of preview it deliberately does not validate, because it cannot: a preview built by
-**your own pipeline** is signed with a secret that never leaves your side, and a **Vercel**
-deployment is validated against the one you picked in the Autonoma app. In both cases the run
-says so and finishes - everything else is done, and the SDK step in the app is where you take it
-from there.
+**When that does not pass, the run hands it to a coding agent** rather than reporting the
+problem and stopping. Everything that makes it fail needs a look at your repo and a decision -
+the handler's pull request has no preview environment, the handler 404s, a recipe resolves to
+nothing - which is exactly what an API call cannot do. The agent gets the Autonoma MCP and the
+job of making both facts true, and the run ends when Autonoma reports them, not when the agent
+says so. A run whose dry run passed first time spawns nothing.
+
+There are two kinds of preview the calls themselves cannot validate - one built by **your own
+pipeline**, signed with a secret that never leaves your side, and a **Vercel** deployment,
+validated against the one you picked in the Autonoma app. Those are handed over the same way.
 
 The run closes by reading back what Autonoma makes of your app - test suite uploaded, SDK
-answering, scenarios provisioning, and whether Autonoma is reviewing your pull requests. Going
-live is not something the CLI does: your coding agent takes the app live as soon as its preview
-is verified, and this reports whether that happened.
+answering, scenarios provisioning, and whether Autonoma is reviewing your pull requests. It
+takes the app live itself once the preview is verified: your coding agent is told to do that,
+but the run stops the agent the moment the preview is confirmed, which is the same moment it
+would have.
 
 ## Environment variables
 

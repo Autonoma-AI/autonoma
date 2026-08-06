@@ -2,6 +2,7 @@ import { debugLog } from "./debug";
 import { runDryRunPhase, type DryRunPhaseOutcome, type DryRunReader, type DryRunTiming } from "./dry-run-phase";
 import { captureLog } from "./logs";
 import { isStepAtOrPast, LIVE_STEP } from "./onboarding-phase";
+import type { SdkRepairOutcome } from "./sdk-repair-phase";
 
 /**
  * What the platform makes of this app once the run is over. Every field is derived
@@ -23,6 +24,16 @@ export type FinishReader = DryRunReader & {
 export interface FinishPhaseDeps {
     client: FinishReader;
     applicationId: string;
+    /**
+     * Hand the outstanding SDK / dry-run work to a coding agent.
+     *
+     * Injected rather than called directly: spawning an agent needs a launcher, a
+     * permission mode and an MCP url, none of which this phase has any other use for -
+     * and leaving it out is what lets the finish phase be exercised without one.
+     * Absent means "report what happened and stop", which is what a run does when it
+     * has no agent to hand to.
+     */
+    repair?: (outcome: DryRunPhaseOutcome) => Promise<SdkRepairOutcome | undefined>;
     /** The branch the project is checked out on - which preview carries the handler. */
     checkedOutBranch?: string;
     /** Overridable so tests do not wait real minutes. */
@@ -55,13 +66,20 @@ export async function runFinishPhase(deps: FinishPhaseDeps): Promise<FinishPhase
         timing: deps.timing,
     });
 
+    // Anything but a pass needs a look at the repo and a decision - a pull request
+    // with no preview, a handler that 404s, a recipe resolving to nothing - which is
+    // exactly what the calls above cannot do and a coding agent can. Reporting the
+    // failure and stopping leaves a finished run and an app that cannot run a test.
+    const repair = dryRun.kind === "passed" ? undefined : await deps.repair?.(dryRun);
+
     const state = await deps.client.getOnboardingState(deps.applicationId);
     const live = isStepAtOrPast(state.step, LIVE_STEP);
 
-    debugLog("Finish phase complete", { dryRun: dryRun.kind, step: state.step, live });
+    debugLog("Finish phase complete", { dryRun: dryRun.kind, repair: repair?.kind, step: state.step, live });
     captureLog("info", "Front-door run finished", {
         source: "finish_phase",
         dry_run: dryRun.kind,
+        repair: repair?.kind ?? "not_needed",
         step: state.step,
         live,
         artifacts_uploaded: state.artifactsUploaded,

@@ -17,6 +17,20 @@ const PHASE_EXIT_GRACE_MS = 15_000;
 const KILL_ESCALATION_MS = 10_000;
 
 /**
+ * How every agent handoff paces itself, shared by all of them.
+ *
+ * One set of knobs rather than one per phase: they describe how long to let an agent
+ * settle and how hard to insist it stops, which is a property of handing work to an
+ * agent at all, not of which work it was handed. A per-phase copy reads as a decision
+ * somebody made and is really just a duplicate that rots the first time one is tuned.
+ */
+export const DEFAULT_PHASE_TIMING: PhaseWatchTiming = {
+    pollMs: PHASE_POLL_MS,
+    graceMs: PHASE_EXIT_GRACE_MS,
+    killMs: KILL_ESCALATION_MS,
+};
+
+/**
  * Appended only when there is no human on the other end.
  *
  * A headless agent runs in print mode, where asking a question IS ending the turn -
@@ -78,12 +92,6 @@ export interface PhaseWatchTiming {
     killMs: number;
 }
 
-const DEFAULT_TIMING: PhaseWatchTiming = {
-    pollMs: PHASE_POLL_MS,
-    graceMs: PHASE_EXIT_GRACE_MS,
-    killMs: KILL_ESCALATION_MS,
-};
-
 /** How the preview phase ended, for the caller to decide what happens next. */
 export type PreviewPhaseOutcome =
     | { kind: "verified" }
@@ -108,7 +116,7 @@ export type PreviewPhaseOutcome =
  * own way, and all this asks is whether it got there.
  */
 export async function runPreviewPhase(deps: PreviewPhaseDeps): Promise<PreviewPhaseOutcome> {
-    const timing = deps.timing ?? DEFAULT_TIMING;
+    const timing = deps.timing ?? DEFAULT_PHASE_TIMING;
 
     p.log.info(`Connecting ${deps.launcher.label} to Autonoma...`);
     const registration = await deps.launcher.registerMcpServer({
@@ -166,7 +174,7 @@ export function watchForPreviewPhase(
     client: Pick<OnboardingReader, "getOnboardingState" | "refreshPreviewReadiness">,
     applicationId: string,
     proc: KillableProcess,
-    timing: PhaseWatchTiming = DEFAULT_TIMING,
+    timing: PhaseWatchTiming = DEFAULT_PHASE_TIMING,
 ): () => void {
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
