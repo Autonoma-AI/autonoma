@@ -15,12 +15,7 @@ import {
     probeEvidence,
 } from "../framework";
 import { type ClassifierFrontmatter, checkClassifierVerdict } from "./classifier-frontmatter";
-import {
-    type ClassifierCaseInput,
-    type FrozenRunMedia,
-    type ProductionCapabilities,
-    rehydrateClassifierInput,
-} from "./classifier-input";
+import { type ClassifierCaseInput, type FrozenRunMedia, rehydrateClassifierInput } from "./classifier-input";
 
 /** A loaded Classifier eval case: frozen classification input + authored expectations. */
 export type ClassifierCase = LoadedCase<ClassifierCaseInput, ClassifierFrontmatter>;
@@ -39,9 +34,10 @@ const TIMEOUT_PER_RUN_MS = 900_000;
  * writes. The prior-runs baseline is served from the frozen prose; the recording is read live, so a replay
  * grades the vision probes alongside the reasoning and touches nothing but git, S3 and the models.
  *
- * The preview backend and the app-log stream are NOT served. The classifier is told as much through its own
- * evidence-limits note, so it caps unprovable claims rather than guessing; each case records in
- * `productionCapabilities` whether production had more to work with than this replay does.
+ * `get_preview_env` IS served, from the name list frozen at capture - it is the one live-infra capability that
+ * reduces to data. The preview's live backend and the app-log stream are not, and the classifier is told as
+ * much through its own evidence-limits note, so it caps unprovable claims rather than guessing; each case
+ * records in `productionCapabilities` whether production had more to work with than this replay does.
  *
  * A case passes when every classification satisfies the deterministic checks AND the judge passes. Cases whose
  * codebase or media can no longer be fetched are skipped, not failed.
@@ -71,7 +67,7 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
     }
 
     protected override testCaseInfo(testCase: ClassifierCase): Record<string, string> {
-        const capabilities = testCase.input.productionCapabilities;
+        const envNames = testCase.input.previewEnvNames;
         return {
             case: testCase.name,
             repo: `${testCase.input.codebase.owner}/${testCase.input.codebase.repo}`,
@@ -81,7 +77,8 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
             capturedCategory: testCase.frontmatter.capturedCategory ?? "(unknown)",
             // Which tools production had that this replay does not, so a result file says outright when a case
             // is being graded against a classifier that could see less than the one it was captured from.
-            productionOnlyTools: describeMissingTools(capabilities),
+            productionOnlyTools: describeMissingTools(testCase.input),
+            previewEnv: envNames != null ? `${envNames.length} names frozen` : "not frozen",
         };
     }
 
@@ -128,7 +125,8 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
                 codebase,
                 screenshotLoader: evidenceLoader,
                 loadBaseline: async () => baseline,
-                preview: undefined,
+                // `previewEnv` rides in on `input` when the case froze one. These two have no frozen form.
+                previewScript: undefined,
                 loadAppLogs: undefined,
             });
             verdicts.push(verdict);
@@ -273,10 +271,16 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
     }
 }
 
-/** The tools production had and a replay cannot serve, named for a result file. */
-function describeMissingTools(capabilities: ProductionCapabilities): string {
+/**
+ * The tools production had and this replay cannot serve, named for a result file.
+ *
+ * `get_preview_env` counts as missing only when the case carries no frozen name list: a case captured with one
+ * offers the same tool over the same names, so listing it here would report a gap that is not there.
+ */
+function describeMissingTools(input: ClassifierCaseInput): string {
+    const capabilities = input.productionCapabilities;
     const missing: string[] = [];
-    if (capabilities.previewEnv) missing.push("get_preview_env");
+    if (capabilities.previewEnv && input.previewEnvNames == null) missing.push("get_preview_env");
     if (capabilities.previewScript) missing.push("run_script");
     if (capabilities.appLogs) missing.push("get_app_logs");
     return missing.length > 0 ? missing.join(", ") : "none";

@@ -3,6 +3,8 @@ export { PriorRuns } from "./db/prior-runs";
 export type { PriorRun, PriorRunsHistory } from "./db/prior-runs";
 export { assertSnapshotPending } from "./db/assert-snapshot-pending";
 export { PreviewEnvironment } from "./preview/preview-environment";
+export { filterEnvVarNames } from "./preview/filter-env-var-names";
+export { readPreviewConnectionKeys } from "./preview/preview-connection-keys";
 export { openModelSession } from "./ai/model-session";
 export type { ModelSession, InvestigationModelName, InvestigationModelConfig } from "./ai/model-session";
 export { persistInvestigationCosts } from "./ai/persist-costs";
@@ -11,7 +13,7 @@ export type { PreviewAppLogsInput } from "./logs/preview-app-logs";
 export { VerdictForModel } from "./classify/verdict-schema";
 export { ClassifierAgent } from "./classify/classifier-agent";
 export type { ClassifierAgentConfig } from "./classify/classifier-agent";
-export type { ClassifierInput, PreviewAccess, RunArtifacts, RunFacts } from "./classify/types";
+export type { ClassifierInput, PreviewEnvAccess, PreviewScriptAccess, RunArtifacts, RunFacts } from "./classify/types";
 export { summarizeVerdictPlanes } from "./verdict-planes";
 export type { AppHealthVerdict, CoverageCategoryCount, CoverageSummary, TwoPlaneSummary } from "./verdict-planes";
 

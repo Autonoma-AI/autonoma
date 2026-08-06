@@ -185,10 +185,18 @@ export class SecretValues {
      * Every key in `bundle` with the fields a listing needs, and nothing decrypted -
      * `fingerprint` and `maskedLength` were stored precisely so this is possible.
      * `updatedAt` is the row's own, so it is when that key last changed.
+     *
+     * `before` restricts the listing to keys that already existed at that instant. It
+     * excludes keys added since, but a key DELETED since left no row - so a bounded
+     * listing is a lower bound on what was there, never an exact replay.
      */
-    async list(bundle: SecretBundle): Promise<SecretValueSummary[]> {
+    async list(bundle: SecretBundle, before?: Date): Promise<SecretValueSummary[]> {
         const rows = await this.db.previewkitSecret.findMany({
-            where: { applicationId: bundle.applicationId, appName: bundle.appName },
+            where: {
+                applicationId: bundle.applicationId,
+                appName: bundle.appName,
+                createdAt: before != null ? { lt: before } : undefined,
+            },
             select: { key: true, fingerprint: true, maskedLength: true, updatedAt: true },
         });
 

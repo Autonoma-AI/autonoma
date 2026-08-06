@@ -122,8 +122,13 @@ export class ClassifierAgent extends Agent<ClassifierInput, RunVerdict, Classifi
         // run does not have produces no tool at all, rather than a registered tool that has to explain itself.
         // describeEvidenceLimits then tells the model what the gap means for its verdict - the one thing an
         // empty toolset cannot convey on its own.
-        const preview = input.preview;
-        const previewTools = preview != null ? [new RunScriptTool(preview), new PreviewEnvTool(preview)] : [];
+        //
+        // The two preview tools are gated INDEPENDENTLY: listing env-var names needs only a name list, so a
+        // caller may hold that while having no way to reach the running pod.
+        const previewScript = input.previewScript;
+        const scriptTools = previewScript != null ? [new RunScriptTool(previewScript)] : [];
+        const previewEnv = input.previewEnv;
+        const envTools = previewEnv != null ? [new PreviewEnvTool(previewEnv)] : [];
         const loadAppLogs = input.loadAppLogs;
         const appLogTools = loadAppLogs != null ? [new AppLogsTool(loadAppLogs)] : [];
         // The media readers are offered only for the media this run actually produced. Roughly half of all
@@ -142,7 +147,8 @@ export class ClassifierAgent extends Agent<ClassifierInput, RunVerdict, Classifi
                 new PriorRunsTool(input.loadBaseline),
                 ...videoTools,
                 this.viewStepDetailsTool,
-                ...previewTools,
+                ...scriptTools,
+                ...envTools,
                 ...appLogTools,
             ],
             reportTool: this.verdictTool,

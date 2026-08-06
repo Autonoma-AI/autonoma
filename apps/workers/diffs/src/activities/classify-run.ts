@@ -9,14 +9,10 @@ import {
     type RunFacts,
     loadPreviewAppLogs,
     persistInvestigationCosts,
+    readPreviewConnectionKeys,
 } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import {
-    getStepOverlayPoints,
-    type InvestigationRunStep,
-    previewConfigSchema,
-    stepOutputDataSchema,
-} from "@autonoma/types";
+import { getStepOverlayPoints, type InvestigationRunStep, stepOutputDataSchema } from "@autonoma/types";
 import type { ClassifyInvestigationRunInput, InvestigationTestResult } from "@autonoma/workflow/activities";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import { resolvePrMeta } from "../codebase/pr-meta";
@@ -174,12 +170,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
                       })
                 : undefined;
         const preview = previewIntegrated
-            ? new PreviewEnvironment(
-                  previewSecrets(),
-                  context.applicationId,
-                  resolvedPreview.connectionKeys,
-                  resolvedPreview.namespace,
-              )
+            ? new PreviewEnvironment(previewSecrets(), context.applicationId, resolvedPreview.connectionKeys)
             : undefined;
         logger.info("Resolved preview introspection availability", {
             extra: { previewIntegrated, appLogsAvailable: loadAppLogs != null },
@@ -207,7 +198,9 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             headSha: context.headSha,
             run: runArtifacts,
             screenshotLoader: new StorageEvidenceLoader(getStorage()),
-            preview,
+            // One instance in both slots - it satisfies each capability, so both tools are registered.
+            previewEnv: preview,
+            previewScript: preview,
             loadBaseline: async () => PriorRuns.formatBaseline(await priorRuns.getHistory(context.applicationId, slug)),
             loadAppLogs,
         });
@@ -519,29 +512,12 @@ async function resolvePreviewEnvironment(
         });
         return undefined;
     }
-    const connectionKeys = connectionKeysOf(previewEnv.resolvedConfig, logger);
+    // An unreadable config yields no keys: the classifier then sees the secret bundle alone, so the gap narrows
+    // what it is told rather than misleading it. A capture makes the opposite call on the same signal and
+    // freezes nothing, because a case's name list has to stand on its own long after the config is gone.
+    const connectionKeys = readPreviewConnectionKeys(previewEnv.resolvedConfig, logger) ?? [];
     logger.info("Resolved preview environment", {
         extra: { repoFullName, prNumber, connectionKeys: connectionKeys.length },
     });
     return { namespace: previewEnv.namespace, connectionKeys };
-}
-
-/**
- * The env-var keys this PR's deployed config wires from the topology - the half of the pod's environment that
- * does NOT live in the secret bundle `get_preview_env` reads.
- *
- * Parsed with the shared `previewConfigSchema` rather than a local shape, so this cannot drift from what
- * previewkit actually deploys. A config that fails to parse yields no keys and says so: the classifier then
- * sees the secret bundle alone, so a parse failure narrows what it is told rather than misleading it.
- */
-function connectionKeysOf(resolvedConfig: unknown, logger: Logger): string[] {
-    if (resolvedConfig == null) return [];
-    const parsed = previewConfigSchema.safeParse(resolvedConfig);
-    if (!parsed.success) {
-        logger.warn("Could not parse the preview's resolved config; env-var names will omit connections", {
-            extra: { issue: parsed.error.issues[0]?.message },
-        });
-        return [];
-    }
-    return [...new Set(parsed.data.apps.flatMap((app) => app.connections.map((connection) => connection.key)))];
 }

@@ -3,7 +3,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { logger as rootLogger } from "@autonoma/logger";
-import type { PreviewAccess } from "../classify/types";
+import type { PreviewEnvAccess, PreviewScriptAccess } from "../classify/types";
+import { filterEnvVarNames } from "./filter-env-var-names";
 
 /**
  * The preview-secret reads this needs - `PreviewSecrets` from `@autonoma/secrets`
@@ -11,7 +12,7 @@ import type { PreviewAccess } from "../classify/types";
  * the behaviour, not on whichever store the values come out of.
  */
 interface PreviewSecretSource {
-    getEnvVarNames(target: PreviewTarget): Promise<string[]>;
+    getEnvVarNames(target: PreviewTarget, before?: Date): Promise<string[]>;
     getEnvValues(target: PreviewTarget): Promise<Record<string, string>>;
 }
 
@@ -23,15 +24,16 @@ interface PreviewTarget {
 const SCRIPT_TIMEOUT_MS = 60_000;
 
 /**
- * Implements PreviewAccess for a PR's preview deployment: lists its configured env-var names, and runs a
- * throwaway Node script against its live backend with the preview's OWN credentials injected.
+ * A PR's preview deployment: lists its configured env-var names, and runs a throwaway Node script against its
+ * live backend with the preview's OWN credentials injected. It satisfies both capabilities, so a live
+ * classification hands the same instance to each slot.
  *
  * WARNING: runScript executes arbitrary `npm install` + `node` inside the worker pod with the preview's
  * credentials. It runs in a fresh temp dir that is always cleaned up, the model is instructed to be
  * read-only, and execution is time-bounded - but this is real code execution. If we ever run untrusted
  * input through it, sandbox it (gVisor / a restricted runner) instead of trusting the prompt.
  */
-export class PreviewEnvironment implements PreviewAccess {
+export class PreviewEnvironment implements PreviewEnvAccess, PreviewScriptAccess {
     private readonly logger = rootLogger.child({ name: "PreviewEnvironment" });
 
     constructor(
@@ -45,7 +47,15 @@ export class PreviewEnvironment implements PreviewAccess {
          * rather than an artifact of only reading half the environment.
          */
         private readonly connectionKeys: readonly string[] = [],
-        public readonly namespace?: string,
+        /**
+         * Lists the names as they stood at this instant rather than now. Left undefined by a live
+         * classification, which wants the bundle its pods are running with; set only when freezing a PAST
+         * classification, where a key added since would read as configured on a run that saw it ABSENT.
+         *
+         * Bounds the NAME listing only - `runScript` always injects current values, which is what querying a
+         * live backend means.
+         */
+        private readonly namesBefore?: Date,
     ) {}
 
     private get target(): PreviewTarget {
@@ -53,11 +63,9 @@ export class PreviewEnvironment implements PreviewAccess {
     }
 
     async getEnvVarNames(filter?: string): Promise<string[]> {
-        const secretNames = await this.secrets.getEnvVarNames(this.target);
+        const secretNames = await this.secrets.getEnvVarNames(this.target, this.namesBefore);
         const names = [...new Set([...secretNames, ...this.connectionKeys])].sort();
-        if (filter == null || filter === "") return names;
-        const needle = filter.toLowerCase();
-        return names.filter((name) => name.toLowerCase().includes(needle));
+        return filterEnvVarNames(names, filter);
     }
 
     async runScript(input: { script: string; packages?: string[] }): Promise<string> {

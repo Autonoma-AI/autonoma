@@ -1,6 +1,15 @@
 import type { ClassifierInput } from "./types";
 
 /**
+ * The two capabilities that decide what a run can PROVE.
+ *
+ * Env-var listing is deliberately not among them: it names what the preview is configured with, never what the
+ * backend did, so a run that can list names still cannot confirm a write - and telling such a run it may
+ * "query its backend" would invite exactly the unprovable claim this note exists to cap.
+ */
+type EvidenceCapabilities = Pick<ClassifierInput, "previewScript" | "loadAppLogs">;
+
+/**
  * What this run's missing capabilities mean the model canNOT prove, or undefined when nothing is missing.
  *
  * Deliberately says nothing about which TOOLS are absent: a tool the run does not have is simply not in the
@@ -8,9 +17,9 @@ import type { ClassifierInput } from "./types";
  * consequence for its verdict - that an unobservable mechanism must not be asserted anyway - so that, and
  * only that, is what this note carries.
  */
-export function describeEvidenceLimits(input: ClassifierInput): string | undefined {
-    const backendUnreachable = input.preview == null;
-    const logsUnreadable = input.loadAppLogs == null;
+export function describeEvidenceLimits(capabilities: EvidenceCapabilities): string | undefined {
+    const backendUnreachable = capabilities.previewScript == null;
+    const logsUnreadable = capabilities.loadAppLogs == null;
     if (!backendUnreachable && !logsUnreadable) return undefined;
 
     if (backendUnreachable && logsUnreadable) {

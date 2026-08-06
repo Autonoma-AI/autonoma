@@ -70,8 +70,12 @@ export class PreviewSecrets {
      * An empty list is a truthful answer here, not a miss: an app with no stored
      * secrets runs on its config's wired connections alone, and the caller unions
      * those in before deciding anything.
+     *
+     * `before` answers as of a past instant instead of now. Only a caller
+     * reconstructing an old read passes it; a live one wants the bundle the preview
+     * pods are running with.
      */
-    async getEnvVarNames(target: PreviewTarget): Promise<string[]> {
+    async getEnvVarNames(target: PreviewTarget, before?: Date): Promise<string[]> {
         // Before the lookup, so an environment that cannot read at all says so rather
         // than reporting the empty list as "this preview configures nothing".
         const values = this.store();
@@ -79,10 +83,10 @@ export class PreviewSecrets {
         const bundle = await this.resolveBundle(target.applicationId);
         if (bundle == null) return [];
 
-        const summaries = await values.list(bundle);
+        const summaries = await values.list(bundle, before);
         this.logger.info("Listed preview env names from postgres", {
             applicationId: bundle.applicationId,
-            extra: { appName: bundle.appName, keyCount: summaries.length },
+            extra: { appName: bundle.appName, keyCount: summaries.length, before },
         });
         return summaries.map((summary) => summary.key);
     }

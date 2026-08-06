@@ -2,7 +2,7 @@ import { AgentTool, declinable, FixableToolError } from "@autonoma/ai";
 import { causeMessage } from "@autonoma/errors";
 import { z } from "zod";
 import { truncateOutput } from "../../../agents/tools/truncate-output";
-import type { PreviewAccess } from "../types";
+import type { PreviewEnvAccess } from "../types";
 
 const MAX_CHARS = 16_000;
 
@@ -26,7 +26,7 @@ class PreviewEnvUnreadableError extends FixableToolError {
 
 /** Which env vars the preview has configured (presence diagnoses a missing key/flag/integration). */
 export class PreviewEnvTool extends AgentTool<PreviewEnvInput, string> {
-    constructor(private readonly preview: PreviewAccess) {
+    constructor(private readonly preview: PreviewEnvAccess) {
         super({
             name: "get_preview_env",
             description:

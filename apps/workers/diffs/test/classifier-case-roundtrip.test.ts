@@ -52,6 +52,7 @@ const SOURCE: ClassifierCaseSource = {
     recording: { key: "gen/abc/video.mp4", isOptimizedMp4: true },
     finalScreenshotKey: "gen/abc/final.png",
     baseline: "Prior runs (most recent 3):\n- ever passed: YES",
+    previewEnvNames: ["DATABASE_URL", "NEXT_PUBLIC_APP_URL", "STRIPE_SECRET_KEY"],
     productionCapabilities: { previewEnv: true, previewScript: true, appLogs: false },
 };
 
@@ -106,5 +107,30 @@ describe("classifier eval case round-trip", () => {
 
     it("rejects a case whose recording key is blank rather than freezing an unfetchable address", () => {
         expect(() => serializeClassifierInput({ ...SOURCE, recording: { key: "", isOptimizedMp4: true } })).toThrow();
+    });
+
+    it("answers get_preview_env from the frozen names, through the live reader's own filter", async () => {
+        const { input } = rehydrateClassifierInput(throughDisk(SOURCE));
+
+        expect(await input.previewEnv?.getEnvVarNames()).toEqual(SOURCE.previewEnvNames);
+        expect(await input.previewEnv?.getEnvVarNames("stripe")).toEqual(["STRIPE_SECRET_KEY"]);
+        expect(await input.previewEnv?.getEnvVarNames("SENTRY")).toEqual([]);
+    });
+
+    it("offers no env listing at all when capture could not freeze the names in full", () => {
+        const { input } = rehydrateClassifierInput(throughDisk({ ...SOURCE, previewEnvNames: undefined }));
+
+        expect(input.previewEnv).toBeUndefined();
+    });
+
+    /**
+     * An empty list is a real answer - a preview that configures nothing - and the tool renders it as decisive
+     * evidence. Collapsing it into "not frozen" would silently downgrade that finding to an absent tool.
+     */
+    it("keeps an empty frozen list distinct from an absent one", async () => {
+        const { input } = rehydrateClassifierInput(throughDisk({ ...SOURCE, previewEnvNames: [] }));
+
+        expect(input.previewEnv).toBeDefined();
+        expect(await input.previewEnv?.getEnvVarNames()).toEqual([]);
     });
 });

@@ -3,16 +3,18 @@ import type { ClassifierInput, RunFacts } from "@autonoma/diffs/analysis";
 import { overlayPointSchema } from "@autonoma/types";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
+import { frozenPreviewEnv } from "./frozen-preview-env";
 
 /**
  * Which of the classifier's live-infra capabilities production actually had, recorded at capture.
  *
- * A replay serves none of them, so a case frozen from a preview-integrated run is graded against a classifier
- * that can see strictly less than the one whose verdict is quoted in `capturedCategory`. That gap is a real
- * property of the case, so it is written down rather than left for a reader to infer from an absent field.
+ * A case frozen from a preview-integrated run may be graded against a classifier that can see less than the one
+ * whose verdict is quoted in `capturedCategory`. That gap is a real property of the case, so it is written down
+ * rather than left for a reader to infer from an absent field. Whether the replay closes it is a separate
+ * question, answered by what the case carries - `previewEnvNames` for env listing, nothing for the other two.
  */
 const productionCapabilitiesSchema = z.object({
-    /** `get_preview_env` - the preview's configured env-var names. */
+    /** `get_preview_env` - the preview's configured env-var names. Replayable from `previewEnvNames`. */
     previewEnv: z.boolean(),
     /** `run_script` - a read-only script against the preview's live backend. Never replayable. */
     previewScript: z.boolean(),
@@ -64,9 +66,10 @@ const frozenRunSchema = z.object({
  * The frozen, on-disk shape of a captured Classifier case (`input.json`).
  *
  * Mirrors {@link ClassifierInput} with every live handle replaced by something addressable: the `Codebase`
- * becomes {@link CodebaseCoords}, the run's recording and final frame become storage keys, and `loadBaseline`
- * becomes the prose it would have returned. The two capabilities a replay cannot serve at all - the preview
- * backend and the app-log stream - are absent by construction and recorded in `productionCapabilities`.
+ * becomes {@link CodebaseCoords}, the run's recording and final frame become storage keys, `loadBaseline`
+ * becomes the prose it would have returned, and the preview's env-var listing becomes the name list it would
+ * have filtered. The two capabilities a replay cannot serve at all - the preview's live backend and the
+ * app-log stream - are absent by construction and recorded in `productionCapabilities`.
  *
  * `baseSha` / `headSha` are deliberately NOT stored twice: the classifier renders them into its prompt and the
  * clone needs them too, and both read the single pair on `codebase`.
@@ -84,6 +87,13 @@ export const classifierCaseInputSchema = z.object({
     run: frozenRunSchema,
     /** The prior-runs prose, frozen as of the classification so no later run can leak into it. */
     baseline: z.string(),
+    /**
+     * Every env-var name the PR's preview pod ran with, so a replay can still answer `get_preview_env`.
+     *
+     * An EMPTY array is a real answer - a preview that configures nothing - and is NOT the same as the field
+     * being absent, which says the list could not be frozen honestly. Never a partial list.
+     */
+    previewEnvNames: z.array(z.string().min(1)).optional(),
     productionCapabilities: productionCapabilitiesSchema,
 });
 
@@ -92,10 +102,13 @@ export type ClassifierCaseInput = z.infer<typeof classifierCaseInputSchema>;
 /** The run's media, still addressed by key - the evaluation fetches the bytes and re-uploads the recording. */
 export type FrozenRunMedia = ClassifierCaseInput["run"];
 
-/** Everything the classifier takes that is neither a live handle nor a media blob. */
+/**
+ * Everything the classifier takes that is neither a live handle nor a media blob. `previewEnv` stays in:
+ * listing env-var names needs nothing live, so rehydration serves it from the frozen list.
+ */
 export type FrozenClassifierInput = Omit<
     ClassifierInput,
-    "codebase" | "screenshotLoader" | "preview" | "loadBaseline" | "loadAppLogs" | "run"
+    "codebase" | "screenshotLoader" | "previewScript" | "loadBaseline" | "loadAppLogs" | "run"
 > & { run: RunFacts };
 
 /** What rehydration yields: the git coordinates, the pure input, and the pieces the caller must fetch. */
@@ -123,6 +136,7 @@ export function rehydrateClassifierInput(parsed: ClassifierCaseInput): Rehydrate
         priorPass: parsed.priorPass,
         baseSha: parsed.codebase.baseSha,
         headSha: parsed.codebase.headSha,
+        previewEnv: parsed.previewEnvNames != null ? frozenPreviewEnv(parsed.previewEnvNames) : undefined,
         run: {
             success: parsed.run.success,
             finishReason: parsed.run.finishReason,
@@ -154,6 +168,8 @@ export interface ClassifierCaseSource {
     recording?: { key: string; isOptimizedMp4: boolean };
     finalScreenshotKey?: string;
     baseline: string;
+    /** The preview's full env-var name list, or undefined when it could not be frozen in full. */
+    previewEnvNames?: string[];
     productionCapabilities: ProductionCapabilities;
 }
 
@@ -174,6 +190,7 @@ export function serializeClassifierInput(source: ClassifierCaseSource): Classifi
         priorPass: source.priorPass,
         run: { ...source.run, recording: source.recording, finalScreenshotKey: source.finalScreenshotKey },
         baseline: source.baseline,
+        previewEnvNames: source.previewEnvNames,
         productionCapabilities: source.productionCapabilities,
     });
 }

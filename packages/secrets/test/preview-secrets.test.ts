@@ -71,6 +71,27 @@ secretsSuite({
             expect(harness.provider.unwrapped).toHaveLength(unwrapsAfterSeeding);
         });
 
+        /**
+         * A caller reconstructing a past read (the classifier eval freezing an old classification) is weeks
+         * behind it. Unbounded, it would be handed a key that did not exist then - and an absent key is
+         * exactly what `get_preview_env` calls decisive evidence.
+         */
+        test("lists the bundle as it stood at a past instant, excluding keys stored since", async ({ harness }) => {
+            await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
+            const { applicationId } = await seedApp(harness, {
+                sealed: { web: { OLD_KEY: "a", ADDED_LATER: "b" } },
+            });
+            const classifiedAt = new Date("2026-01-15T00:00:00Z");
+            await harness.db.previewkitSecret.update({
+                where: { applicationId_appName_key: { applicationId, appName: "web", key: "OLD_KEY" } },
+                data: { createdAt: new Date("2026-01-01T00:00:00Z") },
+            });
+
+            expect(await reader(harness).getEnvVarNames({ applicationId }, classifiedAt)).toEqual(["OLD_KEY"]);
+            // Unbounded stays the live answer: a classification running now wants what the pods are running with.
+            expect(await reader(harness).getEnvVarNames({ applicationId })).toEqual(["ADDED_LATER", "OLD_KEY"]);
+        });
+
         test("resolves the sole stored bundle even when its app is not named web", async ({ harness }) => {
             await mintSecretKey({ db: harness.db, provider: harness.provider, keyId: "1" });
             const { applicationId } = await seedApp(harness, { sealed: { storefront: { TOKEN: "t" } } });

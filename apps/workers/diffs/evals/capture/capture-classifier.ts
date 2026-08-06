@@ -3,13 +3,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { db } from "@autonoma/db";
 import { readPrDiffStat } from "@autonoma/diffs";
-import { PriorRuns } from "@autonoma/diffs/analysis";
-import { logger as rootLogger } from "@autonoma/logger";
+import { PreviewEnvironment, PriorRuns, readPreviewConnectionKeys } from "@autonoma/diffs/analysis";
+import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { SELF_HEAL_RERUN_REASON } from "@autonoma/types";
 import { buildRunFacts, describeProvision, loadGenerationRow } from "../../src/activities/classify-run";
 import { resolvePrMeta } from "../../src/codebase/pr-meta";
 import { loadSnapshotMeta, resolveGitHubAccess } from "../../src/codebase/snapshot-context";
 import { createGithubApp } from "../../src/create-services";
+import { previewSecrets } from "../../src/preview-secrets";
 import { type ProductionCapabilities, serializeClassifierInput } from "../classifier/classifier-input";
 import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
@@ -32,9 +33,10 @@ export interface CaptureClassifierParams {
  * iteration 1 never reaches.
  *
  * Everything the classifier reasons from is reassembled through the SAME helpers the production activity uses,
- * so a frozen case cannot quietly diverge from what production classified. The one thing capture computes
- * rather than reads is the prior-runs baseline, bounded to the classification's own timestamp so runs recorded
- * afterwards cannot leak into it.
+ * so a frozen case cannot quietly diverge from what production classified. Two things capture computes rather
+ * than reads, and both are bounded to the classification's own timestamp because the source behind them is
+ * mutable: the prior-runs baseline, so runs recorded afterwards cannot leak into it, and the preview's env-var
+ * names, so a secret stored afterwards cannot read as configured on a run that saw it absent.
  */
 export async function captureClassifier(params: CaptureClassifierParams): Promise<string> {
     const logger = rootLogger.child({ name: "captureClassifier" });
@@ -76,10 +78,13 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
     const videoKey = generation.optimizedVideoUrl ?? generation.videoUrl;
     const run = buildRunFacts(generation);
 
+    // The two mutable sources, reconstructed as of the same instant and read together - neither needs the other.
     const priorRuns = new PriorRuns(db);
-    const baseline = PriorRuns.formatBaseline(
-        await priorRuns.getHistory(meta.applicationId, slug, classification.createdAt),
-    );
+    const [history, preview] = await Promise.all([
+        priorRuns.getHistory(meta.applicationId, slug, classification.createdAt),
+        freezePreviewFacts(github.repoFullName, prMeta.prNumber, meta.applicationId, classification.createdAt, logger),
+    ]);
+    const baseline = PriorRuns.formatBaseline(history);
 
     const frozenInput = serializeClassifierInput({
         coords,
@@ -100,7 +105,8 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
             videoKey != null ? { key: videoKey, isOptimizedMp4: generation.optimizedVideoUrl != null } : undefined,
         finalScreenshotKey: generation.finalScreenshot ?? undefined,
         baseline,
-        productionCapabilities: await resolveProductionCapabilities(github.repoFullName, prMeta.prNumber),
+        previewEnvNames: preview.previewEnvNames,
+        productionCapabilities: preview.capabilities,
     });
 
     await mkdir(caseDir, { recursive: true });
@@ -114,6 +120,7 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
             capturedCategory: classification.category,
             steps: frozenInput.run.inspectableSteps.length,
             hasRecording: frozenInput.run.recording != null,
+            previewEnvNames: preview.previewEnvNames?.length,
         },
     });
 
@@ -190,32 +197,128 @@ async function loadPriorPass(
     return { category: prior.category, headline: prior.headline, rootCause: prior.rootCause ?? undefined };
 }
 
+/** What a case records about the PR's preview: which live tools production had, and what a replay can serve. */
+interface FrozenPreviewFacts {
+    capabilities: ProductionCapabilities;
+    /** The pod's full env-var name list, or undefined when it could not be frozen in full. */
+    previewEnvNames?: string[];
+}
+
 /**
- * Which live-infra tools production had for this PR, approximated at capture time.
+ * The preview facts a case carries: which live-infra tools production had, approximated at capture time, and
+ * the env-var names a replay serves `get_preview_env` from.
  *
  * Production gated the preview tools on whether previewkit deployed this PR, and the log tool on that plus a
- * Loki endpoint being configured - the same two facts read here. It is an approximation because both are read
- * NOW rather than at classification time; it is recorded so a case says plainly what its replay cannot serve,
- * not to reconstruct the toolset.
+ * Loki endpoint being configured - the same two facts read here. The capabilities are an approximation because
+ * both are read NOW rather than at classification time; they are recorded so a case says plainly what its
+ * replay cannot serve, not to reconstruct the toolset.
  */
-async function resolveProductionCapabilities(repoFullName: string, prNumber: number): Promise<ProductionCapabilities> {
-    if (prNumber === 0) return { previewEnv: false, previewScript: false, appLogs: false };
+async function freezePreviewFacts(
+    repoFullName: string,
+    prNumber: number,
+    applicationId: string,
+    classifiedAt: Date,
+    logger: Logger,
+): Promise<FrozenPreviewFacts> {
+    if (prNumber === 0) return { capabilities: { previewEnv: false, previewScript: false, appLogs: false } };
 
-    const [previewEnv, { env }] = await Promise.all([
+    const [previewEnvironment, { env }] = await Promise.all([
         db.previewkitEnvironment.findUnique({
             where: { repoFullName_prNumber: { repoFullName, prNumber } },
-            select: { namespace: true },
+            select: { resolvedConfig: true },
         }),
         import("../../src/env"),
     ]);
 
-    const previewIntegrated = previewEnv != null;
+    const previewIntegrated = previewEnvironment != null;
     const lokiConfigured = env.LOKI_URL != null && env.LOKI_URL !== "";
-    return {
+    const capabilities: ProductionCapabilities = {
         previewEnv: previewIntegrated,
         previewScript: previewIntegrated,
         appLogs: previewIntegrated && lokiConfigured,
     };
+    if (previewEnvironment == null) return { capabilities };
+
+    const previewEnvNames = await freezeEnvVarNames({
+        resolvedConfig: previewEnvironment.resolvedConfig,
+        applicationId,
+        classifiedAt,
+        logger,
+    });
+    return { capabilities, previewEnvNames };
+}
+
+interface FreezeEnvVarNames {
+    resolvedConfig: unknown;
+    applicationId: string;
+    classifiedAt: Date;
+    logger: Logger;
+}
+
+/**
+ * Every env-var name the preview pod ran with, read through the SAME {@link PreviewEnvironment} production
+ * reads and bounded to the classification. Undefined rather than a partial list - whether the gap is an
+ * unreadable config or a bound that erased the bundle; a case without one keeps `get_preview_env` off,
+ * exactly as a non-integrated PR does.
+ */
+async function freezeEnvVarNames({
+    resolvedConfig,
+    applicationId,
+    classifiedAt,
+    logger,
+}: FreezeEnvVarNames): Promise<string[] | undefined> {
+    const connectionKeys = readPreviewConnectionKeys(resolvedConfig, logger);
+    if (connectionKeys == null) {
+        logger.warn("Refusing to freeze half a preview environment; this case will not serve get_preview_env", {
+            extra: { applicationId },
+        });
+        return undefined;
+    }
+
+    const secrets = previewSecrets();
+    const target = { applicationId };
+    try {
+        // The secret BUNDLE either side of the bound, not the unioned list: only the bundle is time-bounded,
+        // and only it can be emptied wholesale by a bound that predates when its rows were written.
+        const [bundleThen, bundleNow] = await Promise.all([
+            secrets.getEnvVarNames(target, classifiedAt),
+            secrets.getEnvVarNames(target),
+        ]);
+
+        // A bound that excluded the WHOLE bundle has not reconstructed this preview, it has emptied it: what
+        // would be frozen is the connection keys alone, a list asserting every secret was absent. Same call as
+        // an unreadable config - refuse. `previewkit_secret` rows were bulk-written when preview secrets moved
+        // into postgres, so every classification older than that migration lands here.
+        if (bundleThen.length === 0 && bundleNow.length > 0) {
+            logger.warn(
+                "The whole secret bundle postdates this classification, so its environment cannot be " +
+                    "reconstructed; this case will not serve get_preview_env",
+                { extra: { applicationId, bundleNow: bundleNow.length, classifiedAt } },
+            );
+            return undefined;
+        }
+
+        const addedSince = bundleNow.filter((name) => !bundleThen.includes(name));
+        if (addedSince.length > 0) {
+            // The bound excludes keys added since. A key DELETED since left no row, so both readings agree and
+            // the frozen list silently understates what production read - undetectable, which is why this
+            // warns on churn (evidence the bundle is edited at all) rather than on the gap itself.
+            logger.warn(
+                "This app's secret bundle has been edited since the classification; the keys added after it " +
+                    "are excluded, but a key DELETED since cannot be recovered, so the frozen list may still " +
+                    "understate what production read",
+                { extra: { applicationId, addedSince, bundleThen: bundleThen.length } },
+            );
+        }
+
+        return await new PreviewEnvironment(secrets, applicationId, connectionKeys, classifiedAt).getEnvVarNames();
+    } catch (err) {
+        logger.warn("Could not read the preview's stored secrets; this case will not serve get_preview_env", {
+            extra: { applicationId },
+            err,
+        });
+        return undefined;
+    }
 }
 
 function blankExpected(classification: LoadedClassification, slug: string): string {

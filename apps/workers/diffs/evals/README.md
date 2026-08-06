@@ -176,13 +176,28 @@ recording itself on every run, exactly as production does. Each run therefore co
 full-recording vision reads on top of the loop, and the probes are one of the places a
 verdict moves between two runs of an unchanged classifier - which is what `runs: N` measures.
 
-**What a replay cannot serve.** The classifier holds two live-infra capabilities that
-no fixture can reproduce: the preview backend (`run_script`, `get_preview_env`) and the
-app-log stream (`get_app_logs`). A replay passes neither, and the classifier is told so
-through its own evidence-limits note, so it caps unprovable claims instead of guessing.
-Every case records in `productionCapabilities` which of them production actually had,
-so a case captured from a preview-integrated run says outright that it is graded
-against a classifier that could see less than the one in `capturedCategory`.
+**What a replay cannot serve.** Two of the classifier's live-infra capabilities have no
+frozen form: the preview's live backend (`run_script`) and the app-log stream
+(`get_app_logs`). A replay passes neither, and the classifier is told so through its
+own evidence-limits note, so it caps unprovable claims instead of guessing. Every case
+records in `productionCapabilities` which of them production actually had, so a case
+captured from a preview-integrated run says outright that it is graded against a
+classifier that could see less than the one in `capturedCategory`.
+
+`get_preview_env` is the exception, and IS served in replay. Listing the preview's
+env-var names never reaches the running pod at call time - it is a name list plus a
+local substring filter - so capture freezes the whole list into `previewEnvNames` and
+replay narrows it through the same filter. That matters because an absent integration
+key is how the classifier tells "the SDK never initialized, so what it gates fell back
+to its code default" from a guess. A case carrying the list is not counted as missing
+the tool; one without it still is. **The filter is exact, the list is a
+reconstruction** - see [what capture recomputes](#capturing-a-case).
+
+The two are separate capabilities on `ClassifierInput` (`previewEnv` and
+`previewScript`), each gating its own tool. Backend reachability - what the
+evidence-limits note calls "you CAN query its backend" - keys on the script capability
+alone, so a replay holding only the name list is never told it can reach a backend it
+cannot.
 
 ### Multimedia rehydration
 
@@ -262,16 +277,37 @@ in `expected.md`, then flip `skip: false`.
 **Classifier - what capture recomputes.** Everything the classifier reasons from is
 reassembled through the **same helpers the production activity uses** (the generation
 select, `buildRunFacts`, `describeProvision`, the diff stat, the PR metadata), so a
-frozen case cannot quietly diverge from what production classified. The one thing
-recomputed rather than read back is **the prior-runs baseline**, bounded to the
-classification's own `createdAt`. Without that bound, runs recorded *after* the
-classification leak into `everPassed` and `mostRecentSuccessDay` - the line deciding
-whether the classifier may blame the PR at all - handing a replay a baseline the original
-could never have seen.
+frozen case cannot quietly diverge from what production classified. Two things are
+recomputed rather than read back, and **both are bounded to the classification's own
+`createdAt`**, because the source behind each is mutable and a capture typically runs
+weeks after the classification it freezes:
+
+- **The prior-runs baseline.** Without that bound, runs recorded *after* the
+  classification leak into `everPassed` and `mostRecentSuccessDay` - the line deciding
+  whether the classifier may blame the PR at all - handing a replay a baseline the
+  original could never have seen.
+- **The preview's env-var names**, read through the same `PreviewEnvironment` production
+  reads: the app's secret bundle unioned with the connection keys the PR's deployed
+  config wires in. Unbounded, it would hand the replay a key that did not exist when
+  production answered ABSENT.
+
+  Capture **refuses to freeze a partial list** - it warns and writes no `previewEnvNames`
+  at all - when `resolved_config` is gone (wiped after ~60 days) or unparseable, when the
+  secret read fails, or when the bound excludes the **whole** secret bundle. That last one
+  is not hypothetical: `previewkit_secret` rows were bulk-written when preview secrets
+  moved into postgres (2026-07-30), so every classification older than that migration
+  would otherwise freeze the connection keys alone - a list asserting every secret was
+  absent. A case without the list simply has no `get_preview_env`.
+
+  The bound cannot cover a key **deleted** since, so the list may still understate what
+  production read; capture warns when it detects additions, which is the nearest signal
+  that a bundle is being edited at all. Treat it as a prompt to pick a different
+  classification. `resolved_config` is read live too, and is rewritten on each deploy.
 
 Classifier capture needs no model credentials and never downloads media: it takes the
 run's facts (`buildRunFacts`, which does no I/O) and writes the recording and final frame
-as storage keys for the evaluation to fetch.
+as storage keys for the evaluation to fetch. It does need `PREVIEWKIT_SECRETS_CMK` to
+read the env-var names; without it the case is still written, minus `get_preview_env`.
 
 **Baseline snapshot state (Analysis).** Analysis grades against the snapshot as it stood _before_
 this snapshot's pipeline ran. At production time the snapshot's own assignments are still that

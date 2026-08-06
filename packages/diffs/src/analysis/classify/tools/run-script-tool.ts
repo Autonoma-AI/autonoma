@@ -2,7 +2,7 @@ import { AgentTool, declinable, FixableToolError } from "@autonoma/ai";
 import { causeMessage } from "@autonoma/errors";
 import { z } from "zod";
 import { truncateOutput } from "../../../agents/tools/truncate-output";
-import type { PreviewAccess } from "../types";
+import type { PreviewScriptAccess } from "../types";
 
 const MAX_CHARS = 24_000;
 
@@ -32,7 +32,7 @@ class ScriptHarnessError extends FixableToolError {
  * non-idempotent operation (a scenario `up`, say), so the model must not be nudged into re-running one.
  */
 export class RunScriptTool extends AgentTool<RunScriptInput, string> {
-    constructor(private readonly preview: PreviewAccess) {
+    constructor(private readonly preview: PreviewScriptAccess) {
         super({
             name: "run_script",
             description:

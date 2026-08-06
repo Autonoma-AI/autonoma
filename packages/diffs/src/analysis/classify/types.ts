@@ -43,10 +43,18 @@ export interface RunArtifacts extends RunFacts {
     finalScreenshot?: Uint8Array;
 }
 
-/** Access to the PR's preview environment: its config var names + a read-only script harness against its backend. */
-export interface PreviewAccess {
-    namespace?: string;
+/**
+ * Lists the env-var NAMES the PR's preview pod runs with.
+ *
+ * Separate from {@link PreviewScriptAccess} because it is the freezable half: the answer is a name list plus a
+ * local filter, so a caller holding a captured list serves it identically without reaching the pod.
+ */
+export interface PreviewEnvAccess {
     getEnvVarNames(filter?: string): Promise<string[]>;
+}
+
+/** Runs a read-only script against the preview's LIVE backend. Not freezable - it needs the running pod. */
+export interface PreviewScriptAccess {
     runScript(input: { script: string; packages?: string[] }): Promise<string>;
 }
 
@@ -82,12 +90,15 @@ export interface ClassifierInput {
     run: RunArtifacts;
     /** Rehydrates one step frame's bytes from its storage key, at `view_step_details` call time. */
     screenshotLoader: ScreenshotLoader;
+    /** The preview's configured env-var names (get_preview_env), live or frozen. */
+    previewEnv?: PreviewEnvAccess;
     /**
-     * The PR's preview backend (run_script + get_preview_env). Present ONLY when the preview is managed by our
-     * previewkit; `undefined` for a self-hosted / non-integrated preview, where there is no backend harness to
-     * reach - the tools are then omitted rather than offered and left to fail with confusing credential errors.
+     * A read-only script against the preview's LIVE backend (run_script). Present ONLY when the preview is
+     * managed by our previewkit; `undefined` for a self-hosted / non-integrated preview, where there is no
+     * backend harness to reach - the tool is then omitted rather than offered and left to fail with confusing
+     * credential errors. Its absence is what "cannot query the backend" means to the model.
      */
-    preview?: PreviewAccess;
+    previewScript?: PreviewScriptAccess;
     /**
      * The formatted prior-runs baseline (worker injects getPriorRunsHistory + formatPriorRunsBaseline).
      * A function property, not a method: the loop holds it detached, so it must not depend on a `this`.
