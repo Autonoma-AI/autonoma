@@ -115,8 +115,8 @@ catalogs:
       specifier: ^6.2.3
       version: 6.2.3
     playwright:
-      specifier: 1.56.1
-      version: 1.56.1
+      specifier: 1.62.1
+      version: 1.62.1
     prisma:
       specifier: ^7.9.0
       version: 7.9.0
@@ -841,7 +841,7 @@ importers:
         version: 2.0.7(msw@2.15.0(@types/node@25.2.3)(typescript@7.0.2))
       playwright:
         specifier: 'catalog:'
-        version: 1.56.1
+        version: 1.62.1
       storybook:
         specifier: ^10.5.2
         version: 10.5.2(@types/react@19.2.14)(prettier@3.8.1)(react@19.2.4)
@@ -937,7 +937,7 @@ importers:
         version: 6.0.94(zod@4.3.6)
       playwright:
         specifier: 'catalog:'
-        version: 1.56.1
+        version: 1.62.1
       zod:
         specifier: 'catalog:'
         version: 4.3.6
@@ -1764,7 +1764,7 @@ importers:
         version: 17.3.1
       playwright:
         specifier: 'catalog:'
-        version: 1.56.1
+        version: 1.62.1
       zod:
         specifier: 'catalog:'
         version: 4.3.6
@@ -10731,14 +10731,14 @@ packages:
   pkg-types@2.3.1:
     resolution: {integrity: sha512-y+ichcgc2LrADuhLNAx8DFjVfgz91pRxfZdI3UDhxHvcVEZsenLO+7XaU5vOp0u/7V/wZ+plyuQxtrDlZJ+yeg==}
 
-  playwright-core@1.56.1:
-    resolution: {integrity: sha512-hutraynyn31F+Bifme+Ps9Vq59hKuUCz7H1kDOcBs+2oGguKkWTU50bBWrtz34OUWmIwpBTWDxaRPXrIXkgvmQ==}
-    engines: {node: '>=18'}
+  playwright-core@1.62.1:
+    resolution: {integrity: sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==}
+    engines: {node: '>=20'}
     hasBin: true
 
-  playwright@1.56.1:
-    resolution: {integrity: sha512-aFi5B0WovBHTEvpM3DzXTUaeN6eN0qWnTkKx4NQaH4Wvcmc153PdaY2UBdSYKaGYw+UyWXSVyxDUg5DoPEttjw==}
-    engines: {node: '>=18'}
+  playwright@1.62.1:
+    resolution: {integrity: sha512-0M+L3LAD8/nm554LOla9Ayx0j0tmFZ0FBcoQ7F1VuVHpM/XpiC8RcDzBQB8W5+hA8L22THxELzeF+2WcUzvcLg==}
+    engines: {node: '>=20'}
     hasBin: true
 
   postal-mime@2.7.4:
@@ -22827,11 +22827,11 @@ snapshots:
       exsolve: 1.1.1
       pathe: 2.0.3
 
-  playwright-core@1.56.1: {}
+  playwright-core@1.62.1: {}
 
-  playwright@1.56.1:
+  playwright@1.62.1:
     dependencies:
-      playwright-core: 1.56.1
+      playwright-core: 1.62.1
     optionalDependencies:
       fsevents: 2.3.2
 

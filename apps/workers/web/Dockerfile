@@ -3,7 +3,7 @@
 # `playwright install --with-deps` at build time (it hangs in containerized
 # arm64 environments during the post-download validation step).
 # Tag must match `playwright` in pnpm-workspace.yaml; bump both together.
-FROM mcr.microsoft.com/playwright:v1.56.1-noble
+FROM mcr.microsoft.com/playwright:v1.62.1-resolute
 
 RUN corepack enable
 
