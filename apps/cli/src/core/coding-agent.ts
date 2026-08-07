@@ -2,6 +2,7 @@ import type { StdioOptions } from "node:child_process";
 import spawn from "cross-spawn";
 import which from "which";
 import * as p from "../ui/prompts";
+import { isSpawnedByPlanner as spawnedByPlanner, SPAWNED_BY_PLANNER_ENV } from "./agent-env";
 import { debugLog } from "./debug";
 import { readPreferences, updatePreferences } from "./preferences";
 
@@ -14,7 +15,7 @@ const MCP_COMMAND_TIMEOUT_MS = 60_000;
  * runs the CLI, the CLI spawns an agent, that agent runs the CLI. Each turn of the
  * loop is a long, expensive run, so the guard is a hard refusal rather than a warning.
  */
-export const SPAWNED_BY_PLANNER_ENV = "AUTONOMA_PLANNER_SPAWNED_AGENT";
+export { SPAWNED_BY_PLANNER_ENV } from "./agent-env";
 
 /** Env var a Codex registration reads its bearer token from at connect time. */
 const CODEX_BEARER_TOKEN_ENV = "AUTONOMA_MCP_TOKEN";
@@ -150,7 +151,7 @@ interface CommandResult {
  * surprise several minutes into a nested run.
  */
 export function isSpawnedByPlanner(env: NodeJS.ProcessEnv = process.env): boolean {
-    return env[SPAWNED_BY_PLANNER_ENV] != null && env[SPAWNED_BY_PLANNER_ENV] !== "";
+    return spawnedByPlanner(env);
 }
 
 /**

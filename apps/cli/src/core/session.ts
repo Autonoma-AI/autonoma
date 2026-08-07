@@ -4,16 +4,16 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { readEnv } from "../env";
 import { debugLog } from "./debug";
+import { getRunId } from "./run-id";
 import { CLI_VERSION } from "./version";
 
 const AUTONOMA_HOME = join(homedir(), ".autonoma");
 const DEVICE_ID_PATH = join(AUTONOMA_HOME, ".device-id");
 const DISTINCT_ID_PATH = join(AUTONOMA_HOME, ".distinct-id");
-
-// One id per process, attached to every event and every log record - lets you
-// group a run's telemetry, count distinct runs, and dedupe. Stable for the life
-// of the CLI invocation.
-const RUN_ID = randomUUID();
+// Which person this machine's anonymous history has already been stitched onto.
+// Holds the person id rather than a flag, so a machine that later belongs to a
+// different person is linked again instead of staying attached to the first.
+const ALIASED_TO_PATH = join(AUTONOMA_HOME, ".aliased-to");
 
 /**
  * The identifiers every event and log record is indexed by. One bundle so the
@@ -52,14 +52,14 @@ export function initSession(patch: SessionOverrides): void {
         generationId: patch.generationId ?? overrides.generationId,
         projectSlug: patch.projectSlug ?? overrides.projectSlug,
     };
-    debugLog("Session initialized", { runId: RUN_ID, ...overrides });
+    debugLog("Session initialized", { runId: getRunId(), ...overrides });
 }
 
 /** The current run's identifiers. Safe to call before `initSession`. */
 export function getSession(): SessionContext {
     const identity = resolveIdentity();
     return {
-        runId: RUN_ID,
+        runId: getRunId(),
         distinctId: identity.distinctId,
         identified: identity.identified,
         generationId: overrides.generationId ?? readEnv().AUTONOMA_GENERATION_ID,
@@ -67,6 +67,30 @@ export function getSession(): SessionContext {
         cliVersion: CLI_VERSION,
         nodeVersion: process.versions.node,
     };
+}
+
+/**
+ * The anonymous per-machine id. Exposed so the analytics lane can tell PostHog
+ * that this device and the identified person are the same entity.
+ */
+export function getDeviceId(): string {
+    return readDeviceId();
+}
+
+/** The person this machine's history has already been linked to, if any. */
+export function readAliasedTo(): string | undefined {
+    try {
+        const stored = readFileSync(ALIASED_TO_PATH, "utf-8").trim();
+        return stored.length > 0 ? stored : undefined;
+    } catch (err) {
+        debugLog("No alias marker yet for this machine", { err });
+        return undefined;
+    }
+}
+
+/** Remember that this machine's history is now attached to `personId`. */
+export function markAliasedTo(personId: string): void {
+    persist(ALIASED_TO_PATH, personId, "alias marker");
 }
 
 /**

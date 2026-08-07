@@ -242,6 +242,8 @@ would have.
 | `AUTONOMA_SHARED_SECRET`  | no         | Per-application secret used to sign SDK/webhook requests. Injected by onboarding.                                                                                                                                                                                     |
 | `AUTONOMA_DISTINCT_ID`    | no         | PostHog identity so CLI events join the signup funnel. Injected by onboarding.                                                                                                                                                                                        |
 | `DONT_TRACK`              | no         | Set to `1`/`true` to disable all telemetry - events, log shipping and session replay.                                                                                                                                                                                 |
+| `AUTONOMA_DEBUG`          | no         | Set to `1`/`true` to print diagnostic breadcrumbs to stderr, and to write a full JSONL transcript of the run to `~/.autonoma/debug/<run-id>.jsonl`.                                                                    |
+| `AUTONOMA_DEBUG_FILE`     | no         | Write that transcript to this path instead. Implies the transcript without the stderr noise; independent of `DONT_TRACK`, since it never leaves the machine.                                                          |
 
 `AUTONOMA_API_TOKEN` + `AUTONOMA_GENERATION_ID` together enable automatic upload (the endpoint
 defaults to production unless `AUTONOMA_API_URL` is set).

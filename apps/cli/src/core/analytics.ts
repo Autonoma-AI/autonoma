@@ -1,14 +1,14 @@
 import { debugLog } from "./debug";
+import { writeDebugRecord } from "./debug-sink";
 import { getPostHogConfig } from "./posthog";
-import { getSession } from "./session";
+import { getRuntimeContext } from "./runtime-context";
+import { getDeviceId, getSession, markAliasedTo, readAliasedTo } from "./session";
 
 /**
  * The current run's id. Printed in failure output as a support reference so a
  * user-reported error maps 1:1 to its `$exception` event(s) and its log records.
  */
-export function getRunId(): string {
-    return getSession().runId;
-}
+export { getRunId } from "./run-id";
 
 const pending = new Set<Promise<unknown>>();
 
@@ -19,10 +19,14 @@ const pending = new Set<Promise<unknown>>();
  * `replay/session-recorder.ts`.)
  */
 export function track(event: string, properties: Record<string, unknown> = {}): void {
+    const session = getSession();
+    // Mirrored before the opt-out check: a DONT_TRACK run still deserves a local
+    // transcript, and that is the run most likely to need one.
+    writeDebugRecord(session.runId, "event", { event, ...properties });
+
     const { enabled, key, host } = getPostHogConfig();
     if (!enabled) return;
 
-    const session = getSession();
     const body = JSON.stringify({
         api_key: key,
         event,
@@ -44,6 +48,9 @@ export function track(event: string, properties: Record<string, unknown> = {}): 
             // Runtime version - lets us confirm/monitor Node-version-specific
             // failures (e.g. a `util.styleText` crash on Node < 22.13 in old deps).
             node_version: session.nodeVersion,
+            // Host facts - which machine, terminal and shell this ran on. Failures
+            // that depend on the environment are indistinguishable without them.
+            ...getRuntimeContext(),
         },
     });
 
@@ -87,4 +94,38 @@ export async function flushAnalytics(timeoutMs = 1500): Promise<void> {
         Promise.allSettled([...pending]),
         new Promise((resolve) => setTimeout(resolve, timeoutMs).unref()),
     ]);
+}
+
+/**
+ * Tell PostHog that this machine's anonymous history and the identified person
+ * are the same entity.
+ *
+ * Before the app hands over a distinct id, runs are attributed to a per-machine
+ * device id and build no person profile. Without this they stay orphaned: the
+ * person's history begins at onboarding, and everything they did with the CLI
+ * beforehand is unreachable from their profile. `$identify` with
+ * `$anon_distinct_id` merges the two retroactively.
+ *
+ * Sent once per (machine, person). The marker records which person it was, so a
+ * machine that later belongs to someone else is linked again rather than staying
+ * attached to the first.
+ */
+export function linkAnonymousHistory(): void {
+    const session = getSession();
+    if (!session.identified) return;
+
+    const deviceId = getDeviceId();
+    if (deviceId === session.distinctId) return;
+    if (readAliasedTo() === session.distinctId) return;
+
+    track("$identify", { $anon_distinct_id: deviceId });
+    // Only remember the link once it can actually have been sent. Under DONT_TRACK
+    // the capture is a no-op, and marking anyway would spend the one chance to make
+    // this link - a later opted-in run would find the marker and stay silent.
+    if (!getPostHogConfig().enabled) return;
+    markAliasedTo(session.distinctId);
+    debugLog("Linked this machine's anonymous history to the identified person", {
+        deviceId,
+        distinctId: session.distinctId,
+    });
 }

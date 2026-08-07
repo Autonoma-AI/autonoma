@@ -5,14 +5,17 @@ import "./core/ensure-node";
 // development build - slower renders and far heavier memory retention.
 process.env.NODE_ENV ??= "production";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { freemem } from "node:os";
+import { delimiter, join } from "node:path";
 import { uploadRecipeFromDisk } from "./agents/04-recipe-builder/phases/submit";
 import { runSdkCommand } from "./agents/04-recipe-builder/sdk-command";
 import { loadConfig } from "./config";
 import type { AgentResult } from "./core/agent";
-import { track, trackError } from "./core/analytics";
+import { linkAnonymousHistory, track, trackError } from "./core/analytics";
 import { CliArgs } from "./core/cli-args";
+import { buildAllLaunchers } from "./core/coding-agent";
 import { BOLD, DIM, PRIMARY, RESET } from "./core/colors";
+import { debugLog } from "./core/debug";
 import { describeDryRunOutcome } from "./core/dry-run-phase";
 import { formatException, describeKnownError, supportReference, isUserCancellation } from "./core/errors";
 import { describeFinishPhase, runFinishPhase, type FinishPhaseResult } from "./core/finish-phase";
@@ -23,6 +26,7 @@ import { installInterruptHandler, installTerminationDiagnostics, restoreTerminal
 import { captureLog } from "./core/logs";
 import { DEFAULT_MODEL } from "./core/model";
 import { clearOutputDir, displayPath, ensureOutputDir } from "./core/output";
+import { getRuntimeContext } from "./core/runtime-context";
 import { initSession } from "./core/session";
 import { teardownUi } from "./core/ui-lifecycle";
 import { readEnv } from "./env";
@@ -778,7 +782,11 @@ async function main() {
     }
     p.log.info(`Project: ${config.projectRoot}`);
 
+    // Before the first event of the run, so this run and everything after it
+    // resolve to one person rather than two.
+    linkAnonymousHistory();
     track("cli_run_started", { model: modelName, non_interactive: nonInteractive });
+    await reportEnvironment(config.projectRoot);
     captureLog("info", "Run started", {
         source: "pipeline",
         model: modelName,
@@ -1093,3 +1101,42 @@ main()
         await flushTelemetry();
         process.exit(1);
     });
+
+/**
+ * Record what this machine looks like, once per run: which coding agents are
+ * actually resolvable on PATH, and how much memory the host has.
+ *
+ * Whether an agent was installed decides which way step 6 goes, and until now it
+ * was invisible - answering "did that user have Claude Code?" meant asking them.
+ * Probing is two `which` lookups, a couple of milliseconds, and it happens up
+ * front so the answer is on record even for a run that dies before step 6.
+ */
+async function reportEnvironment(projectRoot: string): Promise<void> {
+    try {
+        const launchers = buildAllLaunchers({ cwd: projectRoot, env: process.env });
+        const availability = await Promise.all(launchers.map((l) => l.isAvailable()));
+        const available = launchers.filter((_, i) => availability[i]).map((l) => l.id);
+        const memory = process.memoryUsage();
+        const properties = {
+            agents_available: available,
+            agents_available_count: available.length,
+            agents_missing: launchers.filter((_, i) => !availability[i]).map((l) => l.id),
+            path_entry_count: (process.env.PATH ?? "").split(delimiter).filter((s) => s !== "").length,
+            memory_free_mb: Math.round(freemem() / 1024 / 1024),
+            memory_rss_mb: Math.round(memory.rss / 1024 / 1024),
+        };
+        track("cli_environment", properties);
+        // The log lane takes primitives only, so the agent lists travel as text.
+        captureLog("info", `Environment: ${available.length} coding agent(s) on PATH`, {
+            source: "pipeline",
+            agents_available: available.join(",") || "none",
+            agents_missing: properties.agents_missing.join(",") || "none",
+            path_entry_count: properties.path_entry_count,
+            memory_free_mb: properties.memory_free_mb,
+            memory_rss_mb: properties.memory_rss_mb,
+            ...getRuntimeContext(),
+        });
+    } catch (err) {
+        debugLog("Could not report the environment (ignored)", { err });
+    }
+}

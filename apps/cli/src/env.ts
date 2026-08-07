@@ -24,6 +24,8 @@ const ENV_SCHEMA = {
     AUTONOMA_DISTINCT_ID: z.string().optional(),
     DONT_TRACK: z.string().optional(),
     AUTONOMA_DEBUG: z.string().optional(),
+    /** Write the run's full JSONL transcript here instead of the default debug dir. */
+    AUTONOMA_DEBUG_FILE: z.string().optional(),
     EDITOR: z.string().optional(),
     VISUAL: z.string().optional(),
 } satisfies Record<string, z.ZodTypeAny>;

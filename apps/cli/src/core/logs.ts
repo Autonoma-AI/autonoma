@@ -1,5 +1,7 @@
 import { debugLog } from "./debug";
+import { writeDebugRecord } from "./debug-sink";
 import { getPostHogConfig } from "./posthog";
+import { getRunId } from "./run-id";
 import { getSession } from "./session";
 
 // PostHog ingests logs over OTLP/HTTP. We build the JSON envelope by hand rather
@@ -78,6 +80,8 @@ let flushTimer: NodeJS.Timeout | undefined;
  * model output are never sent.
  */
 export function captureLog(level: LogLevel, message: string, attributes: LogAttributes = {}): void {
+    writeDebugRecord(getRunId(), "log", { level, message, ...attributes });
+
     if (!getPostHogConfig().enabled) return;
 
     enqueue(buildRecord(level, message, attributes));
