@@ -7,7 +7,7 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { RedisContainer } from "@testcontainers/redis";
 
 const POSTGRES_IMAGE = "postgres:18-alpine";
-const LOCALSTACK_IMAGE = "localstack/localstack:community-archive";
+const MINISTACK_IMAGE = "ministackorg/ministack:1.4.7";
 const REDIS_IMAGE = "redis:7-alpine";
 const TEST_BUCKET = "test-bucket";
 const TEST_REGION = "us-east-1";
@@ -39,11 +39,11 @@ async function setupCI(): Promise<void> {
     process.env.TEST_STORAGE_DIR = mkdtempSync(join(tmpdir(), "api-test-"));
 }
 
-/** Local: spin up Testcontainers for PostgreSQL, Redis, and LocalStack. */
+/** Local: spin up Testcontainers for PostgreSQL, Redis, and Ministack (LocalStack-compatible S3 emulator). */
 async function setupTestcontainers(): Promise<void> {
-    const [pgContainer, lsContainer, redisContainer] = await Promise.all([
+    const [pgContainer, msContainer, redisContainer] = await Promise.all([
         new PostgreSqlContainer(POSTGRES_IMAGE).withStartupTimeout(120_000).start(),
-        new LocalstackContainer(LOCALSTACK_IMAGE)
+        new LocalstackContainer(MINISTACK_IMAGE)
             .withEnvironment({ SERVICES: "s3" })
             .withStartupTimeout(120_000)
             .start(),
@@ -54,10 +54,10 @@ async function setupTestcontainers(): Promise<void> {
     const { applyMigrations } = await import("@autonoma/db");
     applyMigrations(pgUrl);
 
-    const lsEndpoint = lsContainer.getConnectionUri();
+    const msEndpoint = msContainer.getConnectionUri();
     const s3Client = new S3Client({
         region: TEST_REGION,
-        endpoint: lsEndpoint,
+        endpoint: msEndpoint,
         forcePathStyle: true,
         credentials: { accessKeyId: "test", secretAccessKey: "test" },
     });
@@ -65,7 +65,7 @@ async function setupTestcontainers(): Promise<void> {
 
     process.env.TEST_DATABASE_URL = pgUrl;
     process.env.TEST_REDIS_URL = redisContainer.getConnectionUrl();
-    process.env.TEST_S3_ENDPOINT = lsEndpoint;
+    process.env.TEST_S3_ENDPOINT = msEndpoint;
     process.env.TEST_S3_BUCKET = TEST_BUCKET;
     process.env.TEST_S3_REGION = TEST_REGION;
 
@@ -77,7 +77,7 @@ async function setupTestcontainers(): Promise<void> {
             await pgContainer.stop();
         },
         async () => {
-            await lsContainer.stop();
+            await msContainer.stop();
         },
     ];
 }
