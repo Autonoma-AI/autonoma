@@ -56,8 +56,30 @@ anything the database will refuse a second copy of - must embed a token INSIDE a
 otherwise real-looking value ("admin+{{${TEST_RUN_ID_TOKEN}}}@acme.test",
 "acme-{{${TEST_RUN_SHORT_ID_TOKEN}}}"), never replace the value entirely. Two tests
 run at the same time seed this scenario twice; without the token the second one fails
-on a unique constraint. Everything else stays concrete and static, and no other
-{{token}} or bare {variable} exists - inventing one is rejected.`;
+on a unique constraint. No other {{token}} or bare {variable} exists - inventing one
+is rejected.
+
+## Data the app compares against the current time
+This scenario is written once and seeded again, unchanged, before every run for as long
+as it lives. So a value the application compares against the current time is not static
+data: a record meant to be upcoming, overdue, expiring soon, still valid, or recent is a
+fact about WHEN THE TEST RUNS. Written as a calendar date it is right on the day you
+write it and quietly wrong ever after, and the failure it causes reads as a broken
+product rather than as stale data.
+
+For every date or time you write, ask one question: does the app branch on this being
+before or after now? Look for the answer in its queries - a list split into current and
+past, a filter against an expiry, a state derived from a deadline. Do not guess from the
+field name.
+
+Where the answer is yes, write the value as an offset from the moment of seeding
+("starts 3 days after seeding, at 10:00", "ended 2 weeks before seeding") rather than a
+date. Where it is no - a recurring weekly schedule, a date of birth, a timestamp nothing
+filters on - a concrete date is correct and an offset would only obscure it.
+
+An offset is prose in your table, not a token: there is no {{token}} for time, and
+inventing one is rejected like any other. The recipe builder turns what you write into a
+value its factories compute at seeding time.`;
 
 export const RECIPE_ENTITY_PROMPT = `You generate a recipe payload for a single entity type. Given the entity name, count, field constraints, enum values to cover, and FK refs to previously created entities, output a JSON array of entity records.
 

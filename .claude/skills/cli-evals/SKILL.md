@@ -129,8 +129,11 @@ through a proxy otherwise.
 
 - A planner step can fail transiently on a weak/flaky model (empty `provider error` on
   `gemini-3-flash-preview`); `eval:planner` reports it cleanly and you re-run, or pass `--model`.
-- The judge's default model id (`anthropic/claude-sonnet-4.5`) must resolve on OpenRouter; override
-  with `JUDGE_MODEL`.
+- The judge's default model id (`anthropic/claude-opus-4.8`) must resolve on OpenRouter; override
+  with `JUDGE_MODEL`. Its 1M context is load-bearing for the SDK-integration judge - that judge
+  greps and reads its way around a whole client repo over up to 40 turns, and on a large monorepo
+  the accumulated tool output overran a 200K window and killed the run with no verdict, after a
+  paid drive.
 - Layer 1 seeds a step's *upstream* artifacts from `artifacts/` but never the step's own output, so a
   step never grades against its own frozen answer.
 - **`strip.patch` / context strips only clean the working tree, not git history.** Every staged

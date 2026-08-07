@@ -17,7 +17,7 @@ import { COMPLETION_MARKER_FILE } from "./completion";
  */
 
 /** Bump when the prompt's contract changes; surfaced in the file header. */
-export const INTEGRATION_PROMPT_VERSION = 10;
+export const INTEGRATION_PROMPT_VERSION = 11;
 
 /** The rendered prompt lives here in the app's planner output dir. */
 export const INTEGRATION_PROMPT_FILE = "integration-prompt.md";
@@ -210,6 +210,35 @@ value still reads as real: "admin+{{${TEST_RUN_ID_TOKEN}}}@acme.test", "acme-{{$
 Any OTHER {{token}} is rejected on upload: there is no general variable mechanism, so
 never invent one.
 
+═══ DATA THE APP COMPARES AGAINST THE CURRENT TIME ═══
+Autonoma stores this recipe once and seeds it again, UNCHANGED, before every run for
+months. So a value the application compares against the current time is wrong the day
+after you write it. A row meant to be upcoming, overdue, expiring soon, still valid, or
+recent describes WHEN THE TEST RUNS, not a date on a calendar - and when it goes stale
+the suite fails in a way that reads as a product bug rather than as stale data. A seeded
+session or credential that has drifted past its expiry breaks every test at once.
+
+For every date/time field you seed, ask one question: does the app branch on this being
+before or after now? Find the answer in the app's own queries - a list partitioned into
+current and past, a filter against an expiry, a state derived from a deadline. Do not
+guess from the field name.
+
+Where the answer is YES, do not put an instant in the recipe. Take an OFFSET as the
+factory's input, and have the factory add it to the current time as it creates the row -
+the factory runs at seeding time, so its clock is the right one:
+    recipe:  { "startsInMinutes": 4320, "durationMinutes": 30 }
+    factory: reads startsInMinutes, writes the column as (now + 4320 minutes)
+A factory's input schema is YOUR interface and does not have to mirror its columns -
+converting an input into the column's real shape inside the factory is normal, and is
+how a factory already handles any column whose stored form differs from its input. Anchor
+or round the derived value when the app only accepts particular times.
+
+Where the answer is NO - a recurring weekly schedule, a date of birth, a timestamp
+nothing filters on - a concrete value is correct and an offset would only obscure it.
+
+There is no {{token}} for time. Do not invent one: it is rejected on upload exactly like
+any other unknown token, and the derivation belongs in the factory anyway.
+
 WHICH fields need a token is not a judgement call and not a guess from the field name.
 Before you write the recipe, ENUMERATE the uniqueness rules for every entity you seed:
 read the schema definitions and migrations, and query the live database you are already
@@ -273,6 +302,11 @@ Once every entity passes independently, run the FULL recipe as one pass:
   • confirm all rows created (DB), then down with the refsToken -> succeeds, rows gone (DB)
   • confirm a WRONG signature is rejected (the SDK does this for you - do not disable it)
   • confirm the up response's auth payload contains real credentials, not a placeholder
+  • for every field you identified as compared against the current time, confirm the
+    seeded row landed on the INTENDED side of now - run the app's own query or open the
+    screen that partitions by time, and see the row where it is supposed to be. A row
+    that exists in the right table but falls on the wrong side of now is the failure this
+    check exists to catch, and "up returned 200" will not reveal it.
 
 ═══ CHECK THE RECIPE FILE - THE GATE YOU CANNOT SKIP ═══
 A recipe that seeds a database perfectly can still be a file Autonoma refuses, because
