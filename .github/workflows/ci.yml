@@ -172,7 +172,7 @@ jobs:
 
   test:
     name: Test
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
@@ -209,10 +209,10 @@ jobs:
         # default `test` script and run on demand via `pnpm eval`.
         #
         # Concurrency capped to the runner's actual vCPU count: turbo's default (10) oversubscribes
-        # a 4vcpu box once every package runs together, and CPU-starved event-loop scheduling was
+        # the box once every package runs together, and CPU-starved event-loop scheduling was
         # blowing packages/ai's agent-loop test past its own 30s timeout (no artificial delay in that
         # test - just 1000 mock-model iterations that should finish in milliseconds when not starved).
-        run: pnpm turbo run test --continue --concurrency=4
+        run: pnpm turbo run test --continue --concurrency=8
 
   integration-tests:
     name: Integration tests
@@ -245,7 +245,7 @@ jobs:
 
   build:
     name: Build
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
@@ -276,7 +276,7 @@ jobs:
 
   typecheck:
     name: Typecheck
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-8vcpu-ubuntu-2404
     if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
