@@ -9,6 +9,7 @@ import { RecipeRegistry } from "../recipes/recipe-registry";
 import type { AppSecretInfo } from "../secrets/runtime-secret-types";
 import type { RuntimeSecrets } from "../secrets/runtime-secrets";
 import { EnvInjector } from "./env-injector";
+import { DEFAULT_GATEKEEPER_IDLE_TIMEOUT } from "./gatekeeper-defaults";
 import { mirrorDockerHubImage } from "./image-mirror";
 import { isConflict, isNotFound } from "./k8s-errors";
 import {
@@ -127,7 +128,7 @@ export class Deployer {
         private deployTimeoutMs: number = 600_000,
         // Written per namespace as the gatekeeper.dev/idle-timeout annotation;
         // overrides the central install's cluster-wide IDLE_TIMEOUT default.
-        private idleTimeout: string = "30m",
+        private idleTimeout: string = DEFAULT_GATEKEEPER_IDLE_TIMEOUT,
         // Docker Hub pull-through cache prefix (see DOCKER_HUB_MIRROR in env.ts).
         // Applied to every platform-managed image: service recipes and the nginx
         // proxy. Client app images come from our own registry and are never touched.

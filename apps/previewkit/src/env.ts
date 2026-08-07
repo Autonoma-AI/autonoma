@@ -2,6 +2,7 @@ import { base64PrivateKey } from "@autonoma/github/schemas";
 import { env as loggerEnv } from "@autonoma/logger/env";
 import { createEnv } from "@t3-oss/env-core";
 import { z } from "zod";
+import { DEFAULT_GATEKEEPER_IDLE_TIMEOUT } from "./deployer/gatekeeper-defaults";
 
 const timeoutEnv = (defaultValue: number) =>
     z.preprocess(
@@ -103,7 +104,7 @@ export const env = createEnv({
         // gatekeeper.dev/idle-timeout annotation, so it applies on the next
         // deploy without touching the central install. Go duration string
         // (e.g. "30m", "1h"); "0" disables auto-sleep for new deploys.
-        GATEKEEPER_IDLE_TIMEOUT: z.string().default("30m"),
+        GATEKEEPER_IDLE_TIMEOUT: z.string().default(DEFAULT_GATEKEEPER_IDLE_TIMEOUT),
         APP_URL: z.string().url().default("https://beta.autonoma.app"),
         GITHUB_COMMENT_ASSET_BASE_URL: z.string().url().optional(),
         // AES-256-GCM key (64 hex chars / 32 bytes) used to encrypt bypass tokens
