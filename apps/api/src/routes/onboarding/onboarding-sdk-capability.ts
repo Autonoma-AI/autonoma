@@ -13,6 +13,7 @@ import { type PreviewConfig, resolveSdkAppName } from "@autonoma/types";
 import { resolvePreviewkitBypassToken } from "@autonoma/utils";
 import { env } from "../../env";
 import { DryRunSubject } from "./dry-run-subject";
+import type { OnboardingAnalytics } from "./onboarding-analytics";
 import type {
     OnboardingManagerOptions,
     OnboardingPreviewkitSecretsService,
@@ -55,6 +56,19 @@ export type ConfigureAndDiscoverSdkTargetResult = { status: "discovered" } | { s
 export type PrepareSdkTargetResult = { status: "ready" | "redeploy_started" };
 
 /**
+ * One dry run. Named rather than positional because `distinctId` - the acting
+ * user, carried only so a passing run can be attributed in the funnel - would
+ * otherwise be a fifth bare string behind three ids it has nothing to do with.
+ */
+export interface ScenarioDryRunRequest {
+    applicationId: string;
+    organizationId: string;
+    scenarioId: string;
+    targetId?: string;
+    distinctId: string;
+}
+
+/**
  * Resolved, server-side view of a PreviewKit-managed SDK target: the SDK URL to
  * call, the secret-bundle app name, the linked deployment, and the underlying
  * preview environment's identity and current deploy state.
@@ -86,6 +100,7 @@ export class OnboardingSdkCapabilityService {
         private readonly scenarioManager: ScenarioManager,
         private readonly encryption: EncryptionHelper,
         private readonly vercelCapability: OnboardingVercelCapabilityService,
+        private readonly analytics: OnboardingAnalytics,
         private readonly options: OnboardingManagerOptions = {},
     ) {
         this.logger = logger.child({ name: this.constructor.name });
@@ -487,12 +502,13 @@ export class OnboardingSdkCapabilityService {
      * main) reusing the stored signing secret. Without it, the last configured
      * endpoint is used.
      */
-    async runDryRun(
-        applicationId: string,
-        organizationId: string,
-        scenarioId: string,
-        targetId?: string,
-    ): Promise<ScenarioDryRunResult> {
+    async runDryRun({
+        applicationId,
+        organizationId,
+        scenarioId,
+        targetId,
+        distinctId,
+    }: ScenarioDryRunRequest): Promise<ScenarioDryRunResult> {
         this.logger.info("Running scenario dry run", { applicationId, scenarioId, organizationId, targetId });
 
         if (targetId != null) {
@@ -514,6 +530,9 @@ export class OnboardingSdkCapabilityService {
             where: { applicationId },
             data: { dryRunPassedAt: new Date() },
         });
+        // Emitted beside the stamp rather than at the caller so every route to a
+        // passing dry run reports it, and so the event cannot drift from the column.
+        this.analytics.dryRunPassed({ distinctId, organizationId, applicationId }, scenarioId);
         return { success: true, phase: "down", error: undefined };
     }
 

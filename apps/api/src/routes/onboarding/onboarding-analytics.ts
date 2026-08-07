@@ -13,6 +13,15 @@ const ONBOARDING_EVENT = {
     stepChanged: "onboarding.step_changed",
     /** A deployment signal reached the (non-tRPC) signal endpoint, and what it did. */
     deploymentSignal: "onboarding.deployment_signal_received",
+    /**
+     * The SDK dry run PASSED - the strongest "this customer is actually set up"
+     * signal we have, since it proves their Environment Factory provisioned and
+     * tore down real data. Emitted only on success: a failed dry run is a step on
+     * the way, not a milestone, and the `onboarding.runScenarioDryRun` mutation
+     * event cannot tell the two apart because a failure returns `{success:false}`
+     * rather than throwing.
+     */
+    dryRunPassed: "onboarding.dry_run_passed",
 } as const;
 
 /** The PostHog group type onboarding is attributed to - one org per customer. */
@@ -210,6 +219,23 @@ export class OnboardingAnalytics {
             outcome: event.outcome,
             stepBefore: event.stepBefore,
             previewEnvironmentMode: event.previewEnvironmentMode,
+        });
+    }
+
+    /**
+     * The customer's Environment Factory just provisioned a scenario and tore it
+     * back down against their deployed SDK. Answers "who finished setting up, and
+     * when" - which reaching `step = completed` does not, because that only means
+     * they clicked through the wizard.
+     *
+     * Carries no error text by construction: it fires on the success path only, so
+     * whatever the customer's endpoint says when it fails never reaches PostHog.
+     */
+    dryRunPassed(actor: OnboardingActor, scenarioId: string): void {
+        this.logger.info("Dry run passed", { applicationId: actor.applicationId, extra: { scenarioId } });
+        this.capture(actor.distinctId, actor.organizationId, ONBOARDING_EVENT.dryRunPassed, {
+            applicationId: actor.applicationId,
+            scenarioId,
         });
     }
 

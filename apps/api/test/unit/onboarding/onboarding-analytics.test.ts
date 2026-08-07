@@ -234,6 +234,34 @@ describe("an application with no onboarding row yet", () => {
     });
 });
 
+describe("onboarding.dry_run_passed", () => {
+    it("attributes the pass to the acting user, so the funnel can answer who finished setting up", () => {
+        const posthog = new RecordingAnalytics();
+        const analytics = new OnboardingAnalytics(noStateReader, posthog);
+
+        analytics.dryRunPassed(ACTOR, "scenario-3");
+
+        const [captured] = eventsNamed(posthog, "onboarding.dry_run_passed");
+        expect(captured?.distinctId).toBe("user-1");
+        expect(captured?.groups).toEqual({ organization: "org-7" });
+        expect(captured?.properties).toMatchObject({ applicationId: "app-1", scenarioId: "scenario-3" });
+    });
+
+    it("carries no error field, so a customer's endpoint text can never ride along", () => {
+        const posthog = new RecordingAnalytics();
+        const analytics = new OnboardingAnalytics(noStateReader, posthog);
+
+        analytics.dryRunPassed(ACTOR, "scenario-3");
+
+        const [captured] = eventsNamed(posthog, "onboarding.dry_run_passed");
+        expect(Object.keys(captured?.properties ?? {}).sort()).toEqual([
+            "applicationId",
+            "organizationId",
+            "scenarioId",
+        ]);
+    });
+});
+
 describe("onboarding.deployment_signal_received", () => {
     it("is attributed to the organization, since the customer's CI has no user", () => {
         const posthog = new RecordingAnalytics();

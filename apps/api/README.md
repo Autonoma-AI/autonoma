@@ -300,7 +300,10 @@ Activation is instrumented end to end so a stalled customer is visible without a
 | `onboarding.step_changed`               | every path that moves the step - see below         | Which stages people actually reach (`fromStep`/`toStep`, `surface`, `action`)     |
 | `onboarding.procedure_called`           | every onboarding tRPC mutation                     | What they retried and what it failed with (`success`, `durationMs`, `errorName`)  |
 | `onboarding.deployment_signal_received` | the signal endpoint (`POST /v1/onboarding/signal`) | Whether the customer's CI ever posted, and what we did with it                    |
+| `onboarding.dry_run_passed`             | `OnboardingSdkCapabilityService.runDryRun`, success path only | Who actually finished setting up, and when (`scenarioId`)              |
 | `vercel.*`                              | `src/vercel-marketplace/vercel-analytics.ts`       | The Marketplace half: resource provisioning, plan changes, uninstalls, failed SSO |
+
+`dry_run_passed` is the only one of these that means the customer's integration actually works: reaching `step = completed` is wizard clicks, and on the Vercel path `preview_verified` is reached by picking a deployment out of a dropdown. It is emitted beside the `dryRunPassedAt` stamp so the event cannot drift from the column, and **on the success path only** - a failed dry run returns `{ success: false }` rather than throwing, so the `onboarding.runScenarioDryRun` mutation event fires identically either way and cannot be used to count it. Emitting only on success is also what keeps the customer's endpoint error text - which has included a live credential - out of PostHog.
 
 `step_changed` reaches the funnel two ways, and its `surface` property says which:
 

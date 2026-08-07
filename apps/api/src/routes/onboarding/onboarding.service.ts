@@ -1,6 +1,7 @@
 import type { PreviewkitConfigSecrets } from "@autonoma/types";
 import { Service } from "../service";
 import type { OnboardingManager } from "./onboarding-manager";
+import type { ScenarioDryRunRequest } from "./onboarding-sdk-capability";
 
 export class OnboardingService extends Service {
     constructor(readonly manager: OnboardingManager) {
@@ -192,8 +193,8 @@ export class OnboardingService extends Service {
         return this.manager.configureAndDiscoverSdkTarget(applicationId, organizationId, targetId, allowSelfHeal);
     }
 
-    async runScenarioDryRun(applicationId: string, organizationId: string, scenarioId: string, targetId?: string) {
-        return this.manager.runScenarioDryRun(applicationId, organizationId, scenarioId, targetId);
+    async runScenarioDryRun(request: ScenarioDryRunRequest) {
+        return this.manager.runScenarioDryRun(request);
     }
 
     async listSdkDryRunTargets(applicationId: string, organizationId: string) {

@@ -27,6 +27,7 @@ import {
     type ConfigureAndDiscoverSdkTargetResult,
     OnboardingSdkCapabilityService,
     type PrepareSdkTargetResult,
+    type ScenarioDryRunRequest,
     isSharedSecretDrift401,
 } from "./onboarding-sdk-capability";
 import { isStepAtOrPast } from "./onboarding-step-order";
@@ -173,6 +174,7 @@ export class OnboardingManager {
             scenarioManager,
             encryption,
             this.vercelCapability,
+            this.analytics,
             options,
         );
     }
@@ -1121,14 +1123,12 @@ export class OnboardingManager {
      * env (the auto-detected SDK PR or main); otherwise it reuses the last
      * configured endpoint.
      */
-    async runScenarioDryRun(
-        applicationId: string,
-        organizationId: string,
-        scenarioId: string,
-        targetId?: string,
-    ): Promise<ScenarioDryRunResult> {
-        this.logger.info("Running scenario dry run", { applicationId, scenarioId, extra: { targetId } });
-        return this.sdkCapability.runDryRun(applicationId, organizationId, scenarioId, targetId);
+    async runScenarioDryRun(request: ScenarioDryRunRequest): Promise<ScenarioDryRunResult> {
+        this.logger.info("Running scenario dry run", {
+            applicationId: request.applicationId,
+            extra: { scenarioId: request.scenarioId, targetId: request.targetId },
+        });
+        return this.sdkCapability.runDryRun(request);
     }
 
     /**

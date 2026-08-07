@@ -144,12 +144,13 @@ export const onboardingRouter = router({
     runScenarioDryRun: onboardingWriteProcedure
         .input(z.object({ applicationId: z.string(), scenarioId: z.string(), targetId: z.string().optional() }))
         .mutation(({ ctx, input }) =>
-            ctx.services.onboarding.runScenarioDryRun(
-                input.applicationId,
-                ctx.organizationId,
-                input.scenarioId,
-                input.targetId,
-            ),
+            ctx.services.onboarding.runScenarioDryRun({
+                applicationId: input.applicationId,
+                organizationId: ctx.organizationId,
+                scenarioId: input.scenarioId,
+                targetId: input.targetId,
+                distinctId: ctx.user.id,
+            }),
         ),
 
     listSdkDryRunTargets: protectedProcedure
