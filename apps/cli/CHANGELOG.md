@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.28](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.27...cli-v0.1.28) (2026-08-07)
+
+
+### Bug Fixes
+
+* **cli:** ask about autonomy once per run, not at every handoff ([#2294](https://github.com/Autonoma-AI/agent/issues/2294)) ([ed32f6b](https://github.com/Autonoma-AI/agent/commit/ed32f6b94d6b62fc4d3ca7dec01ba4a3606f5e58))
+* **cli:** stop naming a command nobody has ([#2296](https://github.com/Autonoma-AI/agent/issues/2296)) ([d4979ce](https://github.com/Autonoma-AI/agent/commit/d4979ce5a2b0e9d20f06cc6bce67b0affddb33ae))
+
 ## [0.1.27](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.26...cli-v0.1.27) (2026-08-07)
 
 
