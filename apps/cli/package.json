@@ -1,14 +1,33 @@
 {
     "name": "@autonoma-ai/planner",
     "version": "0.1.27",
-    "description": "Autonoma test planner - generate E2E test cases for any frontend codebase.",
+    "description": "One command to set up Autonoma: a preview environment, an end-to-end test suite generated from your codebase, the SDK integration, and a dry run proving it works.",
+    "keywords": [
+        "ai-agent",
+        "autonoma",
+        "e2e",
+        "end-to-end-testing",
+        "preview-environments",
+        "test-data",
+        "test-generation"
+    ],
+    "homepage": "https://docs.autonoma.app/test-planner/",
+    "bugs": {
+        "url": "https://github.com/Autonoma-AI/autonoma/issues"
+    },
+    "license": "BUSL-1.1",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Autonoma-AI/autonoma.git",
+        "directory": "apps/cli"
+    },
     "bin": {
         "autonoma-planner": "dist/index.js"
     },
     "files": [
         "dist",
         "README.md",
-        "LICENSE"
+        "LICENSE.md"
     ],
     "type": "module",
     "publishConfig": {

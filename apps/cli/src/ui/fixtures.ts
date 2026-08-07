@@ -317,7 +317,8 @@ function noAgentScene(): RunStore {
             "Read ~/.autonoma/acme-storefront/INTEGRATION.md and follow its instructions exactly.",
             "That file is the complete spec: the endpoint to implement, the factories to " +
                 "register, and the completion marker it must write when it is done.",
-            "When your agent reports it finished, come back here and run:  autonoma-planner --resume",
+            "When your agent reports it finished, come back here and run:  " +
+                "npx @autonoma-ai/planner@latest --resume",
         ],
         cta: "Press enter once you have handed it over",
     });

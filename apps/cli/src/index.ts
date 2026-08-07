@@ -27,6 +27,7 @@ import { captureLog } from "./core/logs";
 import { DEFAULT_MODEL } from "./core/model";
 import { clearOutputDir, displayPath, ensureOutputDir } from "./core/output";
 import { getRuntimeContext } from "./core/runtime-context";
+import { selfInvocation } from "./core/self-invocation";
 import { initSession } from "./core/session";
 import { teardownUi } from "./core/ui-lifecycle";
 import { readEnv } from "./env";
@@ -725,7 +726,8 @@ async function main() {
 
     // ESC no longer exits; Ctrl+C twice (within 3s) does, with a resume hint.
     const projectArg = args.value("project");
-    const resumeCommand = `autonoma-planner --resume` + (projectArg != null ? ` --project ${projectArg}` : "");
+    const self = selfInvocation();
+    const resumeCommand = `${self} --resume` + (projectArg != null ? ` --project ${projectArg}` : "");
     let mountedUi: MountedDashboard | undefined;
     // Which step ended the run short. The dashboard's log is wiped when it
     // unmounts, so a run that stops mid-pipeline has to say so again on the real
@@ -942,7 +944,7 @@ async function main() {
         mountedUi = undefined;
         if (state.steps[targetStep] === "failed") {
             const retryCommand =
-                `autonoma-planner --step ${targetStep}` + (projectArg != null ? ` --project ${projectArg}` : "");
+                `${self} --step ${targetStep}` + (projectArg != null ? ` --project ${projectArg}` : "");
             p.log.warn(`Your progress is saved. To retry this step, run:\n  ${retryCommand}`);
             process.exitCode = 1;
         }

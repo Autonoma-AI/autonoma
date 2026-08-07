@@ -1,4 +1,5 @@
 import { BOLD, DIM, RESET } from "./colors";
+import { selfInvocation } from "./self-invocation";
 
 /** Where the prose lives, and where an agent should read it from instead. */
 const DOCS_URL = "https://docs.autonoma.app/test-planner/";
@@ -140,8 +141,13 @@ const ENVIRONMENT = [
     "                            up the preview environment and validates the result; leave it unset",
     "                            and the planner runs standalone against any repository.",
     "  AUTONOMA_API_URL          Point at a non-production Autonoma. Defaults to production.",
-    "  AUTONOMA_DEBUG            Set to anything for verbose diagnostics on stderr.",
-    "  DONT_TRACK                Set to anything to turn off analytics, logs and session replay.",
+    // Both are read as `1`/`true` exactly (core/posthog.ts, core/debug-sink.ts), so
+    // "set to anything" invites DONT_TRACK=0 - which reads as opted IN.
+    "  AUTONOMA_DEBUG            Set to 1 or true for diagnostics on stderr, plus a full JSONL",
+    "                            transcript at ~/.autonoma/debug/<run-id>.jsonl.",
+    "  AUTONOMA_DEBUG_FILE       Write that transcript to this path instead, without the stderr",
+    "                            noise. Independent of DONT_TRACK - it never leaves your machine.",
+    "  DONT_TRACK                Set to 1 or true to turn off analytics, logs and session replay.",
 ];
 
 /**
@@ -151,14 +157,18 @@ const ENVIRONMENT = [
  * drive, and ends by naming where the machine-readable documentation is.
  */
 export function renderHelp(): string {
+    const self = selfInvocation();
     return [
-        `${BOLD}autonoma-planner${RESET} - generate an end-to-end test suite from your codebase`,
+        `${BOLD}@autonoma-ai/planner${RESET} - generate an end-to-end test suite from your codebase`,
         "",
+        // Spelled the way this run was actually reached. Almost everyone arrives via
+        // npx, which installs nothing on PATH, so a synopsis written as a bare
+        // `autonoma-planner` teaches a command the reader does not have.
         `${BOLD}USAGE${RESET}`,
-        "  autonoma-planner [run] [flags]      Plan and generate the suite. `run` may be omitted.",
-        "  autonoma-planner status             Show what a previous run completed.",
-        "  autonoma-planner upload             Re-upload an already-generated suite.",
-        "  autonoma-planner help               Print this.",
+        `  ${self} [run] [flags]   Plan and generate the suite. \`run\` may be omitted.`,
+        `  ${self} status          Show what a previous run completed.`,
+        `  ${self} upload          Re-upload an already-generated suite.`,
+        `  ${self} help            Print this.`,
         "",
         `${BOLD}WHAT IT DOES${RESET}`,
         ...WHAT_IT_DOES.map(indent),

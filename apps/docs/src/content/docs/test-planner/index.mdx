@@ -34,8 +34,9 @@ The command carries its own configuration as environment variables, so the only 
 | `AUTONOMA_GENERATION_ID` | for upload | The setup its generated artifacts are uploaded against |
 | `AUTONOMA_SHARED_SECRET` | no | Signs the SDK and webhook requests the run makes on your behalf |
 | `AUTONOMA_API_URL` | no | Point at a non-production Autonoma. Defaults to production |
-| `AUTONOMA_DEBUG` | no | Set to anything for verbose diagnostics on stderr |
-| `DONT_TRACK` | no | Set to anything to turn off analytics, logs and session replay together |
+| `AUTONOMA_DEBUG` | no | Set to `1` or `true` for diagnostics on stderr, plus a full JSONL transcript of the run at `~/.autonoma/debug/<run-id>.jsonl` |
+| `AUTONOMA_DEBUG_FILE` | no | Write that transcript to this path instead, without the stderr noise. Independent of `DONT_TRACK` - it never leaves your machine |
+| `DONT_TRACK` | no | Set to `1` or `true` to turn off analytics, logs and session replay together |
 
 ### Where a run starts
 

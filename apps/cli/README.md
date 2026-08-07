@@ -1,313 +1,202 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Autonoma-AI/autonoma/main/.github/assets/banner.webp" alt="Autonoma - an agent reads your pull request, runs your app, and reports what broke" width="100%">
+</p>
+
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Autonoma-AI/autonoma/main/.github/assets/wordmark-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/Autonoma-AI/autonoma/main/.github/assets/wordmark-light.svg">
+  <img alt="Autonoma" src="https://raw.githubusercontent.com/Autonoma-AI/autonoma/main/.github/assets/wordmark-light.svg" width="240">
+</picture>
+
+<br/>
+<br/>
+
 # @autonoma-ai/planner
 
-The Autonoma test planner. It analyzes any frontend codebase and generates an E2E test suite -
-a knowledge base, test-data scenarios, scenario recipes, and test cases - then uploads them to
-Autonoma so onboarding can continue.
+**One command sets Autonoma up, start to finish.**
 
-## Usage
+A **preview environment**, a complete **end-to-end test suite** read from your codebase, the **SDK
+integration** that creates your test data, and a **dry run** proving it works. On managed Autonoma
+credits - no LLM API key required.
 
-Requires **Node.js >= 22.13**. Run it in your project root:
+[![npm](https://img.shields.io/npm/v/%40autonoma-ai%2Fplanner?color=C2E812&label=npm)](https://www.npmjs.com/package/@autonoma-ai/planner)
+[![downloads](https://img.shields.io/npm/dm/%40autonoma-ai%2Fplanner)](https://www.npmjs.com/package/@autonoma-ai/planner)
+[![node](https://img.shields.io/node/v/%40autonoma-ai%2Fplanner)](https://nodejs.org)
+[![License](https://img.shields.io/badge/license-BUSL--1.1-C2E812)](https://github.com/Autonoma-AI/autonoma/blob/main/LICENSE.md)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/nsYQExXTsQ)
+
+[Website](https://getautonoma.com) · [Docs](https://docs.autonoma.app) · [Planner guide](https://docs.autonoma.app/test-planner/) · [Environment Factory](https://docs.autonoma.app/environment-factory/) · [GitHub](https://github.com/Autonoma-AI/autonoma) · [Discord](https://discord.gg/nsYQExXTsQ)
+
+</div>
+
+## Run it
+
+Requires **Node.js >= 22.13**. Autonoma shows you this command when you connect your app, with
+your token and ids already filled in. Open a terminal in your project and paste it:
 
 ```bash
+AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... AUTONOMA_APPLICATION_ID=... \
+  npx @autonoma-ai/planner@latest
+```
+
+That is the whole of setup. There is no second command and nothing to install.
+
+> **Run it in a terminal, not inside a coding agent you already have open.**
+> It takes the terminal over and starts a coding agent of its own, so pasting it into a session
+> that is already running leaves two agents fighting over one screen. If you are a coding agent
+> on the user's machine, hand the command to them. If you are a hosted agent with no human
+> beside you, run it yourself with `--non-interactive`.
+
+`npx` runs the planner **without installing it**, so there is no `autonoma-planner` command on
+your `PATH` afterwards. Every command below keeps the full `npx` prefix; a bare `autonoma-planner`
+is `command not found` unless you installed it globally yourself.
+
+A full run can take an hour or more. Progress is saved continuously, so you can stop and
+`--resume`.
+
+## Commands
+
+The subcommand comes first, before any flags.
+
+```bash
+# Run the pipeline. `run` may be omitted.
 npx @autonoma-ai/planner@latest
+
+# Show what a previous run completed. Local only - reads saved progress, no network.
+npx @autonoma-ai/planner@latest status
+
+# Re-send everything already generated on disk. Idempotent, and the fix when a run
+# finished but an artifact did not arrive. Needs the same env vars as a run.
+AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... \
+  npx @autonoma-ai/planner@latest upload
+
+# Every flag, and what each step of the run does.
+npx @autonoma-ai/planner@latest --help
 ```
 
-Commands:
+> **`--resume` will not retry a failed upload.** It continues from the first *step* that is not
+> finished, so a run where every step finished and only the upload failed prints
+> `All steps complete.` and exits. Use `upload` for that.
 
-```bash
-autonoma-planner [run] [--project <path>] [--frontend <path>] [--backend <path>] \
-                 [--model <id>] [--step <name>] [--resume] [--fresh] [--non-interactive] \
-                 [--agent <claude|codex>] [--permission-mode <default|acceptEdits|bypassPermissions>]
-autonoma-planner status [--project <path>]
-autonoma-planner upload [--project <path>]
+## Flags
+
+```
+--project <path>          target a repo other than the current directory
+--frontend <path>         in a monorepo, the frontend directory to plan tests for
+--backend <path>          a backend/data layer it talks to. Repeatable, or comma-separated
+--coding-agent <name>     which agent handles the preview and SDK steps: claude | codex
+--permission-mode <mode>  its autonomy: bypassPermissions (default) | acceptEdits | default
+--non-interactive         run unattended, with no questions
+--resume                  continue from where a previous run stopped
+--fresh                   discard a previous run's output and start over
+--step <name>             run a single step and stop - for debugging, not for sequencing a run
+--model <id>              pick a different Autonoma-hosted model (still no key needed)
+--slug <name>             override the output folder name under ~/.autonoma/
 ```
 
-`run` is the default and may be omitted. A run can take an hour or more; progress is saved, so you
-can stop and `--resume` later.
+`--agent` and `--backends` are accepted as aliases of `--coding-agent` and `--backend`. Flags take
+`--key value` and `--key=value` alike, and an unrecognized flag is named back with the nearest one
+that exists - a misspelled `--non-interactive` would otherwise leave the run waiting on questions
+nobody can answer.
 
-`autonoma-planner --help` documents every flag and what each step of the run does. Flags accept
-`--key value` and `--key=value` alike, repeatable ones (`--backend`) also take a comma-separated
-list, and a flag it does not recognize is named back with the nearest one that it does - a
-misspelled `--non-interactive` would otherwise leave the run waiting on questions nobody can
-answer.
+## What it does
 
-### The dashboard (TUI)
+| # | Step | Output |
+| --- | --- | --- |
+| 1 | **Preview environment** - hands your coding agent the job of setting up a real per-PR deployment. Skipped when you already have one. | a live preview |
+| 2 | **Map your project structure** - finds your frontend(s) and backend(s), so later steps scan only what matters. | `project-map.json` |
+| 3 | **Find your pages** - maps every page and route. | `pages.json` |
+| 4 | **Build a knowledge base** - learns your features, flows and UI patterns. | `AUTONOMA.md` |
+| 5 | **Map your data models** - finds what your app stores and how each record is created. | `entity-audit.md` |
+| 6 | **Design test scenarios** - decides the realistic data each test runs against. | `scenarios.md` |
+| 7 | **Set up test data** - hands the Environment Factory integration to your coding agent, which implements it, validates it live, and produces the recipe. | `recipe.json` |
+| 8 | **Generate the tests** - writes the E2E tests as natural-language markdown, then uploads the suite. | `qa-tests/` |
 
-On an interactive terminal the pipeline phase runs inside a live Ink dashboard: a horizontal
-pipeline strip across the top (step status, spinner on the running step, sub-progress), the
-file list on the left (each generated file with its status - a test also carries its review
-verdict there: `REVIEWING`, `✓ REVIEWED`, or `FIXING` while a fix agent rewrites it), and a
-wide document viewer showing
-the file currently being written, live from disk - known documents (frontmatter, pages.json)
-render as readable cards and tables instead of raw source. An IDE-style ACTIVITY panel at the
-bottom streams the agent's tool calls. Navigate with arrows or `h/j/k/l` (left/right switch
-between the file list and the viewer - right from the list opens the selected file; up/down
-move the cursor or scroll), `f` re-follows the newest file, `g`/`G` jump top/bottom, `?` opens
-a help modal explaining the current step with docs links, and Ctrl+C twice exits with progress
-saved. Questions (resume?, scope selection, step failures) render as an ACTION REQUIRED modal
-inside the dashboard; the terminal is handed over only for the
-SDK-integration handoff below, and the dashboard comes back when the agent exits.
+Steps 1 and 7 hand the terminal to your **locally installed coding agent** (Claude Code or Codex
+CLI) the way `git commit` opens your editor - the dashboard steps aside, and control comes back
+when the agent exits.
 
-Piped output, CI, and `--non-interactive` keep the plain line-based output. See
-`docs/ui-design-brief.md` for the design rationale; `pnpm ui:gallery` steps through every
-dashboard state with fixture data (Tab / Shift+Tab).
-Pass a past run's output directory - `pnpm ui:gallery ~/.autonoma/<slug>` - to add a scene
-backed by real files, so navigation and scrolling can be tested on real documents.
+<p align="center">
+  <img src="https://docs.autonoma.app/img/test-planner/tui-handoff.png" alt="The planner's terminal just before the handoff: a modal over the dimmed dashboard badged UP NEXT, headed 'Handing off to Claude Code', explaining that the terminal is about to switch and that you come straight back afterwards, with a footer reading 'Continuing in 10s - enter continue now'" width="100%">
+</p>
 
-`upload` re-uploads everything already generated in `~/.autonoma/<app>/` - the recipe and the
-artifacts (test cases, `AUTONOMA.md`, `scenarios.md`, `entity-audit.md`) - without re-running the
-whole planner. Useful when an upload failed. Both the recipe and artifact endpoints are idempotent,
-so it is safe to run repeatedly. It needs the same `AUTONOMA_API_TOKEN` and `AUTONOMA_GENERATION_ID`
-env vars as a run (`AUTONOMA_API_URL` stays optional - the host defaults to production). Note that if
-a recipe submit fails during a run, the full recipe JSON is also printed to stdout so it can be
-recovered even from an ephemeral container.
+If neither agent is installed, the planner writes the full instructions to
+`~/.autonoma/<app>/integration-prompt.md` so you can implement them with any assistant, then
+continue with `--resume`.
 
-### Preview environments (when the run starts from onboarding)
+## Watch it work
 
-A run launched from Autonoma's connect screen begins one step earlier than the pipeline
-below: with the **preview environment**, a real deployment of your app that Autonoma builds
-per pull request and tests against. The CLI registers the Autonoma MCP server with your
-coding agent and then starts a fresh session on the job - registering first is the whole
-trick, because an agent only loads its MCP servers at startup and so can never pick up one
-it registered itself.
+A full run takes a while, so on an interactive terminal the pipeline runs inside a live dashboard.
 
-The CLI decides this from your app's onboarding status, so it only happens when there is
-something to do:
+<p align="center">
+  <img src="https://docs.autonoma.app/img/test-planner/tui-dashboard.png" alt="The planner's terminal dashboard mid-run: a top bar with the project, elapsed time and an ETA; the seven pipeline steps as a strip with two ticked and 'Build knowledge base' active at 9 of 24 pages; a FILES list on the left; AUTONOMA.md streaming in live on the right, marked WRITING LIVE; and an ACTIVITY feed logging each agent call" width="100%">
+</p>
 
-- Started from the connect screen, with no preview yet: preview environment, then the
-  pipeline.
-- Started from **Finish setup**, or with a preview you set up by hand: straight to the
-  pipeline, exactly as before.
-- No `AUTONOMA_APPLICATION_ID` (a standalone run against any repo): straight to the
-  pipeline, and nothing here applies.
+The steps run as a strip across the top, the files produced sit on the left, and the document being
+written right now streams from disk on the right - so you can read the knowledge base, scenarios
+and tests as they are produced. Navigate with arrows or `h/j/k/l`, `f` to follow the newest file,
+`?` for help, Ctrl+C twice to exit with progress saved.
 
-Once a run is past the preview environment, it tells Autonoma it is driving the app, and
-the web app replaces the setup steps with a note pointing you back at this terminal -
-there is nothing to do in both places at once. "Take over" in the web app hands the steps
-back to you; a run in progress keeps going, so stop it here too.
-
-Completion is read from Autonoma, not from your agent - an interactive session does not
-exit when its work is done, and its exit code says nothing about whether a preview
-deployed. That also makes it work the same whether your previews are Autonoma-hosted, on
-Vercel, or from your own pipeline. If the preview does not finish, the run continues to
-generate your test suite and warns you: only scenario dry runs need a live preview.
-
-### Monorepos
-
-The run starts by mapping your repository - discovering which folder(s) are frontends, which are
-backends/data layers, and which are unrelated - so every later step scans only the relevant code
-instead of the whole tree. In an interactive run you pick the frontend to test (and its backends)
-from a menu. To scope non-interactively, pass:
-
-- `--frontend <path>` - the one frontend directory to plan tests for.
-- `--backends <path,path>` - comma-separated backend/data-layer directories it depends on. Omit to
-  default to the dependencies the mapper inferred for that frontend.
-
-For a single-app repo the mapper resolves the scope on its own and no flags are needed.
-
-### Running without a human
-
-`--non-interactive` is the path a hosted agent takes, and it runs the whole thing in one
-invocation - there is never a list of steps for a caller to sequence. Because nobody can be asked
-anything, every input that would have been a question is also a flag: `--agent`, `--frontend`,
-`--backend`, `--permission-mode`, `--resume`, `--fresh`.
-
-What the run does about the questions it cannot ask:
-
-- **It never opens a browser.** The coding agent's Autonoma connection is authorized with the
-  `AUTONOMA_API_TOKEN` the run already holds. The browser sign-in is refused outright without a
-  terminal rather than attempted - it would not fail, it would hang on a callback nobody triggers.
-- **It says what it assumed.** Where it proceeds on an answer nobody gave - continuing from a
-  previous run's output, say - it prints what was assumed and the flag that would have said
-  otherwise.
-- **It reports each step as it starts and finishes**, with its position in the run and how long it
-  took, so the process that launched it can tell work from a stall.
-- **It refuses rather than guesses** when the choice would be arbitrary: several frontends and no
-  `--frontend` pauses with the flag to pass, and both coding agents installed with no `--agent`
-  skips the handoff and says to name one.
-
-## SDK integration handoff (test-data step)
-
-The "Set up test data" step wires the Autonoma SDK "environment factory" into your app so the
-platform can seed and tear down realistic test data through your app's own creation code. Instead
-of a copy-paste guide, the CLI hands the whole integration to your **locally-installed coding agent**
-(Claude Code or Codex CLI) in
-one interactive, autonomous session - like `git commit` with no `-m` opening your editor. You watch
-it install the SDK, build the endpoint, write the factories, **generate the test-data recipe**, and
-validate each entity itself: for every entity it runs `up`, checks your database for the new rows,
-runs `down`, and checks they're gone. It finishes with `sdk up --repeat 3`, which seeds the whole
-recipe three times over **without tearing down in between** - the only check that catches a value
-the recipe reuses across runs, since every other check tears down before the next seed and so
-passes a recipe that can only ever exist once. A collision there is the unique constraint your
-customer would hit the first time they run two tests at the same time; the command reports which
-instance failed, then removes every instance it created. It drives the endpoint through the CLI's own signed client
-(`autonoma-planner sdk discover|up|down`), so its checks use the exact request signing and the exact
-recipe-token substitution the platform uses. Before it declares the session done it must also run
-`autonoma-planner sdk check --recipe <file>`, which holds the recipe FILE to the format Autonoma
-accepts on upload - the same gate the CLI applies the moment the agent exits, so a rejected recipe
-is a fix the agent makes while it's still running rather than a re-launch afterwards. All of that
-happens on a branch it cuts from your
-repo's default branch, and it pushes the finished integration as a pull request rather than leaving
-the changes loose in your working tree. When it reports the session complete, the CLI uploads
-the recipe it produced and continues to test generation.
-
-- `--agent <name>` - preselect the agent to hand off to (`claude` or `codex`). Omit to auto-detect;
-  if both are installed you're prompted to pick once and that choice is remembered for later runs
-  (in `~/.autonoma/preferences.json`), and headless - where there is nobody to ask - the first is
-  used and named in a warning. The flag always wins over what was remembered.
-- `--permission-mode <mode>` - how much autonomy the agent runs with: `default` (approve each
-  command), `acceptEdits` (auto-edit files, approve commands), or `bypassPermissions` (fully
-  autonomous, the default). Both the agent and the mode you pick are persisted for `--resume`. For
-  Codex these map onto its sandbox/approval model (always `--sandbox danger-full-access` because the
-  integration must install the SDK and reach the network, with approval strictness as the only lever;
-  `bypassPermissions` uses `--dangerously-bypass-approvals-and-sandbox`).
-
-If no supported agent is installed (or you decline the handoff), the CLI writes the full
-integration instructions to `~/.autonoma/<app>/integration-prompt.md` and pauses so you can
-implement them in whatever assistant you have, then `--resume` to continue. `--non-interactive`
-runs are unchanged: they emit a data-only recipe with no implementation or validation.
+Piped output, CI and `--non-interactive` keep plain line-based output.
 
 ## Output
 
-Artifacts are written to `~/.autonoma/<project-slug>/`:
+Artifacts are written to `~/.autonoma/<project-slug>/` as they are produced:
 
 ```
 ~/.autonoma/<app>/
-├── project-map.json  # discovered frontends/backends + the scope chosen for this run
-├── AUTONOMA.md       # knowledge base
-├── scenarios.md      # test-data scenario descriptions
-├── entity-audit.md   # database model audit
-├── recipe.json       # scenario recipes (SDK factories); the agent generates + validates it
-├── integration-prompt.md  # rendered SDK-integration instructions (drives the agent + manual fallback)
-└── qa-tests/         # generated test cases (markdown)
-    ├── INDEX.md      # table of contents for the suite
-    └── _invalid/     # tests that failed structural validation; never uploaded
+├── project-map.json       # discovered frontends/backends + the scope chosen for this run
+├── AUTONOMA.md            # knowledge base
+├── scenarios.md           # test-data scenario descriptions
+├── entity-audit.md        # database model audit
+├── recipe.json            # scenario recipes; the coding agent generates and validates it
+├── integration-prompt.md  # rendered SDK-integration instructions
+└── qa-tests/              # generated test cases (markdown)
+    ├── INDEX.md           # table of contents, written last from the files on disk
+    └── _invalid/          # tests that failed structural validation; never uploaded
 ```
 
-`qa-tests/INDEX.md` is written once, at the end, from the files on disk - so it always matches
-the suite beside it. Alongside the totals it names what the run could _not_ deliver: features it
-walked without producing a test, and tests the review cycle removed that nothing could put back.
-Both are fixed by re-running the planner.
-
-## Automatic upload
-
-When started from Autonoma onboarding, the CLI uploads the artifacts itself once the run finishes -
-there is no manual upload step. The recipe is submitted during the recipe-builder phase; the
-remaining artifacts (test cases, `AUTONOMA.md`, `scenarios.md`, `entity-audit.md`) are uploaded at the
-end of the run, and the setup is then marked complete so the onboarding UI advances automatically.
-
-If the upload credentials are not set, the CLI just leaves the artifacts on disk and skips the upload.
-
-## Scenario dry run (when the run started from onboarding)
-
-Once the artifacts are up, the CLI proves the whole thing actually works: it picks the preview
-environment carrying your SDK handler (the pull request the platform recognizes as the SDK's, or
-your main preview), waits for it to deploy, asks the handler to describe your data models, then
-provisions and tears down every scenario against it, one at a time.
-
-The CLI makes those calls itself rather than asking your coding agent to make them, because on a
-healthy app they need no judgement - only the credentials and the app id the run already holds.
-
-Waiting is bounded twice, because "still building" and "no preview at all" are different
-problems. A build gets a generous ceiling (20 minutes - it covers a cold image build). A pull
-request with no preview environment gets a minute, since that state is either a webhook that has
-not caught up yet or a draft pull request that will never get one.
-
-**When that does not pass, the run hands it to a coding agent** rather than reporting the
-problem and stopping. Everything that makes it fail needs a look at your repo and a decision -
-the handler's pull request has no preview environment, the handler 404s, a recipe resolves to
-nothing - which is exactly what an API call cannot do. The agent gets the Autonoma MCP and the
-job of making both facts true, and the run ends when Autonoma reports them, not when the agent
-says so. A run whose dry run passed first time spawns nothing.
-
-There are two kinds of preview the calls themselves cannot validate - one built by **your own
-pipeline**, signed with a secret that never leaves your side, and a **Vercel** deployment,
-validated against the one you picked in the Autonoma app. Those are handed over the same way.
-
-The run closes by reading back what Autonoma makes of your app - test suite uploaded, SDK
-answering, scenarios provisioning, and whether Autonoma is reviewing your pull requests. It
-takes the app live itself once the preview is verified: your coding agent is told to do that,
-but the run stops the agent the moment the preview is confirmed, which is the same moment it
-would have.
+When the run is attached to an Autonoma application it uploads these itself - there is no manual
+upload step. Without credentials it just leaves them on disk.
 
 ## Environment variables
 
-| Variable                  | Required   | Purpose                                                                                                                                                                                                                                                               |
-| ------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AUTONOMA_API_TOKEN`      | yes        | Autonoma API token. Authenticates the planner, which runs on managed Autonoma credits through our LLM proxy - no LLM key needed. Injected by the Autonoma app; create one at https://autonoma.app/settings/api-keys to run standalone. Also used to upload artifacts. |
-| `OPENROUTER_MODEL`        | no         | Override the default model (OpenRouter-style model id, forwarded by the proxy).                                                                                                                                                                                       |
-| `AUTONOMA_API_URL`        | no         | Base URL of the Autonoma API. Defaults to `https://autonoma.app`; override to target an alpha/preview host.                                                                                                                                                           |
-| `AUTONOMA_GENERATION_ID`  | for upload | The setup id artifacts are uploaded against. Injected by onboarding.                                                                                                                                                                                                  |
-| `AUTONOMA_APPLICATION_ID` | no         | The application this run belongs to. Lets the CLI read onboarding state (so it can skip work the app has already had done) and mint pairing codes for the coding agents it hands off to. Injected by onboarding.                                                      |
-| `AUTONOMA_SHARED_SECRET`  | no         | Per-application secret used to sign SDK/webhook requests. Injected by onboarding.                                                                                                                                                                                     |
-| `AUTONOMA_DISTINCT_ID`    | no         | PostHog identity so CLI events join the signup funnel. Injected by onboarding.                                                                                                                                                                                        |
-| `DONT_TRACK`              | no         | Set to `1`/`true` to disable all telemetry - events, log shipping and session replay.                                                                                                                                                                                 |
-| `AUTONOMA_DEBUG`          | no         | Set to `1`/`true` to print diagnostic breadcrumbs to stderr, and to write a full JSONL transcript of the run to `~/.autonoma/debug/<run-id>.jsonl`.                                                                    |
-| `AUTONOMA_DEBUG_FILE`     | no         | Write that transcript to this path instead. Implies the transcript without the stderr noise; independent of `DONT_TRACK`, since it never leaves the machine.                                                          |
+The command Autonoma gives you already carries these; the only one you set by hand is a token for
+a standalone run.
 
-`AUTONOMA_API_TOKEN` + `AUTONOMA_GENERATION_ID` together enable automatic upload (the endpoint
-defaults to production unless `AUTONOMA_API_URL` is set).
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `AUTONOMA_API_TOKEN` | yes | The run's credential. It runs on managed Autonoma credits through our LLM proxy, so no LLM key is needed. Create one under **Settings → API keys**. |
+| `AUTONOMA_APPLICATION_ID` | no | The app this run belongs to. With it the run also sets up the preview environment and validates the result; without it the planner runs standalone against any repo. |
+| `AUTONOMA_GENERATION_ID` | for upload | The setup its artifacts are uploaded against. |
+| `AUTONOMA_SHARED_SECRET` | no | Signs the SDK and webhook requests the run makes on your behalf. |
+| `AUTONOMA_API_URL` | no | Point at a non-production Autonoma. Defaults to production. |
+| `AUTONOMA_DISTINCT_ID` | no | PostHog identity, so CLI events join the signup funnel. |
+| `OPENROUTER_MODEL` | no | Override the default model (an OpenRouter-style id, forwarded by the proxy). |
+| `DONT_TRACK` | no | `1`/`true` disables all telemetry - events, log shipping and session replay. |
+| `AUTONOMA_DEBUG` | no | `1`/`true` prints diagnostic breadcrumbs to stderr **and** writes a full JSONL transcript to `~/.autonoma/debug/<run-id>.jsonl`. |
+| `AUTONOMA_DEBUG_FILE` | no | Write that transcript to this path instead, without the stderr noise. Independent of `DONT_TRACK` - it never leaves your machine. |
 
 ## Telemetry
 
-Three lanes, all to PostHog, all off when `DONT_TRACK=1`:
+Three lanes, all to PostHog, all off together with `DONT_TRACK=1` - one switch, no partial opt-out.
 
-- **Events** (`core/analytics.ts`) - `cli_run_started`, `cli_step_completed`, `$exception`, and friends,
-  posted to the capture endpoint.
-- **Logs** (`core/logs.ts`) - the run's narrative, shipped as OTLP records under the service name
-  `autonoma-planner`: run and step lifecycle, every agent tool call, tool errors, retries and nudges,
-  and everything the CLI prints to the user.
-- **Session replay** (`src/replay/`) - the dashboard itself, as rrweb events, played back in PostHog's
-  session-replay player.
+- **Events** - run and step lifecycle (`cli_run_started`, `cli_step_completed`, `$exception`).
+- **Logs** - the run's narrative, shipped as OTLP records under the service name
+  `autonoma-planner`.
+- **Session replay** - the dashboard itself, as rrweb events.
 
-All three lanes are indexed by the same identifiers (`core/session.ts`), so one run resolves the same
-way from any of them:
+Events and logs carry **metadata only**: step names, agent and tool names, file paths, durations
+and error messages. Model prose, prompts, and the contents of any file the agent read or wrote are
+never sent.
 
-| Attribute                                     | What it identifies                                                                                        |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `run_id` / `sessionId`                        | This CLI invocation. `sessionId` is PostHog's own grouping key, so a run's logs sit together.             |
-| `generation_id`                               | The onboarding setup the run is fulfilling - the join back to an Autonoma record.                         |
-| `posthogDistinctId`                           | The person, when the app launched the CLI with an identity; otherwise an anonymous per-machine device id. |
-| `project_slug`, `cli_version`, `node_version` | Which project, which build, which runtime.                                                                |
-
-To read one run: filter logs by `service.name = autonoma-planner` and the `generation_id` (or `run_id`)
-you are chasing, ordered earliest-first.
-
-Log records carry **metadata only** - step names, agent and tool names, file paths, patterns, commands,
-durations, and error messages. Model prose and reasoning, prompts, and the contents of any file the
-agent read or wrote are never sent; those are what would carry a user's source code off their machine.
-Records are truncated and a single run is capped at 5000 of them, so a stuck agent loop cannot flood
-ingestion - the cap being reached is itself logged.
-
-### Session replay
-
-An interactive run is recorded and plays back in PostHog's normal session-replay player, alongside web
-recordings for the same person. It uses the run id as its `$session_id`, so a recording, its events and
-its logs all resolve to one another.
-
-`DONT_TRACK=1` turns it off along with the other two lanes - one switch, no partial opt-out.
-
-**This lane captures more than the others, and it is worth being explicit about it.** Events and logs
-are deliberately metadata-only - no prompts, no model prose, no file contents. A replay is a verbatim
-copy of the dashboard, and the dashboard renders repository paths and the contents of the files the run
-generates. Anything visible on screen is in the recording. Keystrokes are the one exception: printable
-characters are recorded as a placeholder, never the literal key, so the upload is not a transcript of
-the keyboard.
-
-How it works (`src/replay/`):
-
-- Frames come from an off-screen render of the same `<App>` the user sees, using Ink's `debug`
-  mode, which writes a complete frame with no cursor escapes. Scraping the terminal repaint stream
-  would not work, because Ink can emit either full redraws or per-line incremental updates.
-- Each frame becomes a synthetic DOM: one `<div>` per terminal row, spans for each colour run.
-- Frames are diffed row by row, so a repaint uploads only the rows that changed. A full snapshot of
-  the dashboard is tens of kilobytes; a typical repaint is a few hundred bytes.
-- Keystrokes are emitted as rrweb input events, because PostHog derives the active/inactive split
-  from interaction events alone. Without them a run of pure repaints reads as entirely idle and the
-  player's inactivity-skipping has nothing to skip to. Printable characters are recorded as a
-  placeholder rather than the literal key, so the upload is not a transcript of the keyboard.
-- Capture is rate limited to 2 fps, batched under PostHog's size limit, and capped per run. Any
-  failure is swallowed - a recording is never worth failing a run over.
+**Session replay captures more, and it is worth being explicit.** A replay is a verbatim copy of
+the dashboard, which renders repository paths and the contents of the files the run generates -
+anything visible on screen is in the recording. Keystrokes are the exception: printable characters
+are recorded as a placeholder, never the literal key, so the upload is not a transcript of your
+keyboard.
 
 ## Development
 
@@ -317,4 +206,7 @@ pnpm dev          # run from source (tsx)
 pnpm build        # bundle with tsup
 pnpm typecheck
 pnpm test
+pnpm ui:gallery   # step through every dashboard state with fixture data
 ```
+
+See `docs/ui-design-brief.md` for the dashboard's design rationale.
