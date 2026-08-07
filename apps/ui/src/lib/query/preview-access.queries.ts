@@ -94,6 +94,22 @@ export function pickPreviewLiveness(
 }
 
 /**
+ * The one runtime state for a whole preview environment, resolved from its services' endpoints.
+ *
+ * Every managed service in a preview sleeps and wakes together, so one state covers the environment;
+ * services with no endpoint (an app with no running instance, at all) contribute nothing and fall
+ * through to "unknown". Several parts of the Preview tab need this same answer, and they share the
+ * one underlying application-keyed query, so asking twice costs nothing.
+ */
+export function useEnvironmentLiveness(services: ReadonlyArray<{ endpoint: string | null }>): PreviewLivenessState {
+    const { data: liveness } = useApplicationPreviewLiveness();
+    return pickPreviewLiveness(
+        liveness,
+        services.map((service) => service.endpoint ?? undefined),
+    );
+}
+
+/**
  * The same map for every preview in the fleet, across organizations - the admin previewkit view, which has no
  * single application to key on. Internal-only, like the environments list it sits beside.
  */

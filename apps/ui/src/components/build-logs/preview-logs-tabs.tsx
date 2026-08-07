@@ -2,7 +2,7 @@ import { Button, Input, Tabs, TabsContent, TabsList, TabsTrigger, cn } from "@au
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { XIcon } from "@phosphor-icons/react/X";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { type LogLevelFilter, BuildLogStreamViewer, buildPreviewLogStreamUrl } from "./build-log-stream-viewer";
 
 // Wait for a pause in typing before applying the search, so each keystroke does not
@@ -26,6 +26,12 @@ interface PreviewLogsTabsProps {
   app?: string | undefined;
   /** When true, the app is still building, so the App logs tab shows a placeholder (no runtime logs yet). */
   appBuilding?: boolean | undefined;
+  /**
+   * Rendered in the App logs tab when the runtime stream has nothing to show - for when the caller
+   * knows why no output is coming and waiting is the wrong story (e.g. the preview has scaled to
+   * zero). Runtime-only: build logs are a finished artifact, so their absence has a different cause.
+   */
+  appEmptyState?: ReactNode | undefined;
   /** When true, hide the Build logs tab and show only runtime output - for services not built from the PR (recipe pods). */
   runtimeOnly?: boolean | undefined;
   /** When true, the tabs grow to fill their flex parent (full-height layout) instead of a fixed body height. */
@@ -60,6 +66,7 @@ export function PreviewLogsTabs({
   pr,
   app,
   appBuilding,
+  appEmptyState,
   runtimeOnly,
   fill,
   headers,
@@ -160,6 +167,7 @@ export function PreviewLogsTabs({
             headers={headers}
             title="app logs"
             waitingText={appWaitingText}
+            emptyState={appEmptyState}
             fill={fill}
             header={!toolbar}
             footer={toolbar}

@@ -17,11 +17,7 @@ import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { PreviewLivenessBadge } from "components/preview-liveness-badge";
 import { PREVIEW_STATUS_HELP, PreviewStatusBadge } from "components/preview-status-badge";
 import { useDeploymentHistory } from "lib/query/deployments.queries";
-import {
-  pickPreviewLiveness,
-  type PreviewLivenessState,
-  useApplicationPreviewLiveness,
-} from "lib/query/preview-access.queries";
+import { type PreviewLivenessState, useEnvironmentLiveness } from "lib/query/preview-access.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { Component, type ReactNode, Suspense, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
@@ -47,13 +43,7 @@ export function EnvironmentSummaryStrip({
   summary: PreviewSummary;
 }) {
   const environmentActive = summary.status === "building" || summary.phase === "deploy_requested";
-
-  // Every managed service in a preview sleeps and wakes together, so one runtime
-  // state covers the whole environment. Query on the services' URLs; non-preview
-  // or unresolved ones fall through to "unknown" (no badge).
-  const livenessUrls = summary.services.map((service) => service.endpoint).filter((url): url is string => url != null);
-  const { data: liveness } = useApplicationPreviewLiveness();
-  const livenessState = pickPreviewLiveness(liveness, livenessUrls);
+  const livenessState = useEnvironmentLiveness(summary.services);
 
   return (
     <div className="flex items-stretch border border-border-dim bg-surface-base">

@@ -3,7 +3,7 @@ import { isPreviewHostname } from "@autonoma/types";
 import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { TerminalWindowIcon } from "@phosphor-icons/react/TerminalWindow";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
-import { useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { env } from "../../env";
 import { parseAnsi } from "./parse-ansi";
 import { type BuildLogConnection, type BuildLogEntry, useBuildLogStream } from "./use-build-log-stream";
@@ -27,6 +27,12 @@ interface BuildLogStreamViewerProps {
   title?: string | undefined;
   /** Empty-state text while waiting for the first entry. */
   waitingText?: string | undefined;
+  /**
+   * Rendered instead of the "waiting for output" spinner when the stream has nothing to show.
+   * For the cases where waiting is the wrong story: nothing is running, so no line is coming.
+   * A stream error and an active level filter still win over it - both are more specific.
+   */
+  emptyState?: ReactNode | undefined;
   /** When true, the viewer grows to fill its flex parent instead of using a fixed body height. */
   fill?: boolean | undefined;
   /** When false, hides the inner title/status header - use when an outer layout (tabs, page title) already labels the stream and a footer shows status instead. Defaults to true. */
@@ -49,6 +55,7 @@ export function BuildLogStreamViewer({
   headers,
   title = "build logs",
   waitingText = "waiting for build output…",
+  emptyState,
   fill,
   header = true,
   footer = false,
@@ -102,7 +109,13 @@ export function BuildLogStreamViewer({
         )}
       >
         {visibleEntries.length === 0 ? (
-          <EmptyState connection={connection} error={error} waitingText={waitingText} filtered={entries.length > 0} />
+          <EmptyState
+            connection={connection}
+            error={error}
+            waitingText={waitingText}
+            filtered={entries.length > 0}
+            replacement={emptyState}
+          />
         ) : (
           visibleEntries.map((entry) => (
             <LogRow key={entry.id} entry={entry} active={entry.id === lastPhaseId && deployInFlight} />
@@ -240,15 +253,21 @@ function EmptyState({
   error,
   waitingText,
   filtered,
+  replacement,
 }: {
   connection: BuildLogConnection;
   error: string | undefined;
   waitingText: string;
   /** True when entries have arrived but the level filter matched none of them - a different message than "still waiting". */
   filtered: boolean;
+  /** The caller's stand-in for the waiting message - see `emptyState` on the viewer's props. */
+  replacement: ReactNode | undefined;
 }) {
   if (error != null) return <div className="text-status-critical">{error}</div>;
   if (filtered) return <div className="text-text-secondary">No log lines match the current filter.</div>;
+  // Beats both spinner texts below, including "reconnecting…": when the caller knows
+  // nothing is producing output, every "still waiting" wording is a lie.
+  if (replacement != null) return replacement;
   return (
     <div className="flex items-center gap-2 text-text-secondary">
       <CircleNotchIcon className="size-3 animate-spin" />

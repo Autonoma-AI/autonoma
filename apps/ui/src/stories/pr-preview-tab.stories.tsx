@@ -14,6 +14,15 @@ const BRANCH_NAME = "eng-1665-make-the-search-icon-clickable-for-the-search-widg
 const HEAD_SHA = "a22387c9d4e1f6b8a0c3d5e7f9012345678901ab";
 const BASE_SHA = "9f1c2d3e4b5a6f708192a3b4c5d6e7f809182736";
 
+/**
+ * Real previewkit app URLs, for the liveness stories. `isPreviewUrl` pins https, the hex label and
+ * `.preview.<VITE_INTERNAL_DOMAIN>` (defaulting to `autonoma.app`), so only a URL of this exact shape
+ * makes `PreviewLink` route the wake action through the `/preview-waiting` screen rather than opening
+ * a raw href - which is the behaviour the Idle story exists to show.
+ */
+const IDLE_WEB_APP_URL = "https://8005f6a9090f.preview.autonoma.app";
+const IDLE_DB_API_URL = "https://3c91ad77e204.preview.autonoma.app";
+
 type PreviewServiceFixture = ReturnType<typeof appService> | ReturnType<typeof dependencyService>;
 
 function appService({
@@ -176,10 +185,12 @@ const READY_PREVIEW_SERVICES: PreviewServiceFixture[] = [
 ];
 
 /**
- * Same environment, healthy: all apps deployed successfully. Exercises the Test User provision flow
- * (scenario picker -> credentials) and a multi-entry deployment history.
+ * A successfully deployed environment. Parameterised by its services and front door because the
+ * deploy outcome is the same whether the preview is currently serving, waking or scaled to zero -
+ * liveness is a separate signal (`previewAccess.livenessForApplication`), which is exactly the
+ * distinction the Idle stories below exercise.
  */
-function readyPreviewkitSummary() {
+function readyPreviewkitSummary(services: PreviewServiceFixture[], primaryUrl: string) {
   return {
     source: "previewkit" as const,
     environmentId: ENVIRONMENT_ID,
@@ -187,19 +198,19 @@ function readyPreviewkitSummary() {
     prNumber: PR_NUMBER,
     branch: BRANCH_NAME,
     status: "ready" as const,
-    primaryUrl: "https://web-app.preview-2624.internal",
-    sdkAppUrl: "https://web-app.preview-2624.internal",
+    primaryUrl,
+    sdkAppUrl: primaryUrl,
     phase: null,
     error: null,
     headSha: HEAD_SHA,
     lastDeployedSha: HEAD_SHA,
     updatedAt: BUILD_FINISHED_AT,
     deployedAt: BUILD_FINISHED_AT,
-    serviceCount: READY_PREVIEW_SERVICES.length,
-    readyServiceCount: READY_PREVIEW_SERVICES.length,
+    serviceCount: services.length,
+    readyServiceCount: services.length,
     degradedServiceCount: 0,
     failedServiceCount: 0,
-    services: READY_PREVIEW_SERVICES,
+    services,
     latestBuild: {
       headSha: HEAD_SHA,
       status: "ready" as const,
@@ -209,7 +220,7 @@ function readyPreviewkitSummary() {
       finishedAt: BUILD_FINISHED_AT,
     },
     actions: {
-      openPreview: { enabled: true, href: "https://web-app.preview-2624.internal", reason: null },
+      openPreview: { enabled: true, href: primaryUrl, reason: null },
     },
   };
 }
@@ -353,8 +364,8 @@ const readyPreviewTabFixtures: TrpcFixtures = {
   // beside the deploy status (vs "Idle" had it scaled to zero).
   previewAccess: { livenessForApplication: { "https://web-app.preview-2624.internal": "healthy" } },
   deployments: {
-    previewSummaryByPr: readyPreviewkitSummary(),
-    previewSummaryById: readyPreviewkitSummary(),
+    previewSummaryByPr: readyPreviewkitSummary(READY_PREVIEW_SERVICES, "https://web-app.preview-2624.internal"),
+    previewSummaryById: readyPreviewkitSummary(READY_PREVIEW_SERVICES, "https://web-app.preview-2624.internal"),
     history: [
       {
         id: "build_fixture_ready_01",
@@ -479,6 +490,117 @@ export const Ready: Story = {
       handlers: [
         logStreamHandler({ build: readyBuildFrames, app: readyAppFrames }),
         ...appShellHandlers(readyPreviewTabFixtures),
+      ],
+    },
+  },
+};
+
+/**
+ * The same healthy deploy, with each app moved onto its real preview hostname so the wake action
+ * resolves to `/preview-waiting`. Derived from `READY_PREVIEW_SERVICES` rather than copied, so a
+ * change to the healthy fixture cannot silently stop applying to the liveness stories. Dependency
+ * services keep their in-cluster host:port - a postgres pod has no public preview URL.
+ */
+const IDLE_APP_URLS: Record<string, string> = { "web-app": IDLE_WEB_APP_URL, "db-api": IDLE_DB_API_URL };
+
+const IDLE_PREVIEW_SERVICES: PreviewServiceFixture[] = READY_PREVIEW_SERVICES.map((service) => {
+  const endpoint = IDLE_APP_URLS[service.name];
+  if (endpoint == null) return service;
+  return { ...service, endpoint };
+});
+
+const idleDeploymentHistory = [
+  {
+    id: "build_fixture_idle_01",
+    headSha: HEAD_SHA,
+    status: "success" as const,
+    startedAt: BUILD_STARTED_AT,
+    finishedAt: BUILD_FINISHED_AT,
+    durationMs: 42_000,
+    isCurrent: true,
+  },
+];
+
+/**
+ * Fixtures for a preview that deployed fine and has since scaled to zero, differing from
+ * `readyPreviewTabFixtures` in exactly one value: the liveness state. The deploy status stays
+ * "success" throughout, which is the whole point - the deploy tells you nothing about whether
+ * anything is running right now.
+ */
+function idlePreviewTabFixtures(livenessState: "asleep" | "waking"): TrpcFixtures {
+  return {
+    ...SHARED_FIXTURES,
+    previewAccess: {
+      livenessForApplication: { [IDLE_WEB_APP_URL]: livenessState, [IDLE_DB_API_URL]: livenessState },
+    },
+    deployments: {
+      previewSummaryByPr: readyPreviewkitSummary(IDLE_PREVIEW_SERVICES, IDLE_WEB_APP_URL),
+      previewSummaryById: readyPreviewkitSummary(IDLE_PREVIEW_SERVICES, IDLE_WEB_APP_URL),
+      history: idleDeploymentHistory,
+      // The inspector's Test User button fetches this on render for any environment whose deploy
+      // succeeded, asleep or not.
+      testUserOptions: {
+        applicationId: baseApplication.id,
+        applicationName: baseApplication.name,
+        scenarios: [
+          { id: "scenario_default", name: "Default signed-in user" },
+          { id: "scenario_admin", name: "Admin user" },
+        ],
+        appUrls: [{ appName: "web-app", url: IDLE_WEB_APP_URL }],
+        suggestedSdkUrl: IDLE_WEB_APP_URL,
+        previewUrl: IDLE_WEB_APP_URL,
+        disabledReason: undefined,
+      },
+    },
+  };
+}
+
+/**
+ * A preview scaled to zero, with no runtime output to show - the exact state the production
+ * screenshot in the shape captured, where the App logs tab spun on "waiting for application output…"
+ * indefinitely. The build stream still answers, so the Build logs tab keeps the finished build.
+ */
+export const Idle: Story = {
+  args: { path: PREVIEW_PATH },
+  parameters: {
+    msw: {
+      handlers: [
+        logStreamHandler({ build: readyBuildFrames, app: "" }),
+        ...appShellHandlers(idlePreviewTabFixtures("asleep")),
+      ],
+    },
+  },
+};
+
+/**
+ * The same environment mid-wake, with the app stream still silent. Identical to `Idle` in everything
+ * but the liveness state, so it is the discriminating case: the log panel is back and waiting
+ * honestly, which proves the idle panel keys on liveness rather than on an empty stream.
+ */
+export const Waking: Story = {
+  args: { path: PREVIEW_PATH },
+  parameters: {
+    msw: {
+      handlers: [
+        logStreamHandler({ build: readyBuildFrames, app: "" }),
+        ...appShellHandlers(idlePreviewTabFixtures("waking")),
+      ],
+    },
+  },
+};
+
+/**
+ * Asleep, but the app logged before it scaled down - Loki keeps that output. The idle panel replaces
+ * the "waiting for output" spinner only, never real output, so the last thing the app said (often the
+ * reason it went quiet) stays readable without waking it.
+ */
+export const IdleWithPastLogs: Story = {
+  args: { path: PREVIEW_PATH },
+  parameters: {
+    msw: {
+      handlers: [
+        logStreamHandler({ build: readyBuildFrames, app: readyAppFrames }),
+        ...appShellHandlers(idlePreviewTabFixtures("asleep")),
       ],
     },
   },

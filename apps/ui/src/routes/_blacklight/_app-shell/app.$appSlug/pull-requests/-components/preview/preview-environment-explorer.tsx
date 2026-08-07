@@ -23,10 +23,12 @@ import { LinkIcon } from "@phosphor-icons/react/Link";
 import { TimerIcon } from "@phosphor-icons/react/Timer";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
+import { PreviewIdleEmptyState } from "components/preview-idle-empty-state";
 import { PreviewLink } from "components/preview-link";
 import { PREVIEW_STATUS_HELP, PreviewStatusBadge } from "components/preview-status-badge";
 import { formatDuration } from "lib/format";
 import { useRedeployPreviewApp } from "lib/query/deployments.queries";
+import { type PreviewLivenessState, useEnvironmentLiveness } from "lib/query/preview-access.queries";
 import type { RouterOutputs } from "lib/trpc";
 import { type ReactNode, Suspense, useState } from "react";
 import { SERVICE_ICON_BY_KEY, SERVICE_STATUS_META } from "../preview-status-meta";
@@ -63,6 +65,7 @@ export function PreviewEnvironmentExplorer({
   const dependencies = services.filter((service) => !isAppService(service));
   const selectedService = services.find((service) => serviceKey(service) === search.service) ?? services[0];
   const onSelect = (service: PreviewService) => onSearchChange({ service: serviceKey(service) });
+  const livenessState = useEnvironmentLiveness(services);
 
   return (
     <div className="flex min-h-0 flex-1 lg:flex-row">
@@ -112,6 +115,8 @@ export function PreviewEnvironmentExplorer({
           service={selectedService}
           repoFullName={summary.repoFullName}
           prNumber={summary.prNumber}
+          livenessState={livenessState}
+          openPreview={summary.actions.openPreview}
           logs={search.logs}
           onLogsChange={(next) => onSearchChange({ logs: next })}
         />
@@ -380,12 +385,16 @@ function PreviewLogsBody({
   service,
   repoFullName,
   prNumber,
+  livenessState,
+  openPreview,
   logs,
   onLogsChange,
 }: {
   service: PreviewService | undefined;
   repoFullName: string;
   prNumber: number;
+  livenessState: PreviewLivenessState;
+  openPreview: PreviewSummary["actions"]["openPreview"];
   logs: PreviewLogSource | undefined;
   onLogsChange: (next: PreviewLogSource) => void;
 }) {
@@ -400,6 +409,12 @@ function PreviewLogsBody({
   }
 
   const [owner = "", repo = ""] = repoFullName.split("/");
+  // A preview that has scaled to zero produces no runtime output, so the App logs tab
+  // says so and offers to wake it instead of waiting on a line that isn't coming. Any
+  // output it did produce before sleeping still wins - this only replaces the spinner.
+  const wakeUrl = openPreview.enabled && openPreview.href != null ? openPreview.href : undefined;
+  const appEmptyState = livenessState === "asleep" ? <PreviewIdleEmptyState url={wakeUrl} /> : undefined;
+
   return (
     <PreviewLogsTabs
       owner={owner}
@@ -407,6 +422,7 @@ function PreviewLogsBody({
       pr={prNumber}
       app={service?.name}
       appBuilding={service?.status === "building"}
+      appEmptyState={appEmptyState}
       runtimeOnly={service?.logAvailability === "runtime_only"}
       source={logs}
       onSourceChange={onLogsChange}
