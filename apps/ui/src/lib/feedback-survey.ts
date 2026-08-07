@@ -11,7 +11,7 @@ import posthog, {
     type Survey,
     type SurveyQuestion,
     type SurveyResponseValue,
-} from "posthog-js";
+} from "lib/posthog";
 
 // We render our own feedback modal instead of PostHog's popover widget: ad-block
 // cosmetic filters hide the widget's `.PostHogSurvey*` DOM, while our neutral markup

@@ -8,7 +8,7 @@ import { createTRPCOptionsProxy } from "@trpc/tanstack-react-query";
 import { env } from "env";
 import { demoModalStore } from "lib/demo-modal-store";
 import { isDemoReadOnlyError } from "lib/demo-read-only-error";
-import posthog from "posthog-js";
+import posthog from "lib/posthog";
 import superjson from "superjson";
 
 export type RouterOutputs = inferRouterOutputs<AppRouter>;

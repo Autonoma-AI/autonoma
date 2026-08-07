@@ -5,7 +5,7 @@ import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { isTRPCClientError } from "@trpc/client";
 import { RouteErrorState } from "components/route-error-state";
 import { RoutePendingSkeleton } from "components/route-pending-skeleton";
-import posthog from "posthog-js";
+import posthog from "lib/posthog";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { env } from "./env";
@@ -17,7 +17,6 @@ const posthogKey = env.VITE_POSTHOG_KEY;
 const isPostHogEnabled = !import.meta.env.DEV && posthogKey != null;
 
 const ATTRIBUTION_COOKIE_MAX_AGE_SECONDS = 86_400;
-const POSTHOG_CONVERSATIONS_SCRIPT_PATH = "/static/conversations.js";
 
 function writeAttributionCookie(name: string, value: string) {
   const domain = env.VITE_INTERNAL_DOMAIN;
@@ -31,14 +30,6 @@ function writeAttributionCookie(name: string, value: string) {
   ];
   if (isProduction) attributes.push("Secure");
   document.cookie = attributes.join("; ");
-}
-
-function preparePostHogExternalDependencyScript(script: HTMLScriptElement) {
-  const isConversationsScript = script.src.includes(POSTHOG_CONVERSATIONS_SCRIPT_PATH);
-  const shouldDeferConversations = isConversationsScript && document.readyState !== "complete";
-  if (shouldDeferConversations) return null;
-
-  return script;
 }
 
 function loadPostHogConversationsAfterPageLoad() {
@@ -75,7 +66,6 @@ if (isPostHogEnabled) {
     session_recording: {
       recordCrossOriginIframes: true,
     },
-    prepare_external_dependency_script: preparePostHogExternalDependencyScript,
     bootstrap: crossDomainId != null ? { distinctID: crossDomainId } : undefined,
   });
   loadPostHogConversationsAfterPageLoad();
