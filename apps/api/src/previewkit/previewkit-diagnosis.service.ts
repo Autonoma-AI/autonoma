@@ -1,17 +1,11 @@
 import { type Prisma, type PrismaClient } from "@autonoma/db";
 import { queryLokiLogs } from "@autonoma/diffs/analysis/logs/loki";
 import {
-    type AiDiagnosisResult,
-    AiDiagnosisResultSchema,
     type DiagnosePreviewkitDeployInput,
-    type DiagnosePreviewkitDeployResult,
     type PreviewDiagnosisFinding,
-    type SuggestedEnvVar,
-    detectSensitive,
     previewConfigSchema,
     projectManifest,
 } from "@autonoma/types";
-import { type LanguageModel, generateObject } from "ai";
 import {
     type PreviewFailure,
     buildServiceSummaries,
@@ -25,18 +19,10 @@ import { type DeployFreshness, deployFreshness } from "./deploy-freshness";
 const MAIN_BRANCH_PREVIEW_ENVIRONMENT_NUMBER = 0;
 /** Loki line-filter regex used to pull just the interesting (error-shaped) log lines. */
 const LOG_ERROR_REGEX = "error|fail|fatal|cannot|missing|undefined|null|panic|exception|refused|denied";
-/** Per-source cap on log lines fed to the model, to keep the prompt bounded. */
+/** Per-source cap on log lines returned, to keep the tool response bounded. */
 const MAX_LOG_LINES = 120;
 /** How far back to look for logs when the deploy has no recorded start time. */
 const LOG_LOOKBACK_MS = 60 * 60 * 1000;
-/** Cap on fix steps kept per finding, so a runaway model response stays bounded. */
-const MAX_FIX_STEPS = 6;
-/** Low thinking budget - diagnosis is bounded classification, not open-ended reasoning. */
-const GEMINI_PROVIDER_OPTIONS = { google: { thinkingConfig: { thinkingLevel: "low" } } };
-/** Wall-clock cap for a single diagnosis generation request. */
-const AI_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
-/** Transient-failure retries the AI SDK performs before we fall back to heuristics. */
-const AI_MAX_RETRIES = 3;
 
 const environmentSelect = {
     id: true,
@@ -82,15 +68,13 @@ const environmentSelect = {
 type EnvironmentRow = Prisma.PreviewkitEnvironmentGetPayload<{ select: typeof environmentSelect }>;
 
 /**
- * Raw, deterministic diagnostic signals for a preview deploy - everything the AI
- * pass is fed, minus the AI. Returned by {@link PreviewkitDiagnosisService.signals}
- * for the MCP `diagnose_deploy` tool, whose consumer is a coding agent that has the
- * repo in front of it and can reason for itself. Giving it the source signals (state,
- * rule-based failure classification, service states, config env-key surface,
- * error-shaped logs) is more useful - and less hallucination-prone - than a prose
- * summary. The deterministic `findings` (rule-based, not AI) are included as a
- * starting-point categorization the agent can trust. The dashboard keeps the
- * AI-enriched {@link PreviewkitDiagnosisService.diagnose} path.
+ * Raw, deterministic diagnostic signals for a preview deploy. Returned by
+ * {@link PreviewkitDiagnosisService.signals} for the MCP `diagnose_deploy` tool, whose
+ * consumer is a coding agent that has the repo in front of it and can reason for itself.
+ * Giving it the source signals (state, rule-based failure classification, service states,
+ * config env-key surface, error-shaped logs) is more useful - and less hallucination-prone
+ * - than a prose summary. The `findings` are included as a starting-point categorization
+ * the agent can trust.
  */
 export interface PreviewDeploySignals {
     /** "ok" = no failure detected; "failing" = at least one classified failure; "unavailable" = nothing to diagnose. */
@@ -100,13 +84,13 @@ export interface PreviewDeploySignals {
     deploy?: { status: string; phase?: string; error?: string };
     services?: Array<{ name: string; status: string; error?: string; url?: string; imageTag?: string }>;
     build?: { status: string; error?: string; startedAt?: string; finishedAt?: string; durationMs?: number };
-    /** Rule-based (not AI) failure classification: the same signals the UI's AI pass reasons over. */
+    /** Rule-based failure classification derived from the build and service states. */
     failures?: PreviewFailure[];
     /** Env-key surface + app paths/ports the config declares (never secret values). */
     config?: unknown;
     /** Error-shaped log lines (secret-masked), fetched only when the deploy is failing. */
     logs?: string[];
-    /** Deterministic, rule-based findings (missing_env_var / user_setup / autonoma_error) - no AI, safe to trust. */
+    /** Deterministic, rule-based findings - derived from the classified failures, safe to trust. */
     findings?: PreviewDiagnosisFinding[];
     /**
      * How far the recorded state can be trusted, from the age of the last deploy.
@@ -120,81 +104,13 @@ export interface PreviewDeploySignals {
 /** Resolved environment, or a reason it can't be diagnosed yet. */
 type ResolvedEnvironment = { environment: EnvironmentRow } | { reason: string };
 
-const DIAGNOSIS_SYSTEM_PROMPT = `You are a preview-infrastructure diagnostician for PreviewKit. Given a failed deploy's status, structured failures, service states, the resolved deploy config, and recent build/runtime log lines, produce a short summary and a list of findings that explain what went wrong and how to fix it.
-
-Classify each finding into exactly one category:
-- "missing_env_var": a required environment variable or secret is absent or empty (the app crashes referencing it, or config resolution fails on an unset value). User-fixable.
-- "user_setup": the customer's config is wrong - a bad app path, missing/incorrect Dockerfile, wrong port, failing health check, or an unbuildable image. User-fixable.
-- "autonoma_error": a PreviewKit/platform fault the customer cannot fix - Kubernetes API errors, External-Secret sync timeouts, namespace or generated-spec problems, buildkit infrastructure failures, or our internal timeouts.
-- "unknown": the signals do not clearly attribute the failure.
-
-Rules:
-- Write "explanation" in plain language a non-expert can act on. Keep "fixSteps" concrete and short.
-- Set "appName" and, when you can, "fieldPath" (e.g. "apps.0.dockerfile") so the UI can deep-link the exact config input.
-- For "missing_env_var", populate "suggestedEnv" with the exact variable keys. Set "reference" to a "{{service.url}}"-style token when it wires to a managed service, otherwise a literal "value" only when you are confident. Mark credentials sensitive=true.
-- Set "action" to the single best follow-up: "edit_config", "edit_secrets", "redeploy", or "contact_support" (use contact_support for autonoma_error).
-- Cite the concrete log line, error string, or config field in "evidence". Never invent findings without support.
-- Prefer "autonoma_error" only when the signal clearly points at our infrastructure, not the customer's application code or config.`;
-
 export class PreviewkitDiagnosisService extends Service {
     constructor(
         private readonly db: PrismaClient,
         /** VPC-internal Grafana Loki base URL; when absent, logs are skipped (findings still produced). */
         private readonly lokiBaseUrl?: string,
-        /** Model for the enrichment pass; when absent (e.g. tests) the AI pass is skipped and heuristics stand alone. */
-        private readonly model?: LanguageModel,
     ) {
         super();
-    }
-
-    async diagnose(
-        organizationId: string,
-        input: DiagnosePreviewkitDeployInput,
-    ): Promise<DiagnosePreviewkitDeployResult> {
-        this.logger.info("Diagnosing PreviewKit deploy", {
-            organizationId,
-            applicationId: input.applicationId,
-            prNumber: input.prNumber ?? MAIN_BRANCH_PREVIEW_ENVIRONMENT_NUMBER,
-        });
-
-        const resolved = await this.resolveEnvironment(organizationId, input);
-        if ("reason" in resolved) return { status: "unavailable", reason: resolved.reason, findings: [] };
-        const environment = resolved.environment;
-
-        const failures = this.classifyFailures(environment);
-
-        // Only diagnose an actually-failing deploy. When nothing is wrong (build
-        // succeeded, all services healthy, no environment error), skip the
-        // log fetch and the AI pass entirely: feeding error-grepped logs to the
-        // model on a healthy deploy makes it manufacture findings from transient or
-        // resolved startup noise (e.g. a "prisma connection" line logged during boot
-        // before the DB was ready), directly contradicting a "ready" status.
-        if (failures.length === 0) {
-            this.logger.info("No deploy failure detected; reporting healthy without AI diagnosis", {
-                applicationId: input.applicationId,
-                status: environment.status,
-            });
-            return {
-                status: "ok",
-                summary: "No problems detected - the preview built and deployed successfully.",
-                findings: [],
-            };
-        }
-
-        const logs = await this.fetchLogs(environment);
-        this.logger.info("Collected diagnosis signals", {
-            applicationId: input.applicationId,
-            failureCount: failures.length,
-            logLines: logs.length,
-        });
-
-        const enriched = await this.enrich(environment, failures, logs);
-        const findings = this.postProcess(enriched.findings, environment);
-        this.logger.info("PreviewKit diagnosis ready", {
-            applicationId: input.applicationId,
-            findingCount: findings.length,
-        });
-        return { status: "ok", summary: enriched.summary, findings };
     }
 
     /**
@@ -202,7 +118,7 @@ export class PreviewkitDiagnosisService extends Service {
      * (agent consumer): environment/build state, rule-based failure classification,
      * per-service states, the config env-key surface, error-shaped
      * logs (masked, only when failing), and the deterministic rule-based findings.
-     * No AI pass - the client agent reasons over the source signals itself.
+     * The client agent reasons over the source signals itself.
      */
     async signals(organizationId: string, input: DiagnosePreviewkitDeployInput): Promise<PreviewDeploySignals> {
         this.logger.info("Collecting PreviewKit deploy signals", {
@@ -217,10 +133,7 @@ export class PreviewkitDiagnosisService extends Service {
 
         const failures = this.classifyFailures(environment);
         const logs = failures.length > 0 ? await this.fetchLogs(environment) : [];
-        const findings = this.postProcess(
-            heuristicFindings(failures, environment.error ?? undefined).findings,
-            environment,
-        );
+        const findings = this.postProcess(heuristicFindings(failures, environment.error ?? undefined), environment);
         const latestBuild = environment.builds[0];
 
         this.logger.info("PreviewKit deploy signals collected", {
@@ -336,66 +249,16 @@ export class PreviewkitDiagnosisService extends Service {
         }
     }
 
-    private async enrich(
-        environment: EnvironmentRow,
-        failures: PreviewFailure[],
-        logs: string[],
-    ): Promise<AiDiagnosisResult> {
-        const heuristic = heuristicFindings(failures, environment.error ?? undefined);
-        if (this.model == null) return heuristic;
-
-        try {
-            const { object } = await generateObject({
-                model: this.model,
-                system: DIAGNOSIS_SYSTEM_PROMPT,
-                schema: AiDiagnosisResultSchema,
-                prompt: JSON.stringify({
-                    diagnostics: {
-                        status: environment.status,
-                        phase: environment.phase,
-                        error: maskMaybeSecret(environment.error),
-                    },
-                    failures: failures.map((failure) => ({ ...failure, message: maskSecretsInLine(failure.message) })),
-                    services: this.serviceStates(environment),
-                    resolvedConfig: summarizeConfig(environment.resolvedConfig),
-                    logs,
-                }),
-                providerOptions: GEMINI_PROVIDER_OPTIONS,
-                maxRetries: AI_MAX_RETRIES,
-                abortSignal: AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS),
-                experimental_telemetry: { isEnabled: true },
-            });
-            return object.findings.length > 0 ? object : heuristic;
-        } catch (err) {
-            this.logger.warn("AI diagnosis enrichment failed, using heuristics", { err });
-            return heuristic;
-        }
-    }
-
-    private serviceStates(environment: EnvironmentRow): Array<{ name: string; status: string; error?: string }> {
-        return environment.appInstances.map((instance) => ({
-            name: instance.appName,
-            status: instance.status,
-            ...(instance.error != null ? { error: maskSecretsInLine(instance.error) } : {}),
-        }));
-    }
-
+    /** Drops findings attributed to an app the environment and the config no longer know about. */
     private postProcess(findings: PreviewDiagnosisFinding[], environment: EnvironmentRow): PreviewDiagnosisFinding[] {
         const appNames = new Set(environment.appInstances.map((instance) => instance.appName));
         for (const app of projectManifest(environment.resolvedConfig).apps ?? []) appNames.add(app.name);
 
-        return findings
-            .filter((finding) => finding.appName == null || appNames.has(finding.appName))
-            .map((finding) => {
-                const fixSteps = finding.fixSteps.slice(0, MAX_FIX_STEPS);
-                if (finding.category !== "missing_env_var") return { ...finding, fixSteps };
-                const suggestedEnv = ensureSuggestedEnv(finding);
-                return { ...finding, fixSteps, suggestedEnv };
-            });
+        return findings.filter((finding) => finding.appName == null || appNames.has(finding.appName));
     }
 }
 
-export function heuristicFindings(failures: PreviewFailure[], environmentError?: string): AiDiagnosisResult {
+export function heuristicFindings(failures: PreviewFailure[], environmentError?: string): PreviewDiagnosisFinding[] {
     const findings = failures.map((failure) => heuristicFinding(failure));
     if (findings.length === 0 && environmentError != null && environmentError !== "") {
         findings.push({
@@ -409,11 +272,7 @@ export function heuristicFindings(failures: PreviewFailure[], environmentError?:
             evidence: [environmentError],
         });
     }
-    const summary =
-        findings.length === 0
-            ? "No specific failure was detected."
-            : `Detected ${findings.length} issue${findings.length === 1 ? "" : "s"} with this deploy.`;
-    return { summary, findings };
+    return findings;
 }
 
 function heuristicFinding(failure: PreviewFailure): PreviewDiagnosisFinding {
@@ -469,28 +328,7 @@ function heuristicFinding(failure: PreviewFailure): PreviewDiagnosisFinding {
     };
 }
 
-/** Guarantees a `missing_env_var` finding has at least one applyable env var. */
-function ensureSuggestedEnv(finding: PreviewDiagnosisFinding): SuggestedEnvVar[] {
-    if (finding.suggestedEnv != null && finding.suggestedEnv.length > 0) return finding.suggestedEnv;
-    const key = envKeyFromText(finding.title) ?? envKeyFromText(finding.explanation);
-    if (key == null) return [];
-    return [
-        {
-            key,
-            sensitive: detectSensitive(key, "").sensitive,
-            confidence: finding.confidence,
-            evidence: finding.evidence,
-        },
-    ];
-}
-
-/** Best-effort extraction of an ENV_VAR-shaped token from a message. */
-function envKeyFromText(text: string): string | undefined {
-    const match = /\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)\b/.exec(text);
-    return match?.[1];
-}
-
-/** Projects the manifest subset the model needs from a resolved config, without secret values. */
+/** Projects the manifest subset the agent needs from a resolved config, without secret values. */
 function summarizeConfig(resolvedConfig: Prisma.JsonValue | null): unknown {
     const parsed = resolvedConfig == null ? undefined : previewConfigSchema.safeParse(resolvedConfig);
     if (parsed == null || !parsed.success) return {};
@@ -509,12 +347,12 @@ function summarizeConfig(resolvedConfig: Prisma.JsonValue | null): unknown {
     };
 }
 
-/** Masks a nullable error string before it reaches the model; `undefined` when absent so the key is omitted. */
+/** Masks a nullable error string before it leaves the API; `undefined` when absent so the key is omitted. */
 function maskMaybeSecret(value: string | null | undefined): string | undefined {
     return value == null || value === "" ? undefined : maskSecretsInLine(value);
 }
 
-/** Masks secret-shaped tokens (long high-entropy strings, credentialed URLs) in a log line before it reaches the model. */
+/** Masks secret-shaped tokens (long high-entropy strings, credentialed URLs) in a log line before it leaves the API. */
 export function maskSecretsInLine(line: string): string {
     return line
         .replace(/([a-z][a-z0-9+.-]*:\/\/[^:@\s]+):[^@\s]+@/gi, "$1:***@")

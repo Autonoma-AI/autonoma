@@ -277,24 +277,18 @@ was started. Usage still accrues and bills via the separate 15-minute usage-mete
 (`apps/cronjobs`) whether or not enforcement is on; this gate only controls whether a _new_ deploy
 is allowed to start.
 
-### PreviewKit topology suggestions
+### PreviewKit config preflight
 
-The onboarding PreviewKit builder proposes apps, services, and env vars from the linked repo,
-backed by three collaborators in `src/github/`:
+The onboarding PreviewKit config editor warns on app paths and Dockerfiles that do not exist in the
+linked repo, backed by two collaborators in `src/github/`:
 
 - `RepoReader` - shared read-only repo access (installation client, per `(repo, head SHA)` file-tree
-  cache, and `package.json` / file-content readers). Reused by both services below so they share one
-  tree cache.
-- `RepoIntrospectionService` - deterministic app detection (workspace globs, Dockerfiles, frameworks,
-  ports). Surfaced via `onboarding.introspectRepository`.
-- `PreviewkitSuggestionService` - AI-assisted, heuristic-backed service and env-var suggestions.
-  Deterministic heuristics (package.json deps, `docker-compose` images, `.env.example` keys) run
-  first and always; a Gemini pass (`ObjectGenerator`) then refines them with evidence. Surfaced via
-  `onboarding.suggestPreviewkitServices` and `onboarding.suggestPreviewkitEnvVars`.
+  cache, and `package.json` / file-content readers).
+- `RepoIntrospectionService` - the repo's file tree at its default-branch head, for the preflight
+  checks and the config editor's Dockerfile picker.
 
-`@autonoma/ai` is imported lazily inside `PreviewkitSuggestionService` (its provider keys are only
-required on first suggestion, never at API boot), and any AI failure degrades to the heuristic result
-so suggestions never block onboarding. Suggestions are computed on demand and never persisted.
+Every GitHub failure degrades to `undefined`, so preflight warns less rather than blocking the
+editor. Nothing here runs AI - the API server does no model inference of its own.
 
 ### Onboarding funnel analytics
 

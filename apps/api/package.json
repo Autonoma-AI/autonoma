@@ -20,7 +20,6 @@
         "agent:execute": "tsx --env-file=../../.env src/scripts/batch-generate.ts"
     },
     "dependencies": {
-        "@ai-sdk/google": "catalog:",
         "@autonoma-ai/sdk": "^0.2.9",
         "@autonoma-ai/server-hono": "^0.2.9",
         "@autonoma/agent-guidance": "workspace:*",
@@ -54,7 +53,6 @@
         "@slack/web-api": "^7.15.0",
         "@t3-oss/env-core": "catalog:",
         "@trpc/server": "catalog:",
-        "ai": "catalog:",
         "better-auth": "catalog:",
         "dotenv": "catalog:",
         "hono": "catalog:",

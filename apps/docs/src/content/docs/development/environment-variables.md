@@ -78,7 +78,6 @@ The API server extends the database, storage, logger, and billing environments, 
 | `AGENT_VERSION` | No | `latest` | Version tag for the execution agent. Used when dispatching engine jobs. |
 | `POSTHOG_KEY` | No | - | PostHog project API key for server-side analytics. Omit to disable analytics. |
 | `POSTHOG_HOST` | No | `https://us.i.posthog.com` | PostHog ingestion endpoint. Override for self-hosted PostHog instances. |
-| `GEMINI_API_KEY` | Yes | - | Google Gemini API key. Used by the API for AI features like test generation. |
 | `OPENROUTER_API_KEY` | No | - | Server-side OpenRouter key the managed LLM proxy (`/v1/llm-proxy`, planner CLI) forwards requests with. The proxy returns `503` without it. |
 | `LLM_PROXY_ENABLED` | No | `false` | Master switch for the managed LLM proxy. The route mounts only when this and `STRIPE_ENABLED` are both `true`, so usage is always metered. |
 | `LLM_PROXY_ALLOWED_MODELS` | No | `google/gemini-3-flash-preview` | Comma-separated allowlist of OpenRouter model ids the proxy may route. Empty falls back to the default. |
@@ -123,7 +122,7 @@ For local development, a typical value is `postgresql://postgres:postgres@localh
 
 **Source:** `packages/ai/src/env.ts`
 
-These keys are required by the execution engines (web and mobile) and any service that runs AI inference. The API server only needs `GEMINI_API_KEY` directly - the other keys are consumed by the engine apps.
+These keys are required by the execution engines (web and mobile) and any service that runs AI inference. The API server does not run inference itself, so it needs none of them.
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |

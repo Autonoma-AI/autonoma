@@ -12,7 +12,7 @@ describe("heuristicFindings", () => {
                 fieldPath: "apps.0.path",
             },
         ];
-        const { findings } = heuristicFindings(failures);
+        const findings = heuristicFindings(failures);
         expect(findings).toHaveLength(1);
         expect(findings[0]?.category).toBe("user_setup");
         expect(findings[0]?.appName).toBe("web");
@@ -20,25 +20,24 @@ describe("heuristicFindings", () => {
         expect(findings[0]?.action).toBe("edit_config");
     });
 
-    it("keeps build/deploy failures user-owned but low confidence for the AI pass to reclassify", () => {
+    it("keeps build/deploy failures user-owned but low confidence, since the cause is not attributable", () => {
         const failures: PreviewFailure[] = [
             { code: "build_failed", message: "npm run build exited 1", appName: "web" },
         ];
-        const { findings } = heuristicFindings(failures);
+        const findings = heuristicFindings(failures);
         expect(findings[0]?.category).toBe("user_setup");
         expect(findings[0]?.confidence).toBe("low");
     });
 
     it("falls back to a single unknown finding from the environment error when no failures were classified", () => {
-        const { findings, summary } = heuristicFindings([], "namespace creation timed out");
+        const findings = heuristicFindings([], "namespace creation timed out");
         expect(findings).toHaveLength(1);
         expect(findings[0]?.category).toBe("unknown");
         expect(findings[0]?.explanation).toBe("namespace creation timed out");
-        expect(summary).toContain("1 issue");
     });
 
     it("produces no findings when there is neither a classified failure nor an environment error", () => {
-        expect(heuristicFindings([]).findings).toEqual([]);
+        expect(heuristicFindings([])).toEqual([]);
     });
 });
 

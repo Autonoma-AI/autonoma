@@ -14,7 +14,6 @@ export default defineConfig({
             SCENARIO_ENCRYPTION_KEY: "a".repeat(64),
             GOOGLE_CLIENT_ID: "test",
             GOOGLE_CLIENT_SECRET: "test",
-            GEMINI_API_KEY: "test",
             REDIS_URL: "redis://localhost:6379",
             MERGE_GATE_ENABLED: "true",
             // GitHub App: tests run against the fake (LOCAL_DEV=true). Real credentials

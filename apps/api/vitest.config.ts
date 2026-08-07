@@ -16,7 +16,6 @@ const REQUIRED_ENV_STAND_INS = {
     SCENARIO_ENCRYPTION_KEY: "0".repeat(64),
     GOOGLE_CLIENT_ID: "test-google-client-id",
     GOOGLE_CLIENT_SECRET: "test-google-client-secret",
-    GEMINI_API_KEY: "test-gemini-api-key",
     REDIS_URL: "redis://127.0.0.1:6379",
 };
 

@@ -6,8 +6,7 @@ export const DiagnosePreviewkitDeployInputSchema = z.object({
     applicationId: z.string(),
     /**
      * Which preview environment to diagnose. Omitted defaults (in the service) to
-     * 0 - the main-branch (onboarding) preview - so the original onboarding caller
-     * is unchanged; MCP / per-PR callers pass the real PR number.
+     * 0 - the main-branch preview; per-PR callers pass the real PR number.
      */
     prNumber: z.number().int().min(0).optional(),
     deployFingerprint: z.string().optional(),
@@ -38,20 +37,3 @@ export const PreviewDiagnosisFindingSchema = z.object({
 });
 
 export type PreviewDiagnosisFinding = z.infer<typeof PreviewDiagnosisFindingSchema>;
-
-export const DiagnosePreviewkitDeployResultSchema = z.object({
-    status: z.enum(["ok", "unavailable"]),
-    reason: z.string().optional(),
-    summary: z.string().optional(),
-    findings: z.array(PreviewDiagnosisFindingSchema),
-});
-
-export type DiagnosePreviewkitDeployResult = z.infer<typeof DiagnosePreviewkitDeployResultSchema>;
-
-/** The structured output shape the model is asked to produce; the service adds `status`. */
-export const AiDiagnosisResultSchema = z.object({
-    summary: z.string(),
-    findings: z.array(PreviewDiagnosisFindingSchema),
-});
-
-export type AiDiagnosisResult = z.infer<typeof AiDiagnosisResultSchema>;
