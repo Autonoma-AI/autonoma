@@ -782,7 +782,7 @@ testUpdateSuite({
         });
         // -- revertTestCase() --
 
-        test("revertTestCase: deletes newly added test on first snapshot (no prevSnapshot)", async ({
+        test("revertTestCase: unassigns a newly added test on first snapshot (no prevSnapshot)", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },
         }) => {
@@ -802,12 +802,11 @@ testUpdateSuite({
             const info = await draft.currentTestSuiteInfo();
             expect(info.testCases).toHaveLength(0);
 
-            // Test case record itself should be deleted
-            const tc = await harness.db.testCase.findUnique({ where: { id: testCaseId } });
-            expect(tc).toBeNull();
+            const testCase = await harness.db.testCase.findUnique({ where: { id: testCaseId } });
+            expect(testCase).not.toBeNull();
         });
 
-        test("revertTestCase: deletes newly added test on second snapshot (no previous assignment)", async ({
+        test("revertTestCase: unassigns a newly added test on second snapshot (no previous assignment)", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },
         }) => {
@@ -838,8 +837,8 @@ testUpdateSuite({
             expect(info.testCases).toHaveLength(1);
             expect(info.testCases[0]?.name).toBe("Revert existing base");
 
-            const tc = await harness.db.testCase.findUnique({ where: { id: testCaseId } });
-            expect(tc).toBeNull();
+            const testCase = await harness.db.testCase.findUnique({ where: { id: testCaseId } });
+            expect(testCase).not.toBeNull();
         });
 
         test("revertTestCase: restores previous assignment for updated test", async ({
@@ -1007,8 +1006,8 @@ testUpdateSuite({
             });
             expect(generations).toHaveLength(0);
 
-            const tc = await harness.db.testCase.findUnique({ where: { id: testCaseId } });
-            expect(tc).toBeNull();
+            const testCase = await harness.db.testCase.findUnique({ where: { id: testCaseId } });
+            expect(testCase).not.toBeNull();
         });
 
         test("revertTestCase: deletes pending generations when discarding an updated test", async ({

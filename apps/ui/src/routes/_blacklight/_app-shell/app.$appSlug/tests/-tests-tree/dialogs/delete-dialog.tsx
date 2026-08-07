@@ -11,6 +11,7 @@ import {
 } from "@autonoma/blacklight";
 import { useDeleteFolder } from "lib/query/folders.queries";
 import { useDeleteTest } from "lib/query/tests.queries";
+import { useSelectedBranch } from "../../../-use-selected-branch";
 import { useAppNavigate } from "../../../../-use-app-navigate";
 
 interface DeleteFolderDialogProps {
@@ -79,11 +80,12 @@ interface DeleteTestDialogProps {
 
 export function DeleteTestDialog({ open, onOpenChange, testId, testName }: DeleteTestDialogProps) {
   const appNavigate = useAppNavigate();
+  const branch = useSelectedBranch();
   const deleteTest = useDeleteTest();
 
   function handleDelete() {
     deleteTest.mutate(
-      { testId },
+      { testId, branchId: branch.id },
       {
         onSuccess: () => {
           onOpenChange(false);
@@ -99,7 +101,9 @@ export function DeleteTestDialog({ open, onOpenChange, testId, testName }: Delet
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Delete test &quot;{testName}&quot;?</DialogTitle>
-          <DialogDescription>Are you sure? This action cannot be undone.</DialogDescription>
+          <DialogDescription>
+            It stops running on <span className="font-mono">{branch.name}</span>. Its past runs and findings are kept.
+          </DialogDescription>
         </DialogHeader>
         {deleteTest.error != null && <p className="px-6 text-sm text-status-critical">{deleteTest.error.message}</p>}
         <DialogFooter>

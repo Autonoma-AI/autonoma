@@ -402,9 +402,9 @@ export class SnapshotDraft {
     /**
      * Reverts a test case to its previous snapshot assignment.
      *
-     * If the test existed in the previous snapshot, replaces the current assignment
-     * with the previous one. If it was newly added (no previous assignment), deletes
-     * the assignment and the test case record itself.
+     * If the test existed in the previous snapshot, replaces the current assignment with the previous one. If it
+     * was newly added there is nothing to restore, so dropping the assignment is the whole revert: the `TestCase`
+     * row survives unassigned.
      */
     public async revertTestCase(testCaseId: string) {
         this.logger.info("Reverting test case to previous assignment", { testCaseId });
@@ -429,22 +429,16 @@ export class SnapshotDraft {
                 },
             });
 
-            if (snapshot.prevSnapshotId == null) {
-                // No previous snapshot - test was newly added, delete the test case
-                this.logger.info("No previous snapshot, deleting test case", { testCaseId });
-                await tx.testCase.delete({ where: { id: testCaseId } });
-                return;
-            }
-
-            const previousAssignment = await tx.testCaseAssignment.findUnique({
-                where: { snapshotId_testCaseId: { snapshotId: snapshot.prevSnapshotId, testCaseId } },
-                select: { planId: true },
-            });
+            const previousAssignment =
+                snapshot.prevSnapshotId == null
+                    ? undefined
+                    : await tx.testCaseAssignment.findUnique({
+                          where: { snapshotId_testCaseId: { snapshotId: snapshot.prevSnapshotId, testCaseId } },
+                          select: { planId: true },
+                      });
 
             if (previousAssignment == null) {
-                // Test was newly added in this session, delete the test case
-                this.logger.info("No previous assignment found, deleting test case", { testCaseId });
-                await tx.testCase.delete({ where: { id: testCaseId } });
+                this.logger.info("No previous assignment; the test was added in this snapshot", { testCaseId });
                 return;
             }
 

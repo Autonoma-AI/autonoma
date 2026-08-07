@@ -344,8 +344,8 @@ Defined in `src/trpc.ts`:
 
 - **`publicProcedure`** - No auth required. Has Sentry tracing and error mapping middleware.
 - **`protectedProcedure`** - Requires authenticated user with an active organization.
-- **`writeProcedure`** - `protectedProcedure` that also rejects writes from the read-only demo org. Every mutation uses this.
-- **`internalProcedure`** - Requires admin role.
+- **`writeProcedure`** - `protectedProcedure` that also rejects writes from the read-only demo org. Every customer-facing mutation uses this.
+- **`internalProcedure`** - Requires admin role. The staff-only catalog mutations (`folders.*`, `tests.rename`, `tests.delete`) use it in place of `writeProcedure`.
 
 Plus one domain-scoped builder: **`onboardingWriteProcedure`** (`src/routes/onboarding/onboarding-write-procedure.ts`) - `writeProcedure` with funnel analytics attached. See [Onboarding funnel analytics](#onboarding-funnel-analytics).
 

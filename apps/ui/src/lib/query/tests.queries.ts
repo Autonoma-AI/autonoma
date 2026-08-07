@@ -30,6 +30,12 @@ export async function ensureTestDetailData(
     return await ensureAPIQueryData(queryClient, trpc.tests.detail.queryOptions({ applicationId, slug, snapshotId }));
 }
 
+/** The tests tree and its change markers render off the branch's assignments, not off `tests.list`. */
+function invalidateBranchSuiteViews(queryClient: QueryClient) {
+    void queryClient.invalidateQueries({ queryKey: trpc.branches.detailByName.queryKey() });
+    void queryClient.invalidateQueries({ queryKey: trpc.branches.testSuiteChangesByPr.queryKey() });
+}
+
 export function useRenameTest() {
     const queryClient = useQueryClient();
     return useAPIMutation({
@@ -37,6 +43,7 @@ export function useRenameTest() {
             onSettled: () => {
                 void queryClient.invalidateQueries({ queryKey: trpc.tests.detail.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.tests.list.queryKey() });
+                invalidateBranchSuiteViews(queryClient);
             },
         }),
         errorToast: { title: "Failed to rename test" },
@@ -50,6 +57,7 @@ export function useDeleteTest() {
             onSettled: () => {
                 void queryClient.invalidateQueries({ queryKey: trpc.tests.list.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.tests.detail.queryKey() });
+                invalidateBranchSuiteViews(queryClient);
             },
         }),
         successToast: { title: "Test deleted" },

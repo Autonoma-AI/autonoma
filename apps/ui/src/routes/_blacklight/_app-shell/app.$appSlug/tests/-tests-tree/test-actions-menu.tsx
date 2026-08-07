@@ -12,6 +12,8 @@ interface TestActionsMenuProps {
 export function TestActionsMenu({ onRename, onDelete }: TestActionsMenuProps) {
   const { isAdmin } = useAuth();
 
+  if (!isAdmin) return null;
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger>
@@ -24,12 +26,10 @@ export function TestActionsMenu({ onRename, onDelete }: TestActionsMenuProps) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent>
-        {isAdmin && (
-          <DropdownMenuItem onClick={onRename}>
-            <PencilSimpleIcon size={14} className="mr-2" />
-            Rename
-          </DropdownMenuItem>
-        )}
+        <DropdownMenuItem onClick={onRename}>
+          <PencilSimpleIcon size={14} className="mr-2" />
+          Rename
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={onDelete} className="text-status-critical">
           <TrashIcon size={14} className="mr-2" />
           Delete

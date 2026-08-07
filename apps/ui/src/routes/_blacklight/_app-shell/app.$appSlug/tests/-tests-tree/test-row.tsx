@@ -48,8 +48,8 @@ export function TestRow({ node, level }: TestRowProps) {
         )}
       </div>
       <TestActionsMenu
-        onRename={() => openRename("test", node.slug, node.name)}
-        onDelete={() => openDeleteTest(node.slug, node.name)}
+        onRename={() => openRename("test", node.id, node.name)}
+        onDelete={() => openDeleteTest(node.id, node.name)}
       />
     </button>
   );

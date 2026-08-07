@@ -2,6 +2,12 @@ import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { Service } from "../service";
 
+interface DeleteTestParams {
+    testCaseId: string;
+    branchId: string;
+    organizationId: string;
+}
+
 export class TestsService extends Service {
     constructor(private readonly db: PrismaClient) {
         super();
@@ -91,16 +97,25 @@ export class TestsService extends Service {
         this.logger.info("Test renamed", { id, name });
     }
 
-    async deleteTest(id: string, organizationId: string) {
-        this.logger.info("Deleting test", { id });
+    /**
+     * Removes a test from a branch's suite by dropping its assignment from the branch's active snapshot.
+     *
+     * The `TestCase` row itself is never destroyed. It is an identity record that findings, terminal snapshots'
+     * assignments and an issue's covered set all key on, so destroying it would cascade that history away and
+     * strand any issue it covered.
+     *
+     * Only the active snapshot is touched, so a pending snapshot - an open edit session, or an analysis run that
+     * forked the suite before this call - still carries the test and reinstates it when it promotes.
+     */
+    async deleteTest({ testCaseId, branchId, organizationId }: DeleteTestParams) {
+        this.logger.info("Deleting test from branch suite", { testCaseId, branchId });
 
-        // shadow: false - a user must not delete the shared investigation probe (would break in-flight runs).
-        const { count } = await this.db.testCase.deleteMany({
-            where: { id, application: { organizationId }, shadow: false },
+        const { count } = await this.db.testCaseAssignment.deleteMany({
+            where: { testCaseId, snapshot: { activeOnBranch: { id: branchId, organizationId } } },
         });
 
-        if (count === 0) throw new NotFoundError();
+        if (count === 0) throw new NotFoundError("Test not found on this branch");
 
-        this.logger.info("Test deleted", { id });
+        this.logger.info("Test deleted from branch suite", { testCaseId, branchId });
     }
 }
