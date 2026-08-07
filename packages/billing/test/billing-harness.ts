@@ -1,14 +1,11 @@
-import { type PrismaClient, PreviewkitStatus, applyMigrations, createClient } from "@autonoma/db";
-import { type IntegrationHarness, stopContainer } from "@autonoma/integration-test";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { type PrismaClient, PreviewkitStatus, createClient } from "@autonoma/db";
+import { createTestDatabase, type IntegrationHarness } from "@autonoma/integration-test";
 import { AutoTopUpService } from "../src/auto-topup.service";
 import { EnabledBillingService } from "../src/billing-enabled.service";
 import { BillingPricingService } from "../src/billing-pricing.service";
 import { CreditsService } from "../src/credits.service";
 import type { BillingService } from "../src/types";
 import { VercelOverageService } from "../src/vercel-overage.service";
-
-const POSTGRES_IMAGE = "postgres:18-alpine";
 
 export interface CreatePreviewkitEnvironmentInput {
     organizationId: string;
@@ -35,12 +32,10 @@ export class BillingTestHarness implements IntegrationHarness {
     public readonly creditsService: CreditsService;
     public readonly billingService: BillingService;
 
-    private readonly pgContainer: StartedPostgreSqlContainer;
     private previewkitEnvironmentSeq = 0;
 
-    constructor(db: PrismaClient, pgContainer: StartedPostgreSqlContainer) {
+    constructor(db: PrismaClient) {
         this.db = db;
-        this.pgContainer = pgContainer;
         this.creditsService = new CreditsService(
             db,
             new AutoTopUpService(db),
@@ -51,10 +46,9 @@ export class BillingTestHarness implements IntegrationHarness {
     }
 
     static async create(): Promise<BillingTestHarness> {
-        const pgContainer = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pgContainer.getConnectionUri());
-        const db = createClient(pgContainer.getConnectionUri());
-        return new BillingTestHarness(db, pgContainer);
+        const connectionUri = await createTestDatabase();
+        const db = createClient(connectionUri);
+        return new BillingTestHarness(db);
     }
 
     async beforeAll() {
@@ -62,7 +56,7 @@ export class BillingTestHarness implements IntegrationHarness {
     }
 
     async afterAll() {
-        await stopContainer(this.pgContainer);
+        await this.db.$disconnect();
     }
 
     async beforeEach() {

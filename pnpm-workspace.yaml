@@ -65,6 +65,8 @@ catalog:
   '@hono/mcp': ^0.3.0
   '@modelcontextprotocol/sdk': ^1.29.0
   jose: ^6.2.3
+  pg: ^8.18.0
+  '@types/pg': ^8.11.6
   playwright: 1.62.1
   prisma: ^7.9.0
   react: ^19.2.4

@@ -1,14 +1,11 @@
-import { ApplicationArchitecture, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
+import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
 import type { ReporterIssueKind, ReporterIssueStatus } from "@autonoma/diffs/analysis";
-import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { logger as rootLogger } from "@autonoma/logger";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { expect } from "vitest";
 import { type ReverifiedTest, reverifyOpenIssues } from "../../src/analysis/reverify-issues";
 import { findOrCreateTestCase } from "./seed-generation";
-
-const POSTGRES_IMAGE = "postgres:18-alpine";
 
 /** Monotonic counter for unique org/app slugs across the suite (one shared container, no per-test truncation). */
 let seq = 0;
@@ -35,20 +32,16 @@ interface SeedIssueParams {
 }
 
 class ReverifyHarness implements IntegrationHarness {
-    constructor(
-        public readonly db: PrismaClient,
-        private readonly pg: StartedPostgreSqlContainer,
-    ) {}
+    constructor(public readonly db: PrismaClient) {}
 
     static async create(): Promise<ReverifyHarness> {
-        const pg = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pg.getConnectionUri());
-        return new ReverifyHarness(createClient(pg.getConnectionUri()), pg);
+        const connectionUri = await createTestDatabase();
+        return new ReverifyHarness(createClient(connectionUri));
     }
 
     async beforeAll() {}
     async afterAll() {
-        await this.pg.stop();
+        await this.db.$disconnect();
     }
     async beforeEach() {}
     async afterEach() {}

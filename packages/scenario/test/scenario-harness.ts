@@ -1,14 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { type IncomingMessage, type Server, createServer } from "node:http";
-import {
-    type PrismaClient,
-    type ScenarioInstanceStatus,
-    SnapshotStatus,
-    applyMigrations,
-    createClient,
-} from "@autonoma/db";
-import { type IntegrationHarness, stopContainer } from "@autonoma/integration-test";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { type PrismaClient, type ScenarioInstanceStatus, SnapshotStatus, createClient } from "@autonoma/db";
+import { createTestDatabase, type IntegrationHarness } from "@autonoma/integration-test";
 import { EncryptionHelper } from "../src/encryption";
 import { ScenarioRecipeStore } from "../src/scenario-recipe-store";
 
@@ -84,19 +77,14 @@ export class WebhookServer {
     }
 }
 
-const POSTGRES_IMAGE = "postgres:18-alpine";
-
 export class ScenarioTestHarness implements IntegrationHarness {
     public readonly db: PrismaClient;
     public readonly encryption: EncryptionHelper;
     public readonly encryptionKey: string;
     public readonly webhookServer: WebhookServer;
 
-    private pgContainer: StartedPostgreSqlContainer;
-
-    constructor(db: PrismaClient, pgContainer: StartedPostgreSqlContainer, webhookServer: WebhookServer) {
+    constructor(db: PrismaClient, webhookServer: WebhookServer) {
         this.db = db;
-        this.pgContainer = pgContainer;
         this.webhookServer = webhookServer;
         this.encryptionKey = randomBytes(32).toString("hex");
         this.encryption = new EncryptionHelper(this.encryptionKey);
@@ -104,13 +92,9 @@ export class ScenarioTestHarness implements IntegrationHarness {
 
     static async create(): Promise<ScenarioTestHarness> {
         const webhookServer = new WebhookServer();
-        const [pgContainer] = await Promise.all([
-            new PostgreSqlContainer(POSTGRES_IMAGE).start(),
-            webhookServer.start(),
-        ]);
-        applyMigrations(pgContainer.getConnectionUri());
-        const db = createClient(pgContainer.getConnectionUri());
-        return new ScenarioTestHarness(db, pgContainer, webhookServer);
+        const [connectionUri] = await Promise.all([createTestDatabase(), webhookServer.start()]);
+        const db = createClient(connectionUri);
+        return new ScenarioTestHarness(db, webhookServer);
     }
 
     async beforeAll() {
@@ -119,7 +103,7 @@ export class ScenarioTestHarness implements IntegrationHarness {
 
     async afterAll() {
         await this.webhookServer.stop();
-        await stopContainer(this.pgContainer);
+        await this.db.$disconnect();
     }
 
     async beforeEach() {

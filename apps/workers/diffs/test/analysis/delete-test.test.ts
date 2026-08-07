@@ -1,6 +1,5 @@
-import { ApplicationArchitecture, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
-import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
+import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { expect } from "vitest";
 import { deleteAnalysisTest } from "../../src/activities/analysis/delete-test";
 
@@ -11,7 +10,6 @@ declare global {
     var prisma: PrismaClient | undefined;
 }
 
-const POSTGRES_IMAGE = "postgres:18-alpine";
 const PLAN = "1. Open checkout.\n2. Assert the total.";
 
 /** Monotonic counter for unique slugs across the suite (one shared container, no per-test truncation). */
@@ -25,22 +23,18 @@ interface SeededTest {
 }
 
 class DeleteHarness implements IntegrationHarness {
-    constructor(
-        public readonly db: PrismaClient,
-        private readonly pg: StartedPostgreSqlContainer,
-    ) {}
+    constructor(public readonly db: PrismaClient) {}
 
     static async create(): Promise<DeleteHarness> {
-        const pg = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pg.getConnectionUri());
-        const db = createClient(pg.getConnectionUri());
+        const connectionUri = await createTestDatabase();
+        const db = createClient(connectionUri);
         globalThis.prisma = db;
-        return new DeleteHarness(db, pg);
+        return new DeleteHarness(db);
     }
 
     async beforeAll() {}
     async afterAll() {
-        await this.pg.stop();
+        await this.db.$disconnect();
     }
     async beforeEach() {}
     async afterEach() {}

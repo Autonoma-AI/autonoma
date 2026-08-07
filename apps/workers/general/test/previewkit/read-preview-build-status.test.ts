@@ -1,14 +1,12 @@
 import {
     ApplicationArchitecture,
-    applyMigrations,
     createClient,
     type PreviewkitStatus,
     type PrismaClient,
     PreviewkitAppStatus,
 } from "@autonoma/db";
-import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import type { PreviewDeployTarget } from "@autonoma/types";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { expect } from "vitest";
 import { previewBuildRefusalReason } from "../../src/activities/previewkit/preview-build-refusal-reason";
 import { readPreviewBuildStatus } from "../../src/activities/previewkit/read-preview-build-status";
@@ -19,8 +17,6 @@ declare global {
     // eslint-disable-next-line no-var
     var prisma: PrismaClient | undefined;
 }
-
-const POSTGRES_IMAGE = "postgres:18-alpine";
 
 const OUR_SHA = "sha-ours";
 const PREVIOUS_SHA = "sha-previous";
@@ -52,22 +48,18 @@ interface SeedInput {
 }
 
 class PreviewBuildStatusHarness implements IntegrationHarness {
-    constructor(
-        public readonly db: PrismaClient,
-        private readonly pg: StartedPostgreSqlContainer,
-    ) {}
+    constructor(public readonly db: PrismaClient) {}
 
     static async create(): Promise<PreviewBuildStatusHarness> {
-        const pg = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pg.getConnectionUri());
-        const db = createClient(pg.getConnectionUri());
+        const connectionUri = await createTestDatabase();
+        const db = createClient(connectionUri);
         globalThis.prisma = db;
-        return new PreviewBuildStatusHarness(db, pg);
+        return new PreviewBuildStatusHarness(db);
     }
 
     async beforeAll() {}
     async afterAll() {
-        await this.pg.stop();
+        await this.db.$disconnect();
     }
     async beforeEach() {}
     async afterEach() {}

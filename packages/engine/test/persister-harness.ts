@@ -1,9 +1,7 @@
 import { type PrismaClient, SnapshotStatus, applyMigrations, createClient } from "@autonoma/db";
-import { type IntegrationHarness, stopContainer } from "@autonoma/integration-test";
+import { type IntegrationHarness, POSTGRES_IMAGE, stopContainer } from "@autonoma/integration-test";
 import type { StorageProvider } from "@autonoma/storage";
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
-
-const POSTGRES_IMAGE = "postgres:18-alpine";
 
 /**
  * In-memory storage provider for tests. Records every upload so tests can assert

@@ -1,7 +1,6 @@
-import { ApplicationArchitecture, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
-import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
+import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { logger as rootLogger } from "@autonoma/logger";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { expect } from "vitest";
 import { type MaterializedTarget, resolveTargets } from "../../src/analysis/resolve-targets";
 import { seedGenerationForSlug } from "./seed-generation";
@@ -11,7 +10,6 @@ declare global {
     var prisma: PrismaClient | undefined;
 }
 
-const POSTGRES_IMAGE = "postgres:18-alpine";
 const logger = rootLogger.child({ name: "resolveTargets.test" });
 
 let seq = 0;
@@ -25,22 +23,18 @@ interface SeedContext {
 }
 
 class ResolveTargetsHarness implements IntegrationHarness {
-    constructor(
-        public readonly db: PrismaClient,
-        private readonly pg: StartedPostgreSqlContainer,
-    ) {}
+    constructor(public readonly db: PrismaClient) {}
 
     static async create(): Promise<ResolveTargetsHarness> {
-        const pg = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pg.getConnectionUri());
-        const db = createClient(pg.getConnectionUri());
+        const connectionUri = await createTestDatabase();
+        const db = createClient(connectionUri);
         globalThis.prisma = db;
-        return new ResolveTargetsHarness(db, pg);
+        return new ResolveTargetsHarness(db);
     }
 
     async beforeAll() {}
     async afterAll() {
-        await this.pg.stop();
+        await this.db.$disconnect();
     }
     async beforeEach() {}
     async afterEach() {}

@@ -1,6 +1,5 @@
-import { ApplicationArchitecture, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
-import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
+import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { expect } from "vitest";
 import { revertSelfHealPlan } from "../../src/activities/analysis/revert-self-heal-plan";
 import { selfHealAnalysisTest } from "../../src/activities/analysis/self-heal-test";
@@ -12,7 +11,6 @@ declare global {
     var prisma: PrismaClient | undefined;
 }
 
-const POSTGRES_IMAGE = "postgres:18-alpine";
 const ORIGINAL_PLAN = "1. Open checkout.\n2. Assert the total.";
 const REVISED_PLAN = "1. Open checkout.\n2. Assert the label the app actually shows.";
 
@@ -29,22 +27,18 @@ interface SeededTest {
 }
 
 class RevertHarness implements IntegrationHarness {
-    constructor(
-        public readonly db: PrismaClient,
-        private readonly pg: StartedPostgreSqlContainer,
-    ) {}
+    constructor(public readonly db: PrismaClient) {}
 
     static async create(): Promise<RevertHarness> {
-        const pg = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pg.getConnectionUri());
-        const db = createClient(pg.getConnectionUri());
+        const connectionUri = await createTestDatabase();
+        const db = createClient(connectionUri);
         globalThis.prisma = db;
-        return new RevertHarness(db, pg);
+        return new RevertHarness(db);
     }
 
     async beforeAll() {}
     async afterAll() {
-        await this.pg.stop();
+        await this.db.$disconnect();
     }
     async beforeEach() {}
     async afterEach() {}

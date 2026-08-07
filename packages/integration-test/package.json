@@ -15,10 +15,13 @@
     },
     "dependencies": {
         "@autonoma/logger": "workspace:*",
+        "@testcontainers/postgresql": "^11.12.0",
+        "pg": "catalog:",
         "testcontainers": "^11.12.0"
     },
     "devDependencies": {
         "@types/node": "catalog:",
+        "@types/pg": "catalog:",
         "dotenv": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"

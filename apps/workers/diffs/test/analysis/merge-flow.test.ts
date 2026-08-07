@@ -3,17 +3,15 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { ApplicationArchitecture, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
+import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
 import type { PullRequest } from "@autonoma/github";
-import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { TestSuiteUpdater } from "@autonoma/test-updates";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { expect } from "vitest";
 import { runMergeFlow } from "../../src/analysis/merge-flow";
 
 const execFileAsync = promisify(execFile);
 
-const POSTGRES_IMAGE = "postgres:18-alpine";
 const MAIN_BRANCH_REF = "main";
 const PR_NUMBER = 77;
 const FEATURE_HEAD_SHA = "feature-head-sha";
@@ -84,15 +82,11 @@ class MergeFlowHarness implements IntegrationHarness {
     public baseSha = "";
     public headSha = "";
 
-    constructor(
-        public readonly db: PrismaClient,
-        private readonly pg: StartedPostgreSqlContainer,
-    ) {}
+    constructor(public readonly db: PrismaClient) {}
 
     static async create(): Promise<MergeFlowHarness> {
-        const pg = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pg.getConnectionUri());
-        return new MergeFlowHarness(createClient(pg.getConnectionUri()), pg);
+        const connectionUri = await createTestDatabase();
+        return new MergeFlowHarness(createClient(connectionUri));
     }
 
     async beforeAll() {
@@ -108,7 +102,7 @@ class MergeFlowHarness implements IntegrationHarness {
 
     async afterAll() {
         await rm(this.repoDir, { recursive: true, force: true });
-        await this.pg.stop();
+        await this.db.$disconnect();
     }
     async beforeEach() {}
     async afterEach() {}

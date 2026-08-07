@@ -3,16 +3,12 @@ import {
     type Prisma,
     type PrismaClient,
     type ScenarioInstanceStatus,
-    applyMigrations,
     createClient,
 } from "@autonoma/db";
-import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import type { StorageProvider } from "@autonoma/storage";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import type { ModelMessage } from "ai";
 import type { TestAPI } from "vitest";
-
-const POSTGRES_IMAGE = "postgres:18-alpine";
 
 /**
  * Minimal in-memory {@link StorageProvider} for the loader's generation path:
@@ -122,23 +118,19 @@ class DiffJobContextHarness implements IntegrationHarness {
     /** Serves the seeded generation conversation the loader downloads eagerly. */
     public readonly storage = new InMemoryStorage();
 
-    private readonly pgContainer: StartedPostgreSqlContainer;
-
-    constructor(db: PrismaClient, pgContainer: StartedPostgreSqlContainer) {
+    constructor(db: PrismaClient) {
         this.db = db;
-        this.pgContainer = pgContainer;
     }
 
     static async create(): Promise<DiffJobContextHarness> {
-        const pgContainer = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pgContainer.getConnectionUri());
-        const db = createClient(pgContainer.getConnectionUri());
-        return new DiffJobContextHarness(db, pgContainer);
+        const connectionUri = await createTestDatabase();
+        const db = createClient(connectionUri);
+        return new DiffJobContextHarness(db);
     }
 
     async beforeAll() {}
     async afterAll() {
-        await this.pgContainer.stop();
+        await this.db.$disconnect();
     }
     async beforeEach() {}
     async afterEach() {}

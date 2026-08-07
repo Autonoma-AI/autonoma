@@ -1,7 +1,6 @@
-import { ApplicationArchitecture, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
+import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
 import type { ReporterIssueContent, ReporterIssueResult, ReporterResult } from "@autonoma/diffs/analysis";
-import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { expect } from "vitest";
 import { runReporter } from "../../src/activities/analysis/run-reporter";
 import { seedGenerationForSlug } from "./seed-generation";
@@ -11,7 +10,6 @@ declare global {
     var prisma: PrismaClient | undefined;
 }
 
-const POSTGRES_IMAGE = "postgres:18-alpine";
 let seq = 0;
 const next = () => seq++;
 
@@ -43,22 +41,18 @@ interface SeededRun {
 }
 
 class ReporterHarness implements IntegrationHarness {
-    constructor(
-        public readonly db: PrismaClient,
-        private readonly pg: StartedPostgreSqlContainer,
-    ) {}
+    constructor(public readonly db: PrismaClient) {}
 
     static async create(): Promise<ReporterHarness> {
-        const pg = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pg.getConnectionUri());
-        const db = createClient(pg.getConnectionUri());
+        const connectionUri = await createTestDatabase();
+        const db = createClient(connectionUri);
         globalThis.prisma = db;
-        return new ReporterHarness(db, pg);
+        return new ReporterHarness(db);
     }
 
     async beforeAll() {}
     async afterAll() {
-        await this.pg.stop();
+        await this.db.$disconnect();
     }
     async beforeEach() {}
     async afterEach() {}

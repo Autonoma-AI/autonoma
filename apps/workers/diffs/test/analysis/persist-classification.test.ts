@@ -1,7 +1,6 @@
-import { ApplicationArchitecture, type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
-import { type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
+import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import type { AnalysisCandidateClassification } from "@autonoma/workflow/activities";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import { expect } from "vitest";
 import { persistAnalysisClassification } from "../../src/activities/analysis/persist-classification";
 
@@ -11,8 +10,6 @@ declare global {
     // eslint-disable-next-line no-var
     var prisma: PrismaClient | undefined;
 }
-
-const POSTGRES_IMAGE = "postgres:18-alpine";
 
 let seq = 0;
 const next = () => seq++;
@@ -37,22 +34,18 @@ interface SeededRun {
 }
 
 class PersistHarness implements IntegrationHarness {
-    constructor(
-        public readonly db: PrismaClient,
-        private readonly pg: StartedPostgreSqlContainer,
-    ) {}
+    constructor(public readonly db: PrismaClient) {}
 
     static async create(): Promise<PersistHarness> {
-        const pg = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pg.getConnectionUri());
-        const db = createClient(pg.getConnectionUri());
+        const connectionUri = await createTestDatabase();
+        const db = createClient(connectionUri);
         globalThis.prisma = db;
-        return new PersistHarness(db, pg);
+        return new PersistHarness(db);
     }
 
     async beforeAll() {}
     async afterAll() {
-        await this.pg.stop();
+        await this.db.$disconnect();
     }
     async beforeEach() {}
     async afterEach() {}

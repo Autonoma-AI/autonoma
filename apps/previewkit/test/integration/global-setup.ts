@@ -1,6 +1,5 @@
+import { POSTGRES_IMAGE } from "@autonoma/integration-test";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
-
-const POSTGRES_IMAGE = "postgres:18-alpine";
 
 let teardownFns: Array<() => Promise<void>> = [];
 

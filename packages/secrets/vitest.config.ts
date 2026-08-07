@@ -4,6 +4,7 @@ export default defineConfig({
     test: {
         include: ["test/**/*.test.ts"],
         watch: false,
+        globalSetup: ["./test/global-setup.ts"],
         // The harnesses supply the real Postgres URI and KMS endpoint at runtime;
         // this placeholder only satisfies the `@autonoma/db` env import. We
         // deliberately do NOT load the repo root .env - a package whose whole job

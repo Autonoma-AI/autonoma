@@ -1,29 +1,18 @@
-import { type PrismaClient, applyMigrations, createClient } from "@autonoma/db";
-import { type IntegrationHarness, integrationTestSuite, stopContainer } from "@autonoma/integration-test";
-import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { type PrismaClient, createClient } from "@autonoma/db";
+import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { type TestAPI, expect } from "vitest";
 import type { GenerationProvider } from "../src/generation/generation-job-provider";
 import { GenerationManager } from "../src/generation/generation-manager";
 import { SnapshotDraft, type TestSuiteInfo } from "../src/snapshot-draft";
 import { TestSuiteUpdater } from "../src/test-update-manager";
 
-const POSTGRES_IMAGE = "postgres:18-alpine";
-
 export class TestUpdatesHarness implements IntegrationHarness {
-    public readonly db: PrismaClient;
-
-    private pgContainer: StartedPostgreSqlContainer;
-
-    constructor(db: PrismaClient, pgContainer: StartedPostgreSqlContainer) {
-        this.db = db;
-        this.pgContainer = pgContainer;
-    }
+    constructor(public readonly db: PrismaClient) {}
 
     static async create(): Promise<TestUpdatesHarness> {
-        const pgContainer = await new PostgreSqlContainer(POSTGRES_IMAGE).start();
-        applyMigrations(pgContainer.getConnectionUri());
-        const db = createClient(pgContainer.getConnectionUri());
-        return new TestUpdatesHarness(db, pgContainer);
+        const connectionUri = await createTestDatabase();
+        const db = createClient(connectionUri);
+        return new TestUpdatesHarness(db);
     }
 
     async beforeAll() {
@@ -31,7 +20,7 @@ export class TestUpdatesHarness implements IntegrationHarness {
     }
 
     async afterAll() {
-        await stopContainer(this.pgContainer);
+        await this.db.$disconnect();
     }
 
     async beforeEach() {

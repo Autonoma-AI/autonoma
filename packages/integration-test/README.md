@@ -8,6 +8,9 @@ Lightweight harness and test suite helper for writing integration tests with Vit
 | ---------------------- | --------- | ------------------------------------------------------------------ |
 | `integrationTestSuite` | Function  | Wires a harness into Vitest `describe`/`beforeAll`/`afterAll` etc. |
 | `IntegrationHarness`   | Interface | Contract every harness must implement.                             |
+| `startSharedPostgres`  | Function  | Call once from a package's Vitest `globalSetup`: boots one Postgres container and migrates a template database. |
+| `createTestDatabase`   | Function  | Call from each harness's `create()`: forks an isolated, fully-migrated database from the template. |
+| `POSTGRES_IMAGE`       | Constant  | The Testcontainers Postgres image tag `startSharedPostgres` boots. |
 | `stopContainer`        | Function  | Stops a Testcontainers container, tolerating a benign teardown race. |
 
 ## IntegrationHarness interface
@@ -21,7 +24,7 @@ interface IntegrationHarness {
 }
 ```
 
-Implement this interface to manage infrastructure for your tests - Testcontainers (Postgres, Redis, LocalStack), Prisma clients, service instances, etc.
+Implement this interface to manage infrastructure for your tests - Testcontainers (Postgres, Redis, MiniStack), Prisma clients, service instances, etc.
 
 ## stopContainer
 
@@ -46,29 +49,82 @@ function integrationTestSuite<THarness extends IntegrationHarness, TSeedResult =
 - `seed` - optional. Runs after `harness.beforeAll()`. Use it to insert baseline data. The return value is available as the `seedResult` fixture.
 - `cases` - receives a Vitest `test` function pre-extended with `harness` and `seedResult` fixtures.
 
-## Usage
+## Shared Postgres (recommended for every Postgres-backed harness)
 
-### 1. Implement a harness
+`integrationTestSuite`'s `createHarness` runs once per test **file**. If every harness boots its own
+`PostgreSqlContainer`, a package with N integration test files boots N containers and replays every
+migration N times - the dominant cost in most integration suites. `startSharedPostgres` +
+`createTestDatabase` fix this: one container for the whole Vitest run, one migrated template
+database, and each harness forks its own isolated database from that template (a fast Postgres-side
+file copy, not a migration replay). Databases are fully isolated from each other - no shared tables,
+no cross-suite visibility - so parallel test files stay exactly as safe as separate containers were.
 
 ```ts
-import { type IntegrationHarness, stopContainer } from "@autonoma/integration-test";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
+function startSharedPostgres(opts: { migrate: (connectionUri: string) => void | Promise<void> }): Promise<{ stop: () => Promise<void> }>;
+function createTestDatabase(): Promise<string>; // returns a connection URI for a fresh, migrated database
+```
+
+**1. Call `startSharedPostgres` once from the package's Vitest `globalSetup`:**
+
+```ts
+// test/global-setup.ts
+import { startSharedPostgres } from "@autonoma/integration-test";
+
+let stop: (() => Promise<void>) | undefined;
+
+export async function setup(): Promise<void> {
+  // Set TESTING before any @autonoma/* imports so createEnv skips validation.
+  process.env.TESTING = "true";
+  const { applyMigrations } = await import("@autonoma/db");
+  const shared = await startSharedPostgres({ migrate: applyMigrations });
+  stop = shared.stop;
+}
+
+export async function teardown(): Promise<void> {
+  await stop?.();
+}
+```
+
+```ts
+// vitest.config.ts
+export default defineConfig({
+  test: { globalSetup: ["./test/global-setup.ts"] },
+});
+```
+
+**2. Call `createTestDatabase` from each harness instead of booting a container:**
+
+```ts
+import { createTestDatabase, type IntegrationHarness } from "@autonoma/integration-test";
 
 export class MyHarness implements IntegrationHarness {
-  constructor(public readonly db: PrismaClient, private container: StartedPostgreSqlContainer) {}
+  constructor(public readonly db: PrismaClient) {}
 
   static async create(): Promise<MyHarness> {
-    const container = await new PostgreSqlContainer("postgres:18-alpine").start();
-    const db = createClient(container.getConnectionUri());
-    return new MyHarness(db, container);
+    const connectionUri = await createTestDatabase();
+    const db = createClient(connectionUri);
+    return new MyHarness(db);
   }
 
   async beforeAll() { /* create shared seed data */ }
-  async afterAll() { await stopContainer(this.container); }
+  async afterAll() { await this.db.$disconnect(); }
   async beforeEach() {}
   async afterEach() {}
 }
 ```
+
+No container to stop per harness - `afterAll` only needs to close the Prisma client's connection
+pool. The shared container itself is stopped once, by the package's `globalSetup` teardown.
+
+For a non-Postgres container a harness still owns end-to-end (Redis, MiniStack, ...), start it
+directly with `PostgreSqlContainer`/`GenericContainer` and pair it with `stopContainer` as before.
+
+## Usage
+
+### 1. Implement a harness
+
+See [Shared Postgres](#shared-postgres-recommended-for-every-postgres-backed-harness) above for the
+recommended Postgres-backed harness shape.
 
 ### 2. Write a test suite
 
@@ -117,4 +173,6 @@ export function apiTestSuite<TSeedResult>({ name, seed, cases }) {
 - `beforeAll` has a 120-second timeout to allow for container startup.
 - Fixtures (`harness`, `seedResult`) are injected via Vitest's `test.extend`, so they are available as destructured parameters in every test callback.
 - The package is ESM-only (`"type": "module"`).
-- Depends on `@autonoma/logger` (for `stopContainer`'s teardown-race warning) and `testcontainers` (for the `StartedTestContainer` type); Vitest remains a dev dependency only.
+- `startSharedPostgres` sets an internal env var (`AUTONOMA_SHARED_POSTGRES_ADMIN_URL`) that `createTestDatabase` reads. It relies on Vitest's `globalSetup` running once in the main process, before any test-file workers spawn - the same mechanism `apps/api`'s `global-setup.ts` already used for its S3 endpoint, so this is a proven pattern in this repo, not a new assumption. Calling `createTestDatabase` before `startSharedPostgres` has run throws immediately.
+- `createTestDatabase` does not `DROP` the databases it creates - the whole container (and everything in it) is torn down at the end of the run regardless, so per-suite cleanup would only add complexity for no benefit at this scale.
+- Depends on `@autonoma/logger` (for `stopContainer`'s teardown-race warning), `testcontainers` (for the `StartedTestContainer` type), `@testcontainers/postgresql`, and `pg` (the admin connection `createTestDatabase` uses to run `CREATE DATABASE ... TEMPLATE ...`); Vitest remains a dev dependency only.

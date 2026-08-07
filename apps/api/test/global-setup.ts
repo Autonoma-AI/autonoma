@@ -1,12 +1,12 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { POSTGRES_IMAGE } from "@autonoma/integration-test";
 import { CreateBucketCommand, S3Client } from "@aws-sdk/client-s3";
 import { LocalstackContainer } from "@testcontainers/localstack";
 import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { RedisContainer } from "@testcontainers/redis";
 
-const POSTGRES_IMAGE = "postgres:18-alpine";
 const MINISTACK_IMAGE = "ministackorg/ministack:1.4.7";
 const REDIS_IMAGE = "redis:7-alpine";
 const TEST_BUCKET = "test-bucket";
