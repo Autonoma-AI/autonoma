@@ -172,7 +172,7 @@ function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; na
                     className={app.slug === currentApp.slug ? "text-primary-ink" : ""}
                     onClick={() => {
                       if (hasNoRepo) {
-                        void navigate({ to: "/app/$appSlug/github", params: { appSlug: app.slug } });
+                        void navigate({ to: "/app/$appSlug/settings", params: { appSlug: app.slug } });
                       } else {
                         void navigate({ to: "/app/$appSlug", params: { appSlug: app.slug } });
                       }

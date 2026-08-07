@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { appShellHandlers } from "lib/storybook/base-fixtures";
+import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { userEvent, within } from "storybook/test";
@@ -58,7 +58,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /** The list itself: each key names who created it and when it was last used. */
-export const Default: Story = { args: { path: "/settings/api-keys" } };
+export const Default: Story = { args: { path: `/app/${baseApplication.slug}/settings/api-keys` } };
 
 /**
  * Deleting a colleague's key. Anyone in the organization is allowed to, but the key acts
@@ -66,7 +66,7 @@ export const Default: Story = { args: { path: "/settings/api-keys" } };
  * facts that decide whether this breaks something right now.
  */
 export const DeleteColleaguesKey: Story = {
-  args: { path: "/settings/api-keys" },
+  args: { path: `/app/${baseApplication.slug}/settings/api-keys` },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole("button", { name: /delete api key ci pipeline/i }));
@@ -75,7 +75,7 @@ export const DeleteColleaguesKey: Story = {
 
 /** A colleague's key that has never been used - the safe case, and it says so. */
 export const DeleteNeverUsedKey: Story = {
-  args: { path: "/settings/api-keys" },
+  args: { path: `/app/${baseApplication.slug}/settings/api-keys` },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole("button", { name: /delete api key staging smoke tests/i }));
@@ -84,7 +84,7 @@ export const DeleteNeverUsedKey: Story = {
 
 /** Your own key: no warning, because there is no colleague to strand. */
 export const DeleteOwnKey: Story = {
-  args: { path: "/settings/api-keys" },
+  args: { path: `/app/${baseApplication.slug}/settings/api-keys` },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole("button", { name: /delete api key local development/i }));

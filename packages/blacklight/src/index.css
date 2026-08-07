@@ -59,6 +59,14 @@
   --border-mid: #333333;
   --border-highlight: #444444;
 
+  /* ── Skeleton ──
+     Its own tone rather than a reused surface, because a skeleton is drawn ON a
+     surface. It used to be `--surface-raised`, which is also the standard raised
+     panel and the table row hover - so any skeleton inside a panel was painted in
+     its own background and read as an empty grey box. Sits above every surface so
+     it stays visible on all three. */
+  --skeleton: #303030;
+
   /* ── Text tiers ──
      Two-tier hierarchy: `primary` carries everything meant to be read (titles
      AND paragraphs) at max contrast; `secondary` is the single supporting tone
@@ -146,6 +154,8 @@
   --color-border-dim: var(--border-dim);
   --color-border-mid: var(--border-mid);
   --color-border-highlight: var(--border-highlight);
+
+  --color-skeleton: var(--skeleton);
 
   /* Text tiers */
   --color-text-primary: var(--text-primary);

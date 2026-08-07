@@ -146,7 +146,7 @@ type Story = StoryObj<typeof meta>;
  * rows, and the shared save bar below.
  */
 export const Variables: Story = {
-  args: { path: `/app/${baseApplication.slug}/preview-config` },
+  args: { path: `/app/${baseApplication.slug}/settings/previews` },
 };
 
 /**
@@ -156,7 +156,7 @@ export const Variables: Story = {
  * were saved with - the default applies to new rows only.
  */
 export const NewVariableDefaults: Story = {
-  args: { path: `/app/${baseApplication.slug}/preview-config` },
+  args: { path: `/app/${baseApplication.slug}/settings/previews` },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole("button", { name: /Add variable/ }));
@@ -173,7 +173,7 @@ export const NewVariableDefaults: Story = {
  * to its own store rather than through the document.
  */
 export const RetiredBuildPreset: Story = {
-  args: { path: `/app/${baseApplication.slug}/preview-config` },
+  args: { path: `/app/${baseApplication.slug}/settings/previews` },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByText("STRIPE_SECRET_KEY"));

@@ -41,7 +41,7 @@ import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplications } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { PasteEnvDialog } from "../../../_app-shell/app.$appSlug/preview-config/-variables/paste-env-dialog";
+import { PasteEnvDialog } from "../../../_app-shell/app.$appSlug/settings/previews/-variables/paste-env-dialog";
 import { DeployRequestIdleIndicator, isPreviewDeployRequestPhase } from "../deploy-request-indicator";
 import { IntegrationTakingShape } from "./integration-taking-shape";
 import { PreviewTakingShape } from "./preview-taking-shape";

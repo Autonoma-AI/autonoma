@@ -145,6 +145,10 @@ const SUBSCRIBED_STATUSES = new Set(["active", "trialing"]);
 function SidebarUpgradeButton({ collapsed }: { collapsed: boolean }) {
   const { data } = useQuery(trpc.billing.status.queryOptions());
   const createCheckout = useCreateCheckoutSession();
+  // Billing is organization state but it is reached through an application's settings, so the link only
+  // exists where there is an application to hang it off. The Upgrade button itself goes straight to Stripe
+  // and works either way.
+  const { appSlug } = useParams({ strict: false }) as { appSlug?: string };
 
   const isSubscribed = data?.subscriptionStatus != null && SUBSCRIBED_STATUSES.has(data.subscriptionStatus);
   if (data == null || isSubscribed) return null;
@@ -186,11 +190,20 @@ function SidebarUpgradeButton({ collapsed }: { collapsed: boolean }) {
   }
 
   return (
-    <div className="border-b border-border-dim p-3">
+    <div className="flex flex-col items-center gap-2 border-b border-border-dim p-3">
       <Button variant="cta" onClick={handleUpgrade} disabled={createCheckout.isPending} className="w-full gap-2">
         <CrownSimpleIcon size={14} weight="fill" />
         Upgrade
       </Button>
+      {appSlug != null && (
+        <Link
+          to="/app/$appSlug/settings/billing"
+          params={{ appSlug }}
+          className="font-mono text-2xs text-text-secondary transition-colors hover:text-text-primary"
+        >
+          Credits and billing
+        </Link>
+      )}
     </div>
   );
 }

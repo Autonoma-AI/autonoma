@@ -75,6 +75,7 @@ import { useCommitFromGitHub } from "lib/query/github.queries";
 import { toastManager } from "lib/toast-manager";
 import { type RouterOutputs, trpc } from "lib/trpc";
 import { type ReactNode, Suspense, useEffect, useRef, useState } from "react";
+import { AppLink } from "../../-app-link";
 import { useCurrentApplication } from "../../-use-current-application";
 import { AgentFinishingScreen } from "./-components/agent-finishing-screen";
 import { SdkValidationErrorNote } from "./-sdk-validation-error-note";
@@ -105,6 +106,10 @@ const CLI_FINISH_STEP: FinishStepDefinition = {
     <>
       Run the Autonoma planner CLI in your repo. It generates your test suite and uploads it here - nothing is committed
       to your repo.
+      <span className="mt-2 block text-text-secondary">
+        The command below carries a key already. To run it again later, or from CI, mint one in{" "}
+        <SettingsLink to="/app/$appSlug/settings/api-keys">organization API keys</SettingsLink>.
+      </span>
     </>
   ),
   render: (props) => <ArtifactsStepBody applicationId={props.applicationId} artifacts={props.artifactStatus} />,
@@ -126,6 +131,8 @@ const SDK_FINISH_STEP: FinishStepDefinition = {
         <DocLink href={ENVIRONMENT_FACTORY_GUIDE_URL}>Environment Factory guide</DocLink>
         {" · "}
         <DocLink href={FRAMEWORK_EXAMPLE_URL}>framework example</DocLink>
+        {" · "}
+        <SettingsLink to="/app/$appSlug/settings/api-keys">API keys</SettingsLink>
       </span>
     </>
   ),
@@ -491,6 +498,19 @@ function DocLink({ href, children }: { href: string; children: ReactNode }) {
     >
       {children}
     </a>
+  );
+}
+
+/**
+ * `DocLink`'s in-app twin, for the settings surfaces a setup step needs but does not itself contain. Uses
+ * `AppLink` so the step definitions, which are module-level constants with no application in scope, do not
+ * have to thread the slug down to reach one.
+ */
+function SettingsLink({ to, children }: { to: "/app/$appSlug/settings/api-keys"; children: ReactNode }) {
+  return (
+    <AppLink to={to} className="font-medium text-primary-ink underline-offset-2 hover:underline">
+      {children}
+    </AppLink>
   );
 }
 
@@ -1185,7 +1205,7 @@ function ExternalSdkStepBody({ applicationId, selectedTargetId, onSelectTarget }
               <RobotIcon size={12} weight="bold" />
               Debug with coding agent
             </Button>
-            <Link to="/app/$appSlug/preview-config" params={{ appSlug: app.slug }} target="_blank">
+            <Link to="/app/$appSlug/settings/previews" params={{ appSlug: app.slug }} target="_blank">
               <Button variant="outline" size="xs" className="gap-1.5">
                 <ArrowSquareOutIcon size={12} weight="bold" />
                 Preview configuration
@@ -1311,7 +1331,7 @@ function ExternalSdkStepBody({ applicationId, selectedTargetId, onSelectTarget }
               <RobotIcon size={14} weight="bold" />
               Debug with coding agent
             </Button>
-            <Link to="/app/$appSlug/preview-config" params={{ appSlug: app.slug }} target="_blank">
+            <Link to="/app/$appSlug/settings/previews" params={{ appSlug: app.slug }} target="_blank">
               <Button variant="ghost" size="sm" className="gap-1.5">
                 <ArrowSquareOutIcon size={14} weight="bold" />
                 Preview configuration
@@ -1357,7 +1377,11 @@ function ExternalSdkStepBody({ applicationId, selectedTargetId, onSelectTarget }
               inspect the SDK route and add logging around the handler or discover path before re-validating.
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              <Link to="/app/$appSlug/preview-config" params={{ appSlug: app.slug }} target="_blank">
+              <Button variant="accent" size="sm" className="gap-2" onClick={() => setAgentDialogOpen(true)}>
+                <RobotIcon size={14} weight="bold" />
+                Debug with coding agent
+              </Button>
+              <Link to="/app/$appSlug/settings/previews" params={{ appSlug: app.slug }} target="_blank">
                 <Button variant="outline" size="sm" className="gap-2">
                   <ArrowSquareOutIcon size={14} weight="bold" />
                   Preview configuration

@@ -1,5 +1,7 @@
 import { Button, Skeleton } from "@autonoma/blacklight";
+import { BroadcastIcon } from "@phosphor-icons/react/Broadcast";
 import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
+import { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
 import { createFileRoute, notFound, Outlet, redirect } from "@tanstack/react-router";
 import { useAuth } from "lib/auth";
 import { ensureBranchData } from "lib/query/branches.queries";
@@ -123,12 +125,35 @@ function TestsPage() {
         <BranchMeta testCount={testCount} addedCount={changes.addedCount} modifiedCount={changes.modifiedCount} />
       </div>
 
-      {isAdmin && (
-        <Button size="sm" className="shrink-0 gap-1.5 font-mono text-2xs" render={<AppLink to="/app/$appSlug/edit" />}>
-          <PencilSimpleIcon size={12} />
-          {hasPending ? "Continue editing" : "Edit test suite"}
+      <div className="flex shrink-0 items-center gap-2">
+        {/* The agents that author and run this suite read the instructions and scope guidelines in settings,
+            and the scenarios a test can be pinned to are configured there too. Both are only reachable from
+            Settings otherwise, which is nowhere near where they take effect. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 font-mono text-2xs text-text-secondary"
+          render={<AppLink to="/app/$appSlug/settings" />}
+        >
+          <SlidersHorizontalIcon size={12} />
+          Agent instructions
         </Button>
-      )}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 font-mono text-2xs text-text-secondary"
+          render={<AppLink to="/app/$appSlug/settings/scenarios" />}
+        >
+          <BroadcastIcon size={12} />
+          Scenarios
+        </Button>
+        {isAdmin && (
+          <Button size="sm" className="gap-1.5 font-mono text-2xs" render={<AppLink to="/app/$appSlug/edit" />}>
+            <PencilSimpleIcon size={12} />
+            {hasPending ? "Continue editing" : "Edit test suite"}
+          </Button>
+        )}
+      </div>
     </header>
   );
 

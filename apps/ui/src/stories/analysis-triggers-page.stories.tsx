@@ -65,14 +65,14 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { path: `/app/${baseApplication.slug}/analysis-triggers` },
+  args: { path: `/app/${baseApplication.slug}/settings/triggers` },
 };
 
 export const AutoRunEnabled: Story = {
   parameters: {
     msw: { handlers: appShellHandlers(autoRunOnFixtures) },
   },
-  args: { path: `/app/${baseApplication.slug}/analysis-triggers` },
+  args: { path: `/app/${baseApplication.slug}/settings/triggers` },
 };
 
 /** Merge gate off: visiting the triggers URL redirects to settings, which shows no "Triggers" tab. */
@@ -80,5 +80,5 @@ export const GatedOff: Story = {
   parameters: {
     msw: { handlers: appShellHandlers(gatedOffFixtures) },
   },
-  args: { path: `/app/${baseApplication.slug}/analysis-triggers` },
+  args: { path: `/app/${baseApplication.slug}/settings/triggers` },
 };

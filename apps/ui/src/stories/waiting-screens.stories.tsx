@@ -220,3 +220,41 @@ export const HomeFailed = waiting({
   fail: ["branches.list"],
   fixtures: dashboardFixtures,
 });
+
+// ─── Settings ─────────────────────────────────────────────────────────────────
+// Rows 7, 11 and 17-20 of the survey below, which it left as a baseline for the settings redesign to close.
+// The rail is the thing to look at in each: it belongs to the layout route, so it keeps rendering around a
+// destination that is waiting or has thrown, and the other destinations stay one click away.
+
+/** Billing waiting on the organization's balance. Before this it had no boundary anywhere on the route. */
+export const SettingsBilling = waiting({
+  path: `/app/${baseApplication.slug}/settings/billing`,
+  stall: ["billing.status"],
+  fixtures: dashboardFixtures,
+});
+
+/** Scenarios & SDK waiting on the discovered list. The SDK endpoint panel above it is static, so it paints. */
+export const SettingsScenarios = waiting({
+  path: `/app/${baseApplication.slug}/settings/scenarios`,
+  stall: ["scenarios.list"],
+  fixtures: dashboardFixtures,
+});
+
+/**
+ * A settings destination that threw. The message names what failed rather than the router's generic
+ * wording, and the rail beside it is untouched - the failure is contained to the Outlet.
+ */
+export const SettingsBillingFailed = waiting({
+  path: `/app/${baseApplication.slug}/settings/billing`,
+  stall: [],
+  fail: ["billing.status"],
+  fixtures: dashboardFixtures,
+});
+
+/** The same containment for the destination with the most moving parts. */
+export const SettingsScenariosFailed = waiting({
+  path: `/app/${baseApplication.slug}/settings/scenarios`,
+  stall: [],
+  fail: ["scenarios.list"],
+  fixtures: dashboardFixtures,
+});

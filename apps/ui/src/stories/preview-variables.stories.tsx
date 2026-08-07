@@ -1,7 +1,7 @@
 import { authoringPreviewConfigSchema, previewConfigSchema, zodIssuesToConfigIssues } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { EnvVarManager } from "../routes/_blacklight/_app-shell/app.$appSlug/preview-config/-variables/env-var-manager";
+import { EnvVarManager } from "../routes/_blacklight/_app-shell/app.$appSlug/settings/previews/-variables/env-var-manager";
 import {
   documentFromDraft,
   draftFromConfig,

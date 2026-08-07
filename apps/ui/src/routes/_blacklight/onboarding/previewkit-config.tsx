@@ -33,7 +33,7 @@ import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useApplicationRepositoryFromGitHub } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { EnvVarManager } from "../_app-shell/app.$appSlug/preview-config/-variables/env-var-manager";
+import { EnvVarManager } from "../_app-shell/app.$appSlug/settings/previews/-variables/env-var-manager";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 import { AddAppDialog } from "./-components/previewkit/add-app-dialog";
 import { AgentConfiguringScreen } from "./-components/previewkit/agent-configuring-screen";

@@ -77,7 +77,7 @@ function PreviewSettingsLink() {
       {/* The label needs no "Preview" qualifier on a screen that is already the preview, but the shell's
           global Settings link is on the same page - so the accessible name keeps the distinction. */}
       <AppLink
-        to="/app/$appSlug/preview-config"
+        to="/app/$appSlug/settings/previews"
         aria-label="Preview settings"
         className={cn(buttonVariants({ variant: "outline", size: "xs" }), "gap-1.5")}
       >

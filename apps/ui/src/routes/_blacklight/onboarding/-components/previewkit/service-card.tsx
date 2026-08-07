@@ -12,7 +12,7 @@ import {
 import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { StackIcon } from "@phosphor-icons/react/Stack";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
-import { PasteEnvDialog } from "../../../_app-shell/app.$appSlug/preview-config/-variables/paste-env-dialog";
+import { PasteEnvDialog } from "../../../_app-shell/app.$appSlug/settings/previews/-variables/paste-env-dialog";
 import {
   SERVICE_OPTIONS,
   serviceEnvRow,

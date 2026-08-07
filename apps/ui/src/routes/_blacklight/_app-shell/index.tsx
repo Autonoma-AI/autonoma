@@ -122,7 +122,7 @@ function AppSelector() {
               count={completedApps.length}
               collapsedCta={
                 <Link
-                  to={firstReady.githubRepositoryId == null ? "/app/$appSlug/github" : "/app/$appSlug"}
+                  to={firstReady.githubRepositoryId == null ? "/app/$appSlug/settings" : "/app/$appSlug"}
                   params={{ appSlug: firstReady.slug }}
                   aria-label={`Open ${firstReady.name}`}
                 >
@@ -248,7 +248,7 @@ function CompletedAppCard({ app }: { app: AppCardData }) {
 
   return (
     <Link
-      to={hasNoRepo ? "/app/$appSlug/github" : "/app/$appSlug"}
+      to={hasNoRepo ? "/app/$appSlug/settings" : "/app/$appSlug"}
       params={{ appSlug: app.slug }}
       aria-label={`Open ${app.name}`}
       className="group block"

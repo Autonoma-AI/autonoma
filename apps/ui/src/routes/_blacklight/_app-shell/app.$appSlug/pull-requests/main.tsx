@@ -25,6 +25,7 @@ import { Suspense } from "react";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { CheckpointSummaryBadge } from "./-components/checkpoint-summary-badge";
 import { CheckpointTestsRun } from "./-components/checkpoint-tests-run";
+import { checkpointTriggerLabel } from "./-components/checkpoint-trigger-label";
 import { formatCheckpointMetrics } from "./-components/format-checkpoint-metrics";
 import { PrStatusBadge } from "./-components/pr-status-badge";
 import {
@@ -262,6 +263,8 @@ function MainCheckpointRow({ snapshot, isLatest }: { snapshot: Snapshot; isLates
       </div>
       <span className="font-mono text-2xs text-text-secondary">
         {formatCheckpointMetrics(snapshot.summary, snapshot.healthCounts.totalTests)}
+        {" · "}
+        {checkpointTriggerLabel(snapshot.source)}
       </span>
     </div>
   );

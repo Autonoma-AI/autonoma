@@ -30,16 +30,16 @@ const DAYS_CONSIDERED_RECENT = 30;
 
 /**
  * Self-contained API keys management panel: create, list, copy-once, and delete.
- * API keys are organization-scoped (not tied to any single application), so this
- * panel renders identically under the org-level `/settings/api-keys` route and the
- * per-app settings tab - both read and write the same org keys.
+ * API keys are organization-scoped (not tied to any single application), so a key
+ * minted here authenticates against every application in the organization. The
+ * settings destination that renders this says so, since its URL cannot.
  */
 export function ApiKeysPanel() {
   const [createOpen, setCreateOpen] = useState(false);
   const [createdKey, setCreatedKey] = useState<string>();
 
   return (
-    <div className="max-w-3xl space-y-4">
+    <div className="space-y-4">
       {createdKey != null && <CreatedKeyBanner rawKey={createdKey} onDismiss={() => setCreatedKey(undefined)} />}
 
       <Panel>
