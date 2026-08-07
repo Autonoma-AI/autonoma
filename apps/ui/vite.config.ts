@@ -86,7 +86,11 @@ export default defineConfig({
                 target: `http://localhost:${readApiPort()}`,
                 changeOrigin: true,
             },
-            "/ingest": {
+            "/rs": {
+                target: `http://localhost:${readApiPort()}`,
+                changeOrigin: true,
+            },
+            "/flags": {
                 target: `http://localhost:${readApiPort()}`,
                 changeOrigin: true,
             },

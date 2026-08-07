@@ -16,7 +16,7 @@ import posthog, {
 // We render our own feedback modal instead of PostHog's popover widget: ad-block
 // cosmetic filters hide the widget's `.PostHogSurvey*` DOM, while our neutral markup
 // slips through. Responses are still posted to PostHog via `capture`, which travels
-// over the `/ingest` reverse proxy, so the network path is never blocked either.
+// over the `/rs` reverse proxy, so the network path is never blocked either.
 const FEEDBACK_SURVEY_ID = "019d4b13-3363-0000-8cce-47d6b098a42e";
 
 // PostHog is disabled in dev (see main.tsx), so `getSurveys` never resolves there.

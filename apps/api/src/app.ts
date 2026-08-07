@@ -17,7 +17,7 @@ import { env } from "./env";
 import { githubHttpRouter } from "./github/github-http.router";
 import { llmProxyHttpRouter } from "./llm-proxy/llm-proxy-http.router";
 import { mcpHttpRouter } from "./mcp/mcp-http.router";
-import { posthogProxyRouter } from "./posthog/posthog-proxy.router";
+import { createPostHogProxyRouter } from "./posthog/posthog-proxy.router";
 import { previewkitHttpRouter } from "./previewkit/previewkit-http.router";
 import { onboardingHttpRouter } from "./routes/onboarding/onboarding-http.router";
 import { appRouter } from "./routes/router";
@@ -33,6 +33,14 @@ const BODY_LOG_BLOCKLIST_PATHS = new Set(["/v1/stripe/webhook", "/v1/vercel/webh
 // through PUT /v1/previewkit/secrets/:applicationId/:app[/:key], and through
 // PUT /v1/installations/:installationId (Vercel's `credentials.access_token`).
 const BODY_LOG_BLOCKLIST_PREFIXES = ["/v1/previewkit/secrets", "/v1/installations"];
+// Deliberately not one shared "/ingest" path: ad blockers' filter lists target well-known
+// PostHog proxy path names, so events and feature flags each get their own mount point -
+// a filter-list hit on one leaves the other working.
+const POSTHOG_PROXY_PATH_PREFIXES = ["/rs", "/flags"];
+
+function isPostHogProxyPath(path: string): boolean {
+    return POSTHOG_PROXY_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
 
 const corsOptions = {
     origin: (origin: string) => {
@@ -77,7 +85,7 @@ export function createApiApp() {
             scope.setTag("url", c.req.url);
             scope.setTag("request_id", crypto.randomUUID());
 
-            if (c.req.path === "/health" || c.req.path.startsWith("/ingest")) return await next();
+            if (c.req.path === "/health" || isPostHogProxyPath(c.req.path)) return await next();
 
             const start = Date.now();
             const { method, url } = c.req;
@@ -276,8 +284,11 @@ export function createApiApp() {
 
     // ─── PostHog Proxy (bypasses ad blockers) ──────────────────────────
 
-    app.use("/ingest/*", cors(corsOptions));
-    app.route("/ingest", posthogProxyRouter);
+    app.use("/rs/*", cors(corsOptions));
+    app.route("/rs", createPostHogProxyRouter("/rs"));
+
+    app.use("/flags/*", cors(corsOptions));
+    app.route("/flags", createPostHogProxyRouter("/flags"));
 
     // ─── tRPC ─────────────────────────────────────────────────────────
 

@@ -62,7 +62,10 @@ if (isPostHogEnabled) {
   if (hypothesis != null) writeAttributionCookie("autonoma_hypothesis", hypothesis);
 
   posthog.init(posthogKey, {
-    api_host: "/ingest",
+    api_host: "/rs",
+    // Split from api_host so a filter-list hit on one proxy path doesn't take down
+    // the other - ad blockers target well-known PostHog proxy path names.
+    flags_api_host: "/flags",
     ui_host: "https://us.posthog.com",
     // This is a client-routed SPA, so the default only ever emits the $pageview
     // for the initial document load - every in-app navigation went untracked and
