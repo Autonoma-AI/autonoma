@@ -41,7 +41,7 @@
         "@autonoma/types": "workspace:*",
         "@autonoma/utils": "workspace:*",
         "@autonoma/workflow": "workspace:*",
-        "@aws-sdk/client-kms": "^3.1095.0",
+        "@aws-sdk/client-kms": "catalog:",
         "@better-auth/api-key": "catalog:",
         "@better-auth/redis-storage": "^1.6.14",
         "@hono/mcp": "catalog:",
@@ -69,7 +69,7 @@
     "devDependencies": {
         "@11ty/gray-matter": "^2.1.0",
         "@autonoma/integration-test": "workspace:*",
-        "@aws-sdk/client-s3": "^3.995.0",
+        "@aws-sdk/client-s3": "catalog:",
         "@testcontainers/localstack": "^11.12.0",
         "@testcontainers/postgresql": "^11.12.0",
         "@testcontainers/redis": "^11.12.0",

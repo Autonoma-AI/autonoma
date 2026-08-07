@@ -29,6 +29,8 @@ catalog:
   '@ai-sdk/google': ^4.0.36
   '@ai-sdk/groq': ^4.0.24
   '@ai-sdk/openai': ^4.0.33
+  '@aws-sdk/client-kms': ^3.1105.0
+  '@aws-sdk/client-s3': ^3.1105.0
   '@kubernetes/client-node': ^1.4.0
   '@octokit/app': ^16.1.2
   '@octokit/core': ^7.0.6
@@ -108,6 +110,13 @@ minimumReleaseAgeExclude:
   - '@ai-sdk/provider-utils@5.0.23'
   - '@ai-sdk/provider@4.0.6'
   - ai@7.0.55
+  - '@aws-sdk/client-ecr@3.1105.0'
+  - '@aws-sdk/client-eks@3.1105.0'
+  - '@aws-sdk/client-kms@3.1105.0'
+  - '@aws-sdk/client-s3@3.1105.0'
+  - '@aws-sdk/credential-providers@3.1105.0'
+  - '@aws-sdk/lib-storage@3.1105.0'
+  - '@aws-sdk/s3-request-presigner@3.1105.0'
 
 overrides:
   '@hono/node-server@<2.0.5': ^2.0.5
