@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.260807.3](https://github.com/Autonoma-AI/agent/compare/v1.260807.2...v1.260807.3) (2026-08-07)
+
+
+### Features
+
+* **analysis:** freeze the classifier's preview app-log window ([#2186](https://github.com/Autonoma-AI/agent/issues/2186)) ([68c696b](https://github.com/Autonoma-AI/agent/commit/68c696b5a5cd2ae6f94b5a312743e7f0572bdb6f))
+* **diffs:** make main-branch runs correct - retire the PR-0 sentinel ([#2018](https://github.com/Autonoma-AI/agent/issues/2018)) ([530036a](https://github.com/Autonoma-AI/agent/commit/530036adf66a1745ec3d90f377241f3124bb44ce))
+* **platform:** build the CI runner fleet on Auto Scaling groups ([#2280](https://github.com/Autonoma-AI/agent/issues/2280)) ([72044e1](https://github.com/Autonoma-AI/agent/commit/72044e1bfb7ae110d7e8e9ceb0c397ca88b6d312))
+* **previewkit:** right-size runner Job resources and instrument memory via Sentry spans ([#2286](https://github.com/Autonoma-AI/agent/issues/2286)) ([db603c9](https://github.com/Autonoma-AI/agent/commit/db603c989c5e0491b71136c56056c4bf55235087))
+* **prometheus:** scrape Loki metrics and alert on WAL disk usage ([#2306](https://github.com/Autonoma-AI/agent/issues/2306)) ([347c654](https://github.com/Autonoma-AI/agent/commit/347c6548357d6c9bd552f03255775fede73bc767))
+* re-add per-snapshot dependency-manifest pinning to the analysis pipeline ([#2227](https://github.com/Autonoma-AI/agent/issues/2227)) ([77752ef](https://github.com/Autonoma-AI/agent/commit/77752efb44e01ba12fbd9279d5cd755111d9d481))
+* record usage ([#2143](https://github.com/Autonoma-AI/agent/issues/2143)) ([395dc23](https://github.com/Autonoma-AI/agent/commit/395dc236df8dfb07dd4b4812deac7cc1f0e3cc95))
+* **ui:** empty state when a preview has scaled to zero ([#2121](https://github.com/Autonoma-AI/agent/issues/2121)) ([c7f60fa](https://github.com/Autonoma-AI/agent/commit/c7f60fab2e65d207ad0775dc38b44d12d0299473))
+* **ui:** settings redesign - four destinations, a section rail, and visible scope ([#2130](https://github.com/Autonoma-AI/agent/issues/2130)) ([fdcab98](https://github.com/Autonoma-AI/agent/commit/fdcab98df08685fca94481ceb68d7a65ea8e3535))
+
+
+### Bug Fixes
+
+* **analysis:** a run that needs no tests is a confident verdict, not a failure ([#2246](https://github.com/Autonoma-AI/agent/issues/2246)) ([08502f0](https://github.com/Autonoma-AI/agent/commit/08502f01d64561381a4c65bf8b253e333f605052))
+* **analytics:** split PostHog proxy off the "/ingest" path to dodge ad blockers ([#2318](https://github.com/Autonoma-AI/agent/issues/2318)) ([dbc41e6](https://github.com/Autonoma-AI/agent/commit/dbc41e64e0625780a60e91831d020e0bb475c98e))
+* **api:** a superseded edit session no longer adopts or cancels the analysis run's snapshot ([#2274](https://github.com/Autonoma-AI/agent/issues/2274)) ([253fff0](https://github.com/Autonoma-AI/agent/commit/253fff0bc7cc4b4178d799ec75d98ee5fb221140))
+* **cli:** upgrade js-yaml to 5.2.3 ([#2317](https://github.com/Autonoma-AI/agent/issues/2317)) ([5eb8e84](https://github.com/Autonoma-AI/agent/commit/5eb8e84ff7928b5eb923632a49d2b9d6673d0f26))
+* **db:** remove the ai_cost_record organization_id migration until its writers ship ([#2326](https://github.com/Autonoma-AI/agent/issues/2326)) ([0c2d020](https://github.com/Autonoma-AI/agent/commit/0c2d020816cc0d14b9d05a0bc1b3326758a1cbfe))
+* make org id nullable ([#2328](https://github.com/Autonoma-AI/agent/issues/2328)) ([14ee753](https://github.com/Autonoma-AI/agent/commit/14ee753b199977cf37496c0d18d30207f5a26303))
+* **previewkit:** reduce default gatekeeper idle timeout to 15m ([#2307](https://github.com/Autonoma-AI/agent/issues/2307)) ([1477298](https://github.com/Autonoma-AI/agent/commit/147729875ad423c3ee7cef957b058d697209d8cf))
+* **ui:** keep the old billing URL answering after the settings move ([#2319](https://github.com/Autonoma-AI/agent/issues/2319)) ([63d919e](https://github.com/Autonoma-AI/agent/commit/63d919e1da823eceea33002a18766346c55a5986))
+* **ui:** statically bundle PostHog extensions to stop ad blockers catching the lazy-load fetch ([#2320](https://github.com/Autonoma-AI/agent/issues/2320)) ([c970ef6](https://github.com/Autonoma-AI/agent/commit/c970ef6102d84f9f6156837804defd9c898ec5c9))
+* **workflow:** stop the analysis-run tests leaking executions into each other ([#2292](https://github.com/Autonoma-AI/agent/issues/2292)) ([5cf22a9](https://github.com/Autonoma-AI/agent/commit/5cf22a9642d030ef6b00935abdff84305aacd87a))
+
+
+### Performance Improvements
+
+* **db:** index every unindexed cascade foreign key ([#2312](https://github.com/Autonoma-AI/agent/issues/2312)) ([f3fe5be](https://github.com/Autonoma-AI/agent/commit/f3fe5be247aee5ebd0c9a7eb86305b2c7cad5b7d))
+
 ## [1.260807.2](https://github.com/Autonoma-AI/agent/compare/v1.260807.1...v1.260807.2) (2026-08-07)
 
 
