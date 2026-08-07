@@ -1,9 +1,11 @@
 import { runWithSentry } from "@autonoma/logger";
+import * as Sentry from "@sentry/node";
 import { createPreviewkitServices } from "../create-services";
 import { env } from "../env";
 import { logger, type PreviewContext, withObservabilityContext } from "../logger";
 import { defaultRunPreviewJobDeps } from "./deps";
 import { parseJobSpec, type PreviewJobSpec } from "./job-spec";
+import { recordMemorySpanAttributes } from "./memory-span";
 import { runPreviewJob } from "./run-preview-job";
 
 /**
@@ -26,32 +28,44 @@ void runWithSentry({ name: "previewkit-runner", dsn: env.SENTRY_DSN }, async () 
         },
     });
 
-    const services = await createPreviewkitServices();
-    const abortController = new AbortController();
-    installSignalHandler(spec, abortController);
-
-    try {
-        const outcome = await withObservabilityContext({ preview: previewContext(spec.target) }, () =>
-            runPreviewJob(services, spec, abortController.signal, defaultRunPreviewJobDeps),
+    // The root span for the whole job: every span started inside this callback
+    // (the per-phase spans in run-preview-job.ts included) nests under it, so
+    // Sentry shows one connected trace per deploy/teardown instead of loose,
+    // unrelated spans.
+    await Sentry.startSpan({ name: `previewkit.${spec.mode}`, op: "previewkit.job" }, async () => {
+        const services = await createPreviewkitServices();
+        // Baseline right after service construction (Prisma, AWS SDK clients,
+        // the GitHub App client): what every run costs before any pipeline
+        // work, so the per-phase spans below read as deltas above this floor.
+        Sentry.startSpan({ name: "previewkit.services_created", op: "previewkit.services_created" }, (span) =>
+            recordMemorySpanAttributes(span),
         );
-        logger.info("Preview job runner finished", { extra: { mode: spec.mode, outcome } });
-    } finally {
-        // Retry cleanup for any child buildkitd Job whose per-build finally
-        // block could not delete it. The Job deadline remains the last-resort
-        // backstop if the control-cluster API is unavailable during shutdown.
-        await services.buildkitJobManager?.releaseAll().catch((err: unknown) => {
-            const cleanupError = err instanceof Error ? err : new Error(String(err));
-            logger.error("Failed to release all buildkit Jobs on shutdown", cleanupError, {
-                extra: { mode: spec.mode },
+        const abortController = new AbortController();
+        installSignalHandler(spec, abortController);
+
+        try {
+            const outcome = await withObservabilityContext({ preview: previewContext(spec.target) }, () =>
+                runPreviewJob(services, spec, abortController.signal, defaultRunPreviewJobDeps),
+            );
+            logger.info("Preview job runner finished", { extra: { mode: spec.mode, outcome } });
+        } finally {
+            // Retry cleanup for any child buildkitd Job whose per-build finally
+            // block could not delete it. The Job deadline remains the last-resort
+            // backstop if the control-cluster API is unavailable during shutdown.
+            await services.buildkitJobManager?.releaseAll().catch((err: unknown) => {
+                const cleanupError = err instanceof Error ? err : new Error(String(err));
+                logger.error("Failed to release all buildkit Jobs on shutdown", cleanupError, {
+                    extra: { mode: spec.mode },
+                });
             });
-        });
-        // Drain the batched build-log sink so the tail of an in-flight build is
-        // not lost when runWithSentry calls process.exit. Mirrors the worker's
-        // shutdown drain.
-        await services.buildLogSink?.close?.().catch((err: unknown) => {
-            logger.warn("Failed to drain build-log sink on shutdown", { extra: { err } });
-        });
-    }
+            // Drain the batched build-log sink so the tail of an in-flight build is
+            // not lost when runWithSentry calls process.exit. Mirrors the worker's
+            // shutdown drain.
+            await services.buildLogSink?.close?.().catch((err: unknown) => {
+                logger.warn("Failed to drain build-log sink on shutdown", { extra: { err } });
+            });
+        }
+    });
 });
 
 /**

@@ -10,6 +10,7 @@ import { PreviewPlatformError } from "../errors";
 import { logger as rootLogger, type Logger } from "../logger";
 import type { PreparePreviewResult } from "../pipeline/preview-pipeline";
 import type { PreviewJobSpec } from "./job-spec";
+import { recordMemorySpanAttributes } from "./memory-span";
 
 // Shown to the user in place of a raw infra error (which they can't act on).
 // The real detail is logged fatal for us - see the PreviewPlatformError branch below.
@@ -133,7 +134,11 @@ async function runDeploy(
 
     let deployed: DeployPreviewEnvironmentOutput | undefined;
     try {
-        const built = await previewPipeline.build(target, prep.namespace, signal);
+        const built = await Sentry.startSpan({ name: "previewkit.build", op: "previewkit.build" }, async (span) => {
+            const result = await previewPipeline.build(target, prep.namespace, signal);
+            recordMemorySpanAttributes(span);
+            return result;
+        });
         logger.info("Preview images built", { extra: { ...ids.extra, apps: Object.keys(built.imageTags).length } });
 
         const deployInput: DeployPreviewEnvironmentInput = {
@@ -146,16 +151,40 @@ async function runDeploy(
             warnings: built.warnings,
             skippedApps: built.skippedApps,
         };
-        deployed = await previewPipeline.deployEnvironment(deployInput, signal);
+        deployed = await Sentry.startSpan(
+            { name: "previewkit.deploy_environment", op: "previewkit.deploy_environment" },
+            async (span) => {
+                const result = await previewPipeline.deployEnvironment(deployInput, signal);
+                recordMemorySpanAttributes(span);
+                return result;
+            },
+        );
         logger.info("Preview environment deployed", {
             extra: { ...ids.extra, readyCount: deployed.readyCount, totalCount: deployed.totalCount },
         });
 
-        await previewPipeline.finalize(target, prep.namespace, prep.commentId, prep.feedbackEnabled, deployed);
+        const finalizeResult = deployed;
+        await Sentry.startSpan({ name: "previewkit.finalize", op: "previewkit.finalize" }, async (span) => {
+            await previewPipeline.finalize(
+                target,
+                prep.namespace,
+                prep.commentId,
+                prep.feedbackEnabled,
+                finalizeResult,
+            );
+            recordMemorySpanAttributes(span);
+        });
 
         logger.info("Preview deploy completed", ids);
         return "ready";
     } catch (err) {
+        // Captured once here rather than an OOM-kill signal: the kernel SIGKILLs
+        // a process over its cgroup limit with no chance to run this line, so
+        // this only ever reflects a run that failed for some other reason - the
+        // most recent "previewkit.build"/"previewkit.deploy_environment" span
+        // above is the last evidence available for an actual OOM.
+        recordMemorySpanAttributes(Sentry.getActiveSpan());
+
         // SIGTERM aborts the in-flight build/deploy. Like the workflow's
         // isCancellation() branch, a supersede must NOT touch the environment
         // row (the successor run owns it) - finalize only this run's build row.
@@ -210,7 +239,10 @@ async function runTeardown(
     const ids = { extra: { repo: target.repoFullName, pr: target.prNumber } };
     logger.info("Tearing down preview environment", ids);
     const resolvedEvent = await deps.resolveTeardownHeadSha(target);
-    await teardownPipeline.teardown(resolvedEvent);
+    await Sentry.startSpan({ name: "previewkit.teardown", op: "previewkit.teardown" }, async (span) => {
+        await teardownPipeline.teardown(resolvedEvent);
+        recordMemorySpanAttributes(span);
+    });
     logger.info("Preview environment torn down", ids);
     return "torn_down";
 }
@@ -233,11 +265,18 @@ async function runRedeployApp(
     const ids = { extra: { repo: target.repoFullName, pr: target.prNumber, app: appName, mode: redeployMode } };
     try {
         if (redeployMode === "restart") {
-            await previewPipeline.restartApp(target, namespace, appName, signal);
+            await Sentry.startSpan({ name: "previewkit.restart_app", op: "previewkit.restart_app" }, async (span) => {
+                await previewPipeline.restartApp(target, namespace, appName, signal);
+                recordMemorySpanAttributes(span);
+            });
             logger.info("Preview per-app restart completed", ids);
             return "restarted";
         }
-        const built = await previewPipeline.build(target, namespace, signal, appName);
+        const built = await Sentry.startSpan({ name: "previewkit.build", op: "previewkit.build" }, async (span) => {
+            const result = await previewPipeline.build(target, namespace, signal, appName);
+            recordMemorySpanAttributes(span);
+            return result;
+        });
         const deployInput: DeployPreviewEnvironmentInput = {
             target,
             namespace,
@@ -249,7 +288,13 @@ async function runRedeployApp(
             skippedApps: built.skippedApps,
             appName,
         };
-        await previewPipeline.deployEnvironment(deployInput, signal);
+        await Sentry.startSpan(
+            { name: "previewkit.deploy_environment", op: "previewkit.deploy_environment" },
+            async (span) => {
+                await previewPipeline.deployEnvironment(deployInput, signal);
+                recordMemorySpanAttributes(span);
+            },
+        );
         logger.info("Preview per-app redeploy completed", ids);
         return "redeployed";
     } catch (err) {
@@ -262,6 +307,7 @@ async function runRedeployApp(
         // Genuine failure: build/deploy already recorded the app's terminal
         // PreviewkitAppInstance state, so there is no env-level finalizer - capture
         // for alerting and exit 0 (handled).
+        recordMemorySpanAttributes(Sentry.getActiveSpan());
         Sentry.captureException(err);
         logger.error("Preview per-app redeploy failed", { extra: { ...ids.extra, message: errorMessage(err) } });
         return "redeploy_failed";

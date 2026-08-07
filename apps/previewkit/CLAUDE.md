@@ -97,7 +97,13 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
   orchestration (linear pipeline calls + a `signal.aborted` supersede branch); the `redeploy-app`
   mode is `rebuild` (build+deploy one app) or `restart` (re-roll its pods). `job-spec.ts` reads the env var and
   parses it against `previewJobSpecSchema` (`@autonoma/types`), the one definition the launcher writes against
-  and this reads; `deps.ts` wires the DB-backed side effects.
+  and this reads; `deps.ts` wires the DB-backed side effects. `memory-span.ts` attaches a
+  `takeMemorySnapshot()` (`@autonoma/utils`) to a Sentry span as attributes - `index.ts` wraps the whole
+  job in one root span so every phase span nests under it as one connected trace per run, and
+  `run-preview-job.ts` wraps each pipeline phase (`build` / `deployEnvironment` / `finalize` / `teardown` /
+  `restartApp`) in its own child span, recording memory right before it ends. A phase's memory is
+  therefore read off its span in Sentry, not a log line; the last span's reading is the closest available
+  evidence for an OOM kill, which gets no chance to log or record anything itself.
 - `create-services.ts` - builds `PreviewkitServices` (pipelines + provider) once per process.
 - `env.ts` - all env vars (`createEnv`); extends `@autonoma/logger/env`.
 - `pipeline/preview-pipeline.ts` - the deploy steps the runner drives (`prepare` / `build` /

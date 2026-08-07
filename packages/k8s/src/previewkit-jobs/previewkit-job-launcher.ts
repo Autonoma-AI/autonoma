@@ -377,9 +377,16 @@ export class PreviewkitJobLauncher {
                                 command: RUNNER_COMMAND,
                                 envFrom: [{ secretRef: { name: RUNNER_ENV_SECRET } }],
                                 env: runnerEnv,
+                                // Guaranteed QoS (requests == limits) rather than the prior Burstable
+                                // 500m/1Gi request with an unbounded-in-practice 4Gi memory limit and no
+                                // CPU limit. Sized from 7d of measured usage across ~7k runner pods
+                                // (2026-08): CPU p99 230m/max 292m, memory p99 491Mi/max 815Mi. 500m CPU
+                                // avoids CFS throttling during a build's CPU-heavier phase; 1Gi memory is
+                                // a real ceiling (~26% headroom above the largest run observed) instead
+                                // of one so large it never protected anything.
                                 resources: {
                                     requests: { cpu: "500m", memory: "1Gi" },
-                                    limits: { memory: "4Gi" },
+                                    limits: { cpu: "500m", memory: "1Gi" },
                                 },
                             },
                         ],

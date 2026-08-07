@@ -26,6 +26,21 @@ import { sleep } from "@autonoma/utils/sleep";
 await sleep(1_000);
 ```
 
+### `takeMemorySnapshot(): MemorySnapshot`
+
+Snapshots this process's own memory (`process.memoryUsage()`, converted to MiB) plus, where a cgroup memory file is readable, the whole container's cgroup memory. A gap between `cgroupMb` and `rssMb` points at memory held by a child process (a spawned CLI) rather than the Node heap.
+
+```ts
+import { takeMemorySnapshot } from "@autonoma/utils";
+
+takeMemorySnapshot();
+// { rssMb: 210.4, heapUsedMb: 88.1, externalMb: 12.3, arrayBuffersMb: 4.1, cgroupMb: 340.7 }
+```
+
+`cgroupMb` is `undefined` off Linux/cgroups (local dev, tests) rather than throwing.
+
+`apps/previewkit/src/runner/memory-span.ts` is the reference consumer: it attaches a snapshot to a Sentry span's attributes rather than a log line, so memory shows up next to that span's own duration in Sentry's trace view.
+
 ### `SecretCipher`
 
 AES-256-GCM over previewkit secret values held in Postgres. Two things separate it from `EncryptionHelper`:
