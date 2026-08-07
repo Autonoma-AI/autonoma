@@ -9,6 +9,9 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: autonoma
+      # postgres:18+ refuses to boot when /var/lib/postgresql/data is itself a
+      # mount point, so PGDATA has to point at a subdirectory inside the volume.
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
@@ -49,7 +52,18 @@ services:
       postgresql:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "temporal", "operator", "cluster", "health"]
+      # The server binds the container IP, not loopback, so the CLI needs an
+      # explicit --address instead of its 127.0.0.1:7233 default.
+      test:
+        [
+          "CMD",
+          "temporal",
+          "operator",
+          "cluster",
+          "health",
+          "--address",
+          "temporal:7233",
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
