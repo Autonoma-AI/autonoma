@@ -493,6 +493,92 @@ export const NotConfirmed: Story = {
   },
 };
 
+// A run that reviewed the diff and decided it needed no test. The two selection counts are both zero, which is what
+// makes this a judgement rather than an empty run - and the summary has to say WHY, including that a user-facing
+// change was deliberately left unexercised, so the reader can disagree and ask for a test.
+const NO_TESTS_NEEDED_SUMMARY =
+  "The functional change here is the checkout command palette's keyboard parser, and its new behaviour is already " +
+  "covered by unit tests, so no browser test was affected and none was authored. The palette is user-facing and " +
+  "this run did not exercise it - ask for a test if you want that path covered. The coupon scenario gap from an " +
+  "earlier run on this branch is still open.";
+
+const NO_TESTS_NEEDED_REPORT_MARKDOWN = [
+  "## Checkout command palette",
+  "",
+  "This PR changes how the checkout command palette parses keyboard input. The new parsing behaviour is already " +
+    "covered by unit tests in the same commit, so no managed browser test was affected and none was worth " +
+    "authoring for it.",
+  "",
+  "The palette is a user-facing surface and this run did not exercise it. That was a deliberate call, not an " +
+    "oversight - if you would rather have browser coverage for it, say so and it will be authored on the next run.",
+  "",
+  "Unrelated to this diff, the [coupon scenario is still not seeded](issue:issue_coupon) from an earlier run on " +
+    "this branch. Nothing this run did clears it.",
+].join("\n");
+
+// The branch still carries an environment/scenario gap an earlier run opened. A run that needed no test cleared
+// none of them, so the open-issues list and the headline pill must still show it under this verdict.
+const carriedCoverageIssues: NonNullable<TrpcFixtures["branches"]>["analysisIssues"] = [
+  {
+    id: "issue_coupon",
+    title: "Coupon scenario is not seeded",
+    kind: "scenario",
+    severity: "medium",
+    status: "open",
+    runCount: 2,
+  },
+];
+
+const noTestsNeededReport: NonNullable<TrpcFixtures["branches"]> = {
+  analysisReport: {
+    impactReasoning:
+      "I reviewed the available managed test flows against this diff. The change is confined to the command-palette " +
+      "key parser; no existing flow exercises it and the accompanying unit tests already cover the new behaviour.",
+    reportMarkdown: NO_TESTS_NEEDED_REPORT_MARKDOWN,
+    summary: NO_TESTS_NEEDED_SUMMARY,
+    reportEvidence: [],
+    verdict: "passed",
+    clientBugCount: 0,
+    testCount: 0,
+    branchId: BRANCH_ID,
+    findings: [],
+  },
+};
+
+// The latest checkpoint, green: the run reached its conclusion, so it is `passed` and never one of the "we have not
+// run yet" states - the rail and header agree with the verdict headline.
+const noTestsNeededLatest: (typeof snapshotHistory)[number] = {
+  ...snapshotHistory[0]!,
+  health: "healthy",
+  summary: {
+    ...snapshotHistory[0]!.summary!,
+    tone: "success",
+    label: "No tests needed",
+    reason: undefined,
+    executionState: "passed",
+    analysis: { jobStatus: "completed", bugCount: 0, passedCount: 0, coverageCount: 0 },
+  },
+};
+
+/** The agent decided the change needed no test: green, with the reason in the prose and the carried gap still listed. */
+export const NoTestsNeeded: Story = {
+  args: { path: OVERVIEW_PATH },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...chromeFixtures,
+        branches: {
+          ...chromeFixtures.branches,
+          snapshotHistory: [noTestsNeededLatest, snapshotHistory[1]!],
+          ...noTestsNeededReport,
+          analysisIssues: carriedCoverageIssues,
+          analysisJob: { status: "completed", startedAt: STARTED_AT, completedAt: COMPLETED_AT },
+        },
+      }),
+    },
+  },
+};
+
 /**
  * A run that died before producing a report. The header pill, the history rail and the body must all say the run
  * failed - before `analysis_failed` existed the header fell through to the previous commit's green summary.

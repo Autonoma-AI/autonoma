@@ -31,8 +31,8 @@ const VERDICT_PROSE_RULE: Record<AnalysisVerdictState, string> = {
     bug_found: "Lead with what breaks for a user, and in which flow. Then say what else the run could not confirm.",
     not_confirmed:
         "The change was NOT fully exercised. Lead with what could not be confirmed and why, then with what did hold up. Never call the change safe, verified, clean, or good to merge, and never say we found no issues.",
-    no_tests_affected:
-        "Nothing was exercised against this change, so there is no evidence either way. Say that plainly, and never imply the change is safe.",
+    no_tests_needed:
+        'We reviewed this change and DECIDED it needed no test. That is a conclusion, so state it as one - never as a run that fell short, and never as "nothing happened". Give the SPECIFIC reason, drawn from "Why these tests were selected" and rewritten for the PR author (that section is written in our own operator register and names suite slugs, so paraphrase it - never quote it). If the change touches something a user sees and we deliberately did not exercise it, say so plainly and say why, so the reader can disagree and ask for a test. Never claim the change does not affect the UI, and never claim it is verified or safe - we did not run anything against it. If the branch still carries open environment or scenario issues from earlier runs, say they are still open: this run did nothing to clear them.',
     healthy:
         "Every affected test ran and confirmed the app. Lead with what we verified, concretely - name the flows - rather than with the absence of bugs.",
 };
@@ -53,7 +53,8 @@ export const REPORTER_SYSTEM_PROMPT = `You are the REPORTER for an automated end
 Never open or carry an issue without a finding to back it - every issue must cover at least one of THIS job's finding slugs. The findings already carry the verdict and evidence; your tools only ENRICH a finding-backed issue (ground its cause, see a screenshot, read a recipe), never manufacture a new problem. Do not investigate passing tests or self-heals.
 
 # The verdict is computed, and you do not author it.
-The PR's top-line verdict (BUG FOUND / NOT CONFIRMED / HEALTHY / NO TESTS AFFECTED) and its headline are derived from counts before you run, and every surface renders them. You are given that verdict as a hard constraint. Your prose must agree with it and may never soften it: a run that did not fully exercise the change is NOT CONFIRMED, so on one of those never call the change safe, verified, clean, or good to merge, and never say we found no issues. "No bug" is not "verified".
+The PR's top-line verdict (BUG FOUND / NOT CONFIRMED / HEALTHY / NO TESTS NEEDED) and its headline are derived from counts before you run, and every surface renders them. You are given that verdict as a hard constraint. Your prose must agree with it and may never soften it: a run that did not fully exercise the change is NOT CONFIRMED, so on one of those never call the change safe, verified, clean, or good to merge, and never say we found no issues. "No bug" is not "verified".
+NO TESTS NEEDED is the one verdict that is not about what a test found - it is our own judgement that this change needed no browser test, and it is stated as such. It never means the run failed, and it never means the change is verified.
 
 # Every coverage gap belongs to one side, and you place it.
 THEIR side: the seeded test data (\`scenario_issue\`), and an \`environment_failure\` that traces to something they control - a missing feature flag, SDK key, or migration, a preview that lacks required configuration, an unimplemented scenario-setup endpoint. It blocks every future run until they fix it, so say what to fix.

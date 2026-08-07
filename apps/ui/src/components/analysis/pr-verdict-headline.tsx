@@ -11,7 +11,14 @@ import { analysisVerdictMeta } from "components/analysis/verdict-meta";
  * Every count is derived from the verdict SSOT (`analysisVerdictMeta` + `deriveAnalysisVerdict`), never hand-listed,
  * so the split can never drift from the taxonomy.
  */
-export function PrVerdictHeadline({ findings }: { findings: InvestigationFinding[] }) {
+export function PrVerdictHeadline({
+  findings,
+  testCount,
+}: {
+  findings: InvestigationFinding[];
+  /** The report's own count of the tests this run reached a verdict on. */
+  testCount: number;
+}) {
   // `actionable` is exactly the client-bug plane, `coverage` is the non-blocking plane, and passed is the app-health
   // remainder (an unknown category falls back to coverage).
   const bugCount = findings.filter((f) => analysisVerdictMeta(f.category).actionable).length;
@@ -20,7 +27,10 @@ export function PrVerdictHeadline({ findings }: { findings: InvestigationFinding
   const state = deriveAnalysisVerdict({
     bugCount,
     coverageGapCount: coverageCount,
-    investigatedCount: findings.length,
+    // "Did anything run" is answered by the report, which is the durable projection - a discarded generation takes
+    // its finding's classification with it, so an empty findings list is not proof the run exercised nothing. Every
+    // surface reads this same count, which is what keeps them from disagreeing.
+    investigatedCount: testCount,
   });
   const copy = headlineCopy(state, bugCount, coverageCount);
 
@@ -70,8 +80,8 @@ function headlineCopy(state: AnalysisVerdictState, bugCount: number, coverageCou
         title: RUN_VERDICT_COPY.not_confirmed.title,
         prose: `Autonoma ran, but ${coverageCount} ${coverageCount === 1 ? "check" : "checks"} couldn't confirm app health this run, so the change isn't fully verified. These don't block the PR.`,
       };
-    case "no_tests_affected":
-      return RUN_VERDICT_COPY.no_tests_affected;
+    case "no_tests_needed":
+      return RUN_VERDICT_COPY.no_tests_needed;
     case "healthy":
       return {
         badge: "No client bugs",

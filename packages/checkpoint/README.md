@@ -36,7 +36,10 @@ For those, callers first
 that degrades to an empty map when the analysis tables are absent) and pass the
 result to `buildAuthoritativeCheckpointSummary`, which derives `tone`/`label`/`reason`
 from the verdict + finding-category buckets (client bug -> "N bugs" critical, else
-"Passing"; running -> "Analyzing"; failed job -> pipeline failure). The summary also
+"Passing"; running -> "Analyzing"; failed job -> pipeline failure). A run that
+investigated nothing is "No tests needed" - green and `passed`, because Impact
+Analysis deciding the diff needed no test is a conclusion the run reached, not a
+run still pending. The summary also
 carries an `analysis` block (`jobStatus`, `bugCount`, `passedCount`, `coverageCount`)
 so the metrics line renders authoritative vocabulary. A non-authoritative snapshot is
 absent from the loaded map and stays on the legacy path unchanged.

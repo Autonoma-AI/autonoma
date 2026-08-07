@@ -12,6 +12,7 @@ import type {
 import {
     ANALYSIS_VERDICT,
     type AnalysisVerdict,
+    type AnalysisVerdictCounts,
     type AnalysisVerdictState,
     type CoverageSummary,
     type SuspectedCause,
@@ -25,11 +26,18 @@ import {
     deriveAnalysisVerdict,
 } from "@autonoma/types";
 
-/** The comment state each PR verdict renders as: amber `warning` for a run we could not confirm, red for a bug. */
+/**
+ * The comment state each PR verdict renders as: amber `warning` for a run we could not confirm, red for a bug.
+ *
+ * `no_tests_needed` is green, alongside a verified run. GitHub renders these as a tick, a grey circle or a red cross -
+ * there is no calm grey - so any non-green marker reads as an unresolved problem, and a change we deliberately
+ * decided needed no test is not one. The distinction between the two green outcomes is carried by the state label
+ * and the headline, which say which of the two happened.
+ */
 const COMMENT_STATE: Record<AnalysisVerdictState, AutonomaCommentState> = {
     bug_found: "critical",
     not_confirmed: "warning",
-    no_tests_affected: "incomplete",
+    no_tests_needed: "healthy",
     healthy: "healthy",
 };
 
@@ -155,7 +163,7 @@ export interface AnalysisCommentCoverageIssue {
 
 /** The finalized run the comment summarizes - read from the persisted `AnalysisReport` + open bug `AnalysisIssue`s. */
 export interface AnalysisCommentInput {
-    /** Tests that produced a terminal verdict this run; zero means nothing was exercised (no tests affected). */
+    /** Tests that produced a terminal verdict this run; zero means nothing was exercised. */
     testCount: number;
     /** The branch's open bug issues, each a rich card deep-linking to its issue-detail page. */
     bugIssues: AnalysisCommentIssue[];
@@ -194,7 +202,7 @@ export async function buildAnalysisCommentPayload(
 ): Promise<AutonomaCommentPayload> {
     // The verdict every surface shares, computed from counts alone - never from the Reporter's prose, which cannot be
     // allowed to talk an unconfirmed run into reading green.
-    const verdictCounts = {
+    const verdictCounts: AnalysisVerdictCounts = {
         bugCount: input.bugIssues.length,
         coverageGapCount: input.coverage?.total ?? 0,
         investigatedCount: input.testCount,

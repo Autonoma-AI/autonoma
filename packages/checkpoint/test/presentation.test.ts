@@ -179,19 +179,18 @@ describe("buildAuthoritativeCheckpointSummary", () => {
         expect(summary.executionState).toBe("not_started");
     });
 
-    it("distinguishes a run that selected nothing from one that confirmed nothing", () => {
+    it("reads a run that decided no test was needed as a green conclusion, never as pending", () => {
         const summary = buildAuthoritativeCheckpointSummary({
             jobStatus: "completed",
             findingBuckets: { bug: 0, passed: 0, coverage: 0 },
             totalTests: 12,
         });
 
-        // Nothing to check is a quiet outcome, not a passing one - and it is a different thing to tell the reader
-        // than "we tried twelve and got nothing back".
-        expect(summary.tone).toBe("neutral");
-        expect(summary.label).toBe("No tests affected");
+        expect(summary.tone).toBe("success");
+        expect(summary.label).toBe("No tests needed");
         expect(summary.reason).toBeUndefined();
-        expect(summary.executionState).toBe("not_started");
+        // Not `not_started`: the run happened and reached its verdict, so the badge must not read as pending.
+        expect(summary.executionState).toBe("passed");
     });
 
     it("reads a running job (no report yet) as Analyzing (neutral)", () => {

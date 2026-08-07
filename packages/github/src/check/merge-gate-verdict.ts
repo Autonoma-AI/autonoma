@@ -50,7 +50,7 @@ export interface MergeGateVerdictInput {
     errored: boolean;
     /** Count of coverage-plane findings (gaps). On a `passed` verdict, >0 downgrades success to a neutral warning. */
     coverageGapCount: number;
-    /** Tests that produced a terminal verdict this run; zero means nothing was exercised (not a clean pass). */
+    /** Tests that produced a terminal verdict this run; zero means nothing was exercised. */
     investigatedCount: number;
     /**
      * Titles of the branch's OPEN bug issues - the same rows the verdict counts and the PR comment cards - listed in
@@ -98,13 +98,15 @@ export function buildMergeGateCheckResult(input: MergeGateVerdictInput): MergeGa
         };
     }
 
-    if (state === "no_tests_affected") {
+    // A decision, so it passes the check rather than sitting in the neutral bucket the reader reads as unresolved.
+    // `success` does not gate the merge, so the title is what tells this apart from a run that verified the change.
+    if (state === "no_tests_needed") {
         return {
-            conclusion: "neutral",
-            title: "No tests were affected by this change",
+            conclusion: "success",
+            title: "No tests needed for this change",
             summary:
-                "Autonoma selected no tests for this diff, so the change was not verified. " +
-                "This check does not block the merge.",
+                "Autonoma reviewed this change and decided it needed no browser test: no existing test was affected, " +
+                "and no new one was worth authoring. See the Autonoma PR comment for why.",
         };
     }
 

@@ -129,7 +129,7 @@ function reportBuckets(report: ReportCounts, logger: Logger): AnalysisFindingBuc
 /**
  * The legacy `SnapshotHealth` signal for an authoritative snapshot, read off the execution state its own summary
  * derived, so the raw `health` field cannot disagree with the badge rendered beside it. `not_started` - a run that
- * confirmed nothing, or selected nothing - is `unknown` rather than `healthy`: surfaces that gate on
+ * confirmed nothing - is `unknown` rather than `healthy`: surfaces that gate on
  * `health === "healthy"` are claiming the app was checked, and it was not.
  */
 export function authoritativeSnapshotHealth(inputs: LoadedAuthoritativeInputs): SnapshotHealth {

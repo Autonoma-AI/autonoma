@@ -94,11 +94,13 @@ describe("formatCheckpointMetrics", () => {
         expect(formatCheckpointMetrics(summary, 4)).toBe("Analysis failed");
     });
 
-    it("reads an empty completed authoritative report as no tests analyzed", () => {
+    it("reads an empty completed authoritative report the way its own badge does", () => {
+        // Nothing in any bucket means nothing was investigated, which is the decision the green badge beside this
+        // line renders - so the metrics must not describe it as a run that came back empty.
         const summary = buildSummary({
             executionState: "passed",
             analysis: { jobStatus: "completed", bugCount: 0, passedCount: 0, coverageCount: 0 },
         });
-        expect(formatCheckpointMetrics(summary, 0)).toBe("No tests analyzed");
+        expect(formatCheckpointMetrics(summary, 0)).toBe("No tests needed");
     });
 });

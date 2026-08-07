@@ -16,7 +16,7 @@ export function AnalysisPrIssuesHeadline({
   summary,
 }: {
   issues: AnalysisIssueSummary[];
-  /** Tests the run reached a verdict on. Zero means nothing was exercised, which is never a clean pass. */
+  /** Tests the run reached a verdict on. Zero means nothing was exercised. */
   testCount: number;
   /** The Reporter's one-paragraph account of the run. Absent on a run that predates it. */
   summary?: string;
@@ -71,8 +71,8 @@ function headlineCopy(state: AnalysisVerdictState, bugCount: number): HeadlineCo
         title: RUN_VERDICT_COPY.not_confirmed.title,
         prose: "Environment/scenario issues couldn't confirm app health; they don't block the PR.",
       };
-    case "no_tests_affected":
-      return RUN_VERDICT_COPY.no_tests_affected;
+    case "no_tests_needed":
+      return RUN_VERDICT_COPY.no_tests_needed;
     case "healthy":
       return {
         badge: "No open bugs",

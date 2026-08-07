@@ -20,10 +20,10 @@ describe("authoritativeSnapshotHealth", () => {
         ).toBe("unknown");
     });
 
-    it("does not report a run that selected nothing as healthy", () => {
+    it("reports a run that decided no test was needed as healthy, the same as the badge beside it", () => {
         expect(
             authoritativeSnapshotHealth({ jobStatus: "completed", findingBuckets: { bug: 0, passed: 0, coverage: 0 } }),
-        ).toBe("unknown");
+        ).toBe("healthy");
     });
 
     it("reports an open bug as critical", () => {

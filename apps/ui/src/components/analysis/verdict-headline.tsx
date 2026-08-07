@@ -12,21 +12,27 @@ type DotStatus = NonNullable<React.ComponentProps<typeof StatusDot>["status"]>;
 const VERDICT_TONE: Record<AnalysisVerdictState, { variant: BadgeVariant; dot: DotStatus }> = {
   bug_found: { variant: "critical", dot: "critical" },
   not_confirmed: { variant: "warn", dot: "warn" },
-  no_tests_affected: { variant: "neutral", dot: "neutral" },
+  // A conclusion the run reached, so it reads green alongside a verified run; the badge says which of the two it is.
+  no_tests_needed: { variant: "success", dot: "success" },
   healthy: { variant: "success", dot: "success" },
 };
 
 /**
- * Wording for the two states that describe the RUN rather than the app's bugs, and so read identically wherever they
- * appear. `no_tests_affected` shares its prose too; `not_confirmed` does not, because each surface names what it
- * could not confirm in its own terms.
+ * Wording for the states that describe the RUN rather than the app's bugs, and so read identically wherever they
+ * appear. `no_tests_needed` shares its prose too; `not_confirmed` does not, because each surface names what it could
+ * not confirm in its own terms.
+ *
+ * `no_tests_needed` states our decision and nothing about the reader's codebase - a change we decline to cover is
+ * regularly a user-facing one we judged already covered elsewhere - so it may never say the change does not touch
+ * the UI. WHY we decided it is the Reporter's summary, which surfaces render in place of this fallback prose.
  */
 export const RUN_VERDICT_COPY = {
   not_confirmed: { badge: "Not confirmed", title: "Couldn't confirm this change" },
-  no_tests_affected: {
-    badge: "No tests affected",
-    title: "No tests were affected by this change",
-    prose: "Impact analysis selected no tests for this diff, so the change was not verified.",
+  no_tests_needed: {
+    badge: "No tests needed",
+    title: "No tests needed for this change",
+    prose:
+      "Impact analysis reviewed this diff and decided it needed no test - no existing test was affected, and no new one was worth authoring.",
   },
 } as const;
 

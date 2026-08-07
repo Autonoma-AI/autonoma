@@ -295,12 +295,29 @@ describe("buildAnalysisCommentPayload", () => {
         ]);
     });
 
-    it("is NO TESTS AFFECTED when nothing was selected to run against the diff", async () => {
-        const payload = await buildAnalysisCommentPayload({ testCount: 0, bugIssues: [] }, context, sign);
+    it("is a green NO TESTS NEEDED when the run decided the change needed no test", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            {
+                testCount: 0,
+                bugIssues: [],
+                summary: "The change is a parser refactor already covered by unit tests, so no browser test was added.",
+            },
+            context,
+            sign,
+        );
 
-        expect(payload.state).toBe("incomplete");
-        expect(payload.stateLabel).toBe("NO TESTS AFFECTED");
-        expect(payload.headline).toBe("No tests were affected by this change.");
+        // GitHub offers a tick, a grey circle or a red cross - there is no calm grey, so anything but green reads as
+        // an unresolved problem. The state label and headline carry what kind of green this is.
+        expect(payload.state).toBe("healthy");
+        expect(payload.stateLabel).toBe("NO TESTS NEEDED");
+        expect(payload.headline).toBe("No tests needed for this change.");
+
+        const markdown = renderMarkdown(payload);
+        expect(markdown).toContain("🟢");
+        expect(markdown).not.toContain("⚪");
+        expect(markdown).not.toContain("couldn't fully test this PR");
+        // The reason is the Reporter's to give; the deterministic copy never generalizes to "this doesn't touch the UI".
+        expect(markdown).toContain("already covered by unit tests");
     });
 
     it("omits the card media entirely when the issue has neither a clip nor a hero frame", async () => {

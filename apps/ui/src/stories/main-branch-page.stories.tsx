@@ -47,11 +47,11 @@ const CHECKPOINT_VERDICT: Record<AnalysisVerdictState, (counts: CheckpointCounts
     executionState: "not_started",
     health: "unknown",
   }),
-  no_tests_affected: () => ({
-    tone: "neutral",
-    label: "No tests affected",
-    executionState: "not_started",
-    health: "unknown",
+  no_tests_needed: () => ({
+    tone: "success",
+    label: "No tests needed",
+    executionState: "passed",
+    health: "healthy",
   }),
   healthy: () => ({ tone: "success", label: "Passing", executionState: "passed", health: "healthy" }),
 };

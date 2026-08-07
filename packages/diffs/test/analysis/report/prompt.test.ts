@@ -89,11 +89,16 @@ describe("buildReporterPrompt - the verdict is handed over, never authored", () 
         expect(text).toContain("If you resolve it: Every affected test ran and confirmed the app.");
     });
 
-    it("says plainly that nothing was exercised when the run investigated no test", () => {
+    it("asks for the reason, and for the disclosure, when the run decided the change needed no test", () => {
         const text = promptText([]);
 
-        expect(text).toContain("this PR reads NO TESTS AFFECTED");
-        expect(text).toContain("no evidence either way");
+        expect(text).toContain("this PR reads NO TESTS NEEDED");
+        expect(text).toContain("No tests needed for this change.");
+        // A confident verdict is only worth anything if it says WHY, and says so when it declined to cover something
+        // the reader can see - a reader who disagrees and asks for a test is a coverage lead.
+        expect(text).toContain("Give the SPECIFIC reason");
+        expect(text).toContain("If the change touches something a user sees and we deliberately did not exercise it");
+        expect(text).toContain("Never claim the change does not affect the UI");
     });
 
     it("shows a coverage finding's account of the fault, which is where an env gap's owner is readable", () => {

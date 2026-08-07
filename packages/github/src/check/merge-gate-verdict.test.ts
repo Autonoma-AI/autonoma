@@ -57,17 +57,28 @@ describe("buildMergeGateCheckResult", () => {
         expect(result.summary).toContain(MERGE_GATE_SKIP_COMMAND);
     });
 
-    it("maps a run that exercised nothing to a non-blocking neutral, not a green success", () => {
-        const result = buildMergeGateCheckResult({
+    it("passes a run that decided no test was needed, under a title that is not a verified run's", () => {
+        const decided = buildMergeGateCheckResult({
             verdict: "passed",
             errored: false,
             coverageGapCount: 0,
             investigatedCount: 0,
             clientBugTitles: [],
         });
+        const verified = buildMergeGateCheckResult({
+            verdict: "passed",
+            errored: false,
+            coverageGapCount: 0,
+            investigatedCount: 4,
+            clientBugTitles: [],
+        });
 
-        expect(result.conclusion).toBe("neutral");
-        expect(result.title).toContain("No tests were affected");
+        // `success` gates neither of them; the title is the only thing separating the two outcomes.
+        expect(decided.conclusion).toBe("success");
+        expect(verified.conclusion).toBe("success");
+        expect(decided.title).toBe("No tests needed for this change");
+        expect(decided.title).not.toBe(verified.title);
+        expect(decided.summary).not.toContain("was not verified");
     });
 
     it("fails open to neutral when the analysis job errored, regardless of the stale verdict", () => {

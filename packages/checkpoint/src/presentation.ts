@@ -70,9 +70,8 @@ export interface AuthoritativeCheckpointInputs {
  * health/Bug model, which the pipeline does not populate (it files no Bug rows and its passed tests never land in
  * the legacy "passed" bucket). Coverage-plane findings never turn the checkpoint red or "awaiting triage".
  *
- * "No bugs" is not the same claim as "passing". A run only reads as green once at least one test actually confirmed
- * the app; a run that reached a verdict on nothing reads as "No runs", and one that selected nothing as "No tests
- * affected".
+ * "No bugs" is not the same claim as "passing": a run only reads as green once it reached a conclusion, either
+ * because a test confirmed the app or because Impact Analysis decided the change needed none.
  */
 export function buildAuthoritativeCheckpointSummary(
     inputs: AuthoritativeCheckpointInputs,
@@ -148,10 +147,11 @@ function deriveAuthoritativePresentation(
         return { tone: "critical", label: `${bugCount} ${plural(bugCount, "bug")}`, executionState: "failed" };
     }
 
-    // Nothing was selected: Impact Analysis found no test worth running against this diff. A quiet outcome, but not
-    // a passing one - there is no evidence either way, so it must not read as a suite that went green.
-    if (state === "no_tests_affected") {
-        return { tone: "neutral", label: "No tests affected", executionState: "not_started" };
+    // Impact Analysis reviewed the diff and decided no test was needed. The run reached its conclusion, so the state
+    // is `passed` rather than one that reads as pending, and the badge stays green alongside the PR comment and the
+    // merge gate; the label carries which of the two green conclusions it was.
+    if (state === "no_tests_needed") {
+        return { tone: "success", label: "No tests needed", executionState: "passed" };
     }
 
     // A coverage gap means the change was not fully confirmed - whether nothing ran (blocked) or some tests passed

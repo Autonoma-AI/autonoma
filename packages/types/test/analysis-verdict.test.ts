@@ -23,9 +23,19 @@ describe("deriveAnalysisVerdict", () => {
         expect(deriveAnalysisVerdict({ bugCount: 0, coverageGapCount: 3, investigatedCount: 3 })).toBe("not_confirmed");
     });
 
-    it("is no_tests_affected when nothing was exercised against the diff - never a clean pass", () => {
+    it("is no_tests_needed when nothing was exercised - a decision, not an absence", () => {
+        // Nothing reached a verdict, which the Reporter's persist-time guard makes equivalent to the run queueing
+        // nothing: Impact Analysis marked no test affected and authored none.
         expect(deriveAnalysisVerdict({ bugCount: 0, coverageGapCount: 0, investigatedCount: 0 })).toBe(
-            "no_tests_affected",
+            "no_tests_needed",
+        );
+    });
+
+    it("keeps the environment/scenario issues a branch carries under the no_tests_needed verdict", () => {
+        // The run needed no test, so it cleared none of the gaps earlier runs left open. Those are still the
+        // branch's, and the verdict says what THIS run decided - it does not get downgraded by them.
+        expect(deriveAnalysisVerdict({ bugCount: 0, coverageGapCount: 2, investigatedCount: 0 })).toBe(
+            "no_tests_needed",
         );
     });
 });
@@ -52,7 +62,14 @@ describe("analysisVerdictLabel + analysisVerdictHeadline", () => {
         expect(analysisVerdictHeadline({ bugCount: 2, coverageGapCount: 0, investigatedCount: 3 })).toBe(
             "Autonoma found 2 bugs in this PR.",
         );
+    });
 
-        expect(analysisVerdictLabel("no_tests_affected")).toBe("NO TESTS AFFECTED");
+    it("states the no-tests decision as ours, never as a claim about the reader's codebase", () => {
+        expect(analysisVerdictLabel("no_tests_needed")).toBe("NO TESTS NEEDED");
+        const headline = analysisVerdictHeadline({ bugCount: 0, coverageGapCount: 0, investigatedCount: 0 });
+        expect(headline).toBe("No tests needed for this change.");
+        // Two of three sampled zero-test runs were user-facing changes we deliberately declined to cover, so the
+        // headline may never generalize from "we ran nothing" to "this change does not touch the UI".
+        expect(headline).not.toMatch(/UI|user-facing|interface/i);
     });
 });

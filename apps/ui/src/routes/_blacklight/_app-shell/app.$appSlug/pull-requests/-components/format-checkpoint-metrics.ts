@@ -45,5 +45,8 @@ function formatAuthoritativeMetrics(analysis: CheckpointAnalysisSummary): string
     if (analysis.coverageCount > 0) parts.push(`${analysis.coverageCount} couldn't confirm`);
 
     if (parts.length > 0) return parts.join(" · ");
-    return "No tests analyzed";
+
+    // A completed run with nothing in any bucket investigated nothing, which is Impact Analysis deciding the diff
+    // needed no test - the same conclusion the badge beside this line renders.
+    return "No tests needed";
 }

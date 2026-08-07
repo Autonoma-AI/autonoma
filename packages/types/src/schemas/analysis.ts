@@ -167,26 +167,28 @@ export function analysisFindingBucket(category: string): AnalysisFindingBucket {
  * - `not_confirmed`: no bug, but at least one coverage-plane gap. "No bug" is not "verified": a gap is a gap
  *   regardless of fault (a scenario the client must fix, or a harness flake that is on us), so it downgrades the
  *   headline either way - ownership is a body concern, not a colour one.
- * - `no_tests_affected`: nothing was selected to run against this diff, so there is no evidence either way; it must
- *   not read as a clean pass.
+ * - `no_tests_needed`: nothing produced a verdict, which means Impact Analysis marked no existing test affected and
+ *   authored no new one - a judgement from the stage that owns both impact analysis and gap detection, not a missing
+ *   result. That reading depends on the Reporter refusing to write a report when the run queued more tests than
+ *   reached a verdict; without that guard an empty run would be an absence, and this would be a false green.
  * - `healthy`: tests ran and every one confirmed the app, with zero coverage gaps.
  */
-export type AnalysisVerdictState = "bug_found" | "not_confirmed" | "no_tests_affected" | "healthy";
+export type AnalysisVerdictState = "bug_found" | "not_confirmed" | "no_tests_needed" | "healthy";
 
-/** The three counts the PR verdict is a pure function of. */
+/** The counts the PR verdict is a pure function of. */
 export interface AnalysisVerdictCounts {
     /** Open bug-kind issues on the branch - the app-health signal that blocks the PR. */
     bugCount: number;
     /** Coverage-plane findings, `invalid_test` included. */
     coverageGapCount: number;
-    /** Tests that produced a terminal verdict this run; zero means nothing was exercised against the change. */
+    /** Tests that produced a terminal verdict this run; zero means the run decided none were needed. */
     investigatedCount: number;
 }
 
 /** Classify a completed run's counts into the single PR verdict every surface renders. */
 export function deriveAnalysisVerdict(counts: AnalysisVerdictCounts): AnalysisVerdictState {
     if (counts.bugCount > 0) return "bug_found";
-    if (counts.investigatedCount === 0) return "no_tests_affected";
+    if (counts.investigatedCount === 0) return "no_tests_needed";
     if (counts.coverageGapCount > 0) return "not_confirmed";
     return "healthy";
 }
@@ -198,8 +200,8 @@ export function analysisVerdictLabel(state: AnalysisVerdictState): string {
             return "BUG FOUND";
         case "not_confirmed":
             return "NOT CONFIRMED";
-        case "no_tests_affected":
-            return "NO TESTS AFFECTED";
+        case "no_tests_needed":
+            return "NO TESTS NEEDED";
         case "healthy":
             return "HEALTHY";
     }
@@ -209,6 +211,10 @@ export function analysisVerdictLabel(state: AnalysisVerdictState): string {
  * The deterministic one-sentence headline a run leads with - the copy the GitHub comment renders under the state
  * label and the UI verdict subtitle can reuse, so the wording never drifts between surfaces. It states what we
  * learned about the change.
+ *
+ * The `no_tests_needed` headline states OUR decision and nothing about the reader's codebase: a change we decline to
+ * cover is regularly a user-facing one we judged already covered elsewhere, so this may never claim the change does
+ * not touch the UI. Why we decided it is the Reporter's paragraph to write, not a count's to guess.
  */
 export function analysisVerdictHeadline(counts: AnalysisVerdictCounts): string {
     switch (deriveAnalysisVerdict(counts)) {
@@ -216,8 +222,8 @@ export function analysisVerdictHeadline(counts: AnalysisVerdictCounts): string {
             return `Autonoma found ${counts.bugCount} ${counts.bugCount === 1 ? "bug" : "bugs"} in this PR.`;
         case "not_confirmed":
             return `Autonoma couldn't confirm this change - ${counts.coverageGapCount} ${counts.coverageGapCount === 1 ? "check" : "checks"} didn't complete.`;
-        case "no_tests_affected":
-            return "No tests were affected by this change.";
+        case "no_tests_needed":
+            return "No tests needed for this change.";
         case "healthy":
             return "Autonoma verified this change - the app held up.";
     }

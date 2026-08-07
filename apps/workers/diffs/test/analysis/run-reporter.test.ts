@@ -379,6 +379,8 @@ integrationTestSuite({
             expect(report?.impactReasoning).toBe("The diff touches checkout.");
         });
 
+        // The empty run the `no_tests_needed` verdict rests on: nothing queued means nothing to lose, so the guard
+        // must let the report through. Weaken this and an empty run stops being a decision.
         test("writes a report when the run queued nothing at all", async ({ harness }) => {
             const run = await harness.seedRun([]);
 
