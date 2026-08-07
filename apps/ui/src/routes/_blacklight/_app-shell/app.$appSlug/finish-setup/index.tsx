@@ -43,6 +43,8 @@ import { getApiOrigin } from "lib/api-origin";
 import { useAuth } from "lib/auth";
 import { type DryRunOutcome, formatDryRunError } from "lib/format-dry-run-error";
 import { AGENT_INSTRUCTIONS } from "lib/onboarding/agent-instructions";
+import { finishedSetupDestination } from "lib/onboarding/finished-setup-destination";
+import { buildResumeSearch } from "lib/onboarding/navigate-to-onboarding";
 import {
   useAgentSession,
   useAvailableVercelProjects,
@@ -175,8 +177,10 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/finis
       // prefetched with the rest rather than arriving a poll later.
       ensureAPIQueryData(context.queryClient, trpc.onboarding.getAgentSession.queryOptions({ applicationId: app.id })),
     ]);
-    if (state.setupComplete) {
-      throw redirect({ to: "/app/$appSlug", params: { appSlug } });
+    const destination = finishedSetupDestination(state);
+    if (destination === "home") throw redirect({ to: "/app/$appSlug", params: { appSlug } });
+    if (destination === "resume-onboarding") {
+      throw redirect({ to: "/onboarding", search: buildResumeSearch(state.step, app.id) });
     }
   },
   component: FinishSetupPage,
@@ -232,6 +236,24 @@ function FinishSetupSteps({ applicationId, appSlug }: { applicationId: string; a
   useEffect(() => {
     void navigate({ search: (prev) => ({ ...prev, target: selectedTargetId }), replace: true });
   }, [selectedTargetId, navigate]);
+
+  // The route loader redirects a finished setup away, but it only runs on
+  // navigation - and the thing that finishes the setup happens elsewhere (a planner
+  // run, a coding agent in the repo) while this page is already open. Without this,
+  // the last step landing leaves the page rendering three green checks off the very
+  // payload that says there is nothing left to do, with no way forward: the agent
+  // screen has no Finish button, and Take over was the only exit.
+  const destination = finishedSetupDestination(state);
+  const onboardingStep = state.step;
+  useEffect(() => {
+    if (destination === "home") {
+      void navigate({ to: "/app/$appSlug", params: { appSlug } });
+      return;
+    }
+    if (destination === "resume-onboarding") {
+      void navigate({ to: "/onboarding", search: buildResumeSearch(onboardingStep, applicationId) });
+    }
+  }, [destination, onboardingStep, navigate, appSlug, applicationId]);
 
   const sdkImplemented = state.sdkConfigured;
   // Gate the CLI step on the live artifact status (`stepComplete`), not on

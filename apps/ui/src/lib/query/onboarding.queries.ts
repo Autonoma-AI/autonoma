@@ -3,6 +3,15 @@ import { useRouter } from "@tanstack/react-router";
 import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 
+/** Fast poll while the agent actively holds the config (the activity stream needs to feel live). */
+const AGENT_SESSION_ACTIVE_POLL_MS = 2000;
+/** Slow poll while the human holds it: still fast enough to notice the agent taking over, without steady 2s traffic. */
+const AGENT_SESSION_IDLE_POLL_MS = 8000;
+/** Poll while the linked Vercel project has no READY deployment, so a finishing build appears without a reload. */
+const EMPTY_DEPLOYMENTS_POLL_MS = 20_000;
+/** Poll while setup is unfinished, so the screen watching it sees the moment it finishes. */
+const ONBOARDING_STATE_POLL_MS = 5000;
+
 /**
  * Returns an onError handler that, on a backend step-mismatch error
  * ("Cannot X during Y step"), re-runs the route loaders so the refreshed
@@ -20,20 +29,33 @@ function useStepMismatchHandler() {
     };
 }
 
+/**
+ * The onboarding state, kept live until setup is finished.
+ *
+ * The finish-setup screens decide what to show - and when to leave - from
+ * `setupComplete`, and the work that flips it happens somewhere else entirely: a
+ * planner run in a terminal, a coding agent in the repo. Without a poll the field
+ * only refreshes when the tab regains focus, so the screen sits on a finished
+ * setup until the user happens to click back into it. `refetchIntervalInBackground`
+ * for the same reason the agent session polls that way: the user is watching their
+ * terminal, and a visible-but-unfocused tab would otherwise stop asking.
+ */
 export function useOnboardingState(applicationId: string) {
-    return useSuspenseQuery(trpc.onboarding.getState.queryOptions({ applicationId }));
+    return useSuspenseQuery(
+        trpc.onboarding.getState.queryOptions(
+            { applicationId },
+            {
+                refetchInterval: (query) =>
+                    query.state.data?.setupComplete === true ? false : ONBOARDING_STATE_POLL_MS,
+                refetchIntervalInBackground: true,
+            },
+        ),
+    );
 }
 
 export function useOnboardingStateOptional(applicationId: string) {
     return useQuery(trpc.onboarding.getState.queryOptions({ applicationId }, { enabled: applicationId.length > 0 }));
 }
-
-/** Fast poll while the agent actively holds the config (the activity stream needs to feel live). */
-const AGENT_SESSION_ACTIVE_POLL_MS = 2000;
-/** Slow poll while the human holds it: still fast enough to notice the agent taking over, without steady 2s traffic. */
-const AGENT_SESSION_IDLE_POLL_MS = 8000;
-/** Poll while the linked Vercel project has no READY deployment, so a finishing build appears without a reload. */
-const EMPTY_DEPLOYMENTS_POLL_MS = 20_000;
 
 /** Polls the agentic-onboarding session (control state, pending request, activity stream). */
 export function useAgentSession(applicationId: string) {
