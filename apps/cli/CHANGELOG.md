@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.27](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.26...cli-v0.1.27) (2026-08-07)
+
+
+### Features
+
+* **cli:** record the environment a run happened in, and dump it to a file ([#2278](https://github.com/Autonoma-AI/agent/issues/2278)) ([32ed8f0](https://github.com/Autonoma-AI/agent/commit/32ed8f0b21371f126af3eac47154ef79efda515d))
+
 ## [0.1.26](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.25...cli-v0.1.26) (2026-08-06)
 
 
