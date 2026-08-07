@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import matter from "gray-matter";
+import matter from "@11ty/gray-matter";
 
 const RESET = "\x1b[0m";
 const DIM = "\x1b[2m";

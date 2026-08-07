@@ -46,6 +46,29 @@ describe("document-aware rendering", () => {
         expect(all).toContain("# Update name");
     });
 
+    test("frontmatter uses YAML 1.2 scalar and merge-key semantics", () => {
+        const doc = [
+            "---",
+            "released_on: 2026-08-07",
+            "formatted_count: 1_000",
+            "reference: 0128",
+            "defaults: &defaults",
+            "  owner: QA",
+            "release:",
+            "  <<: *defaults",
+            "  name: August release",
+            "---",
+            "",
+            "# Release",
+        ].join("\n");
+        const all = textOf(renderContent(doc, "markdown", "release.md")).join("\n");
+        expect(all).toContain("released_on  2026-08-07");
+        expect(all).toContain("formatted_count  1_000");
+        expect(all).toContain("reference  128");
+        expect(all).toContain('release  {"<<":{"owner":"QA"},"name":"August release"}');
+        expect(all).not.toContain("2026-08-07T00:00:00.000Z");
+    });
+
     test("pages.json renders as a route table", () => {
         const doc = JSON.stringify({
             "/settings": { route: "/settings", path: "src/app/settings.tsx", description: "All the settings" },

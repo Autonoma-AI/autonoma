@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import matter from "@11ty/gray-matter";
 import { BUILT_IN_RECIPE_TOKEN_LIST, findUnknownRecipeTokens } from "@autonoma/types";
-import matter from "gray-matter";
 
 const RESET = "\x1b[0m";
 const DIM = "\x1b[2m";

@@ -54,13 +54,13 @@
         "tui:frames": "tsx scripts/render-tui-frames.tsx"
     },
     "dependencies": {
+        "@11ty/gray-matter": "^3.0.0",
         "@openrouter/ai-sdk-provider": "^3.0.0",
         "@t3-oss/env-core": "catalog:",
         "@trpc/client": "catalog:",
         "ai": "catalog:",
         "cross-spawn": "^7.0.6",
         "glob": "^13.0.6",
-        "gray-matter": "^4.0.3",
         "highlight.js": "^11.11.1",
         "ink": "^7.1.1",
         "minimatch": "^10.2.5",

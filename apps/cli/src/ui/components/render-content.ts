@@ -1,4 +1,4 @@
-import matter from "gray-matter";
+import matter from "@11ty/gray-matter";
 import { z } from "zod";
 import { debugLog } from "../../core/debug";
 import { theme } from "../theme";
