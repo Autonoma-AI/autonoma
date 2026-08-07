@@ -7,7 +7,7 @@ import { PreviewEnvironment, PriorRuns, readPreviewConnectionKeys } from "@auton
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { SELF_HEAL_RERUN_REASON } from "@autonoma/types";
 import { buildRunFacts, describeProvision, loadGenerationRow } from "../../src/activities/classify-run";
-import { resolvePrMeta } from "../../src/codebase/pr-meta";
+import { resolveRunTarget } from "../../src/codebase/run-target";
 import { loadSnapshotMeta, resolveGitHubAccess } from "../../src/codebase/snapshot-context";
 import { createGithubApp } from "../../src/create-services";
 import { previewSecrets } from "../../src/preview-secrets";
@@ -73,8 +73,8 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
 
     const meta = await loadSnapshotMeta(snapshotId);
     const github = await resolveGitHubAccess(meta);
-    const [prMeta, diffSummary, generation] = await Promise.all([
-        resolvePrMeta({
+    const [target, diffSummary, generation] = await Promise.all([
+        resolveRunTarget({
             branchId: meta.branchId,
             githubRepositoryId: meta.githubRepositoryId,
             githubClient: github.githubClient,
@@ -82,6 +82,13 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
         readPrDiffStat({ root: codebase.root, baseSha: coords.baseSha, headSha: coords.headSha }),
         loadGenerationRow(classification.generationId),
     ]);
+
+    if (target.kind !== "pull_request") {
+        throw new Error(
+            `Cannot capture snapshot ${snapshotId}: the classifier corpus freezes a PR number, and this run analyzed ` +
+                `main branch "${target.branchName}". Capturing one needs a frozen branch name in the case schema.`,
+        );
+    }
 
     // The one key production would classify from, resolved exactly as `buildRunArtifacts` resolves it: the
     // dead-time-stripped mp4 when the optimizer produced one, the original webm otherwise.
@@ -92,7 +99,7 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
     const priorRuns = new PriorRuns(db);
     const [history, preview] = await Promise.all([
         priorRuns.getHistory(meta.applicationId, slug, classification.createdAt),
-        freezePreviewFacts(github.repoFullName, prMeta.prNumber, meta.applicationId, classification.createdAt, logger),
+        freezePreviewFacts(github.repoFullName, target.prNumber, meta.applicationId, classification.createdAt, logger),
     ]);
     const baseline = PriorRuns.formatBaseline(history);
     // Waits on the namespace the lookup above resolved, so it cannot join that batch.
@@ -107,7 +114,7 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
     const frozenInput = serializeClassifierInput({
         coords,
         appSlug: meta.appSlug,
-        prNumber: prMeta.prNumber,
+        prNumber: target.prNumber,
         test: {
             slug,
             plan: generation.testPlan.prompt,
@@ -115,8 +122,8 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
         },
         provision: describeProvision(generation),
         diffSummary,
-        prTitle: prMeta.prTitle,
-        prBody: prMeta.prBody,
+        prTitle: target.prTitle,
+        prBody: target.prBody,
         priorPass: await loadPriorPass(classification),
         run,
         recording:
@@ -244,8 +251,6 @@ async function freezePreviewFacts(
     classifiedAt: Date,
     logger: Logger,
 ): Promise<FrozenPreviewFacts> {
-    if (prNumber === 0) return { capabilities: { previewEnv: false, previewScript: false, appLogs: false } };
-
     const previewEnvironment = await db.previewkitEnvironment.findUnique({
         where: { repoFullName_prNumber: { repoFullName, prNumber } },
         select: { namespace: true, resolvedConfig: true },

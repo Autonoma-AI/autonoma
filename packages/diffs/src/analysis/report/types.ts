@@ -5,6 +5,7 @@ import {
     analysisIssueSeveritySchema,
     type AnalysisIssueStatus,
     analysisIssueStatusSchema,
+    type AnalysisRunTarget,
     type AnalysisVerdict,
     type EvidenceManifestEntry,
     type InvestigationEvidence,
@@ -32,13 +33,6 @@ export type ReporterIssueSeverity = AnalysisIssueSeverity;
 
 export const reporterIssueStatusSchema = analysisIssueStatusSchema;
 export type ReporterIssueStatus = AnalysisIssueStatus;
-
-/** The PR the run analyzed - a tiny header the prompt embeds directly (no tool needed). */
-export interface ReporterPrMeta {
-    number: number;
-    title?: string;
-    body?: string;
-}
 
 /**
  * One screenshot the Reporter may pull for a finding via `fetch_evidence`. The `assetId` is stable and unique
@@ -130,9 +124,11 @@ export interface ReporterScenarioLoader {
 /** Everything the Reporter needs for one run: the findings, the branch's issue/report history, and its deps. */
 export interface ReporterInput {
     appSlug: string;
-    pr: ReporterPrMeta;
+    /** What the run analyzed - a PR (with its stated intent) or the application's main branch. A tiny header the
+     * prompt embeds directly, no tool needed. */
+    target: AnalysisRunTarget;
     /**
-     * The PR's commit range. The Reporter is told to read the diff to ground a bug's `suspectedCause` in an
+     * The run's commit range. The Reporter is told to read the diff to ground a bug's `suspectedCause` in an
      * exact `file:line`, so it needs the range that read is against - the clone has no ref for the base, and a
      * guessed range yields a real-looking citation for the wrong commits.
      */

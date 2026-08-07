@@ -3,11 +3,46 @@
  * iterated on without touching the agent. The prompt is intentionally GENERIC - no client- or
  * case-specific details - so it generalizes across every project.
  */
+import type { AnalysisRunTarget } from "@autonoma/types";
 import type { ProbeScans } from "./probes";
 import type { ClassifierInput } from "./types";
 
 /** How much of the PR description to render. Beyond this it is context cost, not intent signal. */
 const PR_BODY_LIMIT = 1500;
+
+/** The one-line identity of what the run analyzed, for the prompt's header. */
+export function describeRunTarget(target: AnalysisRunTarget): string {
+    return target.kind === "pull_request" ? `PR #${target.prNumber}` : `Main branch \`${target.branchName}\``;
+}
+
+/**
+ * The intent section. A PR carries the author's stated goal; the main branch carries none - the change under
+ * analysis is everything merged since the last analyzed head - so the diff is the only intent signal there is.
+ * Saying so keeps the classifier from reading a missing description as a suspicious absence.
+ */
+export function buildRunIntentSection(target: AnalysisRunTarget): string {
+    if (target.kind === "main_branch") {
+        return [
+            `\nMAIN-BRANCH RUN (branch \`${target.branchName}\`). There is no pull request and no author-stated`,
+            "intent: the change under analysis is everything merged into main since the last analyzed head, by",
+            "several authors. Read intent from the diff and the code's own comments alone - a behavior implemented",
+            "deliberately (named constants, explanatory comments, coherent supporting code) is intentional. Where",
+            "the instructions say 'this PR', they mean this merged change range.",
+        ].join("\n");
+    }
+
+    const title = target.prTitle != null && target.prTitle !== "" ? target.prTitle : "(unavailable)";
+    const body = target.prBody != null && target.prBody !== "" ? target.prBody.slice(0, PR_BODY_LIMIT) : "(none)";
+    return [
+        "\nPR INTENT (the author's stated goal - a behavior change the PR set out to make is NOT a bug).",
+        "CAUTION: descriptions are usually written at the FIRST commit or two and rarely updated afterwards, so",
+        "the description may be stale or incomplete for later changes. The diff and the code's own comments are",
+        "the authoritative intent signal - a behavior clearly implemented on purpose in the diff (named constants,",
+        "explanatory comments, coherent supporting code) is intentional EVEN IF the description omits it:",
+        `  title: ${title}`,
+        `  description: ${body}`,
+    ].join("\n");
+}
 
 /**
  * Replaces the four scan sections when the run recorded nothing.
@@ -175,14 +210,8 @@ export function buildClassifierPrompt({ input, scans, evidenceLimits }: Classifi
         "Classify this test run.",
         ...(evidenceLimits != null ? [`\n--- WHAT YOU CANNOT PROVE ON THIS RUN ---\n${evidenceLimits}`] : []),
         ...(input.priorPass != null ? [buildPriorPassSection(input.priorPass)] : []),
-        `App: ${input.appSlug}  PR #${input.prNumber}  Test: ${input.test.slug}`,
-        "\nPR INTENT (the author's stated goal - a behavior change the PR set out to make is NOT a bug).",
-        "CAUTION: descriptions are usually written at the FIRST commit or two and rarely updated afterwards, so",
-        "the description may be stale or incomplete for later changes. The diff and the code's own comments are",
-        "the authoritative intent signal - a behavior clearly implemented on purpose in the diff (named constants,",
-        "explanatory comments, coherent supporting code) is intentional EVEN IF the description omits it:",
-        `  title: ${input.prTitle != null && input.prTitle !== "" ? input.prTitle : "(unavailable)"}`,
-        `  description: ${input.prBody != null && input.prBody !== "" ? input.prBody.slice(0, PR_BODY_LIMIT) : "(none)"}`,
+        `App: ${input.appSlug}  ${describeRunTarget(input.target)}  Test: ${input.test.slug}`,
+        buildRunIntentSection(input.target),
         `\nTest instruction:\n${input.test.plan}`,
         `\nWhy this test was selected for the diff:\n${input.test.affectedReason}`,
         `\nDiff stat:\n${input.diffSummary}`,

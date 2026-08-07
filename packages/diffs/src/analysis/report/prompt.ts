@@ -95,7 +95,7 @@ When a finding was reached after a self-heal (the Investigator rewrote the plan 
 /** Build the per-run user prompt: the dynamic findings + branch history the Reporter reconciles. */
 export function buildReporterPrompt(input: ReporterInput): ModelMessage[] {
     const sections = [
-        renderPrHeader(input),
+        renderTargetHeader(input),
         renderVerdictReality(input),
         renderImpactReasoning(input.impactReasoning),
         renderFindings(input.findings),
@@ -107,14 +107,34 @@ export function buildReporterPrompt(input: ReporterInput): ModelMessage[] {
     return [{ role: "user", content: sections.filter((s) => s.length > 0).join("\n\n") }];
 }
 
-function renderPrHeader(input: ReporterInput): string {
-    const lines = [`# PR #${input.pr.number} (${input.appSlug})`];
-    if (input.pr.title != null) lines.push(`Title: ${input.pr.title}`);
-    if (input.pr.body != null && input.pr.body.trim().length > 0) lines.push(`Description:\n${input.pr.body.trim()}`);
+/**
+ * What the run analyzed. A main-branch run has no pull request and no author-stated intent - the change is
+ * everything merged into main since the last analyzed head - so it gets that framing instead of an empty PR
+ * header the agent would read as a PR whose description went missing. Either kind carries a commit range.
+ */
+function renderTargetHeader(input: ReporterInput): string {
+    const lines = buildTargetLines(input);
     lines.push(
         `Commit range: ${input.range.baseSha}..${input.range.headSha} - use these SHAs verbatim for every git read; the clone is checked out at the head and the base has no branch name.`,
     );
     return lines.join("\n");
+}
+
+function buildTargetLines(input: ReporterInput): string[] {
+    const { target } = input;
+    if (target.kind === "main_branch") {
+        return [
+            `# Main branch \`${target.branchName}\` (${input.appSlug})`,
+            "This run analyzed the application's main branch, not a pull request: the change under review is",
+            "everything merged into main since the last analyzed head, by several authors. There is no stated",
+            "intent to weigh - write the report about main's current health.",
+        ];
+    }
+
+    const lines = [`# PR #${target.prNumber} (${input.appSlug})`];
+    if (target.prTitle != null) lines.push(`Title: ${target.prTitle}`);
+    if (target.prBody != null && target.prBody.trim().length > 0) lines.push(`Description:\n${target.prBody.trim()}`);
+    return lines;
 }
 
 /**

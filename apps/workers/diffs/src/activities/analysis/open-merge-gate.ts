@@ -14,7 +14,7 @@ import {
 import { isOnboardingComplete } from "@autonoma/github/comment";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { OpenMergeGateInput, OpenMergeGateOutput } from "@autonoma/workflow/activities";
-import { resolvePrMeta } from "../../codebase/pr-meta";
+import { resolveRunTarget } from "../../codebase/run-target";
 import {
     resolveGitHubAccess,
     loadSnapshotMeta,
@@ -66,12 +66,14 @@ async function flipCheckToAnalyzing(
     github: GitHubAccess,
     logger: Logger,
 ): Promise<OpenMergeGateOutput> {
-    const prMeta = await resolvePrMeta({
+    const target = await resolveRunTarget({
         branchId: meta.branchId,
         githubRepositoryId: meta.githubRepositoryId,
         githubClient: github.githubClient,
     });
-    if (prMeta.prNumber <= 0) return { status: "skipped" };
+    // A main-branch run has no merge to gate, so there is no check to open. It cannot reach here anyway - the gate
+    // only opens for an auto-run-on-ready run, which is a PR trigger - but the guard keeps that independent.
+    if (target.kind !== "pull_request") return { status: "skipped" };
 
     const store = createGitHubCheckRunStore(db);
     let opened = false;
@@ -89,7 +91,7 @@ async function flipCheckToAnalyzing(
             });
             await store.upsert({
                 repoFullName: github.repoFullName,
-                prNumber: prMeta.prNumber,
+                prNumber: target.prNumber,
                 headSha: meta.headSha,
                 checkRunId,
                 conclusion: MERGE_GATE_IN_PROGRESS_CONCLUSION,
@@ -106,7 +108,7 @@ async function flipCheckToAnalyzing(
             });
             await store.upsert({
                 repoFullName: github.repoFullName,
-                prNumber: prMeta.prNumber,
+                prNumber: target.prNumber,
                 headSha: meta.headSha,
                 checkRunId: existing.checkRunId,
                 conclusion: MERGE_GATE_IN_PROGRESS_CONCLUSION,
@@ -129,7 +131,7 @@ async function flipCheckToAnalyzing(
 
     // Announce the run in the PR conversation, matching the on-demand triggers (no actor - it is automatic).
     try {
-        await github.githubClient.postComment(github.repoFullName, prMeta.prNumber, buildAnalyzingCommentBody());
+        await github.githubClient.postComment(github.repoFullName, target.prNumber, buildAnalyzingCommentBody());
     } catch (error) {
         logger.warn("Failed to post the auto-run analyzing comment", { extra: { err: error } });
     }
@@ -140,7 +142,7 @@ async function flipCheckToAnalyzing(
         {
             organizationId: meta.organizationId,
             repoFullName: github.repoFullName,
-            prNumber: prMeta.prNumber,
+            prNumber: target.prNumber,
             headSha: meta.headSha,
             source: ANALYSIS_RUN_SOURCE.ready_for_review,
             snapshotId: meta.snapshotId,
@@ -149,7 +151,7 @@ async function flipCheckToAnalyzing(
     );
 
     logger.info("Opened merge-gate check to Analyzing for the auto-run-on-ready run", {
-        extra: { prNumber: prMeta.prNumber, headSha: meta.headSha },
+        extra: { prNumber: target.prNumber, headSha: meta.headSha },
     });
     return { status: "opened" };
 }

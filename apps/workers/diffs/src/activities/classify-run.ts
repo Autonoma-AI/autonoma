@@ -13,10 +13,16 @@ import {
 } from "@autonoma/diffs/analysis";
 import { lokiQuerier } from "@autonoma/diffs/analysis/logs/loki";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { getStepOverlayPoints, type InvestigationRunStep, stepOutputDataSchema } from "@autonoma/types";
+import {
+    type AnalysisRunTarget,
+    getStepOverlayPoints,
+    type InvestigationRunStep,
+    previewEnvironmentNumber,
+    stepOutputDataSchema,
+} from "@autonoma/types";
 import type { ClassifyInvestigationRunInput, InvestigationTestResult } from "@autonoma/workflow/activities";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
-import { resolvePrMeta } from "../codebase/pr-meta";
+import { resolveRunTarget } from "../codebase/run-target";
 import { withSnapshotContext } from "../codebase/snapshot-context";
 import { env } from "../env";
 import { webmToGif } from "../media/webm-to-gif";
@@ -123,7 +129,7 @@ export function loadGenerationRow(generationId: string): Promise<GenerationRow> 
  * Classify one shadow run: load its generation row + media, clone the codebase, wire the classifier's
  * dependencies against real infra (Prisma / S3 / preview secrets / the cloned repo / the models / Loki), and
  * run the classifier. get_app_logs is wired to the preview's Loki stream, when the namespace resolves from
- * the PR's previewkit environment and this worker has LOKI configured; otherwise the tool is omitted.
+ * the run's previewkit environment and this worker has LOKI configured; otherwise the tool is omitted.
  */
 export async function classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult> {
     const { snapshotId, slug, reason, testGenerationId, priorPass } = input;
@@ -136,8 +142,8 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
     const generation = await loadGenerationRow(testGenerationId);
 
     return withSnapshotContext(snapshotId, `classify-${testGenerationId}`, async (context) => {
-        const prMeta = await resolvePrMeta(context);
-        const resolvedPreview = await resolvePreviewEnvironment(context.repoFullName, prMeta.prNumber, logger);
+        const target = await resolveRunTarget(context);
+        const resolvedPreview = await resolvePreviewEnvironment(context.repoFullName, target, logger);
         const session = createModelSession();
         const priorRuns = new PriorRuns(db);
 
@@ -149,7 +155,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         const uploader = new InlineMp4VideoUploader(ffmpeg.path);
         const { run: runArtifacts, recordingBytes } = await buildRunArtifacts(generation, uploader);
 
-        // Gate the previewkit-dependent tools on whether this PR's preview is actually managed by previewkit. The
+        // Gate the previewkit-dependent tools on whether this run's preview is actually managed by previewkit. The
         // namespace only resolves for a previewkit-deployed preview; when it does not (a self-hosted / non-integrated
         // client), there is no Loki stream and the backend script harness cannot authenticate - so we omit
         // get_app_logs / run_script / get_preview_env rather than let them fail with confusing errors the classifier
@@ -185,7 +191,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         });
         const { result: verdict, conversation } = await classifier.run({
             appSlug: context.appSlug,
-            prNumber: prMeta.prNumber,
+            target,
             test: { slug, plan: generation.testPlan.prompt, affectedReason: reason },
             provision: describeProvision(generation),
             diffSummary: await readPrDiffStat({
@@ -193,8 +199,6 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
                 baseSha: context.baseSha,
                 headSha: context.headSha,
             }),
-            prTitle: prMeta.prTitle,
-            prBody: prMeta.prBody,
             priorPass,
             codebase: context.codebase,
             baseSha: context.baseSha,
@@ -495,23 +499,24 @@ function deriveRunTrace(attempts: AttemptRow[]): InvestigationRunStep[] {
 }
 
 /**
- * Resolve the previewkit namespace for a PR - the Loki log-stream selector. `previewkit_environment` keys the
- * namespace on (repoFullName, prNumber); a preview that was never deployed or has been torn down returns
- * undefined and app-log querying degrades gracefully (prNumber 0 means resolvePrMeta found no feature branch).
+ * Resolve the previewkit environment the run executed against - the Loki log-stream selector plus the env-var
+ * keys its topology wires. `previewkit_environment` keys these on (repoFullName, environment number), and a
+ * main-branch run has an environment just as a PR run does. A preview that was never deployed or has been torn
+ * down returns undefined, and the previewkit-dependent tools are omitted.
  */
 async function resolvePreviewEnvironment(
     repoFullName: string,
-    prNumber: number,
+    target: AnalysisRunTarget,
     logger: Logger,
 ): Promise<ResolvedPreview | undefined> {
-    if (prNumber === 0) return undefined;
+    const prNumber = previewEnvironmentNumber(target);
     const previewEnv = await db.previewkitEnvironment.findUnique({
         where: { repoFullName_prNumber: { repoFullName, prNumber } },
         select: { namespace: true, resolvedConfig: true },
     });
     if (previewEnv == null) {
-        logger.info("No previewkit environment for PR - app logs unavailable", {
-            extra: { repoFullName, prNumber },
+        logger.info("No previewkit environment for this run - app logs unavailable", {
+            extra: { repoFullName, prNumber, runKind: target.kind },
         });
         return undefined;
     }
@@ -520,7 +525,7 @@ async function resolvePreviewEnvironment(
     // freezes nothing, because a case's name list has to stand on its own long after the config is gone.
     const connectionKeys = readPreviewConnectionKeys(previewEnv.resolvedConfig, logger) ?? [];
     logger.info("Resolved preview environment", {
-        extra: { repoFullName, prNumber, connectionKeys: connectionKeys.length },
+        extra: { repoFullName, prNumber, runKind: target.kind, connectionKeys: connectionKeys.length },
     });
     return { namespace: previewEnv.namespace, connectionKeys };
 }

@@ -9,7 +9,16 @@
  */
 
 /**
- * `prNumber` is 0 for the main-branch environment - GitHub PR numbers start at 1.
+ * The environment number of an application's main-branch preview. Previewkit keys an environment on
+ * `(repoFullName, prNumber)`, and the main branch has no PR, so it occupies the number no PR can have. This is the
+ * environment's real identity, not an absence marker: what a run analyzes is carried by `AnalysisRunTarget`, and
+ * no consumer may read this number as "there is no PR".
+ */
+export const MAIN_BRANCH_ENVIRONMENT_NUMBER = 0;
+
+/**
+ * `prNumber` is {@link MAIN_BRANCH_ENVIRONMENT_NUMBER} for the main-branch environment - GitHub PR numbers
+ * start at 1.
  */
 export interface PreviewDeployTarget {
     repoFullName: string;

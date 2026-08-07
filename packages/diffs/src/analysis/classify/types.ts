@@ -1,5 +1,6 @@
 import type { UploadedVideo } from "@autonoma/ai";
 import type { ApplicationArchitecture } from "@autonoma/db";
+import type { AnalysisRunTarget } from "@autonoma/types";
 import type { InspectableStep, ScreenshotLoader } from "../../agents/tools/run-evidence/run-evidence-types";
 import type { Codebase } from "../../codebase";
 
@@ -65,15 +66,16 @@ export interface PreviewScriptAccess {
  */
 export interface ClassifierInput {
     appSlug: string;
-    prNumber: number;
+    /**
+     * What this run analyzed - a PR (with the author's stated intent, a hint only: it is often written at the
+     * first commit and never updated, so the diff + code comments are the authoritative intent signal, as the
+     * prompt says) or the application's main branch, where no such statement exists at all.
+     */
+    target: AnalysisRunTarget;
     test: { slug: string; plan: string; affectedReason: string };
     provision: { status: string; detail: string; seeded?: string };
     /** A short diff stat for context; the model reads the patch itself with `git diff` over the range below. */
     diffSummary: string;
-    /** The PR author's stated intent. A hint only - often written at the first commit and never updated, so the
-     * diff + code comments are the authoritative intent signal (the prompt says so). */
-    prTitle?: string;
-    prBody?: string;
     /**
      * Present when this run is a SELF-HEAL RE-RUN of a corrected plan: the prior pass's verdict on the original
      * plan. The prior pass concluded the app was healthy and the TEST was wrong; this run executes the plan it

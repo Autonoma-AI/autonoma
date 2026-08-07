@@ -82,7 +82,7 @@ export class ClassifierAgent extends Agent<ClassifierInput, RunVerdict, Classifi
         this.logger.info("Classifying run outcome", {
             extra: {
                 appSlug: input.appSlug,
-                prNumber: input.prNumber,
+                runKind: input.target.kind,
                 test: input.test.slug,
                 success: input.run.success,
                 finishReason: input.run.finishReason,

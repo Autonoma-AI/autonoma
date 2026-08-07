@@ -43,7 +43,7 @@ export class ReporterAgent extends Agent<ReporterInput, ReporterResult, Reporter
         this.logger.info("Building reporter prompt", {
             extra: {
                 appSlug: input.appSlug,
-                prNumber: input.pr.number,
+                runKind: input.target.kind,
                 findings: input.findings.length,
                 existingIssues: input.existingIssues.length,
             },

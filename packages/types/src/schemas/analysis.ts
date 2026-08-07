@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAIN_BRANCH_ENVIRONMENT_NUMBER } from "../types/previewkit";
 import { overlayPointSchema } from "../types/step-overlay-points";
 import { resolvedEvidenceAssetSchema } from "./evidence-tokens";
 import {
@@ -7,6 +8,32 @@ import {
     investigationRunStepSchema,
 } from "./investigation-report";
 import { suspectedCauseSchema } from "./suspected-cause";
+
+/**
+ * What an analysis run is analyzing: a pull request under review, or the application's own main branch.
+ *
+ * Both run the SAME pipeline over the same suite against the same kind of live preview - the kind is never a
+ * reason to compute something different. It exists because the two carry different FACTS: a PR has a number and
+ * an author's stated intent; main has a branch name and no author to quote, because its change is N merged PRs
+ * by N people. Read it only where a GitHub surface genuinely does not exist for a branch push (there is no
+ * comment target and no merge to gate), or where one of those facts is genuinely absent. A `kind` check inside
+ * Impact Analysis, an Investigator, or the Reporter's reconciliation is a bug.
+ *
+ * Resolved from the run's snapshot (its branch), never from a sentinel PR number: "no PR" and "skip this effect"
+ * are two different facts and a single number cannot carry both.
+ */
+export type AnalysisRunTarget =
+    | { kind: "pull_request"; prNumber: number; prTitle?: string; prBody?: string }
+    | { kind: "main_branch"; branchName: string };
+
+/**
+ * The previewkit environment number a run's preview lives under. A PR run's preview is its PR's environment; a main
+ * run's is the long-lived main-branch environment, which exists and carries the same app logs, script harness and
+ * preview env a PR run introspects.
+ */
+export function previewEnvironmentNumber(target: AnalysisRunTarget): number {
+    return target.kind === "pull_request" ? target.prNumber : MAIN_BRANCH_ENVIRONMENT_NUMBER;
+}
 
 /** The terminal state of an authoritative analysis run. */
 export type AnalysisRunOutcome =

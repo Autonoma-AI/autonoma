@@ -18,7 +18,7 @@ import {
     compareAnalysisIssues,
     coverageSummarySchema,
 } from "@autonoma/types";
-import { resolvePrMeta } from "../../codebase/pr-meta";
+import { resolveRunTarget } from "../../codebase/run-target";
 import type { GitHubAccess, SnapshotMeta } from "../../codebase/snapshot-context";
 import { isMergeGateEnabledForOrg } from "./merge-gate-enabled";
 
@@ -62,13 +62,15 @@ export async function concludeMergeGate({
         return { status: "skipped" };
     }
 
-    const prMeta = await resolvePrMeta({
+    const target = await resolveRunTarget({
         branchId: meta.branchId,
         githubRepositoryId: meta.githubRepositoryId,
         githubClient: github.githubClient,
     });
-    if (prMeta.prNumber <= 0) {
-        logger.info("Skipping merge gate - snapshot is not attached to a PR");
+    if (target.kind !== "pull_request") {
+        logger.info("Skipping merge gate - a main-branch run has no merge to gate", {
+            extra: { branchName: target.branchName },
+        });
         return { status: "skipped" };
     }
 
@@ -111,7 +113,7 @@ export async function concludeMergeGate({
         });
         await store.upsert({
             repoFullName: github.repoFullName,
-            prNumber: prMeta.prNumber,
+            prNumber: target.prNumber,
             headSha: meta.headSha,
             checkRunId,
             conclusion: result.conclusion,
@@ -124,7 +126,7 @@ export async function concludeMergeGate({
         {
             organizationId: meta.organizationId,
             repoFullName: github.repoFullName,
-            prNumber: prMeta.prNumber,
+            prNumber: target.prNumber,
             headSha: meta.headSha,
             conclusion: result.conclusion,
             snapshotId: meta.snapshotId,
@@ -134,7 +136,7 @@ export async function concludeMergeGate({
     );
 
     logger.info("Applied merge-gate verdict", {
-        extra: { conclusion: result.conclusion, prNumber: prMeta.prNumber },
+        extra: { conclusion: result.conclusion, prNumber: target.prNumber },
     });
     return { status: "posted", conclusion: result.conclusion };
 }

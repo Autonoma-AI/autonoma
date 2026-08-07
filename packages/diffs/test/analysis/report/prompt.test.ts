@@ -23,7 +23,7 @@ function openBugIssue(id: string): ReporterExistingIssue {
 function promptText(findings: ReporterFinding[], existingIssues: ReporterExistingIssue[] = []): string {
     const input: ReporterInput = {
         appSlug: "acme",
-        pr: { number: 42, title: "Add coupon codes" },
+        target: { kind: "pull_request", prNumber: 42, prTitle: "Add coupon codes" },
         range: { baseSha: "aaaaaaa", headSha: "bbbbbbb" },
         findings,
         existingIssues,

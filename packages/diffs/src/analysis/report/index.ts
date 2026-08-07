@@ -20,7 +20,6 @@ export type {
     ReporterIssueResult,
     ReporterIssueSeverity,
     ReporterIssueStatus,
-    ReporterPrMeta,
     ReporterPriorReport,
     ReporterResult,
     ReporterScenarioLoader,

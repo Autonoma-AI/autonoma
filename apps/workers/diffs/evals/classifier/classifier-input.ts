@@ -177,12 +177,17 @@ export interface RehydratedClassifierInput {
 export function rehydrateClassifierInput(parsed: ClassifierCaseInput): RehydratedClassifierInput {
     const input: FrozenClassifierInput = {
         appSlug: parsed.appSlug,
-        prNumber: parsed.prNumber,
+        // The on-disk case stays PR-shaped - capture refuses a main-branch run, which carries no PR number to
+        // freeze - so every replayed case rebuilds a pull-request target.
+        target: {
+            kind: "pull_request",
+            prNumber: parsed.prNumber,
+            prTitle: parsed.prTitle,
+            prBody: parsed.prBody,
+        },
         test: parsed.test,
         provision: parsed.provision,
         diffSummary: parsed.diffSummary,
-        prTitle: parsed.prTitle,
-        prBody: parsed.prBody,
         priorPass: parsed.priorPass,
         baseSha: parsed.codebase.baseSha,
         headSha: parsed.codebase.headSha,

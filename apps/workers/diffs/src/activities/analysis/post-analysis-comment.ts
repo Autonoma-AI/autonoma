@@ -8,7 +8,7 @@ import {
 import { logger as rootLogger } from "@autonoma/logger";
 import type { S3Storage } from "@autonoma/storage";
 import { ANALYSIS_VERDICT, type AnalysisRunOutcome } from "@autonoma/types";
-import { resolvePrMeta } from "../../codebase/pr-meta";
+import { resolveRunTarget } from "../../codebase/run-target";
 import type { GitHubAccess, SnapshotMeta } from "../../codebase/snapshot-context";
 import { env } from "../../env";
 import { buildAnalysisCommentPayload } from "./analysis-comment-payload";
@@ -59,13 +59,15 @@ export async function postAnalysisComment({
         return { status: "skipped" };
     }
 
-    const prMeta = await resolvePrMeta({
+    const target = await resolveRunTarget({
         branchId: meta.branchId,
         githubRepositoryId: meta.githubRepositoryId,
         githubClient: github.githubClient,
     });
-    if (prMeta.prNumber <= 0) {
-        logger.info("Skipping analysis PR comment - snapshot is not attached to a PR");
+    if (target.kind !== "pull_request") {
+        logger.info("Skipping analysis PR comment - a main-branch run has no pull request to comment on", {
+            extra: { branchName: target.branchName },
+        });
         return { status: "skipped" };
     }
 
@@ -98,7 +100,7 @@ export async function postAnalysisComment({
             summary: report.summary,
         },
         {
-            prNumber: prMeta.prNumber,
+            prNumber: target.prNumber,
             repoFullName: github.repoFullName,
             commitSha: meta.headSha,
             appSlug: meta.appSlug,
@@ -113,7 +115,7 @@ export async function postAnalysisComment({
         client: github.githubClient,
         store: createGitHubPrCommentStore(db, "analysis"),
         repoFullName: github.repoFullName,
-        prNumber: prMeta.prNumber,
+        prNumber: target.prNumber,
         lastCommitSha: meta.headSha,
         payload,
         // The trigger supersedes older runs, so the latest run always owns the comment.
@@ -128,7 +130,7 @@ export async function postAnalysisComment({
     }
 
     logger.info("Analysis PR comment posted", {
-        extra: { status: result.status, commentId: result.commentId, prNumber: prMeta.prNumber },
+        extra: { status: result.status, commentId: result.commentId, prNumber: target.prNumber },
     });
     return { status: result.status, commentId: result.commentId };
 }

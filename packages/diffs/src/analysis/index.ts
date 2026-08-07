@@ -42,7 +42,6 @@ export type {
     ReporterIssueKind,
     ReporterIssueSeverity,
     ReporterIssueStatus,
-    ReporterPrMeta,
     AuthoredIssueContent,
     RecordedIssueAction,
 } from "./report";

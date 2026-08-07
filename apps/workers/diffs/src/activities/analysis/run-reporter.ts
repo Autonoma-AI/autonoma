@@ -22,7 +22,7 @@ import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { fetchTestSuiteInfo } from "@autonoma/test-updates";
 import { ANALYSIS_VERDICT, analysisFindingSortKey, analysisVerdictSchema } from "@autonoma/types";
 import type { RunReporterInput, RunReporterOutput } from "@autonoma/workflow/activities";
-import { resolvePrMeta } from "../../codebase/pr-meta";
+import { resolveRunTarget } from "../../codebase/run-target";
 import { type SnapshotContext, withSnapshotContext } from "../../codebase/snapshot-context";
 import { createModelSession, getStorage } from "../../services";
 import { uploadConversation } from "../../upload-conversation";
@@ -102,8 +102,8 @@ async function buildReporterInput(
     logger: Logger,
 ): Promise<ReporterInput> {
     const { snapshotId, impactReasoning } = input;
-    const [prMeta, findings, existingIssues, priorReports, scenario] = await Promise.all([
-        resolvePrMeta(context),
+    const [target, findings, existingIssues, priorReports, scenario] = await Promise.all([
+        resolveRunTarget(context),
         loadReporterFindings(snapshotId),
         loadExistingIssues(context.branchId, logger),
         loadPriorReports(snapshotId, context.branchId),
@@ -112,7 +112,7 @@ async function buildReporterInput(
 
     return {
         appSlug: context.appSlug,
-        pr: { number: prMeta.prNumber, title: prMeta.prTitle, body: prMeta.prBody },
+        target,
         range: { baseSha: context.baseSha, headSha: context.headSha },
         impactReasoning,
         findings,
