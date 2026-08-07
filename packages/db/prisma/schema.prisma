@@ -60,6 +60,7 @@ model Session {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("session")
 }
 
@@ -80,6 +81,7 @@ model Account {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  @@index([userId])
   @@map("account")
 }
 
@@ -289,6 +291,7 @@ model ApplicationSetup {
 
   @@index([applicationId])
   @@index([organizationId])
+  @@index([userId])
   @@map("application_setup")
 }
 
@@ -315,6 +318,7 @@ model Member {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId])
+  @@index([organizationId])
   @@map("member")
 }
 
@@ -331,6 +335,8 @@ model Invitation {
   inviter      User         @relation("invitations", fields: [inviterId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([inviterId])
+  @@index([organizationId])
   @@map("invitation")
 }
 
@@ -350,6 +356,7 @@ model SignupHookState {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId])
+  @@index([organizationId])
   @@map("signup_hook_state")
 }
 
@@ -440,6 +447,7 @@ model BranchDeployment {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([branchId])
+  @@index([organizationId])
   @@map("branch_deployment")
 }
 
@@ -456,6 +464,7 @@ model WebDeployment {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@id([deploymentId])
+  @@index([organizationId])
   @@map("web_deployment")
 }
 
@@ -473,6 +482,7 @@ model MobileDeployment {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@id([deploymentId])
+  @@index([organizationId])
   @@map("mobile_deployment")
 }
 
@@ -615,6 +625,7 @@ model Folder {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([applicationId, parentId, name])
+  @@index([organizationId])
   @@map("folder")
 }
 
@@ -654,7 +665,7 @@ model Branch {
   previewkitEnvironment PreviewkitEnvironment?
 
   @@index([applicationId])
-
+  @@index([organizationId])
   @@map("branch")
 }
 
@@ -807,6 +818,7 @@ model TestCaseAssignment {
   runs Run[]
 
   @@unique([snapshotId, testCaseId])
+  @@index([testCaseId])
   @@map("test_case_assignment")
 }
 
@@ -847,6 +859,7 @@ model TestCase {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([applicationId, slug])
+  @@index([organizationId])
   @@map("test_case")
 }
 
@@ -875,6 +888,7 @@ model TestPlan {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([testCaseId])
+  @@index([organizationId])
   @@map("test_plan")
 }
 
@@ -952,6 +966,8 @@ model TestGeneration {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([snapshotId])
+  @@index([organizationId])
+  @@index([testPlanId])
   @@map("test_generation")
 }
 
@@ -1000,6 +1016,7 @@ model GenerationReview {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
   @@map("generation_review")
 }
 
@@ -1019,6 +1036,7 @@ model RunReview {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
   @@map("run_review")
 }
 
@@ -1078,6 +1096,7 @@ model Issue {
 
   @@index([snapshotId])
   @@index([bugId])
+  @@index([organizationId])
   @@map("issue")
 }
 
@@ -1124,6 +1143,7 @@ model Bug {
   @@index([status])
   @@index([branchId, status])
   @@index([branchId, lastSeenAt])
+  @@index([organizationId])
   @@map("bug")
 }
 
@@ -1199,6 +1219,7 @@ model RefinementLoop {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
   @@map("refinement_loop")
 }
 
@@ -1265,6 +1286,7 @@ model RefinementIterationInput {
 
   @@id([iterationId, planId])
   @@index([iterationId])
+  @@index([planId])
   @@map("refinement_iteration_input")
 }
 
@@ -1285,6 +1307,8 @@ model StepInputList {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
+  @@index([planId])
   @@map("step_input_list")
 }
 
@@ -1311,6 +1335,7 @@ model StepInput {
 
   @@unique([listId, order])
   @@index([listId])
+  @@index([organizationId])
   @@map("step_input")
 }
 
@@ -1328,6 +1353,7 @@ model StepOutputList {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
   @@map("step_output_list")
 }
 
@@ -1354,6 +1380,8 @@ model StepOutput {
 
   @@unique([listId, order])
   @@index([listId])
+  @@index([organizationId])
+  @@index([stepInputId])
   @@map("step_output")
 }
 
@@ -1401,6 +1429,7 @@ model StepAttempt {
 
   @@unique([generationId, order])
   @@index([generationId])
+  @@index([organizationId])
   @@map("step_attempt")
 }
 
@@ -1420,6 +1449,8 @@ model Tag {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([applicationId])
+  @@index([organizationId])
   @@map("tag")
 }
 
@@ -1432,6 +1463,7 @@ model TestTag {
   tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@unique([testCaseId, tagId])
+  @@index([tagId])
   @@map("test_tag")
 }
 
@@ -1524,6 +1556,7 @@ model Run {
 
   @@index([assignmentId])
   @@index([planId])
+  @@index([organizationId])
   @@map("run")
 }
 
@@ -1584,6 +1617,7 @@ model Scenario {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([applicationId, name])
+  @@index([organizationId])
   @@map("scenario")
 }
 
@@ -1728,6 +1762,9 @@ model ScenarioInstance {
   organizationId  String           @map("organization_id")
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([applicationId])
+  @@index([organizationId])
+  @@index([scenarioId])
   @@map("scenario_instance")
 }
 
@@ -1749,6 +1786,8 @@ model WebhookCall {
   application Application       @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   instance    ScenarioInstance? @relation(fields: [instanceId], references: [id], onDelete: Cascade)
 
+  @@index([applicationId])
+  @@index([instanceId])
   @@map("webhook_call")
 }
 
@@ -2120,11 +2159,11 @@ model GitHubPrComment {
 
 // The `Autonoma` merge-gate check run posted on a PR.
 model GitHubCheckRun {
-  id           String   @id @default(cuid())
-  repoFullName String   @map("repo_full_name")
-  prNumber     Int      @map("pr_number")
-  headSha      String   @map("head_sha")
-  checkRunId   String   @map("check_run_id") // GitHub's numeric check-run id, stored as string
+  id           String  @id @default(cuid())
+  repoFullName String  @map("repo_full_name")
+  prNumber     Int     @map("pr_number")
+  headSha      String  @map("head_sha")
+  checkRunId   String  @map("check_run_id") // GitHub's numeric check-run id, stored as string
   conclusion   String? // last conclusion we set (in_progress while pending, then failure/success/neutral)
 
   // The activation record for this head: who/what asked for the run (source is one of ANALYSIS_RUN_SOURCE in
@@ -2434,12 +2473,12 @@ model PreviewkitEncryptionKey {
 // (applicationId, appName), so an app with no secrets has no rows rather than an
 // empty parent.
 model PreviewkitSecret {
-  id            String @id @default(cuid())
-  applicationId String @map("application_id")
-  appName       String @map("app_name")
+  id              String @id @default(cuid())
+  applicationId   String @map("application_id")
+  appName         String @map("app_name")
   /// The environment variable name, e.g. DATABASE_URL. Not a cryptographic key.
-  key           String
-  envelope      String
+  key             String
+  envelope        String
   /// Which encryption key sealed `envelope`. Restrict, not Cascade: a key must
   /// not be deletable while any value still needs it to be readable.
   encryptionKeyId String @map("encryption_key_id")
@@ -2560,6 +2599,7 @@ model DiffsJob {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
   @@map("diffs_job")
 }
 
@@ -2614,6 +2654,7 @@ model InvestigationReport {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
   @@map("investigation_report")
 }
 
@@ -2722,6 +2763,8 @@ model AffectedTest {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@id([snapshotId, testCaseId])
+  @@index([organizationId])
+  @@index([testCaseId])
   @@map("affected_test")
 }
 
@@ -2759,6 +2802,7 @@ model AnalysisJob {
   /// them into branch-scoped issues and authors the AnalysisReport.
   findings AnalysisFinding[]
 
+  @@index([organizationId])
   @@map("analysis_job")
 }
 
@@ -2811,6 +2855,7 @@ model AnalysisReport {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([organizationId])
   @@map("analysis_report")
 }
 
@@ -2914,7 +2959,7 @@ model AnalysisClassification {
   planMismatchNote  String?  @map("plan_mismatch_note") @db.Text
   /// The `invalid_test` justification: which impossibility failure mode (nonexistent feature / unexecutable steps /
   /// wrong premise / unrecoverable) and the proof the test cannot be recovered. Set only for an `invalid_test` verdict.
-  invalidTestNote   String? @map("invalid_test_note") @db.Text
+  invalidTestNote   String?  @map("invalid_test_note") @db.Text
   observedAppIssues String?  @map("observed_app_issues") @db.Text
   remediation       String?  @db.Text
   rootCause         String?  @map("root_cause") @db.Text
@@ -3126,6 +3171,8 @@ model VercelInstallation {
   invoices       VercelInvoice[]
   projects       VercelProject[]
 
+  @@index([organizationId])
+  @@index([userId])
   @@map("vercel_installation")
 }
 
@@ -3213,6 +3260,7 @@ model VercelProject {
   connection   VercelProjectConnection?
 
   @@unique([vercelProjectId, vercelInstallationId])
+  @@index([vercelInstallationId])
   @@map("vercel_project")
 }
 
