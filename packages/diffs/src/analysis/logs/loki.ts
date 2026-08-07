@@ -1,5 +1,6 @@
 import { causeMessage } from "@autonoma/errors";
 import { z } from "zod";
+import type { LogQuerier } from "./preview-app-logs";
 
 /** A query for an app's logs over the run window, used to confirm whether an error blocked the failing step. */
 export interface LokiLogQuery {
@@ -11,10 +12,14 @@ export interface LokiLogQuery {
     startEpoch: number;
     /** Run window end, in epoch SECONDS (padded internally). */
     endEpoch: number;
-    /** LogQL line filter (a regex). */
-    regex: string;
-    /** Max lines to return. */
-    limit?: number;
+    /**
+     * LogQL line filter (a regex). OMITTED means no line filter at all - the whole stream over the window,
+     * which is how an eval capture freezes a window it cannot know the future filter for.
+     */
+    regex?: string;
+    /** Max lines to return, at most {@link LOKI_MAX_LINE_LIMIT}. Required: how much of a window a caller is
+     * willing to read decides what its result means, so it is never defaulted on the caller's behalf. */
+    limit: number;
     /**
      * Also return the build pipeline's output, not just the running app's. Defaults to false.
      *
@@ -36,7 +41,11 @@ const DEPLOY_MARKER_MATCHER = 'kind!="start"';
 /** Restricts the stream to the running app, excluding the build pipeline that shares the namespace. */
 const APP_SOURCE_MATCHER = 'source="app"';
 
-const DEFAULT_LIMIT = 150;
+/**
+ * The instance's `max_entries_limit_per_query`. A query asking for more is rejected outright (HTTP 400
+ * "max entries limit per query exceeded"), so it is the ceiling on how much of a window can be read in one pass.
+ */
+export const LOKI_MAX_LINE_LIMIT = 5000;
 const WINDOW_PADDING_SECONDS = 90;
 const REQUEST_TIMEOUT_MS = 25_000;
 const NANOS_PER_SECOND = 1_000_000_000;
@@ -81,13 +90,13 @@ export interface LokiLogPage {
  * a timeline under any direction. Timestamps are kept so the caller can place each line against the run.
  */
 export async function queryLokiLogs(query: LokiLogQuery): Promise<LokiLogPage> {
-    const limit = query.limit ?? DEFAULT_LIMIT;
+    const { limit } = query;
     const startNanos = (query.startEpoch - WINDOW_PADDING_SECONDS) * NANOS_PER_SECOND;
     const endNanos = (query.endEpoch + WINDOW_PADDING_SECONDS) * NANOS_PER_SECOND;
     const matchers =
         query.includeBuildOutput === true ? [DEPLOY_MARKER_MATCHER] : [APP_SOURCE_MATCHER, DEPLOY_MARKER_MATCHER];
     const params = new URLSearchParams({
-        query: `{${matchers.join(", ")}, namespace="${query.namespace}"} |~ ${lineFilter(query.regex)}`,
+        query: `{${matchers.join(", ")}, namespace="${query.namespace}"}${filterClause(query.regex)}`,
         start: String(startNanos),
         end: String(endNanos),
         direction: "backward",
@@ -112,6 +121,23 @@ export async function queryLokiLogs(query: LokiLogQuery): Promise<LokiLogPage> {
     // Trim from the FRONT, keeping the newest: the query asked for `backward`, so dropping the tail here
     // would discard exactly the lines nearest the failure that the direction was chosen to keep.
     return { lines: matched.slice(-limit), truncated: matched.length >= limit };
+}
+
+/**
+ * Bind the endpoint, yielding the querier `loadPreviewAppLogs` takes.
+ *
+ * The endpoint is a property of the worker, not of a question about a run, so it is fixed once here rather than
+ * threaded through every caller - which is what lets a replayed window satisfy the same contract without
+ * inventing a URL it will never dial.
+ */
+export function lokiQuerier(lokiBaseUrl: string): LogQuerier {
+    return (query) => queryLokiLogs({ ...query, lokiBaseUrl });
+}
+
+/** The line-filter clause, or nothing at all when the caller wants the unfiltered stream. */
+function filterClause(regex: string | undefined): string {
+    if (regex == null) return "";
+    return ` |~ ${lineFilter(regex)}`;
 }
 
 /**

@@ -149,15 +149,15 @@ recording itself on every run, exactly as production does. Each run therefore co
 full-recording vision reads on top of the loop, and the probes are one of the places a
 verdict moves between two runs of an unchanged classifier - which is what `runs: N` measures.
 
-**What a replay cannot serve.** Two of the classifier's live-infra capabilities have no
-frozen form: the preview's live backend (`run_script`) and the app-log stream
-(`get_app_logs`). A replay passes neither, and the classifier is told so through its
-own evidence-limits note, so it caps unprovable claims instead of guessing. Every case
-records in `productionCapabilities` which of them production actually had, so a case
-captured from a preview-integrated run says outright that it is graded against a
-classifier that could see less than the one in `capturedCategory`.
+**What a replay cannot serve.** One of the classifier's live-infra capabilities has no
+frozen form: the preview's live backend (`run_script`). A replay passes it as absent, and
+the classifier is told so through its own evidence-limits note, so it caps unprovable
+claims instead of guessing. Every case records in `productionCapabilities` what production
+actually had, so a case captured from a preview-integrated run says outright when it is
+graded against a classifier that could see more than this replay does.
 
-`get_preview_env` is the exception, and IS served in replay. Listing the preview's
+`get_preview_env` and `get_app_logs` are the exceptions, and both ARE served in replay -
+they are the capabilities that reduce to data. Listing the preview's
 env-var names never reaches the running pod at call time - it is a name list plus a
 local substring filter - so capture freezes the whole list into `previewEnvNames` and
 replay narrows it through the same filter. That matters because an absent integration
@@ -166,11 +166,63 @@ to its code default" from a guess. A case carrying the list is not counted as mi
 the tool; one without it still is. **The filter is exact, the list is a
 reconstruction** - see [what capture recomputes](#capturing-a-case).
 
-The two are separate capabilities on `ClassifierInput` (`previewEnv` and
+The two preview halves are separate capabilities on `ClassifierInput` (`previewEnv` and
 `previewScript`), each gating its own tool. Backend reachability - what the
 evidence-limits note calls "you CAN query its backend" - keys on the script capability
 alone, so a replay holding only the name list is never told it can reach a backend it
 cannot.
+
+The log stream is the other one that reduces to data, and it is described below.
+
+### The frozen app-log window
+
+`get_app_logs` **is** served on replay, from a log window frozen at capture into
+`input.json` as `appLogs`. The window is stored **unfiltered**: production interpolated
+the model's own regex into a LogQL line filter and had Loki evaluate it server-side, so
+the filter is not knowable at capture time - only the stream it would have run against.
+
+- **Capture** freezes the whole padded run window over the same stream selector, through
+  the same `queryLokiLogs`, and records `windowTruncated` when that query filled its own
+  cap (Loki's `max_entries_limit_per_query`, 5000).
+- **Replay** does what Loki did: apply the regex, keep the newest 150 matches, and set
+  the truncation flag. The prose is **not** reimplemented - the frozen window is injected
+  as the production loader's querier, so the namespace header, the per-line run offsets,
+  the truncation warning and the "the app emitted no matching error, do NOT infer a
+  backend error that is not present" fact are byte-identical to production's. One
+  combination is new: zero matches over a window that was itself capped. A live query
+  cannot produce it (its truncation flag *is* a full page of matches), and the loader now
+  qualifies the fact there rather than stating a window it only partly searched was quiet.
+- **The filter runs through an RE2 engine, not a translation.** Loki evaluates the line
+  filter with Go's `regexp`, whose language is RE2 - a _different language_ from JS
+  `RegExp`, which rejects inline flag groups (`(?i:x)`, and a mid-pattern `(?i)`), reads
+  `\p{...}` and `\x{...}` as literal text, and accepts the lookaround and backreferences
+  RE2 rejects. Replay therefore filters with `re2js`, a pure-JS port of RE2: same language,
+  so any pattern both accept selects the same lines with nothing to prove. A pattern RE2
+  rejects throws, which the tool renders as "could not read the app logs" - the same
+  outcome the pattern had in production, where Loki answered it with an HTTP 400.
+- **One pattern class still diverges**, and in the direction of replay seeing more. Loki's
+  own line-filter simplifier mis-evaluates `<literal>.*(a|b)` when the literal occurs again
+  after the alternation's match: measured live, `mongo.*down` matched a line that
+  `mongo.*(fail|down)` did not (that line carries `mongo` at offsets 116 and 912, `down` at
+  200). A real RE2 engine matches it, so this is Loki's bug and not an artefact of where the
+  pattern is evaluated. Not emulated - the emulation would have to be removed when it is
+  fixed. The default filter is a bare alternation with no `.*`, and is unaffected.
+
+**Capture refuses rather than freezing a window it could not read.** An empty window is
+stated to the model as the fact "the app emitted no matching error", so a window that came
+back empty because Loki was unreachable, or because the run aged out of retention, would
+bake a fabricated "the app was quiet" into the case permanently. Loki answers an aged-out
+query with HTTP 200 and zero streams (`max_query_lookback: 0s`), so the age check is the
+harness's to make: capture refuses a run older than the instance's 31-day retention less a
+24h margin. `--skip-app-logs` gives the window up deliberately - the escape hatch for a
+run that has aged out, or a machine that cannot reach Loki - and the case then records
+`get_app_logs` as a production-only tool.
+
+A window that was genuinely queried and genuinely empty **is** frozen; that is a real and
+common production answer. Capture warns about it, and checks the wider window either side
+of the run: a namespace that carried no app line for hours never had its logs shipped at
+all, and its emptiness is then no evidence the app was healthy. Worth knowing before
+authoring an expectation on it, because the loader's prose invites exactly that inference.
 
 ### Multimedia rehydration
 
@@ -222,9 +274,15 @@ Capture **writes into the private corpus** at
 set - the commands error with a clear message otherwise. After capturing, commit
 the new case in the private `eval-cases` repo, never here.
 
+`capture:classifier` additionally needs `LOKI_URL` for a previewkit-managed PR, whose
+app-log window it freezes (see [The frozen app-log
+window](#the-frozen-app-log-window)); Loki is reachable over Tailscale. A run whose logs
+have aged out, or a machine that cannot reach Loki, needs `--skip-app-logs` to capture at
+all - the default is to refuse rather than freeze a window nobody could read.
+
 ```bash
 pnpm --filter @autonoma/worker-diffs capture:analysis               <snapshotId>   [--name <case-name>] [--force]
-pnpm --filter @autonoma/worker-diffs capture:classifier            <classificationId> [--name <case-name>] [--force]
+pnpm --filter @autonoma/worker-diffs capture:classifier            <classificationId> [--name <case-name>] [--force] [--skip-app-logs]
 ```
 
 After capture, fill in the frontmatter checks and the rubric

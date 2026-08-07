@@ -14,6 +14,7 @@ import { previewSecrets } from "../../src/preview-secrets";
 import { type ProductionCapabilities, serializeClassifierInput } from "../classifier/classifier-input";
 import { requireCasesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
+import { freezeAppLogWindow } from "./freeze-app-log-window";
 import { resolveSnapshotCoords } from "./snapshot-coords";
 
 export interface CaptureClassifierParams {
@@ -23,6 +24,14 @@ export interface CaptureClassifierParams {
     name?: string;
     /** Overwrite an existing case folder. */
     force?: boolean;
+    /**
+     * Freeze the case WITHOUT the preview's app-log window, accepting a replay that has no `get_app_logs`.
+     *
+     * The escape hatch for the two windows that cannot be frozen at all: a run older than Loki's retention, and
+     * a capture run somewhere Loki is unreachable. Both refuse by default, because a window nobody could read
+     * must not become the frozen fact "the app emitted no matching error".
+     */
+    skipAppLogs?: boolean;
 }
 
 /**
@@ -33,10 +42,11 @@ export interface CaptureClassifierParams {
  * iteration 1 never reaches.
  *
  * Everything the classifier reasons from is reassembled through the SAME helpers the production activity uses,
- * so a frozen case cannot quietly diverge from what production classified. Two things capture computes rather
- * than reads, and both are bounded to the classification's own timestamp because the source behind them is
- * mutable: the prior-runs baseline, so runs recorded afterwards cannot leak into it, and the preview's env-var
- * names, so a secret stored afterwards cannot read as configured on a run that saw it absent.
+ * so a frozen case cannot quietly diverge from what production classified. Three things capture computes rather
+ * than reads. Two are bounded to the classification's own timestamp because the source behind them is mutable:
+ * the prior-runs baseline, so runs recorded afterwards cannot leak into it, and the preview's env-var names, so a
+ * secret stored afterwards cannot read as configured on a run that saw it absent. The third is the app-log
+ * window, frozen unfiltered because the filter production used was the model's own and is not knowable here.
  */
 export async function captureClassifier(params: CaptureClassifierParams): Promise<string> {
     const logger = rootLogger.child({ name: "captureClassifier" });
@@ -85,6 +95,14 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
         freezePreviewFacts(github.repoFullName, prMeta.prNumber, meta.applicationId, classification.createdAt, logger),
     ]);
     const baseline = PriorRuns.formatBaseline(history);
+    // Waits on the namespace the lookup above resolved, so it cannot join that batch.
+    const appLogs = await freezeAppLogWindow({
+        namespace: preview.namespace,
+        startEpoch: run.startEpoch,
+        endEpoch: run.endEpoch,
+        skip: params.skipAppLogs === true,
+        logger,
+    });
 
     const frozenInput = serializeClassifierInput({
         coords,
@@ -106,6 +124,7 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
         finalScreenshotKey: generation.finalScreenshot ?? undefined,
         baseline,
         previewEnvNames: preview.previewEnvNames,
+        appLogs,
         productionCapabilities: preview.capabilities,
     });
 
@@ -121,6 +140,7 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
             steps: frozenInput.run.inspectableSteps.length,
             hasRecording: frozenInput.run.recording != null,
             previewEnvNames: preview.previewEnvNames?.length,
+            appLogLines: frozenInput.appLogs?.lines.length,
         },
     });
 
@@ -202,16 +222,20 @@ interface FrozenPreviewFacts {
     capabilities: ProductionCapabilities;
     /** The pod's full env-var name list, or undefined when it could not be frozen in full. */
     previewEnvNames?: string[];
+    /** The Loki stream selector for the app-log window; absent when the PR has no previewkit environment. */
+    namespace?: string;
 }
 
 /**
- * The preview facts a case carries: which live-infra tools production had, approximated at capture time, and
- * the env-var names a replay serves `get_preview_env` from.
+ * The preview facts a case carries: which live-infra tools production had, approximated at capture time, the
+ * env-var names a replay serves `get_preview_env` from, and the namespace its log window is read out of.
  *
- * Production gated the preview tools on whether previewkit deployed this PR, and the log tool on that plus a
- * Loki endpoint being configured - the same two facts read here. The capabilities are an approximation because
- * both are read NOW rather than at classification time; they are recorded so a case says plainly what its
- * replay cannot serve, not to reconstruct the toolset.
+ * Production gated all three tools on the one fact read here - whether previewkit deployed this PR. The log tool
+ * additionally needs a Loki endpoint, but on the WORKER that classifies, which has one; THIS machine's
+ * `LOKI_URL` says only whether capture can freeze the window, never whether production had the tool, so it is
+ * deliberately not read. The capabilities are an approximation only because the row is read NOW rather than at
+ * classification time; they are recorded so a case says plainly what its replay cannot serve, not to reconstruct
+ * the toolset.
  */
 async function freezePreviewFacts(
     repoFullName: string,
@@ -222,20 +246,16 @@ async function freezePreviewFacts(
 ): Promise<FrozenPreviewFacts> {
     if (prNumber === 0) return { capabilities: { previewEnv: false, previewScript: false, appLogs: false } };
 
-    const [previewEnvironment, { env }] = await Promise.all([
-        db.previewkitEnvironment.findUnique({
-            where: { repoFullName_prNumber: { repoFullName, prNumber } },
-            select: { resolvedConfig: true },
-        }),
-        import("../../src/env"),
-    ]);
+    const previewEnvironment = await db.previewkitEnvironment.findUnique({
+        where: { repoFullName_prNumber: { repoFullName, prNumber } },
+        select: { namespace: true, resolvedConfig: true },
+    });
 
     const previewIntegrated = previewEnvironment != null;
-    const lokiConfigured = env.LOKI_URL != null && env.LOKI_URL !== "";
     const capabilities: ProductionCapabilities = {
         previewEnv: previewIntegrated,
         previewScript: previewIntegrated,
-        appLogs: previewIntegrated && lokiConfigured,
+        appLogs: previewIntegrated,
     };
     if (previewEnvironment == null) return { capabilities };
 
@@ -245,7 +265,7 @@ async function freezePreviewFacts(
         classifiedAt,
         logger,
     });
-    return { capabilities, previewEnvNames };
+    return { capabilities, previewEnvNames, namespace: previewEnvironment.namespace };
 }
 
 interface FreezeEnvVarNames {

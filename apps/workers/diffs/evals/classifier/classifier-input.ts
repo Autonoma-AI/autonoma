@@ -11,7 +11,13 @@ import { frozenPreviewEnv } from "./frozen-preview-env";
  * A case frozen from a preview-integrated run may be graded against a classifier that can see less than the one
  * whose verdict is quoted in `capturedCategory`. That gap is a real property of the case, so it is written down
  * rather than left for a reader to infer from an absent field. Whether the replay closes it is a separate
- * question, answered by what the case carries - `previewEnvNames` for env listing, nothing for the other two.
+ * question, answered by what the case carries - `previewEnvNames` for env listing, `appLogs` for the log stream,
+ * nothing for `run_script`.
+ *
+ * All three currently hold the SAME value: production gates every one of them on whether previewkit deployed
+ * the PR. Read them as one fact per case, not three independent ones - the split survives only because the
+ * REPLAY side does differ per tool, and collapsing the record to `previewkitManaged` would migrate every case in
+ * the corpus. Tracked in #2233.
  */
 const productionCapabilitiesSchema = z.object({
     /** `get_preview_env` - the preview's configured env-var names. Replayable from `previewEnvNames`. */
@@ -23,6 +29,42 @@ const productionCapabilitiesSchema = z.object({
 });
 
 export type ProductionCapabilities = z.infer<typeof productionCapabilitiesSchema>;
+
+/**
+ * The preview app's log window, frozen UNFILTERED so any regex the classifier invents can still be answered.
+ *
+ * Production interpolated the model's regex into a LogQL line filter and had Loki evaluate it server-side, so
+ * the filter is not knowable at capture time; what is knowable is the stream Loki would have filtered. Capture
+ * therefore freezes the whole padded window over the same stream selector and replay does the filtering locally.
+ *
+ * The window this covers is NOT stored: it is the padded run window the loader derives from `run.startEpoch` /
+ * `run.endEpoch`, which capture reads off the same run it freezes, so the two cannot disagree.
+ *
+ * A window with zero lines is a real, common answer - a preview that emitted nothing the loader states as fact -
+ * and is distinct from an ABSENT window, which means the stream was never captured. Capture refuses to write a
+ * window it could not query, so an empty one here was genuinely queried and genuinely empty.
+ */
+const frozenAppLogWindowSchema = z.object({
+    /** The previewkit namespace, which the loader renders into its own prose. */
+    namespace: z.string().min(1),
+    /** Every line over the padded window, oldest first, with the nanosecond timestamps the offsets come from. */
+    lines: z.array(
+        z.object({
+            // A decimal nanosecond epoch, parsed with BigInt when the loader stamps the line's run offset -
+            // validated here so a hand-edited fixture fails at load instead of mid-classification.
+            timestampNs: z.string().regex(/^\d+$/, "a nanosecond epoch, as decimal digits"),
+            line: z.string(),
+        }),
+    ),
+    /**
+     * The capture query filled its own cap, so lines older than the oldest one here exist but were not frozen.
+     * Replay must then warn about hidden older matches however few the filter finds, exactly as a capped
+     * production query did.
+     */
+    windowTruncated: z.boolean(),
+});
+
+export type FrozenAppLogWindow = z.infer<typeof frozenAppLogWindowSchema>;
 
 /**
  * One traced step as `view_step_details` discloses it. Already key-addressed in production, so it freezes
@@ -67,9 +109,10 @@ const frozenRunSchema = z.object({
  *
  * Mirrors {@link ClassifierInput} with every live handle replaced by something addressable: the `Codebase`
  * becomes {@link CodebaseCoords}, the run's recording and final frame become storage keys, `loadBaseline`
- * becomes the prose it would have returned, and the preview's env-var listing becomes the name list it would
- * have filtered. The two capabilities a replay cannot serve at all - the preview's live backend and the
- * app-log stream - are absent by construction and recorded in `productionCapabilities`.
+ * becomes the prose it would have returned, the preview's env-var listing becomes the name list it would have
+ * filtered, and `loadAppLogs` becomes the unfiltered log window it read from. The one capability a replay cannot
+ * serve at all - `run_script`, a query against a live backend - is absent by construction and recorded in
+ * `productionCapabilities`.
  *
  * `baseSha` / `headSha` are deliberately NOT stored twice: the classifier renders them into its prompt and the
  * clone needs them too, and both read the single pair on `codebase`.
@@ -94,6 +137,12 @@ export const classifierCaseInputSchema = z.object({
      * being absent, which says the list could not be frozen honestly. Never a partial list.
      */
     previewEnvNames: z.array(z.string().min(1)).optional(),
+    /**
+     * The app-log window `get_app_logs` is replayed from. Absent for a case whose preview had no log stream, and
+     * for one captured before the window could be frozen (an aged-out run, or a capture that deliberately skipped
+     * it). Replay then omits the tool, which `describeEvidenceLimits` tells the model about.
+     */
+    appLogs: frozenAppLogWindowSchema.optional(),
     productionCapabilities: productionCapabilitiesSchema,
 });
 
@@ -117,6 +166,7 @@ export interface RehydratedClassifierInput {
     input: FrozenClassifierInput;
     media: FrozenRunMedia;
     baseline: string;
+    appLogs?: FrozenAppLogWindow;
 }
 
 /**
@@ -150,7 +200,7 @@ export function rehydrateClassifierInput(parsed: ClassifierCaseInput): Rehydrate
         },
     };
 
-    return { coords: parsed.codebase, input, media: parsed.run, baseline: parsed.baseline };
+    return { coords: parsed.codebase, input, media: parsed.run, baseline: parsed.baseline, appLogs: parsed.appLogs };
 }
 
 /** What capture holds when it freezes a case: the assembled classifier facts plus their storage addresses. */
@@ -170,6 +220,8 @@ export interface ClassifierCaseSource {
     baseline: string;
     /** The preview's full env-var name list, or undefined when it could not be frozen in full. */
     previewEnvNames?: string[];
+    /** The unfiltered log window, when the preview had a stream capture could still reach. */
+    appLogs?: FrozenAppLogWindow;
     productionCapabilities: ProductionCapabilities;
 }
 
@@ -191,6 +243,7 @@ export function serializeClassifierInput(source: ClassifierCaseSource): Classifi
         run: { ...source.run, recording: source.recording, finalScreenshotKey: source.finalScreenshotKey },
         baseline: source.baseline,
         previewEnvNames: source.previewEnvNames,
+        appLogs: source.appLogs,
         productionCapabilities: source.productionCapabilities,
     });
 }

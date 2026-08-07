@@ -11,6 +11,7 @@ import {
     persistInvestigationCosts,
     readPreviewConnectionKeys,
 } from "@autonoma/diffs/analysis";
+import { lokiQuerier } from "@autonoma/diffs/analysis/logs/loki";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { getStepOverlayPoints, type InvestigationRunStep, stepOutputDataSchema } from "@autonoma/types";
 import type { ClassifyInvestigationRunInput, InvestigationTestResult } from "@autonoma/workflow/activities";
@@ -154,20 +155,22 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         // get_app_logs / run_script / get_preview_env rather than let them fail with confusing errors the classifier
         // mistakes for signal. App logs additionally need LOKI configured on this worker.
         const previewIntegrated = resolvedPreview != null;
-        // Bind the two values the log loader REQUIRES, rather than a boolean: it now throws instead of
-        // returning prose, so it must never be constructed without an endpoint and a namespace to reach.
+        // The endpoint is bound HERE, once, into the querier the loader takes: the loader throws instead of
+        // returning prose, so it must never be constructed without somewhere to reach and a namespace to read.
         const lokiUrl = env.LOKI_URL != null && env.LOKI_URL !== "" ? env.LOKI_URL : undefined;
         const loadAppLogs =
             resolvedPreview != null && lokiUrl != null
                 ? (regex: string) =>
-                      loadPreviewAppLogs({
-                          regex,
-                          lokiUrl,
-                          namespace: resolvedPreview.namespace,
-                          startEpoch: runArtifacts.startEpoch,
-                          endEpoch: runArtifacts.endEpoch,
-                          logger,
-                      })
+                      loadPreviewAppLogs(
+                          {
+                              regex,
+                              namespace: resolvedPreview.namespace,
+                              startEpoch: runArtifacts.startEpoch,
+                              endEpoch: runArtifacts.endEpoch,
+                              logger,
+                          },
+                          lokiQuerier(lokiUrl),
+                      )
                 : undefined;
         const preview = previewIntegrated
             ? new PreviewEnvironment(previewSecrets(), context.applicationId, resolvedPreview.connectionKeys)

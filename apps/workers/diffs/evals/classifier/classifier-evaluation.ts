@@ -15,7 +15,13 @@ import {
     probeEvidence,
 } from "../framework";
 import { type ClassifierFrontmatter, checkClassifierVerdict } from "./classifier-frontmatter";
-import { type ClassifierCaseInput, type FrozenRunMedia, rehydrateClassifierInput } from "./classifier-input";
+import {
+    type ClassifierCaseInput,
+    type FrozenAppLogWindow,
+    type FrozenRunMedia,
+    rehydrateClassifierInput,
+} from "./classifier-input";
+import { createFrozenAppLogsLoader } from "./frozen-app-logs";
 
 /** A loaded Classifier eval case: frozen classification input + authored expectations. */
 export type ClassifierCase = LoadedCase<ClassifierCaseInput, ClassifierFrontmatter>;
@@ -31,13 +37,15 @@ const TIMEOUT_PER_RUN_MS = 900_000;
  *
  * Each case rehydrates the codebase from frozen coords, checks every storage key it references is still
  * downloadable, fetches the run's media, and runs {@link ClassifierAgent} directly - no workflow, no DB, no
- * writes. The prior-runs baseline is served from the frozen prose; the recording is read live, so a replay
- * grades the vision probes alongside the reasoning and touches nothing but git, S3 and the models.
+ * writes. The prior-runs baseline is served from the frozen prose and `get_app_logs` from the frozen log window;
+ * the recording is read live, so a replay grades the vision probes alongside the reasoning and touches nothing
+ * but git, S3 and the models.
  *
- * `get_preview_env` IS served, from the name list frozen at capture - it is the one live-infra capability that
- * reduces to data. The preview's live backend and the app-log stream are not, and the classifier is told as
- * much through its own evidence-limits note, so it caps unprovable claims rather than guessing; each case
- * records in `productionCapabilities` whether production had more to work with than this replay does.
+ * `get_preview_env` and `get_app_logs` ARE served, from the name list and the log window frozen at capture - the
+ * two live-infra capabilities that reduce to data. `run_script` does not: it is a query against a live backend,
+ * and the classifier is told as much through its own evidence-limits note, so it caps unprovable claims rather
+ * than guessing; each case records in `productionCapabilities` whether production had more to work with than
+ * this replay does.
  *
  * A case passes when every classification satisfies the deterministic checks AND the judge passes. Cases whose
  * codebase or media can no longer be fetched are skipped, not failed.
@@ -68,6 +76,7 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
 
     protected override testCaseInfo(testCase: ClassifierCase): Record<string, string> {
         const envNames = testCase.input.previewEnvNames;
+        const appLogs = testCase.input.appLogs;
         return {
             case: testCase.name,
             repo: `${testCase.input.codebase.owner}/${testCase.input.codebase.repo}`,
@@ -79,6 +88,7 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
             // is being graded against a classifier that could see less than the one it was captured from.
             productionOnlyTools: describeMissingTools(testCase.input),
             previewEnv: envNames != null ? `${envNames.length} names frozen` : "not frozen",
+            appLogWindow: describeAppLogWindow(appLogs),
         };
     }
 
@@ -91,7 +101,7 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
             helpers.skip("case marked skip: true in expected.md frontmatter");
         }
 
-        const { coords, input, media, baseline } = rehydrateClassifierInput(testCase.input);
+        const { coords, input, media, baseline, appLogs } = rehydrateClassifierInput(testCase.input);
         const codebase = await this.rehydrateCodebase(coords, helpers, testCase.name);
 
         const evidenceLoader = new StorageEvidenceLoader(S3Storage.createFromEnv());
@@ -125,9 +135,9 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
                 codebase,
                 screenshotLoader: evidenceLoader,
                 loadBaseline: async () => baseline,
-                // `previewEnv` rides in on `input` when the case froze one. These two have no frozen form.
+                // `previewEnv` rides in on `input` when the case froze one. `run_script` has no frozen form.
                 previewScript: undefined,
-                loadAppLogs: undefined,
+                loadAppLogs: this.appLogsFor(appLogs, input.run),
             });
             verdicts.push(verdict);
             costs.push(summarizeSessionCost(session.costCollector));
@@ -168,6 +178,27 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
         });
 
         expect(judgeVerdict.passed, `Judge failed: ${judgeVerdict.reasoning}`).toBe(true);
+    }
+
+    /**
+     * `get_app_logs`, served from the frozen window over the run's own epochs - the same window production's
+     * loader was pointed at, since capture read those epochs off the run it froze.
+     *
+     * Returning `undefined` omits the tool entirely, which is what a case with no frozen window needs: the
+     * classifier is then told it cannot read logs, rather than being handed an empty window it would state to
+     * itself as "the app emitted no matching error".
+     */
+    private appLogsFor(
+        window: FrozenAppLogWindow | undefined,
+        run: { startEpoch: number; endEpoch: number },
+    ): ((regex: string) => Promise<string>) | undefined {
+        if (window == null) return undefined;
+        return createFrozenAppLogsLoader({
+            window,
+            startEpoch: run.startEpoch,
+            endEpoch: run.endEpoch,
+            logger: this.logger,
+        });
     }
 
     /**
@@ -274,14 +305,22 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
 /**
  * The tools production had and this replay cannot serve, named for a result file.
  *
- * `get_preview_env` counts as missing only when the case carries no frozen name list: a case captured with one
- * offers the same tool over the same names, so listing it here would report a gap that is not there.
+ * `get_preview_env` and `get_app_logs` count as missing only when the case carries no frozen name list / no
+ * frozen window: a case captured with one offers the same tool over the same data, so listing it here would
+ * report a gap that is not there.
  */
 function describeMissingTools(input: ClassifierCaseInput): string {
     const capabilities = input.productionCapabilities;
     const missing: string[] = [];
     if (capabilities.previewEnv && input.previewEnvNames == null) missing.push("get_preview_env");
     if (capabilities.previewScript) missing.push("run_script");
-    if (capabilities.appLogs) missing.push("get_app_logs");
+    if (capabilities.appLogs && input.appLogs == null) missing.push("get_app_logs");
     return missing.length > 0 ? missing.join(", ") : "none";
+}
+
+/** How much log evidence the replay is serving, so a verdict resting on logs can be read against it. */
+function describeAppLogWindow(appLogs: FrozenAppLogWindow | undefined): string {
+    if (appLogs == null) return "not frozen";
+    const truncation = appLogs.windowTruncated ? " (window hit its cap; older lines were not frozen)" : "";
+    return `${appLogs.lines.length} lines${truncation}`;
 }

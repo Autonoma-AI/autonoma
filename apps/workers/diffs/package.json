@@ -42,9 +42,11 @@
         "zod": "catalog:"
     },
     "devDependencies": {
+        "@autonoma/errors": "workspace:*",
         "@autonoma/integration-test": "workspace:*",
         "@types/node": "catalog:",
         "dotenv": "catalog:",
+        "re2js": "^2.8.6",
         "tsx": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"

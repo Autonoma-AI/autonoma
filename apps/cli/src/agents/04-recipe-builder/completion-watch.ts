@@ -37,10 +37,14 @@ export function watchForCompletion(
 ): () => void {
     let graceTimer: ReturnType<typeof setTimeout> | undefined;
     let killTimer: ReturnType<typeof setTimeout> | undefined;
+    let stopped = false;
 
     const poll = setInterval(() => {
         void readCompletion(outputDir).then((complete) => {
-            if (!complete || graceTimer != null) return;
+            // A read in flight when cleanup ran outlives it, and would otherwise arm the reclaim afterwards -
+            // signalling a process that has already exited, and holding the event loop open for the grace plus
+            // escalation window. Clearing the timers cannot cover it: there is nothing to clear yet.
+            if (stopped || !complete || graceTimer != null) return;
             debugLog("Completion marker detected while the agent runs; scheduling terminal reclaim");
             clearInterval(poll);
             graceTimer = setTimeout(() => {
@@ -55,6 +59,7 @@ export function watchForCompletion(
     }, timing.pollMs);
 
     return () => {
+        stopped = true;
         clearInterval(poll);
         if (graceTimer != null) clearTimeout(graceTimer);
         if (killTimer != null) clearTimeout(killTimer);

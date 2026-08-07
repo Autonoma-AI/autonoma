@@ -53,7 +53,22 @@ const SOURCE: ClassifierCaseSource = {
     finalScreenshotKey: "gen/abc/final.png",
     baseline: "Prior runs (most recent 3):\n- ever passed: YES",
     previewEnvNames: ["DATABASE_URL", "NEXT_PUBLIC_APP_URL", "STRIPE_SECRET_KEY"],
-    productionCapabilities: { previewEnv: true, previewScript: true, appLogs: false },
+    appLogs: {
+        namespace: "preview-acme-storefront-pr-1234",
+        lines: [{ timestampNs: "1770000060000000000", line: "ERROR checkout failed: ECONNREFUSED" }],
+        windowTruncated: false,
+    },
+    productionCapabilities: { previewEnv: true, previewScript: true, appLogs: true },
+};
+
+/** A window that filled its own capture cap, so replay must warn about older matches it never froze. */
+const TRUNCATED_WINDOW = {
+    namespace: "preview-acme-storefront-pr-1234",
+    lines: [
+        { timestampNs: "1770000060000000000", line: "ERROR checkout failed: ECONNREFUSED" },
+        { timestampNs: "1770000061000000000", line: "WARN retrying in 500ms" },
+    ],
+    windowTruncated: true,
 };
 
 /** Freeze, serialize to JSON and back, then reparse - exactly what the loader does with an on-disk case. */
@@ -132,5 +147,40 @@ describe("classifier eval case round-trip", () => {
 
         expect(input.previewEnv).toBeDefined();
         expect(await input.previewEnv?.getEnvVarNames()).toEqual([]);
+    });
+
+    /**
+     * The app-log window is the one frozen source whose EMPTY form carries meaning: the loader states it to the
+     * model as the fact "the app emitted no matching error". So an empty window and an absent one must survive as
+     * different cases - one replays that fact, the other omits `get_app_logs` entirely.
+     */
+    it("distinguishes a window that was queried and empty from one that was never captured", () => {
+        const emptyWindow = throughDisk({
+            ...SOURCE,
+            appLogs: { namespace: "preview-acme-storefront-pr-1234", lines: [], windowTruncated: false },
+        });
+        const noWindow = throughDisk({ ...SOURCE, appLogs: undefined });
+
+        expect(rehydrateClassifierInput(emptyWindow).appLogs?.lines).toEqual([]);
+        expect(rehydrateClassifierInput(noWindow).appLogs).toBeUndefined();
+    });
+
+    it("preserves the frozen log window's lines and its own truncation flag", () => {
+        const { appLogs } = rehydrateClassifierInput(throughDisk({ ...SOURCE, appLogs: TRUNCATED_WINDOW }));
+
+        expect(appLogs).toEqual(TRUNCATED_WINDOW);
+    });
+
+    it("rejects a log line whose timestamp is not a nanosecond epoch, which the offset stamp would parse", () => {
+        expect(() =>
+            serializeClassifierInput({
+                ...SOURCE,
+                appLogs: {
+                    namespace: "preview-acme-storefront-pr-1234",
+                    lines: [{ timestampNs: "2026-08-05T12:00:00Z", line: "ERROR" }],
+                    windowTruncated: false,
+                },
+            }),
+        ).toThrow();
     });
 });
