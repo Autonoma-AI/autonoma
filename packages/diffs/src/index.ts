@@ -22,19 +22,13 @@ export {
     type DiffsAgentConfig,
     type DiffsAgentInput,
     type DiffsAgentResult,
-    GenerationReviewer,
-    type GenerationReviewerConfig,
-    type GenerationReviewInput,
     ListFlowsTool,
     ListScenariosTool,
     ListTestsTool,
-    ReadScenarioEntitiesTool,
     ReadScenarioRecipeEntitiesTool,
     ReadScenarioTool,
     ReadTestsTool,
     type InspectableStep,
-    ReviewerLoop,
-    type ScenarioDataLoop,
     type ScenarioLookupLoop,
     type ScenarioRecipeLoop,
     type StepInspectionLoop,
@@ -48,7 +42,6 @@ export {
     type CreatedTest,
     MIN_DESCRIPTION_LENGTH,
     type TestLookupLoop,
-    ViewFinalScreenshotTool,
     ViewStepDetailsTool,
     createTestSchema,
     validateCommand,
@@ -93,26 +86,15 @@ export {
 } from "./plan-authoring";
 
 export {
-    tryUploadVideo,
-    MessageBuilder,
-    sanitizeConversation,
     StorageEvidenceLoader,
-    buildChangeContextSection,
-    buildStepSummary,
-    type RenderableReviewStep,
-    type ReviewStep,
-    type VideoDownloader,
     type EvidenceLoader,
-    type ChangeContext,
-} from "./review/kernel";
-export { buildGenerationReviewMessages, type GenerationContext, type GenerationStepData } from "./review/generation";
+    type VideoDownloader,
+} from "./agents/tools/run-evidence/evidence-loader";
 
 // Scenario-data capability - reusable, agent-agnostic resolution + presentation
 // + in-memory disclosure of the data a run's scenario actually created.
 export {
     materializeScenarioData,
-    resolveScenarioDataForGeneration,
-    summarizeScenarioData,
     type ScenarioData,
     type ScenarioEntities,
     type ScenarioEntityRecord,
@@ -125,7 +107,7 @@ export {
 // resolves + presents + discloses the data each scenario is *designed to seed*
 // (its recipe `create` graph), sourced from the point-in-time
 // ScenarioRecipeVersion.fixtureJson. Consumed by the diffs analysis agent, which
-// runs before any replay (so no per-run instance exists yet).
+// runs before any generation (so no per-run instance exists yet).
 export {
     materializeScenarioRecipe,
     resolveScenarioRecipesForSnapshot,

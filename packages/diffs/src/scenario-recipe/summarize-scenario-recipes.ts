@@ -10,9 +10,8 @@ import type { ScenarioRecipeData } from "./types";
  * diff affects. Pure: no DB, no I/O.
  *
  * This is template (recipe) data, NOT per-run instance data: analysis runs
- * before any replay, so no scenario instance exists yet. Field values may still
- * be unresolved variable placeholders (e.g. `{{testRunId}}`). The per-run sibling
- * is `summarizeScenarioData` in `../scenario-data`.
+ * before any generation, so no scenario instance exists yet. Field values may
+ * still be unresolved variable placeholders (e.g. `{{testRunId}}`).
  *
  * Returns `undefined` when there are no recipes to present, so the caller can omit
  * the section entirely rather than render an empty heading.

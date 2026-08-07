@@ -355,8 +355,8 @@ const snapshotReport: NonNullable<TrpcFixtures["branches"]> = {
       filesChanged: [],
       filesChangedTruncated: false,
     },
-    // `results` is what the pipeline leaves behind: it counts GenerationReviews, and the merged pipeline writes
-    // none, so every investigated test lands in `pending`. The header reads `summary.analysis` instead.
+    // The header reads `summary.analysis` for an authoritative run, so this tally is deliberately left at zero:
+    // the fixture asserts the analysis vocabulary wins, not that the two agree.
     results: {
       durationMs: 214_000,
       passed: 0,
@@ -367,7 +367,6 @@ const snapshotReport: NonNullable<TrpcFixtures["branches"]> = {
       total: 5,
       tests: [],
     },
-    bugs: [],
     health: "critical",
     healthCounts: { failing: 3, passing: 2, running: 0, setupFailed: 0, notAffected: 0, totalTests: 5 },
     // What `buildAuthoritativeCheckpointSummary` produces for this run: the `analysis` block is the authoritative
@@ -377,10 +376,7 @@ const snapshotReport: NonNullable<TrpcFixtures["branches"]> = {
       label: "Needs attention",
       reason: "1 couldn't confirm",
       executionState: "failed",
-      openBugCount: 1,
-      issueOccurrenceCount: 1,
       testCounts: { assigned: 24, run: 5, passed: 2, failed: 0, setupFailed: 0, running: 0, notRun: 19 },
-      failingByKind: { engine: 0, app: 0 },
       suiteChangeCount: 2,
       analysis: { jobStatus: "completed", bugCount: 1, passedCount: 2, coverageCount: 2 },
     },
@@ -427,10 +423,7 @@ const snapshotDetail: NonNullable<TrpcFixtures["branches"]> = {
       tone: "critical",
       label: "Needs attention",
       executionState: "failed",
-      openBugCount: 0,
-      issueOccurrenceCount: 0,
       testCounts: { assigned: 5, run: 5, passed: 2, failed: 3, setupFailed: 0, running: 0, notRun: 0 },
-      failingByKind: { engine: 2, app: 1 },
       suiteChangeCount: 0,
     },
     executedTests: [],
@@ -536,8 +529,6 @@ function jobStateFixtures(
           label: failed ? "Checkpoint failed" : "Analyzing",
           reason: failed ? "pipeline error" : undefined,
           executionState: failed ? "pipeline_failed" : "running",
-          openBugCount: 0,
-          issueOccurrenceCount: 0,
           analysis: { jobStatus: analysisJob.status, bugCount: 0, passedCount: 0, coverageCount: 0 },
         },
       },
@@ -663,10 +654,7 @@ export const Running: Story = {
   },
 };
 
-/**
- * A run that died before producing a report. The page shows the failure and its reason where the report would be -
- * previously it fell through to the diffs body and rendered a false "0 bugs".
- */
+/** A run that died before producing a report. The page shows the failure and its reason where the report would be. */
 export const Failed: Story = {
   args: { path: `/app/${baseApplication.slug}/pull-requests/${PR_NUMBER}/snapshots/${SNAPSHOT_ID}` },
   parameters: {

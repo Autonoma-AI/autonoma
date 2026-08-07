@@ -7,8 +7,6 @@ export type {
     NotifyGenerationExitInput,
 } from "./general-activities";
 
-export type { DiffsActivities, ReviewGenerationInput, ReviewGenerationOutput } from "./diffs-activities";
-
 export type {
     PreviewkitActivities,
     ResolvePreviewTargetInput,

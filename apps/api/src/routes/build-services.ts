@@ -43,11 +43,9 @@ import { SuiteHealthFixPlanService } from "./applications/suite-health-fix-plan.
 import { SuiteHealthService } from "./applications/suite-health.service";
 import { AuthService } from "./auth/auth.service";
 import { BranchesService } from "./branches/branches.service";
-import { BugsService } from "./bugs/bugs.service";
 import { DeploymentsService } from "./deployments/deployments.service";
 import { PreviewkitEnvFactoryService } from "./deployments/previewkit-env-factory.service";
 import { FoldersService } from "./folders/folders.service";
-import { IssuesService } from "./issues/issues.service";
 import { OnboardingAgentSessionService } from "./onboarding/onboarding-agent-session.service";
 import { OnboardingAnalytics } from "./onboarding/onboarding-analytics";
 import { OnboardingManager } from "./onboarding/onboarding-manager";
@@ -66,7 +64,6 @@ export interface Services {
     suiteHealth: SuiteHealthService;
     suiteHealthFixPlan: SuiteHealthFixPlanService;
     branches: BranchesService;
-    bugs: BugsService;
     deployments: DeploymentsService;
     previewkitEnvFactory: PreviewkitEnvFactoryService;
     testGenerations: TestGenerationsService;
@@ -84,7 +81,6 @@ export interface Services {
     bugFixOutcome: BugFixOutcomeService;
     repoIntrospection: RepoIntrospectionService;
     previewkitDiagnosis: PreviewkitDiagnosisService;
-    issues: IssuesService;
     onboarding: OnboardingService;
     snapshotEdit: SnapshotEditService;
     billing: BillingService;
@@ -208,7 +204,6 @@ export function buildServices({
         auth: new AuthService(conn, new ParkedSessionStore(redisClient), new DemoEntrySourceStore(redisClient)),
         apiKeys: apiKeysService,
         branches: branchesService,
-        bugs: new BugsService(conn, storageProvider, analytics, env.APP_URL),
         deployments: new DeploymentsService(conn, previewkitTrigger),
         previewkitEnvFactory: new PreviewkitEnvFactoryService(conn, encryptionHelper),
         applications: applicationsService,
@@ -237,7 +232,6 @@ export function buildServices({
         bugFixOutcome: new BugFixOutcomeService(conn, analytics, env.MERGE_GATE_ENABLED, branchContributorService),
         repoIntrospection: repoIntrospectionService,
         previewkitDiagnosis: new PreviewkitDiagnosisService(conn, env.PREVIEWKIT_LOKI_URL, previewkitAiModel),
-        issues: new IssuesService(conn, storageProvider),
         onboarding: new OnboardingService(onboardingManager),
         rateLimiter,
         onboardingAgentSession,

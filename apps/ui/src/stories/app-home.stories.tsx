@@ -32,30 +32,26 @@ const PAGED_AUTHORS = ["jrivera", "amoreno", "tcastro", "lweiss"];
 export const dashboardFixtures: TrpcFixtures = {
   branches: {
     list: branchPage(),
-    // An application whose main has not run analysis: the rail keeps presenting its legacy `Bug` rows.
-    mainOpenProblems: {
-      source: "legacy_bug",
-      problems: [
-        {
-          id: "bug_fixture_01",
-          title: "Checkout button unresponsive after coupon removal",
-          kind: "bug",
-          severity: "high",
-          detail: "Removing a coupon leaves the checkout button disabled until the page is reloaded.",
-          occurrences: 3,
-          lastSeenAt: LAST_SEEN,
-        },
-        {
-          id: "bug_fixture_02",
-          title: "Profile avatar upload silently fails on PNG over 5MB",
-          kind: "bug",
-          severity: "medium",
-          detail: "The upload dialog closes as if it succeeded and the old avatar is still shown.",
-          occurrences: 1,
-          lastSeenAt: LAST_SEEN,
-        },
-      ],
-    },
+    mainOpenProblems: [
+      {
+        id: "bug_fixture_01",
+        title: "Checkout button unresponsive after coupon removal",
+        kind: "bug",
+        severity: "high",
+        detail: "Removing a coupon leaves the checkout button disabled until the page is reloaded.",
+        occurrences: 3,
+        lastSeenAt: LAST_SEEN,
+      },
+      {
+        id: "bug_fixture_02",
+        title: "Profile avatar upload silently fails on PNG over 5MB",
+        kind: "bug",
+        severity: "medium",
+        detail: "The upload dialog closes as if it succeeded and the old avatar is still shown.",
+        occurrences: 1,
+        lastSeenAt: LAST_SEEN,
+      },
+    ],
     detailByName: {
       id: baseApplication.mainBranchId ?? "branch_fixture_01",
       name: "main",
@@ -163,7 +159,6 @@ const PAGED_PRS = branchPage(
         authorLogin: PAGED_AUTHORS[index % PAGED_AUTHORS.length]!,
         updatedAt: new Date(Date.UTC(2026, 7, 3, 23 - index, 40)),
       },
-      bugCount: index % 5 === 0 ? 1 : 0,
       previewUrl: undefined,
       prStatus: { kind: "pending_checks" as const },
       activeSnapshot: null,

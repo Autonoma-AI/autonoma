@@ -28,15 +28,6 @@ export const checkpointTestCountsSchema = z.object({
 });
 export type CheckpointTestCounts = z.infer<typeof checkpointTestCountsSchema>;
 
-// Engine-vs-app attribution of failing tests that have a linked Issue: an
-// `engine_limitation` Issue counts as engine, `application_bug` / `unknown_issue`
-// as app. Reported tests re-run every snapshot and surface here as failures.
-export const checkpointFailingByKindSchema = z.object({
-    engine: z.number(),
-    app: z.number(),
-});
-export type CheckpointFailingByKind = z.infer<typeof checkpointFailingByKindSchema>;
-
 // The authoritative-analysis view of a checkpoint, present only when the merged pipeline ran on the snapshot (it
 // has an AnalysisJob). When set, tone/label/reason are derived from the AnalysisReport verdict + finding
 // categories rather than the legacy health/Bug model, and the counts below drive the authoritative metrics line.
@@ -59,12 +50,7 @@ export const checkpointPresentationSummarySchema = z.object({
     label: z.string(),
     reason: z.string().optional(),
     executionState: checkpointExecutionStateSchema,
-    // Unique open application bugs.
-    openBugCount: z.number(),
-    // Raw application-issue occurrences.
-    issueOccurrenceCount: z.number(),
     testCounts: checkpointTestCountsSchema,
-    failingByKind: checkpointFailingByKindSchema,
     suiteChangeCount: z.number(),
     // Set only for authoritative-analysis snapshots; absent for legacy diffs/shadow snapshots.
     analysis: checkpointAnalysisSummarySchema.optional(),

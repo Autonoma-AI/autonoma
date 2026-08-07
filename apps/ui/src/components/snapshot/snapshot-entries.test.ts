@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { CreatedTest, SnapshotChange } from "./snapshot-types";
 import { buildSections } from "./snapshot-entries";
+import type { CreatedTest, SnapshotChange } from "./snapshot-types";
 
 const NEW_TEST_CASE = { id: "tc-2", name: "Guest checkout", slug: "guest-checkout", folderId: "folder-1" };
 
@@ -20,7 +20,7 @@ function createdTest(): CreatedTest {
         testCase: NEW_TEST_CASE,
         description: "A guest user can complete checkout without signing in and reach the order confirmation page.",
         plan: "authored plan",
-        generation: { id: "gen-new", status: "success", verdict: "success", reviewReasoning: "Generated cleanly." },
+        generation: { id: "gen-new", status: "success" },
     };
 }
 

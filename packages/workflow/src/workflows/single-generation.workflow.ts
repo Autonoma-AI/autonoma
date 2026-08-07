@@ -1,5 +1,5 @@
 import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
-import type { DiffsActivities, GeneralActivities, MobileActivities, WebActivities } from "../activities";
+import type { GeneralActivities, MobileActivities, WebActivities } from "../activities";
 import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
 import type { WorkflowArchitecture } from "../types";
@@ -9,13 +9,6 @@ const general = proxyActivities<GeneralActivities>({
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
     taskQueue: TaskQueue.GENERAL,
-});
-
-const diffs = proxyActivities<DiffsActivities>({
-    startToCloseTimeout: "15m",
-    heartbeatTimeout: "2m",
-    retry: { maximumAttempts: 1 },
-    taskQueue: TaskQueue.DIFFS,
 });
 
 export interface SingleGenerationInput {
@@ -66,13 +59,8 @@ export async function singleGenerationWorkflow(input: SingleGenerationInput): Pr
         );
         throw error;
     } finally {
-        const cancelled = CancellationScope.current().consideredCancelled;
         await CancellationScope.nonCancellable(async () => {
             const postSteps: Promise<unknown>[] = [general.notifyGenerationExit({ testGenerationId })];
-
-            if (!cancelled) {
-                postSteps.push(diffs.reviewGeneration({ generationId: testGenerationId }));
-            }
 
             if (scenarioInstanceId != null) {
                 postSteps.push(general.scenarioDown({ scenarioInstanceId }));

@@ -43,7 +43,6 @@ function row(index: number): BranchRow {
       authorLogin: branch.author,
       updatedAt: new Date(Date.UTC(2026, 7, 3, 23 - index, 40)),
     },
-    bugCount: index % 4 === 0 ? 1 : 0,
     previewUrl: undefined,
     prStatus: STATUSES[index % STATUSES.length]!,
     activeSnapshot: null,

@@ -22,12 +22,12 @@ apiTestSuite({
             );
 
             const failingPlan = await createPlanFor(harness, fixture.assignments.failing);
-            const failedGeneration = await createReviewedGeneration(harness, fixture.snapshotId, failingPlan.id, {
-                at: latestTime,
-                status: "success",
-                verdict: "application_bug",
-                reasoning: "The submit button never becomes enabled.",
-            });
+            const failedGeneration = await createFailedGeneration(
+                harness,
+                fixture.snapshotId,
+                failingPlan.id,
+                latestTime,
+            );
 
             const runningPlan = await createPlanFor(harness, fixture.assignments.running);
             await createRunningGeneration(harness, fixture.snapshotId, runningPlan.id, latestTime);
@@ -58,64 +58,7 @@ apiTestSuite({
             });
 
             const failed = detail.executedTests.find((row) => row.testCase.slug === "failing-check");
-            expect(failed).toMatchObject({
-                generationId: failedGeneration.id,
-                finalOutcome: "failed",
-                verdict: "application_bug",
-                reviewReasoning: "The submit button never becomes enabled.",
-            });
-        });
-
-        test("attributes failing tests with a linked Issue to engine vs app by issue kind", async ({ harness }) => {
-            const fixture = await createSnapshotDetailFixture(harness);
-            const at = new Date("2026-01-01T11:00:00Z");
-
-            // An engine-limitation failure: failed generation -> review -> engine_limitation Issue.
-            const enginePlan = await createPlanFor(harness, fixture.assignments.failing);
-            const engineGeneration = await createReviewedGeneration(harness, fixture.snapshotId, enginePlan.id, {
-                at,
-                status: "failed",
-                verdict: "agent_limitation",
-            });
-            const engineReview = await harness.db.generationReview.findFirstOrThrow({
-                where: { generationId: engineGeneration.id },
-            });
-            await harness.db.issue.create({
-                data: {
-                    kind: "engine_limitation",
-                    severity: "low",
-                    title: "Engine cannot interact with the canvas element",
-                    description: "The drawing surface is not addressable by the driver.",
-                    generationReviewId: engineReview.id,
-                    organizationId: harness.organizationId,
-                },
-            });
-
-            // An application-bug failure: failed generation -> review -> application_bug Issue.
-            const appPlan = await createPlanFor(harness, fixture.assignments.extra);
-            const appGeneration = await createReviewedGeneration(harness, fixture.snapshotId, appPlan.id, {
-                at,
-                status: "failed",
-                verdict: "application_bug",
-            });
-            const appReview = await harness.db.generationReview.findFirstOrThrow({
-                where: { generationId: appGeneration.id },
-            });
-            await harness.db.issue.create({
-                data: {
-                    kind: "application_bug",
-                    severity: "high",
-                    title: "Checkout crashes on submit",
-                    description: "Submitting the order throws a 500.",
-                    generationReviewId: appReview.id,
-                    organizationId: harness.organizationId,
-                },
-            });
-
-            const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
-
-            expect(detail.healthCounts.failing).toBe(2);
-            expect(detail.summary.failingByKind).toEqual({ engine: 1, app: 1 });
+            expect(failed).toMatchObject({ generationId: failedGeneration.id, finalOutcome: "failed" });
         });
 
         test("returns no executed rows when assignments have not run", async ({ harness }) => {
@@ -163,7 +106,7 @@ apiTestSuite({
                 testCase: { id: assignment.testCaseId, slug: "guest-check" },
                 description: "A guest can complete checkout without signing in and reach order confirmation.",
                 plan: "Complete checkout",
-                generation: { id: generation.id, status: "success", verdict: "success" },
+                generation: { id: generation.id, status: "success" },
             });
         });
 
@@ -221,14 +164,11 @@ apiTestSuite({
                 totalTests: 1,
             });
             expect(detail.executedTests).toHaveLength(1);
-            expect(detail.executedTests[0]).toMatchObject({
-                finalOutcome: "setup_failed",
-                reviewReasoning: "The staging environment never came up.",
-            });
+            expect(detail.executedTests[0]).toMatchObject({ finalOutcome: "setup_failed" });
         });
 
-        test("summary reads 'No runs' (neutral), not unhealthy, with no runs and no bugs", async ({ harness }) => {
-            // Assigned tests, zero runs, zero open bugs. Must not present as "unhealthy · 0 bugs".
+        test("summary reads 'No runs' (neutral), not unhealthy, with no runs", async ({ harness }) => {
+            // Assigned tests, zero runs. Must not present as "unhealthy".
             const fixture = await createSnapshotDetailFixture(harness);
 
             const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
@@ -236,8 +176,6 @@ apiTestSuite({
             expect(detail.summary.executionState).toBe("not_started");
             expect(detail.summary.tone).toBe("neutral");
             expect(detail.summary.label).toBe("No runs");
-            expect(detail.summary.openBugCount).toBe(0);
-            expect(detail.summary.failingByKind).toEqual({ engine: 0, app: 0 });
         });
     },
 });
@@ -354,39 +292,6 @@ async function createRunningGeneration(harness: APITestHarness, snapshotId: stri
     });
 }
 
-async function createReviewedGeneration(
-    harness: APITestHarness,
-    snapshotId: string,
-    testPlanId: string,
-    input: {
-        at: Date;
-        status: "success" | "failed";
-        verdict: "success" | "agent_limitation" | "application_bug" | "plan_mismatch";
-        reasoning?: string;
-    },
-) {
-    const generation = await harness.db.testGeneration.create({
-        data: {
-            snapshotId,
-            testPlanId,
-            status: input.status,
-            createdAt: input.at,
-            updatedAt: input.at,
-            organizationId: harness.organizationId,
-        },
-    });
-    await harness.db.generationReview.create({
-        data: {
-            generationId: generation.id,
-            status: "completed",
-            verdict: input.verdict,
-            reasoning: input.reasoning,
-            organizationId: harness.organizationId,
-        },
-    });
-    return generation;
-}
-
 async function createSuccessfulGeneration(harness: APITestHarness, snapshotId: string, testPlanId: string, at: Date) {
     const generation = await harness.db.testGeneration.create({
         data: {
@@ -395,15 +300,6 @@ async function createSuccessfulGeneration(harness: APITestHarness, snapshotId: s
             status: "success",
             createdAt: at,
             updatedAt: at,
-            organizationId: harness.organizationId,
-        },
-    });
-    await harness.db.generationReview.create({
-        data: {
-            generationId: generation.id,
-            status: "completed",
-            verdict: "success",
-            reasoning: "Generation passed review.",
             organizationId: harness.organizationId,
         },
     });
@@ -418,15 +314,6 @@ async function createFailedGeneration(harness: APITestHarness, snapshotId: strin
             status: "failed",
             createdAt: at,
             updatedAt: at,
-            organizationId: harness.organizationId,
-        },
-    });
-    await harness.db.generationReview.create({
-        data: {
-            generationId: generation.id,
-            status: "completed",
-            verdict: "application_bug",
-            reasoning: "Generation could not satisfy the plan.",
             organizationId: harness.organizationId,
         },
     });

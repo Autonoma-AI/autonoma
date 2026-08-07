@@ -159,7 +159,6 @@ function snapshotHistoryItem(overrides: {
   prevSnapshotId: string | null;
   tone: "success" | "critical";
   label: string;
-  bugCount: number;
   passing: number;
   failing: number;
 }) {
@@ -183,13 +182,10 @@ function snapshotHistoryItem(overrides: {
       notAffected: 0,
       totalTests,
     },
-    bugCount: overrides.bugCount,
     summary: {
       tone: overrides.tone,
       label: overrides.label,
       executionState: (overrides.tone === "critical" ? "failed" : "passed") as "failed" | "passed",
-      openBugCount: overrides.bugCount,
-      issueOccurrenceCount: 0,
       testCounts: {
         assigned: totalTests,
         run: totalTests,
@@ -199,7 +195,6 @@ function snapshotHistoryItem(overrides: {
         running: 0,
         notRun: 0,
       },
-      failingByKind: { engine: 0, app: overrides.failing },
       suiteChangeCount: 3,
     },
   };
@@ -215,7 +210,6 @@ const snapshotHistory: NonNullable<TrpcFixtures["branches"]>["snapshotHistory"] 
     prevSnapshotId: PREV_SNAPSHOT_ID,
     tone: "critical",
     label: "Needs attention",
-    bugCount: 1,
     passing: 2,
     failing: 1,
   }),
@@ -226,7 +220,6 @@ const snapshotHistory: NonNullable<TrpcFixtures["branches"]>["snapshotHistory"] 
     prevSnapshotId: null,
     tone: "success",
     label: "Healthy",
-    bugCount: 0,
     passing: 3,
     failing: 0,
   }),
@@ -243,7 +236,6 @@ const failedSnapshotHistoryItem: (typeof snapshotHistory)[number] = {
     label: "Checkpoint failed",
     reason: "pipeline error",
     executionState: "pipeline_failed",
-    openBugCount: 0,
     analysis: { jobStatus: "failed", bugCount: 0, passedCount: 0, coverageCount: 0 },
   },
 };
@@ -471,7 +463,6 @@ const notConfirmedReport: NonNullable<TrpcFixtures["branches"]> = {
 // green, so the rail and header agree with the verdict headline.
 const notConfirmedLatest: (typeof snapshotHistory)[number] = {
   ...snapshotHistory[0]!,
-  bugCount: 0,
   health: "unknown",
   summary: {
     ...snapshotHistory[0]!.summary!,
@@ -479,7 +470,6 @@ const notConfirmedLatest: (typeof snapshotHistory)[number] = {
     label: "Not confirmed",
     reason: "2 couldn't confirm",
     executionState: "not_started",
-    openBugCount: 0,
     analysis: { jobStatus: "completed", bugCount: 0, passedCount: 3, coverageCount: 2 },
   },
 };

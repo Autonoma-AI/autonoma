@@ -37,7 +37,7 @@ pnpm build
 
 ### Run Locally
 
-For local diffs tooling - analysis, the full pipeline, and generation reviewer inspection - see `@autonoma/worker-diffs` (e.g. `pnpm --filter @autonoma/worker-diffs diffs-agent`, `full-pipeline`, `review:generation <generationId>`).
+For local diffs tooling - the scored per-step evals and the commands that capture their cases - see `@autonoma/worker-diffs` (`pnpm --filter @autonoma/worker-diffs eval`, `capture:analysis`, `capture:classifier`).
 
 ## Environment Variables
 

@@ -163,7 +163,7 @@ const baseTrpcFixtures: TrpcFixtures = {
     },
     // Every "what is unresolved on main" surface reads this one query, so the baseline answers it with a quiet
     // application - a story that does not care about main's problems renders the empty state instead of erroring.
-    branches: { mainOpenProblems: { source: "legacy_bug", problems: [] } },
+    branches: { mainOpenProblems: [] },
     github: { getInstallation: null },
     // List views poll preview liveness; default to none so a story that doesn't
     // set it renders without the badge (and never errors on the unmocked call).

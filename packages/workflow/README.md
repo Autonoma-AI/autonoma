@@ -26,7 +26,6 @@ src/
 │   ├── analysis-activities.ts           # Everything the diffs worker runs: stages, classify, Investigator writes
 │   ├── previewkit-activities.ts         # Preview build lifecycle + the warrant's inputs
 │   ├── general-activities.ts            # Scenario setup/teardown + generation lifecycle
-│   ├── diffs-activities.ts              # The generation reviewer, on the diffs queue
 │   ├── web-activities.ts                # Web worker
 │   └── mobile-activities.ts             # Mobile worker
 ├── workflows/                            # Everything that runs INSIDE the workflow sandbox, and nothing else

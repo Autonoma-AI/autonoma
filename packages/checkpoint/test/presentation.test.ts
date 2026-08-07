@@ -15,45 +15,21 @@ function counts(overrides: Partial<SnapshotHealthCounts> = {}): SnapshotHealthCo
 }
 
 describe("buildCheckpointSummary", () => {
-    it("reports 'No runs' (neutral) when nothing ran and passes the engine-vs-app split through", () => {
-        // Assigned tests, 0 runs, 0 bugs, an engine-attributed failing split from a prior run.
+    it("reports 'No runs' (neutral) when nothing ran", () => {
         const summary = buildCheckpointSummary({
             snapshotStatus: "active",
             counts: counts({ totalTests: 63, notAffected: 63 }),
-            openBugCount: 0,
-            failingByKind: { engine: 27, app: 0 },
         });
 
         expect(summary.executionState).toBe("not_started");
         expect(summary.tone).toBe("neutral");
         expect(summary.label).toBe("No runs");
-        expect(summary.openBugCount).toBe(0);
-        expect(summary.failingByKind).toEqual({ engine: 27, app: 0 });
-    });
-
-    it("labels unique open bugs and surfaces occurrences separately", () => {
-        // 9 unique open bugs across 15 issue occurrences.
-        const summary = buildCheckpointSummary({
-            snapshotStatus: "active",
-            counts: counts({ totalTests: 73, failing: 9, notAffected: 64 }),
-            openBugCount: 9,
-            issueOccurrenceCount: 15,
-            failingByKind: { engine: 0, app: 9 },
-        });
-
-        expect(summary.tone).toBe("critical");
-        expect(summary.label).toBe("9 bugs");
-        expect(summary.reason).toBe("15 occurrences");
-        expect(summary.openBugCount).toBe(9);
-        expect(summary.issueOccurrenceCount).toBe(15);
     });
 
     it("surfaces accepted suite changes while execution has not started", () => {
         const summary = buildCheckpointSummary({
             snapshotStatus: "active",
             counts: counts({ totalTests: 207, notAffected: 207 }),
-            openBugCount: 0,
-            failingByKind: { engine: 0, app: 0 },
             suiteChangeCount: 3,
         });
 
@@ -66,8 +42,6 @@ describe("buildCheckpointSummary", () => {
         const summary = buildCheckpointSummary({
             snapshotStatus: "failed",
             counts: counts({ totalTests: 10 }),
-            openBugCount: 0,
-            failingByKind: { engine: 0, app: 0 },
         });
 
         expect(summary.executionState).toBe("pipeline_failed");
@@ -75,12 +49,10 @@ describe("buildCheckpointSummary", () => {
         expect(summary.label).toBe("Checkpoint failed");
     });
 
-    it("warns (not 0-bug-critical) when a test failed but no bug is filed yet", () => {
+    it("warns when a test failed", () => {
         const summary = buildCheckpointSummary({
             snapshotStatus: "active",
             counts: counts({ totalTests: 5, failing: 2, passing: 3 }),
-            openBugCount: 0,
-            failingByKind: { engine: 0, app: 0 },
         });
 
         expect(summary.executionState).toBe("failed");
@@ -88,12 +60,32 @@ describe("buildCheckpointSummary", () => {
         expect(summary.label).toBe("2 failing");
     });
 
+    it("counts setup failures alongside the failing ones", () => {
+        const summary = buildCheckpointSummary({
+            snapshotStatus: "active",
+            counts: counts({ totalTests: 5, failing: 2, setupFailed: 1, passing: 2 }),
+        });
+
+        expect(summary.label).toBe("3 failing");
+    });
+
+    it("names setup failures as such when nothing else failed", () => {
+        // The environment never came up, so no test got a chance to fail on its merits - saying "1 failing"
+        // here would read as a claim about the application.
+        const summary = buildCheckpointSummary({
+            snapshotStatus: "active",
+            counts: counts({ totalTests: 4, setupFailed: 1, passing: 3 }),
+        });
+
+        expect(summary.executionState).toBe("failed");
+        expect(summary.tone).toBe("warning");
+        expect(summary.label).toBe("1 setup failed");
+    });
+
     it("marks pending/running runs on a terminal snapshot as stale", () => {
         const summary = buildCheckpointSummary({
             snapshotStatus: "active",
             counts: counts({ totalTests: 4, running: 1, passing: 3 }),
-            openBugCount: 0,
-            failingByKind: { engine: 0, app: 0 },
         });
 
         expect(summary.executionState).toBe("stale");
@@ -104,8 +96,6 @@ describe("buildCheckpointSummary", () => {
         const summary = buildCheckpointSummary({
             snapshotStatus: "processing",
             counts: counts({ totalTests: 4, running: 1 }),
-            openBugCount: 0,
-            failingByKind: { engine: 0, app: 0 },
         });
 
         expect(summary.executionState).toBe("running");
@@ -116,8 +106,6 @@ describe("buildCheckpointSummary", () => {
         const summary = buildCheckpointSummary({
             snapshotStatus: "active",
             counts: counts({ totalTests: 4, passing: 4 }),
-            openBugCount: 0,
-            failingByKind: { engine: 0, app: 0 },
         });
 
         expect(summary.executionState).toBe("passed");
@@ -150,7 +138,6 @@ describe("buildAuthoritativeCheckpointSummary", () => {
 
         expect(summary.tone).toBe("critical");
         expect(summary.label).toBe("2 bugs");
-        expect(summary.openBugCount).toBe(2);
         expect(summary.analysis?.bugCount).toBe(2);
     });
 

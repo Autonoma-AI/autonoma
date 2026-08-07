@@ -21,7 +21,10 @@ let blockImpact = false;
 let impactStarted: Promise<void>;
 let notifyImpactStarted: () => void;
 
-const activities: AnalysisActivities = {
+const activities: Pick<
+    AnalysisActivities,
+    "openAnalysisRun" | "openMergeGate" | "runImpactAnalysis" | "runReporter" | "settleAnalysisRun"
+> = {
     async openAnalysisRun() {
         return { skipped: false, snapshotId };
     },

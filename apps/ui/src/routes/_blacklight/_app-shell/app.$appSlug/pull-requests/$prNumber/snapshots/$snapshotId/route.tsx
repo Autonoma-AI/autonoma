@@ -4,7 +4,6 @@ import { Outlet, createFileRoute, notFound, useLocation } from "@tanstack/react-
 import { AnalysisJobStatus } from "components/analysis/analysis-job-status";
 import { AnalysisReportBody } from "components/analysis/analysis-report-body";
 import { ReasoningPanel } from "components/snapshot/reasoning-panel";
-import { SnapshotBugsPanel, SnapshotBugsPanelSkeleton } from "components/snapshot/snapshot-bugs-panel";
 import { SnapshotReportHeader } from "components/snapshot/snapshot-report-header";
 import { SnapshotReportTabs } from "components/snapshot/snapshot-report-tabs";
 import type { SnapshotDetail } from "components/snapshot/snapshot-types";
@@ -20,12 +19,9 @@ import {
   useFullSnapshotDetail,
   useSnapshotReport,
 } from "lib/query/branches.queries";
-import type { RouterOutputs } from "lib/trpc";
 import { Suspense } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { CheckpointTestsRun } from "../../../-components/checkpoint-tests-run";
-
-type SnapshotReport = RouterOutputs["branches"]["snapshotReport"];
 
 export const Route = createFileRoute(
   "/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId",
@@ -100,26 +96,17 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
           <AnalysisJobStatus job={analysisJob} />
         )
       ) : (
-        <SnapshotReportBody report={report} detail={detail} prNumber={prNumber} />
+        <SnapshotReportBody detail={detail} prNumber={prNumber} />
       )}
     </div>
   );
 }
 
-function SnapshotReportBody({
-  report,
-  detail,
-  prNumber,
-}: {
-  report: SnapshotReport;
-  detail: SnapshotDetail;
-  prNumber: number;
-}) {
+function SnapshotReportBody({ detail, prNumber }: { detail: SnapshotDetail; prNumber: number }) {
   return (
     <div className="flex flex-col gap-6">
       <SuiteChangesSummary detail={detail} prNumber={prNumber} />
       <TestsRunPanel detail={detail} />
-      <SnapshotBugsPanel report={report} />
     </div>
   );
 }
@@ -159,7 +146,6 @@ function PageSkeleton({ prNumber }: { prNumber: number }) {
         <Skeleton className="h-8 w-96" />
         <Skeleton className="h-5 w-160 max-w-full" />
       </header>
-      <SnapshotBugsPanelSkeleton />
     </div>
   );
 }

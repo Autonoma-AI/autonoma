@@ -1,8 +1,6 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import type { AnalysisActivities, DiffsActivities } from "@autonoma/workflow/activities";
+import type { AnalysisActivities } from "@autonoma/workflow/activities";
 import { heartbeat } from "@temporalio/activity";
-
-export { reviewGeneration } from "./review/generation";
 
 // Opening the run is the one analysis step with nothing long-running to do, so it skips the heartbeat wrapper.
 export { openAnalysisRun } from "./analysis/open-analysis-run";
@@ -17,7 +15,6 @@ import { runReporter as runReporterImpl } from "./analysis/run-reporter";
 import { selfHealAnalysisTest as selfHealAnalysisTestImpl } from "./analysis/self-heal-test";
 import { settleAnalysisRun as settleAnalysisRunImpl } from "./analysis/settle-analysis-run";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
-import { reviewGeneration } from "./review/generation";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
@@ -62,9 +59,6 @@ export const selfHealAnalysisTest = withHeartbeat(selfHealAnalysisTestImpl);
 export const revertSelfHealPlan = withHeartbeat(revertSelfHealPlanImpl);
 export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
 export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassificationImpl);
-
-// Compile-time check: ensure exported activities match the DiffsActivities contract.
-({ reviewGeneration }) satisfies DiffsActivities;
 
 // Compile-time check: this worker implements the whole DIFFS-queue contract - the run's stages, the per-test
 // classify, and the Investigator's row-local writes.

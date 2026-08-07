@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ViewStepDetailsTool } from "../src/agents/tools/run-evidence/view-step-details-tool";
 import { executeTool, type ToolEnvelope } from "./execute-tool";
-import { makeReviewerLoop } from "./test-loops";
+import { makeStepInspectionLoop } from "./test-loops";
 
 const WIDTH = 100;
 const HEIGHT = 100;
@@ -37,7 +37,7 @@ const foundSchema = z.object({
 
 type FoundResult = z.infer<typeof foundSchema>;
 
-async function viewStep(loop: ReturnType<typeof makeReviewerLoop>): Promise<FoundResult> {
+async function viewStep(loop: ReturnType<typeof makeStepInspectionLoop>): Promise<FoundResult> {
     const envelope = await executeTool<ToolEnvelope<unknown>>(new ViewStepDetailsTool(), { stepOrder: 0 }, loop);
     if (!envelope.success) throw new Error(`Expected success, got error: ${envelope.error}`);
     return foundSchema.parse(envelope.result);
@@ -54,7 +54,7 @@ describe("ViewStepDetailsTool", () => {
 
     it("returns both frames for a step that captured both", async () => {
         const shot = await whiteScreenshot();
-        const loop = makeReviewerLoop({
+        const loop = makeStepInspectionLoop({
             steps: [{ order: 0, screenshotBeforeKey: "before.png", screenshotAfterKey: "after.png" }],
             screenshotLoader: { loadScreenshot: async () => shot },
         });
@@ -66,7 +66,7 @@ describe("ViewStepDetailsTool", () => {
 
     it("annotates the before screenshot of a web click step at the resolved point", async () => {
         const before = await whiteScreenshot();
-        const loop = makeReviewerLoop({
+        const loop = makeStepInspectionLoop({
             architecture: "WEB",
             steps: [{ order: 0, screenshotBeforeKey: "before.png", overlayPoints: [clickPoint] }],
             screenshotLoader: { loadScreenshot: async () => before },
@@ -86,7 +86,7 @@ describe("ViewStepDetailsTool", () => {
             { x: 20, y: 20, role: "drag-start" },
             { x: 80, y: 80, role: "drag-end" },
         ];
-        const loop = makeReviewerLoop({
+        const loop = makeStepInspectionLoop({
             architecture: "WEB",
             steps: [{ order: 0, screenshotBeforeKey: "before.png", overlayPoints: dragPoints }],
             screenshotLoader: { loadScreenshot: async () => before },
@@ -102,7 +102,7 @@ describe("ViewStepDetailsTool", () => {
 
     it("does not annotate the after screenshot", async () => {
         const after = await whiteScreenshot();
-        const loop = makeReviewerLoop({
+        const loop = makeStepInspectionLoop({
             architecture: "WEB",
             steps: [{ order: 0, screenshotAfterKey: "after.png", overlayPoints: [clickPoint] }],
             screenshotLoader: { loadScreenshot: async () => after },
@@ -115,7 +115,7 @@ describe("ViewStepDetailsTool", () => {
 
     it("does not annotate non-web steps even with a resolved point", async () => {
         const before = await whiteScreenshot();
-        const loop = makeReviewerLoop({
+        const loop = makeStepInspectionLoop({
             architecture: "IOS",
             steps: [{ order: 0, screenshotBeforeKey: "before.png", overlayPoints: [clickPoint] }],
             screenshotLoader: { loadScreenshot: async () => before },
@@ -128,7 +128,7 @@ describe("ViewStepDetailsTool", () => {
 
     it("does not annotate when the step has no resolved point", async () => {
         const before = await whiteScreenshot();
-        const loop = makeReviewerLoop({
+        const loop = makeStepInspectionLoop({
             architecture: "WEB",
             steps: [{ order: 0, screenshotBeforeKey: "before.png" }],
             screenshotLoader: { loadScreenshot: async () => before },
@@ -144,7 +144,7 @@ describe("ViewStepDetailsTool", () => {
             assertion: `validate that row ${i} shows the settled balance for the quarter`,
             metCondition: i !== 17,
         }));
-        const loop = makeReviewerLoop({
+        const loop = makeStepInspectionLoop({
             steps: [{ order: 0, interaction: "assert", status: "failed", output: { results: assertions } }],
         });
 

@@ -6,10 +6,7 @@ const summary: CheckpointPresentationSummary = {
     tone: "success",
     label: "Healthy",
     executionState: "passed",
-    openBugCount: 0,
-    issueOccurrenceCount: 0,
     testCounts: { assigned: 3, run: 3, passed: 3, failed: 0, setupFailed: 0, running: 0, notRun: 0 },
-    failingByKind: { engine: 0, app: 0 },
     suiteChangeCount: 0,
 };
 

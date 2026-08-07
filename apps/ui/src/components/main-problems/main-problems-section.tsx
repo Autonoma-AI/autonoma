@@ -1,9 +1,9 @@
 import { Badge, Skeleton } from "@autonoma/blacklight";
-import type { MainOpenProblem, MainProblemSource } from "@autonoma/types";
+import type { MainOpenProblem } from "@autonoma/types";
 import { analysisIssueKindMeta, analysisIssueSeverityMeta } from "components/analysis/issue-meta";
-import { MainProblemLink } from "components/main-problems/main-problem-link";
 import { formatRelativeTime } from "lib/format";
 import { useMainOpenProblems } from "lib/query/branches.queries";
+import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 
 /**
  * The main-branch page's problem list: everything still unresolved on main, ordered bugs-first then by descending
@@ -11,21 +11,21 @@ import { useMainOpenProblems } from "lib/query/branches.queries";
  * always shown, and a count with no list under it reads as data we are hiding.
  */
 export function MainProblemsSection({ applicationId }: { applicationId: string }) {
-  const { data } = useMainOpenProblems(applicationId);
+  const { data: problems } = useMainOpenProblems(applicationId);
 
   return (
     <section className="flex flex-col gap-2">
       <h2 className="text-sm font-semibold text-text-primary">
-        Open problems on main · <span className="font-mono text-text-secondary">{data.problems.length}</span>
+        Open problems on main · <span className="font-mono text-text-secondary">{problems.length}</span>
       </h2>
-      {data.problems.length === 0 ? (
+      {problems.length === 0 ? (
         <p className="border border-border-dim bg-surface-void px-4 py-4 text-sm text-text-secondary">
           Nothing is unresolved on main.
         </p>
       ) : (
         <div className="flex flex-col gap-2">
-          {data.problems.map((problem) => (
-            <ProblemRow key={problem.id} problem={problem} source={data.source} />
+          {problems.map((problem) => (
+            <ProblemRow key={problem.id} problem={problem} />
           ))}
         </div>
       )}
@@ -46,14 +46,14 @@ export function MainProblemsSectionSkeleton() {
   );
 }
 
-function ProblemRow({ problem, source }: { problem: MainOpenProblem; source: MainProblemSource }) {
+function ProblemRow({ problem }: { problem: MainOpenProblem }) {
   const kindMeta = analysisIssueKindMeta(problem.kind);
   const severityMeta = analysisIssueSeverityMeta(problem.severity);
 
   return (
-    <MainProblemLink
-      problemId={problem.id}
-      source={source}
+    <AppLink
+      to="/app/$appSlug/analysis/issues/$issueId"
+      params={{ issueId: problem.id }}
       className="flex flex-col gap-1 border border-border-dim bg-surface-void px-4 py-3 transition-colors hover:border-border-mid hover:bg-surface-raised"
     >
       <div className="flex min-w-0 items-center gap-2">
@@ -71,6 +71,6 @@ function ProblemRow({ problem, source }: { problem: MainOpenProblem; source: Mai
       {problem.detail != null && (
         <p className="line-clamp-2 text-sm leading-relaxed text-text-secondary">{problem.detail}</p>
       )}
-    </MainProblemLink>
+    </AppLink>
   );
 }

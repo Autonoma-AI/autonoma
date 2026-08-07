@@ -4,31 +4,26 @@ import {
     buildAuthoritativeCheckpointSummary,
     buildCheckpointSummary,
     computeSnapshotHealth,
-    countOpenBugsBySnapshot,
     listExecutedTestsForSnapshot,
     loadAuthoritativeCheckpointInputs,
 } from "@autonoma/checkpoint";
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { Logger } from "@autonoma/logger";
-import type { StorageProvider } from "@autonoma/storage";
 import type { SnapshotReport } from "@autonoma/types";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
-import { loadBugsForSnapshot } from "./snapshot-report-bugs";
 import { buildResultsBlock } from "./snapshot-report-results";
 import { buildTriggerBlock } from "./snapshot-report-trigger";
 
 export async function loadSnapshotReport({
     db,
     github,
-    storageProvider,
     snapshotId,
     organizationId,
     parentLogger,
 }: {
     db: PrismaClient;
     github: GitHubInstallationService;
-    storageProvider: StorageProvider;
     snapshotId: string;
     organizationId: string;
     parentLogger: Logger;
@@ -68,27 +63,20 @@ export async function loadSnapshotReport({
         notAffected: 0,
         totalTests: 0,
     };
-    const [trigger, executedTests, bugs, openBugCountBySnapshot, authoritativeBySnapshot] = await Promise.all([
+    const [trigger, executedTests, authoritativeBySnapshot] = await Promise.all([
         buildTriggerBlock({ snapshot, github, organizationId, logger }),
         listExecutedTestsForSnapshot(db, snapshotId),
-        loadBugsForSnapshot(db, snapshotId, storageProvider, logger),
-        countOpenBugsBySnapshot(db, [snapshotId]),
         loadAuthoritativeCheckpointInputs(db, organizationId, [snapshotId], logger),
     ]);
     const results = buildResultsBlock(executedTests, logger);
     const authoritative = authoritativeBySnapshot.get(snapshotId);
-    // An authoritative snapshot's header badge derives from the AnalysisReport verdict, not the legacy health/Bug
+    // An authoritative snapshot's header badge derives from the AnalysisReport verdict, not the legacy health
     // model the merged pipeline never populates.
     const health =
         authoritative != null
             ? authoritativeSnapshotHealth(authoritative)
             : (healthEntry?.health ?? computeSnapshotHealth(snapshot.status, healthCounts));
 
-    const openBugs = bugs.filter((b) => b.status === "open");
-    const issueOccurrenceCount = openBugs.reduce((sum, b) => sum + b.occurrences, 0);
-    // Open-bug count comes from the shared `countOpenBugsBySnapshot` (the same
-    // source the PR list and GitHub comment use) so the report agrees with them.
-    const openBugCount = openBugCountBySnapshot.get(snapshotId) ?? 0;
     const summary =
         authoritative != null
             ? buildAuthoritativeCheckpointSummary({
@@ -97,19 +85,9 @@ export async function loadSnapshotReport({
                   bugCount: authoritative.bugCount,
                   totalTests: healthCounts.totalTests,
               })
-            : buildCheckpointSummary({
-                  snapshotStatus: snapshot.status,
-                  counts: healthCounts,
-                  openBugCount,
-                  issueOccurrenceCount,
-                  failingByKind: healthEntry?.failingByKind ?? { engine: 0, app: 0 },
-              });
+            : buildCheckpointSummary({ snapshotStatus: snapshot.status, counts: healthCounts });
 
-    logger.info("Snapshot report assembled", {
-        snapshotId,
-        bugs: bugs.length,
-        filesChanged: trigger.filesChanged.length,
-    });
+    logger.info("Snapshot report assembled", { snapshotId, filesChanged: trigger.filesChanged.length });
 
     return {
         snapshot: {
@@ -127,7 +105,6 @@ export async function loadSnapshotReport({
         },
         trigger,
         results,
-        bugs,
         health,
         healthCounts,
         summary,

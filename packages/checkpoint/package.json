@@ -16,14 +16,10 @@
     "dependencies": {
         "@autonoma/db": "workspace:*",
         "@autonoma/logger": "workspace:*",
-        "@autonoma/types": "workspace:*",
-        "zod": "catalog:"
+        "@autonoma/types": "workspace:*"
     },
     "devDependencies": {
-        "@autonoma/integration-test": "workspace:*",
-        "@testcontainers/postgresql": "^11.12.0",
         "@types/node": "catalog:",
-        "dotenv": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"
     }

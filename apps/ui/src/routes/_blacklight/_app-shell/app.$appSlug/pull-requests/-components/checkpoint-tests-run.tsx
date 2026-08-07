@@ -9,7 +9,6 @@ type ExecutedTest = RouterOutputs["branches"]["snapshotDetail"]["executedTests"]
 type RunStatus = ExecutedTest["status"];
 type FinalOutcome = ExecutedTest["finalOutcome"];
 type StatusBadgeVariant = "status-pending" | "status-running" | "status-passed" | "status-failed";
-type VerdictBadgeVariant = "success" | "warn" | "critical" | "secondary";
 
 interface CheckpointTestsRunProps {
   executedTests: ExecutedTest[];
@@ -73,7 +72,6 @@ export function CheckpointTestsRun({
 }
 
 function ExecutedTestRow({ test }: { test: ExecutedTest }) {
-  const reviewReasoning = test.reviewReasoning?.trim() ?? "";
   return (
     <div className="border border-border-dim bg-surface-void px-4 py-3">
       <div className="flex flex-wrap items-center gap-3">
@@ -82,15 +80,9 @@ function ExecutedTestRow({ test }: { test: ExecutedTest }) {
         </ExecutedTestLink>
         <div className="flex shrink-0 items-center gap-1.5">
           <Badge variant={FINAL_OUTCOME_BADGE[test.finalOutcome]}>{finalOutcomeLabel(test)}</Badge>
-          {test.verdict != null && (
-            <Badge variant={VERDICT_BADGE[test.verdict].variant}>{VERDICT_BADGE[test.verdict].label}</Badge>
-          )}
         </div>
         <span className="font-mono text-2xs text-text-secondary">{formatRelativeTime(test.latestRunAt)}</span>
       </div>
-      {reviewReasoning.length > 0 && (
-        <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-text-primary">{reviewReasoning}</p>
-      )}
     </div>
   );
 }
@@ -123,12 +115,3 @@ function finalOutcomeLabel(test: ExecutedTest): string {
   if (test.finalOutcome === "setup_failed") return "setup failed";
   return RUN_STATUS_LABEL[test.status];
 }
-
-const VERDICT_BADGE: Record<NonNullable<ExecutedTest["verdict"]>, { label: string; variant: VerdictBadgeVariant }> = {
-  success: { label: "verified", variant: "success" },
-  application_bug: { label: "app bug", variant: "critical" },
-  agent_limitation: { label: "agent limitation", variant: "warn" },
-  plan_mismatch: { label: "plan mismatch", variant: "warn" },
-  unknown_issue: { label: "unknown issue", variant: "secondary" },
-  scenario_unsupported: { label: "scenario unsupported", variant: "secondary" },
-};

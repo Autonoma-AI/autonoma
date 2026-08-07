@@ -46,21 +46,6 @@ export const snapshotReportResultsSchema = z.object({
 });
 export type SnapshotReportResults = z.infer<typeof snapshotReportResultsSchema>;
 
-export const snapshotReportBugSchema = z.object({
-    bugId: z.string(),
-    title: z.string(),
-    description: z.string(),
-    severity: z.string(),
-    status: z.string(),
-    occurrences: z.number(),
-    testSlug: z.string().optional(),
-    stepIndex: z.number().optional(),
-    stepTotal: z.number().optional(),
-    screenshotUrl: z.string().optional(),
-    issueId: z.string().optional(),
-});
-export type SnapshotReportBug = z.infer<typeof snapshotReportBugSchema>;
-
 export const snapshotReportHealthCountsSchema = z.object({
     failing: z.number(),
     passing: z.number(),
@@ -82,7 +67,6 @@ export const snapshotReportSchema = z.object({
     }),
     trigger: snapshotReportTriggerSchema,
     results: snapshotReportResultsSchema,
-    bugs: z.array(snapshotReportBugSchema),
     health: reportHealthSchema,
     healthCounts: snapshotReportHealthCountsSchema,
     summary: checkpointPresentationSummarySchema.optional(),

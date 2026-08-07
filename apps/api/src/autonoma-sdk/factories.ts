@@ -796,74 +796,6 @@ const TestGenerationFactory = defineFactory({
     },
 });
 
-const IssueInput = loose({
-    // Honored verbatim: `/…/issues/:issueId` resolves by primary id.
-    id: z.string().optional(),
-    organizationId: z.string(),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    kind: z.enum(["application_bug", "engine_limitation", "unknown_issue", "scenario_unsupported"]).optional(),
-    severity: z.enum(["critical", "high", "medium", "low"]).optional(),
-    snapshotId: z.string().optional(),
-    bugId: z.string().optional(),
-    generationReviewId: z.string().optional(),
-    runReviewId: z.string().optional(),
-});
-
-const IssueFactory = defineFactory({
-    inputSchema: IssueInput,
-    refSchema: emptyRef,
-    create: async (data) => {
-        const row = await db.issue.create({
-            data: {
-                id: data.id ?? undefined,
-                organizationId: data.organizationId,
-                title: data.title ?? "Autonoma test issue",
-                description: data.description ?? "seeded by the Autonoma SDK test-data endpoint",
-                kind: data.kind ?? "application_bug",
-                severity: data.severity ?? "medium",
-                snapshotId: data.snapshotId ?? undefined,
-                bugId: data.bugId ?? undefined,
-                generationReviewId: data.generationReviewId ?? undefined,
-                runReviewId: data.runReviewId ?? undefined,
-            },
-        });
-        return { id: row.id };
-    },
-});
-
-const BugInput = loose({
-    // Honored verbatim: a bug can be deep-linked by primary id.
-    id: z.string().optional(),
-    applicationId: z.string(),
-    organizationId: z.string(),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    status: z.enum(["open", "resolved", "regressed"]).optional(),
-    severity: z.enum(["critical", "high", "medium", "low"]).optional(),
-    branchId: z.string().optional(),
-});
-
-const BugFactory = defineFactory({
-    inputSchema: BugInput,
-    refSchema: emptyRef,
-    create: async (data) => {
-        const row = await db.bug.create({
-            data: {
-                id: data.id ?? undefined,
-                applicationId: data.applicationId,
-                organizationId: data.organizationId,
-                title: data.title ?? "Autonoma test bug",
-                description: data.description ?? "seeded by the Autonoma SDK test-data endpoint",
-                status: data.status ?? "open",
-                severity: data.severity ?? "medium",
-                branchId: data.branchId ?? undefined,
-            },
-        });
-        return { id: row.id };
-    },
-});
-
 const RefinementLoopInput = loose({
     snapshotId: z.string(),
     organizationId: z.string(),
@@ -989,8 +921,6 @@ export const autonomaFactories = {
     TestPlan: TestPlanFactory,
     BranchSnapshot: BranchSnapshotFactory,
     TestGeneration: TestGenerationFactory,
-    Issue: IssueFactory,
-    Bug: BugFactory,
     RefinementLoop: RefinementLoopFactory,
     ScenarioRecipeVersion: ScenarioRecipeVersionFactory,
 };

@@ -168,7 +168,10 @@ function untilCancelled(): Promise<never> {
     });
 }
 
-const analysisActivities: AnalysisActivities = {
+const analysisActivities: Pick<
+    AnalysisActivities,
+    "openAnalysisRun" | "openMergeGate" | "runImpactAnalysis" | "runReporter" | "settleAnalysisRun"
+> = {
     async openAnalysisRun() {
         harness.events.push("snapshot");
         if (harness.snapshotError != null) throw harness.snapshotError;

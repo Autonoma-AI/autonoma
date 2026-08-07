@@ -267,9 +267,9 @@ export const Default: Story = {
 };
 
 /**
- * An application whose main branch runs the merged analysis pipeline: the problem list presents main's open
- * `AnalysisIssue` rows - one bug, one environment problem - beside a checkpoint rail reading the same authoritative
- * verdict, so the red count and the list under it agree.
+ * The problem list presents main's open `AnalysisIssue` rows - one bug, one environment problem, so the kind badge
+ * renders on the non-bug row - beside a checkpoint rail reading the same authoritative verdict, so the red count
+ * and the list under it agree.
  */
 export const AnalyzedMain: Story = {
   args: { path: PATH },
@@ -285,30 +285,27 @@ export const AnalyzedMain: Story = {
             mainCheckpoint({ id: PREV_SNAPSHOT_ID, createdAt: PREV_RUN_AT, bugCount: 0, passed: 4, coverage: 0 }),
           ],
           snapshotDetail: mainSnapshotDetail(),
-          mainOpenProblems: {
-            source: "analysis_issue",
-            problems: [
-              {
-                id: "issue_fixture_01",
-                title: "Publishing an invoice leaves the supplier total stale",
-                kind: "bug",
-                severity: "high",
-                detail:
-                  "After publishing, the supplier row still shows the pre-publish total until the page is reloaded.",
-                occurrences: 3,
-                lastSeenAt: LATEST_RUN_AT,
-              },
-              {
-                id: "issue_fixture_02",
-                title: "The preview's OCR service is unreachable during extraction",
-                kind: "environment",
-                severity: "medium",
-                detail: "Extraction requests to the OCR service time out, so no test can reach the review step.",
-                occurrences: 2,
-                lastSeenAt: LATEST_RUN_AT,
-              },
-            ],
-          },
+          mainOpenProblems: [
+            {
+              id: "issue_fixture_01",
+              title: "Publishing an invoice leaves the supplier total stale",
+              kind: "bug",
+              severity: "high",
+              detail:
+                "After publishing, the supplier row still shows the pre-publish total until the page is reloaded.",
+              occurrences: 3,
+              lastSeenAt: LATEST_RUN_AT,
+            },
+            {
+              id: "issue_fixture_02",
+              title: "The preview's OCR service is unreachable during extraction",
+              kind: "environment",
+              severity: "medium",
+              detail: "Extraction requests to the OCR service time out, so no test can reach the review step.",
+              occurrences: 2,
+              lastSeenAt: LATEST_RUN_AT,
+            },
+          ],
         },
       }),
     },
@@ -316,10 +313,10 @@ export const AnalyzedMain: Story = {
 };
 
 /**
- * An application whose main has never run analysis: it reads its deprecated `Bug` rows instead, including the
- * `regressed` one at the top. This is the arm every application not yet running main analysis sees.
+ * Every open problem on main is a `bug`, so no row carries a kind badge and the list is ordered purely by
+ * descending severity - the counterpart to {@link AnalyzedMain}'s mixed-kind list.
  */
-export const LegacyBugsOnMain: Story = {
+export const BugsOnlyOnMain: Story = {
   args: { path: PATH },
   parameters: {
     pageStory: true,
@@ -332,29 +329,26 @@ export const LegacyBugsOnMain: Story = {
             mainCheckpoint({ id: LATEST_SNAPSHOT_ID, createdAt: LATEST_RUN_AT, bugCount: 2, passed: 2, coverage: 0 }),
           ],
           snapshotDetail: mainSnapshotDetail(),
-          mainOpenProblems: {
-            source: "legacy_bug",
-            problems: [
-              {
-                id: "bug_fixture_01",
-                title: "Checkout button unresponsive after coupon removal",
-                kind: "bug",
-                severity: "critical",
-                detail: "Removing a coupon leaves the checkout button disabled until the page is reloaded.",
-                occurrences: 5,
-                lastSeenAt: LATEST_RUN_AT,
-              },
-              {
-                id: "bug_fixture_02",
-                title: "Saved card is dropped when the billing address changes",
-                kind: "bug",
-                severity: "medium",
-                detail: "The card selection resets to empty and the order cannot be completed without re-entering it.",
-                occurrences: 2,
-                lastSeenAt: PREV_RUN_AT,
-              },
-            ],
-          },
+          mainOpenProblems: [
+            {
+              id: "bug_fixture_01",
+              title: "Checkout button unresponsive after coupon removal",
+              kind: "bug",
+              severity: "critical",
+              detail: "Removing a coupon leaves the checkout button disabled until the page is reloaded.",
+              occurrences: 5,
+              lastSeenAt: LATEST_RUN_AT,
+            },
+            {
+              id: "bug_fixture_02",
+              title: "Saved card is dropped when the billing address changes",
+              kind: "bug",
+              severity: "medium",
+              detail: "The card selection resets to empty and the order cannot be completed without re-entering it.",
+              occurrences: 2,
+              lastSeenAt: PREV_RUN_AT,
+            },
+          ],
         },
       }),
     },
@@ -398,14 +392,11 @@ function mainCheckpoint(overrides: {
       notAffected: 0,
       totalTests,
     },
-    bugCount: overrides.bugCount,
     summary: {
       tone: verdict.tone,
       label: verdict.label,
       reason: verdict.reason,
       executionState: verdict.executionState,
-      openBugCount: overrides.bugCount,
-      issueOccurrenceCount: overrides.bugCount,
       testCounts: {
         assigned: totalTests,
         run: totalTests,
@@ -415,7 +406,6 @@ function mainCheckpoint(overrides: {
         running: 0,
         notRun: 0,
       },
-      failingByKind: { engine: 0, app: 0 },
       suiteChangeCount: 1,
       analysis: {
         jobStatus: "completed" as const,
@@ -448,10 +438,7 @@ function mainSnapshotDetail(): NonNullable<TrpcFixtures["branches"]>["snapshotDe
       tone: "critical",
       label: "1 bug",
       executionState: "failed",
-      openBugCount: 1,
-      issueOccurrenceCount: 1,
       testCounts: { assigned: 5, run: 5, passed: 3, failed: 0, setupFailed: 0, running: 0, notRun: 0 },
-      failingByKind: { engine: 0, app: 0 },
       suiteChangeCount: 1,
       analysis: { jobStatus: "completed", bugCount: 1, passedCount: 3, coverageCount: 1 },
     },

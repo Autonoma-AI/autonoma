@@ -2,21 +2,19 @@ import { type CheckpointAnalysisSummary, type CheckpointPresentationSummary, PIP
 import { unresolvedLabel } from "./outcome-vocab";
 
 // Builds the one-line test-result summary shown under each checkpoint row in the
-// history (PR list + PR detail) - e.g. "2 failed · 1 passed · 3 bugs". Keys off the
+// history (PR list + PR detail) - e.g. "2 failed · 1 passed". Keys off the
 // server-computed summary so the copy matches the badge instead of re-deriving from
 // raw health counts. An authoritative snapshot (summary.analysis set) reads its counts
 // from the AnalysisReport verdict buckets, not the legacy health model. fallbackTotalTests
 // is used only when summary is undefined (health not yet computed).
 export function formatCheckpointMetrics(
     summary: CheckpointPresentationSummary | undefined,
-    bugCount: number,
     fallbackTotalTests: number,
 ): string {
     if (summary == null) return `${fallbackTotalTests} tests`;
     if (summary.analysis != null) return formatAuthoritativeMetrics(summary.analysis);
 
     const tc = summary.testCounts;
-    const bugs = summary.openBugCount > 0 ? summary.openBugCount : bugCount;
 
     // No runs have executed yet: spell out why instead of a bare "N tests".
     if (summary.executionState === "not_started") {
@@ -30,7 +28,6 @@ export function formatCheckpointMetrics(
     if (tc.setupFailed > 0) parts.push(`${tc.setupFailed} setup failed`);
     if (tc.running > 0) parts.push(`${tc.running} ${unresolvedLabel(summary.executionState)}`);
     if (tc.passed > 0) parts.push(`${tc.passed} passed`);
-    if (bugs > 0) parts.push(`${bugs} ${bugs === 1 ? "bug" : "bugs"}`);
 
     if (parts.length > 0) return parts.join(" · ");
     return `${tc.assigned} tests`;

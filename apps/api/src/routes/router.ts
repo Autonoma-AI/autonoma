@@ -7,10 +7,8 @@ import { applicationsRouter } from "./applications/applications.router";
 import { authRouter } from "./auth/auth.router";
 import { billingRouter } from "./billing/billing.router";
 import { branchesRouter } from "./branches/branches.router";
-import { bugsRouter } from "./bugs/bugs.router";
 import { deploymentsRouter } from "./deployments/deployments.router";
 import { foldersRouter } from "./folders/folders.router";
-import { issuesRouter } from "./issues/issues.router";
 import { onboardingRouter } from "./onboarding/onboarding.router";
 import { previewAccessRouter } from "./preview-access/preview-access.router";
 import { scenariosRouter } from "./scenarios/scenarios.router";
@@ -27,11 +25,9 @@ const appRouterImpl = router({
     billing: billingRouter,
     applications: applicationsRouter,
     branches: branchesRouter,
-    bugs: bugsRouter,
     deployments: deploymentsRouter,
     folders: foldersRouter,
     generations: generationsRouter,
-    issues: issuesRouter,
     tests: testsRouter,
     scenarios: scenariosRouter,
     secrets: secretsRouter,

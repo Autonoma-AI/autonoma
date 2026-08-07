@@ -94,9 +94,9 @@ export const branchesRouter = router({
             services.branches.getAnalysisIssues(input.branchId, organizationId),
         ),
 
-    // Everything still unresolved on the application's main branch, in one normalized shape: analysis issues once
-    // main has run the merged pipeline, the deprecated `Bug` rows until then. The fork is decided server-side, so
-    // the overview rail and the main-branch page's problem list read this and never re-derive it. User-facing.
+    // The open analysis issues on the application's main branch, ordered bugs-first then by descending severity.
+    // The overview rail and the main-branch page's problem list both read this and never re-derive the ordering.
+    // User-facing; returns an empty list for an application whose main branch has nothing unresolved.
     mainOpenProblems: protectedProcedure
         .input(z.object({ applicationId: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>

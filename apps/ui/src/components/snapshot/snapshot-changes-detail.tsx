@@ -57,11 +57,7 @@ function TestEntryDetail({ entry, isAuthoritative }: { entry: TestEntry; isAutho
     </DetailSection>
   );
   const generationSection = entry.generation != null && (
-    <DetailSection
-      label="Generation"
-      headerExtras={<GenerationActions generation={entry.generation} />}
-      reasoning={entry.generation.reviewReasoning}
-    />
+    <DetailSection label="Generation" headerExtras={<GenerationActions generation={entry.generation} />} />
   );
   const verdictSection = entry.verdict != null && (
     <DetailSection

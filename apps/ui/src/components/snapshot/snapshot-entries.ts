@@ -10,11 +10,10 @@ export interface TestEntry {
     reasoning?: string;
     plan?: string;
     previousPlan?: string;
-    generation?: { id: string; status: string; reviewReasoning?: string };
+    generation?: { id: string; status: string };
     /**
-     * What the analysis run concluded about this test (authoritative snapshots): the terminal verdict, its one-line
-     * account, and the ids to open the finding and the run that produced it. Absent on a diffs snapshot, where the
-     * `generation`'s review carries the outcome instead.
+     * What the analysis run concluded about this test: the terminal verdict, its one-line account, and the ids to
+     * open the finding and the run that produced it. Absent on a snapshot the pipeline never ran.
      */
     verdict?: {
         category: string;
@@ -99,9 +98,5 @@ export function buildSections({
 
 function createdGeneration(created: CreatedTest | undefined): TestEntry["generation"] {
     if (created?.generation == null) return undefined;
-    return {
-        id: created.generation.id,
-        status: created.generation.status,
-        reviewReasoning: created.generation.reviewReasoning ?? undefined,
-    };
+    return { id: created.generation.id, status: created.generation.status };
 }

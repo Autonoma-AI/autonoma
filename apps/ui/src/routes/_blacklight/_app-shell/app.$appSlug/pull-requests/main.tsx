@@ -240,8 +240,7 @@ function MainCheckpointRail({ snapshots }: { snapshots: Snapshot[] }) {
 
 /**
  * One checkpoint on main. The verdict is the derived `CheckpointSummaryBadge` the PR surfaces render, never the raw
- * `health`/`bugCount` pair: those are legacy-shaped, so a row would assert a count from a signal the problem list
- * beside it does not read, and an amber "Not confirmed" run (raw `health` `unknown`) would lose its badge entirely.
+ * `health` signal beside it: an amber "Not confirmed" run (raw `health` `unknown`) would lose its badge entirely.
  * "Latest" marks the newest row without standing in for its verdict, so every row says how its run went.
  */
 function MainCheckpointRow({ snapshot, isLatest }: { snapshot: Snapshot; isLatest: boolean }) {
@@ -262,7 +261,7 @@ function MainCheckpointRow({ snapshot, isLatest }: { snapshot: Snapshot; isLates
         <span className="font-mono text-2xs text-text-secondary">{formatRelativeTime(snapshot.createdAt)}</span>
       </div>
       <span className="font-mono text-2xs text-text-secondary">
-        {formatCheckpointMetrics(snapshot.summary, snapshot.bugCount, snapshot.healthCounts.totalTests)}
+        {formatCheckpointMetrics(snapshot.summary, snapshot.healthCounts.totalTests)}
       </span>
     </div>
   );

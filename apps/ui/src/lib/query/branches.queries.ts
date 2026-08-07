@@ -73,9 +73,8 @@ export async function ensureAnalysisIssuesData(queryClient: QueryClient, branchI
 }
 
 /**
- * Everything still unresolved on the application's main branch, already normalized across the analysis-issue and
- * legacy-bug stores by the API. Every "what is broken on main" surface reads this one query, so the overview rail
- * and the main-branch page's problem list cannot disagree about which store is authoritative.
+ * The open issues on the application's main branch, already ordered by the API. Every "what is broken on main"
+ * surface reads this one query, so the overview rail and the main-branch page's problem list cannot disagree.
  */
 export function useMainOpenProblems(applicationId: string) {
     return useSuspenseQuery(trpc.branches.mainOpenProblems.queryOptions({ applicationId }));

@@ -1,36 +1,37 @@
 # @autonoma/checkpoint
 
-The single source of truth for **checkpoint / PR test metrics**: how a snapshot's
-test-case assignments, runs, and generations roll up into the counts, engine-vs-app failing attribution, open-bug count, execution state, and the
+The building blocks for **checkpoint / PR test metrics**: how a snapshot's test-case
+assignments, runs, and generations roll up into the counts, execution state, and the
 human-readable label/reason shown to users.
 
-Every surface that reports these numbers consumes this package so they can never
-disagree:
+Every surface that reports these numbers composes them from here, so they cannot
+disagree. The API (`apps/api`) is the only consumer today - PR list, PR detail, and
+the snapshot report, all over tRPC as `summary`.
 
-- the API (`apps/api`) - PR list, PR detail, snapshot report (over tRPC as `summary`)
-- the GitHub PR commenter (`apps/jobs/run-completion-notification`)
+## Composing a summary
 
-## Entry point
+There is deliberately no single entry point: the legacy and authoritative paths load
+different inputs, so each caller loads what its snapshot has and builds from that.
 
 ```ts
-import { getCheckpointSummaries } from "@autonoma/checkpoint";
+import { aggregateSnapshotHealth, buildCheckpointSummary } from "@autonoma/checkpoint";
 
-const summaries = await getCheckpointSummaries(db, [{ id: snapshotId, status }], logger);
-const summary = summaries.get(snapshotId); // CheckpointPresentationSummary | undefined
+const health = (await aggregateSnapshotHealth(db, [{ id: snapshotId, status }], logger)).get(snapshotId);
+const summary = health && buildCheckpointSummary({ snapshotStatus: status, counts: health.counts });
 ```
 
-`getCheckpointSummaries` runs health aggregation + open-bug counting (a fixed
-number of `IN`-scoped queries regardless of batch size) and feeds the result
-through `buildCheckpointSummary`. The returned `CheckpointPresentationSummary`
-(defined in `@autonoma/types`) carries `tone`, `label`, `reason`,
-`executionState`, `testCounts`, `failingByKind`, `openBugCount`, and
-`issueOccurrenceCount`.
+`aggregateSnapshotHealth` issues a fixed number of `IN`-scoped queries regardless of
+batch size. The returned `CheckpointPresentationSummary` (defined in `@autonoma/types`)
+carries `tone`, `label`, `reason`, `executionState`, `testCounts`, and `suiteChangeCount`.
+
+The legacy summary states no bug count. The store it read is gone, so a bug count lives
+only on the `analysis` block below - one copy, authored by the Reporter.
 
 ### Authoritative (merged-analysis) snapshots
 
-A snapshot the merged analysis pipeline ran has an `AnalysisJob` and files **no**
-`Bug` rows - its findings live on `AnalysisReport`/`AnalysisFinding` - so the legacy
-health/Bug model is empty for it. For those, callers first
+A snapshot the merged analysis pipeline ran has an `AnalysisJob`, and its findings
+live on `AnalysisReport`/`AnalysisFinding` rather than in the legacy health model.
+For those, callers first
 `loadAuthoritativeCheckpointInputs(db, orgId, snapshotIds)` (a bulk two-query load
 that degrades to an empty map when the analysis tables are absent) and pass the
 result to `buildAuthoritativeCheckpointSummary`, which derives `tone`/`label`/`reason`
@@ -47,13 +48,12 @@ absent from the loaded map and stays on the legacy path unchanged.
 | `presentation.ts` | `buildCheckpointSummary` (legacy) + `buildAuthoritativeCheckpointSummary` - pure counts -> presentation summary. No DB. |
 | `authoritative.ts` | `loadAuthoritativeCheckpointInputs` (AnalysisJob + AnalysisReport findings, org-scoped) and `authoritativeSnapshotHealth`. |
 | `health.ts` | `aggregateSnapshotHealth`, `computeSnapshotHealth`, `tallyExecutedTests`, `SnapshotHealthCounts`. |
-| `executed-tests.ts` | `listExecutedTestsForSnapshot(s)` and outcome classification (`finalOutcomeFor*`). |
-| `open-bugs.ts` | `countOpenBugsBySnapshot` - unique open bugs per snapshot. |
-| `index.ts` | `getCheckpointSummaries` + re-exports of the building blocks. |
+| `executed-tests.ts` | `listExecutedTestsForSnapshot(s)` and outcome classification from the engine's own generation status. |
+| `index.ts` | Re-exports of the building blocks. |
 
 ## Commands
 
 ```bash
 pnpm --filter @autonoma/checkpoint typecheck
-pnpm --filter @autonoma/checkpoint test   # Testcontainers + real Postgres
+pnpm --filter @autonoma/checkpoint test   # pure unit tests - no database
 ```

@@ -65,53 +65,6 @@ async function cloneResolved(resolved: ResolvedClone, targetDirSeed: string): Pr
     return await Codebase.clone(resolved.githubClient, `/tmp/codebase/${targetDirSeed}`, opts);
 }
 
-/**
- * Activity-scoped helper: clones a codebase for the duration of a single
- * Temporal activity and disposes it on exit. Each activity invocation gets a
- * fresh clone, since the activity boundary is the right disposal point.
- *
- * Throws if the snapshot has no GitHub repo / head SHA, the org has no
- * installation, or the clone itself fails.
- */
-export async function withCodebaseForGeneration<T>(
-    generationId: string,
-    handlers: WithCodebaseHandlers<T>,
-): Promise<T> {
-    const generation = await db.testGeneration.findUniqueOrThrow({
-        where: { id: generationId },
-        select: {
-            snapshot: {
-                select: {
-                    headSha: true,
-                    baseSha: true,
-                    branch: {
-                        select: {
-                            application: {
-                                select: { organizationId: true, githubRepositoryId: true },
-                            },
-                        },
-                    },
-                },
-            },
-        },
-    });
-    const resolved = await resolveClone(
-        {
-            organizationId: generation.snapshot.branch.application.organizationId,
-            githubRepositoryId: generation.snapshot.branch.application.githubRepositoryId,
-            headSha: generation.snapshot.headSha,
-            baseSha: generation.snapshot.baseSha,
-        },
-        `Generation ${generationId}`,
-    );
-    const codebase = await cloneResolved(resolved, handlers.targetDirSeed);
-    try {
-        return await handlers.body(codebase);
-    } finally {
-        await codebase.dispose();
-    }
-}
-
 export async function withCodebaseForSnapshot<T>(snapshotId: string, handlers: WithCodebaseHandlers<T>): Promise<T> {
     const snapshot = await db.branchSnapshot.findUniqueOrThrow({
         where: { id: snapshotId },

@@ -4,11 +4,10 @@ Local, per-step, **scored** evaluations for the diffs pipeline - the replacement
 the eyeball-only local-dev scripts. Each step keeps a corpus of on-disk cases and
 scores the agent's output with **deterministic frontmatter checks plus an LLM judge**.
 
-Three steps are currently under eval: **Diff Analysis**, **Generation Review**, and
-the **Classifier** (the Investigator's verdict on one run). The reviewer and
-classifier evals additionally exercise the **multimedia rehydration path** - they
-download screenshots + the recording from S3 at run time via the production
-evidence loader. No media bytes are ever committed.
+Two steps are currently under eval: **Diff Analysis** and the **Classifier** (the
+Investigator's verdict on one run). The classifier eval additionally exercises the
+**multimedia rehydration path** - it downloads screenshots + the recording from S3
+at run time via the production evidence loader. No media bytes are ever committed.
 
 Note that `analysis/` is the **impact-analysis** step (the `DiffsAgent`, which picks
 which tests a diff affects), while `classifier/` is the step that judges what a run's
@@ -42,7 +41,7 @@ some-parent/
 ├── <this-repo>/apps/workers/diffs/evals/   # harness (public)
 └── eval-cases/                              # corpus (private), DIFFS_EVAL_CASES_DIR
     ├── analysis/cases/<name>/
-    └── generation-review/cases/<name>/
+    └── classifier/cases/<name>/
 ```
 
 **Local setup:** clone the private repo alongside this one and point the env var
@@ -107,32 +106,6 @@ automated guardrail against suite bloat. `createdTests` bounds the _shape_ of wh
 was authored (how many, into which folders), and every created test is checked for a
 non-blank coverage justification; whether each test is _genuinely_ non-redundant and
 its justification _sound_ is graded by the judge.
-
-### Reviewer frontmatter (generation)
-
-Only `verdict` is graded
-deterministically; the reviewer's other fields (`title`, `reasoning`,
-`failurePoint`, `evidence`) are free-text and graded by the judge rubric. The
-generation verdict enum is
-`success | agent_limitation | application_bug | plan_mismatch | unknown_issue | scenario_unsupported`.
-An `application_bug` must
-carry a `suspectedCause` grounding it in code; a suspected bug that can't be grounded is
-`unknown_issue`. `scenario_unsupported` is a test impossible given the current
-scenario data; it carries a `proposedScenarioExtension` and is selectable only when the test case has
-a description.
-
-```yaml
----
-description: "what this case exercises"
-skip: false
-verdict: application_bug      # enum-equality (per-reviewer enum)
----
-
-Free-text judge rubric. The judge sees only the reviewer's structured verdict plus
-this body - never the codebase, conversation, screenshots, or video. Grade qualities
-the deterministic verdict check cannot: does the reasoning cite the actual failure
-point, no hallucinated steps, correct engine-vs-app attribution?
-```
 
 ### Classifier frontmatter
 
@@ -201,16 +174,14 @@ cannot.
 
 ### Multimedia rehydration
 
-The reviewer and classifier evals download every step screenshot + the run video from
+The classifier eval downloads every step screenshot + the run video from
 S3 at agent run time via the production `StorageEvidenceLoader` - the same loader
 production uses. Before the agent starts the harness calls
 `probeEvidence(...)` to walk every referenced key and surface a typed
 `MissingEvidenceError` if any key has been rotated away. A case in that state
 skips with a warning the same way an unfetchable SHA does.
 
-Captured `input.json` files store media as **S3 keys**, never bytes. Generation
-review additionally stores the agent conversation, with image parts stripped at
-capture time via `sanitizeConversation` so the fixture stays text-only.
+Captured `input.json` files store media as **S3 keys**, never bytes.
 
 The classifier stores the recording key alongside an `isOptimizedMp4` flag, because the
 uploader has to be told a mime type and the key alone does not say: production reads the
@@ -218,18 +189,6 @@ dead-time-stripped mp4 when the optimizer produced one and the original webm oth
 Its recording is re-uploaded **per run**, not once per case - an uploaded video is a
 handle with its own lifetime at the provider, so a `runs: N` case would otherwise replay
 a handle that may have expired mid-sweep.
-
-### Legacy scenario-data recovery (Reviewers)
-
-Instances that ran **before #822** have a null `ScenarioInstance.generatedData`,
-so the production loader omits `context.scenario`. To still capture them with
-scenario context, the reviewer captures fall back to the **webhook log**: when
-the loader returns no scenario, capture reads the surviving `UP`
-`webhook_call.request_body.create` (byte-identical to `generatedData`) and
-materializes it the same way. This is eval-only (`capture/recover-scenario-data*.ts`);
-the shared resolvers and `DiffJobContextLoader` are unchanged. A populated
-`generatedData` always wins; recovery is skipped when there is no instance, it
-never came up, or no `UP` webhook survives.
 
 ## Running the evals
 
@@ -253,12 +212,10 @@ pnpm --filter @autonoma/worker-diffs eval
 
 ## Capturing a case
 
-Each per-step eval has its own capture command. They both resolve the case's git
+Each per-step eval has its own capture command. Both resolve the case's git
 coordinates, **validate both SHAs are fetchable** (refusing to write a case with a
-dead SHA), and freeze the production loader's output to disk. The reviewer captures
-additionally **probe every referenced S3 key** with the production evidence loader so a
-media-rotated fixture is never written. All capture commands read the DB; eval runs never
-touch it.
+dead SHA), and freeze the production loader's output to disk. Both read the DB;
+eval runs never touch it.
 
 Capture **writes into the private corpus** at
 `${DIFFS_EVAL_CASES_DIR}/<step>/cases/<name>/`, so `DIFFS_EVAL_CASES_DIR` must be
@@ -268,7 +225,6 @@ the new case in the private `eval-cases` repo, never here.
 ```bash
 pnpm --filter @autonoma/worker-diffs capture:analysis               <snapshotId>   [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:classifier            <classificationId> [--name <case-name>] [--force]
-pnpm --filter @autonoma/worker-diffs capture:generation-review      <generationId> [--name <case-name>] [--force]
 ```
 
 After capture, fill in the frontmatter checks and the rubric
@@ -316,22 +272,6 @@ however, runs _after_ the pipeline has rewritten those assignments, so it loads 
 the snapshot's **previous** snapshot - the unmutated copy - to reproduce exactly what the step saw.
 This is controlled by the `testSuiteSource` option on the shared `assembleDiffsAgentInput` loader
 (`"current"` for the runner, `"previous"` for capture).
-
-**Live reads at capture (Reviewers).** Most reviewer inputs are immutable historic records
-(conversation, steps, screenshots, video, the codebase clone, the agent's `reasoning`) or
-schema-snapshotted at run/generation creation time (`run.plan` via `run.planId` -
-`assignment.plan` is _not_ used, because `updatePlan` re-points the assignment to a new TestPlan
-row). The remaining fields that capture re-reads live and can in principle drift between capture
-and what production saw:
-
-- **`testGeneration.status`** (the agent's self-reported status, surfaced as
-  `selfReportedStatus`). The pipeline's `markAsFailed` path can retroactively set a stuck
-  `pending` / `queued` generation to `failed`. Production reviews fire immediately so see the
-  original status; capture later may see the mutated one. The reviewer treats this as a hint
-  only, so it rarely changes the verdict.
-- **`testCase.name`** (the human-readable test name). Mutable via test renames - the captured
-  name may not match what the run originally executed. Doesn't influence the verdict; just a
-  display string.
 
 **Live application-level reads (Analysis).** A few fields are not snapshot-scoped and
 are read live from the application at capture time:

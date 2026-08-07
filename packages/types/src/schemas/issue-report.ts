@@ -59,7 +59,7 @@ export type EvidenceManifestEntry = z.infer<typeof evidenceManifestEntrySchema>;
  * manifest is *not* here - it is derived from the agent's actual fetches by the
  * report tool, so the model cannot fabricate a manifest entry.
  */
-export const authoredIssueReportSchema = z.object({
+const authoredIssueReportSchema = z.object({
     expectedBehavior: z
         .string()
         .optional()
@@ -109,5 +109,3 @@ export const issueReportSchema = authoredIssueReportSchema.extend({
         ),
     primaryScreenshot: primaryScreenshotSchema.optional(),
 });
-
-export type IssueReport = z.infer<typeof issueReportSchema>;

@@ -1,4 +1,4 @@
-import type { GenerationReviewVerdict, GenerationStatus, Prisma, PrismaClient } from "@autonoma/db";
+import type { GenerationStatus, Prisma, PrismaClient } from "@autonoma/db";
 
 export type SnapshotExecutedTestFinalOutcome = "passed" | "failed" | "setup_failed" | "unresolved";
 
@@ -8,8 +8,6 @@ export interface SnapshotExecutedTest {
     generationId: string | null;
     status: GenerationStatus;
     finalOutcome: SnapshotExecutedTestFinalOutcome;
-    verdict: GenerationReviewVerdict | null;
-    reviewReasoning: string | null;
     createdAt: Date;
     latestRunAt: Date;
 }
@@ -27,7 +25,6 @@ const generationSelect = {
             testCaseId: true,
         },
     },
-    generationReview: { select: { verdict: true, reasoning: true, status: true } },
 } satisfies Prisma.TestGenerationSelect;
 
 const assignmentSelect = {
@@ -107,7 +104,10 @@ export async function listExecutedTestsForSnapshots(
     for (const snapshotId of snapshotIds) {
         result.set(
             snapshotId,
-            buildExecutedTests(assignmentsBySnapshot.get(snapshotId) ?? [], generationsBySnapshot.get(snapshotId) ?? []),
+            buildExecutedTests(
+                assignmentsBySnapshot.get(snapshotId) ?? [],
+                generationsBySnapshot.get(snapshotId) ?? [],
+            ),
         );
     }
     return result;
@@ -149,14 +149,7 @@ function buildExecutedTests(assignments: AssignmentRow[], generations: Generatio
                     testCase: assignment.testCase,
                     generationId: generation.id,
                     status: generation.status,
-                    finalOutcome: finalOutcomeForGenerationStatus(
-                        generation.status,
-                        generation.failure,
-                        generation.generationReview,
-                    ),
-                    verdict: generation.generationReview?.verdict ?? null,
-                    reviewReasoning:
-                        generation.generationReview?.reasoning ?? setupFailureMessage(generation.failure) ?? null,
+                    finalOutcome: finalOutcomeForGeneration(generation.status, generation.failure),
                     createdAt: generation.createdAt,
                     latestRunAt: generation.updatedAt,
                 },
@@ -165,35 +158,16 @@ function buildExecutedTests(assignments: AssignmentRow[], generations: Generatio
         .sort((left, right) => left.testCase.name.localeCompare(right.testCase.name));
 }
 
-type SystemFailureRow = GenerationRow["failure"];
-
-export function finalOutcomeForGenerationStatus(
+function finalOutcomeForGeneration(
     status: GenerationStatus,
     failure: GenerationRow["failure"],
-    review: GenerationRow["generationReview"],
 ): SnapshotExecutedTestFinalOutcome {
-    if (status === "failed") return terminalFailureOutcome(failure);
-    // A generation's pass/fail is the GenerationReview verdict, not the agent's
-    // self-reported status: the agent can finish (status "success") while the
-    // review still judges the outcome a non-pass (e.g. plan_mismatch). Until the
-    // review completes, the outcome is unresolved.
-    if (status !== "success") return "unresolved";
-    if (review == null || review.status !== "completed") return "unresolved";
-    return review.verdict === "success" ? "passed" : "failed";
-}
-
-/**
- * Maps a terminal failure to its outcome bucket. A scenario-setup failure means
- * the test never got a chance to run (the environment never came up), so it
- * surfaces as the distinct `setup_failed` outcome; every other failure kind
- * (engine_error, agent_failed, max_steps) is a real `failed`.
- */
-function terminalFailureOutcome(failure: SystemFailureRow): SnapshotExecutedTestFinalOutcome {
-    return failure?.kind === "scenario_setup" ? "setup_failed" : "failed";
-}
-
-/** The human-readable reason to surface for a scenario-setup failure, if any. */
-function setupFailureMessage(failure: SystemFailureRow): string | undefined {
-    if (failure?.kind === "scenario_setup") return failure.message;
-    return undefined;
+    // A scenario-setup failure means the test never got a chance to run (the environment never came up), so it
+    // surfaces as the distinct `setup_failed` outcome; every other kind (engine_error, agent_failed, max_steps)
+    // is a real `failed`.
+    if (status === "failed") return failure?.kind === "scenario_setup" ? "setup_failed" : "failed";
+    // Otherwise the engine's own outcome, which is all this view has: a generation that finished is passed, one
+    // still in flight is unresolved. An authoritative snapshot's real verdict lives on its AnalysisClassification
+    // and is read through the analysis surfaces, never here.
+    return status === "success" ? "passed" : "unresolved";
 }

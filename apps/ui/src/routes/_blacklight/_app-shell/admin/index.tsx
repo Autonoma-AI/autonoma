@@ -26,7 +26,6 @@ import { GiftIcon } from "@phosphor-icons/react/Gift";
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
-import { ShieldWarningIcon } from "@phosphor-icons/react/ShieldWarning";
 import { UsersIcon } from "@phosphor-icons/react/Users";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { XIcon } from "@phosphor-icons/react/X";
@@ -913,10 +912,6 @@ function AdminContent() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-            <Button variant="outline" size="sm" render={<Link to="/admin/issues" />}>
-              <ShieldWarningIcon size={14} />
-              Engine limitations
-            </Button>
             <Button variant="outline" size="sm" render={<Link to="/admin/previewkit" />}>
               <CubeTransparentIcon size={14} />
               Preview environments

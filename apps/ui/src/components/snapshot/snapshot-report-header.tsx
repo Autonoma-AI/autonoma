@@ -65,11 +65,11 @@ export function SnapshotReportHeader({
 
       <div className="flex flex-wrap items-center gap-3 text-xs text-text-tertiary">
         <span>{formatRelativeTime(report.snapshot.createdAt)}</span>
-        {/* An authoritative run's stats come from its own finding buckets via the shared metrics formatter (the
-            same copy the checkpoint rail and PR list use), because the pipeline writes no GenerationReview for
-            `results` to count - every test would read as "pending". */}
+        {/* An authoritative run states its outcome in the analysis vocabulary - bugs and coverage findings, via
+            the shared metrics formatter the checkpoint rail and PR list also use - rather than the raw
+            pass/fail tally a legacy snapshot reports. */}
         {report.summary?.analysis != null ? (
-          <span>{formatCheckpointMetrics(report.summary, report.summary.openBugCount, report.results.total)}</span>
+          <span>{formatCheckpointMetrics(report.summary, report.results.total)}</span>
         ) : (
           <DiffsResultStats report={report} />
         )}

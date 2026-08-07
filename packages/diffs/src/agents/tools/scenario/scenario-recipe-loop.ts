@@ -10,7 +10,7 @@ import type { ScenarioRecipeData } from "../../../scenario-recipe";
  * disclosure for large recipes.
  *
  * These are recipe templates (what a scenario is *designed to seed*), not the
- * per-run instance data the {@link ScenarioDataLoop} carries.
+ * per-run instance data a run's scenario instance carries.
  *
  * Optional: an analysis whose tests reference no scenarios (or only scenarios
  * with no usable recipe) carries no payload, and the tool is simply not offered.

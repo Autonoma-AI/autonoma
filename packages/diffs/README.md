@@ -9,9 +9,9 @@ AI agents that drive the diff-analysis and review pipeline. Every agent is a sub
 | Agent                | Trigger                   | Decides                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | -------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DiffsAgent`         | PR diffs                  | Which existing tests might be affected; and authors any missing tests directly via `create_test` (mints the test case + plan + a pending generation, with a required coverage justification)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `GenerationReviewer` | Every generation          | Verdict (success / plan_mismatch / agent_limitation / application_bug / unknown_issue / scenario_unsupported). `application_bug` requires a `suspectedCause` grounding the bug in code; ungroundable suspicions are `unknown_issue`; a test impossible given the current scenario data (with a description anchoring intent) is `scenario_unsupported` and carries a `proposedScenarioExtension`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
-Both extend `Agent<TInput, TResult, TLoop>`. Callers use `.run(input)`.
+The classifier that judges each run is a separate agent, in `./analysis` - see below. Both extend
+`Agent<TInput, TResult, TLoop>`; callers use `.run(input)`.
 
 ## Code layout
 
@@ -22,25 +22,21 @@ src/agents/
 │   ├── truncate-output.ts   Shared head+tail output cap; the marker carries the caller's narrow hint
 │   ├── codebase/            bash - single read-only shell tool, via buildCodebaseTools() (CodebaseLoop)
 │   ├── lookup/              list_flows, list_tests, read_tests, list_scenarios, read_scenario
-│   ├── scenario/            read_scenario_entities (ScenarioDataLoop),
-│   │                        read_scenario_recipe_entities (ScenarioRecipeLoop)
-│   ├── run-evidence/       view_step_details (both frames + the engine's step record; annotates the before frame with the
-│   │                        engine's resolved click point, web only), view_final_screenshot
+│   ├── scenario/            read_scenario_recipe_entities (ScenarioRecipeLoop)
+│   ├── run-evidence/        view_step_details (both frames + the engine's step record; annotates the before frame with
+│   │                        the engine's resolved click point, web only), and the StorageEvidenceLoader that fetches
+│   │                        the bytes it reads
 │   └── subagent/            Nested research agent + tool wrapper
-├── diffs/                   DiffsAgent + its action tools + result tool + prompt
-└── reviewers/               GenerationReviewer, shared ReviewerLoop
+└── diffs/                   DiffsAgent + its action tools + result tool + prompt
 
 src/plan-authoring/          The plan-authoring context the DiffsAgent's create_test prompt is
                              built from (flow + scenario summaries). The guide itself is
                              PLAN_AUTHORING_GUIDE, owned by @autonoma/test-updates.
 
-src/scenario-data/           Reusable, agent-agnostic scenario-data capability:
-                             resolveScenarioDataForGeneration (DB)
-                             + materializeScenarioData (pure) + summarizeScenarioData (bounded
-                             prompt summary). The read_scenario_entities tool discloses full
-                             records on demand. The resolver shares the instance-unwrap
-                             (materializeInstanceScenarioData). Shared entity-graph primitives
-                             (normalizeEntities, summarizeEntities) are reused by scenario-recipe.
+src/scenario-data/           The entity-graph primitives scenario-recipe builds on
+                             (normalizeEntities, summarizeEntities), over the scenario-data
+                             types and materializeScenarioData that @autonoma/scenario owns
+                             and this barrel re-exports.
 
 src/scenario-recipe/         Template-level sibling of scenario-data, for the diffs
                              analysis agent (Step 1): resolveScenarioRecipesForSnapshot (DB)
@@ -54,18 +50,18 @@ src/scenario-recipe/         Template-level sibling of scenario-data, for the di
 
 These two capabilities are deliberately distinct data shapes:
 
-- **`scenario-data`** is per-subject **instance** data - the concrete rows a single
-  generation's scenario instance _actually generated_ (`ScenarioInstance.generatedData`).
-  The generation reviewer uses it to judge whether a subject's plan referenced data the
-  scenario really seeded (a strong `agent_limitation` / `plan_mismatch` signal).
+- **`scenario-data`** is the **instance** shape - the concrete rows a single generation's
+  scenario instance _actually generated_ (`ScenarioInstance.generatedData`). Its types and
+  materializer are owned by `@autonoma/scenario`; what this package keeps are the shared
+  entity-graph primitives `scenario-recipe` builds on.
 - **`scenario-recipe`** is **recipe template** data - what each scenario is _designed to
   seed_, read from the point-in-time `ScenarioRecipeVersion.fixtureJson` for the snapshot.
   The diffs **analysis** agent uses it: analysis runs _before generation_, so no instance
   exists yet - the recipe is the only artifact describing each scenario's data. Field values
   may still be unresolved variable placeholders (e.g. `{{testRunId}}`).
 
-Both resolve their payload at setup (the only DB-touching step), inline a bounded summary,
-and disclose full records on demand via an in-memory tool, keeping the agent run DB-free.
+`scenario-recipe` resolves its payload at setup (the only DB-touching step), inlines a bounded
+summary, and discloses full records on demand via an in-memory tool, keeping the agent run DB-free.
 
 Each agent's directory contains: the `Agent` subclass, a `Loop` subclass that implements the capability interfaces the agent's tools depend on, the per-agent action/result tools, and the prompt source.
 
@@ -102,9 +98,9 @@ Tools classify their failures explicitly:
 
 ## Entry points
 
-`@autonoma/diffs` is a pure agent library: it ships the `GenerationReviewer` agent class and the loader interfaces it consumes (`ScreenshotLoader`, `VideoDownloader`), plus the prompt-building blocks (`buildGenerationReviewMessages`). All reviewer orchestration that reaches for infrastructure - the production runner (`runGenerationReview`), the concrete context loaders, and the persisters - lives in `apps/workers/diffs`. Per-step eval corpora that exercise the agents live under `apps/workers/diffs/evals`.
+`@autonoma/diffs` is a pure agent library: it ships the `DiffsAgent`, the `./analysis` classifier and Reporter, and the loader interfaces they consume (`ScreenshotLoader`, `VideoDownloader`, `StorageEvidenceLoader` in `src/agents/tools/run-evidence/`). All orchestration that reaches for infrastructure - the Temporal activities, the concrete context loaders, and the persisters - lives in `apps/workers/diffs`. Per-step eval corpora that exercise the agents live under `apps/workers/diffs/evals`.
 
-The reviewer uploads the run recording to the video model preferring the dead-time-stripped mp4 - `GenerationContext.optimizedVideoUrl` - over the original webm (`videoUrl`), cutting the frames Gemini bills, and falling back to the webm when the optimized recording is absent. The mp4 is produced upstream at record time by the engine (see `packages/engine-web/src/platform/optimize-recording.ts`), not here, so `packages/diffs` stays dep-light: `tryUploadVideo` only downloads whichever key it is given.
+The classifier reads the run recording preferring the dead-time-stripped mp4 over the original webm, cutting the frames the video model bills. The mp4 is produced upstream at record time by the engine (see `packages/engine-web/src/platform/optimize-recording.ts`), not here, so `packages/diffs` stays dep-light: the loader only downloads whichever key it is given.
 
 ## Sub-packages
 

@@ -3,15 +3,11 @@ import {
     authoritativeSnapshotHealth,
     buildAuthoritativeCheckpointSummary,
     buildCheckpointSummary,
-    computeFailingByKind,
     computeSnapshotHealth,
-    countOpenBugsBySnapshot,
     countTestsBySnapshot,
-    failingExecutionIds,
     listExecutedTestsForSnapshot,
     loadAuthoritativeCheckpointInputs,
     type LoadedAuthoritativeInputs,
-    loadIssueKindsForExecutions,
     type SnapshotExecutedTest,
     type SnapshotHealthCounts,
     type SnapshotHealthResult,
@@ -59,7 +55,7 @@ import {
     extractEvidenceAssetIds,
     type InvestigationFinding,
     type InvestigationRunStep,
-    type MainOpenProblems,
+    type MainOpenProblem,
     type OverlayPoint,
     type PrimaryScreenshot,
     primaryScreenshotSchema,
@@ -450,8 +446,8 @@ export class BranchesService extends Service {
     }
 
     /**
-     * The authoritative `AnalysisJob` lifecycle for a snapshot: the merged pipeline's own status row (mirroring a
-     * `DiffsJob`). Returns `null` for a diffs snapshot (no `AnalysisJob`), so the PR page can tell an authoritative
+     * The authoritative `AnalysisJob` lifecycle for a snapshot: the merged pipeline's own status row.
+     * Returns `null` for a diffs snapshot (no `AnalysisJob`), so the PR page can tell an authoritative
      * snapshot apart from a diffs one even before any `AnalysisReport` exists - the running-snapshot fallback reads
      * this to show the run's status while findings are still being produced. Org-scoped, keyed 1:1 by snapshot.
      *
@@ -515,10 +511,10 @@ export class BranchesService extends Service {
     }
 
     /**
-     * Everything unresolved on the application's main branch, from whichever store owns it - the one read behind
-     * the overview rail and the main-branch page's problem list. See {@link loadMainOpenProblems} for the fork.
+     * The open issues on the application's main branch, bugs-first then by descending severity - the one read
+     * behind the overview rail and the main-branch page's problem list.
      */
-    async getMainOpenProblems(applicationId: string, organizationId: string): Promise<MainOpenProblems> {
+    async getMainOpenProblems(applicationId: string, organizationId: string): Promise<MainOpenProblem[]> {
         return await loadMainOpenProblems(this.db, applicationId, organizationId, this.logger);
     }
 
@@ -1111,37 +1107,27 @@ export class BranchesService extends Service {
             .filter((s): s is NonNullable<typeof s> => s != null)
             .map((s) => ({ id: s.id, status: s.status }));
 
-        const [
-            healthBySnapshot,
-            bugCountBySnapshot,
-            authoritativeBySnapshot,
-            previewUrlByPr,
-            previewStateByPr,
-            latestRunByBranch,
-        ] = await Promise.all([
-            aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
-            countOpenBugsBySnapshot(
-                this.db,
-                activeSnapshots.map((s) => s.id),
-            ),
-            loadAuthoritativeCheckpointInputs(
-                this.db,
-                organizationId,
-                activeSnapshots.map((s) => s.id),
-                this.logger,
-            ),
-            this.loadPreviewUrlsByPr(
-                applicationId,
-                organizationId,
-                branches.map((b) => ({ branchId: b.id, prNumber: b.prInfo!.prNumber })),
-            ),
-            this.loadPreviewStateByPr(
-                applicationId,
-                organizationId,
-                branches.map((b) => b.prInfo!.prNumber),
-            ),
-            this.loadLatestRunByBranch(branches.map((b) => b.id)),
-        ]);
+        const [healthBySnapshot, authoritativeBySnapshot, previewUrlByPr, previewStateByPr, latestRunByBranch] =
+            await Promise.all([
+                aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
+                loadAuthoritativeCheckpointInputs(
+                    this.db,
+                    organizationId,
+                    activeSnapshots.map((s) => s.id),
+                    this.logger,
+                ),
+                this.loadPreviewUrlsByPr(
+                    applicationId,
+                    organizationId,
+                    branches.map((b) => ({ branchId: b.id, prNumber: b.prInfo!.prNumber })),
+                ),
+                this.loadPreviewStateByPr(
+                    applicationId,
+                    organizationId,
+                    branches.map((b) => b.prInfo!.prNumber),
+                ),
+                this.loadLatestRunByBranch(branches.map((b) => b.id)),
+            ]);
 
         // Best-effort, fire-and-forget refresh of the cached PR metadata. Throttled in
         // Postgres, so this no-ops when the cache is fresh and never blocks the response.
@@ -1150,15 +1136,14 @@ export class BranchesService extends Service {
         const items = branches.map(({ prInfo, activeSnapshot, ...branch }) => {
             // No active snapshot: nothing to present. A snapshot that exists always goes through `presentCheckpoint`,
             // the one place the legacy-vs-authoritative fork lives.
-            const { summary, health, bugCount } =
+            const { summary, health } =
                 activeSnapshot != null
                     ? presentCheckpoint({
                           snapshotStatus: activeSnapshot.status,
                           healthResult: healthBySnapshot.get(activeSnapshot.id),
-                          legacyBugCount: bugCountBySnapshot.get(activeSnapshot.id) ?? 0,
                           authoritative: authoritativeBySnapshot.get(activeSnapshot.id),
                       })
-                    : { summary: undefined, health: "unknown" as const, bugCount: 0 };
+                    : { summary: undefined, health: "unknown" as const };
 
             const prStatus = computePrPipelineStatus({
                 activeSnapshot:
@@ -1176,7 +1161,6 @@ export class BranchesService extends Service {
                     authorLogin: prInfo!.prAuthorLogin ?? undefined,
                     updatedAt: prInfo!.prUpdatedAt ?? undefined,
                 },
-                bugCount,
                 previewUrl: previewUrlByPr.get(prInfo!.prNumber),
                 prStatus,
                 activeSnapshot:
@@ -1331,22 +1315,17 @@ export class BranchesService extends Service {
                 ? [{ id: branch.activeSnapshot.id, status: branch.activeSnapshot.status }]
                 : [];
 
-        const [healthBySnapshot, bugCountBySnapshot, authoritativeBySnapshot, previewStateByPr, latestRunByBranch] =
-            await Promise.all([
-                aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
-                countOpenBugsBySnapshot(
-                    this.db,
-                    activeSnapshots.map((s) => s.id),
-                ),
-                loadAuthoritativeCheckpointInputs(
-                    this.db,
-                    organizationId,
-                    activeSnapshots.map((s) => s.id),
-                    this.logger,
-                ),
-                this.loadPreviewStateByPr(applicationId, organizationId, [prNumber]),
-                this.loadLatestRunByBranch([branchId]),
-            ]);
+        const [healthBySnapshot, authoritativeBySnapshot, previewStateByPr, latestRunByBranch] = await Promise.all([
+            aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
+            loadAuthoritativeCheckpointInputs(
+                this.db,
+                organizationId,
+                activeSnapshots.map((s) => s.id),
+                this.logger,
+            ),
+            this.loadPreviewStateByPr(applicationId, organizationId, [prNumber]),
+            this.loadLatestRunByBranch([branchId]),
+        ]);
 
         const active = branch.activeSnapshot;
         const summary =
@@ -1354,7 +1333,6 @@ export class BranchesService extends Service {
                 ? presentCheckpoint({
                       snapshotStatus: active.status,
                       healthResult: healthBySnapshot.get(active.id),
-                      legacyBugCount: bugCountBySnapshot.get(active.id) ?? 0,
                       authoritative: authoritativeBySnapshot.get(active.id),
                   }).summary
                 : undefined;
@@ -1477,28 +1455,25 @@ export class BranchesService extends Service {
         });
 
         const snapshotIds = snapshots.map((s) => s.id);
-        const [changeSummaryBySnapshot, healthBySnapshot, bugCountBySnapshot, authoritativeBySnapshot] =
-            await Promise.all([
-                summarizeChangesForSnapshots(
-                    this.db,
-                    snapshots.map((s) => ({ snapshotId: s.id, prevSnapshotId: s.prevSnapshotId })),
-                    this.logger,
-                ),
-                aggregateSnapshotHealth(
-                    this.db,
-                    snapshots.map((s) => ({ id: s.id, status: s.status })),
-                    this.logger,
-                ),
-                countOpenBugsBySnapshot(this.db, snapshotIds),
-                loadAuthoritativeCheckpointInputs(this.db, organizationId, snapshotIds, this.logger),
-            ]);
+        const [changeSummaryBySnapshot, healthBySnapshot, authoritativeBySnapshot] = await Promise.all([
+            summarizeChangesForSnapshots(
+                this.db,
+                snapshots.map((s) => ({ snapshotId: s.id, prevSnapshotId: s.prevSnapshotId })),
+                this.logger,
+            ),
+            aggregateSnapshotHealth(
+                this.db,
+                snapshots.map((s) => ({ id: s.id, status: s.status })),
+                this.logger,
+            ),
+            loadAuthoritativeCheckpointInputs(this.db, organizationId, snapshotIds, this.logger),
+        ]);
 
         return snapshots.map((snapshot) => {
             const changeSummary = changeSummaryBySnapshot.get(snapshot.id) ?? NO_SUITE_CHANGES;
-            const { summary, health, bugCount } = presentCheckpoint({
+            const { summary, health } = presentCheckpoint({
                 snapshotStatus: snapshot.status,
                 healthResult: healthBySnapshot.get(snapshot.id),
-                legacyBugCount: bugCountBySnapshot.get(snapshot.id) ?? 0,
                 authoritative: authoritativeBySnapshot.get(snapshot.id),
                 suiteChangeCount: changeSummary.added + changeSummary.removed + changeSummary.updated,
             });
@@ -1514,7 +1489,6 @@ export class BranchesService extends Service {
                     notAffected: snapshot._count.testCaseAssignments,
                     totalTests: snapshot._count.testCaseAssignments,
                 },
-                bugCount,
                 summary,
             };
         });
@@ -1601,33 +1575,21 @@ export class BranchesService extends Service {
             ? loadCreatedTests(this.db, snapshotId, createdTestCaseIds, this.logger)
             : Promise.resolve([]);
 
-        const [executedTests, assignmentCount, createdTests, openBugCountBySnapshot] = await Promise.all([
+        const [executedTests, assignmentCount, createdTests] = await Promise.all([
             listExecutedTestsForSnapshot(this.db, snapshotId),
             this.db.testCaseAssignment.count({ where: { snapshotId } }),
             createdTestsPromise,
-            countOpenBugsBySnapshot(this.db, [snapshotId]),
         ]);
         const counts = this.computeHealthCounts(assignmentCount, executedTests);
         const health = computeSnapshotHealth(snapshot.status, counts);
 
-        // Attribute failing tests that carry a linked Issue to engine vs app by Issue kind. The
-        // lookup no-ops (no query) when nothing failed, keeping the all-green path query-flat.
-        const { generationIds } = failingExecutionIds([executedTests]);
-        const issueKinds = await loadIssueKindsForExecutions(this.db, generationIds);
-        const failingByKind = computeFailingByKind(executedTests, issueKinds);
         const suiteChangeCount = changes.filter(
             (c) => c.type === "added" || c.type === "updated" || c.type === "removed",
         ).length;
         // NOTE: no authoritative branch here. `snapshotDetail.summary` is fanned out per snapshot by the legacy PR
         // overview card and is never rendered on an authoritative surface (the authoritative report page reads its
         // verdict from the AnalysisReport / loadSnapshotReport header), so it stays on the cheap legacy path.
-        const summary = buildCheckpointSummary({
-            snapshotStatus: snapshot.status,
-            counts,
-            openBugCount: openBugCountBySnapshot.get(snapshotId) ?? 0,
-            failingByKind,
-            suiteChangeCount,
-        });
+        const summary = buildCheckpointSummary({ snapshotStatus: snapshot.status, counts, suiteChangeCount });
 
         return {
             snapshot: flatSnapshot,
@@ -1664,7 +1626,6 @@ export class BranchesService extends Service {
         return loadSnapshotReport({
             db: this.db,
             github: this.github,
-            storageProvider: this.storageProvider,
             snapshotId,
             organizationId,
             parentLogger: this.logger,
@@ -1828,30 +1789,27 @@ function prInfoStateFilter(state: PullRequestStateFilter): Prisma.FeatureBranchI
     return { prState: state };
 }
 
-/** A snapshot's checkpoint presentation: the badge summary, the raw health signal, and the bug count - the three
- * fields the PR list, the checkpoint rail and the PR pipeline status each render off one snapshot. */
+/** A snapshot's checkpoint presentation: the badge summary and the raw health signal - the two fields the PR list,
+ * the checkpoint rail and the PR pipeline status each render off one snapshot. */
 interface CheckpointPresentation {
     summary: CheckpointPresentationSummary | undefined;
     health: SnapshotHealth;
-    bugCount: number;
 }
 
 /**
  * The ONE place the legacy-vs-authoritative choice is made. An authoritative snapshot (the merged analysis pipeline
- * ran, so `authoritative` is set) derives all three fields from the AnalysisReport verdict + finding categories; a
- * legacy snapshot derives them from the health/Bug model the analysis pipeline does not populate. Every surface that
- * renders a checkpoint calls this rather than re-deriving the fork per field - so the badge, the raw `health` beside
- * it, and the `bugCount` can never disagree about which pipeline ran.
+ * ran, so `authoritative` is set) derives both fields from the AnalysisReport verdict + finding categories; a legacy
+ * snapshot derives them from the health model the analysis pipeline does not populate. Every surface that renders a
+ * checkpoint calls this rather than re-deriving the fork per field, so the badge and the raw `health` beside it can
+ * never disagree about which pipeline ran. The bug count itself lives on `summary.analysis`, authored once.
  */
 function presentCheckpoint(input: {
     snapshotStatus: string;
     healthResult: SnapshotHealthResult | undefined;
-    legacyBugCount: number;
     authoritative: LoadedAuthoritativeInputs | undefined;
-    issueOccurrenceCount?: number;
     suiteChangeCount?: number;
 }): CheckpointPresentation {
-    const { snapshotStatus, healthResult, legacyBugCount, authoritative } = input;
+    const { snapshotStatus, healthResult, authoritative } = input;
     if (authoritative != null) {
         return {
             summary: buildAuthoritativeCheckpointSummary({
@@ -1862,8 +1820,6 @@ function presentCheckpoint(input: {
                 suiteChangeCount: input.suiteChangeCount,
             }),
             health: authoritativeSnapshotHealth(authoritative),
-            // Open bug issues (finalize persists them as clientBugCount), never `Bug` rows - the pipeline files none.
-            bugCount: authoritative.bugCount ?? authoritative.findingBuckets?.bug ?? 0,
         };
     }
     return {
@@ -1872,14 +1828,10 @@ function presentCheckpoint(input: {
                 ? buildCheckpointSummary({
                       snapshotStatus,
                       counts: healthResult.counts,
-                      openBugCount: legacyBugCount,
-                      issueOccurrenceCount: input.issueOccurrenceCount,
-                      failingByKind: healthResult.failingByKind,
                       suiteChangeCount: input.suiteChangeCount,
                   })
                 : undefined,
         health: healthResult?.health ?? "unknown",
-        bugCount: legacyBugCount,
     };
 }
 

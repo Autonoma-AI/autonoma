@@ -1,7 +1,6 @@
 import {
     type AnalysisFindingBucketCounts,
     type CheckpointExecutionState,
-    type CheckpointFailingByKind,
     type CheckpointPresentationSummary,
     type CheckpointTone,
     PIPELINE_LABEL,
@@ -12,12 +11,6 @@ import type { SnapshotHealthCounts } from "./health";
 export interface BuildCheckpointSummaryInputs {
     snapshotStatus: string;
     counts: SnapshotHealthCounts;
-    // Unique open application bugs (see countOpenBugsBySnapshot).
-    openBugCount: number;
-    // Raw application-issue occurrences; defaults to openBugCount when not separately known.
-    issueOccurrenceCount?: number;
-    // Engine-vs-app attribution of failing tests that carry a linked Issue.
-    failingByKind: CheckpointFailingByKind;
     suiteChangeCount?: number;
 }
 
@@ -28,18 +21,11 @@ const RUNNING_STATUS = "processing";
  * checkpoint history, the checkpoint report, and the GitHub PR comment from already-loaded counts.
  */
 export function buildCheckpointSummary(inputs: BuildCheckpointSummaryInputs): CheckpointPresentationSummary {
-    const { snapshotStatus, counts, openBugCount, failingByKind } = inputs;
-    const issueOccurrenceCount = inputs.issueOccurrenceCount ?? openBugCount;
+    const { snapshotStatus, counts } = inputs;
     const suiteChangeCount = inputs.suiteChangeCount ?? 0;
 
     const executionState = deriveExecutionState(snapshotStatus, counts);
-    const { tone, label, reason } = derivePresentation({
-        executionState,
-        counts,
-        openBugCount,
-        issueOccurrenceCount,
-        suiteChangeCount,
-    });
+    const { tone, label, reason } = derivePresentation({ executionState, counts, suiteChangeCount });
 
     const run = counts.failing + counts.passing + counts.running + counts.setupFailed;
     return {
@@ -47,8 +33,6 @@ export function buildCheckpointSummary(inputs: BuildCheckpointSummaryInputs): Ch
         label,
         reason,
         executionState,
-        openBugCount,
-        issueOccurrenceCount,
         testCounts: {
             assigned: counts.totalTests,
             run,
@@ -57,10 +41,6 @@ export function buildCheckpointSummary(inputs: BuildCheckpointSummaryInputs): Ch
             setupFailed: counts.setupFailed,
             running: counts.running,
             notRun: counts.notAffected,
-        },
-        failingByKind: {
-            engine: failingByKind.engine,
-            app: failingByKind.app,
         },
         suiteChangeCount,
     };
@@ -112,9 +92,6 @@ export function buildAuthoritativeCheckpointSummary(
         label,
         reason,
         executionState,
-        // Open bug issues are the authoritative equivalent of open app bugs; there are no separate occurrences.
-        openBugCount: bugCount,
-        issueOccurrenceCount: bugCount,
         testCounts: {
             assigned: totalTests,
             run: investigated,
@@ -125,7 +102,6 @@ export function buildAuthoritativeCheckpointSummary(
             running: 0,
             notRun: Math.max(totalTests - investigated, 0),
         },
-        failingByKind: { engine: 0, app: 0 },
         suiteChangeCount,
         analysis: {
             jobStatus: inputs.jobStatus,
@@ -204,28 +180,17 @@ function deriveExecutionState(snapshotStatus: string, counts: SnapshotHealthCoun
 function derivePresentation({
     executionState,
     counts,
-    openBugCount,
-    issueOccurrenceCount,
     suiteChangeCount,
 }: {
     executionState: CheckpointExecutionState;
     counts: SnapshotHealthCounts;
-    openBugCount: number;
-    issueOccurrenceCount: number;
     suiteChangeCount: number;
 }): { tone: CheckpointTone; label: string; reason?: string } {
-    // Open app bugs.
-    if (openBugCount > 0) {
-        const reason = issueOccurrenceCount > openBugCount ? `${issueOccurrenceCount} occurrences` : undefined;
-        return { tone: "critical", label: `${openBugCount} ${plural(openBugCount, "bug")}`, reason };
-    }
-
     // Pipeline failure.
     if (executionState === "pipeline_failed") {
         return { tone: "critical", label: PIPELINE_LABEL.checkpointFailed, reason: "pipeline error" };
     }
 
-    // A test failed (or couldn't run) but no open bug filed yet.
     if (executionState === "failed") {
         const label =
             counts.failing > 0

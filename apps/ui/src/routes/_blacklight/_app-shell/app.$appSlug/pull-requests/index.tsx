@@ -233,7 +233,7 @@ function MainBranchChip() {
   const { data: branch } = useBranchDetail(app.id, app.mainBranch.name);
   const { data: snapshots } = useSnapshotHistory(branch.id);
   const latest = [...snapshots].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
-  const health = latest == null ? "unknown" : latest.bugCount > 0 ? "critical" : latest.health;
+  const health = latest?.health ?? "unknown";
 
   return (
     <AppLink

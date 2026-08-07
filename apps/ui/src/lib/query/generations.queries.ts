@@ -29,8 +29,7 @@ export function useGenerationDetail(generationId: string) {
             const data = query.state.data;
             if (data == null) return false;
             const isActive = data.status === "queued" || data.status === "pending" || data.status === "running";
-            const isReviewPending = data.review?.status === "pending";
-            return isActive || isReviewPending ? 5000 : false;
+            return isActive ? 5000 : false;
         },
     });
 }

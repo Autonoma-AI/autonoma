@@ -1,11 +1,9 @@
-import type { GenerationReviewVerdict, GenerationStatus, Prisma, PrismaClient } from "@autonoma/db";
+import type { GenerationStatus, Prisma, PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 
 export interface CreatedTestGeneration {
     id: string;
     status: GenerationStatus;
-    verdict?: GenerationReviewVerdict;
-    reviewReasoning?: string;
 }
 
 /**
@@ -32,7 +30,6 @@ const generationSelect = {
     createdAt: true,
     updatedAt: true,
     testPlan: { select: { testCaseId: true } },
-    generationReview: { select: { verdict: true, reasoning: true } },
 } satisfies Prisma.TestGenerationSelect;
 
 type AssignmentRow = Prisma.TestCaseAssignmentGetPayload<{ select: typeof assignmentSelect }>;
@@ -94,15 +91,7 @@ function buildCreatedTest(
         },
         description: assignment.testCase.description ?? undefined,
         plan: assignment.plan?.prompt ?? "",
-        generation:
-            generation != null
-                ? {
-                      id: generation.id,
-                      status: generation.status,
-                      verdict: generation.generationReview?.verdict ?? undefined,
-                      reviewReasoning: generation.generationReview?.reasoning ?? undefined,
-                  }
-                : undefined,
+        generation: generation != null ? { id: generation.id, status: generation.status } : undefined,
     };
 }
 

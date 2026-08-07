@@ -96,7 +96,6 @@ apiTestSuite({
                 passedCount: 2,
                 coverageCount: 1,
             });
-            expect(row?.bugCount).toBe(1);
             expect(row?.health).toBe("critical");
         });
 
@@ -116,7 +115,6 @@ apiTestSuite({
             expect(row?.summary?.label).toBe("Not confirmed");
             expect(row?.summary?.reason).toBe("1 couldn't confirm");
             expect(row?.summary?.analysis?.bugCount).toBe(0);
-            expect(row?.bugCount).toBe(0);
             expect(row?.health).toBe("unknown");
         });
 

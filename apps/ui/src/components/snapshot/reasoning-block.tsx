@@ -1,9 +1,7 @@
 import { type OverlayPoint } from "@autonoma/blacklight";
 import { EVIDENCE_TOKEN_SCHEME, FINDING_TOKEN_SCHEME, ISSUE_TOKEN_SCHEME } from "@autonoma/types";
-import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
-import { LightbulbIcon } from "@phosphor-icons/react/Lightbulb";
 import { ScreenshotLightbox } from "components/screenshot-lightbox";
-import { type ReactNode, useState } from "react";
+import type { ReactNode } from "react";
 import Markdown, { defaultUrlTransform, type ExtraProps } from "react-markdown";
 
 // The inline-token schemes the renderer preserves through react-markdown's URL sanitizer (which strips unknown
@@ -16,7 +14,7 @@ const PRESERVED_TOKEN_SCHEMES = [EVIDENCE_TOKEN_SCHEME, ISSUE_TOKEN_SCHEME, FIND
  * returns the token's plain text - so a fabricated reference "renders as nothing", the link counterpart of an
  * unbacked `evidence:` image rendering as no image.
  */
-export interface ReasoningLinkResolvers {
+interface ReasoningLinkResolvers {
   renderIssueLink?: (issueId: string, children: ReactNode) => ReactNode;
   renderFindingLink?: (slug: string, children: ReactNode) => ReactNode;
 }
@@ -27,43 +25,11 @@ export interface ReasoningLinkResolvers {
  * up here and renders the image inline (with pin + lightbox), or nothing when the
  * token has no resolved asset.
  */
-export interface InlineEvidence {
+interface InlineEvidence {
   assetId: string;
   url: string;
   kind: "screenshot" | "step_output";
   pin?: OverlayPoint;
-}
-
-interface ReasoningBlockProps {
-  label: string;
-  content: string;
-}
-
-export function ReasoningBlock({ label, content }: ReasoningBlockProps) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="border border-border-dim bg-surface-base">
-      <button
-        type="button"
-        onClick={() => setExpanded((prev) => !prev)}
-        aria-expanded={expanded}
-        className="flex w-full items-center gap-2 px-4 py-2.5 text-left transition-colors hover:bg-surface-raised/40"
-      >
-        <LightbulbIcon size={12} className="text-text-tertiary" />
-        <span className="font-mono text-2xs font-semibold uppercase tracking-widest text-text-tertiary">{label}</span>
-        <CaretDownIcon
-          size={12}
-          className={`ml-auto text-text-tertiary transition-transform ${expanded ? "rotate-180" : ""}`}
-        />
-      </button>
-      {expanded && (
-        <div className="border-t border-border-dim px-4 py-3">
-          <ReasoningMarkdown content={content} />
-        </div>
-      )}
-    </div>
-  );
 }
 
 export function ReasoningMarkdown({

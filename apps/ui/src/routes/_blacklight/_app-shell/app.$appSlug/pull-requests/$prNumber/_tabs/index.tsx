@@ -8,7 +8,6 @@ import { AnalysisJobStatus } from "components/analysis/analysis-job-status";
 import { AnalysisOpenIssuesList } from "components/analysis/open-issues-list";
 import { AnalysisPrIssuesHeadline } from "components/analysis/pr-issues-headline";
 import { AnalysisReportProse } from "components/analysis/report-prose";
-import { ScreenshotLightbox } from "components/screenshot-lightbox";
 import { ShaRange } from "components/snapshot/sha-range";
 import { CATEGORY, buildSections, type EntryCategory } from "components/snapshot/snapshot-entries";
 import { formatRelativeTime } from "lib/format";
@@ -26,7 +25,6 @@ import {
   useBranchByPr,
   useSnapshotHistory,
 } from "lib/query/branches.queries";
-import { useBugsListByBranch } from "lib/query/bugs.queries";
 import { useCommitFromGitHub } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
 import type { RouterOutputs } from "lib/trpc";
@@ -39,7 +37,6 @@ import { formatCheckpointMetrics } from "../../-components/format-checkpoint-met
 
 type Snapshot = RouterOutputs["branches"]["snapshotHistory"][number];
 type SnapshotDetail = RouterOutputs["branches"]["snapshotDetail"];
-type Bug = RouterOutputs["bugs"]["listByBranch"][number];
 type ExecutedTest = SnapshotDetail["executedTests"][number];
 type PRExecutedTest = ExecutedTest & { snapshotId: string; category?: EntryCategory };
 type PRTestRunSection = { key: string; title: string; entries: PRExecutedTest[] };
@@ -97,13 +94,7 @@ function OverviewContent({ prNumber }: { prNumber: number }) {
   }
 
   return (
-    <PrOverview
-      applicationId={app.id}
-      branchId={branch.id}
-      prNumber={prNumber}
-      snapshots={orderedSnapshots}
-      latestSnapshot={latestSnapshot}
-    />
+    <PrOverview branchId={branch.id} prNumber={prNumber} snapshots={orderedSnapshots} latestSnapshot={latestSnapshot} />
   );
 }
 
@@ -112,13 +103,11 @@ function OverviewContent({ prNumber }: { prNumber: number }) {
 // distinguishes a still-running authoritative snapshot (no report yet) from a diffs one, which the report-presence
 // gate alone cannot.
 function PrOverview({
-  applicationId,
   branchId,
   prNumber,
   snapshots,
   latestSnapshot,
 }: {
-  applicationId: string;
   branchId: string;
   prNumber: number;
   snapshots: Snapshot[];
@@ -127,15 +116,7 @@ function PrOverview({
   const { data: analysisJob } = useAnalysisJob(latestSnapshot.id);
 
   if (analysisJob == null) {
-    return (
-      <PullRequestDetailWithCheckpoint
-        applicationId={applicationId}
-        branchId={branchId}
-        prNumber={prNumber}
-        snapshots={snapshots}
-        latestSnapshot={latestSnapshot}
-      />
-    );
+    return <CheckpointsSection prNumber={prNumber} snapshots={snapshots} latestSnapshot={latestSnapshot} />;
   }
 
   return (
@@ -254,49 +235,17 @@ function LatestSnapshotLink({ prNumber, snapshotId }: { prNumber: number; snapsh
   );
 }
 
-function PullRequestDetailWithCheckpoint({
-  applicationId,
-  branchId,
-  prNumber,
-  snapshots,
-  latestSnapshot,
-}: {
-  applicationId: string;
-  branchId: string;
-  prNumber: number;
-  snapshots: Snapshot[];
-  latestSnapshot: Snapshot;
-}) {
-  const { data: bugs } = useBugsListByBranch(branchId, "open");
-
-  return (
-    <div className="flex flex-col gap-5 p-6">
-      <CheckpointsSection
-        applicationId={applicationId}
-        prNumber={prNumber}
-        snapshots={snapshots}
-        latestSnapshot={latestSnapshot}
-        bugs={bugs}
-      />
-    </div>
-  );
-}
-
 function CheckpointsSection({
-  applicationId,
   prNumber,
   snapshots,
   latestSnapshot,
-  bugs,
 }: {
-  applicationId: string;
   prNumber: number;
   snapshots: Snapshot[];
   latestSnapshot: Snapshot;
-  bugs: Bug[];
 }) {
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col gap-3 p-6">
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold text-text-primary">Checkpoints in this PR</h2>
         <span className="font-mono text-2xs text-text-tertiary">
@@ -306,13 +255,7 @@ function CheckpointsSection({
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_19rem]">
         <Suspense fallback={<AggregatedCheckpointCardSkeleton />}>
-          <AggregatedCheckpointCard
-            applicationId={applicationId}
-            prNumber={prNumber}
-            snapshots={snapshots}
-            latestSnapshot={latestSnapshot}
-            bugs={bugs}
-          />
+          <AggregatedCheckpointCard prNumber={prNumber} snapshots={snapshots} latestSnapshot={latestSnapshot} />
         </Suspense>
         <CheckpointRail prNumber={prNumber} snapshots={snapshots} />
       </div>
@@ -340,19 +283,16 @@ function CheckpointRail({ prNumber, snapshots }: { prNumber: number; snapshots: 
 }
 
 function AggregatedCheckpointCard({
-  applicationId,
   prNumber,
   snapshots,
   latestSnapshot,
-  bugs,
 }: {
-  applicationId: string;
   prNumber: number;
   snapshots: Snapshot[];
   latestSnapshot: Snapshot;
-  bugs: Bug[];
 }) {
-  const { data: commit } = useCommitFromGitHub(applicationId, latestSnapshot.headSha ?? undefined);
+  const app = useCurrentApplication();
+  const { data: commit } = useCommitFromGitHub(app.id, latestSnapshot.headSha ?? undefined);
   const latestCommitMessage = commit?.message.split("\n")[0];
   const details = useSnapshotDetails(snapshots);
   const oldestSnapshot = snapshots[snapshots.length - 1] ?? latestSnapshot;
@@ -360,20 +300,16 @@ function AggregatedCheckpointCard({
   const testRunSections = useMemo(() => buildPrTestRunSections(details, editedCategories), [details, editedCategories]);
   const testRunSummary = useMemo(() => buildTestRunSummary(testRunSections), [testRunSections]);
   const suiteChangeCount = editedCategories.size;
-  const hasBugs = bugs.length > 0;
 
   return (
     <div className="border border-border-dim bg-surface-base">
       <div className="flex flex-wrap items-center gap-3 border-b border-border-dim px-5 py-3">
+        {/* A pure label: the bug store this card once had a verdict from is gone, and the test outcomes it does
+            still show are stated by TestChangeSummary below rather than asserted by a dot up here. */}
         <Badge
           variant="outline"
-          className={
-            hasBugs
-              ? "gap-1 border-status-critical/60 bg-status-critical/10 font-mono uppercase tracking-wider text-status-critical"
-              : "gap-1 border-primary-ink bg-primary-ink/10 font-mono uppercase tracking-wider text-primary-ink"
-          }
+          className="font-mono uppercase tracking-wider text-primary-ink border-primary-ink bg-primary-ink/10"
         >
-          <StatusDot status={hasBugs ? "critical" : "success"} />
           PR Overview
         </Badge>
         <ShaRange baseSha={oldestSnapshot.baseSha} headSha={latestSnapshot.headSha} />
@@ -391,28 +327,10 @@ function AggregatedCheckpointCard({
 
       <div className="flex flex-col gap-4 px-5 py-4">
         <div className="flex flex-wrap items-center gap-3">
-          <h2 className="text-lg font-semibold tracking-tight text-text-primary">
-            {bugs.length === 0 ? "Tests run across this PR" : "Bugs found in this PR"}
-          </h2>
-          {bugs.length === 0 && <TestChangeSummary items={testRunSummary} />}
-          {bugs.length === 0 && <TestSuiteChangesButton prNumber={prNumber} snapshotId={latestSnapshot.id} />}
+          <h2 className="text-lg font-semibold tracking-tight text-text-primary">Tests run across this PR</h2>
+          <TestChangeSummary items={testRunSummary} />
+          <TestSuiteChangesButton prNumber={prNumber} snapshotId={latestSnapshot.id} />
         </div>
-
-        {bugs.length > 0 && (
-          <div className="flex flex-col gap-2">
-            {bugs.map((bug) => (
-              <CheckpointBugRow key={bug.id} bug={bug} />
-            ))}
-          </div>
-        )}
-
-        {bugs.length > 0 && (
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <h2 className="text-lg font-semibold tracking-tight text-text-primary">Tests run across this PR</h2>
-            <TestChangeSummary items={testRunSummary} />
-            <TestSuiteChangesButton prNumber={prNumber} snapshotId={latestSnapshot.id} />
-          </div>
-        )}
         <CompactTestsRun
           sections={testRunSections}
           suiteChangeCount={suiteChangeCount}
@@ -580,9 +498,6 @@ function ExecutedTestRunRow({ test }: { test: PRExecutedTest }) {
             </Badge>
           )}
         </div>
-        {test.reviewReasoning != null && test.reviewReasoning.trim().length > 0 && (
-          <p className="line-clamp-2 text-xs leading-relaxed text-text-tertiary">{test.reviewReasoning}</p>
-        )}
       </ExecutedTestLink>
     </li>
   );
@@ -642,43 +557,6 @@ function categoryVariant(category: EntryCategory): "success" | "warn" | "critica
   return CATEGORY[category].variant;
 }
 
-function CheckpointBugRow({ bug }: { bug: Bug }) {
-  const primaryTestCase = bug.testCases[0];
-  const testLabel = primaryTestCase?.slug ?? primaryTestCase?.name ?? "No linked test case";
-
-  return (
-    <div className="flex items-center gap-3 border border-border-dim bg-surface-void p-2 transition-colors hover:border-border-mid hover:bg-surface-raised">
-      {bug.thumbnail?.url != null ? (
-        <ScreenshotLightbox
-          src={bug.thumbnail.url}
-          alt={bug.title}
-          className="h-14 w-24 shrink-0 border border-border-mid object-cover"
-        />
-      ) : (
-        <div className="h-14 w-24 shrink-0 border border-border-mid bg-[repeating-linear-gradient(45deg,var(--surface-base),var(--surface-base)_6px,transparent_6px,transparent_12px)]" />
-      )}
-      <AppLink to="/app/$appSlug/bugs/$bugId" params={{ bugId: bug.id }} className="min-w-0 flex-1">
-        <Badge
-          variant="outline"
-          className="mb-1 border-status-critical/50 bg-status-critical/10 font-mono text-3xs uppercase tracking-wider text-status-critical"
-        >
-          Bug
-        </Badge>
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate text-sm font-medium text-text-primary">{bug.title}</span>
-          <Badge variant={SEVERITY_BADGE[bug.severity] ?? "secondary"}>{bug.severity}</Badge>
-        </div>
-        {bug.description.trim() !== "" && (
-          <p className="mt-1 line-clamp-2 text-sm leading-relaxed text-text-secondary">{bug.description}</p>
-        )}
-        <div className="mt-1 truncate font-mono text-2xs text-text-tertiary">
-          {testLabel} · x{bug.occurrences} {bug.occurrences === 1 ? "occurrence" : "occurrences"}
-        </div>
-      </AppLink>
-    </div>
-  );
-}
-
 function CheckpointRailItem({
   prNumber,
   snapshot,
@@ -709,7 +587,7 @@ function CheckpointRailItem({
       </div>
       <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />
       <span className="font-mono text-2xs text-text-tertiary">
-        {formatCheckpointMetrics(snapshot.summary, snapshot.bugCount, snapshot.healthCounts.totalTests)}
+        {formatCheckpointMetrics(snapshot.summary, snapshot.healthCounts.totalTests)}
       </span>
     </AppLink>
   );
@@ -780,12 +658,3 @@ function OverviewSkeleton() {
     </div>
   );
 }
-
-type SeverityBadgeVariant = "critical" | "high" | "warn" | "secondary";
-
-const SEVERITY_BADGE: Record<string, SeverityBadgeVariant> = {
-  critical: "critical",
-  high: "high",
-  medium: "warn",
-  low: "secondary",
-};

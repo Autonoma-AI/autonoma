@@ -11,7 +11,6 @@ export const sentryServiceInterceptor = createSentryServiceInterceptor(
         deleteAnalysisTest: "analysis",
         persistAnalysisClassification: "analysis",
         classifyInvestigationRun: "investigation",
-        reviewGeneration: "generation-reviewer",
     },
     "worker-diffs",
 );

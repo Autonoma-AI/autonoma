@@ -117,7 +117,7 @@ function uniqueSuffix(): string {
     return `${testSeq}-${Math.floor(performance.now())}`;
 }
 
-export class DiffJobContextHarness implements IntegrationHarness {
+class DiffJobContextHarness implements IntegrationHarness {
     public readonly db: PrismaClient;
     /** Serves the seeded generation conversation the loader downloads eagerly. */
     public readonly storage = new InMemoryStorage();

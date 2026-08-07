@@ -16,11 +16,8 @@ export type { ScenarioLookupLoop } from "./lookup/scenario-lookup-loop";
 export type { TestLookupLoop } from "./lookup/test-lookup-loop";
 
 export { ViewStepDetailsTool } from "./run-evidence/view-step-details-tool";
-export { ViewFinalScreenshotTool } from "./run-evidence/view-final-screenshot-tool";
 export type { StepInspectionLoop } from "./run-evidence/step-inspection-loop";
 export { type ScreenshotLoader, type InspectableStep } from "./run-evidence/run-evidence-types";
 
-export { ReadScenarioEntitiesTool } from "./scenario/read-scenario-entities-tool";
-export type { ScenarioDataLoop } from "./scenario/scenario-data-loop";
 export { ReadScenarioRecipeEntitiesTool } from "./scenario/read-scenario-recipe-entities-tool";
 export type { ScenarioRecipeLoop } from "./scenario/scenario-recipe-loop";

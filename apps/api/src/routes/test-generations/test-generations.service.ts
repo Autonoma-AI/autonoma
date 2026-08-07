@@ -54,20 +54,6 @@ export class TestGenerationsService extends Service {
                         },
                     },
                 },
-                generationReview: {
-                    select: {
-                        id: true,
-                        status: true,
-                        verdict: true,
-                        issue: {
-                            select: {
-                                id: true,
-                                severity: true,
-                                title: true,
-                            },
-                        },
-                    },
-                },
                 attempts: {
                     orderBy: { order: "asc" },
                     select: {
@@ -218,21 +204,6 @@ export class TestGenerationsService extends Service {
                 name: generation.testPlan.testCase.name,
                 slug: generation.testPlan.testCase.slug,
             },
-            review:
-                generation.generationReview != null
-                    ? {
-                          status: generation.generationReview.status,
-                          verdict: generation.generationReview.verdict ?? undefined,
-                          issue:
-                              generation.generationReview.issue != null
-                                  ? {
-                                        id: generation.generationReview.issue.id,
-                                        severity: generation.generationReview.issue.severity,
-                                        title: generation.generationReview.issue.title,
-                                    }
-                                  : undefined,
-                      }
-                    : undefined,
             pullRequest:
                 prNumber != null
                     ? {

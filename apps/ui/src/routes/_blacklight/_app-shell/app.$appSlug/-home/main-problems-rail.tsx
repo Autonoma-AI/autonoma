@@ -1,7 +1,6 @@
 import { Skeleton } from "@autonoma/blacklight";
-import type { MainOpenProblem, MainProblemSource } from "@autonoma/types";
+import type { MainOpenProblem } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
-import { MainProblemLink } from "components/main-problems/main-problem-link";
 import { formatRelativeTime } from "lib/format";
 import { useMainOpenProblems } from "lib/query/branches.queries";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
@@ -37,31 +36,31 @@ function RailShell({ count, children }: { count: number; children: React.ReactNo
 
 export function MainProblemsRail() {
   const app = useCurrentApplication();
-  const { data } = useMainOpenProblems(app.id);
+  const { data: problems } = useMainOpenProblems(app.id);
 
   return (
-    <RailShell count={data.problems.length}>
-      {data.problems.length === 0 ? (
+    <RailShell count={problems.length}>
+      {problems.length === 0 ? (
         <div className="px-4 py-10 text-center font-mono text-3xs uppercase tracking-widest text-text-secondary">
           No unresolved problems
         </div>
       ) : (
-        data.problems.map((problem) => <ProblemRow key={problem.id} problem={problem} source={data.source} />)
+        problems.map((problem) => <ProblemRow key={problem.id} problem={problem} />)
       )}
     </RailShell>
   );
 }
 
-function ProblemRow({ problem, source }: { problem: MainOpenProblem; source: MainProblemSource }) {
+function ProblemRow({ problem }: { problem: MainOpenProblem }) {
   return (
-    <MainProblemLink
-      problemId={problem.id}
-      source={source}
+    <AppLink
+      to="/app/$appSlug/analysis/issues/$issueId"
+      params={{ issueId: problem.id }}
       className="flex flex-col gap-1 border-b border-border-dim px-4 py-3 transition-colors hover:bg-surface-raised"
     >
       <span className="text-xs font-medium leading-snug text-text-primary">{problem.title}</span>
       <span className="font-mono text-3xs text-text-secondary">{problemMeta(problem)}</span>
-    </MainProblemLink>
+    </AppLink>
   );
 }
 

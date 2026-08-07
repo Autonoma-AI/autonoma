@@ -1,4 +1,4 @@
-import type { IssueKind, PrismaClient } from "@autonoma/db";
+import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { countTestsBySnapshot } from "./assigned-tests";
 import { listExecutedTestsForSnapshots, type SnapshotExecutedTest } from "./executed-tests";
@@ -19,21 +19,9 @@ export interface SnapshotHealthCounts {
     totalTests: number;
 }
 
-/**
- * Engine-vs-app attribution of failing tests that carry a linked Issue, keyed by
- * the Issue kind (`engine_limitation` -> engine; `application_bug` /
- * `unknown_issue` -> app). Reported tests re-run every snapshot and surface here
- * as failures instead of being hidden.
- */
-export interface FailingByKind {
-    engine: number;
-    app: number;
-}
-
 export interface SnapshotHealthResult {
     health: SnapshotHealth;
     counts: SnapshotHealthCounts;
-    failingByKind: FailingByKind;
 }
 
 export function computeSnapshotHealth(snapshotStatus: string, counts: SnapshotHealthCounts): SnapshotHealth {
@@ -80,71 +68,7 @@ export function tallyExecutedTests(tests: SnapshotExecutedTest[]): ExecutedTestT
     return tally;
 }
 
-/** The Issue kind linked to an execution, keyed by the generation it reviewed. */
-export interface IssueKindsByExecution {
-    byGenerationId: Map<string, IssueKind>;
-}
-
-/**
- * Splits the failing tests that carry a linked Issue into the engine-vs-app
- * buckets. A test with no linked Issue (or a non-failing outcome) is ignored -
- * the attribution is only meaningful for failures healing has already triaged.
- * The Issue rides the review chain, so it is matched to the specific generation
- * whose review it belongs to.
- */
-export function computeFailingByKind(tests: SnapshotExecutedTest[], issueKinds: IssueKindsByExecution): FailingByKind {
-    const failingByKind: FailingByKind = { engine: 0, app: 0 };
-    for (const test of tests) {
-        if (test.finalOutcome !== "failed") continue;
-        const kind = test.generationId != null ? issueKinds.byGenerationId.get(test.generationId) : undefined;
-        if (kind == null) continue;
-        if (kind === "engine_limitation") failingByKind.engine += 1;
-        else failingByKind.app += 1;
-    }
-    return failingByKind;
-}
-
-/**
- * Loads the Issue kind for each of the given generations. The Issue -> TestCase
- * link rides the review chain (`generationReviewId`), so this matches on the
- * reviewed generation directly rather than walking back to the snapshot - a
- * shallow, single query the callers batch across every failing test.
- */
-export async function loadIssueKindsForExecutions(
-    db: PrismaClient,
-    generationIds: string[],
-): Promise<IssueKindsByExecution> {
-    const result: IssueKindsByExecution = { byGenerationId: new Map() };
-    if (generationIds.length === 0) return result;
-
-    const issues = await db.issue.findMany({
-        where: { generationReview: { is: { generationId: { in: generationIds } } } },
-        select: {
-            kind: true,
-            generationReview: { select: { generationId: true } },
-        },
-    });
-
-    for (const issue of issues) {
-        if (issue.generationReview != null) result.byGenerationId.set(issue.generationReview.generationId, issue.kind);
-    }
-    return result;
-}
-
-/** Collects the generation ids of the failing tests, deduplicated, for the issue-kind lookup. */
-export function failingExecutionIds(testsBySnapshot: Iterable<SnapshotExecutedTest[]>): {
-    generationIds: string[];
-} {
-    const generationIds = new Set<string>();
-    for (const tests of testsBySnapshot) {
-        for (const test of tests) {
-            if (test.finalOutcome !== "failed") continue;
-            if (test.generationId != null) generationIds.add(test.generationId);
-        }
-    }
-    return { generationIds: [...generationIds] };
-}
-
+/** Per-snapshot health and counts for a batch, in a fixed number of `IN`-scoped queries. */
 export async function aggregateSnapshotHealth(
     db: PrismaClient,
     snapshotsWithStatus: Array<{ id: string; status: string }>,
@@ -162,9 +86,6 @@ export async function aggregateSnapshotHealth(
         countTestsBySnapshot(db, snapshotIds),
         listExecutedTestsForSnapshots(db, snapshotIds),
     ]);
-
-    const { generationIds } = failingExecutionIds(executedTestsBySnapshot.values());
-    const issueKinds = await loadIssueKindsForExecutions(db, generationIds);
 
     const result = new Map<string, SnapshotHealthResult>();
     for (const snapshot of snapshotsWithStatus) {
@@ -187,7 +108,6 @@ export async function aggregateSnapshotHealth(
         result.set(snapshot.id, {
             health: computeSnapshotHealth(snapshot.status, counts),
             counts,
-            failingByKind: computeFailingByKind(executedTests, issueKinds),
         });
     }
 

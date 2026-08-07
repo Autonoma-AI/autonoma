@@ -1,6 +1,5 @@
 import {
   Badge,
-  BrailleSpinner,
   Button,
   Panel,
   PanelBody,
@@ -12,11 +11,9 @@ import {
   VideoPlayer,
 } from "@autonoma/blacklight";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
-import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
 import { FileTextIcon } from "@phosphor-icons/react/FileText";
 import { LightbulbIcon } from "@phosphor-icons/react/Lightbulb";
 import { StackIcon } from "@phosphor-icons/react/Stack";
-import { WarningIcon } from "@phosphor-icons/react/Warning";
 import { WrenchIcon } from "@phosphor-icons/react/Wrench";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { createFileRoute } from "@tanstack/react-router";
@@ -77,9 +74,6 @@ function GenerationDetailPage() {
   const isActive = status === "queued" || status === "running";
   const failure = generation.failure;
 
-  const review = generation.review;
-  const reviewStatus = review?.status;
-
   const lightboxSteps: NavigableStep[] = generation.steps
     .filter((step: GenerationStep) => (step.screenshotBefore ?? step.screenshotAfter) != null)
     .map((step: GenerationStep) => {
@@ -114,26 +108,6 @@ function GenerationDetailPage() {
             <h1 className="text-2xl font-medium tracking-tight text-text-primary">{generation.testPlan.name}</h1>
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            {isAdmin && reviewStatus === "completed" && review?.issue != null && (
-              <AppLink to="/app/$appSlug/issues/$issueId" params={{ issueId: review.issue.id }}>
-                <Badge variant="success" className="h-7 cursor-pointer gap-1.5 px-3 text-xs">
-                  <CheckCircleIcon size={14} weight="fill" />
-                  Reviewed
-                </Badge>
-              </AppLink>
-            )}
-            {isAdmin && reviewStatus === "pending" && (
-              <Badge variant="status-running" className="h-7 gap-1.5 px-3 text-xs">
-                <BrailleSpinner animation="scan" size="sm" />
-                Review in progress
-              </Badge>
-            )}
-            {isAdmin && reviewStatus === "failed" && (
-              <Badge variant="critical" className="h-7 gap-1.5 px-3 text-xs">
-                <WarningIcon size={14} weight="fill" />
-                Review failed
-              </Badge>
-            )}
             {isAdmin && generation.temporalWorkflow != null && (
               <>
                 <TemporalLink

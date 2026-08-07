@@ -26,7 +26,6 @@ export interface LatestPullRequest {
     title?: string;
     authorLogin?: string;
     commits?: number;
-    bugCount?: number;
     previewUrl?: string;
 }
 
@@ -56,7 +55,6 @@ export function useLatestPullRequests(page = 1): LatestPullRequestsPage {
                       summary: branch.activeSnapshot?.summary ?? undefined,
                       testCount: branch.activeSnapshot?._count.testCaseAssignments ?? 0,
                       createdAt: branch.createdAt,
-                      bugCount: branch.bugCount,
                       previewUrl: branch.previewUrl ?? undefined,
                   },
               ]
