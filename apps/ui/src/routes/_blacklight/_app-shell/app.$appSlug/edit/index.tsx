@@ -1,9 +1,10 @@
 import { Badge, Button, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
 import { createFileRoute } from "@tanstack/react-router";
 import { ensureBranchData } from "lib/query/branches.queries";
-import { useEditSession, useStartEditSession } from "lib/query/snapshot-edit.queries";
+import { useEditSession, useEditSessionState, useStartEditSession } from "lib/query/snapshot-edit.queries";
 import { Suspense } from "react";
 import { useMainBranch } from "../-use-main-branch";
 import { AppLink } from "../../-app-link";
@@ -25,7 +26,6 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/edit/
 
 function EditPage() {
   const branch = useMainBranch();
-  const hasPendingSnapshot = branch.pendingSnapshotId != null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -50,7 +50,7 @@ function EditPage() {
       </header>
 
       <Suspense fallback={<EditPageSkeleton />}>
-        {hasPendingSnapshot ? <EditSessionContent branchId={branch.id} /> : <StartEditSession branchId={branch.id} />}
+        <EditSessionPanel branchId={branch.id} />
       </Suspense>
     </div>
   );
@@ -68,11 +68,23 @@ function EditPageSkeleton() {
   );
 }
 
+/**
+ * The branch's single pending-snapshot slot is shared with the analysis pipeline, so the editor renders from
+ * whichever of the three states the slot is in - and never from "whatever snapshot happens to be pending".
+ */
+function EditSessionPanel({ branchId }: { branchId: string }) {
+  const { data: session } = useEditSessionState(branchId);
+
+  if (session.state === "analysis-in-flight") return <AnalysisInFlight />;
+  if (session.state === "none") return <StartEditSession branchId={branchId} />;
+  return <EditSessionContent snapshotId={session.snapshotId} />;
+}
+
 function StartEditSession({ branchId }: { branchId: string }) {
   const startEdit = useStartEditSession();
 
   return (
-    <div className="flex flex-col items-center justify-center gap-4 py-16 text-text-tertiary">
+    <div className="flex flex-col items-center justify-center gap-4 py-16 text-text-secondary">
       <PencilSimpleIcon size={32} />
       <p className="text-sm">Start an editing session to modify the test suite</p>
       <Button onClick={() => startEdit.mutate({ branchId })} disabled={startEdit.isPending}>
@@ -82,36 +94,51 @@ function StartEditSession({ branchId }: { branchId: string }) {
   );
 }
 
+function AnalysisInFlight() {
+  return (
+    <div className="flex flex-col items-center justify-center gap-4 py-16 text-text-secondary">
+      <MagnifyingGlassIcon size={32} />
+      <div className="flex flex-col items-center gap-1">
+        <p className="text-sm">A new commit is being analyzed on this branch</p>
+        <p className="text-2xs">The test suite cannot be edited until the analysis finishes.</p>
+      </div>
+      <Button variant="outline" size="sm" render={<AppLink to="/app/$appSlug/tests" />}>
+        Back to tests
+      </Button>
+    </div>
+  );
+}
+
 // ─── Edit Session Content ────────────────────────────────────────────────────
 
-function EditSessionContent({ branchId }: { branchId: string }) {
+function EditSessionContent({ snapshotId }: { snapshotId: string }) {
   return (
     <Tabs defaultValue="test-suite" className="flex min-h-0 flex-1 flex-col">
       <TabsList className="shrink-0">
         <TabsTrigger value="test-suite">Test Suite</TabsTrigger>
-        <GenerationsTrigger branchId={branchId} />
-        <ChangesTrigger branchId={branchId} />
+        <GenerationsTrigger snapshotId={snapshotId} />
+        <ChangesTrigger snapshotId={snapshotId} />
       </TabsList>
 
       <TabsContent value="test-suite" className="mt-4 min-h-0 flex-1">
-        <TestSuiteTab branchId={branchId} />
+        <TestSuiteTab snapshotId={snapshotId} />
       </TabsContent>
 
       <TabsContent value="generations" className="mt-4 min-h-0 flex-1">
-        <GenerationsTab branchId={branchId} />
+        <GenerationsTab snapshotId={snapshotId} />
       </TabsContent>
 
       <TabsContent value="changes" className="mt-4 min-h-0 flex-1">
-        <EditChangesTab branchId={branchId} />
+        <EditChangesTab snapshotId={snapshotId} />
       </TabsContent>
 
-      <EditActionBar branchId={branchId} />
+      <EditActionBar snapshotId={snapshotId} />
     </Tabs>
   );
 }
 
-function GenerationsTrigger({ branchId }: { branchId: string }) {
-  const { data: session } = useEditSession(branchId);
+function GenerationsTrigger({ snapshotId }: { snapshotId: string }) {
+  const { data: session } = useEditSession(snapshotId);
   const pendingCount = session.pendingGenerations.length;
 
   return (
@@ -126,8 +153,8 @@ function GenerationsTrigger({ branchId }: { branchId: string }) {
   );
 }
 
-function ChangesTrigger({ branchId }: { branchId: string }) {
-  const { data: session } = useEditSession(branchId);
+function ChangesTrigger({ snapshotId }: { snapshotId: string }) {
+  const { data: session } = useEditSession(snapshotId);
 
   return (
     <TabsTrigger value="changes" className="gap-1.5">

@@ -13,12 +13,12 @@ type TestCaseEntry = EditSession["testSuite"]["testCases"][number];
 type GenerationEntry = EditSession["generationSummary"][number];
 
 interface EditTestDetailProps {
-  branchId: string;
+  snapshotId: string;
   testCase: TestCaseEntry;
   generation?: GenerationEntry;
 }
 
-export function EditTestDetail({ branchId, testCase, generation }: EditTestDetailProps) {
+export function EditTestDetail({ snapshotId, testCase, generation }: EditTestDetailProps) {
   const removeTest = useRemoveTestFromEdit();
   const regenerateSteps = useRegenerateSteps();
   const [showEditDialog, setShowEditDialog] = useState(false);
@@ -40,7 +40,7 @@ export function EditTestDetail({ branchId, testCase, generation }: EditTestDetai
               <Button
                 variant="outline"
                 size="xs"
-                onClick={() => regenerateSteps.mutate({ branchId, testCaseId: testCase.id })}
+                onClick={() => regenerateSteps.mutate({ snapshotId, testCaseId: testCase.id })}
                 disabled={regenerateSteps.isPending}
               >
                 <LightningIcon size={14} />
@@ -59,7 +59,7 @@ export function EditTestDetail({ branchId, testCase, generation }: EditTestDetai
               variant="ghost"
               size="icon-xs"
               className="text-text-tertiary hover:text-status-critical"
-              onClick={() => removeTest.mutate({ branchId, testCaseId: testCase.id })}
+              onClick={() => removeTest.mutate({ snapshotId, testCaseId: testCase.id })}
               disabled={removeTest.isPending}
             >
               <TrashIcon size={14} />
@@ -69,7 +69,7 @@ export function EditTestDetail({ branchId, testCase, generation }: EditTestDetai
       </div>
 
       <EditTestDialog
-        branchId={branchId}
+        snapshotId={snapshotId}
         testCaseId={testCase.id}
         currentPlan={testCase.plan?.prompt ?? ""}
         currentScenarioId={testCase.plan?.scenarioId ?? undefined}

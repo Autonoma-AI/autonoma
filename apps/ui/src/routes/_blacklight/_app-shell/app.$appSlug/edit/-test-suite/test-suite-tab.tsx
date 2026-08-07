@@ -6,8 +6,8 @@ import { EditTestDetail, EditTestDetailEmpty } from "./edit-test-detail";
 import { EditTreePanel } from "./edit-tree";
 
 // ─── Test Suite Tab ──────────────────────────────────────────────────────────
-export function TestSuiteTab({ branchId }: { branchId: string }) {
-  const { data: session } = useEditSession(branchId);
+export function TestSuiteTab({ snapshotId }: { snapshotId: string }) {
+  const { data: session } = useEditSession(snapshotId);
   const [selectedTestId, setSelectedTestId] = useState<string | undefined>();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
 
@@ -34,7 +34,7 @@ export function TestSuiteTab({ branchId }: { branchId: string }) {
           {selectedTest != null ? (
             <EditTestDetail
               key={selectedTest.id}
-              branchId={branchId}
+              snapshotId={snapshotId}
               testCase={selectedTest}
               generation={generationMap.get(selectedTest.id)}
             />
@@ -44,7 +44,7 @@ export function TestSuiteTab({ branchId }: { branchId: string }) {
         </div>
       </EditTab>
 
-      <AddTestDialog branchId={branchId} open={addDialogOpen} onOpenChange={setAddDialogOpen} />
+      <AddTestDialog snapshotId={snapshotId} open={addDialogOpen} onOpenChange={setAddDialogOpen} />
     </>
   );
 }

@@ -86,11 +86,13 @@ await updater.queuePendingGenerations();
 
 A generation passing its review is the definition of "validated" - there is no replay step and nothing pins a generation's steps onto its assignment.
 
-`continueUpdate` loads whichever snapshot is currently pending on the branch. Inside a workflow activity that was dispatched for a specific snapshot, use `continueUpdateBySnapshot` instead so later activities keep operating on the exact snapshot the workflow started on, even if a newer trigger has since replaced the branch's pending pointer:
+`continueUpdate` loads whichever snapshot is currently pending on the branch. Any caller that outlives one request - a workflow activity dispatched for a specific snapshot, a user's edit session - must use `continueUpdateBySnapshot` instead, so it keeps operating on the exact snapshot it opened even if a newer trigger has since replaced the branch's pending pointer:
 
 ```ts
 const updater = await TestSuiteUpdater.continueUpdateBySnapshot({ db, snapshotId });
 ```
+
+`updater.source` names the workflow that opened the snapshot (`MANUAL` for the suite editor, otherwise the analysis pipeline), so a caller can refuse to touch a snapshot it does not own.
 
 ### Finalizing or cancelling
 

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { Prisma, PrismaClient, TriggerSource } from "@autonoma/db";
+import { type Prisma, type PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
 import type { AddTestParams, ImportTestParams, UpdateTestParams } from "./changes";
@@ -37,6 +37,7 @@ interface SnapshotDraftParams {
     branchId: string;
     applicationId: string;
     organizationId: string;
+    source: TriggerSource;
     headSha?: string;
     baseSha?: string;
 }
@@ -74,6 +75,8 @@ export class SnapshotDraft {
     public readonly branchId: string;
     public readonly applicationId: string;
     public readonly organizationId: string;
+    /** Which workflow opened this snapshot - the manual editor (`MANUAL`) or the analysis pipeline. */
+    public readonly source: TriggerSource;
     public readonly headSha?: string;
     public readonly baseSha?: string;
 
@@ -82,6 +85,7 @@ export class SnapshotDraft {
         snapshotId,
         applicationId,
         organizationId,
+        source,
         headSha,
         baseSha,
         branchId,
@@ -92,6 +96,7 @@ export class SnapshotDraft {
         this.branchId = branchId;
         this.applicationId = applicationId;
         this.organizationId = organizationId;
+        this.source = source;
         this.headSha = headSha;
         this.baseSha = baseSha;
     }
@@ -109,7 +114,7 @@ export class SnapshotDraft {
             select: {
                 organizationId: true,
                 applicationId: true,
-                pendingSnapshot: { select: { id: true, status: true, headSha: true, baseSha: true } },
+                pendingSnapshot: { select: { id: true, status: true, source: true, headSha: true, baseSha: true } },
             },
         });
 
@@ -119,7 +124,7 @@ export class SnapshotDraft {
             throw new SnapshotNotPendingError(branchId, "no pending snapshot");
         }
 
-        const { id: snapshotId, status, headSha, baseSha } = branch.pendingSnapshot;
+        const { id: snapshotId, status, source, headSha, baseSha } = branch.pendingSnapshot;
 
         if (status !== "processing") {
             throw new SnapshotNotPendingError(snapshotId, status);
@@ -133,6 +138,7 @@ export class SnapshotDraft {
             branchId,
             applicationId,
             organizationId,
+            source,
             headSha: headSha ?? undefined,
             baseSha: baseSha ?? undefined,
         });
@@ -156,6 +162,7 @@ export class SnapshotDraft {
             select: {
                 id: true,
                 status: true,
+                source: true,
                 headSha: true,
                 baseSha: true,
                 branchId: true,
@@ -177,6 +184,7 @@ export class SnapshotDraft {
             branchId: snapshot.branchId,
             applicationId: snapshot.branch.applicationId,
             organizationId: snapshot.branch.organizationId,
+            source: snapshot.source,
             headSha: snapshot.headSha ?? undefined,
             baseSha: snapshot.baseSha ?? undefined,
         });
@@ -199,6 +207,7 @@ export class SnapshotDraft {
         baseSha,
     }: StartSnapshotDraftParams): Promise<SnapshotDraft> {
         const logger = rootLogger.child({ name: "SnapshotDraft", branchId });
+        const resolvedSource = source ?? TriggerSource.MANUAL;
 
         const { snapshotId, applicationId, organizationId } = await db.$transaction(async (tx) => {
             logger.info("Locking branch record", { branchId });
@@ -240,7 +249,7 @@ export class SnapshotDraft {
                 tx,
                 branchId,
                 branch,
-                source,
+                source: resolvedSource,
                 headSha,
                 baseSha,
                 logger,
@@ -275,7 +284,7 @@ export class SnapshotDraft {
             return { snapshotId: createdId, applicationId, organizationId };
         });
 
-        return new SnapshotDraft({ db, snapshotId, branchId, applicationId, organizationId });
+        return new SnapshotDraft({ db, snapshotId, branchId, applicationId, organizationId, source: resolvedSource });
     }
 
     /**

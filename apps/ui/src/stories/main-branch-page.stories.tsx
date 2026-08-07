@@ -1,6 +1,6 @@
 import { type AnalysisVerdictState, deriveAnalysisVerdict } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
+import { appShellHandlers, baseApplication, branchPage, completedOnboardingState } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import type { RouterOutputs } from "lib/trpc";
@@ -163,43 +163,6 @@ function previewkitSummary() {
     actions: {
       openPreview: { enabled: false, href: null, reason: "No preview URL is available yet." },
     },
-  };
-}
-
-// The app shell's sidebar (finish-setup nudge) reads this on every page; completed hides the nudge.
-function completedOnboardingState() {
-  return {
-    id: "onboarding_fixture_01",
-    applicationId: baseApplication.id,
-    step: "completed" as const,
-    agentConnectedAt: null,
-    agentLogs: [],
-    productionUrl: "https://app.acme.example.com",
-    previewEnvironmentMode: "previewkit" as const,
-    previewUrl: null,
-    previewVerificationStatus: "ready" as const,
-    previewDeployRequestedAt: null,
-    completedAt: FIXTURE_EPOCH,
-    lastDiscoveryError: null,
-    lastDiscoveredAt: FIXTURE_EPOCH,
-    lastDiscoveredModels: 12,
-    discoveringStartedAt: null,
-    dryRunPassedAt: FIXTURE_EPOCH,
-    diffTriggerConfirmedAt: FIXTURE_EPOCH,
-    agentHolder: "human" as const,
-    agentLastActivityAt: null,
-    agentPendingRequest: null,
-    agentPairingCode: null,
-    agentPairingExpiresAt: null,
-    agentClient: null,
-    createdAt: FIXTURE_EPOCH,
-    updatedAt: FIXTURE_EPOCH,
-    sdkConfigured: true,
-    dryRunPassed: true,
-    discoveryInProgress: false,
-    artifactsUploaded: true,
-    hasContent: true,
-    setupComplete: true,
   };
 }
 

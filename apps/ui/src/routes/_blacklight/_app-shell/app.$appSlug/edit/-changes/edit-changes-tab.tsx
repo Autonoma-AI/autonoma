@@ -8,8 +8,8 @@ import { EditTab } from "../-edit-tab-content";
 type EditSession = RouterOutputs["snapshotEdit"]["get"];
 type SnapshotChange = EditSession["changes"][number];
 
-export function EditChangesTab({ branchId }: { branchId: string }) {
-  const { data: session } = useEditSession(branchId);
+export function EditChangesTab({ snapshotId }: { snapshotId: string }) {
+  const { data: session } = useEditSession(snapshotId);
   const changes = session.changes;
   if (changes.length === 0) {
     return (
@@ -25,13 +25,13 @@ export function EditChangesTab({ branchId }: { branchId: string }) {
   return (
     <EditTab className="flex flex-col justify-start w-full">
       {changes.map((change) => (
-        <ChangeRow key={change.testCaseId} branchId={branchId} change={change} />
+        <ChangeRow key={change.testCaseId} snapshotId={snapshotId} change={change} />
       ))}
     </EditTab>
   );
 }
 
-function ChangeRow({ branchId, change }: { branchId: string; change: SnapshotChange }) {
+function ChangeRow({ snapshotId, change }: { snapshotId: string; change: SnapshotChange }) {
   const discardChange = useDiscardChange();
 
   return (
@@ -44,7 +44,7 @@ function ChangeRow({ branchId, change }: { branchId: string; change: SnapshotCha
         variant="ghost"
         size="icon-xs"
         className="text-text-tertiary hover:text-status-critical"
-        onClick={() => discardChange.mutate({ branchId, testCaseId: change.testCaseId })}
+        onClick={() => discardChange.mutate({ snapshotId, testCaseId: change.testCaseId })}
         disabled={discardChange.isPending}
       >
         <XIcon size={14} />

@@ -13,8 +13,8 @@ const STATUS_BADGE_VARIANT = {
   failed: "status-failed",
 } as const;
 
-export function GenerationsTab({ branchId }: { branchId: string }) {
-  const { data: session } = useEditSession(branchId);
+export function GenerationsTab({ snapshotId }: { snapshotId: string }) {
+  const { data: session } = useEditSession(snapshotId);
   const queueGenerations = useQueueGenerations();
 
   return (
@@ -22,12 +22,12 @@ export function GenerationsTab({ branchId }: { branchId: string }) {
       <GenerationColumn
         title="Pending"
         generations={session.pendingGenerations}
-        renderCard={(g) => <PendingGenerationCard key={g.generationId} branchId={branchId} generation={g} />}
+        renderCard={(g) => <PendingGenerationCard key={g.generationId} snapshotId={snapshotId} generation={g} />}
         action={
           session.pendingGenerations.length > 0 ? (
             <Button
               size="xs"
-              onClick={() => queueGenerations.mutate({ branchId })}
+              onClick={() => queueGenerations.mutate({ snapshotId })}
               disabled={queueGenerations.isPending}
             >
               <LightningIcon size={12} />
@@ -93,7 +93,7 @@ function GenerationColumn({ title, generations, renderCard, action, emptyMessage
 
 // ─── Card ───────────────────────────────────────────────────────────────────
 
-function PendingGenerationCard({ branchId, generation }: { branchId: string; generation: EnrichedGeneration }) {
+function PendingGenerationCard({ snapshotId, generation }: { snapshotId: string; generation: EnrichedGeneration }) {
   const discardGeneration = useDiscardGeneration();
 
   return (
@@ -106,7 +106,7 @@ function PendingGenerationCard({ branchId, generation }: { branchId: string; gen
             variant="ghost"
             size="icon-xs"
             className="text-text-tertiary hover:text-status-critical"
-            onClick={() => discardGeneration.mutate({ branchId, generationId: generation.generationId })}
+            onClick={() => discardGeneration.mutate({ snapshotId, generationId: generation.generationId })}
             disabled={discardGeneration.isPending}
           >
             <XIcon size={12} />

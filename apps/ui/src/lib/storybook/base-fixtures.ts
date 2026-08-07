@@ -140,6 +140,46 @@ export const baseSuiteHealthFixPlan: RouterOutputs["applications"]["suiteHealthF
     ].join("\n"),
 };
 
+/**
+ * A fully onboarded application. The app shell's sidebar reads this on every page to decide whether to nudge the
+ * user to finish setup, so a story about anything else says "completed" and gets the nudge out of the frame.
+ */
+export function completedOnboardingState(): RouterOutputs["onboarding"]["getState"] {
+    return {
+        id: "onboarding_fixture_01",
+        applicationId: baseApplication.id,
+        step: "completed",
+        agentConnectedAt: null,
+        agentLogs: [],
+        productionUrl: "https://app.acme.example.com",
+        previewEnvironmentMode: "previewkit",
+        previewUrl: null,
+        previewVerificationStatus: "ready",
+        previewDeployRequestedAt: null,
+        completedAt: FIXTURE_EPOCH,
+        lastDiscoveryError: null,
+        lastDiscoveredAt: FIXTURE_EPOCH,
+        lastDiscoveredModels: 12,
+        discoveringStartedAt: null,
+        dryRunPassedAt: FIXTURE_EPOCH,
+        diffTriggerConfirmedAt: FIXTURE_EPOCH,
+        agentHolder: "human",
+        agentLastActivityAt: null,
+        agentPendingRequest: null,
+        agentPairingCode: null,
+        agentPairingExpiresAt: null,
+        agentClient: null,
+        createdAt: FIXTURE_EPOCH,
+        updatedAt: FIXTURE_EPOCH,
+        sdkConfigured: true,
+        dryRunPassed: true,
+        discoveryInProgress: false,
+        artifactsUploaded: true,
+        hasContent: true,
+        setupComplete: true,
+    };
+}
+
 const baseTrpcFixtures: TrpcFixtures = {
     auth: {
         orgStatus: "approved",

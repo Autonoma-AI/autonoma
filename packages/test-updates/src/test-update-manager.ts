@@ -71,6 +71,11 @@ export class TestSuiteUpdater {
         return this.snapshotDraft.organizationId;
     }
 
+    /** Which workflow opened this snapshot - the manual editor (`MANUAL`) or the analysis pipeline. */
+    public get source() {
+        return this.snapshotDraft.source;
+    }
+
     private constructor({ snapshotDraft, generationManager }: TestSuiteUpdaterParams) {
         this.logger = logger.child({ name: this.constructor.name, snapshotId: snapshotDraft.snapshotId });
         this.snapshotDraft = snapshotDraft;

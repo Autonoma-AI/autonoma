@@ -6,6 +6,8 @@ import { trpc } from "lib/trpc";
 
 type GenerationSummary = inferRouterOutputs<AppRouter>["snapshotEdit"]["get"]["generationSummary"][number];
 
+const SESSION_POLL_MS = 5000;
+
 export interface EnrichedGeneration {
     testCaseId: string;
     generationId: string;
@@ -50,12 +52,23 @@ function hasIncompleteGenerations(generationSummary: GenerationSummary[]): boole
     return generationSummary.some((g) => g.status === "pending" || g.status === "queued" || g.status === "running");
 }
 
-export function useEditSession(branchId: string) {
+/**
+ * Which snapshot, if any, the editor may address on this branch. Polled so that a session superseded by a new
+ * commit's analysis stops rendering the editor instead of failing on its next write.
+ */
+export function useEditSessionState(branchId: string) {
     return useSuspenseQuery({
-        ...trpc.snapshotEdit.get.queryOptions({ branchId }),
+        ...trpc.snapshotEdit.state.queryOptions({ branchId }),
+        refetchInterval: SESSION_POLL_MS,
+    });
+}
+
+export function useEditSession(snapshotId: string) {
+    return useSuspenseQuery({
+        ...trpc.snapshotEdit.get.queryOptions({ snapshotId }),
         select: selectEditSession,
         refetchInterval: ({ state }) =>
-            state.data == null || hasIncompleteGenerations(state.data.generationSummary) ? 5000 : false,
+            state.data == null || hasIncompleteGenerations(state.data.generationSummary) ? SESSION_POLL_MS : false,
     });
 }
 
@@ -65,7 +78,7 @@ export function useStartEditSession() {
         ...trpc.snapshotEdit.start.mutationOptions({
             onSettled: (_data, _error, variables) => {
                 void queryClient.invalidateQueries({
-                    queryKey: trpc.snapshotEdit.get.queryKey({ branchId: variables.branchId }),
+                    queryKey: trpc.snapshotEdit.state.queryKey({ branchId: variables.branchId }),
                 });
                 void queryClient.invalidateQueries({ queryKey: trpc.branches.detailByName.queryKey() });
             },
@@ -80,7 +93,7 @@ export function useAddTestToEdit() {
         ...trpc.snapshotEdit.addTest.mutationOptions({
             onSettled: (_data, _error, variables) => {
                 void queryClient.invalidateQueries({
-                    queryKey: trpc.snapshotEdit.get.queryKey({ branchId: variables.branchId }),
+                    queryKey: trpc.snapshotEdit.get.queryKey({ snapshotId: variables.snapshotId }),
                 });
             },
         }),
@@ -95,7 +108,7 @@ export function useAddTestsToEdit() {
         ...trpc.snapshotEdit.addTests.mutationOptions({
             onSettled: (_data, _error, variables) => {
                 void queryClient.invalidateQueries({
-                    queryKey: trpc.snapshotEdit.get.queryKey({ branchId: variables.branchId }),
+                    queryKey: trpc.snapshotEdit.get.queryKey({ snapshotId: variables.snapshotId }),
                 });
             },
         }),
@@ -110,7 +123,7 @@ export function useUpdateTestInEdit() {
         ...trpc.snapshotEdit.updateTest.mutationOptions({
             onSettled: (_data, _error, variables) => {
                 void queryClient.invalidateQueries({
-                    queryKey: trpc.snapshotEdit.get.queryKey({ branchId: variables.branchId }),
+                    queryKey: trpc.snapshotEdit.get.queryKey({ snapshotId: variables.snapshotId }),
                 });
             },
         }),
@@ -125,7 +138,7 @@ export function useRemoveTestFromEdit() {
         ...trpc.snapshotEdit.removeTest.mutationOptions({
             onSettled: (_data, _error, variables) => {
                 void queryClient.invalidateQueries({
-                    queryKey: trpc.snapshotEdit.get.queryKey({ branchId: variables.branchId }),
+                    queryKey: trpc.snapshotEdit.get.queryKey({ snapshotId: variables.snapshotId }),
                 });
             },
         }),
@@ -140,7 +153,7 @@ export function useRegenerateSteps() {
         ...trpc.snapshotEdit.regenerateSteps.mutationOptions({
             onSettled: (_data, _error, variables) => {
                 void queryClient.invalidateQueries({
-                    queryKey: trpc.snapshotEdit.get.queryKey({ branchId: variables.branchId }),
+                    queryKey: trpc.snapshotEdit.get.queryKey({ snapshotId: variables.snapshotId }),
                 });
             },
         }),
@@ -155,7 +168,7 @@ export function useDiscardChange() {
         ...trpc.snapshotEdit.discardChange.mutationOptions({
             onSettled: (_data, _error, variables) => {
                 void queryClient.invalidateQueries({
-                    queryKey: trpc.snapshotEdit.get.queryKey({ branchId: variables.branchId }),
+                    queryKey: trpc.snapshotEdit.get.queryKey({ snapshotId: variables.snapshotId }),
                 });
             },
         }),
@@ -170,7 +183,7 @@ export function useDiscardGeneration() {
         ...trpc.snapshotEdit.discardGeneration.mutationOptions({
             onSettled: (_data, _error, variables) => {
                 void queryClient.invalidateQueries({
-                    queryKey: trpc.snapshotEdit.get.queryKey({ branchId: variables.branchId }),
+                    queryKey: trpc.snapshotEdit.get.queryKey({ snapshotId: variables.snapshotId }),
                 });
             },
         }),
@@ -185,7 +198,7 @@ export function useQueueGenerations() {
         ...trpc.snapshotEdit.queueGenerations.mutationOptions({
             onSettled: (_data, _error, variables) => {
                 void queryClient.invalidateQueries({
-                    queryKey: trpc.snapshotEdit.get.queryKey({ branchId: variables.branchId }),
+                    queryKey: trpc.snapshotEdit.get.queryKey({ snapshotId: variables.snapshotId }),
                 });
             },
         }),
@@ -201,6 +214,7 @@ export function useFinalizeEdit() {
             onSettled: () => {
                 void queryClient.invalidateQueries({ queryKey: trpc.branches.detailByName.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.snapshotEdit.get.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.snapshotEdit.state.queryKey() });
             },
         }),
         successToast: { title: "Changes saved" },
@@ -215,6 +229,7 @@ export function useDiscardEdit() {
             onSettled: () => {
                 void queryClient.invalidateQueries({ queryKey: trpc.branches.detailByName.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.snapshotEdit.get.queryKey() });
+                void queryClient.invalidateQueries({ queryKey: trpc.snapshotEdit.state.queryKey() });
             },
         }),
         successToast: { title: "Changes discarded" },

@@ -1,7 +1,7 @@
 import { Button, Skeleton } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { createFileRoute } from "@tanstack/react-router";
-import { useEditSession } from "lib/query/snapshot-edit.queries";
+import { useEditSession, useEditSessionState } from "lib/query/snapshot-edit.queries";
 import { useMainBranch } from "../-use-main-branch";
 import { AppLink } from "../../-app-link";
 import { ChangesPanel } from "./-changes-panel";
@@ -11,7 +11,7 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/gener
   component: GenerationProgressPage,
   // Not dead despite there being no loader to be pending for: a route's `pendingComponent` is also the
   // Suspense fallback the router wraps its component in, and this page suspends on `useMainBranch()` and
-  // `useEditSession()` with no boundary of its own.
+  // the edit-session queries with no boundary of its own.
   pendingComponent: GenerationProgressSkeleton,
 });
 
@@ -19,8 +19,9 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/gener
 
 function GenerationProgressPage() {
   const branch = useMainBranch();
+  const { data: session } = useEditSessionState(branch.id);
 
-  if (branch.pendingSnapshotId == null) {
+  if (session.state !== "open") {
     return (
       <div className="flex flex-col gap-6">
         <BackHeader />
@@ -37,7 +38,7 @@ function GenerationProgressPage() {
   return (
     <div className="flex flex-col gap-6">
       <BackHeader />
-      <GenerationProgressContent branchId={branch.id} />
+      <GenerationProgressContent snapshotId={session.snapshotId} />
     </div>
   );
 }
@@ -64,8 +65,8 @@ function BackHeader() {
 
 // ─── Content ─────────────────────────────────────────────────────────────────
 
-function GenerationProgressContent({ branchId }: { branchId: string }) {
-  const { data: session } = useEditSession(branchId);
+function GenerationProgressContent({ snapshotId }: { snapshotId: string }) {
+  const { data: session } = useEditSession(snapshotId);
   const allGenerations = [...session.pendingGenerations, ...session.activeGenerations, ...session.completedGenerations];
 
   return (

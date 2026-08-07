@@ -2,8 +2,8 @@ import { Button } from "@autonoma/blacklight";
 import { useDiscardEdit, useEditSession, useFinalizeEdit } from "lib/query/snapshot-edit.queries";
 import { useAppNavigate } from "../../../-use-app-navigate";
 
-export function EditActionBar({ branchId }: { branchId: string }) {
-  const { data: session } = useEditSession(branchId);
+export function EditActionBar({ snapshotId }: { snapshotId: string }) {
+  const { data: session } = useEditSession(snapshotId);
   const appNavigate = useAppNavigate();
 
   const finalizeEdit = useFinalizeEdit();
@@ -20,7 +20,7 @@ export function EditActionBar({ branchId }: { branchId: string }) {
       <Button
         variant="outline"
         size="sm"
-        onClick={() => discardEdit.mutate({ branchId }, { onSuccess: navigateBack })}
+        onClick={() => discardEdit.mutate({ snapshotId }, { onSuccess: navigateBack })}
         disabled={isActing}
       >
         {discardEdit.isPending ? "Discarding..." : "Discard"}
@@ -28,7 +28,7 @@ export function EditActionBar({ branchId }: { branchId: string }) {
 
       <Button
         size="sm"
-        onClick={() => finalizeEdit.mutate({ branchId }, { onSuccess: navigateBack })}
+        onClick={() => finalizeEdit.mutate({ snapshotId }, { onSuccess: navigateBack })}
         disabled={session.hasIncompleteGenerations || isActing}
       >
         {finalizeEdit.isPending ? "Committing..." : "Commit"}

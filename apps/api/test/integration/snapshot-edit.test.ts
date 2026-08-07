@@ -1,7 +1,13 @@
 import { ApplicationArchitecture, TriggerSource } from "@autonoma/db";
-import { BranchAlreadyHasPendingSnapshotError, SnapshotNotPendingError } from "@autonoma/test-updates";
+import { logger } from "@autonoma/logger";
+import { startAnalysisRun } from "@autonoma/test-updates";
 import { TRPCError } from "@trpc/server";
 import { expect } from "vitest";
+import {
+    AnalysisInFlightError,
+    EditSessionAlreadyOpenError,
+    EditSessionSupersededError,
+} from "../../src/routes/snapshot-edit/edit-session-errors";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
 
@@ -22,6 +28,25 @@ async function createBranch(harness: APITestHarness): Promise<{ branchId: string
     return { branchId, folderId: folder.id };
 }
 
+/** Opens an analysis run the way a push does: it supersedes whatever snapshot was pending on the branch. */
+async function pushCommit(harness: APITestHarness, branchId: string): Promise<string> {
+    return await startAnalysisRun({
+        db: harness.db,
+        logger,
+        branchId,
+        headSha: `head-${crypto.randomUUID()}`,
+        baseSha: `base-${crypto.randomUUID()}`,
+    });
+}
+
+/** Asserts the call was refused with a 409 and hands back the typed error the router mapped. */
+function conflictCause(error: unknown) {
+    expect(error).toBeInstanceOf(TRPCError);
+    if (!(error instanceof TRPCError)) return undefined;
+    expect(error.code).toBe("CONFLICT");
+    return error.cause;
+}
+
 apiTestSuite({
     name: "snapshotEdit",
     seed: async ({ harness }) => {
@@ -39,37 +64,37 @@ apiTestSuite({
             expect(result.testSuite).toBeDefined();
             expect(result.testSuite.testCases).toEqual([]);
 
-            await harness.request().snapshotEdit.discard({ branchId });
+            await harness.request().snapshotEdit.discard({ snapshotId: result.snapshotId });
         });
 
         test("get returns the edit session state", async ({ harness, seedResult: { branchId } }) => {
-            await harness.request().snapshotEdit.start({ branchId });
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
 
-            const session = await harness.request().snapshotEdit.get({ branchId });
+            const session = await harness.request().snapshotEdit.get({ snapshotId });
 
-            expect(session.snapshotId).toBeDefined();
+            expect(session.snapshotId).toBe(snapshotId);
             expect(session.testSuite).toBeDefined();
             expect(session.generationSummary).toBeDefined();
             expect(session.changes).toBeDefined();
             expect(session.changes).toHaveLength(0);
             expect(session.generationSummary).toHaveLength(0);
 
-            await harness.request().snapshotEdit.discard({ branchId });
+            await harness.request().snapshotEdit.discard({ snapshotId });
         });
 
         test("addTest adds a test case to the snapshot", async ({ harness }) => {
             const { branchId, folderId } = await createBranch(harness);
-            await harness.request().snapshotEdit.start({ branchId });
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
 
             await harness.request().snapshotEdit.addTest({
-                branchId,
+                snapshotId,
                 name: "Login test",
                 description: "Verifies that a user can log in with valid credentials.",
                 plan: "Navigate to login and verify form",
                 folderId,
             });
 
-            const session = await harness.request().snapshotEdit.get({ branchId });
+            const session = await harness.request().snapshotEdit.get({ snapshotId });
             expect(session.testSuite.testCases).toHaveLength(1);
             expect(session.testSuite.testCases[0]?.name).toBe("Login test");
 
@@ -79,10 +104,10 @@ apiTestSuite({
 
         test("addTests adds multiple tests in bulk", async ({ harness }) => {
             const { branchId, folderId } = await createBranch(harness);
-            await harness.request().snapshotEdit.start({ branchId });
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
 
             await harness.request().snapshotEdit.addTests({
-                branchId,
+                snapshotId,
                 tests: [
                     { name: "Test A", plan: "Plan A", folderId, description: "Exercises behavior A end to end." },
                     { name: "Test B", plan: "Plan B", folderId, description: "Exercises behavior B end to end." },
@@ -90,7 +115,7 @@ apiTestSuite({
                 ],
             });
 
-            const session = await harness.request().snapshotEdit.get({ branchId });
+            const session = await harness.request().snapshotEdit.get({ snapshotId });
             expect(session.testSuite.testCases).toHaveLength(3);
 
             const names = session.testSuite.testCases.map((tc) => tc.name);
@@ -101,57 +126,57 @@ apiTestSuite({
 
         test("updateTest updates a test plan", async ({ harness }) => {
             const { branchId, folderId } = await createBranch(harness);
-            await harness.request().snapshotEdit.start({ branchId });
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
             await harness.request().snapshotEdit.addTest({
-                branchId,
+                snapshotId,
                 name: "Updatable test",
                 description: "Confirms the test plan can be updated after creation.",
                 plan: "Original plan",
                 folderId,
             });
 
-            const beforeUpdate = await harness.request().snapshotEdit.get({ branchId });
+            const beforeUpdate = await harness.request().snapshotEdit.get({ snapshotId });
             // biome-ignore lint/style/noNonNullAssertion: just created
             const testCaseId = beforeUpdate.testSuite.testCases[0]!.id;
 
             await harness.request().snapshotEdit.updateTest({
-                branchId,
+                snapshotId,
                 testCaseId,
                 plan: "Updated plan",
             });
 
-            const afterUpdate = await harness.request().snapshotEdit.get({ branchId });
+            const afterUpdate = await harness.request().snapshotEdit.get({ snapshotId });
             const updatedTest = afterUpdate.testSuite.testCases.find((tc) => tc.id === testCaseId);
             expect(updatedTest?.plan?.prompt).toBe("Updated plan");
         });
 
         test("removeTest removes a test from the snapshot", async ({ harness }) => {
             const { branchId, folderId } = await createBranch(harness);
-            await harness.request().snapshotEdit.start({ branchId });
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
             await harness.request().snapshotEdit.addTest({
-                branchId,
+                snapshotId,
                 name: "Test to remove",
                 description: "A throwaway test that exists only to be removed.",
                 plan: "Will be removed",
                 folderId,
             });
 
-            const before = await harness.request().snapshotEdit.get({ branchId });
+            const before = await harness.request().snapshotEdit.get({ snapshotId });
             expect(before.testSuite.testCases).toHaveLength(1);
             // biome-ignore lint/style/noNonNullAssertion: just created
             const testCaseId = before.testSuite.testCases[0]!.id;
 
-            await harness.request().snapshotEdit.removeTest({ branchId, testCaseId });
+            await harness.request().snapshotEdit.removeTest({ snapshotId, testCaseId });
 
-            const after = await harness.request().snapshotEdit.get({ branchId });
+            const after = await harness.request().snapshotEdit.get({ snapshotId });
             expect(after.testSuite.testCases).toHaveLength(0);
         });
 
         test("queueGenerations fires generation jobs via the provider", async ({ harness }) => {
             const { branchId, folderId } = await createBranch(harness);
-            await harness.request().snapshotEdit.start({ branchId });
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
             await harness.request().snapshotEdit.addTest({
-                branchId,
+                snapshotId,
                 name: "Generate me",
                 description: "Ensures generation jobs fire when the test is queued.",
                 plan: "Run generation",
@@ -160,7 +185,7 @@ apiTestSuite({
 
             const batchesBefore = harness.generationProvider.firedBatches.length;
 
-            await harness.request().snapshotEdit.queueGenerations({ branchId });
+            await harness.request().snapshotEdit.queueGenerations({ snapshotId });
 
             expect(harness.generationProvider.firedBatches.length).toBe(batchesBefore + 1);
             const lastBatch = harness.generationProvider.firedBatches.at(-1);
@@ -172,7 +197,7 @@ apiTestSuite({
             const { branchId } = await createBranch(harness);
             const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
 
-            await harness.request().snapshotEdit.finalize({ branchId });
+            await harness.request().snapshotEdit.finalize({ snapshotId });
 
             const branch = await harness.db.branch.findUniqueOrThrow({
                 where: { id: branchId },
@@ -210,7 +235,7 @@ apiTestSuite({
             expect(editSnapshot.headSha).toBe("handled-sha-123");
             expect(editSnapshot.baseSha).toBe("handled-sha-123");
 
-            await harness.request().snapshotEdit.finalize({ branchId });
+            await harness.request().snapshotEdit.finalize({ snapshotId });
 
             const branch = await harness.db.branch.findUniqueOrThrow({
                 where: { id: branchId },
@@ -223,7 +248,7 @@ apiTestSuite({
             const { branchId } = await createBranch(harness);
             const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
 
-            await harness.request().snapshotEdit.discard({ branchId });
+            await harness.request().snapshotEdit.discard({ snapshotId });
 
             const branch = await harness.db.branch.findUniqueOrThrow({
                 where: { id: branchId },
@@ -270,7 +295,7 @@ apiTestSuite({
             );
         });
 
-        test("start throws when branch already has a pending snapshot", async ({ harness }) => {
+        test("start conflicts when an edit session is already open", async ({ harness }) => {
             const { branchId } = await createBranch(harness);
             await harness.request().snapshotEdit.start({ branchId });
 
@@ -278,19 +303,126 @@ apiTestSuite({
                 .request()
                 .snapshotEdit.start({ branchId })
                 .catch((e: unknown) => e);
-            expect(error).toBeInstanceOf(TRPCError);
-            expect((error as TRPCError).cause).toBeInstanceOf(BranchAlreadyHasPendingSnapshotError);
+
+            expect(conflictCause(error)).toBeInstanceOf(EditSessionAlreadyOpenError);
         });
 
-        test("get throws when no pending snapshot exists", async ({ harness }) => {
+        test("get conflicts once the session's snapshot is closed", async ({ harness }) => {
             const { branchId } = await createBranch(harness);
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
+            await harness.request().snapshotEdit.discard({ snapshotId });
 
             const error = await harness
                 .request()
-                .snapshotEdit.get({ branchId })
+                .snapshotEdit.get({ snapshotId })
                 .catch((e: unknown) => e);
-            expect(error).toBeInstanceOf(TRPCError);
-            expect((error as TRPCError).cause).toBeInstanceOf(SnapshotNotPendingError);
+
+            expect(conflictCause(error)).toBeInstanceOf(EditSessionSupersededError);
+        });
+
+        // ─── The branch's pending slot is shared with the analysis pipeline ──────────
+
+        test("state reports the branch's editing state", async ({ harness }) => {
+            const { branchId } = await createBranch(harness);
+
+            expect(await harness.request().snapshotEdit.state({ branchId })).toEqual({ state: "none" });
+
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
+            expect(await harness.request().snapshotEdit.state({ branchId })).toEqual({ state: "open", snapshotId });
+
+            await pushCommit(harness, branchId);
+            expect(await harness.request().snapshotEdit.state({ branchId })).toEqual({ state: "analysis-in-flight" });
+        });
+
+        test("start conflicts while an analysis owns the pending snapshot", async ({ harness }) => {
+            const { branchId } = await createBranch(harness);
+            await pushCommit(harness, branchId);
+
+            const error = await harness
+                .request()
+                .snapshotEdit.start({ branchId })
+                .catch((e: unknown) => e);
+
+            expect(conflictCause(error)).toBeInstanceOf(AnalysisInFlightError);
+        });
+
+        test("a superseded session cannot read or write, and leaves the analysis snapshot untouched", async ({
+            harness,
+        }) => {
+            const { branchId, folderId } = await createBranch(harness);
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
+            await harness.request().snapshotEdit.addTest({
+                snapshotId,
+                name: "Doomed test",
+                description: "Authored in a session a push is about to supersede.",
+                plan: "Never committed",
+                folderId,
+            });
+            const doomed = await harness.request().snapshotEdit.get({ snapshotId });
+            // biome-ignore lint/style/noNonNullAssertion: just created
+            const doomedTestCaseId = doomed.testSuite.testCases[0]!.id;
+
+            const analysisSnapshotId = await pushCommit(harness, branchId);
+
+            const calls = [
+                () => harness.request().snapshotEdit.get({ snapshotId }),
+                () =>
+                    harness.request().snapshotEdit.addTest({
+                        snapshotId,
+                        name: "Another test",
+                        description: "Should never reach the analysis snapshot.",
+                        plan: "Rejected",
+                        folderId,
+                    }),
+                () => harness.request().snapshotEdit.removeTest({ snapshotId, testCaseId: "any-test-case" }),
+                () => harness.request().snapshotEdit.queueGenerations({ snapshotId }),
+                () => harness.request().snapshotEdit.finalize({ snapshotId }),
+                () => harness.request().snapshotEdit.discard({ snapshotId }),
+            ];
+
+            for (const call of calls) {
+                const error = await call().catch((e: unknown) => e);
+                expect(conflictCause(error)).toBeInstanceOf(EditSessionSupersededError);
+            }
+
+            // The analysis run still owns the branch and its snapshot is still open for the pipeline to settle.
+            const analysisSnapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: analysisSnapshotId },
+                select: { status: true, branch: { select: { pendingSnapshotId: true } } },
+            });
+            expect(analysisSnapshot.status).toBe("processing");
+            expect(analysisSnapshot.branch.pendingSnapshotId).toBe(analysisSnapshotId);
+
+            // Nothing the doomed session authored reached the analysis run's suite.
+            const leaked = await harness.db.testCaseAssignment.count({
+                where: { snapshotId: analysisSnapshotId, testCaseId: doomedTestCaseId },
+            });
+            expect(leaked).toBe(0);
+        });
+
+        test("the editor refuses a snapshot the analysis pipeline owns", async ({ harness }) => {
+            const { branchId, folderId } = await createBranch(harness);
+            const analysisSnapshotId = await pushCommit(harness, branchId);
+            const assignmentsBefore = await harness.db.testCaseAssignment.count({
+                where: { snapshotId: analysisSnapshotId },
+            });
+
+            const error = await harness
+                .request()
+                .snapshotEdit.addTest({
+                    snapshotId: analysisSnapshotId,
+                    name: "Smuggled test",
+                    description: "Addressed straight at the analysis run's own snapshot.",
+                    plan: "Rejected",
+                    folderId,
+                })
+                .catch((e: unknown) => e);
+
+            expect(conflictCause(error)).toBeInstanceOf(AnalysisInFlightError);
+            const assignmentsAfter = await harness.db.testCaseAssignment.count({
+                where: { snapshotId: analysisSnapshotId },
+            });
+            expect(assignmentsAfter).toBe(assignmentsBefore);
         });
     },
 });

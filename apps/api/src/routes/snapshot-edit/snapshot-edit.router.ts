@@ -7,6 +7,12 @@ const descriptionSchema = z
     .min(20, "State what the test does - a falsifiable behavioral claim, not the steps - in at least 20 characters.");
 
 export const snapshotEditRouter = router({
+    state: protectedProcedure
+        .input(z.object({ branchId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.snapshotEdit.getState(input.branchId, organizationId),
+        ),
+
     start: writeProcedure
         .input(z.object({ branchId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
@@ -14,15 +20,15 @@ export const snapshotEditRouter = router({
         ),
 
     get: protectedProcedure
-        .input(z.object({ branchId: z.string() }))
+        .input(z.object({ snapshotId: z.string() }))
         .query(({ ctx: { services, organizationId }, input }) =>
-            services.snapshotEdit.getEditSession(input.branchId, organizationId),
+            services.snapshotEdit.getEditSession(input.snapshotId, organizationId),
         ),
 
     addTest: writeProcedure
         .input(
             z.object({
-                branchId: z.string(),
+                snapshotId: z.string(),
                 name: z.string().min(1),
                 plan: z.string().min(1),
                 folderId: z.string(),
@@ -30,14 +36,14 @@ export const snapshotEditRouter = router({
                 scenarioId: z.string().optional(),
             }),
         )
-        .mutation(({ ctx: { services, organizationId }, input: { branchId, ...rest } }) =>
-            services.snapshotEdit.addTest(branchId, rest, organizationId),
+        .mutation(({ ctx: { services, organizationId }, input: { snapshotId, ...rest } }) =>
+            services.snapshotEdit.addTest(snapshotId, rest, organizationId),
         ),
 
     addTests: writeProcedure
         .input(
             z.object({
-                branchId: z.string(),
+                snapshotId: z.string(),
                 tests: z
                     .array(
                         z.object({
@@ -51,62 +57,62 @@ export const snapshotEditRouter = router({
                 scenarioId: z.string().optional(),
             }),
         )
-        .mutation(({ ctx: { services, organizationId }, input: { branchId, ...rest } }) =>
-            services.snapshotEdit.addTests(branchId, rest, organizationId),
+        .mutation(({ ctx: { services, organizationId }, input: { snapshotId, ...rest } }) =>
+            services.snapshotEdit.addTests(snapshotId, rest, organizationId),
         ),
 
     updateTest: writeProcedure
         .input(
             z.object({
-                branchId: z.string(),
+                snapshotId: z.string(),
                 testCaseId: z.string(),
                 plan: z.string().min(1),
                 scenarioId: z.string().optional(),
             }),
         )
-        .mutation(({ ctx: { services, organizationId }, input: { branchId, ...rest } }) =>
-            services.snapshotEdit.updateTest(branchId, rest, organizationId),
+        .mutation(({ ctx: { services, organizationId }, input: { snapshotId, ...rest } }) =>
+            services.snapshotEdit.updateTest(snapshotId, rest, organizationId),
         ),
 
     regenerateSteps: writeProcedure
-        .input(z.object({ branchId: z.string(), testCaseId: z.string() }))
+        .input(z.object({ snapshotId: z.string(), testCaseId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.snapshotEdit.regenerateSteps(input.branchId, input.testCaseId, organizationId),
+            services.snapshotEdit.regenerateSteps(input.snapshotId, input.testCaseId, organizationId),
         ),
 
     removeTest: writeProcedure
-        .input(z.object({ branchId: z.string(), testCaseId: z.string() }))
+        .input(z.object({ snapshotId: z.string(), testCaseId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.snapshotEdit.removeTest(input.branchId, input.testCaseId, organizationId),
+            services.snapshotEdit.removeTest(input.snapshotId, input.testCaseId, organizationId),
         ),
 
     discardChange: writeProcedure
-        .input(z.object({ branchId: z.string(), testCaseId: z.string() }))
+        .input(z.object({ snapshotId: z.string(), testCaseId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.snapshotEdit.discardChange(input.branchId, input.testCaseId, organizationId),
+            services.snapshotEdit.discardChange(input.snapshotId, input.testCaseId, organizationId),
         ),
 
     discardGeneration: writeProcedure
-        .input(z.object({ branchId: z.string(), generationId: z.string() }))
+        .input(z.object({ snapshotId: z.string(), generationId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.snapshotEdit.discardGeneration(input.branchId, input.generationId, organizationId),
+            services.snapshotEdit.discardGeneration(input.snapshotId, input.generationId, organizationId),
         ),
 
     queueGenerations: writeProcedure
-        .input(z.object({ branchId: z.string() }))
+        .input(z.object({ snapshotId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.snapshotEdit.queueGenerations(input.branchId, organizationId),
+            services.snapshotEdit.queueGenerations(input.snapshotId, organizationId),
         ),
 
     finalize: writeProcedure
-        .input(z.object({ branchId: z.string() }))
+        .input(z.object({ snapshotId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.snapshotEdit.finalize(input.branchId, organizationId),
+            services.snapshotEdit.finalize(input.snapshotId, organizationId),
         ),
 
     discard: writeProcedure
-        .input(z.object({ branchId: z.string() }))
+        .input(z.object({ snapshotId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.snapshotEdit.discard(input.branchId, organizationId),
+            services.snapshotEdit.discard(input.snapshotId, organizationId),
         ),
 });

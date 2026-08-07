@@ -34,12 +34,12 @@ import { Suspense, useRef, useState } from "react";
 import { useCurrentApplication } from "../../../-use-current-application";
 
 interface AddTestDialogProps {
-  branchId: string;
+  snapshotId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function AddTestDialog({ branchId, open, onOpenChange }: AddTestDialogProps) {
+export function AddTestDialog({ snapshotId, open, onOpenChange }: AddTestDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogBackdrop />
@@ -49,7 +49,7 @@ export function AddTestDialog({ branchId, open, onOpenChange }: AddTestDialogPro
           <DialogDescription>Add a new test to the snapshot being edited.</DialogDescription>
         </DialogHeader>
         <Suspense fallback={<Skeleton className="mx-6 mb-6 h-64 w-auto" />}>
-          <AddTestFormContent branchId={branchId} onClose={() => onOpenChange(false)} />
+          <AddTestFormContent snapshotId={snapshotId} onClose={() => onOpenChange(false)} />
         </Suspense>
       </DialogContent>
     </Dialog>
@@ -62,7 +62,7 @@ const NO_SCENARIO_VALUE = "__none__";
 const MIN_DESCRIPTION_LENGTH = 20;
 type AddTab = "text" | "upload";
 
-function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: () => void }) {
+function AddTestFormContent({ snapshotId, onClose }: { snapshotId: string; onClose: () => void }) {
   const currentApp = useCurrentApplication();
   const { data: scenarios } = useScenariosForApp(currentApp.id);
   const { data: folders } = useFolders();
@@ -92,7 +92,7 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
 
     if (activeTab === "text") {
       addTest.mutate(
-        { branchId, name, description, plan: text, folderId, scenarioId: selectedScenarioId },
+        { snapshotId, name, description, plan: text, folderId, scenarioId: selectedScenarioId },
         {
           onSuccess: () => {
             resetForm();
@@ -119,7 +119,7 @@ function AddTestFormContent({ branchId, onClose }: { branchId: string; onClose: 
         return;
       }
       addTests.mutate(
-        { branchId, tests, scenarioId: selectedScenarioId },
+        { snapshotId, tests, scenarioId: selectedScenarioId },
         {
           onSuccess: () => {
             resetForm();

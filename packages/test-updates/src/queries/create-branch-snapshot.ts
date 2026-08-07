@@ -1,4 +1,4 @@
-import { type Prisma, TriggerSource } from "@autonoma/db";
+import type { Prisma, TriggerSource } from "@autonoma/db";
 import type { Logger } from "@autonoma/logger";
 
 export interface SourceBranchInfo {
@@ -33,7 +33,7 @@ interface CreateBranchSnapshotParams {
     tx: Prisma.TransactionClient;
     branchId: string;
     branch: SourceBranchInfo;
-    source?: TriggerSource;
+    source: TriggerSource;
     headSha?: string;
     baseSha?: string;
     logger: Logger;
@@ -68,7 +68,7 @@ export async function createBranchSnapshot({
     const created = await tx.branchSnapshot.create({
         data: {
             branchId,
-            source: source ?? TriggerSource.MANUAL,
+            source,
             headSha,
             baseSha,
             prevSnapshotId: sourceSnapshotId,

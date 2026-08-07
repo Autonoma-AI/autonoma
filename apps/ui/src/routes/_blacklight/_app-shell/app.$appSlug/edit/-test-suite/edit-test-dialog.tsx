@@ -25,7 +25,7 @@ import { useCurrentApplication } from "../../../-use-current-application";
 const NO_SCENARIO_VALUE = "__none__";
 
 interface EditTestDialogProps {
-  branchId: string;
+  snapshotId: string;
   testCaseId: string;
   currentPlan: string;
   currentScenarioId?: string;
@@ -34,7 +34,7 @@ interface EditTestDialogProps {
 }
 
 export function EditTestDialog({
-  branchId,
+  snapshotId,
   testCaseId,
   currentPlan,
   currentScenarioId,
@@ -51,7 +51,7 @@ export function EditTestDialog({
         </DialogHeader>
         <Suspense fallback={<Skeleton className="mx-6 mb-6 h-64 w-auto" />}>
           <EditTestFormContent
-            branchId={branchId}
+            snapshotId={snapshotId}
             testCaseId={testCaseId}
             currentPlan={currentPlan}
             currentScenarioId={currentScenarioId}
@@ -66,7 +66,7 @@ export function EditTestDialog({
 // --- Form ---
 
 interface EditTestFormContentProps {
-  branchId: string;
+  snapshotId: string;
   testCaseId: string;
   currentPlan: string;
   currentScenarioId?: string;
@@ -74,7 +74,7 @@ interface EditTestFormContentProps {
 }
 
 function EditTestFormContent({
-  branchId,
+  snapshotId,
   testCaseId,
   currentPlan,
   currentScenarioId,
@@ -92,7 +92,7 @@ function EditTestFormContent({
     e.preventDefault();
     const selectedScenarioId = scenarioId !== "" ? scenarioId : undefined;
 
-    updateTest.mutate({ branchId, testCaseId, plan, scenarioId: selectedScenarioId }, { onSuccess: () => onClose() });
+    updateTest.mutate({ snapshotId, testCaseId, plan, scenarioId: selectedScenarioId }, { onSuccess: () => onClose() });
   }
 
   const hasChanges = plan !== currentPlan || (scenarioId || undefined) !== currentScenarioId;
