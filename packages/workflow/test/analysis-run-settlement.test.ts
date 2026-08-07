@@ -55,7 +55,7 @@ const activities: Pick<
 let env: TestWorkflowEnvironment;
 let worker: Worker;
 let generalWorker: Worker;
-let runner: Promise<void>;
+let runner: Promise<unknown>;
 
 /** What the current test started, so anything it abandons is stopped before the next test runs. */
 let startedWorkflowIds: string[] = [];

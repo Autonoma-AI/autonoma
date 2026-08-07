@@ -92,6 +92,7 @@ describe("warrantsBuild", () => {
         ["branch_already_previewed", true],
         ["force_build", true],
         ["analysis_selected_tests", true],
+        ["onboarding_incomplete", true],
         ["no_test_work", false],
         // Fails closed: analysis threw, so nothing can say the commit deserved a preview.
         ["analysis_indeterminate", false],
@@ -111,6 +112,7 @@ describe("warrantsBuild", () => {
             branch_already_previewed: true,
             force_build: true,
             analysis_selected_tests: true,
+            onboarding_incomplete: true,
             no_test_work: false,
             analysis_indeterminate: false,
         };

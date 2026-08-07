@@ -141,7 +141,9 @@ async function failure(handle: { result: () => Promise<unknown> }): Promise<{ me
     } catch (error) {
         let current: unknown = error;
         while (current instanceof Error) {
-            if (current instanceof ApplicationFailure) return { message: current.message, type: current.type };
+            if (current instanceof ApplicationFailure) {
+                return { message: current.message, type: current.type ?? undefined };
+            }
             current = current.cause;
         }
         return { message: error instanceof Error ? error.message : String(error) };

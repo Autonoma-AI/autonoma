@@ -2,7 +2,7 @@ import type { AnalysisRunOutcome, PreviewDeployTarget } from "@autonoma/types";
 import { Context } from "@temporalio/activity";
 import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type {
     AnalysisActivities,
     AnalysisInvestigationTarget,
@@ -20,6 +20,7 @@ import { warrantsBuild } from "../src/rules/build-warrant";
 import { TaskQueue } from "../src/task-queues";
 import { analysisRunWorkflow } from "../src/workflows/analysis-run.workflow";
 import { teardownTestWorkflowEnvironment } from "./fixtures/teardown-test-workflow-environment";
+import { terminateAbandonedExecutions } from "./fixtures/terminate-abandoned-executions";
 import { createTimeSkippingTestEnvironment } from "./fixtures/test-workflow-environment";
 import { workflowBundle } from "./fixtures/workflow-bundle";
 
@@ -67,6 +68,11 @@ interface Harness {
     webRuns: string[];
     events: string[];
 
+    /**
+     * Resolves when the build's launch activity has actually run. A run that skips analysis returns without
+     * awaiting its build child, so the parent completing says nothing about whether `build:launch` was recorded
+     * yet - assert on `events` only after this settles.
+     */
     buildLaunched: Promise<void>;
     notifyBuildLaunched: () => void;
     impactStarted: Promise<void>;
@@ -101,6 +107,14 @@ const harness: Harness = {
 let executionCounter = 0;
 /** The build workflow id the run under test would use, so a test can ask whether a build was started at all. */
 let currentBuildId = "";
+
+/**
+ * Every execution the current test started - the run AND the preview build it may spawn - so anything it abandons is
+ * stopped before the next test runs. The child is registered as well as the parent because it is started with
+ * `ParentClosePolicy.REQUEST_CANCEL`: closing the run only *asks* the build to stop, so a build that has already
+ * launched keeps running, and its mocked activities keep appending to the shared `harness` the next test reads.
+ */
+let startedWorkflowIds: string[] = [];
 
 /**
  * Asked of the WORKFLOW, not the launch activity: `startChild` resolves once the child has started, so the child
@@ -348,21 +362,35 @@ beforeEach(() => {
     });
 });
 
+afterEach(async () => {
+    await terminateAbandonedExecutions(env, startedWorkflowIds);
+    startedWorkflowIds = [];
+});
+
+/** Names this execution's workflow and registers it for the sweep, so an id cannot be minted without being tracked. */
+function trackedWorkflowId(prefix: string): string {
+    const workflowId = `${prefix}-${executionCounter}`;
+    startedWorkflowIds.push(workflowId);
+    return workflowId;
+}
+
 function startRun(target: PreviewDeployTarget = deployEvent()) {
     executionCounter += 1;
-    // Own commit and own repo per execution: a build child that outlives its test must not write into the next
-    // one's harness, and the build workflow is keyed per commit.
+    // Own commit and own repo per execution, because the build workflow is keyed per commit: without this, a second
+    // execution would collide with the first one's build id rather than starting its own.
     const scoped: PreviewDeployTarget = {
         ...target,
         repoFullName: `${target.repoFullName}-${executionCounter}`,
         headSha: `${target.headSha}-${executionCounter}`,
     };
     currentBuildId = previewBuildWorkflowId(scoped);
+    // Not allocated by us, but ours to stop: the run may leave this child behind.
+    startedWorkflowIds.push(currentBuildId);
     harness.previewTarget = scoped;
     return env.client.workflow.start(analysisRunWorkflow, {
         // Matches production: the run orchestrates on `general` and proxies its cloning stages to `diffs`.
         taskQueue: TaskQueue.GENERAL,
-        workflowId: `previewkit-run-test-${executionCounter}`,
+        workflowId: trackedWorkflowId("previewkit-run-test"),
         args: [
             {
                 branchId: scoped.branchId ?? "branch-1",
@@ -397,6 +425,7 @@ describe("analysisRunWorkflow build gate", () => {
         await runToCompletion();
 
         expect(await buildWasStarted()).toBe(true);
+        await harness.buildLaunched;
         // The build and nothing else: no snapshot, no selection, no stages, because there is
         // nothing for them to be about yet.
         expect(harness.events).toEqual(["build:launch"]);
@@ -408,11 +437,13 @@ describe("analysisRunWorkflow build gate", () => {
     // eager build runs before the analysis is skipped rather than instead of it.
     it("still builds the main-branch environment while the app is onboarding", async () => {
         harness.onboardingComplete = false;
-        harness.previewTarget = { ...target(), prNumber: 0 };
 
-        await runToCompletion();
+        // Through `runToCompletion`, not by assigning `harness.previewTarget`: `startRun` scopes and overwrites
+        // that field per execution, so a target set beforehand never reaches the workflow.
+        await runToCompletion(deployEvent({ prNumber: 0 }));
 
         expect(await buildWasStarted()).toBe(true);
+        await harness.buildLaunched;
         expect(harness.events).toEqual(["build:launch"]);
     });
 
@@ -632,7 +663,7 @@ async function startCustomerDeployedRun(): Promise<void> {
     executionCounter += 1;
     const handle = await env.client.workflow.start(analysisRunWorkflow, {
         taskQueue: TaskQueue.GENERAL,
-        workflowId: `customer-deployed-run-test-${executionCounter}`,
+        workflowId: trackedWorkflowId("customer-deployed-run-test"),
         args: [{ branchId: "branch-customer-deployed", headSha: `head-${executionCounter}` }],
     });
     await handle.result();
