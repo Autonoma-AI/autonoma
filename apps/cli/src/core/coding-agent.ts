@@ -506,26 +506,6 @@ export async function selectLauncher(
     return available.find((l) => l.id === selected);
 }
 
-/**
- * Resolve the permission mode: a preset from the `--permission-mode` flag wins;
- * otherwise offer a select prompt defaulting to fully autonomous.
- */
-export async function selectPermissionMode(preset?: PermissionMode): Promise<PermissionMode> {
-    if (preset != null) return preset;
-
-    const selected = await p.select<PermissionMode>({
-        message: "How much autonomy should the agent have?",
-        options: [
-            { value: "bypassPermissions", label: PERMISSION_MODE_LABELS.bypassPermissions },
-            { value: "acceptEdits", label: PERMISSION_MODE_LABELS.acceptEdits },
-            { value: "default", label: PERMISSION_MODE_LABELS.default },
-        ],
-        initialValue: DEFAULT_PERMISSION_MODE,
-    });
-    if (p.isCancel(selected)) throw new Error("Permission mode selection cancelled");
-    return selected;
-}
-
 /** Validate a raw `--permission-mode` flag value, returning undefined if unset/invalid. */
 export function parsePermissionMode(value?: string): PermissionMode | undefined {
     if (value === "default" || value === "acceptEdits" || value === "bypassPermissions") return value;

@@ -31,10 +31,8 @@ import {
     isSpawnedByPlanner,
     parsePermissionMode,
     selectLauncher,
-    selectPermissionMode,
     SPAWNED_BY_PLANNER_ENV,
     type AgentLauncher,
-    type PermissionMode,
 } from "../../src/core/coding-agent";
 
 function fakeLauncher(id: string, available: boolean): AgentLauncher {
@@ -266,21 +264,6 @@ describe("buildAllLaunchers", () => {
     test("builds both the claude and codex launchers", () => {
         const ids = buildAllLaunchers({ cwd: "/tmp/repo", env: {} }).map((l) => l.id);
         expect(ids).toEqual(["claude", "codex"]);
-    });
-});
-
-describe("selectPermissionMode", () => {
-    test("returns the preset without prompting", async () => {
-        const mode: PermissionMode = "acceptEdits";
-        expect(await selectPermissionMode(mode)).toBe("acceptEdits");
-        expect(selectMock).not.toHaveBeenCalled();
-    });
-
-    test("prompts and defaults to fully autonomous when no preset", async () => {
-        selectMock.mockResolvedValue("bypassPermissions");
-        expect(await selectPermissionMode()).toBe("bypassPermissions");
-        const arg = selectMock.mock.calls[0]![0] as { initialValue: string };
-        expect(arg.initialValue).toBe("bypassPermissions");
     });
 });
 

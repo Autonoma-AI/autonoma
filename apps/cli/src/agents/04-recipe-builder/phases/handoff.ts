@@ -1,10 +1,11 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentLauncher, PermissionMode } from "../../../core/coding-agent";
-import { DEFAULT_PERMISSION_MODE, selectLauncher, selectPermissionMode } from "../../../core/coding-agent";
+import { selectLauncher } from "../../../core/coding-agent";
 import { debugLog } from "../../../core/debug";
 import { suspend, resume } from "../../../core/interrupt";
 import { notify } from "../../../core/notify";
+import { resolvePermissionMode } from "../../../core/permission-mode";
 import * as p from "../../../ui/prompts";
 import { COMPLETION_MARKER_FILE, readCompletion } from "../completion";
 import { watchForCompletion } from "../completion-watch";
@@ -84,9 +85,11 @@ export async function runHandoffPhase(
         return manualFallback(outputDir, recipePath, deps.cliCommand, NO_AGENT_FOUND);
     }
 
-    const permissionMode = deps.interactive
-        ? await selectPermissionMode(state.permissionMode ?? deps.presetPermissionMode)
-        : (state.permissionMode ?? deps.presetPermissionMode ?? DEFAULT_PERMISSION_MODE);
+    const permissionMode = await resolvePermissionMode({
+        preset: deps.presetPermissionMode,
+        remembered: state.permissionMode,
+        interactive: deps.interactive,
+    });
     state.agentId = launcher.id;
     state.permissionMode = permissionMode;
     await saveRecipeState(outputDir, state);

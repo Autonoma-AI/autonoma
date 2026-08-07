@@ -2,19 +2,12 @@ import type { AppConfig } from "../config";
 import * as p from "../ui/prompts";
 import { resolveMcpUrl } from "./api-url";
 import { AutonomaClient } from "./autonoma-client";
-import {
-    buildAllLaunchers,
-    DEFAULT_PERMISSION_MODE,
-    parsePermissionMode,
-    selectLauncher,
-    selectPermissionMode,
-    type AgentLauncher,
-    type PermissionMode,
-} from "./coding-agent";
+import { buildAllLaunchers, parsePermissionMode, selectLauncher, type AgentLauncher } from "./coding-agent";
 import { debugLog } from "./debug";
 import { resume, suspend } from "./interrupt";
 import { captureLog } from "./logs";
 import { resolveEntryPhase, type OnboardingPhase } from "./onboarding-phase";
+import { resolvePermissionMode } from "./permission-mode";
 import { runPreviewPhase, type PreviewPhaseOutcome } from "./preview-phase";
 import { runSdkRepairPhase, type SdkReadiness, type SdkRepairOutcome } from "./sdk-repair-phase";
 
@@ -133,14 +126,12 @@ export async function runPreviewHandoff(deps: PreviewHandoffDeps): Promise<Previ
         return { kind: "no-agent" };
     }
 
-    // Asked, not assumed - the same question the SDK handoff puts to the user later in
-    // the run, so one run never asks about autonomy at one handoff and decides it
-    // silently at the other. A `--permission-mode` flag answers it up front; headless
-    // there is nobody to ask.
-    const preset = parsePermissionMode(config.permissionMode);
-    const permissionMode: PermissionMode = interactive
-        ? await selectPermissionMode(preset)
-        : (preset ?? DEFAULT_PERMISSION_MODE);
+    // Asked, not assumed - but asked once for the whole run. The later handoffs
+    // resolve through the same call and reuse whatever this one settled on.
+    const permissionMode = await resolvePermissionMode({
+        preset: parsePermissionMode(config.permissionMode),
+        interactive,
+    });
 
     suspend();
     let outcome: PreviewPhaseOutcome;
@@ -210,10 +201,10 @@ export async function runSdkRepairHandoff(deps: PreviewHandoffDeps): Promise<Sdk
         return undefined;
     }
 
-    const preset = parsePermissionMode(config.permissionMode);
-    const permissionMode: PermissionMode = interactive
-        ? await selectPermissionMode(preset)
-        : (preset ?? DEFAULT_PERMISSION_MODE);
+    const permissionMode = await resolvePermissionMode({
+        preset: parsePermissionMode(config.permissionMode),
+        interactive,
+    });
 
     suspend();
     try {
