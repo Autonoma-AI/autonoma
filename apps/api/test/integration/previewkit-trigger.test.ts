@@ -199,7 +199,12 @@ apiTestSuite({
             update: { previewEnvironmentMode: "previewkit" },
         });
 
-        await harness.services.github.handleInstallation(54321, harness.organizationId, "acme", 777, "Organization");
+        await harness.services.github.handleInstallation(54321, harness.organizationId, {
+            login: "acme",
+            id: 777,
+            type: "Organization",
+            createdAt: new Date(),
+        });
 
         return { app, service };
     },

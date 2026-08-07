@@ -41,7 +41,7 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
         this.logger = logger.child({ name: this.constructor.name });
     }
 
-    async getInstallation(_installationId: number): Promise<{ account: unknown }> {
+    async getInstallation(_installationId: number): Promise<{ account: unknown; createdAt: string }> {
         throw new Error(`getInstallation ${NOT_SUPPORTED}`);
     }
 

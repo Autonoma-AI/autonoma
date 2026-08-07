@@ -14,10 +14,11 @@ import { BugFixOutcomeService } from "./bug-fix-outcome.service";
 import { FalsePositiveCandidateService } from "./false-positive-candidate.service";
 import { buildGitHubApp } from "./github-app";
 import { GitHubInstallationService } from "./github-installation.service";
-import { verifyInstallState } from "./github-state";
+import { configureInstallationUrl } from "./github-urls";
 import { MergeGateSlackNotifier } from "./merge-gate-slack-notifier";
 import { MergeGateService } from "./merge-gate.service";
 import { PullRequestCacheService } from "./pull-request-cache.service";
+import { resolveInstallOrganization } from "./resolve-install-organization";
 
 type GitHubEnv = {
     Variables: {
@@ -52,6 +53,28 @@ githubHttpRouter.use("*", async (ctx, next) => {
     await next();
 });
 
+/**
+ * Terminal page for an install opened in a NEW tab: "you can close this and go back". Only used
+ * for success, because success is the case where there is nothing left to do.
+ */
+const INSTALL_RESULT_PATH = "/github-installed";
+
+/**
+ * Where a failure with no return path lands: the real install screen, which carries the Install
+ * button, the surrounding explanation, and (once it renders the failure) the steps out.
+ *
+ * Failures used to land on a standalone card with no context and no way forward - and it was the
+ * page most people saw, because the flows that fail most often are the ones that never carried a
+ * return path in the first place.
+ */
+const INSTALL_SCREEN_PATH = "/onboarding/add-app";
+
+/** Appends a query param to a URL that may or may not already carry one. */
+function withParams(base: string, params: Record<string, string>): string {
+    const query = new URLSearchParams(params).toString();
+    return `${base}${base.includes("?") ? "&" : "?"}${query}`;
+}
+
 githubHttpRouter.get("/callback", async (ctx) => {
     const appUrl = process.env.APP_URL ?? "http://localhost:3000";
 
@@ -84,44 +107,77 @@ githubHttpRouter.get("/callback", async (ctx) => {
         return ctx.redirect(`${appUrl}?error=invalid_callback`);
     }
 
-    const statePayload = state != null ? verifyInstallState(state) : undefined;
-    if (statePayload == null) {
-        // Reached only after the install-params check passed, so this is a real GitHub redirect whose
-        // signed state is missing/expired/tampered - escalate to fatal so it reaches Slack.
-        logger.fatal("GitHub install callback rejected: missing or invalid signed state", {
+    const { githubService } = ctx.var;
+
+    // Deliberately the active-only lookup: see `findActiveInstallationOwner`. The webhook handler
+    // below uses the unfiltered one, because it is signature-verified and has to revive rows.
+    const resolved = await resolveInstallOrganization(state, installationId, (id) =>
+        githubService.findActiveInstallationOwner(id),
+    );
+    if (resolved.organizationId == null) {
+        // Could not attribute it, and we deliberately do not guess from the caller's session -
+        // see `resolveInstallOrganization` for why that would be an installation-hijack path.
+        // We also do not ask GitHub which account this is: that would turn this unauthenticated
+        // endpoint into an oracle mapping any installation id to its owner's login.
+        logger.warn("GitHub install callback could not be attributed to an organization", {
             extra: { installationId, hasState: state != null },
         });
-        return ctx.redirect(`${appUrl}?error=invalid_state`);
+        return ctx.redirect(withParams(`${appUrl}${INSTALL_SCREEN_PATH}`, { error: "unattributed" }));
     }
-    const { organizationId, returnPath } = statePayload;
 
-    const { githubService, githubApp } = ctx.var;
+    const { organizationId, returnPath } = resolved;
+    const failureBase = returnPath != null ? `${appUrl}${returnPath}` : `${appUrl}${INSTALL_SCREEN_PATH}`;
 
     try {
-        const client = await githubApp.getInstallationClient(installationId);
-        const installationData = await client.getInstallation(installationId);
+        const installation = await githubService.describeInstallation(installationId);
+        const outcome = await githubService.handleInstallation(installationId, organizationId, installation);
 
-        const account = installationData.account as { login?: string; id?: number; type?: string } | null;
+        if (outcome.status === "stale_installation") {
+            // Not this caller's installation to bind - see FRESH_INSTALL_WINDOW_MS. Deliberately
+            // vague to the user: naming what was wrong with the id would confirm it exists.
+            return ctx.redirect(withParams(failureBase, { error: "stale_installation" }));
+        }
 
-        await githubService.handleInstallation(
-            installationId,
-            organizationId,
-            account?.login ?? "unknown",
-            account?.id ?? 0,
-            account?.type ?? "Organization",
-        );
+        if (outcome.status === "conflict") {
+            return ctx.redirect(
+                withParams(failureBase, {
+                    error: "account_already_connected",
+                    account: outcome.connectedAccountLogin,
+                    attempted: outcome.attemptedAccountLogin,
+                    // The EXISTING installation, because the instruction is to uninstall that one
+                    // in order to switch accounts - not the one that was just refused.
+                    manageUrl: configureInstallationUrl(outcome.connectedInstallationId, {
+                        login: outcome.connectedAccountLogin,
+                        type: outcome.connectedAccountType,
+                    }),
+                }),
+            );
+        }
+
+        if (outcome.status === "claimed_elsewhere") {
+            return ctx.redirect(
+                withParams(failureBase, {
+                    error: "account_claimed_elsewhere",
+                    attempted: outcome.attemptedAccountLogin,
+                    // The installation to uninstall: it is the one holding this account for the
+                    // other workspace, and removing it is what frees the account.
+                    manageUrl: configureInstallationUrl(installationId, {
+                        login: installation.login,
+                        type: installation.type,
+                    }),
+                }),
+            );
+        }
     } catch (error) {
         logger.fatal("Failed to handle GitHub installation callback", error, { installationId });
-        const errorBase = returnPath != null ? `${appUrl}${returnPath}` : appUrl;
-        const errorSeparator = errorBase.includes("?") ? "&" : "?";
-        return ctx.redirect(`${errorBase}${errorSeparator}error=install_failed`);
+        return ctx.redirect(withParams(failureBase, { error: "install_failed" }));
     }
 
     // Success carries no marker of its own: the destination distinguishes success
     // from failure purely by the absence of an `error` param. This holds for a fresh
     // `install` and for `update` (added repo access) alike - neither needs a distinct
     // signal, and the observing tab picks up the change by refetching its repo list.
-    return ctx.redirect(returnPath != null ? `${appUrl}${returnPath}` : appUrl);
+    return ctx.redirect(returnPath != null ? `${appUrl}${returnPath}` : `${appUrl}${INSTALL_RESULT_PATH}?status=ok`);
 });
 
 const WEBHOOK_EVENT_TYPES = {

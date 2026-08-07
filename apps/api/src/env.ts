@@ -38,6 +38,15 @@ export const env = createEnv({
         // checks and honors no Skip no matter an org's per-org `mergeGateEnabled`. Effective gate =
         // MERGE_GATE_ENABLED && org.mergeGateEnabled.
         MERGE_GATE_ENABLED: z.stringbool().default(false),
+        // How recently GitHub must have created an installation for the install callback to bind
+        // it to an organization for the first time. Signed install state names an organization but
+        // never an installation - it is minted before one exists - so freshness is what stops a
+        // replay against an enumerated installation id (see handleInstallation).
+        //
+        // Configurable only so a test environment can shrink it: at the 30-minute default the
+        // "installation too old" path takes half an hour of waiting to reach, which is long enough
+        // that it goes untested. Do not lower it in production.
+        GITHUB_INSTALL_FRESHNESS_MINUTES: z.coerce.number().int().positive().default(30),
         ALLOWED_ORIGINS: z.string().optional().default("http://localhost:3000"),
         // Public origin where this API's own /v1/auth handler is reachable - NOT
         // the UI's origin (APP_URL). They coincide in prod/beta (unified behind

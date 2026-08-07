@@ -17,7 +17,14 @@ import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Navigate, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { DeleteApplicationDialog } from "components/delete-application-dialog";
+import { InstallFailureBanner } from "components/install-failure-banner";
 import { getApiOrigin } from "lib/api-origin";
+import {
+  installActionLabel,
+  installFailureBlocksRetry,
+  installLeadOverride,
+  manageUrlSchema,
+} from "lib/github-install-errors";
 import { useCompleteGithub } from "lib/onboarding/onboarding-api";
 import { type OnboardingOrigin, buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useCreateMinimalApplication } from "lib/query/applications.queries";
@@ -26,6 +33,7 @@ import {
   useGithubConfig,
   useGithubInstallation,
   useGithubRepositories,
+  useGithubRepositoryListing,
   useLinkRepository,
 } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
@@ -33,9 +41,20 @@ import { Component, Suspense, useState, type ReactNode } from "react";
 import { z } from "zod";
 import { OnboardingPageHeader } from "./-components/onboarding-page-header";
 
+/** What the install callback hands back on failure, threaded to whichever step renders it. */
+interface InstallFailureProps {
+  error: string;
+  account?: string;
+  attempted?: string;
+  manageUrl?: string;
+}
+
 const addAppSearchParams = z.object({
   appId: z.string().optional(),
   error: z.string().optional(),
+  account: z.string().optional(),
+  attempted: z.string().optional(),
+  manageUrl: manageUrlSchema,
 });
 
 export const Route = createFileRoute("/_blacklight/onboarding/add-app")({
@@ -44,8 +63,13 @@ export const Route = createFileRoute("/_blacklight/onboarding/add-app")({
 });
 
 function RouteComponent() {
-  const { appId, error } = Route.useSearch();
-  return <Navigate to="/onboarding" search={buildOnboardingSearch("add-app", appId, { error })} />;
+  const { appId, error, account, attempted, manageUrl } = Route.useSearch();
+  return (
+    <Navigate
+      to="/onboarding"
+      search={buildOnboardingSearch("add-app", appId, { error, account, attempted, manageUrl })}
+    />
+  );
 }
 
 function toSlug(name: string): string {
@@ -59,7 +83,24 @@ function repoShortName(fullName: string): string {
   return fullName.split("/").pop() ?? fullName;
 }
 
-export function AddAppPage({ appId, error, origin }: { appId?: string; error?: string; origin?: OnboardingOrigin }) {
+export function AddAppPage({
+  appId,
+  error,
+  account,
+  attempted,
+  manageUrl,
+  origin,
+}: {
+  appId?: string;
+  error?: string;
+  /** GitHub account already connected, when `error` is an install conflict. */
+  account?: string;
+  /** GitHub account the user tried to add, when `error` is an install conflict. */
+  attempted?: string;
+  /** GitHub page for the installation the steps tell the user to uninstall. */
+  manageUrl?: string;
+  origin?: OnboardingOrigin;
+}) {
   return (
     <>
       <OnboardingPageHeader
@@ -73,31 +114,17 @@ export function AddAppPage({ appId, error, origin }: { appId?: string; error?: s
         descriptionClassName="text-sm"
       />
 
-      {error != null && (
-        <div className="mb-8 flex items-start gap-3 border border-status-critical/30 bg-status-critical/5 px-5 py-4">
-          <WarningCircleIcon size={20} weight="fill" className="mt-0.5 shrink-0 text-status-critical" />
-          <p className="font-mono text-sm text-status-critical">{getErrorMessage(error)}</p>
-        </div>
-      )}
-
       <AddAppErrorBoundary>
         <Suspense fallback={<AddAppSkeleton />}>
-          <AddAppContent appId={appId} origin={origin} />
+          <AddAppContent
+            appId={appId}
+            origin={origin}
+            failure={error != null ? { error, account, attempted, manageUrl } : undefined}
+          />
         </Suspense>
       </AddAppErrorBoundary>
     </>
   );
-}
-
-function getErrorMessage(error: string): string {
-  switch (error) {
-    case "install_failed":
-      return "GitHub App installation failed. Please try again.";
-    case "install_cancelled":
-      return "GitHub App installation was cancelled.";
-    default:
-      return `GitHub error: ${error}`;
-  }
 }
 
 function AddAppSkeleton() {
@@ -133,36 +160,113 @@ class AddAppErrorBoundary extends Component<{ children: ReactNode }, { error?: E
   }
 }
 
-function AddAppContent({ appId, origin }: { appId?: string; origin?: OnboardingOrigin }) {
+function AddAppContent({
+  appId,
+  origin,
+  failure,
+}: {
+  appId?: string;
+  origin?: OnboardingOrigin;
+  failure?: InstallFailureProps;
+}) {
   const { data: installation } = useGithubInstallation();
-  const { data: repos } = useGithubRepositories();
+  const { data: listing } = useGithubRepositoryListing();
+  const repos = listing.repos;
 
-  if (installation == null || repos.length === 0) {
-    return <InstallStep appId={appId} hasStaleInstallation={installation != null} appSlug={installation?.appSlug} />;
+  // Every state this screen can be in, resolved once. Each one has to name an action that works:
+  // the bugs here were all a state falling through to a button pointing somewhere it should not.
+  //
+  // `unavailable` means GitHub would not say what the installation can see - the shape of one
+  // uninstalled without us hearing about it - so it counts as no installation rather than as one
+  // to configure, which would be a 404. A `deleted` installation never reaches here at all; the
+  // API reports it absent.
+  const suspended = installation != null && installation.status === "suspended";
+  const usable = installation != null && !suspended && listing.unavailable == null;
+
+  if (suspended || !usable || repos.length === 0) {
+    return (
+      <InstallStep
+        appId={appId}
+        hasStaleInstallation={usable}
+        suspendedAccount={suspended ? installation.accountLogin : undefined}
+        appSlug={installation?.appSlug}
+        failure={failure}
+        conflictStillApplies={usable && installation.status === "active"}
+        // A suspended installation still exists on GitHub, so its page is a real destination -
+        // and the only one that can lift the suspension.
+        configureUrl={suspended || usable ? installation?.settingsUrl : undefined}
+      />
+    );
   }
 
-  return <RepoAndNameStep appId={appId} settingsUrl={installation.settingsUrl} origin={origin} />;
+  return (
+    <>
+      {failure != null && <InstallFailureBanner {...failure} className="mb-8" />}
+      <RepoAndNameStep appId={appId} settingsUrl={installation.settingsUrl} origin={origin} />
+    </>
+  );
 }
 
 function InstallStep({
   appId,
   hasStaleInstallation,
+  suspendedAccount,
   appSlug,
+  failure,
+  conflictStillApplies,
+  configureUrl,
 }: {
   appId?: string;
   hasStaleInstallation: boolean;
+  /** Account whose installation GitHub has suspended, when that is the blocker. */
+  suspendedAccount?: string;
   appSlug?: string;
+  failure?: InstallFailureProps;
+  /**
+   * Whether a live installation still stands in the way. Live data, not the `error` query param:
+   * the param survives in the URL after the user follows the steps and uninstalls on GitHub, so
+   * deriving `blocked` from it alone left them staring at a permanently dead Install button.
+   */
+  conflictStillApplies?: boolean;
+  /**
+   * The connected installation's own page on GitHub. Used INSTEAD of the install URL once an
+   * installation exists: the install URL is GitHub's account picker, so "Configure GitHub App"
+   * was handing someone who just wanted to grant more repository access the shortest path to
+   * installing on a second account - the very thing the conflict below then refuses.
+   */
+  configureUrl?: string;
 }) {
   const returnPath = appId != null ? `/onboarding/add-app?appId=${encodeURIComponent(appId)}` : "/onboarding/add-app";
   const { data } = useGithubConfig(returnPath);
   // `returnTo` is what "Back to your account" in the demo comes back to - this step, not
   // the app root, so the visitor picks up at the install button they left.
   const demoUrl = `${getApiOrigin()}/v1/demo?source=onboarding&returnTo=${encodeURIComponent(returnPath)}`;
+  // Blocking exists for the account PICKER: after a conflict, picking another account again just
+  // earns the same refusal. It must never block the configure path - that opens the connected
+  // installation's own page on GitHub, which is where you grant it repositories and is the way OUT
+  // of this state. Disabling it left the conflict banner pointing at a button it had switched off.
+  const blocked =
+    configureUrl == null &&
+    failure != null &&
+    installFailureBlocksRetry(failure.error) &&
+    conflictStillApplies === true;
+  // When the app is already installed, "Install GitHub App" tells the user to redo what they just
+  // did. The action is linking, and both the button and the lead say so.
+  const actionLabel = installActionLabel(failure?.error);
+  const leadOverride = installLeadOverride(failure?.error);
 
   return (
     <div className="space-y-6">
       <p className="max-w-2xl font-mono text-sm text-text-secondary">
-        {hasStaleInstallation ? (
+        {leadOverride != null ? (
+          leadOverride
+        ) : suspendedAccount != null ? (
+          <>
+            GitHub has suspended the Autonoma app on <span className="text-primary-ink">{suspendedAccount}</span>, so
+            Autonoma cannot read anything from it. Unsuspend it on GitHub - nothing here needs reinstalling - then
+            reload this page.
+          </>
+        ) : hasStaleInstallation ? (
           <>
             No repositories are visible to the GitHub App{" "}
             {appSlug != null ? <span className="text-primary-ink">{appSlug}</span> : "this environment uses"}. Grant it
@@ -179,15 +283,21 @@ function InstallStep({
           variant="accent"
           className="gap-3 px-8 py-4 font-mono text-sm font-bold uppercase"
           onClick={() => {
-            if (data.installUrl != null) {
-              window.open(data.installUrl, "_blank");
+            const target = configureUrl ?? data.installUrl;
+            if (target != null) {
+              window.open(target, "_blank");
             }
           }}
-          disabled={data.installUrl == null}
+          disabled={(configureUrl ?? data.installUrl) == null || blocked}
           aria-label="onboarding-github-connect"
         >
           <GithubLogoIcon size={18} weight="bold" />
-          {hasStaleInstallation ? "Configure GitHub App" : "Install GitHub App"}
+          {actionLabel ??
+            (suspendedAccount != null
+              ? "Unsuspend on GitHub"
+              : hasStaleInstallation
+                ? "Configure GitHub App"
+                : "Install GitHub App")}
         </Button>
         <Button
           variant="outline"
@@ -199,6 +309,10 @@ function InstallStep({
           <ArrowSquareOutIcon size={16} weight="bold" />
         </Button>
       </div>
+      {/* Below the button, not above it: the button is what the message is about, and the one
+          case that lands here most often is fixed by pressing it. */}
+      {failure != null && <InstallFailureBanner {...failure} className="max-w-2xl" />}
+
       <p className="max-w-2xl font-mono text-2xs text-text-secondary">
         The demo opens in a new tab as a read-only guest, which signs this tab out until you come back - your setup is
         saved, and "Back to your account" in the demo returns you here.
@@ -363,8 +477,10 @@ function RepoAndNameStep({
                 rel="noopener noreferrer"
                 className="text-primary-ink underline underline-offset-2 transition-colors hover:text-primary-ink/80"
               >
-                Configure repository access on GitHub
+                Grant access to it on GitHub
               </a>
+              . Autonoma connects one GitHub account per workspace, so a repository under a different account has to be
+              shared with this installation.
             </p>
           )}
         </div>

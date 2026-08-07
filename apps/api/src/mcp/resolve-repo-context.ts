@@ -71,8 +71,13 @@ export async function resolveRepoContext(
 
     const candidates: RepoContext[] = [];
     const unreadable: string[] = [];
+    const reachableOwners = new Set<string>();
     for (const { organizationId, listing } of perOrg) {
         if (listing.unavailable != null) unreadable.push(listing.unavailable);
+        for (const repo of listing.repos) {
+            const owner = repo.fullName.split("/")[0];
+            if (owner != null) reachableOwners.add(owner);
+        }
         const match = listing.repos.find((repo) => repo.fullName === repoFullName && repo.applicationId != null);
         if (match?.applicationId != null) {
             candidates.push({ organizationId, applicationId: match.applicationId, githubRepositoryId: match.id });
@@ -88,7 +93,31 @@ export async function resolveRepoContext(
         );
     }
 
+    if (candidates.length === 0) throw notFound(repoFullName, reachableOwners);
+
     return pickSingleCandidate(candidates, repoFullName, logger);
+}
+
+/**
+ * Adds "and here is which GitHub accounts you CAN reach" to a not-found, when the repo's owner
+ * is plainly not one of them. A bare not-found reads as a typo, which sends an agent looking in
+ * the wrong place: the single most common cause is a repository under a second GitHub account,
+ * which Autonoma does not support connecting.
+ *
+ * Only ever names owners drawn from the caller's own installations, so it tells a credential
+ * nothing it could not already read from `get_github_connection`.
+ */
+function describeOwnerMismatch(repoFullName: string, reachableOwners: ReadonlySet<string>): string {
+    const owner = repoFullName.split("/")[0];
+    if (owner == null || reachableOwners.size === 0 || reachableOwners.has(owner)) return "";
+
+    const owners = [...reachableOwners].sort();
+    const reachable = owners.length === 1 ? owners[0] : `${owners.slice(0, -1).join(", ")} and ${owners.at(-1)}`;
+    return (
+        ` Autonoma can reach repositories under ${reachable}, but not under ${owner}. Autonoma connects one GitHub ` +
+        `account per workspace, so a repository under a different account has to be reached by granting the ` +
+        `existing installation access to it.`
+    );
 }
 
 async function resolveViaPreviewkit(
@@ -136,6 +165,9 @@ function pickSingleCandidate(
 }
 
 // Same message for "no such repo/app" and "not a member" so a token cannot probe repos in orgs the user can't see.
-function notFound(repoFullName: string): NotFoundError {
-    return new NotFoundError(`No accessible Autonoma application found for ${repoFullName}`);
+// `reachableOwners` never widens that: it lists only owners drawn from the caller's own installations.
+function notFound(repoFullName: string, reachableOwners: ReadonlySet<string> = new Set()): NotFoundError {
+    return new NotFoundError(
+        `No accessible Autonoma application found for ${repoFullName}.${describeOwnerMismatch(repoFullName, reachableOwners)}`,
+    );
 }

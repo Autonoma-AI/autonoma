@@ -8,6 +8,7 @@ import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { DemoReturnButton } from "components/demo-return-button";
 import { TalkToSupport } from "components/talk-to-support";
 import { useAuth, useAuthClient } from "lib/auth";
+import { manageUrlSchema } from "lib/github-install-errors";
 import { isConfigStepId } from "lib/onboarding/config-steps";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { isOnboardingStep, type OnboardingStep } from "lib/onboarding/onboarding-steps";
@@ -42,8 +43,12 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
   validateSearch: (search: Record<string, unknown>) => {
     const step = typeof search.step === "string" && isOnboardingStep(search.step) ? search.step : undefined;
     const appId = typeof search.appId === "string" ? search.appId : undefined;
-    // A GitHub OAuth/App-install callback can redirect back here with an error.
+    // A GitHub OAuth/App-install callback can redirect back here with an error. An install
+    // conflict also names both GitHub accounts, so the message can say which is which.
     const error = typeof search.error === "string" ? search.error : undefined;
+    const account = typeof search.account === "string" ? search.account : undefined;
+    const attempted = typeof search.attempted === "string" ? search.attempted : undefined;
+    const manageUrl = manageUrlSchema.parse(search.manageUrl);
     // The CLI upload credentials for the setup step live in the URL (not
     // localStorage) so a refresh keeps the same setup the CLI uploads to.
     const apiKey = typeof search.apiKey === "string" ? search.apiKey : undefined;
@@ -67,6 +72,9 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
       step,
       appId,
       error,
+      account,
+      attempted,
+      manageUrl,
       apiKey,
       setupId,
       focusApp,
@@ -171,8 +179,21 @@ function OnboardingLayout() {
   const { user, isAdmin } = useAuth();
   const authClient = useAuthClient();
   const { backendStep } = Route.useLoaderData();
-  const { step, appId, error, focusApp, focusField, focusSection, configStep, provider, origin, manual } =
-    Route.useSearch();
+  const {
+    step,
+    appId,
+    error,
+    account,
+    attempted,
+    manageUrl,
+    focusApp,
+    focusField,
+    focusSection,
+    configStep,
+    provider,
+    origin,
+    manual,
+  } = Route.useSearch();
   // useSearch widens the enums to `string`; re-narrow for the typed props.
   const initialProvider = provider === "vercel" || provider === "custom" ? provider : undefined;
   const onboardingOrigin = origin === "vercel" ? "vercel" : undefined;
@@ -233,7 +254,17 @@ function OnboardingLayout() {
   }
 
   function renderStep() {
-    if (currentStepId === "add-app") return <AddAppPage appId={appId} error={error} origin={onboardingOrigin} />;
+    if (currentStepId === "add-app")
+      return (
+        <AddAppPage
+          appId={appId}
+          error={error}
+          account={account}
+          attempted={attempted}
+          manageUrl={manageUrl}
+          origin={onboardingOrigin}
+        />
+      );
     if (currentStepId === "preview-environment")
       return <PreviewEnvironmentPage appId={appId} origin={onboardingOrigin} manual={manual === true} />;
     if (currentStepId === "previewkit-config")

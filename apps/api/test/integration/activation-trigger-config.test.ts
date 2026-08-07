@@ -50,9 +50,7 @@ apiTestSuite({
         await harness.services.github.handleInstallation(
             9_000_000 + randomBytes(3).readUIntBE(0, 3),
             harness.organizationId,
-            "test-org",
-            999,
-            "Organization",
+            { login: "test-org", id: 999, type: "Organization", createdAt: new Date() },
         );
         return {};
     },

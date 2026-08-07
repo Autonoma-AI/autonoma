@@ -66,13 +66,12 @@ apiTestSuite({
         });
 
         // Suites share one DB with no truncation and installation_id is globally unique, so ids must not repeat.
-        await harness.services.github.handleInstallation(
-            33333,
-            harness.organizationId,
-            "test-org",
-            999,
-            "Organization",
-        );
+        await harness.services.github.handleInstallation(33333, harness.organizationId, {
+            login: "test-org",
+            id: 999,
+            type: "Organization",
+            createdAt: new Date(),
+        });
 
         return { app, service };
     },

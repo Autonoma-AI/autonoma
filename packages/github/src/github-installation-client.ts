@@ -190,7 +190,7 @@ export interface BranchList {
 }
 
 export interface GitHubInstallationClient {
-    getInstallation(installationId: number): Promise<{ account: unknown }>;
+    getInstallation(installationId: number): Promise<{ account: unknown; createdAt: string }>;
     getInstallationToken(): Promise<string>;
     cloneRepository(params: CloneRepositoryParams): Promise<string>;
     getRepository(repoId: number): Promise<Repository>;
@@ -309,7 +309,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         this.logger = logger.child({ name: this.constructor.name, installationId });
     }
 
-    async getInstallation(installationId: number): Promise<{ account: unknown }> {
+    async getInstallation(installationId: number): Promise<{ account: unknown; createdAt: string }> {
         this.logger.info("Fetching installation details", { installationId });
 
         const { data } = await this.octokit.request("GET /app/installations/{installation_id}", {
@@ -318,7 +318,9 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
 
         this.logger.info("Fetched installation details", { installationId });
 
-        return { account: data.account };
+        // `created_at` is how a caller can tell a just-completed install from an old one it merely
+        // named - the install callback uses it to refuse ids that were not created moments ago.
+        return { account: data.account, createdAt: data.created_at };
     }
 
     async getInstallationToken(): Promise<string> {

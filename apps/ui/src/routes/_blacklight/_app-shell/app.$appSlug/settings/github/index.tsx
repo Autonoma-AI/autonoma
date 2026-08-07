@@ -3,13 +3,26 @@ import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { LinkBreakIcon } from "@phosphor-icons/react/LinkBreak";
 import { createFileRoute } from "@tanstack/react-router";
+import { InstallFailureBanner } from "components/install-failure-banner";
 import { RouteErrorState } from "components/route-error-state";
+import { manageUrlSchema, singleAccountLimitNote } from "lib/github-install-errors";
 import { useActiveOrg } from "lib/query/auth.queries";
 import { useDisconnectGithub, useGithubConfig, useGithubInstallation } from "lib/query/github.queries";
 import { Suspense, useState } from "react";
+import { z } from "zod";
 import { OrgScopeNote } from "../-org-scope-note";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/settings/github/")({
+  // The install callback returns here with these when an install could not be completed. Without
+  // them the page drops every install error on the floor: the user lands on an unchanged settings
+  // page with no indication anything went wrong.
+  validateSearch: z.object({
+    error: z.string().optional(),
+    account: z.string().optional(),
+    attempted: z.string().optional(),
+    // Validated, not a bare string: it is rendered as an href, and the query string is public.
+    manageUrl: manageUrlSchema,
+  }),
   errorComponent: ({ reset }) => (
     <RouteErrorState message="We couldn't load your GitHub App installation." reset={reset} />
   ),
@@ -22,9 +35,14 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/setti
  * that application's General settings instead.
  */
 function GitHubSettingsPage() {
+  const { error, account, attempted, manageUrl } = Route.useSearch();
+
   return (
     <div className="flex flex-col gap-4">
       <OrgScopeNote>The GitHub App is installed once.</OrgScopeNote>
+      {error != null && (
+        <InstallFailureBanner error={error} account={account} attempted={attempted} manageUrl={manageUrl} />
+      )}
       <Suspense fallback={<GitHubSettingsSkeleton />}>
         <GitHubSettingsContent />
       </Suspense>
@@ -105,6 +123,9 @@ function InstallationPanel({
   // The demo shows a real org's installation; its GitHub settings page is not ours
   // to send visitors to, so drop the outbound "Manage on GitHub" link in demo mode.
   const isDemo = useActiveOrg().data?.isDemo === true;
+  // Shared with the failure copy and gated on the same flag, so lifting the one-account limit does
+  // not leave this paragraph behind asserting something that is no longer true.
+  const limitNote = singleAccountLimitNote(accountLogin);
 
   return (
     <Panel>
@@ -122,6 +143,8 @@ function InstallationPanel({
           </div>
           <Badge variant={status === "active" ? "success" : "destructive"}>{status}</Badge>
         </div>
+
+        {limitNote != null && <p className="text-xs text-text-secondary">{limitNote}</p>}
 
         <Separator />
 

@@ -2,116 +2,102 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const MOCK_SECRET = "test-secret-for-hmac-signing";
 
-// Set env before importing the module
+// Set env before importing the module - it reads the secret when signing.
 process.env.BETTER_AUTH_SECRET = MOCK_SECRET;
 
+import { SignJWT } from "jose";
 import { createInstallState, verifyInstallState } from "../../../src/github/github-state";
+
+const key = () => new TextEncoder().encode(MOCK_SECRET);
 
 describe("github-state", () => {
     beforeEach(() => {
         process.env.BETTER_AUTH_SECRET = MOCK_SECRET;
     });
 
-    describe("createInstallState", () => {
-        it("returns a payload.signature string", () => {
-            const state = createInstallState("org-123");
-            expect(state).toContain(".");
-            const parts = state.split(".");
-            expect(parts).toHaveLength(2);
-        });
+    it("round-trips an organization and return path", async () => {
+        const state = await createInstallState("org-789", "/some/path");
 
-        it("encodes organization ID in the payload", () => {
-            const state = createInstallState("org-456");
-            const payload = state.split(".")[0]!;
-            const decoded = JSON.parse(Buffer.from(payload, "base64url").toString());
-            expect(decoded.organizationId).toBe("org-456");
-        });
-
-        it("includes return path when provided", () => {
-            const state = createInstallState("org-123", "/settings/github");
-            const payload = state.split(".")[0]!;
-            const decoded = JSON.parse(Buffer.from(payload, "base64url").toString());
-            expect(decoded.returnPath).toBe("/settings/github");
-        });
-
-        it("sets expiry in the future", () => {
-            const before = Date.now();
-            const state = createInstallState("org-123");
-            const payload = state.split(".")[0]!;
-            const decoded = JSON.parse(Buffer.from(payload, "base64url").toString());
-            expect(decoded.exp).toBeGreaterThan(before);
-            expect(decoded.exp).toBeLessThanOrEqual(before + 15 * 60 * 1000 + 100);
+        await expect(verifyInstallState(state)).resolves.toEqual({
+            organizationId: "org-789",
+            returnPath: "/some/path",
         });
     });
 
-    describe("verifyInstallState", () => {
-        it("round-trips a valid state", () => {
-            const state = createInstallState("org-789", "/some/path");
-            const result = verifyInstallState(state);
-            expect(result).toEqual({ organizationId: "org-789", returnPath: "/some/path" });
-        });
+    it("round-trips without a return path", async () => {
+        const state = await createInstallState("org-abc");
 
-        it("returns organizationId without return path", () => {
-            const state = createInstallState("org-abc");
-            const result = verifyInstallState(state);
-            expect(result).toEqual({ organizationId: "org-abc", returnPath: undefined });
-        });
-
-        it("rejects tampered payload", () => {
-            const state = createInstallState("org-123");
-            const [, sig] = state.split(".");
-            const tamperedPayload = Buffer.from(
-                JSON.stringify({ organizationId: "hacker", exp: Date.now() + 999999 }),
-            ).toString("base64url");
-            const result = verifyInstallState(`${tamperedPayload}.${sig}`);
-            expect(result).toBeUndefined();
-        });
-
-        it("rejects tampered signature", () => {
-            const state = createInstallState("org-123");
-            const [payload] = state.split(".");
-            const result = verifyInstallState(
-                `${payload}.deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef`,
-            );
-            expect(result).toBeUndefined();
-        });
-
-        it("rejects state without a dot separator", () => {
-            const result = verifyInstallState("nodothere");
-            expect(result).toBeUndefined();
-        });
-
-        it("rejects expired state", () => {
-            vi.useFakeTimers();
-            const state = createInstallState("org-123");
-
-            // Advance past the 15-minute TTL
-            vi.advanceTimersByTime(16 * 60 * 1000);
-
-            const result = verifyInstallState(state);
-            expect(result).toBeUndefined();
-
-            vi.useRealTimers();
-        });
-
-        it("accepts state just before expiry", () => {
-            vi.useFakeTimers();
-            const state = createInstallState("org-123");
-
-            // Advance to just before the 15-minute TTL
-            vi.advanceTimersByTime(14 * 60 * 1000);
-
-            const result = verifyInstallState(state);
-            expect(result).toEqual({ organizationId: "org-123", returnPath: undefined });
-
-            vi.useRealTimers();
-        });
+        await expect(verifyInstallState(state)).resolves.toEqual({ organizationId: "org-abc" });
     });
 
-    describe("error handling", () => {
-        it("throws when BETTER_AUTH_SECRET is not set", () => {
-            delete process.env.BETTER_AUTH_SECRET;
-            expect(() => createInstallState("org-123")).toThrow("BETTER_AUTH_SECRET is not set");
-        });
+    it("rejects a token signed with a different secret", async () => {
+        const forged = await new SignJWT({ organizationId: "attacker" })
+            .setProtectedHeader({ alg: "HS256" })
+            .setAudience("autonoma:github-install-state")
+            .setExpirationTime("15m")
+            .sign(new TextEncoder().encode("not-the-real-secret"));
+
+        await expect(verifyInstallState(forged)).resolves.toBeUndefined();
+    });
+
+    /**
+     * Domain separation. Anything else we ever sign with this secret must not verify as install
+     * state, which is what the audience claim buys - and `jose` checks it as part of verification
+     * rather than leaving it to a caller to remember.
+     */
+    it("rejects a validly signed token minted for another purpose", async () => {
+        const otherPurpose = await new SignJWT({ organizationId: "org-1" })
+            .setProtectedHeader({ alg: "HS256" })
+            .setAudience("autonoma:something-else")
+            .setExpirationTime("15m")
+            .sign(key());
+
+        await expect(verifyInstallState(otherPurpose)).resolves.toBeUndefined();
+    });
+
+    /**
+     * `alg: none` is the classic JWT footgun: a verifier that trusts the token's own header accepts
+     * an unsigned token. Pinning `algorithms` on verify is what rules it out.
+     */
+    it("rejects an unsigned token claiming alg none", async () => {
+        const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+        const body = Buffer.from(
+            JSON.stringify({
+                organizationId: "attacker",
+                aud: "autonoma:github-install-state",
+                exp: Math.floor(Date.now() / 1000) + 600,
+            }),
+        ).toString("base64url");
+
+        await expect(verifyInstallState(`${header}.${body}.`)).resolves.toBeUndefined();
+    });
+
+    it("rejects a malformed token", async () => {
+        await expect(verifyInstallState("nodothere")).resolves.toBeUndefined();
+    });
+
+    it("rejects an expired token", async () => {
+        vi.useFakeTimers();
+        const state = await createInstallState("org-123");
+
+        vi.advanceTimersByTime(16 * 60 * 1000);
+        await expect(verifyInstallState(state)).resolves.toBeUndefined();
+
+        vi.useRealTimers();
+    });
+
+    it("accepts a token just before expiry", async () => {
+        vi.useFakeTimers();
+        const state = await createInstallState("org-123");
+
+        vi.advanceTimersByTime(14 * 60 * 1000);
+        await expect(verifyInstallState(state)).resolves.toEqual({ organizationId: "org-123" });
+
+        vi.useRealTimers();
+    });
+
+    it("throws when BETTER_AUTH_SECRET is not set", async () => {
+        delete process.env.BETTER_AUTH_SECRET;
+        await expect(createInstallState("org-123")).rejects.toThrow("BETTER_AUTH_SECRET is not set");
     });
 });

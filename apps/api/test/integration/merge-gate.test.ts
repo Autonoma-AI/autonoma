@@ -53,13 +53,12 @@ apiTestSuite({
     name: "MergeGateService",
     seed: async ({ harness }) => {
         // One installation for the org; the fake app returns its defaultClient for any installation id.
-        await harness.services.github.handleInstallation(
-            INSTALLATION_ID,
-            harness.organizationId,
-            "test-org",
-            999,
-            "Organization",
-        );
+        await harness.services.github.handleInstallation(INSTALLATION_ID, harness.organizationId, {
+            login: "test-org",
+            id: 999,
+            type: "Organization",
+            createdAt: new Date(),
+        });
         return {};
     },
     cases: (test) => {

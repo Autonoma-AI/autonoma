@@ -11,6 +11,12 @@ export type OnboardingOrigin = "vercel";
 
 interface OnboardingSearchOverrides {
     error?: string;
+    /** GitHub account already connected, when `error` is an install conflict. */
+    account?: string;
+    /** GitHub account the user tried to add, when `error` is an install conflict. */
+    attempted?: string;
+    /** GitHub page for the installation the failure's steps tell the user to uninstall. */
+    manageUrl?: string;
     apiKey?: string;
     setupId?: string;
     focusApp?: string;
@@ -47,6 +53,9 @@ export function buildOnboardingSearch(
         step,
         appId,
         error: overrides.error,
+        account: overrides.account,
+        attempted: overrides.attempted,
+        manageUrl: overrides.manageUrl,
         apiKey: overrides.apiKey,
         setupId: overrides.setupId,
         focusApp: overrides.focusApp,

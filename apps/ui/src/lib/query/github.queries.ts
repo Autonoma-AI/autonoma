@@ -26,6 +26,20 @@ export function useGithubInstallation() {
     return useSuspenseQuery(trpc.github.getInstallation.queryOptions());
 }
 
+/**
+ * The full repository listing, including `unavailable` - set when GitHub refused to tell us what
+ * the installation can see, which is what an uninstalled-but-not-yet-reconciled installation looks
+ * like. Callers that only render repositories want `useGithubRepositories`; this one is for
+ * deciding whether the installation is usable at all.
+ */
+export function useGithubRepositoryListing() {
+    return useSuspenseQuery({
+        ...trpc.github.listRepositories.queryOptions(),
+        staleTime: GITHUB_REPOSITORY_REFRESH_STALE_TIME_MS,
+        refetchOnWindowFocus: true,
+    });
+}
+
 export function useGithubRepositories() {
     // Refetch when the tab regains focus: granting the GitHub App access to a new
     // repo happens in a separate tab, so returning to Autonoma should surface the
@@ -177,7 +191,16 @@ export function useDisconnectGithub() {
                 void queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
             },
         }),
-        successToast: { title: "GitHub disconnected" },
+        // The GitHub half can fail on its own - the app stays installed on the account while
+        // Autonoma forgets it. Saying "disconnected" there is how someone ends up believing they
+        // uninstalled something they did not.
+        successToast: (result) =>
+            result.removedFromGitHub
+                ? { title: "GitHub disconnected" }
+                : {
+                      title: "Disconnected here, but still installed on GitHub",
+                      description: `Autonoma no longer uses ${result.accountLogin}, but the app is still installed on that account. Remove it from the account's GitHub settings if you want it gone.`,
+                  },
         errorToast: { title: "Failed to disconnect GitHub" },
     });
 }

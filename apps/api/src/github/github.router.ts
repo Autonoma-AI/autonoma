@@ -2,10 +2,11 @@ import { TriggerConfigSchema } from "@autonoma/types";
 import { z } from "zod";
 import { protectedProcedure, writeProcedure, router } from "../trpc";
 import { createInstallState } from "./github-state";
+import { configureInstallationUrl } from "./github-urls";
 
 export const githubRouter = router({
     getConfig: protectedProcedure.input(z.object({ returnPath: z.string().optional() })).query(
-        ({
+        async ({
             ctx: {
                 organizationId,
                 services: { github },
@@ -14,7 +15,7 @@ export const githubRouter = router({
         }) => {
             const slug = github.getSlug();
 
-            const state = createInstallState(organizationId, input.returnPath);
+            const state = await createInstallState(organizationId, input.returnPath);
             return {
                 installUrl: `https://github.com/apps/${slug}/installations/new?state=${state}`,
             };
@@ -24,11 +25,31 @@ export const githubRouter = router({
     getInstallation: protectedProcedure.query(async ({ ctx: { services, organizationId } }) => {
         const installation = await services.github.getInstallation(organizationId);
         if (installation == null) return null;
+        // A `deleted` row is a tombstone: GitHub told us the app is gone from that account, so
+        // there is nothing left to configure or manage. Returning it made every surface offer a
+        // "Configure GitHub App" button pointing at an installation that no longer exists - a 404
+        // for someone whose actual intent was to install fresh. Absent is the honest answer, and
+        // it puts them on the install path, which `handleInstallation` adopts the tombstone for.
+        // `suspended` is deliberately still returned: that installation exists and comes back.
+        if (installation.status === "deleted") return null;
+        // A row can also be stale WITHOUT being marked deleted - an uninstall whose webhook never
+        // arrived, or a database restored from another environment, whose rows name installations
+        // of a different GitHub App. The listing is what proves it: if GitHub will not say what
+        // this installation can see, there is nothing here to manage, and every link we would
+        // render for it points at an installation that does not exist for this app.
+        const listing = await services.github.listRepositories(organizationId);
+        if (listing.unavailable != null) return null;
 
         const slug = services.github.getSlug();
-        const settingsUrl = `https://github.com/apps/${slug}/installations/new`;
 
-        return { ...installation, settingsUrl, appSlug: slug };
+        return {
+            ...installation,
+            settingsUrl: configureInstallationUrl(installation.installationId, {
+                login: installation.accountLogin,
+                type: installation.accountType,
+            }),
+            appSlug: slug,
+        };
     }),
 
     listRepositories: protectedProcedure.query(({ ctx: { services, organizationId } }) =>

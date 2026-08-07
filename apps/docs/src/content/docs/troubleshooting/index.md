@@ -29,16 +29,49 @@ If something you need is missing, tell us in the in-app chat. Knowing what peopl
 
 ### The onboarding is stuck on step 1 after installing the GitHub App
 
-Usually the app was installed by someone else - an organization owner approving the request - and the
-install never got tied back to your session.
+Usually the app was installed by someone else - an organization owner approving the request - or
+straight from GitHub rather than from a link in Autonoma, so the install was never tied back to a
+workspace.
 
-Have the owner uninstall the Autonoma GitHub App, then sign in to Autonoma yourself and install it
-again from step 1. You can then finish onboarding without waiting on them.
+Sign in to Autonoma and you will land on **Add your app**, with a note saying the app is installed
+on GitHub but not yet connected to a workspace. Click **Install GitHub App** and pick the same
+GitHub account. GitHub sees the app is already installed there, so it only asks you to confirm -
+nothing is installed twice - and you come back connected.
+
+Do this while the installation is still fresh. Autonoma only connects an installation that GitHub
+created in the last half hour, so that an old installation id cannot be pointed at the wrong
+workspace. If you leave it longer, you will be told the installation is too old to connect this
+way: uninstall the app from that GitHub account and install it again from Autonoma, which creates a
+new installation and connects immediately.
 
 ### I installed the GitHub App but Autonoma does not see my repository
 
 Check the app's repository access. If it was installed with **Selected repositories**, the repo you
-want has to be in that list. Uninstalling and reinstalling from step 1 is the fastest fix.
+want has to be in that list. Use **Grant access to it on GitHub** on the GitHub settings page to add
+it - that opens the installation you already connected, so nothing else changes.
+
+If the repository lives under a *different* GitHub account, see the next entry.
+
+### Can I connect a second GitHub organization?
+
+Not today. Autonoma connects one GitHub account per workspace, and every repository it reads goes
+through that one installation.
+
+If you try to install Autonoma on a second GitHub account, the install is refused and your existing
+connection is left exactly as it was - you will see a message naming both accounts. Nothing breaks,
+and nothing needs undoing on your side beyond removing the installation you just created if you do
+not want it sitting there.
+
+Two ways forward:
+
+- **Keep the account you have** and grant its installation access to the repository you need, if the
+  repository can be shared with it.
+- **Move to the other account** by disconnecting the current one first, on the app's GitHub settings
+  page, and then installing on the account you want. Disconnecting unlinks every application's
+  repository, so only do this if you mean to move the whole workspace.
+
+If the second account is already connected to a *different* Autonoma workspace, disconnect it there
+first - it cannot be connected to two workspaces at once.
 
 ### Can I delete an application and start over?
 

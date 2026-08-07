@@ -33,7 +33,12 @@ async function seedTrackedPr(harness: APITestHarness): Promise<SeededPr> {
         file: "s3://bucket/file.png",
     });
 
-    await harness.services.github.handleInstallation(500, harness.organizationId, "org", 1, "Organization");
+    await harness.services.github.handleInstallation(500, harness.organizationId, {
+        login: "org",
+        id: 1,
+        type: "Organization",
+        createdAt: new Date(),
+    });
     await harness.db.application.update({ where: { id: app.id }, data: { githubRepositoryId: repoId } });
 
     fakeClient.addRepository({
@@ -197,7 +202,12 @@ apiTestSuite({
                 url: "https://example.com",
                 file: "s3://bucket/file.png",
             });
-            await harness.services.github.handleInstallation(500, harness.organizationId, "org", 1, "Organization");
+            await harness.services.github.handleInstallation(500, harness.organizationId, {
+                login: "org",
+                id: 1,
+                type: "Organization",
+                createdAt: new Date(),
+            });
             await harness.db.application.update({ where: { id: app.id }, data: { githubRepositoryId: repoId } });
             fakeClient.addRepository({ id: repoId, name: "untracked", fullName: repoFullName, commits: ["base"] });
 

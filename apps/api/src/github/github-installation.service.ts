@@ -10,7 +10,45 @@ import {
     type PullRequestCommit,
     type Repository,
 } from "@autonoma/github";
+import { z } from "zod";
+import { env } from "../env";
 import { Service } from "../routes/service";
+import { githubErrorStatus } from "./git-ref";
+
+/**
+ * The GitHub account an installation sits on. Octokit types `account` as `unknown` (it is one
+ * of several union members depending on the account kind), so it is validated here rather than
+ * asserted at each call site.
+ */
+const InstallationAccountSchema = z.object({
+    login: z.string().min(1),
+    id: z.number(),
+    type: z.string().min(1),
+});
+
+export type InstallationAccount = z.infer<typeof InstallationAccountSchema>;
+
+/** The GitHub account an installation sits on, plus when GitHub created the installation. */
+export interface InstallationDetails extends InstallationAccount {
+    createdAt: Date;
+}
+
+/**
+ * How recently GitHub must have created an installation for a callback to be allowed to bind it to
+ * an organization for the FIRST time. Configurable (`GITHUB_INSTALL_FRESHNESS_MINUTES`) only so a
+ * test environment can shrink it - the default is the value production runs.
+ *
+ * The install callback is unauthenticated and its signed state proves only which organization
+ * asked to install - never which installation, because state is minted before the installation
+ * exists. That leaves replay: mint a link for your own workspace, then present it with someone
+ * else's `installation_id`. Requiring the installation to be seconds old is what makes that
+ * impractical: a real callback always arrives moments after GitHub creates the installation,
+ * whereas an enumerated id is almost always old. It narrows the attack to racing an install that
+ * is happening right now, on an id you would already have to know.
+ *
+ * Generous on purpose - a slow approval screen must not break a legitimate install.
+ */
+const FRESH_INSTALL_WINDOW_MS = env.GITHUB_INSTALL_FRESHNESS_MINUTES * 60 * 1000;
 
 export interface ListedRepository extends Repository {
     applicationId: string | undefined;
@@ -33,6 +71,31 @@ export interface RepositoryListing {
 
 /** Bound for the GitHub repo listing - a stale/uninstalled app can hang the token mint. */
 const LIST_REPOSITORIES_TIMEOUT_MS = 8_000;
+
+/**
+ * What an install attempt did, so the callback can tell the user which of three quite
+ * different things just happened instead of redirecting to the same page for all of them.
+ *
+ * `conflict` is the one that matters: an organization already connected to a GitHub account
+ * cannot connect a second one, because every GitHub read in the platform resolves through the
+ * organization's single installation. It carries the account we kept so the message can name
+ * both sides.
+ */
+export type InstallationOutcome =
+    | { status: "connected"; accountLogin: string }
+    | { status: "reconnected"; accountLogin: string }
+    | {
+          status: "conflict";
+          connectedAccountLogin: string;
+          /** The installation the caller must remove on GitHub to switch accounts. */
+          connectedInstallationId: number;
+          /** Account kind of that installation - the manage URL is a 404 on the wrong form. */
+          connectedAccountType: string;
+          attemptedAccountLogin: string;
+      }
+    | { status: "claimed_elsewhere"; attemptedAccountLogin: string }
+    /** The callback named an installation that was not created just now, so it is not this caller's to bind. */
+    | { status: "stale_installation" };
 
 /** Reject `promise` if it doesn't settle within `ms`, clearing the timer either way. */
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -61,35 +124,219 @@ export class GitHubInstallationService extends Service {
         return this.githubApp.slug;
     }
 
+    /**
+     * Records an installation against an organization, refusing to repoint one that is already
+     * connected to a different GitHub account.
+     *
+     * That refusal is the whole point. This used to upsert on `organizationId`, so installing on
+     * a second GitHub account overwrote the first - and because every GitHub read resolves
+     * through this one row, the applications linked to the previous account silently stopped
+     * resolving: 404s on every read, dropped webhooks, and their repositories vanishing from
+     * every picker, with nothing surfaced anywhere. Refusing keeps the working organization
+     * working and lets the caller explain the limit.
+     */
+    /**
+     * Whether GitHub will still issue a token for this installation.
+     *
+     * A row can name an installation that no longer works, and nothing in our own data says so:
+     * an uninstall whose webhook never arrived, an installation removed by an owner, or - in any
+     * environment whose database was restored from another environment - a row naming an
+     * installation of a DIFFERENT GitHub App, which this app can never use. Asking GitHub is the
+     * only way to tell.
+     */
+    private async isInstallationUsable(installationId: number): Promise<boolean> {
+        try {
+            // Minting a token is the probe. Building the client is NOT: `getInstallationOctokit`
+            // passes a `factory` to the auth strategy, which makes it construct a client and return
+            // it WITHOUT contacting GitHub - so a check that only builds the client answers "usable"
+            // for an installation that does not exist. `getInstallationToken` performs the
+            // installation auth for real, which is what 404s on a dead or foreign installation.
+            const client = await this.githubApp.getInstallationClient(installationId);
+            await client.getInstallationToken();
+            return true;
+        } catch (err) {
+            this.logger.warn("Installation on record is no longer usable", { installationId, extra: { err } });
+            return false;
+        }
+    }
+
     async handleInstallation(
         installationId: number,
         orgId: string,
-        accountLogin: string,
-        accountId: number,
-        accountType: string,
-    ): Promise<void> {
+        installation: InstallationDetails,
+    ): Promise<InstallationOutcome> {
+        const { login: accountLogin, id: accountId, type: accountType } = installation;
         this.logger.info("Handling GitHub installation", { installationId, orgId, accountLogin });
 
-        await this.db.gitHubInstallation.upsert({
-            where: { organizationId: orgId },
-            create: {
+        // Before refusing a second account, make sure the first one is real. A row that GitHub will
+        // not issue a token for is not a connection, and treating it as one is how an organization
+        // gets permanently stuck: every install is refused in favour of an installation that does
+        // not work, and the "uninstall it on GitHub" link we offer as the way out 404s, because
+        // there is nothing there to uninstall. Reconciling it here turns that dead end into a
+        // normal first-time connect.
+        const priorInstallationId = await this.reconcileDeadInstallation(orgId, installationId);
+        if (priorInstallationId != null) {
+            this.logger.info("Replacing an unusable installation", {
+                orgId,
                 installationId,
-                organizationId: orgId,
-                accountLogin,
-                accountId,
-                accountType,
-                status: "active",
-            },
-            update: {
-                installationId,
-                accountLogin,
-                accountId,
-                accountType,
-                status: "active",
-            },
-        });
+                extra: { previousInstallationId: priorInstallationId },
+            });
+        }
 
-        this.logger.info("Installation upserted", { installationId, orgId });
+        // The whole decision runs inside one transaction. Reading `existing` outside it let two
+        // concurrent first-time installs for the same organization both see "no connection yet",
+        // after which the second silently updated the first's row - the exact invariant this guard
+        // exists to hold. The unique index on organization_id is the real arbiter; the read here
+        // only decides which branch to take, and a loser surfaces as a constraint violation below.
+        try {
+            return await this.db.$transaction(async (tx) => {
+                const existing = await tx.gitHubInstallation.findUnique({
+                    where: { organizationId: orgId },
+                    select: { installationId: true, accountLogin: true, accountType: true, status: true },
+                });
+
+                // A `deleted` row is a tombstone, not a connection: `handleUninstall` keeps the row
+                // so the uninstall stays visible, but the app is gone from that account on GitHub
+                // and there is no live access left to protect. Refusing on one would strand the
+                // legitimate "uninstall, then move to another account" flow behind a Disconnect
+                // button on a dead row. `suspended` still blocks - it comes back on unsuspend.
+                const connectionIsLive = existing != null && existing.status !== "deleted";
+
+                if (connectionIsLive && existing.installationId !== installationId) {
+                    this.logger.warn("Refusing to repoint an organization to a second GitHub account", {
+                        installationId,
+                        orgId,
+                        extra: { connectedAccountLogin: existing.accountLogin, attemptedAccountLogin: accountLogin },
+                    });
+                    return {
+                        status: "conflict",
+                        connectedAccountLogin: existing.accountLogin,
+                        connectedInstallationId: existing.installationId,
+                        connectedAccountType: existing.accountType,
+                        attemptedAccountLogin: accountLogin,
+                    };
+                }
+
+                const isFirstBinding = !connectionIsLive || existing.installationId !== installationId;
+                const installedRecently = Date.now() - installation.createdAt.getTime() <= FRESH_INSTALL_WINDOW_MS;
+
+                // Binding an installation to an organization for the first time is the only
+                // operation worth replaying, so it is the only one that has to have just happened.
+                // Refreshing a binding this organization already holds is exempt: that is the
+                // `setup_action=update` path, where the installation is legitimately old.
+                if (isFirstBinding && !installedRecently) {
+                    this.logger.warn("Refusing to bind an installation that was not created recently", {
+                        installationId,
+                        orgId,
+                        extra: { installationCreatedAt: installation.createdAt.toISOString() },
+                    });
+                    return { status: "stale_installation" };
+                }
+
+                // The update branch deliberately never writes `installationId` - that is what makes
+                // the old silent clobber structurally impossible - so adopting a different
+                // installation means dropping the tombstone and creating the row fresh.
+                if (existing != null && !connectionIsLive && existing.installationId !== installationId) {
+                    await tx.gitHubInstallation.delete({ where: { organizationId: orgId } });
+                }
+
+                await tx.gitHubInstallation.upsert({
+                    where: { organizationId: orgId },
+                    create: {
+                        installationId,
+                        organizationId: orgId,
+                        accountLogin,
+                        accountId,
+                        accountType,
+                        status: "active",
+                    },
+                    update: { accountLogin, accountId, accountType, status: "active" },
+                });
+
+                // `reconnected` means the same live installation was refreshed. Adopting a
+                // tombstone's row is a new connection - the previous one was already gone.
+                this.logger.info("Installation recorded", {
+                    installationId,
+                    orgId,
+                    extra: { reconnected: connectionIsLive },
+                });
+                return { status: connectionIsLive ? "reconnected" : "connected", accountLogin };
+            });
+        } catch (error) {
+            // Either the installation id is already held by another organization, or a concurrent
+            // first-time install for this organization won the race. Both are conflicts the caller
+            // must explain rather than retry, and both are indistinguishable to the user here.
+            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+                this.logger.warn("GitHub account is already connected to another organization", {
+                    installationId,
+                    orgId,
+                    extra: { attemptedAccountLogin: accountLogin },
+                });
+                return { status: "claimed_elsewhere", attemptedAccountLogin: accountLogin };
+            }
+            throw error;
+        }
+    }
+
+    /**
+     * Asks GitHub which account an installation sits on. Used by the install callback, and by
+     * the claim flow to name the account in a page the user has not signed in for yet - so it
+     * must not assume the installation is on record locally.
+     */
+    async describeInstallation(installationId: number): Promise<InstallationDetails> {
+        this.logger.info("Describing installation", { installationId });
+
+        const client = await this.githubApp.getInstallationClient(installationId);
+        const installation = await client.getInstallation(installationId);
+        const account = InstallationAccountSchema.parse(installation.account);
+        return { ...account, createdAt: new Date(installation.createdAt) };
+    }
+
+    /**
+     * Marks the organization's recorded installation deleted when GitHub no longer honours it,
+     * returning the id that was retired. A no-op when there is no row, when it is already a
+     * tombstone, or when it is the very installation now being connected.
+     */
+    private async reconcileDeadInstallation(
+        orgId: string,
+        incomingInstallationId: number,
+    ): Promise<number | undefined> {
+        const existing = await this.db.gitHubInstallation.findUnique({
+            where: { organizationId: orgId },
+            select: { installationId: true, status: true },
+        });
+        const isOtherLiveRow =
+            existing != null && existing.status !== "deleted" && existing.installationId !== incomingInstallationId;
+        if (!isOtherLiveRow) return undefined;
+
+        if (await this.isInstallationUsable(existing.installationId)) return undefined;
+
+        await this.db.gitHubInstallation.updateMany({
+            where: { organizationId: orgId, installationId: existing.installationId },
+            data: { status: "deleted" },
+        });
+        return existing.installationId;
+    }
+
+    /**
+     * The organization owning this installation, but only while the installation is live.
+     *
+     * The install callback uses this rather than {@link findOrganizationIdByInstallationId}: that
+     * endpoint is unauthenticated, so a caller who guesses an id would otherwise be able to flip a
+     * `deleted` or `suspended` installation back to `active` on an organization they have nothing
+     * to do with. Resurrecting one is the harmful direction - the deploy path gates on `active`,
+     * so a revived tombstone turns a clean "your GitHub installation is deleted" into repeated 404s
+     * against an installation that no longer exists.
+     *
+     * The webhook handler deliberately keeps using the unfiltered lookup: it is signature-verified,
+     * and `installation.unsuspend` has to find a suspended row to revive it.
+     */
+    async findActiveInstallationOwner(installationId: number): Promise<string | undefined> {
+        const installation = await this.db.gitHubInstallation.findFirst({
+            where: { installationId, status: "active" },
+            select: { organizationId: true },
+        });
+        return installation?.organizationId;
     }
 
     async findOrganizationIdByInstallationId(installationId: number): Promise<string | undefined> {
@@ -479,7 +726,16 @@ export class GitHubInstallationService extends Service {
         this.logger.info("Repository unlinked from application", { applicationId });
     }
 
-    async disconnect(orgId: string): Promise<void> {
+    /**
+     * Disconnects the organization: uninstalls the app on GitHub and clears every local link.
+     *
+     * Reports whether GitHub actually removed it. This used to be swallowed, so someone who
+     * disconnected got a success message while the app was still installed on their account -
+     * "I hit uninstall and nothing happens", with no way to tell that half of it had failed. We
+     * still clear locally either way, because leaving the row would strand the organization, but
+     * the caller can now say what is left to do.
+     */
+    async disconnect(orgId: string): Promise<{ removedFromGitHub: boolean; accountLogin: string }> {
         this.logger.info("Disconnecting GitHub installation", { orgId });
 
         const installation = await this.db.gitHubInstallation.findUnique({
@@ -488,15 +744,19 @@ export class GitHubInstallationService extends Service {
 
         if (installation == null) throw new NotFoundError();
 
+        let removedFromGitHub = true;
         try {
             await this.githubApp.deleteInstallation(installation.installationId);
             this.logger.info("GitHub installation deleted from GitHub", {
                 installationId: installation.installationId,
             });
         } catch (err) {
-            this.logger.warn("Failed to delete installation from GitHub - removing locally anyway", {
+            // An installation GitHub no longer has is already in the desired state - the account is
+            // not connected to anything. Anything else genuinely failed and the app is still there.
+            removedFromGitHub = err instanceof GitHubInstallationUnavailableError || githubErrorStatus(err) === 404;
+            this.logger.warn("Could not delete installation from GitHub - removing locally anyway", {
                 installationId: installation.installationId,
-                error: err instanceof Error ? err.message : String(err),
+                extra: { removedFromGitHub, error: err instanceof Error ? err.message : String(err) },
             });
         }
 
@@ -510,6 +770,8 @@ export class GitHubInstallationService extends Service {
                 where: { organizationId: orgId },
             });
         });
+
+        return { removedFromGitHub, accountLogin: installation.accountLogin };
     }
 
     private async getOrgInstallationClient(orgId: string) {

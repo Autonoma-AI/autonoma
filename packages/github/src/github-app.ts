@@ -106,9 +106,20 @@ export class OctokitGitHubApp implements GitHubApp {
         return new OctokitGitHubInstallationClient(octokit, installationId, this.etagStore);
     }
 
+    /**
+     * Uninstalls the app from the account, on GitHub.
+     *
+     * Authenticated as the APP (JWT), not as the installation. GitHub is explicit that
+     * `DELETE /app/installations/{installation_id}` requires a JWT - an installation access token
+     * is rejected - so the previous version, which used the installation client, never actually
+     * uninstalled anything. Its caller swallowed the failure and cleared our own row regardless,
+     * which is why disconnecting appeared to do nothing: Autonoma forgot the installation while
+     * GitHub still had the app installed.
+     *
+     * `this.app.octokit` is the app-level client and carries the JWT.
+     */
     async deleteInstallation(installationId: number): Promise<void> {
-        const octokit = await this.app.getInstallationOctokit(installationId);
-        await octokit.request("DELETE /app/installations/{installation_id}", {
+        await this.app.octokit.request("DELETE /app/installations/{installation_id}", {
             installation_id: installationId,
         });
     }

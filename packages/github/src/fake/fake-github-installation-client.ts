@@ -361,12 +361,19 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
         return repo.files.get(path);
     }
 
-    async getInstallation(_installationId: number): Promise<{ account: unknown }> {
+    async getInstallation(_installationId: number): Promise<{ account: unknown; createdAt: string }> {
         throw new Error("FakeGitHubInstallationClient.getInstallation is not implemented");
     }
 
+    /**
+     * A usable installation mints a token. Implemented rather than thrown because minting is how
+     * callers PROBE whether an installation still exists - octokit builds a client for a dead one
+     * without complaining, so the token call is the first thing that fails. A fake that throws
+     * here reports every installation as dead. `FakeGitHubApp.unavailableInstallations` is how a
+     * test asks for the failure.
+     */
     async getInstallationToken(): Promise<string> {
-        throw new Error("FakeGitHubInstallationClient.getInstallationToken is not implemented");
+        return "fake-installation-token";
     }
 
     async cloneRepository(_params: CloneRepositoryParams): Promise<string> {

@@ -13,6 +13,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { env } from "../env";
 import { INSTALL_STATE_TTL_MS, createInstallState } from "../github/github-state";
+import { configureInstallationUrl } from "../github/github-urls";
 import type { Services } from "../routes/build-services";
 import { describeAlreadyLive, describeWentLive } from "../routes/onboarding/go-live-guidance";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
@@ -557,7 +558,7 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                     const installation = await services.github.getInstallation(organizationId);
                     if (installation == null) {
                         const slug = services.github.getSlug();
-                        const state = createInstallState(organizationId);
+                        const state = await createInstallState(organizationId);
                         return jsonResult(
                             needsHuman({
                                 action: "install_github_app",
@@ -579,11 +580,20 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                         account: installation.accountLogin,
                         linkedRepository: linked?.fullName,
                         // Only repos the installation can see are linkable. Granting access to more is
-                        // also a browser step, hence the settings link rather than a tool.
+                        // also a browser step, hence the settings link rather than a tool. This addresses
+                        // the installation directly rather than GitHub's account picker, which would
+                        // invite an install on a second account that Autonoma cannot use.
                         availableRepositories: listing.repos
                             .filter((repo) => repo.applicationId == null)
                             .map((repo) => repo.fullName),
-                        grantAccessToMoreUrl: `https://github.com/apps/${services.github.getSlug()}/installations/new`,
+                        grantAccessToMoreUrl: configureInstallationUrl(installation.installationId, {
+                            login: installation.accountLogin,
+                            type: installation.accountType,
+                        }),
+                        singleAccountLimit:
+                            `Autonoma connects one GitHub account per workspace, and this one is connected to ` +
+                            `${installation.accountLogin}. A repository under a different GitHub account cannot be ` +
+                            `added here - granting this installation access to it is the only way in.`,
                     });
                 } catch (err) {
                     logger.warn("get_github_connection failed", { applicationId, err });

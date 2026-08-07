@@ -30,13 +30,12 @@ apiTestSuite({
         // Distinct installation id per suite: the integration suites share one DB with no
         // per-suite truncation, and installation_id is globally unique, so reusing the same id
         // across suites collides on the shared table when files run concurrently.
-        await harness.services.github.handleInstallation(
-            22222,
-            harness.organizationId,
-            "test-org",
-            999,
-            "Organization",
-        );
+        await harness.services.github.handleInstallation(22222, harness.organizationId, {
+            login: "test-org",
+            id: 999,
+            type: "Organization",
+            createdAt: new Date(),
+        });
 
         const prCache = new PullRequestCacheService(harness.db, harness.services.github);
         return { app, fakeClient, prCache };
