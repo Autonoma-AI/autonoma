@@ -1,33 +1,30 @@
 import type { PrismaClient } from "@autonoma/db";
 import { reporterIssueKindSchema, reporterIssueStatusSchema } from "@autonoma/diffs/analysis";
-import type { Logger } from "@autonoma/logger";
-import { RegenerateSteps, type TestSuiteUpdater, fetchTestSuiteInfo } from "@autonoma/test-updates";
+import { logger as rootLogger } from "@autonoma/logger";
+import type { OpenSnapshot } from "@autonoma/test-suite";
+
+const logger = rootLogger.child({ name: "reverifyOpenIssues" });
 
 /** How many issue titles a re-verified test's reason names before it summarizes the rest. */
 const MAX_REASON_ISSUE_TITLES = 3;
 
 export interface ReverifyOpenIssuesParams {
     db: PrismaClient;
-    /**
-     * The open updater on the run's own snapshot, which the re-verification generations are queued through. Call this
-     * AFTER the diff-driven half of the stage has queued its own: what is already pending is how a test is recognized
-     * as being in the run set, and queueing a second generation for one test deletes the first.
-     */
-    updater: TestSuiteUpdater;
-    logger: Logger;
+    /** The run's own open snapshot - whose suite decides which covering tests can be re-verified. */
+    snapshot: OpenSnapshot;
 }
 
-/** One test re-verification added to the run set, with the generation that makes it an investigation target. */
+/** One test re-verification added to the run set. */
 export interface ReverifiedTest {
     slug: string;
-    generationId: string;
+    testCaseId: string;
     /** Why the test is in the run set - passed to the classifier as context, and shown as the finding's reason. */
     reason: string;
 }
 
 /**
- * Add the covering tests of the branch's open bug-kind issues to the run set, so an issue whose bug has actually been
- * fixed can resolve.
+ * Select the covering tests of the branch's open bug-kind issues for the run set, so an issue whose bug has
+ * actually been fixed can resolve.
  *
  * Selection is diff-scoped, and the Reporter's coverage guarantees only force a resolve/carry-forward decision for an
  * issue whose covering tests produced findings in the current run. An issue the diff does not touch is therefore left
@@ -35,17 +32,19 @@ export interface ReverifiedTest {
  * the fix landed. Re-running the covering tests is what closes that loop.
  *
  * An issue's covered set is taken **atomically**: a covering test the run's suite no longer assigns (or assigns
- * without a plan) has nothing to queue a generation against, and disqualifies its whole issue. Only `finish`-time
- * coverage (see `computeCoverageViolations`) decides anything, so a set that runs in part costs coverage, never
- * correctness.
+ * without a plan) has nothing to run, and disqualifies its whole issue. Only `finish`-time coverage (see
+ * `computeCoverageViolations`) decides anything, so a set that runs in part costs coverage, never correctness.
  *
  * The extra work is deliberately uncapped: it is bounded by the branch's open-issue count, and a branch carrying
  * enough open issues for that to hurt is itself the signal worth seeing.
+ *
+ * Pure selection: no suite write happens here, and a test the run already targets is deduplicated by the caller's
+ * target assembly.
  */
-export async function reverifyOpenIssues({ db, updater, logger }: ReverifyOpenIssuesParams): Promise<ReverifiedTest[]> {
+export async function reverifyOpenIssues({ db, snapshot }: ReverifyOpenIssuesParams): Promise<ReverifiedTest[]> {
     const issues = await db.analysisIssue.findMany({
         where: {
-            branchId: updater.branchId,
+            branchId: snapshot.branchId,
             status: reporterIssueStatusSchema.enum.open,
             // Only a bug is something a re-run can settle: an environment or scenario problem is not a claim about
             // the application, so passing the covering test says nothing about it.
@@ -65,10 +64,7 @@ export async function reverifyOpenIssues({ db, updater, logger }: ReverifyOpenIs
         return [];
     }
 
-    const [reverifiable, alreadyTargeted] = await Promise.all([
-        loadReverifiableTests(db, updater.snapshotId),
-        loadTargetedTestCaseIds(db, updater.snapshotId),
-    ]);
+    const reverifiable = await loadReverifiableTests(snapshot);
 
     const candidates = new Map<string, ReverificationCandidate>();
     let skippedIssues = 0;
@@ -99,13 +95,16 @@ export async function reverifyOpenIssues({ db, updater, logger }: ReverifyOpenIs
         }
     }
 
-    const reverified = await queueReverifications(candidates, alreadyTargeted, updater, logger);
-    logger.info("Re-verification added the covering tests of the branch's open bug issues to the run set", {
+    const reverified = Array.from(candidates, ([slug, candidate]) => ({
+        slug,
+        testCaseId: candidate.testCaseId,
+        reason: buildReason(candidate.issueTitles),
+    }));
+    logger.info("Re-verification selected the covering tests of the branch's open bug issues", {
         extra: {
             openBugIssues: issues.length,
             skippedIssues,
             covered: candidates.size,
-            added: reverified.length,
             slugs: reverified.map((test) => test.slug),
         },
     });
@@ -116,33 +115,6 @@ export async function reverifyOpenIssues({ db, updater, logger }: ReverifyOpenIs
 interface ReverificationCandidate {
     testCaseId: string;
     issueTitles: string[];
-}
-
-/**
- * Queue one generation per covering test that is not already in the run set. Sequential because the applies share the
- * snapshot draft, and best-effort per test: this stage runs after the diff selection already wrote to the snapshot, so
- * a single failed queue must not fail the run and discard that work.
- */
-async function queueReverifications(
-    candidates: ReadonlyMap<string, ReverificationCandidate>,
-    alreadyTargeted: ReadonlySet<string>,
-    updater: TestSuiteUpdater,
-    logger: Logger,
-): Promise<ReverifiedTest[]> {
-    const reverified: ReverifiedTest[] = [];
-    for (const [slug, candidate] of candidates) {
-        if (alreadyTargeted.has(candidate.testCaseId)) continue;
-        try {
-            const generationId = await updater.apply(new RegenerateSteps({ testCaseId: candidate.testCaseId }));
-            reverified.push({ slug, generationId, reason: buildReason(candidate.issueTitles) });
-        } catch (error) {
-            logger.warn("Failed to queue a re-verification generation; leaving the test out of the run set", {
-                err: error,
-                extra: { slug },
-            });
-        }
-    }
-    return reverified;
 }
 
 interface CoveredSet {
@@ -167,27 +139,15 @@ function resolveCoveredSet(
 
 /**
  * slug -> testCaseId for the tests the run's snapshot assigns WITH a plan. A covering test the suite has since
- * dropped - or holds without a plan - has nothing to queue a generation against, so it cannot be re-verified.
+ * dropped - or holds without a plan - has nothing to run, so it cannot be re-verified.
  */
-async function loadReverifiableTests(db: PrismaClient, snapshotId: string): Promise<Map<string, string>> {
-    const suiteInfo = await fetchTestSuiteInfo(db, snapshotId);
+async function loadReverifiableTests(snapshot: OpenSnapshot): Promise<Map<string, string>> {
+    const suite = await snapshot.read();
     const reverifiable = new Map<string, string>();
-    for (const testCase of suiteInfo.testCases) {
+    for (const testCase of suite.testCases) {
         if (testCase.plan != null) reverifiable.set(testCase.slug, testCase.id);
     }
     return reverifiable;
-}
-
-/**
- * The test cases the run already targets, read as the snapshot's pending generations: every way a test enters the run
- * set (merge import, authored, affected) leaves one, so this cannot drift from what was really queued.
- */
-async function loadTargetedTestCaseIds(db: PrismaClient, snapshotId: string): Promise<Set<string>> {
-    const generations = await db.testGeneration.findMany({
-        where: { snapshotId, status: "pending" },
-        select: { testPlan: { select: { testCaseId: true } } },
-    });
-    return new Set(generations.map((generation) => generation.testPlan.testCaseId));
 }
 
 /**

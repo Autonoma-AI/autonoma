@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
 import type { PullRequest } from "@autonoma/github";
 import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
-import { TestSuiteUpdater } from "@autonoma/test-updates";
+import { TestSuiteStore } from "@autonoma/test-suite";
 import { expect } from "vitest";
 import { runMergeFlow } from "../../src/analysis/merge-flow";
 
@@ -32,11 +32,11 @@ const PLAN_ON_BRANCH = "1. Open checkout.\n2. Assert the total the PR renamed.";
 interface MergeScenario {
     applicationId: string;
     targetSnapshotId: string;
-    /** Main's plan sits at the merge base, the branch changed it -> imported via `UpdateTest`. */
+    /** Main's plan sits at the merge base, the branch changed it -> imported via `revisePlan`. */
     imported: SeededTest;
-    /** Authored on the branch, absent from main -> imported via `ImportTest`, same TestCase. */
+    /** Authored on the branch, absent from main -> imported via `adoptTest`, same TestCase. */
     authored: SeededTest;
-    /** Existed at base, branch removed it, main untouched -> propagated via `RemoveTest`. */
+    /** Existed at base, branch removed it, main untouched -> propagated via `dropTest`. */
     deleted: SeededTest;
     /** Branch removed it but main modified it since base -> modify wins, the deletion is dropped. */
     keptOverDeletion: SeededTest;
@@ -229,14 +229,13 @@ class MergeFlowHarness implements IntegrationHarness {
 
     /** Run the merge flow the way the Impact Analysis stage does on a main-branch run. */
     async runFlow(scenario: MergeScenario, overrides: { baseSha?: string } = {}) {
-        const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-            db: this.db,
-            snapshotId: scenario.targetSnapshotId,
-        });
+        const store = new TestSuiteStore(this.db);
+        const snapshot = await store.reopen(scenario.targetSnapshotId);
 
         return await runMergeFlow({
             db: this.db,
-            updater,
+            store,
+            snapshot,
             githubClient: stubPullRequests(this.headSha),
             owner: "autonoma",
             repo: "app",
@@ -281,7 +280,7 @@ integrationTestSuite({
     name: "runMergeFlow (absorbing a merged PR's plan work into main)",
     createHarness: () => MergeFlowHarness.create(),
     cases: (test) => {
-        test("imports the branch's plan onto main's own plan record and queues its generation", async ({ harness }) => {
+        test("imports the branch's plan onto main's own plan record without starting a run", async ({ harness }) => {
             const scenario = await harness.seedMergeScenario();
 
             const result = await harness.runFlow(scenario);
@@ -292,17 +291,16 @@ integrationTestSuite({
             );
 
             // Main adopts the branch's prose, but on a plan record of its own: sharing the branch's row would let
-            // main's generation overwrite the steps the branch still points at.
+            // main's run overwrite the steps the branch still points at.
             const assignment = await harness.assignmentOf(scenario.targetSnapshotId, scenario.imported.testCaseId);
             expect(assignment?.plan?.prompt).toBe(PLAN_ON_BRANCH);
             expect(assignment?.planId).not.toBe(scenario.imported.planIdOnBranch);
             expect(assignment?.planId).not.toBe(scenario.imported.planIdOnMain);
 
-            // Each import carries the generation that makes it an investigation target for this run.
-            const generations = await harness.generationsOf(scenario.targetSnapshotId);
-            const imported = generations.find((gen) => gen.testPlan.testCaseId === scenario.imported.testCaseId);
-            expect(imported?.status).toBe("pending");
-            expect(result.imports.map((entry) => entry.generationId)).toContain(imported?.id);
+            // Each import carries the test its investigation target is keyed on; the Investigator starts the run.
+            const imported = result.imports.find((entry) => entry.slug === scenario.imported.slug);
+            expect(imported?.testCaseId).toBe(scenario.imported.testCaseId);
+            expect(await harness.generationsOf(scenario.targetSnapshotId)).toEqual([]);
         });
 
         test("adopts a test authored on the branch without forking its identity", async ({ harness }) => {
@@ -320,8 +318,8 @@ integrationTestSuite({
                 }),
             ).toBe(1);
 
-            const generations = await harness.generationsOf(scenario.targetSnapshotId);
-            expect(generations.map((gen) => gen.testPlan.testCaseId)).toContain(scenario.authored.testCaseId);
+            // The adoption is a suite edit only - no run is started for it here.
+            expect(await harness.generationsOf(scenario.targetSnapshotId)).toEqual([]);
         });
 
         test("propagates a branch's deletion, and drops it when main modified the test since base", async ({
@@ -357,11 +355,8 @@ integrationTestSuite({
             const untouched = await harness.assignmentOf(scenario.targetSnapshotId, scenario.untouched.testCaseId);
             expect(untouched?.planId).toBe(scenario.untouched.planIdOnMain);
 
-            // Only the two imports were queued: a conflict is generated later, off the agent's re-plan.
-            const generations = await harness.generationsOf(scenario.targetSnapshotId);
-            expect(generations.map((gen) => gen.testPlan.testCaseId).sort()).toEqual(
-                [scenario.imported.testCaseId, scenario.authored.testCaseId].sort(),
-            );
+            // The merge flow starts no runs at all: every import is targeted, and the Investigators start their own.
+            expect(await harness.generationsOf(scenario.targetSnapshotId)).toEqual([]);
         });
 
         test("a commit range git cannot read leaves the suite untouched instead of failing the run", async ({

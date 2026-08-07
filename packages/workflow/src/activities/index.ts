@@ -39,6 +39,8 @@ export type {
     InvestigationTestResult,
     ClassifyInvestigationRunInput,
     AnalysisInvestigationTarget,
+    StartInvestigationRunInput,
+    StartInvestigationRunOutput,
     AnalysisCandidateFinding,
     AnalysisCandidateClassification,
     OpenAnalysisRunInput,

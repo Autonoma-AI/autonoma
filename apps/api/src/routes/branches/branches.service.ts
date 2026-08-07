@@ -18,6 +18,7 @@ import type { AnalysisJobStatus, Prisma } from "@autonoma/db";
 import type { PrismaClient } from "@autonoma/db";
 import { InternalError, NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
+import { deriveForkPointSnapshotId } from "@autonoma/test-suite";
 import {
     getChangesForSnapshot,
     summarizeChangesForSnapshots,
@@ -1657,20 +1658,22 @@ export class BranchesService extends Service {
             };
         }
 
-        let comparisonSnapshotId = branch.baseSnapshotId;
+        const comparisonSnapshotId = deriveForkPointSnapshotId({
+            baseSnapshotId: branch.baseSnapshotId ?? undefined,
+            activeSnapshotPrevSnapshotId: branch.activeSnapshot?.prevSnapshotId ?? undefined,
+        });
         if (comparisonSnapshotId == null) {
-            this.logger.warn("Branch has no baseSnapshotId, falling back to activeSnapshot.prevSnapshotId", {
+            this.logger.warn("Branch has no fork point to compare its active snapshot against", {
                 branchId,
                 activeSnapshotId: branch.activeSnapshotId,
             });
-            comparisonSnapshotId = branch.activeSnapshot?.prevSnapshotId ?? null;
         }
 
         const testSuite = await fetchTestSuiteInfo(this.db, branch.activeSnapshotId);
         const changes = await getChangesForSnapshot(
             this.db,
             branch.activeSnapshotId,
-            comparisonSnapshotId,
+            comparisonSnapshotId ?? null,
             this.logger,
         );
 

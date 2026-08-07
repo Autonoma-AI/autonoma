@@ -1,16 +1,17 @@
 import { db } from "@autonoma/db";
 import { type Codebase, resolveScenarioRecipesForSnapshot } from "@autonoma/diffs";
 import type { GitHubApp } from "@autonoma/github";
-import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { type TestSuiteInfo, TestSuiteUpdater, fetchTestSuiteInfo } from "@autonoma/test-updates";
+import { logger as rootLogger } from "@autonoma/logger";
+import { type OpenSnapshot, type Suite, TestSuiteStore } from "@autonoma/test-suite";
 import type { AnalysisInvestigationTarget } from "@autonoma/workflow/activities";
 import { createGithubApp } from "../create-services";
 import { type BranchData, loadBranchData, loadDiffsContext } from "./load-context";
 import { type AgentSelection, materializeSelection } from "./materialize-selection";
 import { EMPTY_MERGE_FLOW_RESULT, type MergeFlowResult, runMergeFlow } from "./merge-flow";
-import { resolveTargets } from "./resolve-targets";
 import { reverifyOpenIssues } from "./reverify-issues";
 import { runDiffsAgent } from "./run-diffs-agent";
+
+const logger = rootLogger.child({ name: "selectImpactTargets" });
 
 export interface SelectImpactTargetsParams {
     /** The run's own snapshot the pipeline operates on. */
@@ -27,61 +28,61 @@ export interface SelectImpactTargetsParams {
  * the suite those PRs actually left behind rather than re-deriving a pre-fix plan and failing it.
  *
  * Then it reuses the DiffsAgent (the same stateless selection the diffs job ran - diff + current suite, no prior-run
- * history, no carry-forward) to mark affected tests and author brand-new ones, materializing every target through
- * the canonical update actions on the run's OWN snapshot - `AddTest` for a new test (test case + plan + assignment),
- * `RegenerateSteps` for an affected test. Finally it adds the covering tests of the branch's open bug-kind issues
- * (see {@link reverifyOpenIssues}), which is what lets a fixed bug resolve rather than sit open forever.
+ * history, no carry-forward) to mark affected tests and author brand-new ones. A brand-new test is authored onto the
+ * run's OWN snapshot via `addTest`; an affected test needs no suite write at all. Finally it adds the covering tests
+ * of the branch's open bug-kind issues (see {@link reverifyOpenIssues}), which is what lets a fixed bug resolve
+ * rather than sit open forever.
  *
- * Each action queues one pending generation; merge-imported, new, affected and re-verified tests then enter the
- * Investigator fan-out identically (all four are assignments the Investigator cannot tell apart). The generations are
- * NOT batch-fired - each Investigator fires its own by id.
+ * The result is a target list of `(test, reason, origin)` - merge-imported, new, affected and re-verified tests
+ * enter the Investigator fan-out identically, deduplicated by test, and each Investigator starts its own runs.
  */
 export async function selectImpactTargets({
     snapshotId,
     codebase,
 }: SelectImpactTargetsParams): Promise<ImpactSelection> {
-    const logger = rootLogger.child({ name: "selectImpactTargets", extra: { snapshotId } });
     logger.info("Impact Analysis selection started");
 
     const githubApp = createGithubApp();
-    const snapshot = await loadSnapshotCoordinates(snapshotId);
+    const store = new TestSuiteStore(db);
+    const snapshot = await store.reopen(snapshotId);
+    const coordinates = requireCoordinates(snapshot);
     const branchData = await loadBranchData(snapshot.branchId, githubApp);
 
-    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-        db,
-        snapshotId,
-        organizationId: branchData.organizationId,
+    const merge = await absorbMergedBranchWork({
+        store,
+        snapshot,
+        branchData,
+        githubApp,
+        coordinates,
+        codebase,
     });
 
-    const merge = await absorbMergedBranchWork({ updater, branchData, githubApp, snapshot, codebase, logger });
+    const agentResult = await runSelection({ snapshot, branchData, coordinates, codebase, merge });
 
-    const agentResult = await runSelection({ updater, branchData, snapshot, codebase, merge, logger });
+    const selected = await materializeSelection({ snapshot, agentResult });
+    const reverified = await reverifyOpenIssues({ db, snapshot });
 
-    // Strictly after the diff selection: re-verification reads the snapshot's pending generations to know which tests
-    // the run already covers, and skips them - a second generation for one test deletes the first.
-    const selected = await materializeSelection({ updater, agentResult, logger });
-    const reverified = await reverifyOpenIssues({ db, updater, logger });
-
-    const materialized = [
+    // One target per test, wherever the sources overlap (a re-verified test the diff also affected, a merge import
+    // the conflict pass also named). First wins: the more specific provenance comes earlier in the list.
+    const targets = dedupeTargets([
+        // The TestCase is a real suite member, authored and already run on the branch that merged it.
         ...merge.imports.map((imported) => ({
-            generationId: imported.generationId,
+            slug: imported.slug,
+            testCaseId: imported.testCaseId,
             reason: imported.reason,
-            // The TestCase is a real suite member, authored and already run on the branch that merged it.
             origin: "pre_existing" as const,
         })),
         ...selected,
         // A re-verified test is a real suite member too - it is only in the run set because it once exposed the bug.
         ...reverified.map((test) => ({
-            generationId: test.generationId,
+            slug: test.slug,
+            testCaseId: test.testCaseId,
             reason: test.reason,
             origin: "pre_existing" as const,
         })),
-    ];
+    ]);
 
-    const targets = await resolveTargets(materialized, logger);
-    logger.info("Impact Analysis selection complete", {
-        extra: { materialized: materialized.length, targets: targets.length },
-    });
+    logger.info("Impact Analysis selection complete", { extra: { targets: targets.length } });
     return { targets, reasoning: agentResult.reasoning };
 }
 
@@ -91,24 +92,39 @@ export interface ImpactSelection {
     reasoning: string;
 }
 
-/** The run's git coordinates: what the diff is taken between, and whose branch it belongs to. */
+/** The run's git coordinates: what the diff is taken between. */
 interface SnapshotCoordinates {
-    branchId: string;
     headSha: string;
     baseSha: string;
 }
 
-async function loadSnapshotCoordinates(snapshotId: string): Promise<SnapshotCoordinates> {
-    const snapshot = await db.branchSnapshot.findUniqueOrThrow({
-        where: { id: snapshotId },
-        select: { branchId: true, headSha: true, baseSha: true },
-    });
+/**
+ * Two Investigators on one test would race for its single `(snapshot, testCase)` finding row, so the target list
+ * holds one entry per test. First entry wins; a duplicate is logged and skipped.
+ */
+function dedupeTargets(targets: AnalysisInvestigationTarget[]): AnalysisInvestigationTarget[] {
+    const deduped: AnalysisInvestigationTarget[] = [];
+    const claimedTestCaseIds = new Set<string>();
+    for (const target of targets) {
+        if (claimedTestCaseIds.has(target.testCaseId)) {
+            logger.info("Test was already targeted this run; ignoring the duplicate", {
+                extra: { slug: target.slug },
+            });
+            continue;
+        }
+        claimedTestCaseIds.add(target.testCaseId);
+        deduped.push(target);
+    }
+    return deduped;
+}
+
+function requireCoordinates(snapshot: OpenSnapshot): SnapshotCoordinates {
     if (snapshot.headSha == null || snapshot.baseSha == null) {
         throw new Error(
-            `Snapshot ${snapshotId} is missing SHAs (head: ${snapshot.headSha}, base: ${snapshot.baseSha})`,
+            `Snapshot ${snapshot.snapshotId} is missing SHAs (head: ${snapshot.headSha}, base: ${snapshot.baseSha})`,
         );
     }
-    return { branchId: snapshot.branchId, headSha: snapshot.headSha, baseSha: snapshot.baseSha };
+    return { headSha: snapshot.headSha, baseSha: snapshot.baseSha };
 }
 
 /**
@@ -116,19 +132,19 @@ async function loadSnapshotCoordinates(snapshotId: string): Promise<SnapshotCoor
  * `feat/x -> main` direction, so a PR-branch run has no merged work to absorb.
  */
 async function absorbMergedBranchWork({
-    updater,
+    store,
+    snapshot,
     branchData,
     githubApp,
-    snapshot,
+    coordinates,
     codebase,
-    logger,
 }: {
-    updater: TestSuiteUpdater;
+    store: TestSuiteStore;
+    snapshot: OpenSnapshot;
     branchData: BranchData;
     githubApp: GitHubApp;
-    snapshot: SnapshotCoordinates;
+    coordinates: SnapshotCoordinates;
     codebase: Codebase;
-    logger: Logger;
 }): Promise<MergeFlowResult> {
     if (!branchData.isMainBranch) {
         logger.info("Not a main-branch run; skipping the merge flow");
@@ -146,13 +162,14 @@ async function absorbMergedBranchWork({
     const githubClient = await githubApp.getInstallationClient(Number(branchData.installationId));
     const result = await runMergeFlow({
         db,
-        updater,
+        store,
+        snapshot,
         githubClient,
         owner,
         repo,
         targetBranchRef: branchData.defaultBranch,
-        baseSha: snapshot.baseSha,
-        headSha: snapshot.headSha,
+        baseSha: coordinates.baseSha,
+        headSha: coordinates.headSha,
         repoDir: codebase.root,
     });
 
@@ -172,41 +189,35 @@ async function absorbMergedBranchWork({
  * the imported plans and no longer carries the propagated deletions - and run the agent.
  */
 async function runSelection({
-    updater,
-    branchData,
     snapshot,
+    branchData,
+    coordinates,
     codebase,
     merge,
-    logger,
 }: {
-    updater: TestSuiteUpdater;
+    snapshot: OpenSnapshot;
     branchData: BranchData;
-    snapshot: SnapshotCoordinates;
+    coordinates: SnapshotCoordinates;
     codebase: Codebase;
     merge: MergeFlowResult;
-    logger: Logger;
 }): Promise<AgentSelection> {
-    const suiteInfo = await fetchTestSuiteInfo(db, updater.snapshotId);
+    const suite = await snapshot.read();
     const { metadata } = await loadDiffsContext(
         branchData.applicationId,
-        suiteInfo,
-        snapshot.headSha,
-        snapshot.baseSha,
+        suite,
+        coordinates.headSha,
+        coordinates.baseSha,
     );
-    const scenarioRecipes = await resolveScenarioRecipesForSnapshot(
-        db,
-        updater.snapshotId,
-        collectScenarioIds(suiteInfo),
-    );
+    const scenarioRecipes = await resolveScenarioRecipesForSnapshot(db, snapshot.snapshotId, collectScenarioIds(suite));
 
     // An imported test is already in the run set with its plan settled, so it is withheld from the agent's list -
-    // marking it affected would only queue a second generation for the same test. Conflicts stay listed: the agent
-    // reads their current plans to explain how the legs diverge.
+    // marking it affected would only target the same test twice. Conflicts stay listed: the agent reads their
+    // current plans to explain how the legs diverge.
     const importedSlugs = new Set(merge.imports.map((imported) => imported.slug));
     const existingTests = metadata.existingTests.filter((test) => !importedSlugs.has(test.slug));
 
     const { result } = await runDiffsAgent({
-        snapshotId: updater.snapshotId,
+        snapshotId: snapshot.snapshotId,
         input: {
             ...metadata,
             existingTests,
@@ -235,14 +246,14 @@ async function runSelection({
             scenarioId: test.scenarioId,
         })),
         flowFolderId: (folderName) => metadata.flowIndex.getFlow(folderName)?.id,
-        testCaseIdBySlug: new Map(suiteInfo.testCases.map((testCase) => [testCase.slug, testCase.id])),
+        testCaseIdBySlug: new Map(suite.testCases.map((testCase) => [testCase.slug, testCase.id])),
     };
 }
 
 /** The distinct scenario ids the suite's plans reference (for point-in-time recipe resolution). */
-function collectScenarioIds(suiteInfo: TestSuiteInfo): string[] {
+function collectScenarioIds(suite: Suite): string[] {
     const ids = new Set<string>();
-    for (const testCase of suiteInfo.testCases) {
+    for (const testCase of suite.testCases) {
         const scenarioId = testCase.plan?.scenarioId;
         if (scenarioId != null) ids.add(scenarioId);
     }

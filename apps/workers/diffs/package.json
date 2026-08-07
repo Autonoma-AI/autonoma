@@ -28,7 +28,7 @@
         "@autonoma/logger": "workspace:*",
         "@autonoma/secrets": "workspace:*",
         "@autonoma/storage": "workspace:*",
-        "@autonoma/test-updates": "workspace:*",
+        "@autonoma/test-suite": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@ffmpeg-installer/ffmpeg": "^1.1.0",

@@ -131,6 +131,7 @@ export async function withAdvisoryLock<T>(client: PrismaClient, name: string, fn
 
 export type { PrismaClient } from "./generated/prisma/client";
 export * from "./generated/prisma/client";
+export { INCOMPLETE_GENERATION_STATUSES, isIncompleteGenerationStatus } from "./generation-status";
 
 declare global {
     export namespace PrismaJson {

@@ -2,34 +2,33 @@ import type { PrismaClient } from "@autonoma/db";
 import {
     type AssociatedPullRequestsReader,
     type Classification,
+    type MergeClassifierRow,
+    type MergeClassifierSource,
     type MergeContextInfo,
     type PreClassifiedConflictInfo,
     type PreClassifiedConflictVersion,
     type RelevantMerge,
+    buildMergeClassifierRows,
     classifyTestsForMerge,
     detectRelevantMerges,
     isBaseAncestorOfHead,
     listCommitsInRange,
 } from "@autonoma/diffs";
-import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import {
-    type ClassifierInputRow,
-    ImportTest,
-    type PinnedSourceForClassifier,
-    RemoveTest,
-    type TestSuiteUpdater,
-    UpdateTest,
-    buildMergeClassifierInputs,
-    findMergeSourceSnapshot,
-} from "@autonoma/test-updates";
+import { logger as rootLogger } from "@autonoma/logger";
+import type { OpenSnapshot, TestSuiteStore } from "@autonoma/test-suite";
+import { pinMergeSource } from "./pin-merge-source";
+
+const logger = rootLogger.child({ name: "runMergeFlow" });
 
 export interface RunMergeFlowParams {
     db: PrismaClient;
+    /** The suite module's entry point, for the lineage reads the merge flow makes. */
+    store: TestSuiteStore;
     /**
-     * The updater for the run's own snapshot. Every suite edit the merge produces goes through it, so an imported
-     * test lands in the same draft the rest of the stage reads and arrives with a generation already queued.
+     * The run's own open snapshot. Every suite edit the merge produces goes through it, so an imported test lands
+     * in the same snapshot the rest of the stage reads.
      */
-    updater: TestSuiteUpdater;
+    snapshot: OpenSnapshot;
     githubClient: AssociatedPullRequestsReader;
     owner: string;
     repo: string;
@@ -45,11 +44,11 @@ export interface RunMergeFlowParams {
     repoDir: string;
 }
 
-/** A test whose winning plan this run imported from a merged branch, plus the generation the import queued. */
+/** A test whose winning plan this run imported from a merged branch. */
 export interface MergeImportedTest {
     slug: string;
-    /** The queued generation - what makes the imported test a real investigation target rather than a silent write. */
-    generationId: string;
+    /** The test itself - what the import's investigation target is keyed on. */
+    testCaseId: string;
     /** Why the test is in the run set, handed to the classifier as context. */
     reason: string;
 }
@@ -89,18 +88,17 @@ interface MergeImportIntent {
  *   2. For each commit, find PRs merged into the target branch.
  *   3. For each such PR, pin the source branch snapshot at the PR's head SHA.
  *   4. Load target + source assignments and run the deterministic classifier.
- *   5. Apply each outcome through the canonical update actions on the run's own snapshot: a plan the branch changed
- *      while the target stood still is imported (`UpdateTest`, or `ImportTest` for a test the target does not have
- *      yet), and a test the branch deleted from an untouched target is dropped (`RemoveTest`). Each import queues a
- *      generation, which is what turns it into an investigation target for this run.
+ *   5. Apply each outcome on the run's own snapshot: a plan the branch changed while the target stood still is
+ *      imported (`revisePlan`, or `adoptTest` for a test the target does not have yet), and a test the branch
+ *      deleted from an untouched target is dropped (`dropTest`). No run is started here - the caller targets each
+ *      imported test, and the Investigator starts its own runs.
  *   6. Return every `conflict` classification as a pre-classified conflict for the agent to enrich with reasoning.
  *
  * Any PR whose source snapshot cannot be pinned (no branch registered, no active snapshot at the exact head SHA)
  * silently falls back: its commits are processed by the agent as normal `code_change`.
  */
 export async function runMergeFlow(params: RunMergeFlowParams): Promise<MergeFlowResult> {
-    const { db, updater, githubClient, owner, repo, targetBranchRef, baseSha, headSha, repoDir } = params;
-    const logger = rootLogger.child({ name: "runMergeFlow", extra: { targetBranchRef } });
+    const { db, store, snapshot, githubClient, owner, repo, targetBranchRef, baseSha, headSha, repoDir } = params;
 
     const [commits, baseIsAncestor] = await Promise.all([
         // A range git cannot read at all (a base that is no longer in the clone) degrades to the same designed
@@ -137,31 +135,29 @@ export async function runMergeFlow(params: RunMergeFlowParams): Promise<MergeFlo
 
     const pinnedSources = await pinMergeSources({
         db,
-        applicationId: updater.applicationId,
+        applicationId: snapshot.applicationId,
         relevantMerges,
-        logger,
     });
     if (pinnedSources.length === 0) {
         logger.info("No pinnable merge sources; merge matrix shortcut does not fire");
         return EMPTY_MERGE_FLOW_RESULT;
     }
 
-    const inputRows = await buildMergeClassifierInputs({
-        db,
-        targetSnapshotId: updater.snapshotId,
-        sources: pinnedSources.map((pinned) => ({
-            snapshotId: pinned.snapshotId,
-            branchName: pinned.branchName,
-            prNumber: pinned.prNumber,
-            baseSnapshotId: pinned.baseSnapshotId,
-        })),
+    const targetSnapshotId = snapshot.snapshotId;
+    const baseSnapshotIds = pinnedSources.map((pinned) => pinned.baseSnapshotId).filter((id) => id != null);
+    const inputRows = buildMergeClassifierRows({
+        assignments: await store.readAssignments([
+            targetSnapshotId,
+            ...pinnedSources.map((pinned) => pinned.snapshotId),
+            ...baseSnapshotIds,
+        ]),
+        targetSnapshotId,
+        sources: pinnedSources,
     });
 
-    const classifications = classifyTestsForMerge(
-        inputRows.map((row) => ({ slug: row.slug, target: row.target, sources: row.sources })),
-    );
+    const classifications = classifyTestsForMerge(inputRows);
 
-    const { intents, deletions, preClassifiedConflicts } = partitionClassifications(classifications, inputRows, logger);
+    const { intents, deletions, preClassifiedConflicts } = partitionClassifications(classifications, inputRows);
     logger.info("Merge classification summary", {
         extra: {
             total: classifications.length,
@@ -171,8 +167,8 @@ export async function runMergeFlow(params: RunMergeFlowParams): Promise<MergeFlo
         },
     });
 
-    const imports = await applyImports({ db, updater, intents, logger });
-    const removedSlugs = await applyDeletions({ updater, deletions, logger });
+    const imports = await applyImports({ db, snapshot, intents });
+    const removedSlugs = await applyDeletions({ snapshot, deletions });
 
     const merges: MergeContextInfo[] = pinnedSources.map((pinned) => ({
         prNumber: pinned.prNumber,
@@ -193,8 +189,7 @@ interface MergeDeletion {
 /** Split the classifications into the three things the flow does with them: import, delete, or hand to the agent. */
 function partitionClassifications(
     classifications: Classification[],
-    inputRows: ClassifierInputRow[],
-    logger: Logger,
+    inputRows: MergeClassifierRow[],
 ): { intents: MergeImportIntent[]; deletions: MergeDeletion[]; preClassifiedConflicts: PreClassifiedConflictInfo[] } {
     const rowsBySlug = new Map(inputRows.map((row) => [row.slug, row] as const));
     const intents: MergeImportIntent[] = [];
@@ -206,7 +201,7 @@ function partitionClassifications(
         if (row == null) continue;
 
         if (classification.kind === "unilateral_update" || classification.kind === "new_test") {
-            const intent = resolveImportIntent(classification, row, logger);
+            const intent = resolveImportIntent(classification, row);
             if (intent != null) intents.push(intent);
             continue;
         }
@@ -234,17 +229,14 @@ async function pinMergeSources({
     db,
     applicationId,
     relevantMerges,
-    logger,
 }: {
     db: PrismaClient;
     applicationId: string;
     relevantMerges: RelevantMerge[];
-    logger: Logger;
-}): Promise<Array<PinnedSourceForClassifier & { merge: RelevantMerge }>> {
+}): Promise<Array<MergeClassifierSource & { merge: RelevantMerge }>> {
     const pinnedSources = await Promise.all(
         relevantMerges.map(async (merge) => {
-            const pinned = await findMergeSourceSnapshot({
-                db,
+            const pinned = await pinMergeSource(db, {
                 applicationId,
                 prNumber: merge.prNumber,
                 sourceHeadSha: merge.sourceHeadSha,
@@ -269,20 +261,17 @@ async function pinMergeSources({
 }
 
 /**
- * Copy each winning plan's prose onto the target snapshot through the update actions, queueing the generation that
- * makes the imported test an investigation target. A winning leg with no plan is skipped: there would be nothing to
- * generate or run from.
+ * Copy each winning plan's prose onto the target snapshot. A winning leg with no plan is skipped: there would be
+ * nothing to run.
  */
 async function applyImports({
     db,
-    updater,
+    snapshot,
     intents,
-    logger,
 }: {
     db: PrismaClient;
-    updater: TestSuiteUpdater;
+    snapshot: OpenSnapshot;
     intents: MergeImportIntent[];
-    logger: Logger;
 }): Promise<MergeImportedTest[]> {
     if (intents.length === 0) return [];
 
@@ -307,33 +296,33 @@ async function applyImports({
             plan: plan.prompt,
             scenarioId: plan.scenarioId ?? undefined,
         };
-        const { generationId } = intent.isNewToTarget
-            ? await updater.apply(new ImportTest(planParams))
-            : await updater.apply(new UpdateTest(planParams));
+        if (intent.isNewToTarget) {
+            await snapshot.adoptTest(planParams);
+        } else {
+            await snapshot.revisePlan(planParams);
+        }
 
         logger.info("Imported merged plan into the target snapshot", {
-            extra: { slug: intent.slug, isNewToTarget: intent.isNewToTarget, generationId },
+            extra: { slug: intent.slug, isNewToTarget: intent.isNewToTarget },
         });
-        imported.push({ slug: intent.slug, generationId, reason: intent.reason });
+        imported.push({ slug: intent.slug, testCaseId: intent.testCaseId, reason: intent.reason });
     }
 
     return imported;
 }
 
-/** Propagate the branch deletions to the target suite. Nothing is generated or investigated for a removed test. */
+/** Propagate the branch deletions to the target suite. Nothing is run or investigated for a removed test. */
 async function applyDeletions({
-    updater,
+    snapshot,
     deletions,
-    logger,
 }: {
-    updater: TestSuiteUpdater;
+    snapshot: OpenSnapshot;
     deletions: MergeDeletion[];
-    logger: Logger;
 }): Promise<string[]> {
     const removedSlugs: string[] = [];
 
     for (const deletion of deletions) {
-        await updater.apply(new RemoveTest({ testCaseId: deletion.testCaseId }));
+        await snapshot.dropTest(deletion.testCaseId);
         logger.info("Propagated a merged branch's test deletion to the target snapshot", {
             extra: { slug: deletion.slug },
         });
@@ -349,12 +338,11 @@ async function applyDeletions({
  */
 function resolveImportIntent(
     classification: Extract<Classification, { kind: "unilateral_update" | "new_test" }>,
-    row: ClassifierInputRow,
-    logger: Logger,
+    row: MergeClassifierRow,
 ): MergeImportIntent | null {
     const { winningFrom } = classification;
     if (winningFrom === "target") {
-        // Target already has the winning plan in place. No import or replay is triggered here; the agent's
+        // Target already has the winning plan in place. No import or run is triggered here; the agent's
         // code_change pass runs independently and will flag this test if the diff warrants it.
         return null;
     }
@@ -392,7 +380,7 @@ function newTestReason(prNumber: number, sourceName: string): string {
 
 function buildPreClassifiedConflict(
     classification: Extract<Classification, { kind: "conflict" }>,
-    row: ClassifierInputRow,
+    row: MergeClassifierRow,
 ): PreClassifiedConflictInfo {
     const versions: PreClassifiedConflictVersion[] = classification.versions.map((version) => {
         if (version.role === "source") {

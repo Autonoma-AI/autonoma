@@ -57,7 +57,7 @@ class DeleteHarness implements IntegrationHarness {
         const branch = await this.db.branch.create({
             data: { name: `feature/${n}`, applicationId: app.id, organizationId: org.id },
         });
-        // status defaults to `processing`, which the TestSuiteUpdater path requires.
+        // status defaults to `processing`, which reopening the snapshot requires.
         const snapshot = await this.db.branchSnapshot.create({
             data: { branchId: branch.id, source: "GITHUB_PUSH" },
         });

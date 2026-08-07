@@ -1,13 +1,13 @@
 import { logger as rootLogger } from "@autonoma/logger";
-import type { TestSuiteInfo } from "@autonoma/test-updates";
+import type { Suite } from "@autonoma/test-suite";
 import type { ExistingTestInfo } from "../diffs-agent";
 
 /**
- * Adapts the DB-shaped {@link TestSuiteInfo} into the {@link ExistingTestInfo}
+ * Adapts the DB-shaped {@link Suite} into the {@link ExistingTestInfo}
  * array the diffs agent consumes. Test cases without an attached plan are
  * dropped with a warning log.
  */
-export function mapTestSuiteToContext(suiteInfo: TestSuiteInfo): {
+export function mapTestSuiteToContext(suiteInfo: Suite): {
     existingTests: ExistingTestInfo[];
 } {
     const logger = rootLogger.child({ name: "mapTestSuiteToContext" });

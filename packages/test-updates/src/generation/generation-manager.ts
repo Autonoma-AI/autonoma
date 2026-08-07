@@ -1,4 +1,4 @@
-import type { GenerationStatus, PrismaClient } from "@autonoma/db";
+import { type GenerationStatus, type PrismaClient, isIncompleteGenerationStatus } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import type { WorkflowArchitecture } from "@autonoma/workflow";
 import type { FiredBatch, GenerationProvider, PendingGeneration } from "./generation-job-provider";
@@ -30,8 +30,6 @@ interface SnapshotGeneration {
         };
     };
 }
-
-const INCOMPLETE_STATUSES: GenerationStatus[] = ["pending", "queued", "running"];
 
 abstract class DeploymentConfigurationError extends Error {
     abstract readonly userMessage: string;
@@ -194,7 +192,7 @@ export class GenerationManager {
     async hasIncompleteGenerations() {
         const generations = await this.fetchGenerations();
 
-        return generations.some((gen) => INCOMPLETE_STATUSES.includes(gen.status));
+        return generations.some((gen) => isIncompleteGenerationStatus(gen.status));
     }
 
     /** Returns the latest generation status per test case for this snapshot. */
@@ -319,10 +317,9 @@ export class GenerationManager {
 
     /**
      * Validates that the snapshot's deployment is properly configured for the
-     * given generations. Returns an error message if validation fails, or
-     * `undefined` if the deployment is valid.
+     * given generations. Throws a `DeploymentConfigurationError` when it is not.
      */
-    private async validateDeploymentForGenerations(pending: readonly PendingGeneration[]): Promise<string | undefined> {
+    private async validateDeploymentForGenerations(pending: readonly PendingGeneration[]): Promise<void> {
         this.logger.info("Validating deployment for generations", { snapshotId: this.snapshotId });
 
         const snapshot = await this.db.branchSnapshot.findUnique({
@@ -358,7 +355,6 @@ export class GenerationManager {
         }
 
         this.logger.info("Deployment validation passed", { snapshotId: this.snapshotId });
-        return undefined;
     }
 
     /**

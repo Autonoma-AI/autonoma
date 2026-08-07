@@ -16,6 +16,7 @@ Manages scenario lifecycle (sync from recipes, up, down) for test environments p
 | `EncryptionHelper`        | AES-256-GCM encryption/decryption for SDK shared secrets stored in the database                                          |
 | `ScenarioSubject`         | Interface (`resolveDeployment` + optional `linkInstance`) for the entity that needs a scenario                           |
 | `GenerationSubject`       | `ScenarioSubject` implementation backed by a test generation                                                             |
+| `forkScenarioDataForSnapshot` | Deep-copies a snapshot's `ScenarioSchemaSnapshot` + `ScenarioRecipeVersion` rows onto a newly forked snapshot. Called by `@autonoma/test-suite` when it opens one; the column list lives here, with the models, so adding one cannot silently stop it being carried forward |
 
 ## Usage
 

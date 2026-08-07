@@ -48,7 +48,7 @@ const activities: Pick<
     },
     async settleAnalysisRun(input) {
         settlements.push(input.outcome);
-        return { settled: true, generationsFailed: 0, discardedChangeCount: 0 };
+        return { settled: true, discardedChangeCount: 0 };
     },
 };
 

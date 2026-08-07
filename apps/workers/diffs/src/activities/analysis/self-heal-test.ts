@@ -1,20 +1,22 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { TestSuiteUpdater, UpdateTest } from "@autonoma/test-updates";
+import { TestSuiteStore } from "@autonoma/test-suite";
 import type { SelfHealAnalysisTestInput, SelfHealAnalysisTestOutput } from "@autonoma/workflow/activities";
 import { resolveAnalysisTestTarget } from "./resolve-analysis-test";
 
 /**
  * Self-heal for the `test_is_wrong` route: the classifier said the app rendered correctly but the TEST's plan does not
- * match it, and produced a complete revised plan. The Investigator authors that plan onto its OWN test via the
- * canonical `UpdateTest` update action (mirroring how Impact Analysis uses `AddTest` / `RegenerateSteps`):
- * `UpdateTest.updatePlan` mints a plan for this test case and repoints its assignment (slug preserved), then queues one
- * generation. Row-local by construction - it only touches this `(snapshot, testCase)`'s assignment/plan, so every
- * OTHER test on the snapshot (and concurrent Investigators editing their own tests) is untouched.
+ * match it, and produced a complete revised plan. The Investigator authors that plan onto its OWN test via
+ * `OpenSnapshot.revisePlan`, which mints a plan for this test case and repoints its assignment (slug preserved).
+ * Row-local by construction - it only touches this `(snapshot, testCase)`'s assignment/plan, so every OTHER test on
+ * the snapshot (and concurrent Investigators editing their own tests) is untouched.
  *
- * The test's current scenario is preserved: the new plan pins the same scenario the run used, so the re-run provisions
- * the same data. It also returns `previousPlanId` - the plan the assignment held BEFORE the rewrite - which is what a
- * kept `plan_mismatch` restores so a rewrite that still fails is never promoted.
+ * No run is started here - editing the suite never starts one. The Investigator starts the re-run itself, which
+ * resolves the rewritten plan; the test's current scenario is preserved because the new plan pins the same scenario
+ * the run used.
+ *
+ * It also returns `previousPlanId` - the plan the assignment held BEFORE the rewrite - which is what a kept
+ * `plan_mismatch` restores so a rewrite that still fails is never promoted.
  *
  * A rewrite is only applied when it can be UNDONE, so it refuses (`prepared: false`) when the slug has no assignment
  * or that assignment pins no plan. Both leave the snapshot untouched for the caller to settle as a kept
@@ -42,26 +44,11 @@ export async function selfHealAnalysisTest(input: SelfHealAnalysisTestInput): Pr
         return { prepared: false, skippedReason: "the assignment pins no plan, so a rewrite could not be reverted" };
     }
 
-    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-        db,
-        snapshotId,
-        organizationId: target.organizationId,
+    const store = new TestSuiteStore(db);
+    const snapshot = await store.reopen(snapshotId, { organizationId: target.organizationId });
+    await snapshot.revisePlan({ testCaseId: target.testCaseId, plan, scenarioId: target.scenarioId });
+    logger.info("Self-heal plan authored; the caller starts the re-run", {
+        extra: { testCaseId: target.testCaseId, scenarioId: target.scenarioId, previousPlanId: target.planId },
     });
-    const { generationId } = await updater.apply(
-        new UpdateTest({ testCaseId: target.testCaseId, plan, scenarioId: target.scenarioId }),
-    );
-    logger.info("Self-heal plan authored; queued a fresh generation to re-run", {
-        extra: {
-            testCaseId: target.testCaseId,
-            generationId,
-            scenarioId: target.scenarioId,
-            previousPlanId: target.planId,
-        },
-    });
-    return {
-        prepared: true,
-        testGenerationId: generationId,
-        previousPlanId: target.planId,
-        scenarioId: target.scenarioId,
-    };
+    return { prepared: true, previousPlanId: target.planId };
 }

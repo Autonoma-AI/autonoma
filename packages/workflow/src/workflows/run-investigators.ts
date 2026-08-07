@@ -65,8 +65,6 @@ async function runInvestigator(
                     snapshotId,
                     slug: target.slug,
                     testCaseId: target.testCaseId,
-                    testGenerationId: target.testGenerationId,
-                    scenarioId: target.scenarioId,
                     reason: target.reason,
                     origin: target.origin,
                 },
@@ -83,6 +81,8 @@ async function runInvestigator(
             // Appended, never overwritten: whatever the child managed to classify stays on the finding as its own
             // history, and this fault becomes the verdict the run stands behind for the test. It takes a slot past
             // every iteration the child could have reached, so it can neither restate nor be restated by one.
+            // The child starts its own runs, so the parent does not know which one it died on - `generationId` is
+            // left absent and the activity resolves the test's newest run on the snapshot.
             await investigator.persistAnalysisClassification({
                 snapshotId,
                 testCaseId: target.testCaseId,
@@ -90,9 +90,6 @@ async function runInvestigator(
                 selectionReason: target.reason,
                 number: CONTAINMENT_CLASSIFICATION_NUMBER,
                 classification: {
-                    // The child crashed, so it may have self-healed onto a later generation the parent never learns
-                    // about. The one Impact Analysis queued is the run this containment can honestly point at.
-                    generationId: target.testGenerationId,
                     category: "engine_artifact",
                     headline,
                 },
@@ -106,7 +103,6 @@ async function runInvestigator(
         return {
             slug: target.slug,
             testCaseId: target.testCaseId,
-            generationId: target.testGenerationId,
             category: "engine_artifact",
             headline,
             origin: target.origin,

@@ -1,6 +1,5 @@
 import { ApplicationArchitecture, TriggerSource } from "@autonoma/db";
-import { logger } from "@autonoma/logger";
-import { startAnalysisRun } from "@autonoma/test-updates";
+import { BranchAlreadyOpenError, TestSuiteStore } from "@autonoma/test-suite";
 import { TRPCError } from "@trpc/server";
 import { expect } from "vitest";
 import {
@@ -30,13 +29,27 @@ async function createBranch(harness: APITestHarness): Promise<{ branchId: string
 
 /** Opens an analysis run the way a push does: it supersedes whatever snapshot was pending on the branch. */
 async function pushCommit(harness: APITestHarness, branchId: string): Promise<string> {
-    return await startAnalysisRun({
-        db: harness.db,
-        logger,
-        branchId,
-        headSha: `head-${crypto.randomUUID()}`,
-        baseSha: `base-${crypto.randomUUID()}`,
-    });
+    const store = new TestSuiteStore(harness.db);
+    const headSha = `head-${crypto.randomUUID()}`;
+    const open = async () => {
+        const { source } = await store.resolveSource({
+            branchId,
+            headSha,
+            fallbackBaseSha: `base-${crypto.randomUUID()}`,
+        });
+        if (source == null) throw new Error(`No snapshot source resolvable for branch ${branchId}`);
+        const snapshot = await store.openSnapshot({ branchId, headSha, source, trigger: TriggerSource.WEBHOOK });
+        return snapshot.snapshotId;
+    };
+
+    try {
+        return await open();
+    } catch (error) {
+        if (!(error instanceof BranchAlreadyOpenError)) throw error;
+        const pending = await store.reopen(error.pendingSnapshotId);
+        await pending.cancel("Superseded by a newer analysis request");
+        return await open();
+    }
 }
 
 /** Asserts the call was refused with a 409 and hands back the typed error the router mapped. */

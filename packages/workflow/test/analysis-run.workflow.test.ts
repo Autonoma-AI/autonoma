@@ -138,7 +138,6 @@ function target(): AnalysisInvestigationTarget {
     return {
         slug: SLUG,
         testCaseId: "tc-checkout",
-        testGenerationId: "gen-1",
         reason: "the diff touched checkout",
         origin: "pre_existing",
     };
@@ -212,7 +211,7 @@ const analysisActivities: Pick<
     async settleAnalysisRun(input) {
         harness.settlements.push(input.outcome);
         harness.events.push(`settle:${input.outcome.kind}`);
-        return { settled: true, generationsFailed: 0, discardedChangeCount: 0 };
+        return { settled: true, discardedChangeCount: 0 };
     },
 };
 
@@ -266,6 +265,10 @@ const previewkitActivities: PreviewkitActivities = {
 // The Investigator child runs for real when the gate lets a build through, so the test scripts its two activities to
 // a clean `passed` verdict. `webRuns` is then the observable proof that the fan-out happened.
 const investigatorActivities = {
+    // The Investigator starts its own runs; the id it gets back is what lands on the web queue.
+    startInvestigationRun() {
+        return Promise.resolve({ runId: "gen-1" });
+    },
     async classifyInvestigationRun(_input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult> {
         return {
             slug: SLUG,
@@ -287,7 +290,7 @@ const investigatorActivities = {
         };
     },
     persistAnalysisClassification() {
-        return Promise.resolve({ findingId: "finding-1", filed: true });
+        return Promise.resolve({ findingId: "finding-1", number: 1 });
     },
 };
 

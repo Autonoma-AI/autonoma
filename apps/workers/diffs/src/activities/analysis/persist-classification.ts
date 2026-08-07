@@ -1,5 +1,6 @@
 import { db } from "@autonoma/db";
-import { logger as rootLogger } from "@autonoma/logger";
+import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { TestSuiteStore } from "@autonoma/test-suite";
 import type {
     AnalysisCandidateClassification,
     PersistAnalysisClassificationInput,
@@ -41,6 +42,8 @@ export async function persistAnalysisClassification(
     if (snapshot == null) throw new Error(`Snapshot ${snapshotId} not found; cannot persist the classification`);
     const organizationId = snapshot.branch.organizationId;
 
+    const generationId = classification.generationId ?? (await resolveContainmentRun(snapshotId, testCaseId, logger));
+
     const findingId = await db.$transaction(async (tx) => {
         const finding = await tx.analysisFinding.upsert({
             where: { reportSnapshotId_testCaseId: { reportSnapshotId: snapshotId, testCaseId } },
@@ -50,7 +53,7 @@ export async function persistAnalysisClassification(
             select: { id: true },
         });
 
-        const fields = buildClassificationFields(classification);
+        const fields = buildClassificationFields(classification, generationId);
         const filed = await tx.analysisClassification.upsert({
             where: { findingId_number: { findingId: finding.id, number } },
             create: { findingId: finding.id, number, organizationId, ...fields },
@@ -69,14 +72,55 @@ export async function persistAnalysisClassification(
     return { findingId, number };
 }
 
+/** What a containment run that never executed is marked failed with. */
+const CONTAINMENT_RUN_FAILURE_MESSAGE = "The Investigator crashed before this test's run could execute";
+
+/**
+ * The run a containment classification lands on when the caller does not know one: the fan-out parent contains a
+ * child that started its own runs and crashed, so the parent cannot name the run it died on. The test's newest run
+ * on the snapshot is the honest anchor; a child that crashed before starting any run gets one started - and
+ * immediately marked failed - purely so the classification has a run to hang off, since
+ * `AnalysisClassification.generationId` is required.
+ */
+async function resolveContainmentRun(snapshotId: string, testCaseId: string, logger: Logger): Promise<string> {
+    const newest = await db.testGeneration.findFirst({
+        where: { snapshotId, testPlan: { testCaseId } },
+        orderBy: { createdAt: "desc" },
+        select: { id: true },
+    });
+    if (newest != null) {
+        logger.info("Containment classification resolved to the test's newest run", {
+            extra: { testCaseId, generationId: newest.id },
+        });
+        return newest.id;
+    }
+
+    const store = new TestSuiteStore(db);
+    const snapshot = await store.reopen(snapshotId);
+    // Started and failed in one transaction: a run that committed `pending` and never got its outcome would sit
+    // on the snapshot forever with nothing left to execute it.
+    const runId = await snapshot.withTransaction(async (open, tx) => {
+        const { runId } = await open.startRun(testCaseId);
+        await tx.testGeneration.update({
+            where: { id: runId },
+            data: { status: "failed", failure: { kind: "engine_error", message: CONTAINMENT_RUN_FAILURE_MESSAGE } },
+        });
+        return runId;
+    });
+    logger.warn("Investigator crashed before starting any run; recorded a failed run for its containment", {
+        extra: { testCaseId, generationId: runId },
+    });
+    return runId;
+}
+
 /**
  * The classification's own columns. The rich evidence rides from the classifier's `report`; a contained fault has
  * none (no classifier ran), so it lands as a category and a headline with every verdict field absent.
  */
-function buildClassificationFields(classification: AnalysisCandidateClassification) {
+function buildClassificationFields(classification: AnalysisCandidateClassification, generationId: string) {
     const report = classification.report;
     return {
-        generationId: classification.generationId,
+        generationId,
         category: classification.category,
         headline: classification.headline,
         confidence: report?.confidence,

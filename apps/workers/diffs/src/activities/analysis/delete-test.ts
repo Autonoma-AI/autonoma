@@ -1,13 +1,13 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { RemoveTest, TestSuiteUpdater } from "@autonoma/test-updates";
+import { TestSuiteStore } from "@autonoma/test-suite";
 import type { DeleteAnalysisTestInput, DeleteAnalysisTestOutput } from "@autonoma/workflow/activities";
 import { resolveAnalysisTestTarget } from "./resolve-analysis-test";
 
 /**
  * Removal for the `invalid_test` verdict: the Investigator resolved that its test is IRREPARABLY broken (a feature
  * that never existed, structurally unexecutable steps, a premise the app contradicts), so it removes its OWN test
- * from the twin via the canonical `RemoveTest` update action - this snapshot's assignment, and nothing else.
+ * from the snapshot via `OpenSnapshot.dropTest` - this snapshot's assignment, and nothing else.
  *
  * That holds for a test proposed this run as much as for a pre-existing one. The tests tree reads the active
  * snapshot's assignments, so an unassigned test case is already invisible; destroying the `TestCase` instead would
@@ -23,7 +23,7 @@ export async function deleteAnalysisTest(input: DeleteAnalysisTestInput): Promis
     // snapshotId is bound to the observability context by the activity interceptor; only non-canonical fields go
     // in `extra`.
     const logger = rootLogger.child({ name: "deleteAnalysisTest", extra: { slug } });
-    logger.info("Removing an invalid test from the twin");
+    logger.info("Removing an invalid test from the snapshot");
 
     const target = await resolveAnalysisTestTarget(snapshotId, slug);
     if (target == null) {
@@ -31,13 +31,10 @@ export async function deleteAnalysisTest(input: DeleteAnalysisTestInput): Promis
         return { deleted: false, reason: "no assignment for this slug on the snapshot" };
     }
 
-    const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-        db,
-        snapshotId,
-        organizationId: target.organizationId,
-    });
-    await updater.apply(new RemoveTest({ testCaseId: target.testCaseId }));
+    const store = new TestSuiteStore(db);
+    const snapshot = await store.reopen(snapshotId, { organizationId: target.organizationId });
+    await snapshot.dropTest(target.testCaseId);
 
-    logger.info("Removed the test's assignment from the twin", { extra: { testCaseId: target.testCaseId } });
+    logger.info("Removed the test's assignment from the snapshot", { extra: { testCaseId: target.testCaseId } });
     return { deleted: true };
 }

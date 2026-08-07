@@ -26,6 +26,7 @@ root/
 │   ├── visual-ai/        # Screenshot-driven AI: visual checkers, point/object detection (depends on ai + sharp)
 │   ├── db/               # Prisma schema + generated client (PostgreSQL)
 │   ├── types/            # Shared Zod schemas, TypeScript types, constants
+│   ├── test-suite/       # The suite module: branch suite lineage (snapshots, open-snapshot edits, runs, terminals)
 │   ├── engine/           # Shared engine: execution agent, commands, driver interfaces
 │   ├── engine-web/       # Playwright-based web test execution
 │   ├── engine-mobile/    # Appium-based mobile test execution (iOS + Android)

@@ -15,20 +15,34 @@ import type {
  * at all is gated by the per-org flag + the global master switch at the trigger.
  */
 
-/** One test the Impact Analysis stage selects for an Investigator to run + classify. */
+/**
+ * One test the Impact Analysis stage selects for an Investigator to run + classify. A target is a
+ * test, not a run: the Investigator starts its own runs via `startInvestigationRun`, immediately
+ * before provisioning.
+ */
 export interface AnalysisInvestigationTarget {
     slug: string;
     /** The test itself. The finding is keyed on this; the slug is only the handle the classifier and the
      * snapshot's own row-local edits speak. */
     testCaseId: string;
-    /** The generation the Investigator runs (created up front by the selection). */
-    testGenerationId: string;
-    /** The scenario to provision before the run, when the test pins one. */
-    scenarioId?: string;
     /** Why this test was selected - fed to the classifier as context. */
     reason: string;
     /** Whether this test pre-existed (affected) or was authored this run (proposed) - set at materialization. */
     origin: AnalysisTestOrigin;
+}
+
+export interface StartInvestigationRunInput {
+    /** The snapshot the test's rows live on. */
+    snapshotId: string;
+    /** The test to start one execution of. Its currently pinned plan is what runs. */
+    testCaseId: string;
+}
+
+export interface StartInvestigationRunOutput {
+    /** The freshly started run (a pending `TestGeneration`) for the engine to execute. */
+    runId: string;
+    /** The scenario the pinned plan carries - what the Investigator provisions before the run. */
+    scenarioId?: string;
 }
 
 export interface OpenMergeGateInput {
@@ -60,8 +74,13 @@ export interface RunImpactAnalysisOutput {
  * a rewrite auditable after the rewrite replaces it. The parent produces one too, to contain a crashed child.
  */
 export interface AnalysisCandidateClassification {
-    /** The generation this iteration ran and judged. */
-    generationId: string;
+    /**
+     * The run this iteration executed and judged. Absent only when the fan-out parent contains a
+     * child that crashed before it reliably started a run - the persist activity then resolves the
+     * test's newest run on the snapshot, or starts one (marked failed) purely so the containment
+     * has a run to hang off, and reports which run it landed on in its output.
+     */
+    generationId?: string;
     /**
      * The verdict this iteration reached. A self-heal iteration and the terminal it settles on both carry
      * `plan_mismatch`, so every stored category is a valid `AnalysisVerdict`.
@@ -83,8 +102,6 @@ export interface AnalysisCandidateClassification {
 export interface AnalysisCandidateFinding {
     slug: string;
     testCaseId: string;
-    /** The generation whose run produced the terminal verdict - the LAST iteration's. */
-    generationId: string;
     /** The Investigator's terminal verdict (the full two-plane taxonomy). Never the transient loop-routing signal
      * that drives self-heal - that resolves to a re-run or, when exhausted, to a kept `plan_mismatch`. */
     category: AnalysisVerdict;
@@ -150,7 +167,6 @@ export interface SettleAnalysisRunInput {
 
 export interface SettleAnalysisRunOutput {
     settled: boolean;
-    generationsFailed: number;
     discardedChangeCount: number;
 }
 
@@ -167,16 +183,16 @@ export interface SelfHealAnalysisTestInput {
  * Either the rewrite landed and is undoable, or nothing was touched. The two arms exist so "a rewrite was applied"
  * and "we know the plan to restore" cannot come apart: a rewrite is only ever applied when it can be reverted, so
  * `previousPlanId` is REQUIRED on the prepared arm rather than another optional the caller has to defend against.
+ *
+ * No run is created here - editing the suite never starts one. The Investigator starts the re-run
+ * itself via `startInvestigationRun`, which resolves the rewritten plan (and the scenario it
+ * preserved) like any other iteration's.
  */
 export type SelfHealAnalysisTestOutput =
     | {
           prepared: true;
-          /** A fresh pending generation to re-run + re-classify. */
-          testGenerationId: string;
           /** The plan record the assignment pointed at BEFORE this rewrite - what `revertSelfHealPlan` restores. */
           previousPlanId: string;
-          /** The scenario the rewritten plan pins (preserved from the test's current plan), when it pins one. */
-          scenarioId?: string;
       }
     | {
           prepared: false;
@@ -351,13 +367,20 @@ export interface AnalysisActivities {
      */
     openMergeGate(input: OpenMergeGateInput): Promise<OpenMergeGateOutput>;
     runImpactAnalysis(input: RunImpactAnalysisInput): Promise<RunImpactAnalysisOutput>;
+    /**
+     * Start one execution of a target's pinned plan - the only way a run begins. Called by the
+     * Investigator immediately before provisioning, so a scenario failure still has a run to hang
+     * its classification on.
+     */
+    startInvestigationRun(input: StartInvestigationRunInput): Promise<StartInvestigationRunOutput>;
     /** One test's run classified into a verdict. The long pole of an Investigator pass - see its proxy's timeout. */
     classifyInvestigationRun(input: ClassifyInvestigationRunInput): Promise<InvestigationTestResult>;
     /**
-     * The Investigator's row-local test edits on the snapshot, all via the canonical `TestSuiteUpdater` update
-     * actions: a self-heal plan rewrite (`UpdateTest`), the revert of that rewrite when a `plan_mismatch` is kept
-     * (`RevertPlan`, no re-run so the failed rewrite is not promoted), and the removal of an irreparable test on an
-     * `invalid_test` verdict (`RemoveTest`). `invalid_test` is the only verdict that removes a test.
+     * The Investigator's row-local test edits on the snapshot, all via the suite module's
+     * `OpenSnapshot`: a self-heal plan rewrite (`revisePlan`), the revert of that rewrite when a
+     * `plan_mismatch` is kept (`restorePlan`, no re-run so the failed rewrite is not promoted), and
+     * the removal of an irreparable test on an `invalid_test` verdict (`dropTest`). `invalid_test`
+     * is the only verdict that removes a test. None of these starts a run.
      */
     selfHealAnalysisTest(input: SelfHealAnalysisTestInput): Promise<SelfHealAnalysisTestOutput>;
     revertSelfHealPlan(input: RevertSelfHealPlanInput): Promise<RevertSelfHealPlanOutput>;

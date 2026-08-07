@@ -1,4 +1,4 @@
-import { db } from "@autonoma/db";
+import { db, isIncompleteGenerationStatus } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { MarkGenerationFailedInput } from "@autonoma/workflow/activities";
 
@@ -19,9 +19,7 @@ export async function markGenerationFailed(input: MarkGenerationFailedInput): Pr
         return;
     }
 
-    const UPDATABLE_STATUSES = ["pending", "queued", "running"] as const;
-    const canUpdate = (UPDATABLE_STATUSES as readonly string[]).includes(generation.status);
-    if (!canUpdate) {
+    if (!isIncompleteGenerationStatus(generation.status)) {
         logger.info("Generation already in terminal state, skipping", { currentStatus: generation.status });
         return;
     }

@@ -256,5 +256,81 @@ integrationTestSuite({
             expect(finding.currentClassification?.conversationUrl).toBeNull();
             expect(finding.currentClassification?.evidence).toBeNull();
         });
+
+        // The fan-out parent contains a crashed child without knowing which run it died on - the child starts its
+        // own runs - so a containment classification names no run and the activity resolves the test's newest one.
+        test("a containment without a run resolves to the test's newest run on the snapshot", async ({ harness }) => {
+            const { snapshotId, testCaseId, generationIds } = await harness.seedRun();
+            // The seeded pair can share a createdAt millisecond; make the newest unambiguous.
+            const newest = { id: generationIds[1] };
+            await harness.db.testGeneration.update({
+                where: { id: newest.id },
+                data: { createdAt: new Date(Date.now() + 60_000) },
+            });
+
+            await persistAnalysisClassification({
+                snapshotId,
+                testCaseId,
+                origin: "pre_existing",
+                number: 3,
+                classification: {
+                    category: "engine_artifact",
+                    headline: "The Investigator crashed or timed out",
+                },
+            });
+
+            const finding = await harness.db.analysisFinding.findUniqueOrThrow({
+                where: { reportSnapshotId_testCaseId: { reportSnapshotId: snapshotId, testCaseId } },
+                include: { currentClassification: true },
+            });
+            expect(finding.currentClassification?.generationId).toBe(newest.id);
+        });
+
+        // A child can crash before its startInvestigationRun landed, leaving the test with no run at all. The
+        // containment then records one - started and immediately marked failed - purely so the classification has a
+        // run to hang off.
+        test("a containment for a test with no run records a failed run to hang off", async ({ harness }) => {
+            const { snapshotId, organizationId } = await harness.seedRun();
+            const folder = await harness.db.folder.findFirstOrThrow({
+                where: { organizationId },
+                select: { id: true, applicationId: true },
+            });
+            const untouched = await harness.db.testCase.create({
+                data: {
+                    name: "Never ran",
+                    slug: `never-ran-${next()}`,
+                    applicationId: folder.applicationId,
+                    folderId: folder.id,
+                    organizationId,
+                },
+            });
+            const plan = await harness.db.testPlan.create({
+                data: { testCaseId: untouched.id, prompt: "plan", organizationId },
+            });
+            await harness.db.testCaseAssignment.create({
+                data: { snapshotId, testCaseId: untouched.id, planId: plan.id },
+            });
+
+            await persistAnalysisClassification({
+                snapshotId,
+                testCaseId: untouched.id,
+                origin: "pre_existing",
+                number: 3,
+                classification: {
+                    category: "engine_artifact",
+                    headline: "The Investigator crashed before starting",
+                },
+            });
+
+            const finding = await harness.db.analysisFinding.findUniqueOrThrow({
+                where: { reportSnapshotId_testCaseId: { reportSnapshotId: snapshotId, testCaseId: untouched.id } },
+                include: { currentClassification: true },
+            });
+            const run = await harness.db.testGeneration.findUniqueOrThrow({
+                where: { id: finding.currentClassification?.generationId },
+            });
+            expect(run.status).toBe("failed");
+            expect(run.testPlanId).toBe(plan.id);
+        });
     },
 });

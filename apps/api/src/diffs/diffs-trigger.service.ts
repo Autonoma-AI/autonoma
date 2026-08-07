@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
-import { recordBranchDeployment, resolveAnalysisBase } from "@autonoma/test-updates";
+import { TestSuiteStore } from "@autonoma/test-suite";
+import { recordBranchDeployment } from "@autonoma/test-updates";
 import type { AnalysisRunWorkflowInput } from "@autonoma/workflow";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
@@ -131,8 +132,7 @@ export class DiffsTriggerService extends Service {
 
         // A re-delivered webhook for an already-analyzed head has nothing new to diff. `createSnapshot` still
         // supersedes a pending snapshot if the head genuinely moved while one was in flight.
-        const { alreadyAnalyzed } = await resolveAnalysisBase({
-            db: this.db,
+        const { alreadyAnalyzed } = await new TestSuiteStore(this.db).resolveSource({
             branchId: branch.id,
             headSha,
             fallbackBaseSha: baseSha,
@@ -231,7 +231,7 @@ export class DiffsTriggerService extends Service {
         );
 
         // Main has no pull request to fall back on, so its baseline snapshot is the only possible base.
-        const { baseSha, alreadyAnalyzed } = await resolveAnalysisBase({ db: this.db, branchId, headSha });
+        const { baseSha, alreadyAnalyzed } = await new TestSuiteStore(this.db).resolveSource({ branchId, headSha });
         if (baseSha == null) throw new NoActiveSnapshotHeadShaError(branchId);
 
         this.logger.info("Resolved main branch and shas", { branchId, headSha, baseSha });

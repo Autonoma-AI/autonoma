@@ -1,7 +1,9 @@
 import type { AffectedReason } from "@autonoma/diffs";
-import type { Logger } from "@autonoma/logger";
-import { AddTest, RegenerateSteps, type TestSuiteUpdater } from "@autonoma/test-updates";
-import type { MaterializedTarget } from "./resolve-targets";
+import { logger as rootLogger } from "@autonoma/logger";
+import type { OpenSnapshot } from "@autonoma/test-suite";
+import type { AnalysisInvestigationTarget } from "@autonoma/workflow/activities";
+
+const logger = rootLogger.child({ name: "materializeSelection" });
 
 /**
  * Why a newly-authored test is in the run set - passed to the classifier as context. The DiffsAgent authors it
@@ -26,66 +28,54 @@ export interface AgentSelection {
     testCaseIdBySlug: Map<string, string>;
 }
 
-/** Materialize the agent's selection on the run's own snapshot via the update actions. */
+/**
+ * Materialize the agent's selection on the run's own snapshot as investigation targets.
+ *
+ * A new test is authored onto the snapshot (`addTest` mints test case + plan + assignment) and targeted as
+ * `proposed` - the TestCase exists only for this run, which is what makes its finding read as an added test. An
+ * affected test needs no suite write at all: a target is a test, and the Investigator runs whatever plan the
+ * snapshot pins - so it is simply targeted as `pre_existing`.
+ */
 export async function materializeSelection({
-    updater,
+    snapshot,
     agentResult,
-    logger,
 }: {
-    updater: TestSuiteUpdater;
+    snapshot: OpenSnapshot;
     agentResult: AgentSelection;
-    logger: Logger;
-}): Promise<MaterializedTarget[]> {
-    const materialized: MaterializedTarget[] = [];
+}): Promise<AnalysisInvestigationTarget[]> {
+    const targets: AnalysisInvestigationTarget[] = [];
 
-    // New tests first (AddTest mints test case + plan + assignment + queues a generation). Tagged `proposed` because
-    // the TestCase exists only for this run, which is what makes its finding read as an added test.
     for (const test of agentResult.createdTests) {
         const folderId = agentResult.flowFolderId(test.folderName);
         if (folderId == null) throw new Error(`Folder "${test.folderName}" not found for authored test "${test.name}"`);
-        const { generationId } = await updater.apply(
-            new AddTest({
-                name: test.name,
-                description: test.description,
-                plan: test.plan,
-                folderId,
-                scenarioId: test.scenarioId,
-            }),
-        );
-        materialized.push({ generationId, reason: NEW_TEST_REASON, origin: "proposed" });
+        const { testCaseId, slug } = await snapshot.addTest({
+            name: test.name,
+            description: test.description,
+            plan: test.plan,
+            folderId: folderId,
+            scenarioId: test.scenarioId,
+        });
+        targets.push({ slug, testCaseId, reason: NEW_TEST_REASON, origin: "proposed" });
     }
 
-    // Affected tests (RegenerateSteps clears the pinned plan's steps + queues a generation to regenerate them).
-    // Tagged `pre_existing` because the TestCase is a real suite member this PR's diff affected.
-    const materializedTestCaseIds = new Set<string>();
     for (const affected of agentResult.affectedTests) {
         const testCaseId = agentResult.testCaseIdBySlug.get(affected.slug);
         if (testCaseId == null) {
             // A merge conflict can name a slug the target snapshot never assigned - two merged sources adding the
-            // same test with different plans. There is no pinned plan to regenerate, so the conflict is reported in
-            // the agent's reasoning and nothing is queued for it.
+            // same test with different plans. There is no pinned plan to run, so the conflict is reported in the
+            // agent's reasoning and nothing is targeted for it.
             if (affected.affectedReason === "merge_conflict") {
-                logger.info("Conflicting test is not in the snapshot's suite; queueing nothing for it", {
+                logger.info("Conflicting test is not in the snapshot's suite; targeting nothing for it", {
                     extra: { slug: affected.slug },
                 });
                 continue;
             }
             // `mark_affected_test` only accepts slugs from the agent's Existing Tests list, which is derived from
             // this same suite, so a miss here means those two views of the suite have diverged.
-            throw new Error(`Affected test "${affected.slug}" is not in snapshot ${updater.snapshotId}'s suite`);
+            throw new Error(`Affected test "${affected.slug}" is not in snapshot ${snapshot.snapshotId}'s suite`);
         }
-        // A second RegenerateSteps for one test case deletes the first's pending generation, stranding the target
-        // already recorded for it - so the same test is materialized at most once per run.
-        if (materializedTestCaseIds.has(testCaseId)) {
-            logger.info("Affected test was already materialized this run; ignoring the duplicate", {
-                extra: { slug: affected.slug },
-            });
-            continue;
-        }
-        materializedTestCaseIds.add(testCaseId);
-        const generationId = await updater.apply(new RegenerateSteps({ testCaseId }));
-        materialized.push({ generationId, reason: affected.reasoning, origin: "pre_existing" });
+        targets.push({ slug: affected.slug, testCaseId, reason: affected.reasoning, origin: "pre_existing" });
     }
 
-    return materialized;
+    return targets;
 }

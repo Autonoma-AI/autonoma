@@ -1,8 +1,7 @@
 import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
 import type { ReporterIssueKind, ReporterIssueStatus } from "@autonoma/diffs/analysis";
 import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
-import { logger as rootLogger } from "@autonoma/logger";
-import { TestSuiteUpdater } from "@autonoma/test-updates";
+import { TestSuiteStore } from "@autonoma/test-suite";
 import { expect } from "vitest";
 import { type ReverifiedTest, reverifyOpenIssues } from "../../src/analysis/reverify-issues";
 import { findOrCreateTestCase } from "./seed-generation";
@@ -11,13 +10,11 @@ import { findOrCreateTestCase } from "./seed-generation";
 let seq = 0;
 const next = () => seq++;
 
-const logger = rootLogger.child({ name: "reverify-issues.test" });
-
 interface SeededBranch {
     organizationId: string;
     applicationId: string;
     branchId: string;
-    /** The run's own snapshot: `processing`, which is what the updater opens against. */
+    /** The run's own snapshot: `processing`, which is what the stage reopens. */
     runSnapshotId: string;
 }
 
@@ -74,7 +71,7 @@ class ReverifyHarness implements IntegrationHarness {
         };
     }
 
-    /** Put a test in the run's suite, with a plan to generate against. */
+    /** Put a test in the run's suite, with a plan to run against. */
     async assign(branch: SeededBranch, slug: string): Promise<string> {
         const testCaseId = await this.testCaseFor(branch, slug);
         const plan = await this.db.testPlan.create({
@@ -86,17 +83,10 @@ class ReverifyHarness implements IntegrationHarness {
         return plan.id;
     }
 
-    /** Put a test in the run's suite with no plan assigned - there is nothing to queue a generation against. */
+    /** Put a test in the run's suite with no plan assigned - there is nothing to run for it. */
     async assignWithoutPlan(branch: SeededBranch, slug: string): Promise<void> {
         const testCaseId = await this.testCaseFor(branch, slug);
         await this.db.testCaseAssignment.create({ data: { snapshotId: branch.runSnapshotId, testCaseId } });
-    }
-
-    /** Put a test in the run set the way the diff-driven half of the stage does: a pending generation on the run. */
-    async queueGeneration(branch: SeededBranch, planId: string): Promise<void> {
-        await this.db.testGeneration.create({
-            data: { testPlanId: planId, snapshotId: branch.runSnapshotId, organizationId: branch.organizationId },
-        });
     }
 
     /**
@@ -147,31 +137,15 @@ class ReverifyHarness implements IntegrationHarness {
         return issue.id;
     }
 
-    /** Run re-verification the way the Impact Analysis stage does, over the run's open updater. */
+    /** Run re-verification the way the Impact Analysis stage does, over the run's open snapshot. */
     async reverify(branch: SeededBranch): Promise<ReverifiedTest[]> {
-        const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-            db: this.db,
-            snapshotId: branch.runSnapshotId,
-        });
-
-        return await reverifyOpenIssues({ db: this.db, updater, logger });
+        const snapshot = await new TestSuiteStore(this.db).reopen(branch.runSnapshotId);
+        return await reverifyOpenIssues({ db: this.db, snapshot });
     }
 
-    /** The generations the run has queued, by the test each one will run. */
-    async generationsOf(branch: SeededBranch): Promise<{ slug: string; status: string }[]> {
-        const generations = await this.db.testGeneration.findMany({
-            where: { snapshotId: branch.runSnapshotId },
-            select: { status: true, testPlan: { select: { testCase: { select: { slug: true } } } } },
-        });
-        return generations.map((generation) => ({
-            slug: generation.testPlan.testCase.slug,
-            status: generation.status,
-        }));
-    }
-
-    async queuedSlugs(branch: SeededBranch): Promise<string[]> {
-        const generations = await this.generationsOf(branch);
-        return generations.map((generation) => generation.slug).sort();
+    /** Re-verification is a pure selection: the run's snapshot must have no runs after it. */
+    async runCount(branch: SeededBranch): Promise<number> {
+        return await this.db.testGeneration.count({ where: { snapshotId: branch.runSnapshotId } });
     }
 
     private async testCaseFor(branch: SeededBranch, slug: string): Promise<string> {
@@ -187,13 +161,13 @@ integrationTestSuite({
     name: "reverifyOpenIssues (re-running the covering tests of a branch's open bugs)",
     createHarness: () => ReverifyHarness.create(),
     cases: (test) => {
-        test("queues one generation for every test an open bug issue covers", async ({ harness }) => {
+        test("selects every test an open bug issue covers, without starting a run", async ({ harness }) => {
             const branch = await harness.seedBranch();
             await harness.assign(branch, "checkout");
             await harness.assign(branch, "cart");
             await harness.assign(branch, "untouched-by-any-issue");
             // Carried across three runs, so each covering test has three findings attributed to it - the covered set
-            // is still the two tests, and each is queued once.
+            // is still the two tests, and each is selected once.
             await harness.seedIssue(branch, {
                 title: "Checkout total is wrong",
                 coveredSlugs: ["checkout", "cart"],
@@ -203,30 +177,10 @@ integrationTestSuite({
             const reverified = await harness.reverify(branch);
 
             expect(reverified.map((test) => test.slug).sort()).toEqual(["cart", "checkout"]);
-            // A pending generation is what makes each one a real investigation target rather than a silent write.
-            const generations = await harness.generationsOf(branch);
-            expect(generations.map((generation) => generation.slug).sort()).toEqual(["cart", "checkout"]);
-            expect(generations.every((generation) => generation.status === "pending")).toBe(true);
+            // A pure selection: the Investigator starts the runs, not this stage.
+            expect(await harness.runCount(branch)).toBe(0);
             // The classifier is told which open issue put the test in the run set.
             expect(reverified[0]?.reason).toContain("Checkout total is wrong");
-        });
-
-        test("skips the covering tests the run already targets, keeping the rest of the covered set", async ({
-            harness,
-        }) => {
-            const branch = await harness.seedBranch();
-            await harness.assign(branch, "checkout");
-            const cartPlanId = await harness.assign(branch, "cart");
-            await harness.seedIssue(branch, { title: "Checkout total is wrong", coveredSlugs: ["checkout", "cart"] });
-            // The diff selection got here first: `cart` already has this run's generation.
-            await harness.queueGeneration(branch, cartPlanId);
-
-            const reverified = await harness.reverify(branch);
-
-            // Re-queueing `cart` would delete the generation the diff selection is holding, so only `checkout` is
-            // added. The complete covered set still runs.
-            expect(reverified.map((test) => test.slug)).toEqual(["checkout"]);
-            expect(await harness.queuedSlugs(branch)).toEqual(["cart", "checkout"]);
         });
 
         test("drops a whole issue rather than re-verify it in part", async ({ harness }) => {
@@ -248,7 +202,6 @@ integrationTestSuite({
             // Not even the covering test that IS available: an issue is re-verified in full or not at all, so the
             // Reporter is never handed a fraction of one issue's evidence.
             expect(reverified).toEqual([]);
-            expect(await harness.queuedSlugs(branch)).toEqual([]);
         });
 
         test("re-verifies only open bug-kind issues", async ({ harness }) => {
@@ -277,10 +230,9 @@ integrationTestSuite({
             // Neither an environment nor a scenario problem is a claim about the application, so passing the covering
             // test would settle nothing.
             expect(reverified).toEqual([]);
-            expect(await harness.queuedSlugs(branch)).toEqual([]);
         });
 
-        test("queues one generation for a test two open issues share, naming both", async ({ harness }) => {
+        test("selects a test two open issues share once, naming both", async ({ harness }) => {
             const branch = await harness.seedBranch();
             await harness.assign(branch, "checkout");
             await harness.assign(branch, "cart");
@@ -290,7 +242,6 @@ integrationTestSuite({
             const reverified = await harness.reverify(branch);
 
             expect(reverified.map((test) => test.slug).sort()).toEqual(["cart", "checkout"]);
-            expect(await harness.queuedSlugs(branch)).toEqual(["cart", "checkout"]);
 
             const checkout = reverified.find((test) => test.slug === "checkout");
             expect(checkout?.reason).toContain("Checkout total is wrong");
@@ -302,7 +253,6 @@ integrationTestSuite({
             await harness.assign(branch, "checkout");
 
             expect(await harness.reverify(branch)).toEqual([]);
-            expect(await harness.queuedSlugs(branch)).toEqual([]);
         });
     },
 });

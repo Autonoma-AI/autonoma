@@ -19,7 +19,7 @@ import {
     summarizeVerdictPlanes,
 } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { fetchTestSuiteInfo } from "@autonoma/test-updates";
+import { TestSuiteStore } from "@autonoma/test-suite";
 import { ANALYSIS_VERDICT, analysisFindingSortKey, analysisVerdictSchema } from "@autonoma/types";
 import type { RunReporterInput, RunReporterOutput } from "@autonoma/workflow/activities";
 import { resolveRunTarget } from "../../codebase/run-target";
@@ -278,7 +278,7 @@ interface ScenarioContext {
  */
 async function loadScenarioContext(snapshotId: string, logger: Logger): Promise<ScenarioContext> {
     try {
-        const suiteInfo = await fetchTestSuiteInfo(db, snapshotId);
+        const suiteInfo = await new TestSuiteStore(db).read(snapshotId);
         const scenarioIds = collectScenarioIds(suiteInfo);
         if (scenarioIds.length === 0) return { index: [] };
 
@@ -311,7 +311,7 @@ async function loadScenarioContext(snapshotId: string, logger: Logger): Promise<
 }
 
 /** The distinct scenario ids the snapshot's suite references. */
-function collectScenarioIds(suiteInfo: Awaited<ReturnType<typeof fetchTestSuiteInfo>>): string[] {
+function collectScenarioIds(suiteInfo: Awaited<ReturnType<TestSuiteStore["read"]>>): string[] {
     const ids = new Set<string>();
     for (const testCase of suiteInfo.testCases) {
         const scenarioId = testCase.plan?.scenarioId;

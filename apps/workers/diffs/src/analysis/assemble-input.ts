@@ -1,7 +1,7 @@
 import { db } from "@autonoma/db";
 import { type DiffsAgentInput, resolveScenarioRecipesForSnapshot } from "@autonoma/diffs";
 import { logger } from "@autonoma/logger";
-import { type TestSuiteInfo, fetchTestSuiteInfo } from "@autonoma/test-updates";
+import { type Suite, TestSuiteStore } from "@autonoma/test-suite";
 import { createGithubApp } from "../create-services";
 import { type BranchData, loadBranchData, loadDiffsContext } from "./load-context";
 
@@ -78,18 +78,18 @@ export async function assembleDiffsAgentInput({
  * snapshot's pipeline rewrote it. Falls back to the snapshot's own suite when
  * there is no previous snapshot (a genesis snapshot has no baseline to recover).
  */
-async function loadBaselineSuiteInfo(snapshotId: string, prevSnapshotId: string | null): Promise<TestSuiteInfo> {
+async function loadBaselineSuiteInfo(snapshotId: string, prevSnapshotId: string | null): Promise<Suite> {
     if (prevSnapshotId == null) {
         logger.warn("Snapshot has no previous snapshot; falling back to its own suite as the baseline", {
             extra: { snapshotId },
         });
-        return fetchTestSuiteInfo(db, snapshotId);
+        return new TestSuiteStore(db).read(snapshotId);
     }
 
     logger.info("Using previous snapshot's suite as the analysis baseline", {
         extra: { snapshotId, prevSnapshotId },
     });
-    return fetchTestSuiteInfo(db, prevSnapshotId);
+    return new TestSuiteStore(db).read(prevSnapshotId);
 }
 
 /**
@@ -106,7 +106,7 @@ function resolveBaselineSnapshotId(snapshotId: string, prevSnapshotId: string | 
  * `scenarioId`, dropped by `mapTestSuiteToContext`), restricted to the in-scope
  * slugs.
  */
-function collectInScopeScenarioIds(suiteInfo: TestSuiteInfo, inScopeTests: ReadonlyArray<{ slug: string }>): string[] {
+function collectInScopeScenarioIds(suiteInfo: Suite, inScopeTests: ReadonlyArray<{ slug: string }>): string[] {
     const inScopeSlugs = new Set(inScopeTests.map((test) => test.slug));
     const scenarioIds = new Set<string>();
     for (const testCase of suiteInfo.testCases) {

@@ -1,6 +1,5 @@
 import { Agent, type AgentTool, type LanguageModel, type ModelMessage } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { PLAN_AUTHORING_GUIDE } from "@autonoma/test-updates";
 import type { Codebase } from "../../codebase";
 import type { DiffAnalysis, ExistingTestInfo, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
@@ -22,6 +21,7 @@ import type { AffectedTest } from "./affected-test";
 import { DiffsAgentLoop } from "./diffs-agent-loop";
 import { DIFFS_SYSTEM_PROMPT, buildDiffsUserPrompt } from "./diffs-prompt";
 import { DiffsResultTool } from "./diffs-result-tool";
+import { PLAN_AUTHORING_GUIDE } from "./plan-authoring-guide";
 import { CreateTestTool, type CreatedTest } from "./tools/create-test-tool";
 import { ExplainMergeConflictTool } from "./tools/explain-merge-conflict-tool";
 import { MarkAffectedTestTool } from "./tools/mark-affected-test-tool";

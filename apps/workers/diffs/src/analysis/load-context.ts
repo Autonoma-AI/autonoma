@@ -3,7 +3,7 @@ import type { DiffsAgentInput } from "@autonoma/diffs";
 import { FlowIndex, loadFlows, mapTestSuiteToContext } from "@autonoma/diffs";
 import type { GitHubApp } from "@autonoma/github";
 import { logger } from "@autonoma/logger";
-import type { TestSuiteInfo } from "@autonoma/test-updates";
+import type { Suite } from "@autonoma/test-suite";
 import { loadScenarioIndex } from "../load-scenario-index";
 
 /** The metadata pieces of {@link DiffsAgentInput} that load-context produces - everything except the codebase clone. */
@@ -64,7 +64,7 @@ export async function loadBranchData(branchId: string, githubApp: GitHubApp): Pr
 
 export async function loadDiffsContext(
     applicationId: string,
-    suiteInfo: TestSuiteInfo,
+    suiteInfo: Suite,
     headSha: string,
     baseSha: string,
 ): Promise<{ metadata: DiffsAgentMetadata }> {

@@ -14,6 +14,7 @@ import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impac
 import { runReporter as runReporterImpl } from "./analysis/run-reporter";
 import { selfHealAnalysisTest as selfHealAnalysisTestImpl } from "./analysis/self-heal-test";
 import { settleAnalysisRun as settleAnalysisRunImpl } from "./analysis/settle-analysis-run";
+import { startInvestigationRun as startInvestigationRunImpl } from "./analysis/start-investigation-run";
 import { classifyInvestigationRun as classifyImpl } from "./classify-run";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -51,10 +52,11 @@ export const runImpactAnalysis = withHeartbeat(runImpactAnalysisImpl);
 export const runReporter = withHeartbeat(runReporterImpl);
 export const settleAnalysisRun = withHeartbeat(settleAnalysisRunImpl);
 export const classifyInvestigationRun = withHeartbeat(classifyImpl);
-// The Investigator's own writes: its row-local self-heal plan rewrite (UpdateTest), the revert of that rewrite when
-// a `plan_mismatch` is kept (RevertPlan, no re-run), the removal of an irreparable test on `invalid_test`
-// (RemoveTest), and the append with which it files each iteration's classification. All fast, but heartbeat for
-// consistency with the other analysis activities.
+// The Investigator's own writes: the run it starts per iteration (startInvestigationRun), its row-local self-heal
+// plan rewrite (revisePlan), the revert of that rewrite when a `plan_mismatch` is kept (restorePlan, no re-run),
+// the removal of an irreparable test on `invalid_test` (dropTest), and the append with which it files each
+// iteration's classification. All fast, but heartbeat for consistency with the other analysis activities.
+export const startInvestigationRun = withHeartbeat(startInvestigationRunImpl);
 export const selfHealAnalysisTest = withHeartbeat(selfHealAnalysisTestImpl);
 export const revertSelfHealPlan = withHeartbeat(revertSelfHealPlanImpl);
 export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
@@ -66,6 +68,7 @@ export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassi
     openAnalysisRun,
     openMergeGate,
     runImpactAnalysis,
+    startInvestigationRun,
     classifyInvestigationRun,
     selfHealAnalysisTest,
     revertSelfHealPlan,

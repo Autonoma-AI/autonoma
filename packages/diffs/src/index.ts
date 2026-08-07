@@ -62,6 +62,12 @@ export {
     type ConflictVersion,
 } from "./merge-classification";
 export {
+    buildMergeClassifierRows,
+    type BuildMergeClassifierRowsParams,
+    type MergeClassifierRow,
+    type MergeClassifierSource,
+} from "./merge-classifier-rows";
+export {
     detectRelevantMerges,
     isBaseAncestorOfHead,
     listCommitsInRange,

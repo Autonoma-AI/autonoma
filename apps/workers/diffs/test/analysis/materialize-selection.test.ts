@@ -1,7 +1,6 @@
 import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
 import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
-import { logger as rootLogger } from "@autonoma/logger";
-import { TestSuiteUpdater } from "@autonoma/test-updates";
+import { type OpenSnapshot, TestSuiteStore } from "@autonoma/test-suite";
 import { expect } from "vitest";
 import { type AgentSelection, materializeSelection } from "../../src/analysis/materialize-selection";
 
@@ -10,13 +9,12 @@ declare global {
     var prisma: PrismaClient | undefined;
 }
 
-const logger = rootLogger.child({ name: "materializeSelection.test" });
-
 let seq = 0;
 const next = () => seq++;
 
 interface SeededSuite {
-    updater: TestSuiteUpdater;
+    snapshot: OpenSnapshot;
+    folderId: string;
     /** slug -> testCaseId for the tests the snapshot assigns, as the selection resolves them. */
     testCaseIdBySlug: Map<string, string>;
 }
@@ -76,73 +74,103 @@ class MaterializeHarness implements IntegrationHarness {
         const branch = await this.db.branch.create({
             data: { name: `feature/${n}`, applicationId: app.id, organizationId: org.id },
         });
-        const snapshot = await this.db.branchSnapshot.create({
+        const snapshotRow = await this.db.branchSnapshot.create({
             data: { branchId: branch.id, source: "GITHUB_PUSH", status: "processing" },
         });
+        await this.db.branch.update({ where: { id: branch.id }, data: { pendingSnapshotId: snapshotRow.id } });
         await this.db.testCaseAssignment.create({
-            data: { snapshotId: snapshot.id, testCaseId: testCase.id, planId: plan.id },
+            data: { snapshotId: snapshotRow.id, testCaseId: testCase.id, planId: plan.id },
         });
 
-        const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-            db: this.db,
-            snapshotId: snapshot.id,
-            organizationId: org.id,
-        });
-        return { updater, testCaseIdBySlug: new Map([[slug, testCase.id]]) };
+        const snapshot = await new TestSuiteStore(this.db).reopen(snapshotRow.id, { organizationId: org.id });
+        return { snapshot, folderId: folder.id, testCaseIdBySlug: new Map([[slug, testCase.id]]) };
     }
 }
 
 integrationTestSuite({
-    name: "materializeSelection (affected tests)",
+    name: "materializeSelection",
     createHarness: () => MaterializeHarness.create(),
     cases: (test) => {
-        test("queues one generation for an affected test the snapshot assigns", async ({ harness }) => {
-            const { updater, testCaseIdBySlug } = await harness.seedSuite("checkout");
+        test("targets an affected test without writing to the suite or starting a run", async ({ harness }) => {
+            const { snapshot, testCaseIdBySlug } = await harness.seedSuite("checkout");
             const agentResult = selection(testCaseIdBySlug, [
                 { slug: "checkout", reasoning: "checkout copy changed", affectedReason: "code_change" },
             ]);
 
-            const materialized = await materializeSelection({ updater, agentResult, logger });
+            const targets = await materializeSelection({ snapshot, agentResult });
 
-            expect(materialized).toHaveLength(1);
-            expect(materialized[0]?.origin).toBe("pre_existing");
+            expect(targets).toHaveLength(1);
+            expect(targets[0]).toMatchObject({
+                slug: "checkout",
+                testCaseId: testCaseIdBySlug.get("checkout"),
+                origin: "pre_existing",
+            });
+            // A target is a test: nothing is written for an affected test, and no run is started.
+            const runs = await harness.db.testGeneration.count({ where: { snapshotId: snapshot.snapshotId } });
+            expect(runs).toBe(0);
+            const plans = await harness.db.testPlan.count({
+                where: { testCaseId: testCaseIdBySlug.get("checkout") },
+            });
+            expect(plans).toBe(1);
         });
 
-        test("materializes a duplicated affected test once", async ({ harness }) => {
-            const { updater, testCaseIdBySlug } = await harness.seedSuite("checkout");
-            const agentResult = selection(testCaseIdBySlug, [
-                { slug: "checkout", reasoning: "first mark", affectedReason: "code_change" },
-                { slug: "checkout", reasoning: "second mark", affectedReason: "code_change" },
-            ]);
+        test("authors a created test onto the snapshot and targets it as proposed", async ({ harness }) => {
+            const { snapshot, folderId, testCaseIdBySlug } = await harness.seedSuite("checkout");
+            const agentResult: AgentSelection = {
+                reasoning: "new functionality",
+                affectedTests: [],
+                createdTests: [
+                    {
+                        name: "Refund flow",
+                        description: "A refund can be issued from the order page",
+                        plan: "Open the order page and issue a refund",
+                        folderName: "Flows",
+                    },
+                ],
+                flowFolderId: () => folderId,
+                testCaseIdBySlug,
+            };
 
-            const materialized = await materializeSelection({ updater, agentResult, logger });
+            const targets = await materializeSelection({ snapshot, agentResult });
 
-            // A second generation for one test case deletes the first, so the duplicate would strand a target.
-            expect(materialized).toHaveLength(1);
-            const generations = await harness.db.testGeneration.count({
-                where: { id: materialized[0]?.generationId },
+            expect(targets).toHaveLength(1);
+            expect(targets[0]?.origin).toBe("proposed");
+            const assignment = await harness.db.testCaseAssignment.findUnique({
+                where: {
+                    snapshotId_testCaseId: {
+                        snapshotId: snapshot.snapshotId,
+                        // biome-ignore lint/style/noNonNullAssertion: asserted above
+                        testCaseId: targets[0]!.testCaseId,
+                    },
+                },
+                select: { planId: true, testCase: { select: { slug: true, description: true } } },
             });
-            expect(generations).toBe(1);
+            expect(assignment?.planId).not.toBeNull();
+            expect(assignment?.testCase.slug).toBe(targets[0]?.slug);
+            expect(assignment?.testCase.description).toBe("A refund can be issued from the order page");
+            // Authoring never starts a run.
+            const runs = await harness.db.testGeneration.count({ where: { snapshotId: snapshot.snapshotId } });
+            expect(runs).toBe(0);
         });
 
         // The merge flow forwards a conflict whose slug the target snapshot never assigned (two merged sources adding
         // the same test with different plans). It reaches here unvalidated, and must not fail the whole main-branch run.
-        test("queues nothing for a conflicting test the snapshot does not assign", async ({ harness }) => {
-            const { updater, testCaseIdBySlug } = await harness.seedSuite("checkout");
+        test("targets nothing for a conflicting test the snapshot does not assign", async ({ harness }) => {
+            const { snapshot, testCaseIdBySlug } = await harness.seedSuite("checkout");
             const agentResult = selection(testCaseIdBySlug, [
                 { slug: "only-on-the-merged-branches", reasoning: "", affectedReason: "merge_conflict" },
             ]);
 
-            expect(await materializeSelection({ updater, agentResult, logger })).toEqual([]);
+            expect(await materializeSelection({ snapshot, agentResult })).toEqual([]);
         });
 
         test("fails for an agent-marked test the snapshot does not assign", async ({ harness }) => {
-            const { updater, testCaseIdBySlug } = await harness.seedSuite("checkout");
+            const { snapshot, testCaseIdBySlug } = await harness.seedSuite("checkout");
             const agentResult = selection(testCaseIdBySlug, [
                 { slug: "not-in-the-suite", reasoning: "invented", affectedReason: "code_change" },
             ]);
 
-            await expect(materializeSelection({ updater, agentResult, logger })).rejects.toThrow(
+            await expect(materializeSelection({ snapshot, agentResult })).rejects.toThrow(
                 /is not in snapshot .* suite/,
             );
         });
