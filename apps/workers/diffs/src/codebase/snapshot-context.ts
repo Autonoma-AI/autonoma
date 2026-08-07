@@ -92,25 +92,59 @@ export async function loadSnapshotMeta(snapshotId: string): Promise<SnapshotMeta
 
 /** Build authenticated GitHub access for metadata already loaded from the database. */
 export async function resolveGitHubAccess(meta: SnapshotMeta): Promise<GitHubAccess> {
-    const installation = await db.gitHubInstallation.findUniqueOrThrow({
-        where: { organizationId: meta.organizationId },
-    });
-    const githubClient = await getGithubApp().getInstallationClient(installation.installationId);
-    const repo = await githubClient.getRepository(meta.githubRepositoryId);
+    return resolveGitHubAccessFor(meta.organizationId, meta.githubRepositoryId);
+}
 
-    return {
-        repoFullName: repo.fullName,
-        githubClient,
-    };
+/** Build authenticated GitHub access from an org + repo id. */
+async function resolveGitHubAccessFor(organizationId: string, githubRepositoryId: number): Promise<GitHubAccess> {
+    const installation = await db.gitHubInstallation.findUniqueOrThrow({ where: { organizationId } });
+    const githubClient = await getGithubApp().getInstallationClient(installation.installationId);
+    const repo = await githubClient.getRepository(githubRepositoryId);
+    return { repoFullName: repo.fullName, githubClient };
+}
+
+interface CloneCoords {
+    headSha: string;
+    /** Also fetched into the clone so `git diff base..head` works. */
+    baseSha?: string;
+}
+
+/**
+ * Clone a repo into a fresh temp dir for one activity, hand it to `body`, and dispose on exit. The dir is unique
+ * per invocation (`mkdtemp`), not a deterministic path, so concurrent activities on one pod don't collide.
+ */
+async function withClone<T>(
+    github: GitHubAccess,
+    coords: CloneCoords,
+    targetDirSeed: string,
+    body: (codebase: Codebase) => Promise<T>,
+): Promise<T> {
+    const cloneDir = await mkdtemp(join(tmpdir(), `codebase-${targetDirSeed}-`));
+    try {
+        const codebase = await Codebase.clone(github.githubClient, cloneDir, {
+            repoName: github.repoFullName,
+            commitSha: coords.headSha,
+            baseSha: coords.baseSha,
+        });
+        try {
+            return await body(codebase);
+        } finally {
+            await codebase.dispose();
+        }
+    } catch (error) {
+        // dispose() only runs once Codebase.clone succeeds; on a clone failure this rm is what stops the dir leaking.
+        await rm(cloneDir, { recursive: true, force: true }).catch((rmError) => {
+            rootLogger.warn("Failed to remove analysis clone dir after failure", {
+                extra: { cloneDir, rmError },
+            });
+        });
+        throw error;
+    }
 }
 
 /**
  * Resolve + clone a snapshot's repo for the duration of one activity, exposing the SHAs and repo metadata
- * (which the diffs worker's withCodebaseForSnapshot keeps private), then dispose the clone on exit.
- *
- * The clone lands in a UNIQUE directory per invocation (`mkdtemp`), never a deterministic path, so several
- * activities can run per pod without colliding on the filesystem (`Codebase.clone` rimrafs its target first).
- * `targetDirSeed` only labels the temp dir for readability; uniqueness comes from `mkdtemp`.
+ * alongside the clone, then dispose it on exit.
  */
 export async function withSnapshotContext<T>(
     snapshotId: string,
@@ -119,29 +153,9 @@ export async function withSnapshotContext<T>(
 ): Promise<T> {
     const meta = await loadSnapshotMeta(snapshotId);
     const github = await resolveGitHubAccess(meta);
-    const cloneDir = await mkdtemp(join(tmpdir(), `codebase-${targetDirSeed}-`));
-
-    try {
-        const codebase = await Codebase.clone(github.githubClient, cloneDir, {
-            repoName: github.repoFullName,
-            commitSha: meta.headSha,
-            baseSha: meta.baseSha,
-        });
-        try {
-            return await body(buildSnapshotContext(meta, github, codebase));
-        } finally {
-            await codebase.dispose();
-        }
-    } catch (error) {
-        // Unconditional cleanup: if Codebase.clone throws, `dispose()` never runs and the empty mkdtemp dir
-        // would leak. `rm` with force is a no-op on the success/body-throw path (dispose already removed it).
-        await rm(cloneDir, { recursive: true, force: true }).catch((rmError) => {
-            rootLogger.warn("Failed to remove analysis clone dir after failure", {
-                extra: { cloneDir, rmError },
-            });
-        });
-        throw error;
-    }
+    return withClone(github, { headSha: meta.headSha, baseSha: meta.baseSha }, targetDirSeed, (codebase) =>
+        body(buildSnapshotContext(meta, github, codebase)),
+    );
 }
 
 function buildSnapshotContext(meta: SnapshotMeta, github: GitHubAccess, codebase: Codebase): SnapshotContext {

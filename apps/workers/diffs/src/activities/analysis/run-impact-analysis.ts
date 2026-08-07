@@ -3,7 +3,8 @@ import { assertSnapshotPending } from "@autonoma/diffs/analysis";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { RunImpactAnalysisInput, RunImpactAnalysisOutput } from "@autonoma/workflow/activities";
 import { selectImpactTargets } from "../../analysis/impact-analysis";
-import { withCodebaseForSnapshot } from "../../codebase/resolve";
+import { SnapshotDependencyManifestPinner } from "../../codebase/pin-dependency-manifest";
+import { withSnapshotContext } from "../../codebase/snapshot-context";
 
 /**
  * Impact Analysis stage. Fails fast unless the snapshot is `processing` (later stages read its frozen baseline
@@ -23,10 +24,13 @@ export async function runImpactAnalysis(input: RunImpactAnalysisInput): Promise<
     // snapshot fails immediately rather than deep in the clone + agent run.
     await assertSnapshotPending(db, snapshotId);
 
-    const selection = await withCodebaseForSnapshot(snapshotId, {
-        targetDirSeed: `impact-${snapshotId}`,
-        body: (codebase) => selectImpactTargets({ snapshotId, codebase }),
-    });
+    // Freeze the dependency manifest before any clone or agent reads code, so later stages ground against a
+    // snapshot immune to a redeploy landing mid-run.
+    await new SnapshotDependencyManifestPinner(db).ensurePinned(snapshotId);
+
+    const selection = await withSnapshotContext(snapshotId, `impact-${snapshotId}`, (context) =>
+        selectImpactTargets({ snapshotId, codebase: context.codebase }),
+    );
 
     logger.info("Impact Analysis stage finished", { extra: { targetCount: selection.targets.length } });
     return { targets: selection.targets, reasoning: selection.reasoning };

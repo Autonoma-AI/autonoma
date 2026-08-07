@@ -10,8 +10,8 @@ RUN corepack enable
 WORKDIR /app
 COPY . .
 
-# Codebase clones land in dynamically-seeded dirs under /tmp/codebase/<seed>
-# (apps/workers/diffs/src/codebase/resolve.ts). git's safe.directory takes exact
+# Codebase clones land in dynamically-created temp dirs under /tmp
+# (apps/workers/diffs/src/codebase/snapshot-context.ts, via mkdtemp). git's safe.directory takes exact
 # paths or "*", not a parent prefix, so trust all repos: the bash tool runs git as
 # root directly on these clones and reads this global config via HOME.
 RUN git config --global --add safe.directory '*'

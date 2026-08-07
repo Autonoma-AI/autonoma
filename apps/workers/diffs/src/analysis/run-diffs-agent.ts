@@ -18,7 +18,7 @@ interface RunDiffsAgentParams {
     snapshotId: string;
     /** Everything the DiffsAgent needs except the codebase clone (which the activity owns). */
     input: Omit<DiffsAgentInput, "codebase">;
-    /** The on-disk clone, acquired by the activity via `withCodebaseForSnapshot`. */
+    /** The on-disk clone, acquired by the activity via `withSnapshotContext`. */
     codebase: Codebase;
 }
 
