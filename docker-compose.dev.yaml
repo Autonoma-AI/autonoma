@@ -9,6 +9,10 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: autonoma
+      # postgres:18+ refuses to boot when /var/lib/postgresql/data is a mount
+      # point while PGDATA is the 18+ default (/var/lib/postgresql/18/docker).
+      # Point PGDATA inside the existing mount to satisfy the entrypoint check.
+      PGDATA: /var/lib/postgresql/data/pgdata
     ports:
       - "5432:5432"
     volumes:
@@ -49,7 +53,9 @@ services:
       postgresql:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "temporal", "operator", "cluster", "health"]
+      # The server binds the container IP, not loopback, so the CLI needs an
+      # explicit --address; without it it dials 127.0.0.1:7233 and is refused.
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "temporal:7233"]
       interval: 10s
       timeout: 5s
       retries: 10
