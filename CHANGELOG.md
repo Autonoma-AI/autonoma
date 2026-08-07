@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.260807.1](https://github.com/Autonoma-AI/agent/compare/v1.260806.2...v1.260807.1) (2026-08-07)
+
+
+### Features
+
+* **analysis:** freeze the classifier's preview env-var names ([#2184](https://github.com/Autonoma-AI/agent/issues/2184)) ([3ee59fc](https://github.com/Autonoma-AI/agent/commit/3ee59fca0909f26076d57f54697ad2b7a47dd5ef))
+* **api:** carry the browser's PostHog session id into server events ([#2235](https://github.com/Autonoma-AI/agent/issues/2235)) ([ed1af49](https://github.com/Autonoma-AI/agent/commit/ed1af49849dc112b6ed6d0456bd8fc6f8b765df8))
+* **cli:** make the test review pass visible in the TUI ([#2225](https://github.com/Autonoma-AI/agent/issues/2225)) ([41e43fb](https://github.com/Autonoma-AI/agent/commit/41e43fbd5b74b456fc031a0439a5518d1275abda))
+* **cli:** record the environment a run happened in, and dump it to a file ([#2278](https://github.com/Autonoma-AI/agent/issues/2278)) ([32ed8f0](https://github.com/Autonoma-AI/agent/commit/32ed8f0b21371f126af3eac47154ef79efda515d))
+* **cli:** stop asking questions that have only one answer ([#2223](https://github.com/Autonoma-AI/agent/issues/2223)) ([e41006b](https://github.com/Autonoma-AI/agent/commit/e41006b0be21171b3586a0ca06cf1a53bb8735bf))
+* **platform:** bake the CI runner AMI ([#2237](https://github.com/Autonoma-AI/agent/issues/2237)) ([cc9599b](https://github.com/Autonoma-AI/agent/commit/cc9599b5d903cff7a96ac715abd75e486b236bfe))
+* **platform:** build the self-hosted runner image, and let Tailscale reach the cluster ([#2221](https://github.com/Autonoma-AI/agent/issues/2221)) ([7a5f7a6](https://github.com/Autonoma-AI/agent/commit/7a5f7a64d27563caa4630e41eaf07f47d2fa9d37))
+* **ui:** hand SDK validation failures to a coding agent ([#2170](https://github.com/Autonoma-AI/agent/issues/2170)) ([f3fbd52](https://github.com/Autonoma-AI/agent/commit/f3fbd52891ffc3025bcc32e78c5d2fd0e99b9285))
+
+
+### Bug Fixes
+
+* **analysis:** never silently discard intended test work ([#2200](https://github.com/Autonoma-AI/agent/issues/2200)) ([4af66c7](https://github.com/Autonoma-AI/agent/commit/4af66c7fcc73167cc37949a9b3e5e2e7f3337bcb))
+* **analysis:** put Impact Analysis back on Gemini and let list_tests show intent ([#2249](https://github.com/Autonoma-AI/agent/issues/2249)) ([06d4444](https://github.com/Autonoma-AI/agent/commit/06d4444254774cb4709f37565c0a829e8df4e3d7))
+* **api:** drop the delete-generation endpoint ([#2271](https://github.com/Autonoma-AI/agent/issues/2271)) ([9544d45](https://github.com/Autonoma-AI/agent/commit/9544d451bb32d22594333da71651dbb298fc51fa))
+* **api:** let an explicit deploy request build without asking impact analysis ([#2244](https://github.com/Autonoma-AI/agent/issues/2244)) ([3da8bc2](https://github.com/Autonoma-AI/agent/commit/3da8bc239241634eed1eaf782935aa651b89368f))
+* **cli:** ask about autonomy once per run, not at every handoff ([#2294](https://github.com/Autonoma-AI/agent/issues/2294)) ([ed32f6b](https://github.com/Autonoma-AI/agent/commit/ed32f6b94d6b62fc4d3ca7dec01ba4a3606f5e58))
+* **cli:** blame the missing coding agent, not the missing recipe.json ([#2276](https://github.com/Autonoma-AI/agent/issues/2276)) ([27adeb6](https://github.com/Autonoma-AI/agent/commit/27adeb6c1714aa819cdcdfa05da88121bdd1301d))
+* **cli:** stop the TUI from leaking ~2.6 MB/s of short-lived Grid allocations ([#2226](https://github.com/Autonoma-AI/agent/issues/2226)) ([a29bead](https://github.com/Autonoma-AI/agent/commit/a29beadd9de462f616de091867d5c48e9c7b73cb))
+* **engine:** stop the generation persister from writing test-case assignments ([#2270](https://github.com/Autonoma-AI/agent/issues/2270)) ([66fd3d7](https://github.com/Autonoma-AI/agent/commit/66fd3d72d4a192a75e3f1d552f305214929111c5))
+* **previewkit:** do not judge a commit on a suite that does not exist yet ([#2245](https://github.com/Autonoma-AI/agent/issues/2245)) ([a3fe245](https://github.com/Autonoma-AI/agent/commit/a3fe245ede3835556095f7a0488ac6547f37fc98))
+* **ui:** attach the organization group to browser events ([#2234](https://github.com/Autonoma-AI/agent/issues/2234)) ([8732997](https://github.com/Autonoma-AI/agent/commit/8732997219430197e9c10ae9940dbf30d0340be8))
+* **ui:** give every route a pending and an error state ([#2131](https://github.com/Autonoma-AI/agent/issues/2131)) ([693c34b](https://github.com/Autonoma-AI/agent/commit/693c34b754a52bf85b5ee4edeb1739ddd64e8921))
+* **ui:** leave finish setup when the setup is actually finished ([#2293](https://github.com/Autonoma-AI/agent/issues/2293)) ([d3e9bbe](https://github.com/Autonoma-AI/agent/commit/d3e9bbef54304f1b19ee8ffdc6bb3455e725ceea))
+* **ui:** reach previewkit config in one click from a PR's Preview tab ([#2120](https://github.com/Autonoma-AI/agent/issues/2120)) ([60dae7c](https://github.com/Autonoma-AI/agent/commit/60dae7cb909126c135e6587b9eee60b36ea2dc81))
+
 ## [1.260806.2](https://github.com/Autonoma-AI/agent/compare/v1.260806.1...v1.260806.2) (2026-08-06)
 
 
