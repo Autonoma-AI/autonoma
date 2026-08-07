@@ -149,6 +149,18 @@ export const OrgBilling: Story = {
   args: { path: `/app/${baseApplication.slug}/settings/billing` },
 };
 
+/**
+ * The address billing used to live at, which still has to answer.
+ *
+ * Stripe builds every app-scoped checkout `success_url` as `/app/<slug>/billing`, so this is the screen a
+ * customer sees the moment after paying - and that URL is fixed at the provider on sessions already created,
+ * so it cannot be retired by changing the server. Rendering the billing destination here is the whole
+ * assertion: if the redirect ever goes, this story comes back as a not-found page.
+ */
+export const OrgBillingLegacyUrl: Story = {
+  args: { path: `/app/${baseApplication.slug}/billing` },
+};
+
 /** The GitHub App installation, split from the per-application repository row that now lives in General. */
 export const OrgGithub: Story = {
   parameters: { msw: { handlers: appShellHandlers(orgGithubFixtures) } },
