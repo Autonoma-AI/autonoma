@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.260807.2](https://github.com/Autonoma-AI/agent/compare/v1.260807.1...v1.260807.2) (2026-08-07)
+
+
+### Bug Fixes
+
+* **cli:** stop naming a command nobody has ([#2296](https://github.com/Autonoma-AI/agent/issues/2296)) ([d4979ce](https://github.com/Autonoma-AI/agent/commit/d4979ce5a2b0e9d20f06cc6bce67b0affddb33ae))
+
 ## [1.260807.1](https://github.com/Autonoma-AI/agent/compare/v1.260806.2...v1.260807.1) (2026-08-07)
 
 
