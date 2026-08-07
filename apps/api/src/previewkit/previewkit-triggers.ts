@@ -21,10 +21,7 @@ export interface PreviewkitTriggers {
     redeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
 }
 
-/**
- * The launcher is resolved per call because building it loads the in-cluster kubeconfig - deferring that keeps an
- * API with no preview infrastructure (dev, self-host) able to construct its triggers.
- */
+/** The preview lifecycle triggers - each launches a Kubernetes Job. */
 export function resolvePreviewkitTriggers(): PreviewkitTriggers {
     return {
         startAnalysisRun: triggerAnalysisRun,

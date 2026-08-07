@@ -1442,6 +1442,14 @@ model AiCostRecord {
   generationId            String?  @map("generation_id")
   runId                   String?  @map("run_id")
   investigationSnapshotId String?  @map("investigation_snapshot_id")
+
+  // Denormalized from whichever of generation/run/investigationSnapshot the row is
+  // tied to (itself resolved through branch -> application) - deliberately, so
+  // billing queries never need a multi-hop join to explain a charge. Set once at
+  // insert time from the same lookup the caller already did to log/persist the
+  // record, and never changes after.
+  organizationId String @map("organization_id")
+
   model                   String
   tag                     String
   inputTokens             Int      @map("input_tokens")
@@ -1462,6 +1470,7 @@ model AiCostRecord {
   @@index([generationId])
   @@index([runId])
   @@index([investigationSnapshotId])
+  @@index([organizationId])
   @@map("ai_cost_record")
 }
 
@@ -2304,6 +2313,33 @@ model PreviewkitUsageWindow {
   @@map("previewkit_usage_window")
 }
 
+// One row per PreviewkitAppBuild's compute usage. Buildkit jobs can't be measured
+// the way PreviewkitUsageWindow measures a running environment (cAdvisor doesn't
+// scrape buildkit nodes at all, and buildkitd escapes its container cgroup to
+// host-root anyway - see deployment/prometheus-agent/production.yaml). Instead this
+// derives vcpuSeconds/gbSeconds from the app build's own durationMs times the known,
+// fixed shape of its dedicated node (every buildkit Job gets its own node via hard
+// anti-affinity - see deployment/karpenter/node-pool/buildkit.yaml). Rows keep the
+// raw derived inputs, not a precomputed credit amount, same as PreviewkitUsageWindow.
+model PreviewkitAppBuildUsage {
+  id String @id @default(cuid())
+
+  appBuildId String              @unique @map("app_build_id")
+  appBuild   PreviewkitAppBuild  @relation(fields: [appBuildId], references: [id], onDelete: Cascade)
+
+  // Denormalized from the owning environment's organizationId, same rationale as
+  // PreviewkitUsageWindow.organizationId.
+  organizationId String @map("organization_id")
+
+  vcpuSeconds Float @map("vcpu_seconds")
+  gbSeconds   Float @map("gb_seconds")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([organizationId])
+  @@map("previewkit_app_build_usage")
+}
+
 // One row per app built within a PreviewkitBuild. Normalized out of what used
 // to be the `app_builds` JSON column so each app's outcome is a typed,
 // queryable row. Apps build independently, so one app's failure leaves the
@@ -2328,6 +2364,8 @@ model PreviewkitAppBuild {
   runtime    String?
 
   createdAt DateTime @default(now()) @map("created_at")
+
+  usage PreviewkitAppBuildUsage?
 
   @@unique([buildId, appName])
   @@map("previewkit_app_build")

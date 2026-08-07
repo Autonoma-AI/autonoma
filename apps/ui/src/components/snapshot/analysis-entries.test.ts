@@ -1,8 +1,8 @@
 import type { AnalysisClassificationSummary, AnalysisFindingView } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
 import { buildAnalysisSections } from "./analysis-entries";
-import type { SnapshotChange } from "./snapshot-types";
 import type { Section, TestEntry } from "./snapshot-entries";
+import type { SnapshotChange } from "./snapshot-types";
 
 const AFFECTED = { id: "tc-1", name: "checkout-flow.md", slug: "checkout-flow-md" };
 const PROPOSED = { id: "tc-2", name: "guest-checkout.md", slug: "guest-checkout-md" };

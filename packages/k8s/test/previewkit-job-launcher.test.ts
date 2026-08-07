@@ -94,8 +94,14 @@ class FakeConfigMaps implements ConfigMapReader {
 }
 
 const SECRETS_CMK = "arn:aws:kms:us-east-1:1:key/test";
+const GITHUB_APP_ID = "336934";
+const GITHUB_APP_PRIVATE_KEY_PEM = "-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY-----\n";
 
-function launcher(api: FakeJobsApi, cms: ConfigMapReader = new FakeConfigMaps(RUNNER_IMAGE)): PreviewkitJobLauncher {
+function launcher(
+    api: FakeJobsApi,
+    cms: ConfigMapReader = new FakeConfigMaps(RUNNER_IMAGE),
+    extra: Partial<{ githubAppId: string; githubAppPrivateKeyPem: string }> = {},
+): PreviewkitJobLauncher {
     return new PreviewkitJobLauncher({
         batchApi: api,
         coreApi: cms,
@@ -104,6 +110,7 @@ function launcher(api: FakeJobsApi, cms: ConfigMapReader = new FakeConfigMaps(RU
         databaseUrl: DATABASE_URL,
         sentryEnv: SENTRY_ENV,
         secretsCmk: SECRETS_CMK,
+        ...extra,
     });
 }
 
@@ -168,6 +175,28 @@ describe("PreviewkitJobLauncher.launchDeploy", () => {
         // that URL points at, so a runner pointed at beta's DB must not inherit the
         // production value from the shared previewkit-env-file secret.
         expect(c.env?.find((e) => e.name === "PREVIEWKIT_SECRETS_CMK")?.value).toBe(SECRETS_CMK);
+    });
+
+    it("injects this environment's own GitHub App, base64-re-encoding the PEM for the runner's env schema", async () => {
+        const api = new FakeJobsApi();
+        await launcher(api, undefined, {
+            githubAppId: GITHUB_APP_ID,
+            githubAppPrivateKeyPem: GITHUB_APP_PRIVATE_KEY_PEM,
+        }).launchDeploy(target);
+
+        const c = container(api.createdJobs[0] ?? ({} as V1Job));
+        expect(c.env?.find((e) => e.name === "GITHUB_APP_ID")?.value).toBe(GITHUB_APP_ID);
+        const injectedKey = c.env?.find((e) => e.name === "GITHUB_PRIVATE_KEY")?.value ?? "";
+        expect(Buffer.from(injectedKey, "base64").toString("utf8")).toBe(GITHUB_APP_PRIVATE_KEY_PEM);
+    });
+
+    it("omits GITHUB_APP_ID/GITHUB_PRIVATE_KEY when no App override is configured", async () => {
+        const api = new FakeJobsApi();
+        await launcher(api).launchDeploy(target);
+
+        const c = container(api.createdJobs[0] ?? ({} as V1Job));
+        expect(c.env?.find((e) => e.name === "GITHUB_APP_ID")).toBeUndefined();
+        expect(c.env?.find((e) => e.name === "GITHUB_PRIVATE_KEY")).toBeUndefined();
     });
 
     it("supersedes an in-flight deploy job (Background delete) before creating the new one", async () => {

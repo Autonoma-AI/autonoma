@@ -76,9 +76,7 @@ apiTestSuite({
             expect(health.hasEverRun).toBe(false);
         });
 
-        test("reports hasEverRun true once a run exists, even after it ages out of the window", async ({
-            harness,
-        }) => {
+        test("reports hasEverRun true once a run exists, even after it ages out of the window", async ({ harness }) => {
             const { applicationId, branchId } = await createApp(harness);
             // Far outside SUITE_HEALTH_WINDOW_DAYS, so `recentRuns` returns nothing: "no runs lately" must not be
             // reported as "never ran".

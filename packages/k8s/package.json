@@ -20,6 +20,7 @@
     },
     "dependencies": {
         "@autonoma/db": "workspace:*",
+        "@autonoma/github": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@aws-crypto/sha256-js": "^5.2.0",

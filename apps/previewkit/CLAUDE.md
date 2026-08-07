@@ -138,7 +138,12 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
 - `deployer/` - turns config into K8s objects: `deployer.ts`, `resource-factory.ts`
   (app Deployments/Services + hostnames; routing itself is the central Gatekeeper's, see below),
   `env-injector.ts` (`{{name.host}}` template resolution), `hook-job-runner.ts`, `pod-exec.ts`.
-- `db/index.ts` - all DB writes (`record*` functions) + the in-memory `AppBuildOutcome` type.
+- `db/index.ts` - all DB writes (`record*` functions) + the in-memory `AppBuildOutcome` type. `recordBuildFinished`
+  also records each app build's compute (`meterAppBuilds`): since buildkit nodes can't be measured via Prometheus
+  (excluded from the cAdvisor scrape, and buildkitd escapes its cgroup to host-root anyway) but every build gets
+  its own dedicated node of a known fixed shape, usage is derived from the app build's `durationMs` times that
+  shape (`computeAppBuildResourceUsage`, local to this file) and recorded to `PreviewkitAppBuildUsage` - measured
+  and explainable per org, but not yet wired to credit deduction (that's a deliberate follow-up).
 - `recipes/` - infra service recipes (postgres, redis, valkey, mongodb, upstash, api-gateway, docker-image, aws, temporal).
 - `git-provider/` - GitHub provider. The deploy/redeploy/teardown target shapes live in `@autonoma/types`;
   the runner keeps no mirror of them.

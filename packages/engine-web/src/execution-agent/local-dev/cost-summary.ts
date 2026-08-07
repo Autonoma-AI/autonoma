@@ -14,7 +14,7 @@ async function persistCostRecords(costCollector: CostCollector) {
     const records = costCollector.getRecords();
     if (records.length === 0) return;
 
-    const generation = await db.testGeneration.findFirst({ select: { id: true } });
+    const generation = await db.testGeneration.findFirst({ select: { id: true, organizationId: true } });
     if (generation == null) {
         logger.warn("No test generation found in DB - skipping cost record persistence");
         return;
@@ -23,6 +23,7 @@ async function persistCostRecords(costCollector: CostCollector) {
     await db.aiCostRecord.createMany({
         data: records.map((record) => ({
             generationId: generation.id,
+            organizationId: generation.organizationId,
             model: record.model,
             tag: record.tag,
             inputTokens: record.inputTokens,

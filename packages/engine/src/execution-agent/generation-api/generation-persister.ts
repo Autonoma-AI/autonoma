@@ -380,11 +380,17 @@ export class GenerationPersister<TSpec extends CommandSpec> {
     public async saveCostRecords(records: readonly CostRecord[]) {
         if (records.length === 0) return;
 
+        const { organizationId } = this;
+        if (organizationId == null) {
+            throw new Error("Organization not initialized - call markRunning() first");
+        }
+
         this.logger.info("Saving AI cost records", { count: records.length });
 
         await this.db.aiCostRecord.createMany({
             data: records.map((record) => ({
                 generationId: this.id,
+                organizationId,
                 model: record.model,
                 tag: record.tag,
                 inputTokens: record.inputTokens,

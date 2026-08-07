@@ -1,6 +1,6 @@
 import { ANALYSIS_VERDICT, type AnalysisFindingView } from "@autonoma/types";
-import type { SnapshotChange } from "./snapshot-types";
 import type { EntryCategory, Section, TestEntry } from "./snapshot-entries";
+import type { SnapshotChange } from "./snapshot-types";
 
 /**
  * Categorizes one test the analysis run investigated, straight from what the run recorded about it. `origin` says

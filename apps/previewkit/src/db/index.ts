@@ -3,7 +3,18 @@ import { encryptPreviewkitBypassToken } from "@autonoma/utils";
 import type { BuildRuntime } from "../builder/builder";
 import type { PreviewConfig } from "../config/schema";
 import { env } from "../env";
-import { logger as rootLogger } from "../logger";
+import { type Logger, logger as rootLogger } from "../logger";
+
+// Every buildkit build Job lands on its own dedicated node (hard anti-affinity -
+// see deployment/karpenter/node-pool/buildkit.yaml), from a fixed shape: m-family,
+// generations 6-8, size "xlarge" - 4 vCPU / 16 GB regardless of generation. cAdvisor
+// can't measure the build container itself (buildkitd escapes its cgroup to
+// host-root, and buildkit nodes are excluded from the cAdvisor scrape entirely for
+// cardinality - see deployment/prometheus-agent/production.yaml), but since the node
+// is exclusively that one build's for its whole lifetime, this fixed shape times the
+// build's real duration IS its real resource consumption.
+const BUILDKIT_NODE_VCPU_COUNT = 4;
+const BUILDKIT_NODE_MEMORY_GB = 16;
 
 export type PreviewkitStatus = "pending" | "building" | "deploying" | "ready" | "failed" | "superseded" | "torn_down";
 
@@ -222,7 +233,7 @@ export async function recordBuildFinished(input: BuildFinishedInput): Promise<vo
 
     const env = await db.previewkitEnvironment.findUnique({
         where: { namespace },
-        select: { id: true },
+        select: { id: true, organizationId: true },
     });
     if (env == null) {
         logger.warn("Build finished but no environment row found", { namespace });
@@ -235,7 +246,7 @@ export async function recordBuildFinished(input: BuildFinishedInput): Promise<vo
     // they're uniquely keyed by (buildId, appName) and a bare re-create would
     // conflict on retry.
     const appBuildRows = Object.entries(appBuilds).map(([appName, outcome]) => toAppBuildRow(appName, outcome));
-    await db.previewkitBuild.upsert({
+    const build = await db.previewkitBuild.upsert({
         where: { environmentId_headSha: { environmentId: env.id, headSha } },
         create: {
             environmentId: env.id,
@@ -253,7 +264,52 @@ export async function recordBuildFinished(input: BuildFinishedInput): Promise<vo
             error: error ?? null,
             appBuilds: { deleteMany: {}, create: appBuildRows },
         },
+        include: { appBuilds: true },
     });
+
+    await meterAppBuilds(build.appBuilds, env.organizationId, logger);
+}
+
+/**
+ * Records each app build's compute usage (see `computeAppBuildResourceUsage`) for
+ * later billing - not deducted yet, just measured and made explainable per org.
+ * Runs regardless of the app build's outcome (success or failed) since compute was
+ * consumed either way. Best-effort per app build: one failing to record must not
+ * block the others or the caller.
+ */
+async function meterAppBuilds(
+    appBuilds: Array<{ id: string; durationMs: number }>,
+    organizationId: string,
+    logger: Logger,
+): Promise<void> {
+    await Promise.all(
+        appBuilds.map(async (appBuild) => {
+            try {
+                const { vcpuSeconds, gbSeconds } = computeAppBuildResourceUsage(appBuild.durationMs);
+                await db.previewkitAppBuildUsage.upsert({
+                    where: { appBuildId: appBuild.id },
+                    create: { appBuildId: appBuild.id, organizationId, vcpuSeconds, gbSeconds },
+                    update: { vcpuSeconds, gbSeconds },
+                });
+            } catch (err) {
+                logger.error("Failed to record app build usage", { appBuildId: appBuild.id, organizationId, err });
+            }
+        }),
+    );
+}
+
+/**
+ * Derives an app build's vCPU-seconds/GB-seconds from its wall-clock duration and
+ * its dedicated buildkit node's known, fixed shape (see BUILDKIT_NODE_* above). Pure
+ * function of duration alone - no pricing lookup needed, since it describes measured
+ * resource consumption, not cost.
+ */
+function computeAppBuildResourceUsage(durationMs: number) {
+    const durationSeconds = durationMs / 1000;
+    return {
+        vcpuSeconds: durationSeconds * BUILDKIT_NODE_VCPU_COUNT,
+        gbSeconds: durationSeconds * BUILDKIT_NODE_MEMORY_GB,
+    };
 }
 
 /**

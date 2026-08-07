@@ -75,6 +75,17 @@ export interface PreviewkitJobLauncherOptions {
     databaseUrl: string;
     /** Per-Job for the same reason as `databaseUrl`: the key it names lives in the database that URL points at. */
     secretsCmk?: string;
+    /**
+     * This environment's own GitHub App (id + PEM private key, already decoded -
+     * this class re-encodes it to base64 for the wire), injected per-Job like
+     * `databaseUrl`. Without it, every runner falls back to the production
+     * GitHub App the shared `previewkit-env-file` secret carries, which has no
+     * installation on repos only a dev/alpha environment's own App was granted
+     * access to - deploys then fail cloning with a misleading "not installed"
+     * error even though the launching environment's own App connection is fine.
+     */
+    githubAppId?: string;
+    githubAppPrivateKeyPem?: string;
     /** From the launcher's own SENTRY_ENV, so runner errors are tagged with the env that launched them. */
     sentryEnv: string;
     /**
@@ -331,6 +342,18 @@ export class PreviewkitJobLauncher {
         ];
         if (this.options.secretsCmk != null) {
             runnerEnv.push({ name: "PREVIEWKIT_SECRETS_CMK", value: this.options.secretsCmk });
+        }
+        if (this.options.githubAppId != null) {
+            runnerEnv.push({ name: "GITHUB_APP_ID", value: this.options.githubAppId });
+        }
+        if (this.options.githubAppPrivateKeyPem != null) {
+            // The runner's own env schema expects base64-encoded PEM (see
+            // packages/github/src/schemas.ts base64PrivateKey) and decodes it at
+            // boot; re-encode the already-decoded PEM we were given to match.
+            runnerEnv.push({
+                name: "GITHUB_PRIVATE_KEY",
+                value: Buffer.from(this.options.githubAppPrivateKeyPem, "utf8").toString("base64"),
+            });
         }
 
         return {

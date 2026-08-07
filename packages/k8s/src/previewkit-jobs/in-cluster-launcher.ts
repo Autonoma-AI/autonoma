@@ -25,6 +25,11 @@ export function getInClusterPreviewkitJobLauncher(): PreviewkitJobLauncher {
         databaseUrl: env.DATABASE_URL,
         sentryEnv: env.SENTRY_ENV,
         secretsCmk: env.PREVIEWKIT_SECRETS_CMK,
+        // This env's own GitHub App (already used elsewhere, e.g. github-installation.service.ts), overriding the
+        // shared previewkit-env-file secret's production App so a runner clones with the App this environment
+        // actually has installed - see PreviewkitJobLauncherOptions.githubAppId for why.
+        githubAppId: env.GITHUB_APP_ID,
+        githubAppPrivateKeyPem: env.GITHUB_APP_PRIVATE_KEY,
     });
     logger.info("Previewkit job launcher initialized", {
         extra: { jobNamespace: PREVIEWKIT_JOB_NAMESPACE, imageNamespace: env.NAMESPACE },

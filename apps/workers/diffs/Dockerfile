@@ -17,6 +17,16 @@ COPY . .
 RUN git config --global --add safe.directory '*'
 
 RUN pnpm install --frozen-lockfile
+
+# Fails the build loudly if a workspace dependency didn't actually land in the image - the failure mode that has
+# twice reached production as a crash-looping pod instead: a stale build cache served a COPY . . layer that
+# predated @autonoma/billing, so pnpm install "succeeded" against a lockfile whose link target never arrived.
+# A filesystem check, not an import: importing the real module runs its env validation, which has nothing to do
+# with whether the workspace link resolved and legitimately fails without runtime secrets at build time. Checks
+# this app's own dependency (run-analysis.ts's generation credit gate), not packages/diffs's - that one no longer
+# depends on @autonoma/billing since AI-cost persistence there doesn't touch credits.
+RUN test -e apps/workers/diffs/node_modules/@autonoma/billing/src/index.ts
+
 RUN pnpm --filter @autonoma/worker-diffs run build
 
 ENV NODE_ENV=production

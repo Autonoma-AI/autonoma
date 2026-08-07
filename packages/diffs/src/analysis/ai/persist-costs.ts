@@ -4,7 +4,9 @@ import type { Logger } from "@autonoma/logger";
 
 /**
  * Persist an investigation activity's metered orchestration AI spend as `AiCostRecord` rows,
- * keyed on the (detached) investigation snapshot.
+ * keyed on the (detached) investigation snapshot and stamped with its resolved organization -
+ * measured and explainable per org, but not yet wired to credit deduction (that's a deliberate
+ * follow-up).
  *
  * Investigation orchestration calls (select/classify/diagnose/merge) are tied to neither a user
  * generation nor a run, so they hang off `investigationSnapshotId`. The workflow total is then
@@ -26,9 +28,12 @@ export async function persistInvestigationCosts(
         return;
     }
 
+    const organizationId = await resolveOrganizationId(db, snapshotId);
+
     await db.aiCostRecord.createMany({
         data: records.map((record) => ({
             investigationSnapshotId: snapshotId,
+            organizationId,
             model: record.model,
             tag: record.tag,
             inputTokens: record.inputTokens,
@@ -41,4 +46,12 @@ export async function persistInvestigationCosts(
 
     const costMicrodollars = records.reduce((sum, record) => sum + record.costMicrodollars, 0);
     logger.info("Persisted investigation AI costs", { extra: { count: records.length, costMicrodollars } });
+}
+
+async function resolveOrganizationId(db: PrismaClient, snapshotId: string): Promise<string> {
+    const snapshot = await db.branchSnapshot.findUniqueOrThrow({
+        where: { id: snapshotId },
+        select: { branch: { select: { application: { select: { organizationId: true } } } } },
+    });
+    return snapshot.branch.application.organizationId;
 }
