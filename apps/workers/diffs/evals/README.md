@@ -296,10 +296,10 @@ recomputed rather than read back, and **both are bounded to the classification's
 `createdAt`**, because the source behind each is mutable and a capture typically runs
 weeks after the classification it freezes:
 
-- **The prior-runs baseline.** Without that bound, runs recorded *after* the
-  classification leak into `everPassed` and `mostRecentSuccessDay` - the line deciding
-  whether the classifier may blame the PR at all - handing a replay a baseline the
-  original could never have seen.
+- **The prior-runs baseline** - the verdicts earlier analyses reached on this test.
+  Without that bound, runs analyzed *after* the classification leak into `everPassed` and
+  `mostRecentPassDay` - the line deciding whether the classifier may blame the PR at all -
+  handing a replay a baseline the original could never have seen.
 - **The preview's env-var names**, read through the same `PreviewEnvironment` production
   reads: the app's secret bundle unioned with the connection keys the PR's deployed
   config wires in. Unbounded, it would hand the replay a key that did not exist when

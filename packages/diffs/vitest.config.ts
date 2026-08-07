@@ -6,6 +6,7 @@ export default defineConfig({
     test: {
         include: ["test/**/*.test.ts"],
         exclude: ["**/dist/**", "**/node_modules/**"],
+        globalSetup: ["./test/global-setup.ts"],
         // TESTING=true makes packages/db/src/env.ts skip its DATABASE_URL validation at
         // import (createClient/applyMigrations take an explicit connection string instead).
         env: { ...config({ path: join(__dirname, "../../.env") }).parsed, TESTING: "true" },

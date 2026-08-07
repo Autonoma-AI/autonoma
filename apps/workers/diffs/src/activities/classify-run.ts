@@ -208,7 +208,14 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             // One instance in both slots - it satisfies each capability, so both tools are registered.
             previewEnv: preview,
             previewScript: preview,
-            loadBaseline: async () => PriorRuns.formatBaseline(await priorRuns.getHistory(context.applicationId, slug)),
+            loadBaseline: async () =>
+                PriorRuns.formatBaseline(
+                    await priorRuns.getHistory({
+                        applicationId: context.applicationId,
+                        testSlug: slug,
+                        currentSnapshotId: snapshotId,
+                    }),
+                ),
             loadAppLogs,
         });
 

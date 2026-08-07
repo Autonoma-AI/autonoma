@@ -44,7 +44,7 @@ export interface CaptureClassifierParams {
  * Everything the classifier reasons from is reassembled through the SAME helpers the production activity uses,
  * so a frozen case cannot quietly diverge from what production classified. Three things capture computes rather
  * than reads. Two are bounded to the classification's own timestamp because the source behind them is mutable:
- * the prior-runs baseline, so runs recorded afterwards cannot leak into it, and the preview's env-var names, so a
+ * the prior-runs baseline, so runs analyzed afterwards cannot leak into it, and the preview's env-var names, so a
  * secret stored afterwards cannot read as configured on a run that saw it absent. The third is the app-log
  * window, frozen unfiltered because the filter production used was the model's own and is not knowable here.
  */
@@ -98,7 +98,12 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
     // The two mutable sources, reconstructed as of the same instant and read together - neither needs the other.
     const priorRuns = new PriorRuns(db);
     const [history, preview] = await Promise.all([
-        priorRuns.getHistory(meta.applicationId, slug, classification.createdAt),
+        priorRuns.getHistory({
+            applicationId: meta.applicationId,
+            testSlug: slug,
+            currentSnapshotId: snapshotId,
+            before: classification.createdAt,
+        }),
         freezePreviewFacts(github.repoFullName, target.prNumber, meta.applicationId, classification.createdAt, logger),
     ]);
     const baseline = PriorRuns.formatBaseline(history);

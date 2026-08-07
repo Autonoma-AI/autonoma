@@ -21,7 +21,7 @@ export class PriorRunsTool extends AgentTool<Record<string, never>, string> {
         super({
             name: "prior_runs",
             description:
-                "The prior run history for THIS test (most recent first, across branches): has it EVER passed, when last, and the recent pass/fail pattern. CALL THIS FIRST - it sets your baseline. A prior pass proves the test+scenario were valid then; never having passed means the test/scenario may be broken from genesis - do not blame the PR. " +
+                "The verdicts earlier analyses reached on THIS test (most recent first, across branches): has it EVER been judged `passed`, when last, and the recent verdict pattern. CALL THIS FIRST - it sets your baseline. A prior pass proves the test+scenario were valid then; never having passed means the test/scenario may be broken from genesis - do not blame the PR. " +
                 `Output is capped at ${MAX_CHARS} characters (oldest history is elided first).`,
             inputSchema: z.object({}),
         });
