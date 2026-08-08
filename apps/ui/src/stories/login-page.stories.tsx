@@ -18,7 +18,7 @@ const meta = {
   parameters: {
     pageStory: true,
     msw: {
-      handlers: [trpcHandler({ auth: { socialProviders: ["google", "github"] } }), ...authHandlers({})],
+      handlers: [trpcHandler({ auth: { socialProviders: ["google", "github", "microsoft"] } }), ...authHandlers({})],
     },
   },
 } satisfies Meta<typeof PageStory>;

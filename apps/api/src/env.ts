@@ -85,6 +85,19 @@ export const env = createEnv({
         GITHUB_CLIENT_ID: z.string().min(1).optional(),
         GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
 
+        // Credentials of the Microsoft Entra ID app backing Microsoft sign-in. Optional
+        // on the same terms as GitHub: the provider is registered only when both are
+        // set, so an environment without them boots without the button.
+        MICROSOFT_CLIENT_ID: z.string().min(1).optional(),
+        MICROSOFT_CLIENT_SECRET: z.string().min(1).optional(),
+        // Which Entra directory may sign in. "organizations" accepts work and school
+        // accounts from any tenant and REJECTS personal Microsoft accounts - deliberate,
+        // because an @outlook.com or @hotmail.com address is not currently treated as a
+        // personal domain (only gmail.com is), so it would be auto-joined into an
+        // organization keyed on that shared domain. Better-auth's own default is
+        // "common", which does admit those accounts. Set a tenant id to restrict further.
+        MICROSOFT_TENANT_ID: z.string().optional().default("organizations"),
+
         // The ONE origin whose OAuth callback is registered with Google/GitHub, for the
         // whole fleet. Every environment sets the same value; the environment whose own
         // APP_URL matches it (production) skips proxying, and the rest route their

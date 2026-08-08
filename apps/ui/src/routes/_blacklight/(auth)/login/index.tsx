@@ -3,6 +3,7 @@ import { LAST_SOCIAL_PROVIDER_COOKIE, isPreviewHostname } from "@autonoma/types"
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { createFileRoute } from "@tanstack/react-router";
 import { Google } from "components/icons/google";
+import { Microsoft } from "components/icons/microsoft";
 import { env } from "env";
 import { useAuthClient } from "lib/auth";
 import { absoluteRedirectUrl } from "lib/auth-redirect";
@@ -40,7 +41,34 @@ interface SocialProviderPresentation {
 const SOCIAL_PROVIDER_PRESENTATION: Record<SocialProvider, SocialProviderPresentation> = {
   google: { label: "Continue with Google", icon: <Google /> },
   github: { label: "Continue with GitHub", icon: <GithubLogoIcon weight="fill" className="size-4" /> },
+  microsoft: { label: "Continue with Microsoft", icon: <Microsoft /> },
 };
+
+const LAST_SOCIAL_PROVIDER_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+
+/**
+ * Remember the provider on the way out, from the browser.
+ *
+ * The API cannot do this. On beta and on every alpha the sign-in is proxied: production
+ * completes the exchange and hands the profile back, so the session is minted at
+ * `/oauth-proxy-callback` rather than `/callback/:id`, and an auth hook keyed on the
+ * callback route never runs there. Recording it at the click happens on the originating
+ * origin, before any redirect, so it behaves identically everywhere.
+ *
+ * Host-scoped on purpose - no `domain` attribute. Scoping it to `.autonoma.app` would
+ * share one value across production, beta and every alpha, so an alpha would show you
+ * whichever provider you last used on production.
+ *
+ * The trade is that this records the last provider *attempted* rather than the last one
+ * that succeeded. Worth it: the previous version recorded the truth and then failed to
+ * store it anywhere the proxied environments could read.
+ */
+function rememberProvider(provider: SocialProvider) {
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie =
+    `${LAST_SOCIAL_PROVIDER_COOKIE}=${provider}; path=/; ` +
+    `max-age=${LAST_SOCIAL_PROVIDER_MAX_AGE_SECONDS}; SameSite=Lax${secure}`;
+}
 
 /**
  * The provider this browser last signed in with, if it is one we still offer. Steering a
@@ -80,6 +108,7 @@ function useSocialSignIn() {
 
   const signIn = async (provider: SocialProvider) => {
     setPendingProvider(provider);
+    rememberProvider(provider);
     try {
       const { error } = await authClient.signIn.social({
         provider,

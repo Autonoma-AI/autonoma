@@ -1,7 +1,7 @@
 import { ensureBillingProvisioning } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
-import { LAST_SOCIAL_PROVIDER_COOKIE, isPreviewOrigin } from "@autonoma/types";
+import { isPreviewOrigin } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
 import { apiKey } from "@better-auth/api-key";
 import { redisStorage } from "@better-auth/redis-storage";
@@ -206,6 +206,18 @@ async function ensureOrgMembership(
     email: string,
     displayName?: string,
 ): Promise<OrgMembershipResult> {
+    // A blank email would key the org below on an empty domain, upserting everyone who
+    // ever arrives without one into a single shared organization - as its owner. Entra
+    // is the realistic source: it does not emit an `email` claim for managed users by
+    // default. Fail the sign-in instead; a provider that cannot say who someone is has
+    // not identified them.
+    if (email.trim() === "") {
+        logger.error("Refusing to resolve an organization for a blank email", { extra: { userId } });
+        throw new APIError("BAD_REQUEST", {
+            message: "Your account did not provide an email address, which is required to sign in.",
+        });
+    }
+
     const existing = await conn.member.findFirst({
         where: { userId },
         select: {
@@ -300,22 +312,8 @@ async function resolveSessionOrg(
     return ensureOrgMembership(conn, userId, email, name);
 }
 
-const SOCIAL_PROVIDER_IDS = ["google", "github"] as const;
+const SOCIAL_PROVIDER_IDS = ["google", "github", "microsoft"] as const;
 export type SocialProviderId = (typeof SOCIAL_PROVIDER_IDS)[number];
-const SOCIAL_PROVIDER_ID_SET: ReadonlySet<string> = new Set(SOCIAL_PROVIDER_IDS);
-
-function isSocialProviderId(value: string): value is SocialProviderId {
-    return SOCIAL_PROVIDER_ID_SET.has(value);
-}
-
-/**
- * How long the last-used-provider hint survives. A year, because the whole point is to
- * still be there for someone who signs in twice a year: a GitHub account whose primary
- * email differs from the Google one is a different user to better-auth, and our
- * user-create hook then builds them a second organization.
- */
-const LAST_SOCIAL_PROVIDER_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
-
 interface GithubProviderConfig {
     clientId: string;
     clientSecret: string;
@@ -336,14 +334,37 @@ function githubProvider(): GithubProviderConfig | undefined {
     return { clientId, clientSecret };
 }
 
-// Resolved once: githubProvider() logs when it finds nothing, and betterAuth and
+interface MicrosoftProviderConfig {
+    clientId: string;
+    clientSecret: string;
+    tenantId: string;
+}
+
+/**
+ * Microsoft Entra ID credentials, or undefined where they aren't provisioned. Same
+ * contract as {@link githubProvider}: better-auth skips a provider whose config is
+ * undefined, and the login page hides the button to match.
+ */
+function microsoftProvider(): MicrosoftProviderConfig | undefined {
+    const clientId = env.MICROSOFT_CLIENT_ID;
+    const clientSecret = env.MICROSOFT_CLIENT_SECRET;
+    if (clientId == null || clientSecret == null) {
+        logger.info("Microsoft OAuth credentials not configured - Microsoft sign-in is disabled");
+        return undefined;
+    }
+    return { clientId, clientSecret, tenantId: env.MICROSOFT_TENANT_ID };
+}
+
+// Resolved once: each builder logs when it finds nothing, and betterAuth and
 // ENABLED_SOCIAL_PROVIDERS must be built from the same answer.
 const GITHUB_PROVIDER = githubProvider();
+const MICROSOFT_PROVIDER = microsoftProvider();
 
 function resolveEnabledSocialProviders(): SocialProviderId[] {
     // Google's credentials are required by env validation, so it is always available.
     const providers: SocialProviderId[] = ["google"];
     if (GITHUB_PROVIDER != null) providers.push("github");
+    if (MICROSOFT_PROVIDER != null) providers.push("microsoft");
     return providers;
 }
 
@@ -357,6 +378,7 @@ export const ENABLED_SOCIAL_PROVIDERS: readonly SocialProviderId[] = resolveEnab
 
 const SOCIAL_PROVIDER_LABELS: Record<SocialProviderId, string> = {
     google: "Google",
+    microsoft: "Microsoft",
     github: "GitHub",
 };
 
@@ -449,24 +471,6 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
                     message: `Password sign-in is not available for this account. Use ${formatEnabledSocialProviders()} sign-in instead.`,
                 });
             }),
-            // Reaching here on an OAuth callback means the sign-in succeeded: better-auth
-            // surfaces a failed callback by throwing a redirect, which skips this hook.
-            after: createAuthMiddleware(async (ctx) => {
-                const provider = resolveAuthProvider(ctx.path, readProviderParam(ctx.params));
-                if (!isSocialProviderId(provider)) return;
-
-                ctx.setCookie(LAST_SOCIAL_PROVIDER_COOKIE, provider, {
-                    maxAge: LAST_SOCIAL_PROVIDER_COOKIE_MAX_AGE_SECONDS,
-                    path: "/",
-                    sameSite: "lax",
-                    httpOnly: false,
-                    secure: isProduction,
-                    // Matches the session cookie's scope so the hint survives the hop
-                    // between app subdomains, and is simply absent off production.
-                    domain: isProduction ? `.${env.INTERNAL_DOMAIN}` : undefined,
-                });
-                logger.info("Recorded last social provider", { extra: { provider } });
-            }),
         },
         user: {
             additionalFields: {
@@ -534,6 +538,7 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
                 },
             },
             github: GITHUB_PROVIDER,
+            microsoft: MICROSOFT_PROVIDER,
         },
         databaseHooks: {
             user: {
