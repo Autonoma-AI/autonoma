@@ -1,31 +1,7 @@
 import { type Logger, logger } from "@autonoma/logger";
 import { Resend } from "resend";
-import { LOGO_LARGE_BASE64 } from "./assets/logo-large-base64";
+import { BRAND, FONT_FAMILY, LOGO_ATTACHMENT, escapeHtml, renderBrandedEmail } from "../email/brand";
 import type { ChannelResult } from "./signup-hooks";
-
-const FONT_FAMILY = "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
-const WEBSITE_URL = "https://www.getautonoma.com";
-const BRAND = {
-    background: "#050505",
-    surface: "#141414",
-    surfaceRaised: "#1A1A1A",
-    border: "#2A2A2A",
-    borderStrong: "#333333",
-    text: "#EDEDED",
-    muted: "#888888",
-    accent: "#C2E812",
-    accentForeground: "#050505",
-} as const;
-const LOGO_CID = "autonoma-logo";
-
-function escapeHtml(value: string): string {
-    return value
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
-}
 
 export class ResendOnboardingService {
     private readonly logger: Logger;
@@ -65,13 +41,7 @@ export class ResendOnboardingService {
             to: params.email,
             subject: "Welcome to Autonoma - Book your free onboarding session",
             html: this.buildWelcomeEmailHtml(params.userName, params.channelResult),
-            attachments: [
-                {
-                    content: LOGO_LARGE_BASE64,
-                    filename: "logo-large.png",
-                    contentId: LOGO_CID,
-                },
-            ],
+            attachments: [LOGO_ATTACHMENT],
         });
 
         this.logger.info("Welcome email sent", { email: params.email });
@@ -89,44 +59,11 @@ export class ResendOnboardingService {
                         <p style="color: ${BRAND.text}; font-size: 15px; line-height: 24px; margin: 0; font-family: ${FONT_FAMILY};">Environment setup, test coverage guidance, and a direct walkthrough of your first successful Autonoma runs.</p>
                     </div>`;
 
-        return `<!DOCTYPE html>
-<html lang="en" dir="ltr">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="color-scheme" content="dark">
-    <meta name="supported-color-schemes" content="dark">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous">
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
-</head>
-<body style="background-color: ${BRAND.background}; font-family: ${FONT_FAMILY}; margin: 0; padding: 32px 16px;">
-    <div style="width: 100%; max-width: 600px; margin: 0 auto;">
-        <div style="background-color: ${BRAND.surface}; border: 1px solid ${BRAND.border};">
-            <div style="height: 4px; background-color: ${BRAND.accent};"></div>
-
-            <div style="padding: 28px 32px; border-bottom: 1px solid ${BRAND.border};">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                    <tr>
-                        <td valign="middle">
-                            <img src="cid:${LOGO_CID}" alt="Autonoma logo" width="180" style="display: block; width: 180px; max-width: 100%; height: auto;">
-                        </td>
-                        <td align="right" valign="middle">
-                            <a href="${WEBSITE_URL}" style="color: ${BRAND.text}; text-decoration: none; font-size: 11px; font-weight: 500; letter-spacing: 0.12em; font-family: ${FONT_FAMILY}; text-transform: uppercase; white-space: nowrap;">Visit website</a>
-                        </td>
-                    </tr>
-                </table>
-            </div>
-
-            <div style="padding: 40px 32px 20px 32px; background-color: ${BRAND.surface};">
-                <p style="color: ${BRAND.accent}; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; margin: 0 0 16px 0; font-family: ${FONT_FAMILY};">Onboarding</p>
-                <h1 style="color: ${BRAND.text}; font-size: 34px; line-height: 1.15; font-weight: 700; margin: 0 0 16px 0; font-family: ${FONT_FAMILY};">Welcome to Autonoma</h1>
-                <p style="color: ${BRAND.muted}; font-size: 16px; line-height: 26px; margin: 0; font-family: ${FONT_FAMILY};">Let's get your team set up to run end-to-end testing with real browsers and devices.</p>
-            </div>
-
-            <div style="padding: 20px 32px 40px 32px;">
-                <div style="background-color: ${BRAND.surfaceRaised}; border: 1px solid ${BRAND.border}; padding: 28px;">
-                    <p style="color: ${BRAND.text}; font-size: 18px; font-weight: 600; margin: 0 0 20px 0; font-family: ${FONT_FAMILY}; line-height: 1.5;">Hi ${safeUserName}, thanks for signing up.</p>
+        return renderBrandedEmail({
+            eyebrow: "Onboarding",
+            heading: "Welcome to Autonoma",
+            subheading: "Let's get your team set up to run end-to-end testing with real browsers and devices.",
+            contentHtml: `                    <p style="color: ${BRAND.text}; font-size: 18px; font-weight: 600; margin: 0 0 20px 0; font-family: ${FONT_FAMILY}; line-height: 1.5;">Hi ${safeUserName}, thanks for signing up.</p>
 
                     <p style="color: ${BRAND.text}; font-size: 16px; line-height: 26px; margin: 0 0 16px 0; font-family: ${FONT_FAMILY};">We're excited to help you automate your end-to-end testing. To get the most out of Autonoma, we'd love to offer you a free onboarding session with our team.</p>
 
@@ -140,13 +77,8 @@ export class ResendOnboardingService {
 
                     ${communitySection}
 
-                    <p style="color: ${BRAND.muted}; font-size: 14px; margin: 28px 0 0 0; font-family: ${FONT_FAMILY}; line-height: 22px;">If you have any questions in the meantime, just reply to this email.</p>
-                </div>
-            </div>
-        </div>
-    </div>
-</body>
-</html>`;
+                    <p style="color: ${BRAND.muted}; font-size: 14px; margin: 28px 0 0 0; font-family: ${FONT_FAMILY}; line-height: 22px;">If you have any questions in the meantime, just reply to this email.</p>`,
+        });
     }
 
     private buildCommunitySection(channelResult?: ChannelResult): string {

@@ -15,7 +15,7 @@ import { ensureAPIQueryData } from "lib/query/api-queries";
 import { useTriggerConfig, useUpdateTriggerConfig } from "lib/query/github.queries";
 import { trpc } from "lib/trpc";
 import { Suspense, useState } from "react";
-import { isSettingsEntryVisible } from "../-settings-rail";
+import { isSettingsEntryVisible, toSettingsVisibility } from "../-settings-rail";
 import { useCurrentApplication } from "../../../-use-current-application";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/settings/triggers/")({
@@ -23,7 +23,7 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/setti
   // so both gates read from one definition rather than each restating what the merge gate means.
   loader: async ({ context, params: { appSlug } }) => {
     const activeOrg = await ensureAPIQueryData(context.queryClient, trpc.auth.activeOrg.queryOptions());
-    if (!isSettingsEntryVisible("triggers", activeOrg?.mergeGateEnabled ?? false)) {
+    if (!isSettingsEntryVisible("triggers", toSettingsVisibility(activeOrg))) {
       throw redirect({ to: "/app/$appSlug/settings", params: { appSlug } });
     }
   },

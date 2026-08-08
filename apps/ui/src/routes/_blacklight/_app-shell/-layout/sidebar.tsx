@@ -15,12 +15,13 @@ import { SignOutIcon } from "@phosphor-icons/react/SignOut";
 import { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useParams, useRouteContext } from "@tanstack/react-router";
+import { OrgSwitcher } from "components/org-switcher";
 import { useAuth, useAuthClient } from "lib/auth";
 import { CHECKOUT_TYPE_SUBSCRIPTION } from "lib/billing/formatters";
 import { useOnboardingStateOptional } from "lib/onboarding/onboarding-api";
 import { useCreateCheckoutSession } from "lib/query/billing.queries";
 import { trpc } from "lib/trpc";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { SidebarAppSelector } from "./app-selector";
 import { SidebarSuiteHealth } from "./sidebar-suite-health";
 
@@ -261,9 +262,15 @@ function Sidebar({ collapsed, onToggleCollapsed, onFeedback }: SidebarProps) {
         <div className={`flex items-center ${collapsed ? "justify-center" : "justify-between gap-2"}`}>
           {!collapsed && (
             <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate font-mono text-3xs uppercase tracking-widest text-text-tertiary">
-                {activeOrganization.name}
-              </span>
+              <Suspense
+                fallback={
+                  <span className="truncate font-mono text-3xs uppercase tracking-widest text-text-secondary">
+                    {activeOrganization.name}
+                  </span>
+                }
+              >
+                <OrgSwitcher activeOrganizationName={activeOrganization.name} />
+              </Suspense>
             </div>
           )}
           <Tooltip>

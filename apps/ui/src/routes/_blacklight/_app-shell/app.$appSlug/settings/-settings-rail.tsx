@@ -7,10 +7,11 @@ import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { KeyIcon } from "@phosphor-icons/react/Key";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
+import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
 import { Link } from "@tanstack/react-router";
 import { useActiveOrg } from "lib/query/auth.queries";
 
-type SettingsEntryId = "general" | "triggers" | "scenarios" | "previews" | "billing" | "api-keys" | "github";
+type SettingsEntryId = "general" | "triggers" | "scenarios" | "previews" | "billing" | "api-keys" | "github" | "users";
 
 /**
  * Entries carry a description, not just a label, because the failure this rail replaces was people not
@@ -58,6 +59,14 @@ const APPLICATION_ENTRIES = [
 
 const ORGANIZATION_ENTRIES = [
   {
+    id: "users",
+    label: "Members",
+    description: "Who can see and change these applications",
+    icon: UsersThreeIcon,
+    to: "/app/$appSlug/settings/users",
+    exact: false,
+  },
+  {
     id: "billing",
     label: "Billing",
     description: "Credits, plan and top-ups",
@@ -93,26 +102,56 @@ interface SettingsEntry {
 }
 
 /** Entries hidden unless the org is in the merge-gate program. */
-const GATED_ENTRY_IDS: ReadonlySet<SettingsEntryId> = new Set(["triggers"]);
+const MERGE_GATE_ENTRY_IDS: ReadonlySet<SettingsEntryId> = new Set(["triggers"]);
 
-export function isSettingsEntryVisible(id: SettingsEntryId, mergeGateEnabled: boolean): boolean {
-  return mergeGateEnabled || !GATED_ENTRY_IDS.has(id);
+/**
+ * Entries hidden unless the org can actually have members invited into it. An org anyone joins by
+ * matching email domain grows on its own, so a Members page there would offer a button whose only
+ * outcome is an error explaining that invitations are unnecessary.
+ */
+const INVITE_ENTRY_IDS: ReadonlySet<SettingsEntryId> = new Set(["users"]);
+
+interface SettingsVisibility {
+  mergeGateEnabled: boolean;
+  invitesEnabled: boolean;
+}
+
+/**
+ * Normalizes `auth.activeOrg` into the flags the predicate needs, so the rail and each gated
+ * destination's loader cannot disagree about what an absent org means (it means "hide").
+ */
+export function toSettingsVisibility(
+  activeOrg: { mergeGateEnabled: boolean; invitesEnabled: boolean } | undefined,
+): SettingsVisibility {
+  return {
+    mergeGateEnabled: activeOrg?.mergeGateEnabled ?? false,
+    invitesEnabled: activeOrg?.invitesEnabled ?? false,
+  };
+}
+
+export function isSettingsEntryVisible(
+  id: SettingsEntryId,
+  { mergeGateEnabled, invitesEnabled }: SettingsVisibility,
+): boolean {
+  if (MERGE_GATE_ENTRY_IDS.has(id)) return mergeGateEnabled;
+  if (INVITE_ENTRY_IDS.has(id)) return invitesEnabled;
+  return true;
 }
 
 export function SettingsRail({ appSlug }: { appSlug: string }) {
   const { data: activeOrg } = useActiveOrg();
-  const mergeGateEnabled = activeOrg?.mergeGateEnabled ?? false;
+  const visibility = toSettingsVisibility(activeOrg);
 
   return (
     <nav aria-label="Settings sections" className="flex shrink-0 flex-col gap-5 lg:w-56">
       <RailGroup label="This application">
-        {APPLICATION_ENTRIES.filter((entry) => isSettingsEntryVisible(entry.id, mergeGateEnabled)).map((entry) => (
+        {APPLICATION_ENTRIES.filter((entry) => isSettingsEntryVisible(entry.id, visibility)).map((entry) => (
           <RailItem key={entry.id} entry={entry} appSlug={appSlug} />
         ))}
       </RailGroup>
 
       <RailGroup label="Organization settings">
-        {ORGANIZATION_ENTRIES.map((entry) => (
+        {ORGANIZATION_ENTRIES.filter((entry) => isSettingsEntryVisible(entry.id, visibility)).map((entry) => (
           <RailItem key={entry.id} entry={entry} appSlug={appSlug} />
         ))}
       </RailGroup>

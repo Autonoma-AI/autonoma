@@ -1,55 +1,59 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
-import { useAuthClient } from "../lib/auth";
 import {
-  organizationsQueryOptions,
-  sessionQueryOptions,
-  useOrganizations,
-  useSession,
-} from "../lib/query/auth.queries";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuGroupLabel,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@autonoma/blacklight";
+import { CaretUpDownIcon } from "@phosphor-icons/react/CaretUpDown";
+import { CheckIcon } from "@phosphor-icons/react/Check";
+import { useMyOrganizations, useSwitchOrganization } from "lib/query/organization.queries";
 
-export function OrgSwitcher() {
-  const authClient = useAuthClient();
-  const router = useRouter();
-  const queryClient = useQueryClient();
+/**
+ * Switches which organization this session is acting as. Renders as plain text for the common case
+ * of a single organization, so the sidebar does not grow a control that can only ever do nothing.
+ *
+ * The choice is session-scoped - it writes `session.activeOrganizationId`, so another browser stays
+ * where it was and a fresh sign-in falls back to the default. A stored per-user preference is a
+ * separate change.
+ */
+export function OrgSwitcher({ activeOrganizationName }: { activeOrganizationName: string }) {
+  const { data: organizations } = useMyOrganizations();
+  const switchOrganization = useSwitchOrganization();
 
-  const { data: organizations } = useOrganizations();
-  const { data: session } = useSession();
-
-  const activeOrgId = session?.session.activeOrganizationId;
-
-  async function handleSwitch(organizationId: string) {
-    await authClient.organization.setActive({ organizationId });
-    void queryClient.invalidateQueries({ queryKey: sessionQueryOptions().queryKey });
-    void queryClient.invalidateQueries({ queryKey: organizationsQueryOptions().queryKey });
-    await router.invalidate();
-  }
-
-  if (organizations == null || organizations.length === 0) {
-    return null;
+  if (organizations.length <= 1) {
+    return (
+      <span className="truncate font-mono text-3xs uppercase tracking-widest text-text-secondary">
+        {activeOrganizationName}
+      </span>
+    );
   }
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <label htmlFor="org-switcher">Organization:</label>
-      <select
-        id="org-switcher"
-        value={activeOrgId ?? ""}
-        onChange={(e) => {
-          if (e.target.value !== "") {
-            void handleSwitch(e.target.value);
-          }
-        }}
-      >
-        <option value="" disabled>
-          Select organization
-        </option>
-        {organizations.map((org) => (
-          <option key={org.id} value={org.id}>
-            {org.name}
-          </option>
-        ))}
-      </select>
-    </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger className="flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 font-mono text-3xs uppercase tracking-widest text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary">
+        <span className="truncate">{activeOrganizationName}</span>
+        <CaretUpDownIcon size={11} className="shrink-0" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-[70vh] overflow-y-auto">
+        {/* GroupLabel must live inside a Group - Base UI throws error #31 when it does not, at open. */}
+        <DropdownMenuGroup>
+          <DropdownMenuGroupLabel className="font-mono text-3xs uppercase tracking-widest text-text-secondary">
+            Your organizations
+          </DropdownMenuGroupLabel>
+          {organizations.map((organization) => (
+            <DropdownMenuItem
+              key={organization.id}
+              disabled={organization.isActive || switchOrganization.isPending}
+              onClick={() => switchOrganization.mutate({ organizationId: organization.id })}
+            >
+              <span className="truncate">{organization.name}</span>
+              {organization.isActive && <CheckIcon size={12} className="ml-auto shrink-0 text-primary" />}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

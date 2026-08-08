@@ -31,6 +31,12 @@ model User {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
+  /// The organization this account last chose to act as, and therefore where a new session starts.
+  /// Null until they have ever chosen - a fresh account, or one that has only ever had a single
+  /// organization to be in. Cleared by `ON DELETE SET NULL` if that organization goes away, and
+  /// re-pointed when they lose the membership, so it can never name an organization they are not in.
+  lastOrganizationId String? @map("last_organization_id")
+
   sessions            Session[]
   accounts            Account[]
   members             Member[]
@@ -43,6 +49,9 @@ model User {
   oauthAccessTokens   OauthAccessToken[]
   oauthConsents       OauthConsent[]
 
+  lastOrganization Organization? @relation("lastOrganization", fields: [lastOrganizationId], references: [id], onDelete: SetNull)
+
+  @@index([lastOrganizationId])
   @@map("user")
 }
 
@@ -109,7 +118,15 @@ model Organization {
   domain    String?            @unique
   status    OrganizationStatus @default(approved)
 
+  /// When someone confirmed this organization's name, or null while it is still the auto-derived
+  /// guess. An org created from a personal email address is named after whoever signed up first,
+  /// who is not necessarily whose organization it is - so those are asked to name it once, and
+  /// this is what stops the prompt reappearing. Orgs derived from a real email domain, and the
+  /// internal org, are stamped at creation and never prompt.
+  nameConfirmedAt DateTime? @map("name_confirmed_at")
+
   members                 Member[]
+  lastChosenByUsers       User[]                @relation("lastOrganization")
   invitations             Invitation[]
   apiKeys                 ApiKey[]
   applications            Application[]

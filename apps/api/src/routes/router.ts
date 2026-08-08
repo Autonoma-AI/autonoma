@@ -10,6 +10,7 @@ import { branchesRouter } from "./branches/branches.router";
 import { deploymentsRouter } from "./deployments/deployments.router";
 import { foldersRouter } from "./folders/folders.router";
 import { onboardingRouter } from "./onboarding/onboarding.router";
+import { organizationRouter } from "./organization/organization.router";
 import { previewAccessRouter } from "./preview-access/preview-access.router";
 import { scenariosRouter } from "./scenarios/scenarios.router";
 import { secretsRouter } from "./secrets/secrets.router";
@@ -33,6 +34,7 @@ const appRouterImpl = router({
     secrets: secretsRouter,
     github: githubRouter,
     onboarding: onboardingRouter,
+    organization: organizationRouter,
     previewAccess: previewAccessRouter,
     snapshotEdit: snapshotEditRouter,
 });

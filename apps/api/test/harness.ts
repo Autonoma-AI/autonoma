@@ -8,9 +8,27 @@ import { FakeGenerationProvider } from "@autonoma/test-updates";
 import Redis from "ioredis";
 import { vi } from "vitest";
 import { buildAuth } from "../src/auth";
+import type { EmailSender, OutgoingEmail } from "../src/email/email-sender";
 import { type Services, buildServices } from "../src/routes/build-services";
 import { appRouter } from "../src/routes/router";
 import { t } from "../src/trpc";
+
+/**
+ * Records every email a service tried to send instead of dialling a provider, and can be told
+ * to fail so a caller's behaviour when mail delivery breaks is observable.
+ */
+export class RecordingEmailSender implements EmailSender {
+    public readonly sent: OutgoingEmail[] = [];
+    public failNextSend = false;
+
+    async send(email: OutgoingEmail): Promise<void> {
+        if (this.failNextSend) {
+            this.failNextSend = false;
+            throw new Error("Simulated mail provider failure");
+        }
+        this.sent.push(email);
+    }
+}
 
 export class APITestHarness implements IntegrationHarness {
     public triggerWorkflow = vi.fn().mockResolvedValue(undefined);
@@ -22,6 +40,7 @@ export class APITestHarness implements IntegrationHarness {
     public readonly generationProvider: FakeGenerationProvider;
     public readonly services: Services;
     public readonly githubApp: FakeGitHubApp;
+    public readonly emailSender: RecordingEmailSender;
     public organization?: Organization;
     public user?: User;
     public session?: Session;
@@ -34,11 +53,13 @@ export class APITestHarness implements IntegrationHarness {
         generationProvider: FakeGenerationProvider,
         redisClient: Redis,
         githubApp: FakeGitHubApp,
+        emailSender: RecordingEmailSender,
     ) {
         this.redisClient = redisClient;
         this.services = services;
         this.generationProvider = generationProvider;
         this.githubApp = githubApp;
+        this.emailSender = emailSender;
     }
 
     static async create(): Promise<APITestHarness> {
@@ -80,6 +101,7 @@ export class APITestHarness implements IntegrationHarness {
                   });
 
         const githubApp = new FakeGitHubApp();
+        const emailSender = new RecordingEmailSender();
 
         const services = buildServices({
             conn: db,
@@ -95,9 +117,10 @@ export class APITestHarness implements IntegrationHarness {
             startPreviewBuild: triggerWorkflow,
             triggerPreviewTeardown: triggerWorkflow,
             triggerPreviewRedeployApp: triggerWorkflow,
+            emailSender,
         });
 
-        const harness = new APITestHarness(db, services, generationProvider, redisClient, githubApp);
+        const harness = new APITestHarness(db, services, generationProvider, redisClient, githubApp, emailSender);
         harness.triggerWorkflow = triggerWorkflow as typeof harness.triggerWorkflow;
         harness.startAnalysisRun = startAnalysisRun;
         return harness;
@@ -147,11 +170,15 @@ export class APITestHarness implements IntegrationHarness {
         return this.user.id;
     }
 
-    request(session?: Session) {
+    /**
+     * A caller for the harness user, or for `user`/`session` when acting as somebody else -
+     * needed wherever a flow spans two accounts, e.g. one member inviting another.
+     */
+    request(session?: Session, user?: User) {
         const createCaller = t.createCallerFactory(appRouter);
         return createCaller({
             db: this.db,
-            user: this.user,
+            user: user ?? this.user,
             session: session ?? this.session,
             services: this.services,
         });

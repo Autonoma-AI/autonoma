@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@autonoma/db";
+import { orgHasAutoJoinDomain } from "@autonoma/types";
 import type { DemoEntrySourceStore } from "../../demo/demo-entry-source.store";
 import type { ParkedSessionStore } from "../../demo/parked-session.store";
 import { env } from "../../env";
@@ -21,6 +22,19 @@ export interface ActiveOrg {
      */
     mergeGateEnabled: boolean;
     vercelMarketplaceEntry: boolean;
+    /**
+     * Whether this org can invite people. False when anyone with a matching email domain is
+     * auto-joined (invitations would be pointless), and for the read-only demo org (every
+     * mutation is refused anyway, so the entry point would only ever dead-end).
+     */
+    invitesEnabled: boolean;
+    /**
+     * Whether this organization still carries the name it was auto-given, and should be asked for a
+     * real one. True only for an org created from a personal email address - it was named after
+     * whoever signed up first, who is not necessarily whose organization it is - and only until
+     * somebody confirms a name. An org named from a real email domain is already the company's name.
+     */
+    needsNaming: boolean;
 }
 
 export class AuthService extends Service {
@@ -37,7 +51,14 @@ export class AuthService extends Service {
 
         const org = await this.db.organization.findUnique({
             where: { id: activeOrgId },
-            select: { id: true, name: true, slug: true, settings: { select: { mergeGateEnabled: true } } },
+            select: {
+                id: true,
+                name: true,
+                slug: true,
+                domain: true,
+                nameConfirmedAt: true,
+                settings: { select: { mergeGateEnabled: true } },
+            },
         });
 
         if (org == null) return undefined;
@@ -57,6 +78,9 @@ export class AuthService extends Service {
 
         // Effective merge-gate state (global switch AND the org's opt-in)
         const mergeGateEnabled = env.MERGE_GATE_ENABLED && org.settings?.mergeGateEnabled === true;
+        const hasAutoJoinDomain = orgHasAutoJoinDomain(org.domain ?? undefined);
+        const invitesEnabled = !isDemo && !hasAutoJoinDomain;
+        const needsNaming = !isDemo && !hasAutoJoinDomain && org.nameConfirmedAt == null;
 
         return {
             id: org.id,
@@ -66,16 +90,37 @@ export class AuthService extends Service {
             canReturnToAccount,
             mergeGateEnabled,
             vercelMarketplaceEntry,
+            invitesEnabled,
+            needsNaming,
         };
     }
 
-    async getOrgStatus(userId: string): Promise<OrgStatus | undefined> {
-        this.logger.info("Getting org status", { userId });
+    /**
+     * The approval status of the organization this session is acting as - the one whose pages are
+     * about to render - not "some organization this user belongs to".
+     *
+     * The difference matters now that an account can hold several memberships (invitations, the
+     * admin org switcher, Vercel installs). This read used to be an unordered `member.findFirst`,
+     * so a user who was approved in one organization and pending in another got sent to `/pending`
+     * or not depending on which row Postgres happened to return.
+     *
+     * Falls back to the oldest membership when the session names no organization, matching how
+     * `ensureOrgMembership` resolves a default.
+     */
+    async getOrgStatus(userId: string, activeOrganizationId?: string): Promise<OrgStatus | undefined> {
+        this.logger.info("Getting org status", { userId, organizationId: activeOrganizationId });
 
-        const membership = await this.db.member.findFirst({
-            where: { userId },
-            select: { organization: { select: { status: true } } },
-        });
+        const membership =
+            activeOrganizationId != null
+                ? await this.db.member.findUnique({
+                      where: { userId_organizationId: { userId, organizationId: activeOrganizationId } },
+                      select: { organization: { select: { status: true } } },
+                  })
+                : await this.db.member.findFirst({
+                      where: { userId },
+                      select: { organization: { select: { status: true } } },
+                      orderBy: { createdAt: "asc" },
+                  });
 
         if (membership == null) return "pending";
 

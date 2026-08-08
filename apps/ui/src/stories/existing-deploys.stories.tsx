@@ -91,6 +91,8 @@ function customWaitingFixtures(): TrpcFixtures {
         canReturnToAccount: false,
         mergeGateEnabled: false,
         vercelMarketplaceEntry: false,
+        invitesEnabled: true,
+        needsNaming: false,
       },
     },
   };
@@ -117,6 +119,8 @@ function customSignalReceivedFixtures(): TrpcFixtures {
         canReturnToAccount: false,
         mergeGateEnabled: false,
         vercelMarketplaceEntry: false,
+        invitesEnabled: true,
+        needsNaming: false,
       },
     },
   };

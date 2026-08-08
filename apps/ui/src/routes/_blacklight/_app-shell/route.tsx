@@ -2,6 +2,7 @@ import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { authClient } from "lib/auth";
 import { currentPathForRedirect } from "lib/auth-redirect";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
+import { ensureAPIQueryData } from "lib/query/api-queries";
 import { ensureOrgStatusData, ensureOrganizationsData, ensureSessionData } from "lib/query/auth.queries";
 import type { RouteContext } from "../../__root";
 import { AppShellLayout } from "./-layout/app-shell-layout";
@@ -39,14 +40,16 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
   // session exists would turn every signed-out visit to an app URL into a pair of reported 401s.
   void queryClient.prefetchQuery(trpc.applications.list.queryOptions());
 
-  const [organizations, orgStatus] = await Promise.all([
+  // `activeOrg` rides the same batched request as the two below rather than being fetched after
+  // them: it carries the server-computed flags this guard needs (`needsNaming`), which the
+  // better-auth organization list does not have.
+  const [organizations, orgStatus, activeOrg] = await Promise.all([
     ensureOrganizationsData(queryClient),
     ensureOrgStatusData(queryClient),
+    ensureAPIQueryData(queryClient, trpc.auth.activeOrg.queryOptions()),
   ]);
 
-  const activeOrganization =
-    organizations.find((org) => org.id === activeOrganizationId) ??
-    (await queryClient.fetchQuery({ ...trpc.auth.activeOrg.queryOptions(), staleTime: 0 }).catch(() => undefined));
+  const activeOrganization = organizations.find((org) => org.id === activeOrganizationId) ?? activeOrg;
   if (activeOrganization == null) {
     await authClient.signOut();
     queryClient.clear();
@@ -55,6 +58,13 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
 
   if (orgStatus === "pending" && !isAdmin) throw redirect({ to: "/pending" });
   if (orgStatus === "rejected" && !isAdmin) throw redirect({ to: "/rejected" });
+
+  // An organization created from a personal email address carries the name of whoever signed up
+  // first, who is not necessarily whose organization it is. Ask once, then never again - the answer
+  // is durable (`organization.nameConfirmedAt`), so this guard cannot loop.
+  if (activeOrg?.needsNaming === true) {
+    throw redirect({ to: "/name-organization", search: { redirectTo: pathname } });
+  }
 
   // `fetchQuery` rather than `ensureQueryData`, and the difference is load-bearing twice over.
   //

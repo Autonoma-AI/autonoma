@@ -194,6 +194,8 @@ const baseTrpcFixtures: TrpcFixtures = {
             canReturnToAccount: false,
             mergeGateEnabled: true,
             vercelMarketplaceEntry: false,
+            invitesEnabled: true,
+            needsNaming: false,
         },
     },
     applications: {

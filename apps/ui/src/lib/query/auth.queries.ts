@@ -53,9 +53,14 @@ export function ensureOrgStatusData(queryClient: QueryClient) {
 
 // --- Active Org ---
 
-// Carries the server-computed `isDemo` flag that drives the read-only demo UX.
+// Carries the server-computed flags that drive org-shaped UI: `isDemo` for the read-only demo UX,
+// `invitesEnabled` for whether this org can have members invited into it at all.
+export function activeOrgQueryOptions() {
+    return trpc.auth.activeOrg.queryOptions();
+}
+
 export function useActiveOrg() {
-    return useQuery(trpc.auth.activeOrg.queryOptions());
+    return useQuery(activeOrgQueryOptions());
 }
 
 // --- Social sign-in providers ---

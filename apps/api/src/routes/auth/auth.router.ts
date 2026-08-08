@@ -13,7 +13,7 @@ export const authRouter = router({
         if (ctx.user == null || ctx.session == null) {
             throw new TRPCError({ code: "UNAUTHORIZED" });
         }
-        return ctx.services.auth.getOrgStatus(ctx.user.id);
+        return ctx.services.auth.getOrgStatus(ctx.user.id, ctx.session.activeOrganizationId ?? undefined);
     }),
     activeOrg: publicProcedure.query(({ ctx }) => {
         if (ctx.user == null || ctx.session == null) {

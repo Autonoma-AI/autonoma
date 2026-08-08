@@ -157,6 +157,12 @@ export interface Auth {
              * Prisma lookup to answer "is this token still a live session?".
              */
             findSession(token: string): Promise<{ session: AuthSession } | null>;
+            /**
+             * Ends a session everywhere better-auth keeps it (Redis and the `session` table). Used
+             * when a user loses their last membership: a session with no organization to fall back
+             * to cannot be left pointing at one they are no longer in.
+             */
+            deleteSession(token: string): Promise<void>;
         };
         // Cookie metadata (name + serialization attributes) for the session-token
         // cookie, as configured by the `secondaryStorage`/cookie-cache options
@@ -191,6 +197,34 @@ export type AuthSession = {
     activeOrganizationId?: string | null;
 };
 
+/**
+ * Endpoints the `organization()` plugin mounts that would change who belongs to which
+ * organization. Every membership change has to go through `organization.*` in tRPC, which enforces
+ * what the plugin's versions do not: an invitation is matched against the signed-in user's own
+ * email, leaving is refused when it would strand an organization, and losing a membership moves or
+ * revokes the sessions that were acting as it - without which a removed user keeps full access
+ * until their session expires.
+ *
+ * The plugin's read endpoint (`list`) stays open - it grants nothing.
+ */
+const DISABLED_ORGANIZATION_PATHS: ReadonlySet<string> = new Set([
+    "/organization/invite-member",
+    "/organization/accept-invitation",
+    "/organization/reject-invitation",
+    "/organization/cancel-invitation",
+    "/organization/add-member",
+    "/organization/remove-member",
+    "/organization/leave",
+    // Replaced by `organization.setActive`, which additionally persists the choice to
+    // `user.lastOrganizationId`. Leaving the plugin's version reachable would let a switch happen
+    // without being remembered, so the next sign-in would silently land somewhere else.
+    "/organization/set-active",
+]);
+
+function isDisabledOrganizationPath(path: string): boolean {
+    return DISABLED_ORGANIZATION_PATHS.has(path);
+}
+
 const PERSONAL_EMAIL_DOMAINS = new Set(["gmail.com"]);
 
 interface OrgMembershipResult {
@@ -211,6 +245,9 @@ async function ensureOrgMembership(
     // is the realistic source: it does not emit an `email` claim for managed users by
     // default. Fail the sign-in instead; a provider that cannot say who someone is has
     // not identified them.
+    //
+    // Runs before the reads below, not after: they resolve which organization this session acts as,
+    // and there is nothing to resolve for someone the provider could not identify.
     if (email.trim() === "") {
         logger.error("Refusing to resolve an organization for a blank email", { extra: { userId } });
         throw new APIError("BAD_REQUEST", {
@@ -218,13 +255,40 @@ async function ensureOrgMembership(
         });
     }
 
-    const existing = await conn.member.findFirst({
-        where: { userId },
-        select: {
-            organizationId: true,
-            organization: { select: { name: true, slug: true } },
-        },
+    // Which organization a new session starts in: the one this account last chose, falling back to
+    // its oldest membership.
+    //
+    // The fallback is ordered rather than a bare `findFirst` because an account can belong to
+    // several organizations, and an unordered read returns whatever Postgres feels like - it drifted
+    // between sign-ins for the same user, which is why the Vercel path needed `vercelPreferredOrgKey`
+    // in Redis to force a specific org. `lastOrganizationId` is joined through `member` so a
+    // remembered choice the user is no longer a member of is ignored rather than trusted.
+    const user = await conn.user.findUnique({
+        where: { id: userId },
+        select: { lastOrganizationId: true },
     });
+
+    const remembered =
+        user?.lastOrganizationId != null
+            ? await conn.member.findUnique({
+                  where: { userId_organizationId: { userId, organizationId: user.lastOrganizationId } },
+                  select: {
+                      organizationId: true,
+                      organization: { select: { name: true, slug: true } },
+                  },
+              })
+            : null;
+
+    const existing =
+        remembered ??
+        (await conn.member.findFirst({
+            where: { userId },
+            select: {
+                organizationId: true,
+                organization: { select: { name: true, slug: true } },
+            },
+            orderBy: { createdAt: "asc" },
+        }));
 
     if (existing != null) {
         await ensureBillingProvisioning(conn, existing.organizationId);
@@ -247,7 +311,13 @@ async function ensureOrgMembership(
         const org = await conn.organization.upsert({
             where: { slug: "autonoma" },
             update: {},
-            create: { name: "Autonoma", slug: "autonoma", domain: env.INTERNAL_DOMAIN, status: "approved" },
+            create: {
+                name: "Autonoma",
+                slug: "autonoma",
+                domain: env.INTERNAL_DOMAIN,
+                status: "approved",
+                nameConfirmedAt: new Date(),
+            },
         });
         orgId = org.id;
         orgName = org.name;
@@ -265,7 +335,16 @@ async function ensureOrgMembership(
         const org = await conn.organization.upsert({
             where: { domain: isPersonalDomain ? email : domain },
             update: {},
-            create: { name, slug, domain: isPersonalDomain ? email : domain, status: "approved" },
+            create: {
+                name,
+                slug,
+                domain: isPersonalDomain ? email : domain,
+                status: "approved",
+                // A name derived from a real email domain is the company's own name and needs no
+                // confirming. A personal-email org is named after whoever signed up first, who is
+                // not necessarily whose organization it is, so it stays unconfirmed and gets asked.
+                nameConfirmedAt: isPersonalDomain ? undefined : new Date(),
+            },
         });
         orgId = org.id;
         orgName = org.name;
@@ -461,6 +540,15 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
             // social providers. Previewkit environments (env.PREVIEWKIT_ENV) are
             // unaffected; this only gates the two email/password endpoints.
             before: createAuthMiddleware(async (ctx) => {
+                if (isDisabledOrganizationPath(ctx.path)) {
+                    logger.warn("Blocked a better-auth organization membership endpoint", {
+                        extra: { path: ctx.path },
+                    });
+                    throw new APIError("NOT_FOUND", {
+                        message: "Not found",
+                    });
+                }
+
                 if (env.PREVIEWKIT_ENV) return;
                 if (ctx.path !== "/sign-up/email" && ctx.path !== "/sign-in/email") return;
 

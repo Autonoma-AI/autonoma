@@ -26,8 +26,11 @@ import { Route as BlacklightOnboardingExistingDeploysRouteImport } from './route
 import { Route as BlacklightOnboardingDiffTriggerRouteImport } from './routes/_blacklight/onboarding/diff-trigger'
 import { Route as BlacklightOnboardingCompleteRouteImport } from './routes/_blacklight/onboarding/complete'
 import { Route as BlacklightOnboardingAddAppRouteImport } from './routes/_blacklight/onboarding/add-app'
+import { Route as BlacklightInviteInvitationIdRouteImport } from './routes/_blacklight/invite.$invitationId'
 import { Route as BlacklightauthRejectedRouteImport } from './routes/_blacklight/(auth)/rejected'
 import { Route as BlacklightauthPendingRouteImport } from './routes/_blacklight/(auth)/pending'
+import { Route as BlacklightauthNameOrganizationRouteImport } from './routes/_blacklight/(auth)/name-organization'
+import { Route as BlacklightauthChooseOrganizationRouteImport } from './routes/_blacklight/(auth)/choose-organization'
 import { Route as BlacklightauthLoginRouteRouteImport } from './routes/_blacklight/(auth)/login/route'
 import { Route as BlacklightAppShellAdminIndexRouteImport } from './routes/_blacklight/_app-shell/admin/index'
 import { Route as BlacklightauthLoginIndexRouteImport } from './routes/_blacklight/(auth)/login/index'
@@ -53,6 +56,7 @@ import { Route as BlacklightAppShellAppAppSlugPreviewEnvironmentIdRouteImport } 
 import { Route as BlacklightAppShellAppAppSlugAdminGenerationsRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/admin/generations'
 import { Route as BlacklightAppShellAppAppSlugSettingsPreviewsRouteRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/settings/previews/route'
 import { Route as BlacklightAppShellAppAppSlugPullRequestsPrNumberRouteRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/pull-requests/$prNumber/route'
+import { Route as BlacklightAppShellAppAppSlugSettingsUsersIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/settings/users/index'
 import { Route as BlacklightAppShellAppAppSlugSettingsTriggersIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/settings/triggers/index'
 import { Route as BlacklightAppShellAppAppSlugSettingsScenariosIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/settings/scenarios/index'
 import { Route as BlacklightAppShellAppAppSlugSettingsPreviewsIndexRouteImport } from './routes/_blacklight/_app-shell/app.$appSlug/settings/previews/index'
@@ -165,6 +169,12 @@ const BlacklightOnboardingAddAppRoute =
     path: '/add-app',
     getParentRoute: () => BlacklightOnboardingRouteRoute,
   } as any)
+const BlacklightInviteInvitationIdRoute =
+  BlacklightInviteInvitationIdRouteImport.update({
+    id: '/invite/$invitationId',
+    path: '/invite/$invitationId',
+    getParentRoute: () => BlacklightRoute,
+  } as any)
 const BlacklightauthRejectedRoute = BlacklightauthRejectedRouteImport.update({
   id: '/(auth)/rejected',
   path: '/rejected',
@@ -175,6 +185,18 @@ const BlacklightauthPendingRoute = BlacklightauthPendingRouteImport.update({
   path: '/pending',
   getParentRoute: () => BlacklightRoute,
 } as any)
+const BlacklightauthNameOrganizationRoute =
+  BlacklightauthNameOrganizationRouteImport.update({
+    id: '/(auth)/name-organization',
+    path: '/name-organization',
+    getParentRoute: () => BlacklightRoute,
+  } as any)
+const BlacklightauthChooseOrganizationRoute =
+  BlacklightauthChooseOrganizationRouteImport.update({
+    id: '/(auth)/choose-organization',
+    path: '/choose-organization',
+    getParentRoute: () => BlacklightRoute,
+  } as any)
 const BlacklightauthLoginRouteRoute =
   BlacklightauthLoginRouteRouteImport.update({
     id: '/(auth)/login',
@@ -324,6 +346,12 @@ const BlacklightAppShellAppAppSlugPullRequestsPrNumberRouteRoute =
     id: '/pull-requests/$prNumber',
     path: '/pull-requests/$prNumber',
     getParentRoute: () => BlacklightAppShellAppAppSlugRouteRoute,
+  } as any)
+const BlacklightAppShellAppAppSlugSettingsUsersIndexRoute =
+  BlacklightAppShellAppAppSlugSettingsUsersIndexRouteImport.update({
+    id: '/users/',
+    path: '/users/',
+    getParentRoute: () => BlacklightAppShellAppAppSlugSettingsRouteRoute,
   } as any)
 const BlacklightAppShellAppAppSlugSettingsTriggersIndexRoute =
   BlacklightAppShellAppAppSlugSettingsTriggersIndexRouteImport.update({
@@ -486,8 +514,11 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
   '/login': typeof BlacklightauthLoginRouteRouteWithChildren
+  '/choose-organization': typeof BlacklightauthChooseOrganizationRoute
+  '/name-organization': typeof BlacklightauthNameOrganizationRoute
   '/pending': typeof BlacklightauthPendingRoute
   '/rejected': typeof BlacklightauthRejectedRoute
+  '/invite/$invitationId': typeof BlacklightInviteInvitationIdRoute
   '/onboarding/add-app': typeof BlacklightOnboardingAddAppRoute
   '/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
   '/onboarding/diff-trigger': typeof BlacklightOnboardingDiffTriggerRoute
@@ -528,6 +559,7 @@ export interface FileRoutesByFullPath {
   '/app/$appSlug/settings/previews/': typeof BlacklightAppShellAppAppSlugSettingsPreviewsIndexRoute
   '/app/$appSlug/settings/scenarios/': typeof BlacklightAppShellAppAppSlugSettingsScenariosIndexRoute
   '/app/$appSlug/settings/triggers/': typeof BlacklightAppShellAppAppSlugSettingsTriggersIndexRoute
+  '/app/$appSlug/settings/users/': typeof BlacklightAppShellAppAppSlugSettingsUsersIndexRoute
   '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRouteWithChildren
   '/app/$appSlug/pull-requests/$prNumber/preview': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsPreviewRoute
   '/app/$appSlug/pull-requests/$prNumber/issues/$issueId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberIssuesIssueIdRoute
@@ -548,8 +580,11 @@ export interface FileRoutesByTo {
   '/privacy': typeof PrivacyRoute
   '/terms': typeof TermsRoute
   '/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
+  '/choose-organization': typeof BlacklightauthChooseOrganizationRoute
+  '/name-organization': typeof BlacklightauthNameOrganizationRoute
   '/pending': typeof BlacklightauthPendingRoute
   '/rejected': typeof BlacklightauthRejectedRoute
+  '/invite/$invitationId': typeof BlacklightInviteInvitationIdRoute
   '/onboarding/add-app': typeof BlacklightOnboardingAddAppRoute
   '/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
   '/onboarding/diff-trigger': typeof BlacklightOnboardingDiffTriggerRoute
@@ -585,6 +620,7 @@ export interface FileRoutesByTo {
   '/app/$appSlug/settings/previews': typeof BlacklightAppShellAppAppSlugSettingsPreviewsIndexRoute
   '/app/$appSlug/settings/scenarios': typeof BlacklightAppShellAppAppSlugSettingsScenariosIndexRoute
   '/app/$appSlug/settings/triggers': typeof BlacklightAppShellAppAppSlugSettingsTriggersIndexRoute
+  '/app/$appSlug/settings/users': typeof BlacklightAppShellAppAppSlugSettingsUsersIndexRoute
   '/app/$appSlug/pull-requests/$prNumber/preview': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsPreviewRoute
   '/app/$appSlug/pull-requests/$prNumber/issues/$issueId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberIssuesIssueIdRoute
   '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdFindingsRouteRouteWithChildren
@@ -605,8 +641,11 @@ export interface FileRoutesById {
   '/_blacklight/_app-shell': typeof BlacklightAppShellRouteRouteWithChildren
   '/_blacklight/onboarding': typeof BlacklightOnboardingRouteRouteWithChildren
   '/_blacklight/(auth)/login': typeof BlacklightauthLoginRouteRouteWithChildren
+  '/_blacklight/(auth)/choose-organization': typeof BlacklightauthChooseOrganizationRoute
+  '/_blacklight/(auth)/name-organization': typeof BlacklightauthNameOrganizationRoute
   '/_blacklight/(auth)/pending': typeof BlacklightauthPendingRoute
   '/_blacklight/(auth)/rejected': typeof BlacklightauthRejectedRoute
+  '/_blacklight/invite/$invitationId': typeof BlacklightInviteInvitationIdRoute
   '/_blacklight/onboarding/add-app': typeof BlacklightOnboardingAddAppRoute
   '/_blacklight/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
   '/_blacklight/onboarding/diff-trigger': typeof BlacklightOnboardingDiffTriggerRoute
@@ -649,6 +688,7 @@ export interface FileRoutesById {
   '/_blacklight/_app-shell/app/$appSlug/settings/previews/': typeof BlacklightAppShellAppAppSlugSettingsPreviewsIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/settings/scenarios/': typeof BlacklightAppShellAppAppSlugSettingsScenariosIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/settings/triggers/': typeof BlacklightAppShellAppAppSlugSettingsTriggersIndexRoute
+  '/_blacklight/_app-shell/app/$appSlug/settings/users/': typeof BlacklightAppShellAppAppSlugSettingsUsersIndexRoute
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberSnapshotsSnapshotIdRouteRouteWithChildren
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/_tabs/preview': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberTabsPreviewRoute
   '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/issues/$issueId': typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberIssuesIssueIdRoute
@@ -672,8 +712,11 @@ export interface FileRouteTypes {
     | '/terms'
     | '/onboarding'
     | '/login'
+    | '/choose-organization'
+    | '/name-organization'
     | '/pending'
     | '/rejected'
+    | '/invite/$invitationId'
     | '/onboarding/add-app'
     | '/onboarding/complete'
     | '/onboarding/diff-trigger'
@@ -714,6 +757,7 @@ export interface FileRouteTypes {
     | '/app/$appSlug/settings/previews/'
     | '/app/$appSlug/settings/scenarios/'
     | '/app/$appSlug/settings/triggers/'
+    | '/app/$appSlug/settings/users/'
     | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId'
     | '/app/$appSlug/pull-requests/$prNumber/preview'
     | '/app/$appSlug/pull-requests/$prNumber/issues/$issueId'
@@ -734,8 +778,11 @@ export interface FileRouteTypes {
     | '/privacy'
     | '/terms'
     | '/onboarding'
+    | '/choose-organization'
+    | '/name-organization'
     | '/pending'
     | '/rejected'
+    | '/invite/$invitationId'
     | '/onboarding/add-app'
     | '/onboarding/complete'
     | '/onboarding/diff-trigger'
@@ -771,6 +818,7 @@ export interface FileRouteTypes {
     | '/app/$appSlug/settings/previews'
     | '/app/$appSlug/settings/scenarios'
     | '/app/$appSlug/settings/triggers'
+    | '/app/$appSlug/settings/users'
     | '/app/$appSlug/pull-requests/$prNumber/preview'
     | '/app/$appSlug/pull-requests/$prNumber/issues/$issueId'
     | '/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/findings'
@@ -790,8 +838,11 @@ export interface FileRouteTypes {
     | '/_blacklight/_app-shell'
     | '/_blacklight/onboarding'
     | '/_blacklight/(auth)/login'
+    | '/_blacklight/(auth)/choose-organization'
+    | '/_blacklight/(auth)/name-organization'
     | '/_blacklight/(auth)/pending'
     | '/_blacklight/(auth)/rejected'
+    | '/_blacklight/invite/$invitationId'
     | '/_blacklight/onboarding/add-app'
     | '/_blacklight/onboarding/complete'
     | '/_blacklight/onboarding/diff-trigger'
@@ -834,6 +885,7 @@ export interface FileRouteTypes {
     | '/_blacklight/_app-shell/app/$appSlug/settings/previews/'
     | '/_blacklight/_app-shell/app/$appSlug/settings/scenarios/'
     | '/_blacklight/_app-shell/app/$appSlug/settings/triggers/'
+    | '/_blacklight/_app-shell/app/$appSlug/settings/users/'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/_tabs/preview'
     | '/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/issues/$issueId'
@@ -977,6 +1029,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BlacklightOnboardingAddAppRouteImport
       parentRoute: typeof BlacklightOnboardingRouteRoute
     }
+    '/_blacklight/invite/$invitationId': {
+      id: '/_blacklight/invite/$invitationId'
+      path: '/invite/$invitationId'
+      fullPath: '/invite/$invitationId'
+      preLoaderRoute: typeof BlacklightInviteInvitationIdRouteImport
+      parentRoute: typeof BlacklightRoute
+    }
     '/_blacklight/(auth)/rejected': {
       id: '/_blacklight/(auth)/rejected'
       path: '/rejected'
@@ -989,6 +1048,20 @@ declare module '@tanstack/react-router' {
       path: '/pending'
       fullPath: '/pending'
       preLoaderRoute: typeof BlacklightauthPendingRouteImport
+      parentRoute: typeof BlacklightRoute
+    }
+    '/_blacklight/(auth)/name-organization': {
+      id: '/_blacklight/(auth)/name-organization'
+      path: '/name-organization'
+      fullPath: '/name-organization'
+      preLoaderRoute: typeof BlacklightauthNameOrganizationRouteImport
+      parentRoute: typeof BlacklightRoute
+    }
+    '/_blacklight/(auth)/choose-organization': {
+      id: '/_blacklight/(auth)/choose-organization'
+      path: '/choose-organization'
+      fullPath: '/choose-organization'
+      preLoaderRoute: typeof BlacklightauthChooseOrganizationRouteImport
       parentRoute: typeof BlacklightRoute
     }
     '/_blacklight/(auth)/login': {
@@ -1165,6 +1238,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/$appSlug/pull-requests/$prNumber'
       preLoaderRoute: typeof BlacklightAppShellAppAppSlugPullRequestsPrNumberRouteRouteImport
       parentRoute: typeof BlacklightAppShellAppAppSlugRouteRoute
+    }
+    '/_blacklight/_app-shell/app/$appSlug/settings/users/': {
+      id: '/_blacklight/_app-shell/app/$appSlug/settings/users/'
+      path: '/users'
+      fullPath: '/app/$appSlug/settings/users/'
+      preLoaderRoute: typeof BlacklightAppShellAppAppSlugSettingsUsersIndexRouteImport
+      parentRoute: typeof BlacklightAppShellAppAppSlugSettingsRouteRoute
     }
     '/_blacklight/_app-shell/app/$appSlug/settings/triggers/': {
       id: '/_blacklight/_app-shell/app/$appSlug/settings/triggers/'
@@ -1350,6 +1430,7 @@ interface BlacklightAppShellAppAppSlugSettingsRouteRouteChildren {
   BlacklightAppShellAppAppSlugSettingsGithubIndexRoute: typeof BlacklightAppShellAppAppSlugSettingsGithubIndexRoute
   BlacklightAppShellAppAppSlugSettingsScenariosIndexRoute: typeof BlacklightAppShellAppAppSlugSettingsScenariosIndexRoute
   BlacklightAppShellAppAppSlugSettingsTriggersIndexRoute: typeof BlacklightAppShellAppAppSlugSettingsTriggersIndexRoute
+  BlacklightAppShellAppAppSlugSettingsUsersIndexRoute: typeof BlacklightAppShellAppAppSlugSettingsUsersIndexRoute
 }
 
 const BlacklightAppShellAppAppSlugSettingsRouteRouteChildren: BlacklightAppShellAppAppSlugSettingsRouteRouteChildren =
@@ -1368,6 +1449,8 @@ const BlacklightAppShellAppAppSlugSettingsRouteRouteChildren: BlacklightAppShell
       BlacklightAppShellAppAppSlugSettingsScenariosIndexRoute,
     BlacklightAppShellAppAppSlugSettingsTriggersIndexRoute:
       BlacklightAppShellAppAppSlugSettingsTriggersIndexRoute,
+    BlacklightAppShellAppAppSlugSettingsUsersIndexRoute:
+      BlacklightAppShellAppAppSlugSettingsUsersIndexRoute,
   }
 
 const BlacklightAppShellAppAppSlugSettingsRouteRouteWithChildren =
@@ -1618,16 +1701,22 @@ interface BlacklightRouteChildren {
   BlacklightAppShellRouteRoute: typeof BlacklightAppShellRouteRouteWithChildren
   BlacklightOnboardingRouteRoute: typeof BlacklightOnboardingRouteRouteWithChildren
   BlacklightauthLoginRouteRoute: typeof BlacklightauthLoginRouteRouteWithChildren
+  BlacklightauthChooseOrganizationRoute: typeof BlacklightauthChooseOrganizationRoute
+  BlacklightauthNameOrganizationRoute: typeof BlacklightauthNameOrganizationRoute
   BlacklightauthPendingRoute: typeof BlacklightauthPendingRoute
   BlacklightauthRejectedRoute: typeof BlacklightauthRejectedRoute
+  BlacklightInviteInvitationIdRoute: typeof BlacklightInviteInvitationIdRoute
 }
 
 const BlacklightRouteChildren: BlacklightRouteChildren = {
   BlacklightAppShellRouteRoute: BlacklightAppShellRouteRouteWithChildren,
   BlacklightOnboardingRouteRoute: BlacklightOnboardingRouteRouteWithChildren,
   BlacklightauthLoginRouteRoute: BlacklightauthLoginRouteRouteWithChildren,
+  BlacklightauthChooseOrganizationRoute: BlacklightauthChooseOrganizationRoute,
+  BlacklightauthNameOrganizationRoute: BlacklightauthNameOrganizationRoute,
   BlacklightauthPendingRoute: BlacklightauthPendingRoute,
   BlacklightauthRejectedRoute: BlacklightauthRejectedRoute,
+  BlacklightInviteInvitationIdRoute: BlacklightInviteInvitationIdRoute,
 }
 
 const BlacklightRouteWithChildren = BlacklightRoute._addFileChildren(

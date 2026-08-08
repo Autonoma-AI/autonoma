@@ -46,6 +46,10 @@ export const SIDEBAR_GROUPS: SidebarGroup[] = [
         ],
     },
     {
+        label: "Your Organization",
+        items: [{ label: "Inviting your team", slug: "organization/members" }],
+    },
+    {
         label: "MCP Server",
         items: [
             { label: "Connect your agent", slug: "mcp" },

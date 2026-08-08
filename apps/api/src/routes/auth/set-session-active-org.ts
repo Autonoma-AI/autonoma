@@ -26,7 +26,17 @@ const StoredSessionSchema = z
  * row: the caller decides whether membership is required (admin switch upserts one;
  * the read-only demo entry does not). No-op if the session is no longer in storage.
  */
-export async function setSessionActiveOrg(auth: Auth, sessionToken: string, orgId: string): Promise<void> {
+export async function setSessionActiveOrg(
+    auth: Auth,
+    sessionToken: string,
+    orgId: string,
+    /**
+     * When given, only rewrite the session if it is currently acting as this organization. Used when
+     * a membership is lost: sessions aimed at the lost organization have to move, but a session
+     * working in an unrelated organization the user still belongs to must be left where it is.
+     */
+    onlyIfActiveOrgIs?: string,
+): Promise<void> {
     const logger = rootLogger.child({ name: "setSessionActiveOrg" });
     logger.info("Setting session active org", { organizationId: orgId });
 
@@ -38,6 +48,12 @@ export async function setSessionActiveOrg(auth: Auth, sessionToken: string, orgI
     }
 
     const parsed = StoredSessionSchema.parse(JSON.parse(raw));
+
+    if (onlyIfActiveOrgIs != null && parsed.session.activeOrganizationId !== onlyIfActiveOrgIs) {
+        logger.info("Session is acting as another organization; left unchanged", { organizationId: orgId });
+        return;
+    }
+
     parsed.session.activeOrganizationId = orgId;
 
     const ttlSeconds = Math.floor((new Date(parsed.session.expiresAt).getTime() - Date.now()) / 1000);

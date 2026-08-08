@@ -325,6 +325,69 @@ Two further design points matter when extending this:
 
 `distinctId` is the acting user's id, matching `posthog.identify` in the browser, so these sit in one funnel with the client-side `onboarding.opened` and `onboarding.step_viewed` (both emitted from `apps/ui/src/routes/__root.tsx`). The two machine surfaces have no user - the customer's CI posts the signal, and the poll observes a deploy rather than an action - and are attributed to the organization instead. The client events count steps a user *saw*; the server events count steps the backend *persisted* - the gap between them for a given step is the drop-off.
 
+### Organizations and memberships
+
+`member` is a true join table (`@@unique([userId, organizationId])`), so **an account can belong to
+several organizations**. Which one it is *acting as* is session state - `session.activeOrganizationId`,
+held in Redis - not a property of the user. Two browsers can therefore be signed in as the same
+account in two different organizations.
+
+Three things put a membership on an account:
+
+- **Auto-join by domain.** `ensureOrgMembership` (`src/auth.ts`) upserts an organization keyed on
+  `organization.domain` at first sign-in. A bare domain (`acme.com`) means everyone with an
+  `@acme.com` address lands in the same org; a full email address (`tom@gmail.com`) means the org is
+  that one person's. `orgHasAutoJoinDomain` (`@autonoma/types`) is the single encoding of that
+  distinction - do not re-derive it by string-matching a domain.
+- **Invitations** (`organization.invite` / `acceptInvitation`), for the orgs nobody can reach by
+  domain. Accepting **adds** a membership and points the session at it; nothing the user already
+  belonged to is touched. `invitesEnabled` on `auth.activeOrg` is what the UI gates its Members tab
+  on: false for an auto-join org (invitations would be indistinguishable from signing up) and for the
+  read-only demo org.
+- **Vercel Marketplace installs and the admin org switcher**, which both upsert directly.
+
+`organization.setActive` is what switches organizations, and it replaces better-auth's
+`organization/set-active` (refused in the middleware) because the plugin cannot write
+`user.lastOrganizationId` - without which every new session falls back to the oldest membership and a
+multi-org user is dropped into the wrong place on each sign-in. The active organization stays *session*
+state; `lastOrganizationId` only decides where a **new** session starts, so two browsers can differ.
+
+`organization.rename` also stamps `organization.nameConfirmedAt`. An org created from a personal email
+address is named after whoever signed up first - not necessarily whose org it is - so `needsNaming` on
+`auth.activeOrg` asks once and that stamp is what stops it asking again.
+
+`organization.leave` is the inverse, and refuses two cases via `resolveLeaveBlockedReason` - shared by
+the read that renders the button and the write that performs the leave, so they cannot disagree:
+
+- `last-organization`: an account with zero memberships can reach nothing, and `ensureOrgMembership`
+  would mint a fresh empty org on their next sign-in rather than returning them anywhere useful.
+- `last-member`: nothing could ever grant access to a memberless organization again, so its
+  applications would be unreachable.
+
+Two ordering rules exist because "which organization?" has more than one answer:
+
+- **`ensureOrgMembership` starts a session in `user.lastOrganizationId`**, falling back to the
+  oldest membership. The remembered choice is joined through `member`, so one naming an org the user
+  has since left is ignored rather than trusted. The fallback is ordered because an unordered
+  `findFirst` drifted between sign-ins for multi-org accounts - which is why the Vercel path needed
+  `vercelPreferredOrgKey` in Redis to force a specific org.
+- **`AuthService.getOrgStatus` reads the *active* org's status**, not "some org this user is in".
+  Unordered, an account approved in one org and pending in another was sent to `/pending` or not
+  depending on row order.
+
+**Losing a membership has to end access, not just delete a row.** `protectedProcedure` authorizes on
+`session.activeOrganizationId` and never re-checks `member`, so a session already acting as the lost
+organization would keep full access until it expired - days. `evictSessionsFromOrg` therefore runs on
+both `leave` and `removeMember`: sessions aimed at the lost org move to a remaining membership (or are
+revoked outright when none is left), sessions working in an unrelated org are untouched, and any
+`lastOrganizationId` pointing at it is cleared. Getting this right for `leave` but not `removeMember`
+was a real hole - a removed user kept access.
+
+The `organization()` better-auth plugin's own membership endpoints (`invite-member`,
+`accept-invitation`, `add-member`, `leave`, `set-active`, ...) are refused in the `hooks.before` middleware: they
+bypass the invitation checks, the leave guards and the session re-pointing above. Its read endpoints
+(`list`, `set-active`) stay open - the org switcher uses them.
+
 ### tRPC Routers
 
 Each router is thin wiring - business logic lives in the corresponding service class. Routers are defined in `src/routes/` and composed in `src/routes/router.ts`.
@@ -342,6 +405,7 @@ Each router is thin wiring - business logic lives in the corresponding service c
 | `scenarios`    | `ScenariosService`          | Execution scenarios         |
 | `github`       | `GitHubInstallationService` | GitHub app integrations     |
 | `onboarding`   | `OnboardingService`         | User onboarding             |
+| `organization` | `OrganizationService`       | Members and invitations     |
 | `snapshotEdit` | `SnapshotEditService`       | Snapshot editing            |
 
 ### Procedure Types

@@ -1,5 +1,6 @@
 import { BrailleSpinner, Button, Input } from "@autonoma/blacklight";
 import { getApiOrigin } from "lib/api-origin";
+import { postSignInUrl } from "lib/auth-redirect";
 import { toastManager } from "lib/toast-manager";
 import * as React from "react";
 
@@ -35,7 +36,9 @@ function useEmailAuth() {
         throw new Error(data.error?.message ?? "Authentication failed");
       }
 
-      window.location.replace(window.location.origin);
+      // Full reload so the fresh session is picked up from scratch, landing on the organization
+      // picker like every other sign-in path.
+      window.location.replace(postSignInUrl(window.location.origin, undefined));
     } catch (err) {
       setIsPending(false);
       toastManager.add({

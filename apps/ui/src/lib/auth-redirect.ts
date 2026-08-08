@@ -50,3 +50,19 @@ export function absoluteRedirectUrl(origin: string, candidate: string | undefine
     const path = safeRedirectTo(candidate);
     return path === DEFAULT_DESTINATION ? origin : `${origin}${path}`;
 }
+
+/**
+ * Where a completed sign-in should land: the organization picker, carrying the eventual destination.
+ *
+ * An account can belong to several organizations, and which one a session acts as is session state -
+ * so somebody with more than one has to say which before the app renders. The picker forwards
+ * straight through when there is only one, so this costs the common case a redirect and nothing else.
+ *
+ * The destination is narrowed by {@link safeRedirectTo} here as well as at the picker, because this
+ * value survives a round trip through an external identity provider before either sees it.
+ */
+export function postSignInUrl(origin: string, candidate: string | undefined): string {
+    const path = safeRedirectTo(candidate);
+    const base = `${origin}/choose-organization`;
+    return path === DEFAULT_DESTINATION ? base : `${base}?redirectTo=${encodeURIComponent(path)}`;
+}

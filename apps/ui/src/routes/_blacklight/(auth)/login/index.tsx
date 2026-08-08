@@ -6,7 +6,7 @@ import { Google } from "components/icons/google";
 import { Microsoft } from "components/icons/microsoft";
 import { env } from "env";
 import { useAuthClient } from "lib/auth";
-import { absoluteRedirectUrl } from "lib/auth-redirect";
+import { postSignInUrl } from "lib/auth-redirect";
 import { ensureSocialProvidersData, useSocialProviders } from "lib/query/auth.queries";
 import { toastManager } from "lib/toast-manager";
 import type { RouterOutputs } from "lib/trpc";
@@ -112,9 +112,10 @@ function useSocialSignIn() {
     try {
       const { error } = await authClient.signIn.social({
         provider,
-        // Validated: this survives the round trip through the provider and is then
-        // handed to the browser, so an unchecked value here is an open redirect.
-        callbackURL: absoluteRedirectUrl(window.location.origin, redirectTo),
+        // Lands on the organization picker, which forwards to `redirectTo` once there is an
+        // organization to act as. Validated: this survives the round trip through the provider and
+        // is then handed to the browser, so an unchecked value here is an open redirect.
+        callbackURL: postSignInUrl(window.location.origin, redirectTo),
         errorCallbackURL: `${window.location.origin}/login`,
       });
       // The client resolves with `{ error }` rather than throwing (better-fetch only

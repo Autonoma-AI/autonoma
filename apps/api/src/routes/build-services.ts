@@ -14,6 +14,7 @@ import type { Auth } from "../auth";
 import { DemoEntrySourceStore } from "../demo/demo-entry-source.store";
 import { ParkedSessionStore } from "../demo/parked-session.store";
 import { DiffsTriggerService } from "../diffs/diffs-trigger.service";
+import { type EmailSender, buildEmailSender } from "../email/email-sender";
 import { env } from "../env";
 import { ActivationTriggerConfigService } from "../github/activation-trigger-config.service";
 import { BranchContributorService } from "../github/branch-contributor.service";
@@ -50,6 +51,7 @@ import { OnboardingAnalytics } from "./onboarding/onboarding-analytics";
 import { OnboardingManager } from "./onboarding/onboarding-manager";
 import { OnboardingService } from "./onboarding/onboarding.service";
 import { PreviewkitConfigService } from "./onboarding/previewkit-config-service";
+import { OrganizationService } from "./organization/organization.service";
 import { ScenariosService } from "./scenarios/scenarios.service";
 import { SnapshotEditService } from "./snapshot-edit/snapshot-edit.service";
 import { TestGenerationsService } from "./test-generations/test-generations.service";
@@ -81,6 +83,7 @@ export interface Services {
     repoIntrospection: RepoIntrospectionService;
     previewkitDiagnosis: PreviewkitDiagnosisService;
     onboarding: OnboardingService;
+    organization: OrganizationService;
     snapshotEdit: SnapshotEditService;
     billing: BillingService;
     applicationSetups: ApplicationSetupsService;
@@ -109,6 +112,11 @@ export interface ServicesParams {
     startPreviewBuild: (input: PreviewBuildWorkflowInput) => Promise<void>;
     triggerPreviewTeardown: (target: PreviewTeardownTarget) => Promise<void>;
     triggerPreviewRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
+    /**
+     * Overrides the transactional email provider. Left unset in production, where it is built
+     * from `RESEND_API_KEY`; tests inject a recorder so a send can be observed or made to fail.
+     */
+    emailSender?: EmailSender;
 }
 
 export function buildServices({
@@ -125,6 +133,7 @@ export function buildServices({
     startPreviewBuild,
     triggerPreviewTeardown,
     triggerPreviewRedeployApp,
+    emailSender,
 }: ServicesParams): Services {
     const billingService = createBillingService(conn);
     const secretValues = buildSecretValues(conn);
@@ -226,6 +235,13 @@ export function buildServices({
         repoIntrospection: repoIntrospectionService,
         previewkitDiagnosis: new PreviewkitDiagnosisService(conn, env.PREVIEWKIT_LOKI_URL),
         onboarding: new OnboardingService(onboardingManager),
+        organization: new OrganizationService(
+            conn,
+            auth,
+            emailSender ?? buildEmailSender(env.RESEND_API_KEY, env.RESEND_FROM_EMAIL),
+            analytics,
+            env.APP_URL,
+        ),
         rateLimiter,
         onboardingAgentSession,
         onboardingAnalytics,
