@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.260808.1](https://github.com/Autonoma-AI/agent/compare/v1.260807.4...v1.260808.1) (2026-08-08)
+
+
+### Bug Fixes
+
+* **ui:** stop nginx 502-ing the OAuth callback redirect ([#2338](https://github.com/Autonoma-AI/agent/issues/2338)) ([55313df](https://github.com/Autonoma-AI/agent/commit/55313dfc0dc569b682124c16b4a94f349bfef6bf))
+
 ## [1.260807.4](https://github.com/Autonoma-AI/agent/compare/v1.260807.3...v1.260807.4) (2026-08-07)
 
 

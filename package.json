@@ -1,6 +1,6 @@
 {
     "name": "@autonoma/agent",
-    "version": "1.260807.4",
+    "version": "1.260808.1",
     "private": true,
     "type": "module",
     "scripts": {
