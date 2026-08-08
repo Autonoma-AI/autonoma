@@ -339,11 +339,12 @@ Three things put a membership on an account:
   `@acme.com` address lands in the same org; a full email address (`tom@gmail.com`) means the org is
   that one person's. `orgHasAutoJoinDomain` (`@autonoma/types`) is the single encoding of that
   distinction - do not re-derive it by string-matching a domain.
-- **Invitations** (`organization.invite` / `acceptInvitation`), for the orgs nobody can reach by
-  domain. Accepting **adds** a membership and points the session at it; nothing the user already
-  belonged to is touched. `invitesEnabled` on `auth.activeOrg` is what the UI gates its Members tab
-  on: false for an auto-join org (invitations would be indistinguishable from signing up) and for the
-  read-only demo org.
+- **Invitations** (`organization.invite` / `acceptInvitation`). Accepting **adds** a membership and
+  points the session at it; nothing the user already belonged to is touched. Inviting an address that
+  would auto-join by domain anyway is refused server-side, with an error saying so - but the Members
+  page itself is shown for **every** organization. It was once hidden for auto-join orgs, which
+  created a trap: someone invited into one could join it and then had no way to leave, because
+  `Leave` lives on that page.
 - **Vercel Marketplace installs and the admin org switcher**, which both upsert directly.
 
 `organization.setActive` is what switches organizations, and it replaces better-auth's
@@ -374,6 +375,15 @@ Two ordering rules exist because "which organization?" has more than one answer:
 - **`AuthService.getOrgStatus` reads the *active* org's status**, not "some org this user is in".
   Unordered, an account approved in one org and pending in another was sent to `/pending` or not
   depending on row order.
+
+**A session lives in more than one place, so never write one by hand.** The `session` table is the
+durable copy (`session.storeSessionInDatabase: true`), Redis is the cache `getSession` reads first,
+and Redis also holds an `active-sessions-<userId>` index beside it. `setSessionActiveOrg` delegates to
+better-auth's `internalAdapter.updateSession`, which updates all three - it runs the durable write via
+`executeMainFn: options.session.storeSessionInDatabase`. Reaching for `secondaryStorage.set` instead
+touches only the cache, and since the shared Redis runs `maxmemory 400mb` with `allkeys-lru`, an
+evicted session leaves the user signed in (Postgres backs them) while every write silently finds no
+key and does nothing. That is what made every `organization.setActive` a no-op on beta.
 
 **Losing a membership has to end access, not just delete a row.** `protectedProcedure` authorizes on
 `session.activeOrganizationId` and never re-checks `member`, so a session already acting as the lost

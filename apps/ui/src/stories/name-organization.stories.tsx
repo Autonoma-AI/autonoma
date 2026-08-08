@@ -17,7 +17,6 @@ const unnamedOrganization: TrpcFixtures = {
       canReturnToAccount: false,
       mergeGateEnabled: false,
       vercelMarketplaceEntry: false,
-      invitesEnabled: true,
       needsNaming: true,
     },
   },

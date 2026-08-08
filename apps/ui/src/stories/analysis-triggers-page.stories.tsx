@@ -47,7 +47,6 @@ const gatedOffFixtures: TrpcFixtures = {
       canReturnToAccount: false,
       mergeGateEnabled: false,
       vercelMarketplaceEntry: false,
-      invitesEnabled: true,
       needsNaming: false,
     },
   },

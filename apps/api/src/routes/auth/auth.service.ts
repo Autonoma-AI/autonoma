@@ -23,12 +23,6 @@ export interface ActiveOrg {
     mergeGateEnabled: boolean;
     vercelMarketplaceEntry: boolean;
     /**
-     * Whether this org can invite people. False when anyone with a matching email domain is
-     * auto-joined (invitations would be pointless), and for the read-only demo org (every
-     * mutation is refused anyway, so the entry point would only ever dead-end).
-     */
-    invitesEnabled: boolean;
-    /**
      * Whether this organization still carries the name it was auto-given, and should be asked for a
      * real one. True only for an org created from a personal email address - it was named after
      * whoever signed up first, who is not necessarily whose organization it is - and only until
@@ -78,9 +72,9 @@ export class AuthService extends Service {
 
         // Effective merge-gate state (global switch AND the org's opt-in)
         const mergeGateEnabled = env.MERGE_GATE_ENABLED && org.settings?.mergeGateEnabled === true;
-        const hasAutoJoinDomain = orgHasAutoJoinDomain(org.domain ?? undefined);
-        const invitesEnabled = !isDemo && !hasAutoJoinDomain;
-        const needsNaming = !isDemo && !hasAutoJoinDomain && org.nameConfirmedAt == null;
+        // Naming is only asked of an org whose name was auto-derived from one person's email
+        // address; an org named after a real email domain already carries the company's name.
+        const needsNaming = !isDemo && !orgHasAutoJoinDomain(org.domain ?? undefined) && org.nameConfirmedAt == null;
 
         return {
             id: org.id,
@@ -90,7 +84,6 @@ export class AuthService extends Service {
             canReturnToAccount,
             mergeGateEnabled,
             vercelMarketplaceEntry,
-            invitesEnabled,
             needsNaming,
         };
     }

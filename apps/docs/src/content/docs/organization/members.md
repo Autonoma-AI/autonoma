@@ -11,7 +11,7 @@ description: How people get into an Autonoma organization - automatic joining by
 
 **By invitation.** If you signed up with a personal address, or through the Vercel Marketplace, there is no shared domain to match on, so nobody can reach your organization on their own. That is what invitations are for.
 
-This is why **Settings → Members only appears for the second kind of organization**. On a domain-matched organization the page would offer a button whose only possible outcome is an error explaining that invitations are unnecessary, so it is not shown at all.
+**Settings → Members is available either way.** On a domain-matched organization, inviting somebody who would join automatically is refused with an explanation - but you can still invite a contractor or consultant whose address is on a different domain, and it is where you leave an organization you no longer want to be in.
 
 ## Sending an invitation
 

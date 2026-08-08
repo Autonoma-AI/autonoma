@@ -104,37 +104,20 @@ interface SettingsEntry {
 /** Entries hidden unless the org is in the merge-gate program. */
 const MERGE_GATE_ENTRY_IDS: ReadonlySet<SettingsEntryId> = new Set(["triggers"]);
 
-/**
- * Entries hidden unless the org can actually have members invited into it. An org anyone joins by
- * matching email domain grows on its own, so a Members page there would offer a button whose only
- * outcome is an error explaining that invitations are unnecessary.
- */
-const INVITE_ENTRY_IDS: ReadonlySet<SettingsEntryId> = new Set(["users"]);
-
 interface SettingsVisibility {
   mergeGateEnabled: boolean;
-  invitesEnabled: boolean;
 }
 
 /**
  * Normalizes `auth.activeOrg` into the flags the predicate needs, so the rail and each gated
  * destination's loader cannot disagree about what an absent org means (it means "hide").
  */
-export function toSettingsVisibility(
-  activeOrg: { mergeGateEnabled: boolean; invitesEnabled: boolean } | undefined,
-): SettingsVisibility {
-  return {
-    mergeGateEnabled: activeOrg?.mergeGateEnabled ?? false,
-    invitesEnabled: activeOrg?.invitesEnabled ?? false,
-  };
+export function toSettingsVisibility(activeOrg: { mergeGateEnabled: boolean } | undefined): SettingsVisibility {
+  return { mergeGateEnabled: activeOrg?.mergeGateEnabled ?? false };
 }
 
-export function isSettingsEntryVisible(
-  id: SettingsEntryId,
-  { mergeGateEnabled, invitesEnabled }: SettingsVisibility,
-): boolean {
+export function isSettingsEntryVisible(id: SettingsEntryId, { mergeGateEnabled }: SettingsVisibility): boolean {
   if (MERGE_GATE_ENTRY_IDS.has(id)) return mergeGateEnabled;
-  if (INVITE_ENTRY_IDS.has(id)) return invitesEnabled;
   return true;
 }
 

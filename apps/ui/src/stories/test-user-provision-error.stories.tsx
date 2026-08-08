@@ -53,7 +53,6 @@ const meta = {
               canReturnToAccount: false,
               mergeGateEnabled: false,
               vercelMarketplaceEntry: false,
-              invitesEnabled: true,
               needsNaming: false,
             },
           },

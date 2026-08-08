@@ -163,6 +163,14 @@ export interface Auth {
              * to cannot be left pointing at one they are no longer in.
              */
             deleteSession(token: string): Promise<void>;
+            /**
+             * Writes session fields to every store a session lives in: the Redis cache, the
+             * `active-sessions-<userId>` index beside it, and - because
+             * `session.storeSessionInDatabase` is on - the durable `session` row. Use this rather
+             * than `secondaryStorage.set`, which reaches only the cache and silently does nothing
+             * once Redis has evicted the entry.
+             */
+            updateSession(token: string, session: { activeOrganizationId?: string }): Promise<unknown>;
         };
         // Cookie metadata (name + serialization attributes) for the session-token
         // cookie, as configured by the `secondaryStorage`/cookie-cache options

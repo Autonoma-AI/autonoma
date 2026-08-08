@@ -31,9 +31,11 @@ import {
 import { Suspense, useState } from "react";
 
 /**
- * Members and pending invitations for the active organization. Only reachable when the org has no
- * auto-join domain (`invitesEnabled`), because an org anyone can join with a matching email address
- * has nothing to invite anyone to.
+ * Members and pending invitations for the active organization.
+ *
+ * Shown for every organization. Inviting an address that would auto-join by email domain anyway is
+ * refused by the server with an error saying so - which is better than hiding the page, since the
+ * page is also where `Leave` lives.
  */
 export function MembersPanel() {
   const [inviteOpen, setInviteOpen] = useState(false);
