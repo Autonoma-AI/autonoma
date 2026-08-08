@@ -1,13 +1,13 @@
 # @autonoma/api
 
-Backend API server for the Autonoma platform. Exposes a tRPC API over HTTP with Google OAuth authentication, GitHub webhook handling, and organization-based multi-tenancy.
+Backend API server for the Autonoma platform. Exposes a tRPC API over HTTP with social sign-in (Google and GitHub), GitHub webhook handling, and organization-based multi-tenancy.
 
 ## Tech Stack
 
 - **Runtime:** Node 22 (ESM-only)
 - **HTTP Framework:** Hono
 - **API Layer:** tRPC with SuperJSON transformer
-- **Auth:** better-auth (Google OAuth, session-based, Redis-backed)
+- **Auth:** better-auth (Google + GitHub OAuth, session-based, Redis-backed with a Postgres copy)
 - **Database:** PostgreSQL via Prisma (`@autonoma/db`)
 - **Storage:** S3 via `@autonoma/storage`
 - **Observability:** Sentry (logging, error tracking, tracing)
@@ -38,6 +38,11 @@ Defined in `src/env.ts` using `@t3-oss/env-core` with Zod validation. Also exten
 | `API_PORT`                                  | Yes      | -                          | Port the server listens on (typically `4000`)                                                                                                                                                                                                                                                          |
 | `GOOGLE_CLIENT_ID`                          | Yes      | -                          | Google OAuth client ID                                                                                                                                                                                                                                                                                 |
 | `GOOGLE_CLIENT_SECRET`                      | Yes      | -                          | Google OAuth client secret                                                                                                                                                                                                                                                                             |
+| `GITHUB_CLIENT_ID`                          | No       | -                          | GitHub **OAuth app** client ID (distinct from the `GITHUB_APP_*` repo-facing GitHub App). GitHub sign-in is registered only when this and the secret are both set; callback URL is `<BETTER_AUTH_URL>/v1/auth/callback/github`                                                                           |
+| `GITHUB_CLIENT_SECRET`                      | No       | -                          | GitHub OAuth app client secret                                                                                                                                                                                                                                                                         |
+| `NAMESPACE`                                 | No       | `local`                    | Kubernetes namespace this API runs in (`production`, `beta`, or a per-PR alpha). Namespaces the session keys in the cluster-wide Redis, which every environment shares                                                                                                                                  |
+| `OAUTH_PROXY_PRODUCTION_URL`                | No       | -                          | The one origin whose OAuth callback is registered with Google/GitHub, fleet-wide. Every environment sets the same value; the one whose own `APP_URL` matches it skips proxying and handles the callback for the rest. Leave unset locally                                                                |
+| `OAUTH_PROXY_SECRET`                        | No       | `BETTER_AUTH_SECRET`       | Encrypts the profile payload handed back to the originating environment. Deliberately separate from `BETTER_AUTH_SECRET`, since it is shared across environments and a leak must not also forge sessions                                                                                                |
 | `REDIS_URL`                                 | Yes      | -                          | Redis connection URL (sessions, caching)                                                                                                                                                                                                                                                               |
 | `APP_URL`                                   | No       | `http://localhost:3000`    | Frontend URL for redirects                                                                                                                                                                                                                                                                             |
 | `BETTER_AUTH_URL`                           | No       | -                          | This API's own origin, used for better-auth's `baseURL` (OAuth redirect URIs, issuer metadata); falls back to `APP_URL` when unset. Only diverges from `APP_URL` when the UI and API have different origins (local dev, previewkit)                                                                    |
@@ -70,7 +75,7 @@ Additionally, the inherited env schemas require database (`DATABASE_URL`), logge
 Hono HTTP server
   ├── /health              - health check
   ├── /api/autonoma        - Autonoma SDK test-data endpoint (HMAC-signed; self-hosted E2E only, inert 503 when unconfigured)
-  ├── /v1/auth/**          - better-auth (Google OAuth, sessions)
+  ├── /v1/auth/**          - better-auth (Google + GitHub OAuth, sessions)
   ├── /v1/github/**        - GitHub webhooks and API endpoints
   ├── /v1/previewkit/**    - Previewkit environments + secrets (secrets/status/schema native; deploy/teardown/redeploy forwarded to Previewkit)
   ├── /v1/setup/**         - test planner setup (API key): setups, events, artifacts, scenario-recipe-versions

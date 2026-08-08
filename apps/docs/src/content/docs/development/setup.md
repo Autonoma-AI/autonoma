@@ -69,6 +69,30 @@ cp .env.example .env
 | `GOOGLE_CLIENT_SECRET` | Google OAuth client secret | Same Google Cloud Console OAuth credentials page |
 | `GEMINI_API_KEY` | Google Gemini API key | Get one from [Google AI Studio](https://aistudio.google.com/apikey) |
 
+### Optional: GitHub sign-in
+
+The login page offers Google and GitHub. GitHub is optional - the API only registers the provider when both variables below are set, so leaving them empty gives you a Google-only login.
+
+| Variable | Description | Where to get it |
+| --- | --- | --- |
+| `GITHUB_CLIENT_ID` | GitHub OAuth app client ID | Create an OAuth app at [github.com/settings/developers](https://github.com/settings/developers). Set the authorization callback URL to `http://localhost:4000/v1/auth/callback/github` |
+| `GITHUB_CLIENT_SECRET` | GitHub OAuth app client secret | Generate one on the same OAuth app page - GitHub shows it only once |
+
+To create the OAuth app:
+
+1. Go to **Settings -> Developer settings -> OAuth Apps -> New OAuth App** on GitHub.
+2. **Application name**: anything you'll recognize, e.g. `Autonoma (local)`.
+3. **Homepage URL**: `http://localhost:3000` (the UI).
+4. **Authorization callback URL**: `http://localhost:4000/v1/auth/callback/github` (the API - better-auth serves the callback, not the UI).
+5. Register the app, copy the client ID, then **Generate a new client secret** and copy that too.
+6. Put both in `.env` as `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`, and restart the API.
+
+:::caution
+These are not the `GITHUB_APP_*` variables. Those belong to the separate GitHub App that reads repositories and posts PR checks. Sign-in uses an OAuth app, which is a different thing you create on the same settings page.
+:::
+
+Signing in with GitHub against an email that already has a Google account links the two, so you land in the same account either way. Linking requires both emails to be verified - GitHub sign-in with an unverified GitHub email lands back on the login page with an error.
+
 ### How environment variables work in the codebase
 
 The project uses `createEnv` from `@t3-oss/env-core` for environment variable validation. Each app has an `env.ts` file that defines its required variables with Zod schemas. Variables are validated at startup - if something is missing, you get a clear error message telling you exactly what to add.
@@ -112,7 +136,7 @@ pnpm ui     # UI only (port 3000)
 
 1. Open `http://localhost:3000` in your browser
 2. You should see the login page
-3. Sign in with Google OAuth
+3. Sign in with Google (or GitHub, if you configured an OAuth app for it)
 4. If you see the dashboard, everything is working
 
 Run the full check suite to make sure nothing is broken:
@@ -165,6 +189,12 @@ kill <PID>
 ### Google OAuth redirect error
 
 Make sure your Google Cloud OAuth credentials have `http://localhost:4000/v1/auth/callback/google` as an authorized redirect URI - better-auth uses `BETTER_AUTH_URL` (the API's own address) as `baseURL`, so that's what it sends Google as the `redirect_uri`, not the UI's origin.
+
+### GitHub OAuth redirect error
+
+Same cause as the Google one: the authorization callback URL on your GitHub OAuth app must be `http://localhost:4000/v1/auth/callback/github` (the API's address from `BETTER_AUTH_URL`), not the UI's origin. GitHub rejects a mismatch with `redirect_uri is not associated with this application`.
+
+If the GitHub button sends you straight back to `/login` with a "Sign in failed" toast, check the API logs - a boot log line reading `GitHub OAuth credentials not configured` means `GITHUB_CLIENT_ID` or `GITHUB_CLIENT_SECRET` is missing, so the provider was never registered.
 
 ### `Failed to decrypt private key` error from Better Auth
 

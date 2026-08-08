@@ -12,11 +12,11 @@ function getBaseURL() {
     if (isPreviewHostname(host, internalDomain)) {
         return env.VITE_API_URL;
     }
-    if (host.startsWith("alpha-") || host.endsWith(`.alpha.${internalDomain}`)) {
-        // Alpha previews share beta's auth - point at the beta API host (api.beta.<domain>),
-        // not the nonexistent beta.api.<domain>.
-        return `https://api.beta.${internalDomain}`;
-    }
+    // Alphas included: each environment now serves its own auth and only borrows
+    // production's registered OAuth callback, via the API's oAuthProxy plugin. Sending
+    // alpha sign-in to beta - the previous workaround for alpha's per-PR hostname never
+    // being a registrable redirect URI - meant an alpha ran beta's auth code, so an auth
+    // change could not be exercised on the alpha that contained it.
     return undefined;
 }
 

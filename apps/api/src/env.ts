@@ -11,6 +11,10 @@ export const env = createEnv({
     extends: [loggerEnv, dbEnv, storageEnv, billingEnv, previewkitJobsEnv],
     server: {
         API_PORT: z.string(),
+        // The Kubernetes namespace this API runs in - "production", "beta", or a
+        // per-PR alpha namespace. Namespaces this environment's session keys in the
+        // cluster-wide Redis, which every environment shares; see auth.ts.
+        NAMESPACE: z.string().default("local"),
         INTERNAL_DOMAIN: z.string().optional().default("autonoma.app"),
         // Organization id of the single read-only demo org. When set, every mutation
         // whose active org is this id is rejected at the API layer (see writeProcedure
@@ -32,7 +36,7 @@ export const env = createEnv({
         PREVIEWKIT_ENV: z.stringbool().default(false),
         // Comma-separated allowlist of emails permitted to use password sign-in/sign-up
         // in production (e.g. a marketplace-reviewer test account). Every other account
-        // is Google SSO only - see the emailAndPassword hooks in auth.ts.
+        // must use a social provider - see the emailAndPassword hooks in auth.ts.
         TEST_ACCOUNT_ALLOWED_EMAILS: z.string().optional(),
         // Global master kill-switch for the Autonoma merge gate. OFF by default: while off, the gate posts no
         // checks and honors no Skip no matter an org's per-org `mergeGateEnabled`. Effective gate =
@@ -73,6 +77,29 @@ export const env = createEnv({
         AUTONOMA_SIGNING_SECRET: z.string().optional(),
         GOOGLE_CLIENT_ID: z.string().min(1),
         GOOGLE_CLIENT_SECRET: z.string().min(1),
+
+        // Credentials of the GitHub OAuth app backing GitHub sign-in. Unrelated to
+        // the GITHUB_APP_* secrets below, which authenticate the repo-facing GitHub
+        // App. Optional: the provider is registered only when both are set, so an
+        // environment without a GitHub OAuth app boots with Google-only sign-in.
+        GITHUB_CLIENT_ID: z.string().min(1).optional(),
+        GITHUB_CLIENT_SECRET: z.string().min(1).optional(),
+
+        // The ONE origin whose OAuth callback is registered with Google/GitHub, for the
+        // whole fleet. Every environment sets the same value; the environment whose own
+        // APP_URL matches it (production) skips proxying, and the rest route their
+        // callback through it and get the profile handed back encrypted.
+        //
+        // Leave unset to disable OAuth proxying entirely - correct for local dev, which
+        // has its own OAuth apps and must never receive session payloads from production.
+        // Setting it without every participating environment sharing OAUTH_PROXY_SECRET
+        // breaks sign-in on the non-production environments.
+        OAUTH_PROXY_PRODUCTION_URL: z.string().url().optional(),
+        // Encrypts the profile payload handed back to the originating environment.
+        // Deliberately separate from BETTER_AUTH_SECRET: this value is shared across
+        // environments, so a leak must not also be able to forge sessions. Falls back to
+        // BETTER_AUTH_SECRET when unset, which works but widens the blast radius.
+        OAUTH_PROXY_SECRET: z.string().min(1).optional(),
 
         // Vercel marketplace integration credentials.
         // Optional in test/dev environments; required in production for the

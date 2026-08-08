@@ -1,16 +1,22 @@
-import { Badge, BrailleSpinner, Button } from "@autonoma/blacklight";
-import { isPreviewHostname } from "@autonoma/types";
+import { Badge, BrailleSpinner, Button, Skeleton } from "@autonoma/blacklight";
+import { LAST_SOCIAL_PROVIDER_COOKIE, isPreviewHostname } from "@autonoma/types";
+import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { createFileRoute } from "@tanstack/react-router";
 import { Google } from "components/icons/google";
 import { env } from "env";
 import { useAuthClient } from "lib/auth";
 import { absoluteRedirectUrl } from "lib/auth-redirect";
+import { ensureSocialProvidersData, useSocialProviders } from "lib/query/auth.queries";
 import { toastManager } from "lib/toast-manager";
+import type { RouterOutputs } from "lib/trpc";
 import * as React from "react";
 import { EmailPasswordForm } from "./-components/email-password-form";
 
 export const Route = createFileRoute("/_blacklight/(auth)/login/")({
   component: LoginPage,
+  loader: async ({ context: { queryClient } }) => {
+    await ensureSocialProvidersData(queryClient);
+  },
   validateSearch: (search: Record<string, unknown>): { error?: string; redirectTo?: string } => {
     const parsed: { error?: string; redirectTo?: string } = {};
     if (typeof search.error === "string") parsed.error = search.error;
@@ -23,32 +29,80 @@ function useIsPreviewEnvironment() {
   return isPreviewHostname(window.location.hostname, env.VITE_INTERNAL_DOMAIN);
 }
 
-function useGoogleSignIn() {
+type SocialProvider = RouterOutputs["auth"]["socialProviders"][number];
+
+interface SocialProviderPresentation {
+  label: string;
+  icon: React.ReactNode;
+}
+
+// Presentation only - which of these are offered is the server's call, not this map's.
+const SOCIAL_PROVIDER_PRESENTATION: Record<SocialProvider, SocialProviderPresentation> = {
+  google: { label: "Continue with Google", icon: <Google /> },
+  github: { label: "Continue with GitHub", icon: <GithubLogoIcon weight="fill" className="size-4" /> },
+};
+
+/**
+ * The provider this browser last signed in with, if it is one we still offer. Steering a
+ * returning user back to the same provider is what stops them signing up a second time:
+ * a GitHub account whose email differs from their Google one is a different user, and a
+ * different organization with it.
+ */
+function useLastSocialProvider(providers: readonly SocialProvider[]): SocialProvider | undefined {
+  const match = document.cookie.match(new RegExp(`(?:^|; )${LAST_SOCIAL_PROVIDER_COOKIE}=([^;]*)`));
+  const value = match?.[1];
+  if (value == null) return undefined;
+  return providers.find((provider) => provider === decodeURIComponent(value));
+}
+
+/** Last-used provider first, everything else in the order the server gave. */
+function orderByLastUsed(
+  providers: readonly SocialProvider[],
+  lastUsed: SocialProvider | undefined,
+): readonly SocialProvider[] {
+  if (lastUsed == null) return providers;
+  const rest = providers.filter((provider) => provider !== lastUsed);
+  return [lastUsed, ...rest];
+}
+
+function signInFailedToast() {
+  toastManager.add({
+    type: "critical",
+    title: "Sign in failed",
+    description: "Something went wrong. Please try again.",
+  });
+}
+
+function useSocialSignIn() {
   const authClient = useAuthClient();
   const { redirectTo } = Route.useSearch();
-  const [isPending, setIsPending] = React.useState(false);
+  const [pendingProvider, setPendingProvider] = React.useState<SocialProvider | undefined>(undefined);
 
-  const signIn = async () => {
-    setIsPending(true);
+  const signIn = async (provider: SocialProvider) => {
+    setPendingProvider(provider);
     try {
-      await authClient.signIn.social({
-        provider: "google",
-        // Validated: this survives the round trip through Google and is then handed
-        // to the browser, so an unchecked value here is an open redirect.
+      const { error } = await authClient.signIn.social({
+        provider,
+        // Validated: this survives the round trip through the provider and is then
+        // handed to the browser, so an unchecked value here is an open redirect.
         callbackURL: absoluteRedirectUrl(window.location.origin, redirectTo),
         errorCallbackURL: `${window.location.origin}/login`,
       });
+      // The client resolves with `{ error }` rather than throwing (better-fetch only
+      // throws when configured to), so a failed request lands here, not in the catch.
+      // Without this the button would sit on "Signing in..." forever.
+      if (error != null) {
+        setPendingProvider(undefined);
+        signInFailedToast();
+      }
+      // A success never reaches this point - better-auth has already navigated away.
     } catch {
-      setIsPending(false);
-      toastManager.add({
-        type: "critical",
-        title: "Sign in failed",
-        description: "Something went wrong. Please try again.",
-      });
+      setPendingProvider(undefined);
+      signInFailedToast();
     }
   };
 
-  return { signIn, isPending };
+  return { signIn, pendingProvider };
 }
 
 function useDotSpotlight() {
@@ -105,8 +159,67 @@ function useErrorFromSearch() {
   }, [error, navigate]);
 }
 
+interface SocialSignInButtonProps {
+  provider: SocialProvider;
+  /** The provider whose redirect is in flight, if any - every button disables while one runs. */
+  pendingProvider?: SocialProvider;
+  isLastUsed: boolean;
+  onSignIn: (provider: SocialProvider) => Promise<void>;
+}
+
+function SocialSignInButton({ provider, pendingProvider, isLastUsed, onSignIn }: SocialSignInButtonProps) {
+  const isPending = pendingProvider === provider;
+  const { label, icon } = SOCIAL_PROVIDER_PRESENTATION[provider];
+
+  return (
+    <Button
+      variant={isLastUsed ? "secondary" : "outline"}
+      size="lg"
+      className="w-full gap-3"
+      onClick={() => void onSignIn(provider)}
+      disabled={pendingProvider != null}
+    >
+      {isPending ? <BrailleSpinner animation="braille" size="sm" /> : icon}
+      <span>{isPending ? "Signing in..." : label}</span>
+      {isLastUsed && !isPending && (
+        <Badge variant="outline" className="ml-auto font-mono text-4xs uppercase tracking-wider">
+          Last used
+        </Badge>
+      )}
+    </Button>
+  );
+}
+
+function SocialSignIn() {
+  const { signIn, pendingProvider } = useSocialSignIn();
+  const { data: providers } = useSocialProviders();
+  const lastUsed = useLastSocialProvider(providers);
+
+  return (
+    <>
+      {orderByLastUsed(providers, lastUsed).map((provider) => (
+        <SocialSignInButton
+          key={provider}
+          provider={provider}
+          pendingProvider={pendingProvider}
+          isLastUsed={provider === lastUsed}
+          onSignIn={signIn}
+        />
+      ))}
+    </>
+  );
+}
+
+export function SocialSignInSkeleton() {
+  return (
+    <>
+      <Skeleton className="h-11 w-full" />
+      <Skeleton className="h-11 w-full" />
+    </>
+  );
+}
+
 function LoginPage() {
-  const { signIn, isPending } = useGoogleSignIn();
   const dotSpotlight = useDotSpotlight();
   const isPreview = useIsPreviewEnvironment();
   useErrorFromSearch();
@@ -145,14 +258,13 @@ function LoginPage() {
           Sign in to connect your app and let AI agents automatically find bugs - no test scripts required.
         </p>
 
-        <div className="mt-8 w-full">
+        <div className="mt-8 flex w-full flex-col gap-3">
           {isPreview ? (
             <EmailPasswordForm />
           ) : (
-            <Button variant="outline" size="lg" className="w-full gap-3" onClick={signIn} disabled={isPending}>
-              {isPending ? <BrailleSpinner animation="braille" size="sm" /> : <Google />}
-              <span>{isPending ? "Signing in..." : "Continue with Google"}</span>
-            </Button>
+            <React.Suspense fallback={<SocialSignInSkeleton />}>
+              <SocialSignIn />
+            </React.Suspense>
           )}
         </div>
 

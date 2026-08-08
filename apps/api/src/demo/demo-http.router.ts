@@ -233,8 +233,9 @@ async function mintDemoSession(userId: string, demoOrgId: string): Promise<{ tok
 
 /**
  * The session behind a token, or undefined once it has expired or been revoked. Goes
- * through better-auth's internal adapter rather than the `session` table: `secondaryStorage`
- * is configured, so live sessions are only ever written to Redis.
+ * through better-auth's internal adapter rather than the `session` table: Redis is the read
+ * path (`secondaryStorage`) and the table is the durable copy behind it, so only the adapter
+ * knows which one currently answers for a given token.
  */
 async function findLiveSession(token: string): Promise<ParkableSession | undefined> {
     const ctx = await auth.$context;

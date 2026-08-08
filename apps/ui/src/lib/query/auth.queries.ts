@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { queryOptions, useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { authClient } from "lib/auth";
 import { trpc } from "lib/trpc";
 import { ensureAPIQueryData } from "./api-queries";
@@ -56,4 +56,17 @@ export function ensureOrgStatusData(queryClient: QueryClient) {
 // Carries the server-computed `isDemo` flag that drives the read-only demo UX.
 export function useActiveOrg() {
     return useQuery(trpc.auth.activeOrg.queryOptions());
+}
+
+// --- Social sign-in providers ---
+
+// Which providers this environment has credentials for. Prefetched by the login
+// route so the buttons render in one pass, with no flash of a provider we then
+// withdraw.
+export function ensureSocialProvidersData(queryClient: QueryClient) {
+    return ensureAPIQueryData(queryClient, trpc.auth.socialProviders.queryOptions());
+}
+
+export function useSocialProviders() {
+    return useSuspenseQuery(trpc.auth.socialProviders.queryOptions());
 }

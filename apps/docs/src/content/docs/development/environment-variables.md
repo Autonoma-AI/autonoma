@@ -22,6 +22,10 @@ SCENARIO_ENCRYPTION_KEY=any-string-at-least-1-char
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 
+# GitHub OAuth (optional - create an OAuth app at github.com/settings/developers)
+GITHUB_CLIENT_ID=your-github-oauth-client-id
+GITHUB_CLIENT_SECRET=your-github-oauth-client-secret
+
 # AI model keys (needed for test execution)
 GEMINI_API_KEY=your-gemini-key
 GROQ_KEY=your-groq-key
@@ -75,6 +79,8 @@ The API server extends the database, storage, logger, and billing environments, 
 | `SCENARIO_ENCRYPTION_KEY` | Yes | - | Key used to encrypt scenario data. Any non-empty string works for local dev. |
 | `GOOGLE_CLIENT_ID` | Yes | - | OAuth 2.0 client ID from Google Cloud Console. Required for user authentication. |
 | `GOOGLE_CLIENT_SECRET` | Yes | - | OAuth 2.0 client secret from Google Cloud Console. |
+| `GITHUB_CLIENT_ID` | No | - | Client ID of a GitHub OAuth app, enabling GitHub sign-in. Callback URL: `<BETTER_AUTH_URL>/v1/auth/callback/github`. Not the same as `GITHUB_APP_*`. |
+| `GITHUB_CLIENT_SECRET` | No | - | Client secret of that GitHub OAuth app. GitHub sign-in is offered only when both this and `GITHUB_CLIENT_ID` are set. |
 | `AGENT_VERSION` | No | `latest` | Version tag for the execution agent. Used when dispatching engine jobs. |
 | `POSTHOG_KEY` | No | - | PostHog project API key for server-side analytics. Omit to disable analytics. |
 | `POSTHOG_HOST` | No | `https://us.i.posthog.com` | PostHog ingestion endpoint. Override for self-hosted PostHog instances. |
@@ -325,6 +331,7 @@ These variables are referenced in `.env.example` for the Better Auth integration
 - `DATABASE_URL` - there is no default. You need a running PostgreSQL instance.
 - `REDIS_URL` - there is no default. You need a running Redis instance.
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` - required for authentication. Create OAuth credentials in the [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+- `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` - optional. Set both to add GitHub as a second sign-in option; see [Development Setup](/development/setup/) for the OAuth app steps.
 - `SCENARIO_ENCRYPTION_KEY` - any non-empty string works locally.
 - `BETTER_AUTH_SECRET` - generate one with `openssl rand -hex 32`.
 - `BETTER_AUTH_URL` - set to `http://localhost:4000`.
