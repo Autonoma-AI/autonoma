@@ -67,11 +67,29 @@ export function useRenameOrganization() {
 
     return useAPIMutation({
         ...trpc.organization.rename.mutationOptions({
-            onSettled: async () => {
-                // The organization name appears in the sidebar and the app-shell route context, so
-                // the router has to re-resolve, not just the organization lists.
+            // `onSuccess`, not `onSettled`: React Query awaits this before the caller's own
+            // `onSuccess`, which is what lets the naming screen navigate straight afterwards and
+            // still find a settled cache.
+            onSuccess: async () => {
                 invalidateOrganization(queryClient);
-                void queryClient.invalidateQueries({ queryKey: trpc.auth.activeOrg.queryKey() });
+
+                // Two things here are load-bearing, and getting either wrong sends the naming screen
+                // into a redirect loop back to itself.
+                //
+                // `refetchType: "all"` because nothing on that screen *observes* `activeOrg` - it
+                // reads the name from its loader - and the default ("active") marks the query stale
+                // without refetching it. The app-shell guard then reads `needsNaming: true` from
+                // cache and bounces straight back here.
+                //
+                // Awaited for the same reason: that guard calls `ensureQueryData`, which returns
+                // whatever is cached at that moment and does not wait for a fetch in flight.
+                await queryClient.invalidateQueries({
+                    queryKey: trpc.auth.activeOrg.queryKey(),
+                    refetchType: "all",
+                });
+
+                // The name also appears in the sidebar and the app-shell route context, so the
+                // router has to re-resolve, not just the organization lists.
                 await router.invalidate();
             },
         }),

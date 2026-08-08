@@ -60,10 +60,19 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
   if (orgStatus === "rejected" && !isAdmin) throw redirect({ to: "/rejected" });
 
   // An organization created from a personal email address carries the name of whoever signed up
-  // first, who is not necessarily whose organization it is. Ask once, then never again - the answer
-  // is durable (`organization.nameConfirmedAt`), so this guard cannot loop.
+  // first, who is not necessarily whose organization it is. Ask once, then never again.
   if (activeOrg?.needsNaming === true) {
-    throw redirect({ to: "/name-organization", search: { redirectTo: pathname } });
+    // Confirmed against the server before bouncing, because the `ensureQueryData` above returns
+    // whatever is in the cache at that moment. Redirecting on a stale `true` is how this trapped
+    // someone on the naming screen: they set a name, the screen navigated here, and this sent them
+    // back. The extra read costs a request only on the redirect path, which happens at most once per
+    // account - `nameConfirmedAt` is durable.
+    const fresh = await queryClient
+      .fetchQuery({ ...trpc.auth.activeOrg.queryOptions(), staleTime: 0 })
+      .catch(() => activeOrg);
+    if (fresh?.needsNaming === true) {
+      throw redirect({ to: "/name-organization", search: { redirectTo: pathname } });
+    }
   }
 
   // `fetchQuery` rather than `ensureQueryData`, and the difference is load-bearing twice over.
