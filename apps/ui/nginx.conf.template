@@ -3,6 +3,25 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # OAuth sign-in moves its payload through headers and the query string, and both
+    # directions overflow nginx's defaults.
+    #
+    # Response: when a non-production environment signs in, production completes the
+    # exchange and hands the profile back in the redirect - so /v1/auth/callback/:id
+    # answers 302 with a Location several KB long (it carries the encrypted user info
+    # plus the provider's access, refresh and id tokens; an OIDC id_token is ~1KB on
+    # its own). Past the 4k default nginx discards the response with "upstream sent
+    # too big header" and returns 502, which lands mid-sign-in as a blank page on a
+    # callback URL. The API is fine and has already consumed the single-use code, so
+    # a retry starts over rather than recovering.
+    #
+    # Request: that same state comes back from the provider as a ~3KB query param,
+    # inside the request line rather than a header.
+    proxy_buffer_size 32k;
+    proxy_buffers 8 32k;
+    proxy_busy_buffers_size 64k;
+    large_client_header_buffers 4 32k;
+
     location /assets/ {
         expires 1y;
         add_header Cache-Control "public, immutable";
