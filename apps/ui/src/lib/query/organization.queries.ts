@@ -1,5 +1,5 @@
 import { type QueryClient, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
+import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 import { ensureAPIQueryData } from "./api-queries";
@@ -34,6 +34,18 @@ function invalidateOrganization(queryClient: QueryClient) {
     void queryClient.invalidateQueries({ queryKey: myOrganizationsQueryOptions().queryKey });
 }
 
+interface SwitchOrganizationOptions {
+    /**
+     * Where to land after switching. Defaults to the app hub, and the default is the important part:
+     * almost every page that can switch lives at `/app/<slug>/...`, and that slug belongs to the
+     * organization being left. Staying on the URL leaves the previous organization's application on
+     * screen with nothing to make it re-resolve - a refresh then lands on a slug the new organization
+     * does not have. The hub deep-links into an application from the *active* organization's list, so
+     * it is the one destination that is always correct.
+     */
+    redirectTo?: string;
+}
+
 /**
  * Switches which organization this session acts as, then rebuilds everything downstream of it.
  *
@@ -45,17 +57,23 @@ function invalidateOrganization(queryClient: QueryClient) {
  * invalidated too: route loaders hold the application list the sidebar and app selector read from,
  * and nothing observes that query directly.
  */
-export function useSwitchOrganization() {
+export function useSwitchOrganization({ redirectTo }: SwitchOrganizationOptions = {}) {
     const queryClient = useQueryClient();
     const router = useRouter();
+    const navigate = useNavigate();
 
     return useAPIMutation(
         trpc.organization.setActive.mutationOptions({
             onSuccess: async () => {
+                // Awaited: the destination's loaders read the session to resolve the active
+                // organization, so they have to see the new one rather than a cached answer.
                 await queryClient.invalidateQueries();
                 void queryClient.invalidateQueries({ queryKey: sessionQueryOptions().queryKey });
                 void queryClient.invalidateQueries({ queryKey: organizationsQueryOptions().queryKey });
                 await router.invalidate();
+
+                // `replace` so Back does not return to a URL scoped to the organization just left.
+                await navigate({ href: redirectTo ?? "/", replace: true });
             },
         }),
     );
@@ -100,15 +118,20 @@ export function useRenameOrganization() {
 export function useLeaveOrganization() {
     const queryClient = useQueryClient();
     const router = useRouter();
+    const navigate = useNavigate();
 
     return useAPIMutation({
         ...trpc.organization.leave.mutationOptions({
-            onSettled: async () => {
-                // Leaving can move the session to a different organization server-side, so the whole
+            onSuccess: async () => {
+                // Leaving moves the session to a different organization server-side, so the whole
                 // cache and every route loader are stale, not just the organization lists.
                 await queryClient.invalidateQueries();
                 void queryClient.invalidateQueries({ queryKey: sessionQueryOptions().queryKey });
                 await router.invalidate();
+
+                // And the URL has to change for the same reason a switch does: it names an
+                // application in the organization just left, which the new one does not have.
+                await navigate({ to: "/", replace: true });
             },
         }),
         successToast: { title: "You left the organization" },

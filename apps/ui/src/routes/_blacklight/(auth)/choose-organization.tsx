@@ -56,7 +56,7 @@ function ChooseOrganizationPage() {
 function OrganizationChoices() {
   const { redirectTo } = Route.useSearch();
   const { data: organizations } = useMyOrganizations();
-  const switchOrganization = useSwitchOrganization();
+  const switchOrganization = useSwitchOrganization({ redirectTo: safeRedirectTo(redirectTo) });
   const navigate = useNavigate();
 
   function choose(organizationId: string, isActive: boolean) {
@@ -66,12 +66,8 @@ function OrganizationChoices() {
       return;
     }
 
-    switchOrganization.mutate(
-      { organizationId },
-      {
-        onSuccess: () => void navigate({ href: safeRedirectTo(redirectTo) }),
-      },
-    );
+    // The hook navigates on success, to the `redirectTo` it was given.
+    switchOrganization.mutate({ organizationId });
   }
 
   return (
