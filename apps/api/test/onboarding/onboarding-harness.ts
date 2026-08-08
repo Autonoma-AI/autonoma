@@ -1,6 +1,12 @@
 import { type PrismaClient, SnapshotStatus, createClient } from "@autonoma/db";
 import type { IntegrationHarness } from "@autonoma/integration-test";
 
+/** Advisory-lock key that serializes seeded-preview number allocation across workers. */
+const SEED_ALLOCATION_LOCK_KEY = 728413;
+
+/** Seeded GitHub repository ids start above this, so they read as harness-made. */
+const SEEDED_GITHUB_REPOSITORY_ID_FLOOR = 900000;
+
 export class OnboardingTestHarness implements IntegrationHarness {
     constructor(public readonly db: PrismaClient) {}
 
@@ -148,30 +154,50 @@ export class OnboardingTestHarness implements IntegrationHarness {
      * `PreviewkitEnvironment` row carrying the full name, so
      * `resolvePrimaryRepository`'s DB fallback finds it. Saving a preview
      * config refuses to run against an unresolvable primary repo, so any test
-     * that saves one calls this first. Both the GitHub id and the PR number
-     * count up per call: `(organizationId, githubRepositoryId)` and
-     * `(repoFullName, prNumber)` are unique, and several apps in one suite may
-     * share a repo name.
+     * that saves one calls this first.
+     *
+     * Both numbers are allocated from the database rather than from a
+     * per-process counter, because vitest gives each test file its own worker
+     * while every worker shares ONE database: two files seeding the same repo
+     * name would each claim PR 1 and the second would trip the unique
+     * `namespace` and `(repoFullName, prNumber)` constraints - a failure that
+     * only shows up in the full suite. The advisory lock, held until the
+     * transaction commits, serializes the read-then-insert against the other
+     * workers so concurrent seeds cannot pick the same numbers.
      */
     async linkPreviewRepo(applicationId: string, organizationId: string, repoFullName: string): Promise<void> {
-        OnboardingTestHarness.seededPreviewRepos += 1;
-        const sequence = OnboardingTestHarness.seededPreviewRepos;
-        await this.db.application.update({
-            where: { id: applicationId },
-            data: { githubRepositoryId: 900000 + sequence },
-        });
-        await this.db.previewkitEnvironment.create({
-            data: {
-                namespace: `preview-seed-${repoFullName.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-pr-${sequence}`,
-                repoFullName,
-                prNumber: sequence,
-                headSha: "seed000",
-                headRef: "main",
-                githubRepositoryId: 900000 + sequence,
-                organizationId,
-            },
+        await this.db.$transaction(async (tx) => {
+            // Wrapped in a subquery because Prisma cannot deserialize the lock function's `void` column.
+            await tx.$queryRaw`SELECT true AS locked FROM (SELECT pg_advisory_xact_lock(${SEED_ALLOCATION_LOCK_KEY})) AS lock_acquired`;
+
+            const [environments, applications] = await Promise.all([
+                tx.previewkitEnvironment.aggregate({ where: { repoFullName }, _max: { prNumber: true } }),
+                tx.application.aggregate({ _max: { githubRepositoryId: true } }),
+            ]);
+
+            const prNumber = (environments._max.prNumber ?? 0) + 1;
+            const highestRepositoryId = Math.max(
+                applications._max.githubRepositoryId ?? 0,
+                SEEDED_GITHUB_REPOSITORY_ID_FLOOR,
+            );
+            const githubRepositoryId = highestRepositoryId + 1;
+            const repoSlug = repoFullName.replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+
+            await tx.application.update({
+                where: { id: applicationId },
+                data: { githubRepositoryId },
+            });
+            await tx.previewkitEnvironment.create({
+                data: {
+                    namespace: `preview-seed-${repoSlug}-pr-${prNumber}`,
+                    repoFullName,
+                    prNumber,
+                    headSha: "seed000",
+                    headRef: "main",
+                    githubRepositoryId,
+                    organizationId,
+                },
+            });
         });
     }
-
-    private static seededPreviewRepos = 0;
 }
