@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.260807.4](https://github.com/Autonoma-AI/agent/compare/v1.260807.3...v1.260807.4) (2026-08-07)
+
+
+### Features
+
+* catch and stop recipes seeding dates that expire ([#2238](https://github.com/Autonoma-AI/agent/issues/2238)) ([e23e515](https://github.com/Autonoma-AI/agent/commit/e23e5158be00a117b66fb99d27f5498e86a72d4b))
+* **onboarding:** emit onboarding.dry_run_passed so a finished setup is measurable ([#2334](https://github.com/Autonoma-AI/agent/issues/2334)) ([c4db958](https://github.com/Autonoma-AI/agent/commit/c4db95844b52cb5f537314cda06de591cb678a1d))
+
+
+### Bug Fixes
+
+* **analysis:** build the classifier baseline from analysis verdicts ([#2272](https://github.com/Autonoma-AI/agent/issues/2272)) ([72cdf4e](https://github.com/Autonoma-AI/agent/commit/72cdf4e211766b7ceead3c43e307840f861fbc56))
+* **docker-compose:** postgres:18 boot + temporal healthcheck ([#2302](https://github.com/Autonoma-AI/agent/issues/2302)) ([ec947bc](https://github.com/Autonoma-AI/agent/commit/ec947bcbccf6acb09e506a1aecde3130ce1904f9))
+* **github:** refuse a second GitHub account instead of silently repointing the first ([#2167](https://github.com/Autonoma-AI/agent/issues/2167)) ([e46a96e](https://github.com/Autonoma-AI/agent/commit/e46a96e4ed22c6617783fa3197e55596e83ce00a))
+
 ## [1.260807.3](https://github.com/Autonoma-AI/agent/compare/v1.260807.2...v1.260807.3) (2026-08-07)
 
 
