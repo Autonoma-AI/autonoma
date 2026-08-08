@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.260808.2](https://github.com/Autonoma-AI/agent/compare/v1.260808.1...v1.260808.2) (2026-08-08)
+
+
+### Bug Fixes
+
+* **karpenter:** drop over-provisioned IOPS/throughput on buildkit volumes ([#2342](https://github.com/Autonoma-AI/agent/issues/2342)) ([f79dc36](https://github.com/Autonoma-AI/agent/commit/f79dc3685130c7b44ee4527adf4f427b52347d52))
+
 ## [1.260808.1](https://github.com/Autonoma-AI/agent/compare/v1.260807.4...v1.260808.1) (2026-08-08)
 
 
