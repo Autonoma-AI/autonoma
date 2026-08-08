@@ -3,6 +3,9 @@ import { execSync } from "node:child_process";
 import path from "node:path";
 import type {
     AgentLogEntrySchema,
+    Blueprint as PreviewkitConfigBlueprint,
+    Build as PreviewkitBuild,
+    DatabaseSetupLocation as PreviewkitDatabaseSetupLocation,
     evidenceManifestEntrySchema,
     investigationDeployedComparisonSchema,
     investigationEvidenceSchema,
@@ -132,6 +135,12 @@ export async function withAdvisoryLock<T>(client: PrismaClient, name: string, fn
 export type { PrismaClient } from "./generated/prisma/client";
 export * from "./generated/prisma/client";
 export { INCOMPLETE_GENERATION_STATUSES, isIncompleteGenerationStatus } from "./generation-status";
+export {
+    previewkitConfigCreateChildren,
+    previewkitConfigReplaceChildren,
+    previewkitConfigRowsInclude,
+    type PreviewkitConfigWithRows,
+} from "./previewkit-config-rows";
 
 declare global {
     export namespace PrismaJson {
@@ -215,5 +224,15 @@ declare global {
             apps?: Array<{ name: string; port?: number | null; primary?: boolean | null }>;
             services?: Array<{ name: string; recipe?: string | null; version?: string | null }>;
         };
+
+        /**
+         * The polymorphic leaves of a normalized preview config. Everything else in
+         * the topology is columns and rows; these three keep churning independently
+         * of it, and nothing queries inside them.
+         */
+        export type PreviewkitStoredBuild = PreviewkitBuild;
+        export type PreviewkitBlueprint = PreviewkitConfigBlueprint;
+        export type PreviewkitSetupTaskLocation = PreviewkitDatabaseSetupLocation;
+        export type PreviewkitServiceOptions = Record<string, unknown>;
     }
 }

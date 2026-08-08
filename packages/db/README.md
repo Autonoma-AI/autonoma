@@ -12,6 +12,7 @@ packages/db/
 ├── src/
 │   ├── index.ts             # Singleton PrismaClient, createClient(), applyMigrations()
 │   ├── env.ts               # DATABASE_URL validation via createEnv
+│   ├── previewkit-config-rows.ts  # Include shape + nested writes for the normalized preview config
 │   ├── seed.ts              # Development seed data (orgs, users, apps, test cases, runs)
 │   └── generated/prisma/    # Auto-generated Prisma client (do not edit)
 └── prisma.config.ts         # Prisma CLI configuration
@@ -92,3 +93,4 @@ The `env.ts` file validates `DATABASE_URL` at runtime using `createEnv`. A place
 - **Lazy singleton** - The `db` export uses a `Proxy` to defer client creation until first property access, avoiding connection attempts during import.
 - **ESM only** - Like all packages in the monorepo, this is ESM-only (`"type": "module"`).
 - **Generated code** - Everything under `src/generated/` is auto-generated. Never edit these files directly.
+- **Preview config is relational** - An Application's preview topology lives in `previewkit_config` and its child tables (apps, connections, services, setup tasks, repositories, hooks), not in one JSON blob. Read it with `previewkitConfigRowsInclude` and compose the config document with `documentFromPreviewkitConfigRows` from `@autonoma/types`; write it with `previewkitConfigCreateChildren` / `previewkitConfigReplaceChildren`. Build strategy blocks (`build`, `blueprint`), service `options`, and setup-task `location` stay JSON on their row - they churn independently and nothing queries inside them.

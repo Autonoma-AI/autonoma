@@ -164,20 +164,28 @@ export class OnboardingTestHarness implements IntegrationHarness {
      * only shows up in the full suite. The advisory lock, held until the
      * transaction commits, serializes the read-then-insert against the other
      * workers so concurrent seeds cannot pick the same numbers.
+     *
+     * The repository id is allocated above BOTH tables' high-water mark, not
+     * just the applications': an environment has no foreign key to an
+     * application, so it outlives one that a test deletes. Reading only the
+     * applications would hand the deleted app's id straight back out and point
+     * the new seed at a surviving environment row.
      */
     async linkPreviewRepo(applicationId: string, organizationId: string, repoFullName: string): Promise<void> {
         await this.db.$transaction(async (tx) => {
             // Wrapped in a subquery because Prisma cannot deserialize the lock function's `void` column.
             await tx.$queryRaw`SELECT true AS locked FROM (SELECT pg_advisory_xact_lock(${SEED_ALLOCATION_LOCK_KEY})) AS lock_acquired`;
 
-            const [environments, applications] = await Promise.all([
+            const [environments, applications, seededEnvironments] = await Promise.all([
                 tx.previewkitEnvironment.aggregate({ where: { repoFullName }, _max: { prNumber: true } }),
                 tx.application.aggregate({ _max: { githubRepositoryId: true } }),
+                tx.previewkitEnvironment.aggregate({ _max: { githubRepositoryId: true } }),
             ]);
 
             const prNumber = (environments._max.prNumber ?? 0) + 1;
             const highestRepositoryId = Math.max(
                 applications._max.githubRepositoryId ?? 0,
+                seededEnvironments._max.githubRepositoryId ?? 0,
                 SEEDED_GITHUB_REPOSITORY_ID_FLOOR,
             );
             const githubRepositoryId = highestRepositoryId + 1;

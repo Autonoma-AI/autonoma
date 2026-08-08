@@ -1,9 +1,10 @@
-import type { PrismaClient } from "@autonoma/db";
+import { type PrismaClient, previewkitConfigCreateChildren, previewkitConfigReplaceChildren } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
 import {
     authoringPreviewConfigSchema,
     PREVIEWKIT_RUNTIME_CATALOG,
     previewConfigSchema,
+    previewkitConfigRowValues,
     type PreviewConfig,
 } from "@autonoma/types";
 import { z } from "zod";
@@ -115,22 +116,30 @@ function parseOrThrow(schema: z.ZodType<PreviewConfig>, document: unknown): Prev
 
 /**
  * Saves an Application's preview config - latest-only, so this overwrites the
- * single `PreviewkitConfig` row in place (creating it on first save). The
- * document is the whole topology: multirepo dependency apps live in it too,
- * each tagged with its `repository` - dependency repos are not separate
- * Applications.
+ * single `PreviewkitConfig` row in place (creating it on first save). The config
+ * is the whole topology: multirepo dependency apps are part of it too, each
+ * tagged with its `repository` - dependency repos are not separate Applications.
+ *
+ * Written twice while the storage migration is in flight: to the normalized
+ * topology rows, and to the legacy `document` column that readers still use. The
+ * nested writes make both halves one statement, so a save is never half-applied.
+ * The children are replaced wholesale rather than diffed - a save rewrites the
+ * whole topology, and nothing outside the config references those rows.
  */
 export async function upsertConfig(db: PrismaClient, applicationId: string, config: PreviewConfig): Promise<void> {
     const savedDocument = JSON.parse(JSON.stringify(config));
+    const rows = previewkitConfigRowValues(config);
 
     await db.previewkitConfig.upsert({
         where: { applicationId },
         create: {
             applicationId,
             document: savedDocument,
+            ...previewkitConfigCreateChildren(rows),
         },
         update: {
             document: savedDocument,
+            ...previewkitConfigReplaceChildren(rows),
         },
     });
 }

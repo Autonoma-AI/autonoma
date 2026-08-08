@@ -23,6 +23,13 @@ export const STANDARD_RESOURCES = {
 
 export type PreviewResourceRole = keyof typeof STANDARD_RESOURCES;
 
+/**
+ * The config document format every stored and authored document declares. Not
+ * persisted as a column: the schema itself is the compatibility layer, so a
+ * document composed from storage stamps this on the way out.
+ */
+export const PREVIEW_CONFIG_VERSION = 2;
+
 const k8sNameRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
 
 // A GitHub repository full name: `owner/repo`, exactly one slash, no whitespace.
@@ -656,7 +663,7 @@ function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allow
 
     return z
         .object({
-            version: z.literal(2),
+            version: z.literal(PREVIEW_CONFIG_VERSION),
             domain: z.string().optional(),
             registry: z.string().optional(),
             // Per-repository overrides + deploy provenance; the repo set itself

@@ -2072,6 +2072,30 @@ enum PreviewkitAppBuildStatus {
   @@map("previewkit_app_build_status")
 }
 
+// How a dependency repo's branch is derived from the PR's branch, on
+// PreviewkitConfig. Absent behaves as same_branch_name.
+enum PreviewkitBranchConvention {
+  same_branch_name
+  regex
+  manual
+
+  @@map("previewkit_branch_convention")
+}
+
+enum PreviewkitHookGroup {
+  pre_deploy
+  post_deploy
+
+  @@map("previewkit_hook_group")
+}
+
+enum PreviewkitSetupTaskFrequency {
+  on_create
+  every_commit
+
+  @@map("previewkit_setup_task_frequency")
+}
+
 // Full per-app lifecycle status, tracked on PreviewkitAppInstance from the
 // moment the resolved config names the apps (moment 0). The happy path is
 // pending -> building -> built -> deploying -> ready. `build_failed` /
@@ -2544,10 +2568,174 @@ model PreviewkitConfig {
   /// ![object]
   document Json
 
+  // The topology, normalized. Readers compose a config document from these rows
+  // via `documentFromPreviewkitConfigRows` and validate it at their own
+  // boundary; `version: 2` is emitted by that codec rather than stored.
+  domain   String?
+  registry String?
+
+  // branch_convention, flattened: a 0..1 discriminated value, so columns rather
+  // than a child table. pattern/replacement are set only for `regex`.
+  branchConventionType        PreviewkitBranchConvention? @map("branch_convention_type")
+  branchConventionPattern     String?                     @map("branch_convention_pattern")
+  branchConventionReplacement String?                     @map("branch_convention_replacement")
+
+  repositories PreviewkitConfigRepository[]
+  apps         PreviewkitConfigApp[]
+  services     PreviewkitConfigService[]
+  hooks        PreviewkitConfigHook[]
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("previewkit_config")
+}
+
+// Per-repository deploy settings. An entry never ADDS a repo to the topology
+// (that set is derived from apps[].repository) - it overrides defaults for one
+// and receives deploy provenance in `sha`.
+model PreviewkitConfigRepository {
+  id       String           @id @default(cuid())
+  configId String           @map("config_id")
+  config   PreviewkitConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  position Int
+
+  repo           String
+  fallbackBranch String  @map("fallback_branch")
+  sha            String?
+
+  @@unique([configId, position])
+  @@index([configId])
+  @@map("previewkit_config_repository")
+}
+
+// One app in the topology. `build` and `blueprint` stay JSON: they are
+// polymorphic build-strategy blocks whose format churns independently of the
+// topology, and nothing queries inside them.
+model PreviewkitConfigApp {
+  id       String           @id @default(cuid())
+  configId String           @map("config_id")
+  config   PreviewkitConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  position Int
+
+  name         String
+  repository   String
+  path         String
+  buildContext String? @map("build_context")
+  dockerfile   String?
+  /// ![PreviewkitStoredBuild]
+  build        Json?
+  /// ![PreviewkitBlueprint]
+  blueprint    Json?
+  buildSecrets String[] @default([]) @map("build_secrets")
+  port         Int
+  command      String?
+  healthCheck  String?  @map("health_check")
+
+  // Tri-state: the config schema allows an explicit `false`, so null means the
+  // field is absent rather than false.
+  primary        Boolean?
+  sdkImplemented Boolean? @map("sdk_implemented")
+
+  resourcesCpu           String @map("resources_cpu")
+  resourcesMemoryRequest String @map("resources_memory_request")
+  resourcesMemoryLimit   String @map("resources_memory_limit")
+
+  dependsOn String[] @default([]) @map("depends_on")
+
+  connections PreviewkitConfigConnection[]
+
+  @@unique([configId, position])
+  @@unique([configId, name])
+  @@index([configId])
+  @@map("previewkit_config_app")
+}
+
+// A runtime env var wired to the topology via a `{{name.property}}` template.
+// Deliberately NOT unique on (appId, key): a duplicate key is a semantic-validator
+// error, not a schema-parse one, so a document stored before that rule existed can
+// legally carry one and a constraint here would fail its backfill.
+model PreviewkitConfigConnection {
+  id       String              @id @default(cuid())
+  appId    String              @map("app_id")
+  app      PreviewkitConfigApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+  position Int
+
+  key       String
+  value     String
+  buildTime Boolean @map("build_time")
+
+  @@unique([appId, position])
+  @@index([appId])
+  @@map("previewkit_config_connection")
+}
+
+// A recipe-provisioned service (database, queue, ...). `options` stays JSON:
+// the knobs are recipe-specific and validated per-recipe downstream.
+//
+// NOTE: this model's client accessor is `db.previewkitConfigService`, which reads
+// close to the API's own `PreviewkitConfigService` class. No file needs both today;
+// alias on import if one ever does.
+model PreviewkitConfigService {
+  id       String           @id @default(cuid())
+  configId String           @map("config_id")
+  config   PreviewkitConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+  position Int
+
+  name    String
+  recipe  String
+  version String?
+  /// ![PreviewkitServiceOptions]
+  options Json
+
+  resourcesCpu           String @map("resources_cpu")
+  resourcesMemoryRequest String @map("resources_memory_request")
+  resourcesMemoryLimit   String @map("resources_memory_limit")
+
+  s3  Boolean?
+  sqs Boolean?
+  sns Boolean?
+
+  setupTasks PreviewkitConfigSetupTask[]
+
+  @@unique([configId, position])
+  @@unique([configId, name])
+  @@index([configId])
+  @@map("previewkit_config_service")
+}
+
+// A database setup command (schema, seed, migration). `location` stays JSON: it
+// is a discriminated union the runner does not fully honor yet.
+model PreviewkitConfigSetupTask {
+  id        String                  @id @default(cuid())
+  serviceId String                  @map("service_id")
+  service   PreviewkitConfigService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  position  Int
+
+  command   String
+  frequency PreviewkitSetupTaskFrequency
+  /// ![PreviewkitSetupTaskLocation]
+  location  Json
+
+  @@unique([serviceId, position])
+  @@index([serviceId])
+  @@map("previewkit_config_setup_task")
+}
+
+// A pre/post-deploy hook step. `position` is load-bearing: hooks run in order.
+model PreviewkitConfigHook {
+  id       String              @id @default(cuid())
+  configId String              @map("config_id")
+  config   PreviewkitConfig    @relation(fields: [configId], references: [id], onDelete: Cascade)
+  group    PreviewkitHookGroup @map("hook_group")
+  position Int
+
+  app     String
+  command String
+
+  @@unique([configId, group, position])
+  @@index([configId])
+  @@map("previewkit_config_hook")
 }
 
 // Per-repo (per-application) activation trigger config. One row per Application; absence means the code
