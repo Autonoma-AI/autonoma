@@ -25,8 +25,6 @@ apps/
   ui/               Vite + React 19 SPA
   previewkit/       Preview environments - builds and deploys a PR's stack to Kubernetes
   cli/              @autonoma-ai/planner - the published test-planner CLI
-  engine-web/       Playwright web test execution
-  engine-mobile/    Appium mobile test execution (dormant - see below)
   workers/          Temporal workers: diffs, general, web, mobile
   jobs/             Standalone background jobs
   cronjobs/         Scheduled tasks
@@ -34,6 +32,7 @@ apps/
 
 packages/
   agent-core/       The agent loop, tool plumbing, and compaction
+  agent-guidance/   Guidance Autonoma gives an agent or human when a request cannot proceed
   ai/               Sharp-free AI core - model registry, structured generation
   visual-ai/        Screenshot-driven AI - visual checkers, point detection
   analytics/        PostHog server-side event tracking
@@ -45,6 +44,8 @@ packages/
   diffs/            Change analysis for a pull request
   emulator/         Mobile emulator management (dormant)
   engine/           Platform-agnostic execution agent core
+  engine-web/       Playwright web test execution
+  engine-mobile/    Appium mobile test execution (dormant - see below)
   errors/           Custom error hierarchy
   github/           GitHub App and API client
   image/            Image processing utilities
@@ -54,7 +55,8 @@ packages/
   scenario/         Environment Factory scenario logic
   secrets/          Secret storage and retrieval
   storage/          S3 file storage
-  test-updates/     Test suite update logic
+  test-suite/       A branch's suite lineage - snapshots, the open snapshot, and runs
+  test-updates/     Test suite update logic (deprecated - migrating to test-suite)
   try/              Go-style [value, error] result tuples
   types/            Shared Zod schemas and TypeScript types
   utils/            Shared utilities
@@ -67,7 +69,7 @@ packages/
 
 ### Why apps vs packages?
 
-**Apps** are independently deployable. Each one becomes its own image and runs as its own process - the API, the UI, previewkit, and each engine never share a runtime. `apps/cli` is the exception: it is published to npm as `@autonoma-ai/planner` and runs on the user's machine.
+**Apps** are independently deployable. Each one becomes its own image and runs as its own process - the API, the UI, previewkit, and each worker never share a runtime. `apps/cli` is the exception: it is published to npm as `@autonoma-ai/planner` and runs on the user's machine.
 
 **Packages** are shared code, consumed at build time via pnpm workspaces; none of them runs on its own. A package like `@autonoma/engine` is used by every engine, and `@autonoma/ai` by anything that calls a model.
 
@@ -193,7 +195,7 @@ All dependencies are passed through constructors. No DI framework, no decorators
 
 ### Separate Docker images
 
-Each engine (web, mobile) and each job type gets its own Docker image. This keeps images small and deployment independent. A change to the web engine doesn't require redeploying the mobile engine.
+Each worker (web, mobile) and each job type gets its own Docker image, linking in the engine package it needs. This keeps images small and deployment independent. A change to the web engine doesn't require redeploying the mobile worker.
 
 ### Platform-agnostic agent core
 

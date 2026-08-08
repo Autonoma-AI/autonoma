@@ -3,7 +3,7 @@ title: AI Package
 description: Deep dive into the AI primitives that power test execution - model registry, visual checkers, point detection, object detection, and structured output generation.
 ---
 
-The `@autonoma/ai` package provides every AI primitive used by the execution agent. It handles model management, visual analysis, element location, structured output generation, and evaluation benchmarking. No AI logic should be duplicated in platform apps - everything lives here.
+The `@autonoma/ai` package provides every AI primitive used by the execution agent. It handles model management, structured output generation, and evaluation benchmarking. The screenshot-driven primitives - visual checkers and point/object detection - live in `@autonoma/visual-ai`, which depends on `ai` and on `image` (`sharp`); this page covers both. No AI logic should be duplicated in platform apps - everything lives here.
 
 ## Directory Structure
 
@@ -20,20 +20,22 @@ packages/ai/src/
 │   ├── cost-collector.ts             # Aggregated cost tracking
 │   ├── usage.ts                      # Token usage tracking
 │   └── monitoring.ts                 # Logging middleware and telemetry
-├── visual/                           # Visual AI primitives
+├── text/
+│   └── assertion-splitter.ts         # Split compound assertions into atomic ones
+└── object/                           # Structured output generation
+    ├── object-generator.ts           # Core structured JSON generator
+    ├── retry.ts                      # Retry with exponential backoff
+    ├── user-messages.ts              # Build multimodal messages (text + images + video)
+    └── video/
+        ├── video-processor.ts        # Upload videos to Google GenAI Files API
+        └── video-input.ts            # Video input types and model support
+
+packages/visual-ai/src/
+├── visual/                           # Visual AI primitives (depend on sharp)
 │   ├── visual-condition-checker.ts   # Check if a condition is met on a screenshot
 │   ├── assert-checker.ts             # Validate test assertions
 │   ├── visual-chooser.ts             # Pick which UI element matches an instruction
 │   └── text-extractor.ts             # Extract text from screenshots
-├── text/
-│   └── assertion-splitter.ts         # Split compound assertions into atomic ones
-├── object/                           # Structured output generation
-│   ├── object-generator.ts           # Core structured JSON generator
-│   ├── retry.ts                      # Retry with exponential backoff
-│   ├── user-messages.ts              # Build multimodal messages (text + images + video)
-│   └── video/
-│       ├── video-processor.ts        # Upload videos to Google GenAI Files API
-│       └── video-input.ts            # Video input types and model support
 └── freestyle/                        # Point and object detection
     ├── resolution-fallback.ts        # Coordinate resolution management
     ├── point/
@@ -78,8 +80,11 @@ The `tag` field identifies the use case (e.g., "assert-checker", "click-detector
 | Key | Model ID | Provider |
 |-----|----------|----------|
 | `GEMINI_3_FLASH_PREVIEW` | `gemini-3-flash-preview` | Google |
+| `GEMINI_3_5_FLASH_LITE` | `gemini-3.5-flash-lite` | Google |
+| `QWEN3_VL_32B` | `qwen/qwen3-vl-32b-instruct` | OpenRouter |
 | `MINISTRAL_8B` | `mistralai/ministral-8b-2512` | OpenRouter |
 | `GPT_OSS_120B` | `openai/gpt-oss-120b` | Groq |
+| `MINIMAX_M3` | `minimax/minimax-m3` | OpenRouter |
 
 An alternative `OPENROUTER_MODEL_ENTRIES` set routes all models through OpenRouter, including a Gemini variant (`google/gemini-3-flash-preview`) and a Llama variant (`meta-llama/llama-4-maverick`) in place of Ministral.
 

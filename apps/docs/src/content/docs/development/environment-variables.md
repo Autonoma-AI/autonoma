@@ -201,7 +201,11 @@ These variables are only needed in production or when running engine jobs on Kub
 
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
-| `NAMESPACE` | Yes (in K8s) | - | Kubernetes namespace where jobs are deployed. Used by `@autonoma/k8s`. |
+| `NAMESPACE` | Yes (in K8s) | `local` (API) | Kubernetes namespace this environment runs in - `production`, `beta`, or a per-PR alpha namespace. Used by `@autonoma/k8s` to deploy jobs, and by the API to namespace session keys. See the warning below. |
+
+:::danger[`NAMESPACE` is a session boundary, not just a deploy target]
+Every environment shares one Redis, and sessions live **only** there - `storeSessionInDatabase` is off. The API prefixes its session keys with `better-auth:<NAMESPACE>:` (`apps/api/src/auth.ts`), so two environments sharing a value share one session store: a session minted by an alpha, running unreviewed PR code, would be a valid production session. Changing the value invalidates every session in the environment that adopts it.
+:::
 
 The workflow package also reads:
 
@@ -303,7 +307,24 @@ These variables are referenced in `.env.example` for the Better Auth integration
 | Variable | Required | Default | Description |
 | --- | --- | --- | --- |
 | `BETTER_AUTH_SECRET` | Yes | - | Secret key for Better Auth session signing. Generate with `openssl rand -hex 32`. |
-| `BETTER_AUTH_URL` | Yes | - | Base URL of the API server (e.g., `http://localhost:4000`). Used by Better Auth for callback URLs. |
+| `BETTER_AUTH_URL` | Yes | - | Root origin of the API server (e.g., `http://localhost:4000`). Used by Better Auth for callback URLs. Origin only - see the warning below. |
+| `OAUTH_PROXY_PRODUCTION_URL` | No | - | The one origin whose OAuth callback is registered with the providers, for the whole fleet. Every deployed environment sets the same value. Leave unset locally. |
+| `OAUTH_PROXY_SECRET` | No | `BETTER_AUTH_SECRET` | Encrypts the profile payload the proxy hands back to the originating environment. Every participating environment must share the same value. |
+
+:::caution[`BETTER_AUTH_URL` takes an origin, not a path]
+Better Auth is mounted with basePath `/v1/auth` and appends that itself. A value like `https://yourdomain.com/v1` makes every auth endpoint 404.
+:::
+
+### OAuth proxying
+
+A provider only redirects to callback URLs registered with it ahead of time, and an alpha environment's hostname is minted per PR - so it can never be one of them. Instead, every deployed environment sends the provider **production's** callback URL and gets the resulting profile handed back, encrypted and short-lived, at its own origin, where it mints its own session. Production's own `APP_URL` matches `OAUTH_PROXY_PRODUCTION_URL`, so it skips proxying and serves the callback for the fleet.
+
+Two things about this are easy to get wrong:
+
+- **Leave both unset locally.** Local dev has its own OAuth apps, and enabling the proxy would mean configuring production to hand encrypted session payloads to a developer's machine.
+- **`OAUTH_PROXY_PRODUCTION_URL` is not a plain on/off switch.** Setting it without every participating environment sharing the same `OAUTH_PROXY_SECRET` breaks sign-in on the non-production environments.
+
+`OAUTH_PROXY_SECRET` is deliberately separate from `BETTER_AUTH_SECRET`: it is shared across environments, so a leak must not also be able to forge sessions. It falls back to `BETTER_AUTH_SECRET` when unset, which works but widens the blast radius.
 
 ---
 
@@ -314,7 +335,8 @@ These variables are referenced in `.env.example` for the Better Auth integration
 - **Billing** - Leave `STRIPE_ENABLED=false` (the default). No Stripe keys needed.
 - **Analytics** - Omit `POSTHOG_KEY` and `VITE_POSTHOG_KEY`. Analytics calls become no-ops.
 - **Sentry** - Omit `SENTRY_DSN` and `VITE_SENTRY_DSN`. Error tracking is disabled gracefully.
-- **Kubernetes** - Omit `NAMESPACE`. Only needed when deploying to K8s.
+- **Kubernetes** - Omit `NAMESPACE`. The API defaults it to `local`; only `@autonoma/k8s` needs a real one.
+- **OAuth proxying** - Omit `OAUTH_PROXY_PRODUCTION_URL` and `OAUTH_PROXY_SECRET`. Local dev signs in against its own OAuth apps.
 - **GitHub App** - Omit all `GITHUB_APP_*` variables unless you are working on GitHub integration.
 - **Temporal** - Omit `VITE_TEMPORAL_URL`. The UI hides workflow links when this is unset.
 
@@ -334,6 +356,6 @@ These variables are referenced in `.env.example` for the Better Auth integration
 - `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` - optional. Set both to add GitHub as a second sign-in option; see [Development Setup](/development/setup/) for the OAuth app steps.
 - `SCENARIO_ENCRYPTION_KEY` - any non-empty string works locally.
 - `BETTER_AUTH_SECRET` - generate one with `openssl rand -hex 32`.
-- `BETTER_AUTH_URL` - set to `http://localhost:4000`.
+- `BETTER_AUTH_URL` - set to `http://localhost:4000`. The origin only; appending `/v1` 404s every auth endpoint.
 - AI keys (`GEMINI_API_KEY`, `GROQ_KEY`, `OPENROUTER_API_KEY`) - required if you are running test execution. Not needed if you are only working on the UI or API without triggering test runs.
 - S3 credentials - required for artifact storage. Use MinIO locally.

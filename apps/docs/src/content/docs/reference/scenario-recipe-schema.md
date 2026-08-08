@@ -31,7 +31,7 @@ The planner **analyzes** your project in place but **writes** everything it gene
 |------------------|-----------------------------------------------|----------|-------|
 | `version`        | integer, must equal `1`                       | yes      | Contract version. Currently only `1` is accepted. Not a string. |
 | `source`         | object                                        | yes      | Provenance pointers into the planner's output directory. Additional keys are preserved. |
-| `source.discoverPath`  | string                                  | yes      | Path to the discovery output the recipes were derived from, inside the planner's output directory (`~/.autonoma/<project-slug>/`), e.g. `autonoma/discover.json`. **Required** - omitting it causes Zod to fail with `expected string, received undefined`. |
+| `source.discoverPath`  | string                                  | yes      | Path to the discovery output the recipes were derived from, inside the planner's output directory (`~/.autonoma/<project-slug>/`), e.g. `autonoma/discover.json`. **Required** - omitting it causes Zod to fail with `Invalid input: expected string, received undefined`. |
 | `source.scenariosPath` | string                                  | yes      | Path to the human-readable scenarios document, in the same output directory, e.g. `autonoma/scenarios.md`. |
 | `validationMode` | `"sdk-check"` \| `"endpoint-lifecycle"`       | yes      | How Autonoma validated the recipes before upload. `sdk-check` = `checkScenario`/`checkAllScenarios`. `endpoint-lifecycle` = real HTTP `up`/`down`. |
 | `recipes`        | array, minimum length `1`                      | yes      | One entry per scenario. See below. |
@@ -136,8 +136,8 @@ Recipes could once declare a `variables` map of `literal` / `derived` / `faker` 
 
 ## Common rejection reasons
 
-- **`expected string, received undefined` under `source.discoverPath`** - the `source` object is missing `discoverPath`. Both `discoverPath` and `scenariosPath` are required.
-- **`Unknown recipe variable: <name>`** - the `create` graph uses a `{{token}}` that is not one of the two built-ins. Replace it with a concrete value.
+- **`Invalid input: expected string, received undefined` under `source.discoverPath`** - the `source` object is missing `discoverPath`. Both `discoverPath` and `scenariosPath` are required.
+- **`These tokens resolve to nothing: {{<name>}}. Autonoma only substitutes {{testRunId}} and {{testRunShortId}}; replace the rest with concrete values.`** - the `create` graph uses a `{{token}}` that is not one of the two built-ins. Replace it with a concrete value.
 - **`These _ref targets match no _alias in the graph`** - a row references an alias no row declares. Add the `_alias`, or drop the reference.
 - **`The create graph must map each model name to an array of records`** - a model maps to a scalar or a bare array of non-objects. The Environment Factory rejects the whole seed in that shape.
 - **`version` must be literal `1`** - don't send `"1"` or `"1.0"`. Integer `1`.

@@ -158,7 +158,7 @@ The same split carries through the rest of setup. Once the preview is up the wor
 
 The tool-call list is an audit log: every tool in the [table below](#what-your-agent-can-do) shows up here as the agent uses it, so you can see exactly what it changed.
 
-The server's connect-time instructions already tell your agent what Autonoma is and the order to use these tools, so even an agent that has never seen Autonoma knows where to start. Any client can also reach that guidance without a setup file: invoke the **`configure_preview`** prompt (a guided flow that pairs with your code and runs the loop), or read the **onboarding guide** resource (`autonoma://onboarding-guide`) on demand - useful when a long session has pushed the connect-time instructions out of the agent's context.
+The server's connect-time instructions already tell your agent what Autonoma is and the order to use these tools, so even an agent that has never seen Autonoma knows where to start. Any client can also reach that guidance without a setup file: invoke the **`configure_preview`** prompt (a guided flow that pairs with your code and runs the loop), or the **`connect_my_deploys`** prompt (the same flow scoped to the your-own-pipeline path - wiring the signed signal and proving it lands), or read the **onboarding guide** resource (`autonoma://onboarding-guide`) on demand - useful when a long session has pushed the connect-time instructions out of the agent's context. Each path also has its own readable playbook resource - `autonoma://autonoma-hosted-playbook`, `autonoma://own-pipeline-playbook`, and `autonoma://vercel-playbook` - so an agent that paired into one path can re-read just that one without hunting through chat history.
 
 ## Secrets stay yours
 

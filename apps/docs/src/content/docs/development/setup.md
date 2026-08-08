@@ -10,7 +10,7 @@ You need three things installed before starting:
 | Tool | Version | How to get it |
 | --- | --- | --- |
 | [Node.js](https://nodejs.org/) | >= 24 | Use [nvm](https://github.com/nvm-sh/nvm) or download directly |
-| [pnpm](https://pnpm.io/) | 10.x | Run `corepack enable` - the version is pinned in `package.json` |
+| [pnpm](https://pnpm.io/) | 11.x | Run `corepack enable` - the version is pinned in `package.json` |
 | [Docker](https://www.docker.com/) | Latest | Docker Desktop or Docker Engine |
 
 **Optional tools** (only needed if you're working on specific engines):
@@ -167,7 +167,7 @@ pnpm build        # Full build
 
 ### `pnpm install` fails
 
-Make sure you're using pnpm 10.x. Run `corepack enable` to let Node manage the pnpm version, then try again.
+Make sure you're using pnpm 11.x. Run `corepack enable` to let Node manage the pnpm version, then try again.
 
 ### Database connection refused
 

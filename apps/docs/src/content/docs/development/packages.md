@@ -21,6 +21,14 @@ The agent loop itself - tool plumbing, the step cycle, retries, and context comp
 
 **When to modify:** Changing how any agent in the codebase loops, calls tools, or compacts its context.
 
+### agent-guidance
+
+One source of truth for the guidance Autonoma gives an agent or human when a request cannot proceed - the AI catalog of MCP/connect surfaces, the `llms.txt` generator, the "needs a human" prompt, and the unauthorized-access guidance the API returns.
+
+**Key exports:** `aiCatalog`, `aiCatalogLinkHeader`, `llmsTxt`, `needsHuman`, `unauthorizedGuidance`
+
+**When to modify:** Changing what Autonoma tells an agent about its own surfaces, or the wording a blocked request returns.
+
 ### ai
 
 The **sharp-free** AI core: the model registry (LLM instances, providers, per-call cost collection), structured output generation, and text utilities. Everything screenshot-driven lives in `visual-ai` instead, so hosts that cannot load `sharp` - the API among them - can still call a model.
@@ -181,13 +189,23 @@ S3 file storage. Handles uploading and downloading artifacts (screenshots, video
 
 **When to modify:** Changing storage providers, adjusting upload/download logic, or adding new artifact types.
 
+### test-suite
+
+The data-access layer for a branch's test suite lineage: the line of immutable snapshots the suite evolves through, the single open snapshot being written, the branch's `activeSnapshotId` / `pendingSnapshotId` / `baseSnapshotId` pointers, and the runs. It owns `test_case`, `test_plan`, `test_case_assignment`, `branch_snapshot`, `branch` and `test_generation`, and writes nothing else.
+
+**Key exports:** `TestSuiteStore`, `OpenSnapshot`, `deriveForkPointSnapshotId`
+
+**When to modify:** Changing how a branch's suite evolves - opening or finalizing a snapshot, adding or adopting a test, revising a plan.
+
 ### test-updates
 
 Test suite update logic. Handles applying changes to test suites - adding, removing, and modifying test cases.
 
+**Deprecated.** `test-suite` replaced its analysis-facing half; this package survives only for the manual editor and onboarding callers until they migrate. Don't build anything new on it.
+
 **Key exports:** Test update service classes
 
-**When to modify:** Changing how test suites are modified, or adding new update operations.
+**When to modify:** Only to migrate a remaining caller onto `test-suite`.
 
 ### try
 
