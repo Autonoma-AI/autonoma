@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { ensureBillingProvisioning } from "@autonoma/billing";
 import { type Organization, type PrismaClient, type Session, type User, createQueryCountingClient } from "@autonoma/db";
 import { FakeGitHubApp } from "@autonoma/github";
 import type { IntegrationHarness } from "@autonoma/integration-test";
@@ -7,7 +8,7 @@ import { LocalStorageProvider, S3Storage, type StorageProvider } from "@autonoma
 import { FakeGenerationProvider } from "@autonoma/test-updates";
 import Redis from "ioredis";
 import { vi } from "vitest";
-import { buildAuth } from "../src/auth";
+import { type Auth, buildAuth } from "../src/auth";
 import type { EmailSender, OutgoingEmail } from "../src/email/email-sender";
 import { env } from "../src/env";
 import { type Services, buildServices } from "../src/routes/build-services";
@@ -43,6 +44,11 @@ export class APITestHarness implements IntegrationHarness {
     public readonly githubApp: FakeGitHubApp;
     public readonly emailSender: RecordingEmailSender;
     /**
+     * The same better-auth instance the router is built with, so a test can create a real session
+     * through `internalAdapter` instead of hand-writing rows into the two places one lives.
+     */
+    public readonly auth: Auth;
+    /**
      * The bare domain the internal organization is keyed on, read from the same env the services use -
      * so a test about internal-vs-customer precedence cannot disagree with the code under test.
      */
@@ -60,12 +66,14 @@ export class APITestHarness implements IntegrationHarness {
         redisClient: Redis,
         githubApp: FakeGitHubApp,
         emailSender: RecordingEmailSender,
+        auth: Auth,
     ) {
         this.redisClient = redisClient;
         this.services = services;
         this.generationProvider = generationProvider;
         this.githubApp = githubApp;
         this.emailSender = emailSender;
+        this.auth = auth;
     }
 
     static async create(): Promise<APITestHarness> {
@@ -126,7 +134,7 @@ export class APITestHarness implements IntegrationHarness {
             emailSender,
         });
 
-        const harness = new APITestHarness(db, services, generationProvider, redisClient, githubApp, emailSender);
+        const harness = new APITestHarness(db, services, generationProvider, redisClient, githubApp, emailSender, auth);
         harness.triggerWorkflow = triggerWorkflow as typeof harness.triggerWorkflow;
         harness.startAnalysisRun = startAnalysisRun;
         return harness;
@@ -156,6 +164,12 @@ export class APITestHarness implements IntegrationHarness {
                 activeOrganizationId: this.organization.id,
             },
         });
+
+        // The same provisioning every real organization gets on its first sign-in
+        // (`ensureOrgMembership`), which is what grants the free starting credits. Without it the
+        // harness org sits at a zero balance no real one ever has, and any flow behind the credits
+        // gate - queueing generations, triggering a preview - fails on "Insufficient credits".
+        await ensureBillingProvisioning(this.db, this.organization.id);
     }
 
     async afterAll() {

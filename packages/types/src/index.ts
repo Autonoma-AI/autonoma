@@ -5,6 +5,7 @@ export * from "./schemas/vercel";
 export * from "./sensitive-detection";
 export * from "./preview-url";
 export * from "./org-domain";
+export * from "./consumer-email-domains";
 export * from "./app-links";
 export * from "./agent-handoff-links";
 export * from "./sdk-error-signals";

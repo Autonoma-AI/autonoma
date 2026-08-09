@@ -4,21 +4,12 @@ import { createHonoHandler } from "@autonoma-ai/server-hono";
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { Hono } from "hono";
-import { z } from "zod";
 import { auth } from "../context";
 import { env } from "../env";
+import { setSessionActiveOrg } from "../routes/auth/set-session-active-org";
 import { autonomaFactories } from "./factories";
 
 const logger = rootLogger.child({ name: "AutonomaSdkRouter" });
-
-// The Better Auth session as cached in Redis secondaryStorage (keyed by session
-// token). We only touch activeOrganizationId; loose() preserves every other
-// field on write-back.
-const SessionCachePayloadSchema = z
-    .object({
-        session: z.object({ activeOrganizationId: z.string().nullish() }).loose(),
-    })
-    .loose();
 
 /**
  * The seeded organization id for this run. The handler runs with
@@ -32,46 +23,6 @@ function resolveSeededOrgId(context: AuthContext): string | undefined {
     if (typeof fromRefs === "string" && fromRefs.length > 0) return fromRefs;
     if (context.scopeValue.length > 0) return context.scopeValue;
     return undefined;
-}
-
-/**
- * Force the freshly-minted session's active organization to the seeded org.
- * `internalAdapter.createSession` runs the session-create hook's side effects
- * but does NOT persist the hook's returned `activeOrganizationId`, so the
- * session otherwise lands with a null active org and the app bounces to
- * onboarding. Set it in BOTH stores the session lives in: the DB row (server
- * reads via ctx.organizationId) and the Redis secondaryStorage cache that
- * get-session serves from. Mirrors admin.service.updateSessionOrgInRedis.
- */
-async function setSessionActiveOrg(
-    sessionId: string,
-    sessionToken: string,
-    expiresAt: Date,
-    organizationId: string,
-): Promise<void> {
-    // With secondaryStorage configured, Better Auth keeps the session in Redis and
-    // NOT the DB `session` table - so this DB write is best-effort (updateMany, not
-    // update, so a missing row doesn't throw); the Redis cache below is what
-    // get-session actually serves and is the authoritative fix. The DB write and the
-    // context resolution touch separate stores with no data dependency, so run them
-    // together; only the secondaryStorage get/set below must stay sequential.
-    const [, ctx] = await Promise.all([
-        db.session.updateMany({ where: { id: sessionId }, data: { activeOrganizationId: organizationId } }),
-        auth.$context,
-    ]);
-
-    const cached = await ctx.secondaryStorage?.get(sessionToken);
-    if (typeof cached !== "string") {
-        logger.warn("Session not found in secondary storage - cannot set active org", {
-            extra: { sessionId, organizationId },
-        });
-        return;
-    }
-
-    const payload = SessionCachePayloadSchema.parse(JSON.parse(cached));
-    payload.session.activeOrganizationId = organizationId;
-    const ttlSeconds = Math.max(1, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
-    await ctx.secondaryStorage?.set(sessionToken, JSON.stringify(payload), ttlSeconds);
 }
 
 /**
@@ -168,7 +119,7 @@ if (sharedSecret == null || signingSecret == null) {
                 const session = await ctx.internalAdapter.createSession(user.id);
 
                 if (organizationId != null) {
-                    await setSessionActiveOrg(session.id, session.token, session.expiresAt, organizationId);
+                    await setSessionActiveOrg(auth, session.token, organizationId);
                 }
 
                 // Emit exactly what Better Auth reads back (see setSessionCookie in

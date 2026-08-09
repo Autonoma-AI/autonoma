@@ -1,7 +1,7 @@
 import { ensureBillingProvisioning } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
-import { isPreviewOrigin } from "@autonoma/types";
+import { isConsumerEmailDomain, isPreviewOrigin } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
 import { apiKey } from "@better-auth/api-key";
 import { redisStorage } from "@better-auth/redis-storage";
@@ -14,6 +14,7 @@ import type Redis from "ioredis";
 import { env } from "./env";
 import { PlatformEventEmitter } from "./posthog/emit-platform-events";
 import { SignupHooks } from "./signup-hooks/signup-hooks";
+import { upsertOrganizationForSignup } from "./upsert-organization-for-signup";
 import { vercelPreferredOrgKey } from "./vercel-marketplace/vercel-helpers";
 
 // Path prefixes better-auth serves an OAuth callback on. The segment after the
@@ -233,8 +234,6 @@ function isDisabledOrganizationPath(path: string): boolean {
     return DISABLED_ORGANIZATION_PATHS.has(path);
 }
 
-const PERSONAL_EMAIL_DOMAINS = new Set(["gmail.com"]);
-
 interface OrgMembershipResult {
     organizationId: string;
     orgName: string;
@@ -242,7 +241,14 @@ interface OrgMembershipResult {
     isNewUser: boolean;
 }
 
-async function ensureOrgMembership(
+/**
+ * Resolves which organization an account belongs to, creating one on first sign-in.
+ *
+ * Exported for the integration tests: which organization a signup lands in is the difference between
+ * colleagues sharing a workspace and strangers sharing one, and that went wrong unnoticed for months
+ * (see `isConsumerEmailDomain`). It is called only from the better-auth database hooks below.
+ */
+export async function ensureOrgMembership(
     conn: PrismaClient,
     userId: string,
     email: string,
@@ -337,22 +343,18 @@ async function ensureOrgMembership(
         });
     } else {
         const domain = extractDomain(email);
-        const isPersonalDomain = PERSONAL_EMAIL_DOMAINS.has(domain);
-        const name = isPersonalDomain && displayName != null ? displayName : titleCase(domain.split(".")[0] ?? domain);
-        const slug = toSlug(isPersonalDomain && displayName != null ? displayName : domain);
-        const org = await conn.organization.upsert({
-            where: { domain: isPersonalDomain ? email : domain },
-            update: {},
-            create: {
-                name,
-                slug,
-                domain: isPersonalDomain ? email : domain,
-                status: "approved",
-                // A name derived from a real email domain is the company's own name and needs no
-                // confirming. A personal-email org is named after whoever signed up first, who is
-                // not necessarily whose organization it is, so it stays unconfirmed and gets asked.
-                nameConfirmedAt: isPersonalDomain ? undefined : new Date(),
-            },
+        // A consumer provider domain means the next signup at it is a stranger, not a colleague, so the
+        // organization is keyed on the whole address instead of the domain.
+        const isPersonalDomain = isConsumerEmailDomain(domain);
+        const namedAfterPerson = isPersonalDomain && displayName != null;
+        const org = await upsertOrganizationForSignup(conn, {
+            domain: isPersonalDomain ? email : domain,
+            name: namedAfterPerson ? displayName : titleCase(domain.split(".")[0] ?? domain),
+            preferredSlug: toSlug(namedAfterPerson ? displayName : domain),
+            // A name derived from a real email domain is the company's own name and needs no
+            // confirming. A personal-email org is named after whoever signed up first, who is
+            // not necessarily whose organization it is, so it stays unconfirmed and gets asked.
+            nameConfirmedAt: isPersonalDomain ? undefined : new Date(),
         });
         orgId = org.id;
         orgName = org.name;

@@ -3,7 +3,7 @@ import { authClient } from "lib/auth";
 import { currentPathForRedirect } from "lib/auth-redirect";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { ensureAPIQueryData } from "lib/query/api-queries";
-import { ensureOrgStatusData, ensureOrganizationsData, ensureSessionData } from "lib/query/auth.queries";
+import { ensureOrgStatusData, ensureSessionData } from "lib/query/auth.queries";
 import type { RouteContext } from "../../__root";
 import { AppShellLayout } from "./-layout/app-shell-layout";
 import { AppShellSkeleton } from "./-layout/app-shell-skeleton";
@@ -40,16 +40,20 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
   // session exists would turn every signed-out visit to an app URL into a pair of reported 401s.
   void queryClient.prefetchQuery(trpc.applications.list.queryOptions());
 
-  // `activeOrg` rides the same batched request as the two below rather than being fetched after
-  // them: it carries the server-computed flags this guard needs (`needsNaming`), which the
-  // better-auth organization list does not have.
-  const [organizations, orgStatus, activeOrg] = await Promise.all([
-    ensureOrganizationsData(queryClient),
+  // `auth.activeOrg` is the single description of the organization this session acts as. It used to
+  // be read alongside better-auth's `organization.list()`, whose matching entry won - and that is what
+  // made renaming appear to do nothing: the sidebar header reads the name from here, `organization.rename`
+  // refreshes `activeOrg`, and nothing refreshed better-auth's copy. Two answers to one question, one of
+  // them never invalidated. It also carries the server-computed flags this guard needs (`needsNaming`),
+  // which the better-auth list does not have.
+  const [orgStatus, activeOrganization] = await Promise.all([
     ensureOrgStatusData(queryClient),
     ensureAPIQueryData(queryClient, trpc.auth.activeOrg.queryOptions()),
   ]);
 
-  const activeOrganization = organizations.find((org) => org.id === activeOrganizationId) ?? activeOrg;
+  // The session names an organization that no longer exists, so there is nothing to render it as.
+  // Losing a *membership* is not this case: `orgStatus` below reads the member row and sends
+  // a non-member to /pending rather than signing them out.
   if (activeOrganization == null) {
     await authClient.signOut();
     queryClient.clear();
@@ -61,7 +65,7 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
 
   // An organization created from a personal email address carries the name of whoever signed up
   // first, who is not necessarily whose organization it is. Ask once, then never again.
-  if (activeOrg?.needsNaming === true) {
+  if (activeOrganization.needsNaming) {
     // Confirmed against the server before bouncing, because the `ensureQueryData` above returns
     // whatever is in the cache at that moment. Redirecting on a stale `true` is how this trapped
     // someone on the naming screen: they set a name, the screen navigated here, and this sent them
@@ -69,7 +73,7 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
     // account - `nameConfirmedAt` is durable.
     const fresh = await queryClient
       .fetchQuery({ ...trpc.auth.activeOrg.queryOptions(), staleTime: 0 })
-      .catch(() => activeOrg);
+      .catch(() => activeOrganization);
     if (fresh?.needsNaming === true) {
       throw redirect({ to: "/name-organization", search: { redirectTo: pathname } });
     }
@@ -105,7 +109,7 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
     throw redirect({ to: "/onboarding", search: buildOnboardingSearch("add-app") });
   }
 
-  return { user, organizations, activeOrganization, applications };
+  return { user, activeOrganization, applications };
 }
 
 function AppShell() {

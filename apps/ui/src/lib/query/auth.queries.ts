@@ -24,26 +24,9 @@ export function ensureSessionData(queryClient: QueryClient) {
     return queryClient.ensureQueryData(sessionQueryOptions());
 }
 
-// --- Organizations ---
-
-export function organizationsQueryOptions() {
-    return queryOptions({
-        queryKey: ["auth", "organizations"],
-        queryFn: async () => {
-            const result = await authClient.organization.list();
-            if (result.error != null) throw new Error(result.error.message ?? "Failed to fetch organizations");
-            return result.data;
-        },
-    });
-}
-
-export function useOrganizations() {
-    return useQuery(organizationsQueryOptions());
-}
-
-export function ensureOrganizationsData(queryClient: QueryClient) {
-    return queryClient.ensureQueryData(organizationsQueryOptions());
-}
+// Which organizations the caller belongs to is served by `organization.mine`
+// (`organization.queries.ts`), not better-auth's `organization.list()`. There were both, and every
+// consumer of the better-auth copy had to remember that nothing invalidated it.
 
 // --- Org Status ---
 
