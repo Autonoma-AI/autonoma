@@ -9,6 +9,7 @@ import Redis from "ioredis";
 import { vi } from "vitest";
 import { buildAuth } from "../src/auth";
 import type { EmailSender, OutgoingEmail } from "../src/email/email-sender";
+import { env } from "../src/env";
 import { type Services, buildServices } from "../src/routes/build-services";
 import { appRouter } from "../src/routes/router";
 import { t } from "../src/trpc";
@@ -41,6 +42,11 @@ export class APITestHarness implements IntegrationHarness {
     public readonly services: Services;
     public readonly githubApp: FakeGitHubApp;
     public readonly emailSender: RecordingEmailSender;
+    /**
+     * The bare domain the internal organization is keyed on, read from the same env the services use -
+     * so a test about internal-vs-customer precedence cannot disagree with the code under test.
+     */
+    public readonly internalDomain: string = env.INTERNAL_DOMAIN;
     public organization?: Organization;
     public user?: User;
     public session?: Session;

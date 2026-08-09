@@ -1,4 +1,5 @@
 import {
+    AppSlugOwnersInputSchema,
     InvitationIdInputSchema,
     InviteMemberInputSchema,
     LeaveOrganizationInputSchema,
@@ -34,6 +35,15 @@ export const organizationRouter = router({
         .mutation(({ ctx: { services, user }, input }) =>
             services.organization.rename(input.organizationId, user, input.name),
         ),
+
+    /**
+     * Where the caller can open an application slug. Drives the cross-organization deep link rescue,
+     * which is why it is a plain `protectedProcedure` and not admin-gated: anyone in more than one
+     * organization can receive a link to an app in the other one.
+     */
+    appSlugOwners: protectedProcedure
+        .input(AppSlugOwnersInputSchema)
+        .query(({ ctx: { services, user }, input }) => services.organization.appSlugOwners(input.appSlug, user)),
 
     leave: writeProcedure
         .input(LeaveOrganizationInputSchema)

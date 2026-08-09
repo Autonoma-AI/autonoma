@@ -241,6 +241,7 @@ export function buildServices({
             emailSender ?? buildEmailSender(env.RESEND_API_KEY, env.RESEND_FROM_EMAIL),
             analytics,
             env.APP_URL,
+            env.INTERNAL_DOMAIN,
         ),
         rateLimiter,
         onboardingAgentSession,

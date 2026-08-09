@@ -1,9 +1,9 @@
-import { type QueryClient, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { type QueryClient, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
+import { clearLastAppId } from "../../routes/_blacklight/_app-shell/-last-app";
 import { ensureAPIQueryData } from "./api-queries";
-import { organizationsQueryOptions, sessionQueryOptions } from "./auth.queries";
 
 export function useOrganizationMembers() {
     return useSuspenseQuery(trpc.organization.members.queryOptions());
@@ -21,6 +21,14 @@ export function ensureMyOrganizationsData(queryClient: QueryClient) {
 
 export function useMyOrganizations() {
     return useSuspenseQuery(myOrganizationsQueryOptions());
+}
+
+/**
+ * Which of the caller's organizations can open an application slug. Used by the cross-organization
+ * deep link rescue; `enabled` is false until we actually need it (the app was not found).
+ */
+export function useAppSlugOwners(appSlug: string, enabled: boolean) {
+    return useQuery({ ...trpc.organization.appSlugOwners.queryOptions({ appSlug }), enabled });
 }
 
 export function useOrganizationInvitations() {
@@ -58,22 +66,28 @@ interface SwitchOrganizationOptions {
  * and nothing observes that query directly.
  */
 export function useSwitchOrganization({ redirectTo }: SwitchOrganizationOptions = {}) {
-    const queryClient = useQueryClient();
-    const router = useRouter();
     const navigate = useNavigate();
 
     return useAPIMutation(
         trpc.organization.setActive.mutationOptions({
             onSuccess: async () => {
-                // Awaited: the destination's loaders read the session to resolve the active
-                // organization, so they have to see the new one rather than a cached answer.
-                await queryClient.invalidateQueries();
-                void queryClient.invalidateQueries({ queryKey: sessionQueryOptions().queryKey });
-                void queryClient.invalidateQueries({ queryKey: organizationsQueryOptions().queryKey });
-                await router.invalidate();
+                // The remembered application belongs to the organization being left.
+                clearLastAppId();
 
-                // `replace` so Back does not return to a URL scoped to the organization just left.
-                await navigate({ href: redirectTo ?? "/", replace: true });
+                // A full document load, and the alternative is worse than it looks.
+                //
+                // Invalidating the router instead re-runs the loaders of the route still on screen -
+                // `/app/<slug>/...`, whose slug the new organization does not have. That renders
+                // `AppNotFound`, and for an admin that component looks the slug up across orgs and
+                // *switches back* into whichever one owns it (see `-app-not-found.tsx`), so the switch
+                // silently undoes itself. Simply navigating is not enough either: `_app-shell` stays
+                // matched, so `context.applications` keeps the previous organization's list and the hub
+                // deep-links straight back into it.
+                //
+                // Reloading discards every cache in one step - session, organization list,
+                // applications, router context - which is what the same situation already does after
+                // an admin cross-org switch.
+                await navigate({ href: redirectTo ?? "/", reloadDocument: true, replace: true });
             },
         }),
     );
@@ -116,22 +130,16 @@ export function useRenameOrganization() {
 }
 
 export function useLeaveOrganization() {
-    const queryClient = useQueryClient();
-    const router = useRouter();
     const navigate = useNavigate();
 
     return useAPIMutation({
         ...trpc.organization.leave.mutationOptions({
             onSuccess: async () => {
-                // Leaving moves the session to a different organization server-side, so the whole
-                // cache and every route loader are stale, not just the organization lists.
-                await queryClient.invalidateQueries();
-                void queryClient.invalidateQueries({ queryKey: sessionQueryOptions().queryKey });
-                await router.invalidate();
-
-                // And the URL has to change for the same reason a switch does: it names an
-                // application in the organization just left, which the new one does not have.
-                await navigate({ to: "/", replace: true });
+                // Leaving moves the session to a remaining membership server-side, which leaves the
+                // URL naming an application the new organization does not have - the same trap a
+                // switch falls into, so the same full reload.
+                clearLastAppId();
+                await navigate({ href: "/", reloadDocument: true, replace: true });
             },
         }),
         successToast: { title: "You left the organization" },

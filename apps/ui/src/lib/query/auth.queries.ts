@@ -54,7 +54,7 @@ export function ensureOrgStatusData(queryClient: QueryClient) {
 // --- Active Org ---
 
 // Carries the server-computed flags that drive org-shaped UI: `isDemo` for the read-only demo UX,
-// `invitesEnabled` for whether this org can have members invited into it at all.
+// `needsNaming` for an organization still carrying the name it was auto-given.
 export function activeOrgQueryOptions() {
     return trpc.auth.activeOrg.queryOptions();
 }

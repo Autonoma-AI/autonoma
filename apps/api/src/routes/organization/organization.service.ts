@@ -3,6 +3,7 @@ import { ensureBillingProvisioning } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import {
+    type AppSlugOwner,
     type InvitationOutcome,
     type InvitationPreview,
     type MyOrganization,
@@ -15,6 +16,7 @@ import type { EmailSender } from "../../email/email-sender";
 import { setSessionActiveOrg } from "../auth/set-session-active-org";
 import { Service } from "../service";
 import { buildInvitationEmail } from "./invitation-email";
+import { preferCustomerOrgs } from "./prefer-customer-orgs";
 
 const INVITATION_TTL_DAYS = 7;
 const INVITATION_TTL_MS = INVITATION_TTL_DAYS * 24 * 60 * 60 * 1000;
@@ -74,6 +76,8 @@ export class OrganizationService extends Service {
         private readonly emailSender: EmailSender,
         private readonly analytics: PostHogAnalytics,
         private readonly appUrl: string,
+        /** Bare domain of the internal org, so slug lookups can prefer a customer's copy. */
+        private readonly internalDomain: string,
     ) {
         super();
     }
@@ -350,6 +354,44 @@ export class OrganizationService extends Service {
                 organizationCount: memberships.length,
                 memberCount: membership.organization._count.members,
             }),
+        }));
+    }
+
+    /**
+     * Which of the user's own organizations own an application with this slug.
+     *
+     * Application slugs are unique per organization rather than globally, so a link like
+     * `/app/checkout` names a different application depending on which organization you are acting
+     * as - and lands on "not found" if you happen to be in the wrong one. This is what lets a shared
+     * link resolve to the organization that actually has it.
+     *
+     * Scoped to the caller's memberships on purpose: it answers "where can *I* open this", never
+     * "who else has an app by this name", so it leaks nothing about organizations they are not in.
+     */
+    async appSlugOwners(appSlug: string, user: ActorUser): Promise<AppSlugOwner[]> {
+        this.logger.info("Finding the user's organizations that own an app slug", { extra: { appSlug } });
+
+        const memberships = await this.db.member.findMany({
+            where: {
+                userId: user.id,
+                organization: { applications: { some: { slug: appSlug, disabled: false } } },
+            },
+            select: { organization: { select: { id: true, name: true, slug: true, domain: true } } },
+            orderBy: { createdAt: "asc" },
+        });
+
+        // The internal org dogfoods customer applications, so it usually owns the same slug. Someone
+        // following a shared link wants the customer's copy, not our clone of it.
+        const owners = preferCustomerOrgs(memberships, this.internalDomain);
+
+        this.logger.info("Resolved app slug owners", {
+            extra: { appSlug, count: owners.length, beforeInternalFilter: memberships.length },
+        });
+
+        return owners.map((membership) => ({
+            organizationId: membership.organization.id,
+            organizationName: membership.organization.name,
+            organizationSlug: membership.organization.slug,
         }));
     }
 

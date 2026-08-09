@@ -3,6 +3,7 @@ import type { GitHubApp } from "@autonoma/github";
 import type { Auth } from "../../auth";
 import { env } from "../../env";
 import { setSessionActiveOrg } from "../auth/set-session-active-org";
+import { preferCustomerOrgs } from "../organization/prefer-customer-orgs";
 import { Service } from "../service";
 
 type AdminGitHubRepository = {
@@ -240,8 +241,7 @@ export class AdminService extends Service {
             select: { organization: { select: { id: true, name: true, slug: true, domain: true } } },
         });
 
-        const external = applications.filter((a) => a.organization.domain !== env.INTERNAL_DOMAIN);
-        const preferred = external.length > 0 ? external : applications;
+        const preferred = preferCustomerOrgs(applications, env.INTERNAL_DOMAIN);
 
         // Dedupe by org id (defensive - a slug is unique within an org, so this is normally a no-op).
         const byOrgId = new Map<string, OrgCandidate>();

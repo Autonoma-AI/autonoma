@@ -56,6 +56,19 @@ async function createUserWithOwnOrg(
     return { user, session, organizationId: organization.id };
 }
 
+/**
+ * The single internal organization, created on first use. `organization.domain` is unique, and in
+ * production exactly one org is keyed on the internal domain - so tests share it rather than each
+ * making their own, which collides on that constraint.
+ */
+async function ensureInternalOrg(db: PrismaClient, internalDomain: string) {
+    return db.organization.upsert({
+        where: { domain: internalDomain },
+        update: {},
+        create: { name: "Autonoma", slug: `internal-${randomBytes(4).toString("hex")}`, domain: internalDomain },
+    });
+}
+
 async function inviteTo(harness: APITestHarness, email: string) {
     return await harness.request().organization.invite({ email });
 }
@@ -122,7 +135,14 @@ apiTestSuite({
 
         test("an org anyone can join by email domain cannot invite", async ({ harness }) => {
             const org = await harness.db.organization.create({
-                data: { name: "Acme", slug: `acme-${randomBytes(4).toString("hex")}`, domain: "acme-test.com" },
+                // Unique per run: `organization.domain` is unique, so a hardcoded value makes the suite
+                // impossible to re-run against a database that persists between runs - which is what
+                // local verification uses.
+                data: {
+                    name: "Acme",
+                    slug: `acme-${randomBytes(4).toString("hex")}`,
+                    domain: `acme-${randomBytes(4).toString("hex")}.test`,
+                },
             });
             await harness.db.member.create({
                 data: { userId: harness.userId, organizationId: org.id, role: "owner" },
@@ -402,6 +422,103 @@ apiTestSuite({
                     .request(outsider.session, outsider.user)
                     .organization.rename({ organizationId: harness.organizationId, name: "Not Mine" }),
             ).rejects.toThrow(/not a member/i);
+        });
+
+        test("appSlugOwners lists only the caller's own organizations that own the slug", async ({ harness }) => {
+            const member = await createUserWithOwnOrg(harness.db);
+            const slug = `shared-${randomBytes(4).toString("hex")}`;
+
+            const strangerOrg = await harness.db.organization.create({
+                data: { name: "Stranger", slug: `stranger-${randomBytes(4).toString("hex")}` },
+            });
+            for (const organizationId of [member.organizationId, strangerOrg.id]) {
+                await harness.db.application.create({
+                    data: { name: slug, slug, architecture: "WEB", organizationId },
+                });
+            }
+
+            const owners = await harness
+                .request(member.session, member.user)
+                .organization.appSlugOwners({ appSlug: slug });
+
+            // Their own organization, and nothing about the one they have no membership in.
+            expect(owners.map((owner) => owner.organizationId)).toEqual([member.organizationId]);
+        });
+
+        test("appSlugOwners hides a disabled application", async ({ harness }) => {
+            const member = await createUserWithOwnOrg(harness.db);
+            const slug = `gone-${randomBytes(4).toString("hex")}`;
+            await harness.db.application.create({
+                data: {
+                    name: slug,
+                    slug,
+                    architecture: "WEB",
+                    organizationId: member.organizationId,
+                    disabled: true,
+                },
+            });
+
+            const owners = await harness
+                .request(member.session, member.user)
+                .organization.appSlugOwners({ appSlug: slug });
+
+            expect(owners).toHaveLength(0);
+        });
+
+        test("appSlugOwners prefers a customer org over the internal one that dogfoods the slug", async ({
+            harness,
+        }) => {
+            const slug = `dogfood-${randomBytes(4).toString("hex")}`;
+            const staff = await createUserWithOwnOrg(harness.db);
+
+            // The internal org dogfoods customer applications, so the same slug lives in both, and staff
+            // are members of the internal org. A membership-scoped lookup therefore sees both and must
+            // still prefer the customer's copy - otherwise a shared link opens our clone of their app.
+            const internalOrg = await ensureInternalOrg(harness.db, harness.internalDomain);
+            const customerOrg = await harness.db.organization.create({
+                data: {
+                    name: "Customer",
+                    slug: `customer-${randomBytes(4).toString("hex")}`,
+                    domain: `customer-${randomBytes(3).toString("hex")}.example`,
+                },
+            });
+            for (const organizationId of [internalOrg.id, customerOrg.id]) {
+                await harness.db.member.upsert({
+                    where: { userId_organizationId: { userId: staff.user.id, organizationId } },
+                    update: {},
+                    create: { userId: staff.user.id, organizationId, role: "member" },
+                });
+                await harness.db.application.create({
+                    data: { name: slug, slug, architecture: "WEB", organizationId },
+                });
+            }
+
+            const owners = await harness
+                .request(staff.session, staff.user)
+                .organization.appSlugOwners({ appSlug: slug });
+
+            expect(owners.map((owner) => owner.organizationId)).toEqual([customerOrg.id]);
+        });
+
+        test("appSlugOwners still returns the internal org when it is the only owner", async ({ harness }) => {
+            const slug = `internal-only-${randomBytes(4).toString("hex")}`;
+            const staff = await createUserWithOwnOrg(harness.db);
+            const internalOrg = await ensureInternalOrg(harness.db, harness.internalDomain);
+            await harness.db.member.upsert({
+                where: { userId_organizationId: { userId: staff.user.id, organizationId: internalOrg.id } },
+                update: {},
+                create: { userId: staff.user.id, organizationId: internalOrg.id, role: "member" },
+            });
+            await harness.db.application.create({
+                data: { name: slug, slug, architecture: "WEB", organizationId: internalOrg.id },
+            });
+
+            const owners = await harness
+                .request(staff.session, staff.user)
+                .organization.appSlugOwners({ appSlug: slug });
+
+            // Filtering the internal org unconditionally would make an internal-only app unreachable.
+            expect(owners.map((owner) => owner.organizationId)).toEqual([internalOrg.id]);
         });
 
         test("removing yourself is refused", async ({ harness }) => {

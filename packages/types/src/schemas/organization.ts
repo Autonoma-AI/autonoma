@@ -101,6 +101,25 @@ export const MyOrganizationSchema = z.object({
 });
 export type MyOrganization = z.infer<typeof MyOrganizationSchema>;
 
+/**
+ * An organization the signed-in user belongs to that owns an application with a given slug.
+ *
+ * Application slugs are unique per organization, not globally, so one slug can name a different
+ * application in each organization somebody belongs to - which is why opening a shared link needs
+ * this resolved rather than guessed.
+ */
+export const AppSlugOwnerSchema = z.object({
+    organizationId: z.string(),
+    organizationName: z.string(),
+    organizationSlug: z.string(),
+});
+export type AppSlugOwner = z.infer<typeof AppSlugOwnerSchema>;
+
+export const AppSlugOwnersInputSchema = z.object({
+    appSlug: z.string().min(1),
+});
+export type AppSlugOwnersInput = z.infer<typeof AppSlugOwnersInputSchema>;
+
 export const OrganizationMemberSchema = z.object({
     userId: z.string(),
     name: z.string(),
