@@ -28,7 +28,8 @@ jobs:
     # "edited" (title/body/base tweaks, no new commit) only needs to re-run
     # validate-pr-title, not the whole lint/test/build/typecheck suite.
     if: github.event.pull_request.draft == false && github.event.action != 'edited'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: [self-hosted, autonoma-2vcpu]
+    timeout-minutes: 15
     outputs:
       db: ${{ steps.filter.outputs.db }}
       k8s: ${{ steps.filter.outputs.k8s }}
