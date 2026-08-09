@@ -55,3 +55,6 @@ plan/
 apps/ui/screenshots/
 apps/cli/screenshots/
 storybook-static/
+
+# Release binaries fetched by platform/terraform/download-runner-lambdas.sh.
+platform/terraform/lambdas/
