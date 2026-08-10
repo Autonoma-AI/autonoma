@@ -1,5 +1,6 @@
 import {
     authoringPreviewConfigSchema,
+    DEFAULT_DEPENDENCY_FALLBACK_BRANCH,
     hasConnectionToken,
     isPreviewkitDatabaseEngine,
     isSameRepository,
@@ -466,7 +467,7 @@ export function draftFromConfig(
         const repoDraft: RepoDraft = {
             id: nextDraftId(),
             repo: candidate,
-            fallbackBranch: settings?.fallback_branch ?? "main",
+            fallbackBranch: settings?.fallback_branch ?? DEFAULT_DEPENDENCY_FALLBACK_BRANCH,
         };
         if (resolved?.githubRepositoryId != null) repoDraft.githubRepositoryId = resolved.githubRepositoryId;
         repoDrafts.push(repoDraft);
@@ -745,7 +746,8 @@ export function documentFromDraft(draft: TopologyDraft): CompiledDocument {
 
     const repositories = draft.repos.map((repo) => ({
         repo: repo.repo.trim(),
-        fallback_branch: repo.fallbackBranch.trim() === "" ? "main" : repo.fallbackBranch.trim(),
+        fallback_branch:
+            repo.fallbackBranch.trim() === "" ? DEFAULT_DEPENDENCY_FALLBACK_BRANCH : repo.fallbackBranch.trim(),
     }));
     if (repositories.length > 0) document.repositories = repositories;
     if (draft.branchConvention.type === "regex") {

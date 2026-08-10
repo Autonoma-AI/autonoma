@@ -4,6 +4,7 @@ import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { resolveConfiguredSdkPath } from "@autonoma/scenario";
 import { declaredSdkPath, previewConfigSchema, resolveSdkAppName } from "@autonoma/types";
 import { z } from "zod";
+import { applicationBranchRefs } from "../../github/application-branch-refs";
 import { type DeployFreshness, deployFreshness } from "../../previewkit/deploy-freshness";
 import { buildSdkUrl } from "./sdk-url";
 
@@ -238,6 +239,7 @@ export async function listSdkDryRunTargets(
             where: { id: applicationId, organizationId },
             select: {
                 githubRepositoryId: true,
+                previewDeployRef: true,
                 onboardingState: { select: { previewUrl: true } },
                 mainBranch: {
                     select: {
@@ -321,7 +323,10 @@ export async function listSdkDryRunTargets(
             id: "main",
             kind: "main",
             source: "previewkit",
-            label: "main",
+            // `id`/`kind` are sentinels for "the base environment"; the label is read by
+            // a human and an agent, so it names the branch actually deployed rather than
+            // asserting a repo has a branch called "main".
+            label: mainPreviewkitTarget.headRef ?? applicationBranchRefs(application).deploy ?? "base",
             prNumber: MAIN_ENVIRONMENT_PR_NUMBER,
             environmentId: mainPreviewkitTarget.environmentId,
             repoFullName: mainPreviewkitTarget.repoFullName,
@@ -346,7 +351,7 @@ export async function listSdkDryRunTargets(
             id: "main",
             kind: "main",
             source: "external",
-            label: "main",
+            label: applicationBranchRefs(application).trunk ?? "base",
             availability: "ready",
             branchName: application.mainBranch?.name,
             previewUrl: mainExternalPreviewUrl,

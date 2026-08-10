@@ -9,7 +9,7 @@ import {
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
-import { buildPreviewFrontDoorUrl, resolvePrimaryUrl } from "@autonoma/types";
+import { buildPreviewFrontDoorUrl, DEFAULT_DEPENDENCY_FALLBACK_BRANCH, resolvePrimaryUrl } from "@autonoma/types";
 import type {
     DeployPreviewEnvironmentInput,
     DeployPreviewEnvironmentOutput,
@@ -1433,7 +1433,8 @@ export class PreviewPipeline {
             dependencyRepos.set(app.repository.toLowerCase(), app.repository);
         }
         return [...dependencyRepos.values()].map((repo) => {
-            const fallbackBranch = settingsByRepo.get(repo.toLowerCase())?.fallback_branch ?? "main";
+            const fallbackBranch =
+                settingsByRepo.get(repo.toLowerCase())?.fallback_branch ?? DEFAULT_DEPENDENCY_FALLBACK_BRANCH;
             return {
                 repo,
                 fallbackBranch,

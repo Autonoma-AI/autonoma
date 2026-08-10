@@ -1,3 +1,4 @@
+import { DEFAULT_DEPENDENCY_FALLBACK_BRANCH } from "@autonoma/types";
 import { isSameRepository, type PreviewConfig } from "../config/schema";
 
 /**
@@ -22,7 +23,7 @@ export function enrichRepositoryShas(config: PreviewConfig, shaByRepo: Map<strin
     const declared = new Set(config.repositories.map((settings) => settings.repo.toLowerCase()));
     for (const [repo, sha] of shaByRepo) {
         if (declared.has(repo.toLowerCase())) continue;
-        repositories.push({ repo, fallback_branch: "main", sha });
+        repositories.push({ repo, fallback_branch: DEFAULT_DEPENDENCY_FALLBACK_BRANCH, sha });
     }
     return { ...config, repositories };
 }

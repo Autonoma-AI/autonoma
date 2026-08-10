@@ -42,6 +42,17 @@ const SDK_PATH_PATTERN = /^\/[^\s?#]*$/;
 const repoFullNameRegex = /^[^/\s]+\/[^/\s]+$/;
 
 /**
+ * Branch a multirepo dependency is checked out at when the PR's branch does not
+ * exist there and the config declares no `fallback_branch`.
+ *
+ * A guess, and named so that it is one place rather than three: a dependency repo
+ * whose default branch is `master` or `trunk` needs an explicit `fallback_branch`
+ * today. Resolving each dependency's real default from GitHub would remove the
+ * guess, at the cost of a lookup per dependency repo at plan time.
+ */
+export const DEFAULT_DEPENDENCY_FALLBACK_BRANCH = "main";
+
+/**
  * Per-container `resources` input. `cpu` and `memory` are the client-facing
  * knobs; the normalized `memoryRequest` / `memoryLimit` keys are accepted too so
  * that re-parsing an already-resolved config is idempotent (the merged config is
@@ -115,7 +126,7 @@ const branchConventionSchema = z.discriminatedUnion("type", [
  */
 const repositorySettingsSchema = z.object({
     repo: z.string().regex(repoFullNameRegex, "Must be an owner/repo full name"),
-    fallback_branch: z.string().default("main"),
+    fallback_branch: z.string().default(DEFAULT_DEPENDENCY_FALLBACK_BRANCH),
     /**
      * The concrete commit SHA the repository was deployed at. Absent in
      * user-authored config: previewkit resolves each dependency repo's branch to

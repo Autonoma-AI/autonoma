@@ -290,10 +290,14 @@ async function resolveMainBranchGithubRef(applicationId: string, branchId: strin
 
     if (mainInfo == null || mainInfo.githubRef === branchName) return;
 
-    await db.mainBranchInfo.update({
-        where: { applicationId },
-        data: { githubRef: branchName },
-    });
+    // Both rows, in one transaction. `githubRef` alone left `branch.name` still
+    // saying the placeholder, and that name is what the UI labels, what the
+    // deployment-signal match compares against, and what `deployBranch` reports -
+    // so a half-correction traded one wrong branch for two disagreeing ones.
+    await db.$transaction([
+        db.mainBranchInfo.update({ where: { applicationId }, data: { githubRef: branchName } }),
+        db.branch.update({ where: { id: branchId }, data: { name: branchName } }),
+    ]);
     logger.info("Corrected main branch github ref from Vercel deployment", {
         applicationId,
         branchId,
@@ -342,7 +346,13 @@ async function handleCheckRunStart(payload: CheckRunStartPayload): Promise<void>
 
     const application = await db.application.findUnique({
         where: { id: projectConnection.applicationId },
-        select: { id: true, slug: true, githubRepositoryId: true, mainBranch: { select: { id: true } } },
+        select: {
+            id: true,
+            slug: true,
+            githubRepositoryId: true,
+            mainBranch: { select: { id: true, name: true } },
+            mainBranchInfo: { select: { githubRef: true } },
+        },
     });
 
     if (application == null) {
@@ -402,14 +412,30 @@ async function handleCheckRunStart(payload: CheckRunStartPayload): Promise<void>
             );
             rawRef = pr.headRef;
         } catch (error) {
-            logger.warn("Failed to resolve PR branch from GitHub, falling back to main", {
+            logger.warn("Failed to resolve PR branch from GitHub; falling back to the app's trunk ref", {
                 applicationId: application.id,
                 prNumber: deploymentMeta.githubPrId,
                 error,
             });
         }
     }
-    const branchName = rawRef?.replace(/^refs\/heads\//, "") ?? "main";
+    // A deployment Vercel gave no ref for and that is not a PR is the app's trunk, so
+    // fall back to the trunk we already have rather than to the literal "main" - a
+    // repo whose default is `master` or `trunk` was otherwise recorded under a branch
+    // it does not have, and then failed `triggerDiffs`' main-vs-PR comparison.
+    const trunkRef = application.mainBranchInfo?.githubRef ?? application.mainBranch?.name;
+    const branchName = rawRef?.replace(/^refs\/heads\//, "") ?? trunkRef;
+    if (branchName == null) {
+        logger.info("No branch ref on the deployment and no trunk ref to fall back to, skipping diffs", {
+            applicationId: application.id,
+            extra: { deploymentId: deployment.id },
+        });
+        await updateVercelCheckRun(accessToken, deployment.id, checkRun.id, "completed", {
+            conclusion: "skipped",
+            conclusionText: "Deployment reported no git branch.",
+        });
+        return;
+    }
 
     if (headSha == null) {
         logger.info("No githubCommitSha available for deployment, skipping diffs", { deploymentId: deployment.id });
