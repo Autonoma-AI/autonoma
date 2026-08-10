@@ -1,3 +1,4 @@
+import { INTEGRATION_BRANCH } from "@autonoma/types";
 import * as p from "../ui/prompts";
 import type { AgentLauncher, KillableProcess, PermissionMode } from "./coding-agent";
 import { debugLog } from "./debug";
@@ -46,6 +47,19 @@ const HEADLESS_GUIDANCE =
     "deploy again. Never report success you have not confirmed.";
 
 /**
+ * Said here as well as in the MCP's own playbook, because it has to happen BEFORE the
+ * first edit and the agent may make one while still reading the playbook. Getting a
+ * preview to build takes commits, and they do not belong on the developer's default
+ * branch until a preview has actually built from them.
+ */
+const BRANCH_GUIDANCE =
+    ` Before you change any file: if you are not already on the \`${INTEGRATION_BRANCH}\` branch, create it ` +
+    "off the repo's default branch and switch to it now - read the default branch from the remote " +
+    "(`git symbolic-ref refs/remotes/origin/HEAD`) rather than assuming it is called main, and never commit " +
+    "onto it. If the working tree already has uncommitted changes they are the developer's: branch off the " +
+    "current HEAD instead and keep them out of your commits. Push the branch before you name it to Autonoma.";
+
+/**
  * What the agent is started on.
  *
  * The instruction itself is WORD FOR WORD the sentence the web app hands out for this
@@ -53,11 +67,12 @@ const HEADLESS_GUIDANCE =
  * hand, and the interactive path here is the same act with the registration and the
  * pairing code done for them. Names the server literally rather than "the Autonoma
  * MCP" for the same reason the web app does - an agent holding several servers cannot
- * resolve a generic name, it picks one and commits to it.
+ * resolve a generic name, it picks one and commits to it. Everything after that
+ * sentence is guidance appended around it, never edits to it.
  */
 function previewPrompt(code: string, interactive: boolean): string {
     const instruction = `set up my preview environments with the ${MCP_SERVER_NAME} MCP, code ${code}`;
-    return interactive ? instruction : `${instruction}.${HEADLESS_GUIDANCE}`;
+    return interactive ? `${instruction}.${BRANCH_GUIDANCE}` : `${instruction}.${BRANCH_GUIDANCE}${HEADLESS_GUIDANCE}`;
 }
 
 /**

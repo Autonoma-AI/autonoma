@@ -110,12 +110,36 @@ describe("runPreviewPhase", () => {
         });
 
         expect(client.pairings).toBe(1);
-        // Word for word what the web app hands out for this job. That wording is the
-        // one people have validated by running it themselves, and an interactive run
-        // here is the same act with the registration and the code done for them - so
-        // this asserts equality, not a prefix. "the Autonoma MCP" would also be
-        // ambiguous to an agent holding several servers.
-        expect(agent.launches[0]?.message).toBe("set up my preview environments with the autonoma MCP, code ABCD2345");
+        // The instruction itself stays word for word what the web app hands out: that
+        // wording is the one people have validated by running it themselves, and
+        // "the Autonoma MCP" would be ambiguous to an agent holding several servers.
+        // Guidance may be appended around it, never folded into it, so this asserts
+        // the sentence is intact and leads - not that it is the whole message.
+        const message = agent.launches[0]?.message ?? "";
+        expect(message.startsWith("set up my preview environments with the autonoma MCP, code ABCD2345.")).toBe(true);
+    });
+
+    // The MCP playbook says this too, but an agent can edit a file while still reading
+    // it. Getting a preview to build takes commits, and they do not belong on the
+    // developer's default branch until a preview has built from them.
+    test("tells the agent to cut the integration branch before it changes a file", async () => {
+        const client = fakeClient(["preview_verified"]);
+        const agent = fakeLauncher();
+
+        await runPreviewPhase({
+            client: client.client,
+            applicationId: APP_ID,
+            launcher: agent.launcher,
+            permissionMode: "bypassPermissions",
+            mcpUrl: MCP_URL,
+            interactive: true,
+            timing: TIMING,
+        });
+
+        const message = agent.launches[0]?.message ?? "";
+        expect(message).toContain("autonoma-integration");
+        expect(message).toContain("rather than assuming it is called main");
+        expect(message).toContain("Push the branch before you name it to Autonoma");
     });
 
     // Headless runs use print mode, where asking a question IS ending the turn. Both

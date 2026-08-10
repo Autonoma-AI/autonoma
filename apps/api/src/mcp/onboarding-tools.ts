@@ -5,6 +5,7 @@ import { logger as rootLogger } from "@autonoma/logger";
 import {
     buildDeploymentSignalWorkflow,
     DEPLOYMENT_SIGNAL_BODY_FIELDS,
+    INTEGRATION_BRANCH,
     isProtectedPreviewkitEnvKey,
     type OnboardingAgentPendingRequest,
 } from "@autonoma/types";
@@ -109,7 +110,10 @@ Loop until the preview is up:
 1. get_config(applicationId) - read the current preview config.
 2. apply_config(applicationId, document) - save the FULL config document (call get_config first, edit it, send the whole thing back). It is validated on save; if invalid, the error tells you what to fix.
 3. If the app needs secret env values (third-party API keys, tokens) you do NOT have: call request_env(applicationId, keys), then keep polling get_session_status (step 5) until the request clears - that poll is the only thing that tells you the values landed. NEVER put secret values in any tool call - you cannot, there is no tool that takes them. The user enters them in the Autonoma UI. ALWAYS ask the user first whether to set env on Autonoma from their .env (the default, they paste it into the UI) or configure them manually. Never request AUTONOMA_* variables (AUTONOMA_PREVIEWKIT, AUTONOMA_PREVIEWKIT_PR, AUTONOMA_PREVIEWKIT_URL, AUTONOMA_SHARED_SECRET, AUTONOMA_SIGNING_SECRET) - Autonoma injects all of them automatically and rejects attempts to set them. Non-secret config (e.g. NODE_ENV) belongs in apply_config as an app connection, and so does the URL of a service that lives INSIDE the preview (its own Postgres, Redis, ...) - that URL only exists at deploy time, so wire it as a connection instead of asking the user for it.
-4. trigger_deploy(applicationId) - deploy the base preview environment (environment 0). It deploys the app's configured deploy branch. Pick that branch deliberately rather than defaulting to a name: if unset it uses the repo's default branch (whatever it is named), which is the right choice when the user is working on it. But you typically run from the user's local checkout, which may sit on a different branch - check it (e.g. \`git rev-parse --abbrev-ref HEAD\`). If it is NOT the repo default (e.g. a branch they made to integrate Autonoma), ASK the user whether to deploy that branch or the default, then set their answer with apply_config's \`branch\` field (that does NOT deploy on its own) before trigger_deploy. Do not steer toward any particular branch without cause.
+4. WORK ON AN INTEGRATION BRANCH, then trigger_deploy(applicationId). Getting a preview to build usually takes real commits - a Dockerfile that was never built from a repo root, a missing build arg - and none of that belongs on the user's default branch unproven. So do NOT deploy the default branch and do NOT ask the user which branch to use. Cut one, off the DEFAULT branch, whose name pair() returns as \`defaultBranch\` - never assume it is called "main":
+   \`git fetch origin && git switch --create ${INTEGRATION_BRANCH} origin/<defaultBranch>\`
+   Two cases first: if the working tree has uncommitted changes they are the user's, so branch off the current HEAD instead and leave them out of your commits; if a branch from an earlier session already exists (or you are on it), stay there rather than cutting a second one.
+   Then PUSH IT (\`git push --set-upstream origin ${INTEGRATION_BRANCH}\`) BEFORE you name it - apply_config verifies the branch against GitHub and refuses one that isn't there yet. Set it with apply_config's \`branch\` field (that does NOT deploy on its own), then trigger_deploy. The base preview follows that branch from then on, so every fix you push rebuilds it. At the end it reaches the default branch the way any other change does: as a pull request the user reviews.
 5. get_session_status(applicationId) - poll this for both "is the build done" and "did the user answer my request". It returns the deploy status, the preview URL, diagnostics, and your control state. While a request is pending, KEEP POLLING: wait ~30s (sleep, if your client can) and call it again, for as long as it takes - a user can be several minutes away from a key they have to go dig up, and until you poll again you have no idea whether they answered. Nothing else tells you: they set the values in the Autonoma UI, so a quiet chat means nothing either way. (If they do say in the chat that they are done, great - poll once to pick it up and carry on.) When the request clears, check lastEnvResolution: the user may have SKIPPED keys they don't have (skippedKeys) - adapt the config to live without them (default, drop, or rework) instead of re-requesting.
 6. A ready status only means the pod health check passes - it does NOT mean the app works. Before declaring the preview done, verify it yourself: exercise the main flow against the preview URL (curl it, or a small Playwright script if the user has Playwright - log in, load data, hit a few real routes), then call get_session_status again and READ the app's runtime logs in recentLogs. If the logs show the app erroring behind the healthy page (crashed queries, missing env, stack traces), fix the cause and redeploy. If you cannot exercise the flow yourself, ask the user to click through the app once and then read the logs.
 7. go_live(applicationId) - take the app live once you have verified the preview. Until you do, Autonoma reviews no pull requests and holds back the comments it would have posted. Do this as soon as the preview is good; the SDK handler and the scenario recipes below carry on afterwards and this never waits on them.
@@ -509,6 +513,10 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                     ]);
                     const repoFields = {
                         repository: repository?.fullName,
+                        // The agent is told to branch off the default, and it cannot
+                        // assume that is "main" - so hand it the real name rather than
+                        // make it infer one from the local checkout.
+                        defaultBranch: repository?.defaultBranch,
                         checkRepository:
                             repository?.fullName == null
                                 ? "Could not resolve this app's repository. Confirm with the user which repo it is before analyzing anything."
@@ -586,6 +594,8 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                         connected: true,
                         account: installation.accountLogin,
                         linkedRepository: linked?.fullName,
+                        // Named, never assumed to be "main" - the agent branches off it.
+                        defaultBranch: linked?.defaultBranch,
                         // Only repos the installation can see are linkable. Granting access to more is
                         // also a browser step, hence the settings link rather than a tool. This addresses
                         // the installation directly rather than GitHub's account picker, which would
@@ -812,10 +822,12 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
             title: "Deploy the preview",
             description:
                 "Deploy the app's configured deploy branch as the base preview (environment 0), applying the " +
-                "saved config. If unset the deploy branch is the repo's default branch - but if the user's checkout is " +
-                "on a different branch, ask which to use and set it with apply_config's `branch` field before deploying, " +
-                "rather than steering to the default. Then poll get_session_status until it is up, and verify the preview " +
-                "URL yourself. Pass a short `description` of what you are deploying - the user watches it on the activity feed.",
+                `saved config. Deploy an integration branch, not the user's default branch: cut \`${INTEGRATION_BRANCH}\` ` +
+                "off the default (its real name is `defaultBranch` from pair - do not assume 'main'), push it, and name " +
+                "it with apply_config's `branch` field before deploying. Getting a preview to build takes commits, and " +
+                "those do not belong on their default branch until a preview has actually built from them. Then poll " +
+                "get_session_status until it is up, and verify the preview URL yourself. Pass a short `description` of " +
+                "what you are deploying - the user watches it on the activity feed.",
             inputSchema: { applicationId: z.string(), description: activityDescription },
         },
         async ({ applicationId, description }) =>
@@ -829,7 +841,7 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                         useInsteadOnVercel:
                             "create_vercel_deployment / select_vercel_deployment (Vercel does the deploying)",
                     },
-                    message: description ?? "Deploying preview (default branch)",
+                    message: description ?? "Deploying the base preview",
                     toolArguments: {},
                 },
                 (org) => services.onboarding.triggerPreviewkitMainDeploy(applicationId, org),

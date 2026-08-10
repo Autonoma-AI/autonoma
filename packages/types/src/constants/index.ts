@@ -5,4 +5,5 @@ export * from "./analytics-headers";
 export * from "./application-instructions";
 export * from "./auth-cookies";
 export * from "./billing";
+export * from "./integration-branch";
 export * from "./pipeline-labels";

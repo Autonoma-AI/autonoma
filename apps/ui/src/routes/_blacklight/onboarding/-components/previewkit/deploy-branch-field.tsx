@@ -60,14 +60,16 @@ export function DeployBranchField({ applicationId, currentBranch, defaultBranch 
         <span className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">Deploy branch</span>
       </div>
       <p className="mb-3 max-w-xl text-2xs text-text-secondary">
-        The branch this app's preview deploys from. Defaults to the repo's default branch
+        The branch this app's base preview deploys from. Unset, it follows your default branch
         {repoDefault != null ? (
           <>
             {" "}
             (<span className="font-mono text-text-primary">{repoDefault}</span>)
           </>
         ) : undefined}
-        . Setting it here doesn't deploy - deploy from the review step below.
+        . While you're still getting the preview to build, point it at the branch carrying that work instead - it
+        changes nothing about which branch Autonoma treats as your main one. Setting it here doesn't deploy - deploy
+        from the review step below.
       </p>
       <div className="max-w-md">
         <Label htmlFor="pk-deploy-branch">Branch</Label>

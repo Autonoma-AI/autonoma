@@ -1,4 +1,4 @@
-import { authoringPreviewConfigSchema } from "@autonoma/types";
+import { authoringPreviewConfigSchema, INTEGRATION_BRANCH } from "@autonoma/types";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Services } from "../routes/build-services";
@@ -66,8 +66,11 @@ export function registerApplyConfigTool(
                     .min(1)
                     .optional()
                     .describe(
-                        "Branch the base preview deploys from. Omit to use the repo's default branch; set it when " +
-                            "the user is working on a different branch (ask them which to use). Ignored with prNumber.",
+                        `Branch the base preview deploys from - during onboarding, the \`${INTEGRATION_BRANCH}\` ` +
+                            "branch you cut off the repo's default and PUSHED, never the default branch itself. It " +
+                            "is verified against GitHub, so push before you name it or this call fails with " +
+                            "'not found on GitHub'. Omit to leave the base preview following the app's trunk. " +
+                            "Ignored with prNumber.",
                     ),
                 apply: z
                     .boolean()

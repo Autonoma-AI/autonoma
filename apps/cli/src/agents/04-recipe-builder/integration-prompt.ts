@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { TEST_RUN_ID_TOKEN, TEST_RUN_SHORT_ID_TOKEN } from "@autonoma/types";
+import { INTEGRATION_BRANCH, TEST_RUN_ID_TOKEN, TEST_RUN_SHORT_ID_TOKEN } from "@autonoma/types";
 import { COMPLETION_MARKER_FILE } from "./completion";
 
 /**
@@ -31,9 +31,6 @@ export const INTEGRATION_PROMPT_FILE = "integration-prompt.md";
  * declares no `sdk_path`, so the two must not drift.
  */
 const DEFAULT_ENDPOINT_PATH = "/api/autonoma";
-
-/** Branch the agent cuts off the repo's default branch for the integration. */
-const INTEGRATION_BRANCH = "autonoma-integration";
 
 export interface IntegrationPromptParams {
     /** The planner output dir holding the frozen artifacts (KB, audit, scenarios). */
