@@ -1300,11 +1300,8 @@ export class OnboardingManager {
     }
 
     /**
-     * Activate the application's main-branch pending snapshot after onboarding
-     * completes. Onboarding no longer pre-computes generations, so the uploaded
-     * tests' generation jobs are never run - they generate later when a PR
-     * triggers them. `discardPendingGenerations` drops those still-`pending` jobs
-     * so finalization isn't blocked by `IncompleteGenerationsError`.
+     * Activate the application's main-branch pending snapshot after onboarding completes. The uploaded tests are
+     * not run here - they run when a PR first triggers an analysis on them.
      */
     async activatePendingSnapshot(applicationId: string, organizationId: string) {
         const app = await this.db.application.findFirst({
@@ -1333,7 +1330,7 @@ export class OnboardingManager {
                 snapshotId: pendingSnapshotId,
                 organizationId,
             });
-            await updater.finalize({ discardPendingGenerations: true });
+            await updater.finalize();
             this.logger.info("Pending snapshot activated", { applicationId, branchId });
         } catch (err) {
             if (err instanceof SnapshotNotPendingError) {

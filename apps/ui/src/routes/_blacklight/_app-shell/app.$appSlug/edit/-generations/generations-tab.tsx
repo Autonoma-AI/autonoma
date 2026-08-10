@@ -1,8 +1,7 @@
 import { Badge, Button, Card, CardContent } from "@autonoma/blacklight";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
-import { XIcon } from "@phosphor-icons/react/X";
-import type { EnrichedGeneration } from "lib/query/snapshot-edit.queries";
-import { useDiscardGeneration, useEditSession, useQueueGenerations } from "lib/query/snapshot-edit.queries";
+import type { NamedRun, TestAwaitingRun } from "lib/query/snapshot-edit.queries";
+import { useEditSession, useStartRuns } from "lib/query/snapshot-edit.queries";
 import { AppLink } from "../../../-app-link";
 
 const STATUS_BADGE_VARIANT = {
@@ -15,116 +14,102 @@ const STATUS_BADGE_VARIANT = {
 
 export function GenerationsTab({ snapshotId }: { snapshotId: string }) {
   const { data: session } = useEditSession(snapshotId);
-  const queueGenerations = useQueueGenerations();
+  const startRuns = useStartRuns();
+
+  const runAll = () =>
+    startRuns.mutate({ snapshotId, testCaseIds: session.testsAwaitingRun.map((test) => test.testCaseId) });
 
   return (
     <div className="grid h-[calc(100dvh-340px)] grid-cols-3 gap-4">
-      <GenerationColumn
-        title="Pending"
-        generations={session.pendingGenerations}
-        renderCard={(g) => <PendingGenerationCard key={g.generationId} snapshotId={snapshotId} generation={g} />}
+      <Column
+        title="Not run"
+        count={session.testsAwaitingRun.length}
         action={
-          session.pendingGenerations.length > 0 ? (
-            <Button
-              size="xs"
-              onClick={() => queueGenerations.mutate({ snapshotId })}
-              disabled={queueGenerations.isPending}
-            >
+          session.testsAwaitingRun.length > 0 ? (
+            <Button size="xs" onClick={runAll} disabled={startRuns.isPending}>
               <LightningIcon size={12} />
-              {queueGenerations.isPending ? "Queuing..." : "Generate all"}
+              {startRuns.isPending ? "Starting..." : "Generate all"}
             </Button>
           ) : undefined
         }
-        emptyMessage="No pending generations"
-      />
-      <GenerationColumn
-        title="In Progress"
-        generations={session.activeGenerations}
-        emptyMessage="No active generations"
-      />
-      <GenerationColumn
-        title="Completed"
-        generations={session.completedGenerations}
-        emptyMessage="No completed generations"
-      />
+        emptyMessage="Every changed test has been run"
+      >
+        {session.testsAwaitingRun.map((test) => (
+          <AwaitingRunCard key={test.testCaseId} test={test} />
+        ))}
+      </Column>
+
+      <Column title="In Progress" count={session.activeRuns.length} emptyMessage="No runs in progress">
+        {session.activeRuns.map((run) => (
+          <RunCard key={run.runId} run={run} />
+        ))}
+      </Column>
+
+      <Column title="Completed" count={session.finishedRuns.length} emptyMessage="No completed runs">
+        {session.finishedRuns.map((run) => (
+          <RunCard key={run.runId} run={run} />
+        ))}
+      </Column>
     </div>
   );
 }
 
 // ─── Column ─────────────────────────────────────────────────────────────────
 
-interface GenerationColumnProps {
+interface ColumnProps {
   title: string;
-  generations: EnrichedGeneration[];
-  renderCard?: (generation: EnrichedGeneration) => React.ReactNode;
+  count: number;
   action?: React.ReactNode;
   emptyMessage: string;
+  children: React.ReactNode;
 }
 
-function GenerationColumn({ title, generations, renderCard, action, emptyMessage }: GenerationColumnProps) {
+function Column({ title, count, action, emptyMessage, children }: ColumnProps) {
   return (
     <div className="flex flex-col overflow-hidden border border-border-mid bg-surface-raised">
       <div className="flex shrink-0 items-center justify-between border-b border-border-dim px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-text-primary">{title}</span>
           <Badge variant="secondary" className="px-1.5 py-0 text-3xs">
-            {generations.length}
+            {count}
           </Badge>
         </div>
         {action}
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
-        {generations.length === 0 ? (
+        {count === 0 ? (
           <div className="flex h-full items-center justify-center">
-            <p className="text-2xs text-text-tertiary">{emptyMessage}</p>
+            <p className="text-2xs text-text-secondary">{emptyMessage}</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            {generations.map((g) =>
-              renderCard != null ? renderCard(g) : <GenerationCard key={g.generationId} generation={g} />,
-            )}
-          </div>
+          <div className="flex flex-col gap-2">{children}</div>
         )}
       </div>
     </div>
   );
 }
 
-// ─── Card ───────────────────────────────────────────────────────────────────
+// ─── Cards ──────────────────────────────────────────────────────────────────
 
-function PendingGenerationCard({ snapshotId, generation }: { snapshotId: string; generation: EnrichedGeneration }) {
-  const discardGeneration = useDiscardGeneration();
-
+function AwaitingRunCard({ test }: { test: TestAwaitingRun }) {
   return (
     <Card variant="raised" size="default">
       <CardContent className="flex items-center justify-between gap-2">
-        <span className="truncate font-mono text-sm text-text-primary">{generation.testCaseName}</span>
-        <div className="flex shrink-0 items-center gap-2">
-          <Badge variant={STATUS_BADGE_VARIANT[generation.status]}>{generation.status}</Badge>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            className="text-text-tertiary hover:text-status-critical"
-            onClick={() => discardGeneration.mutate({ snapshotId, generationId: generation.generationId })}
-            disabled={discardGeneration.isPending}
-          >
-            <XIcon size={12} />
-          </Button>
-        </div>
+        <span className="truncate font-mono text-sm text-text-primary">{test.testCaseName}</span>
       </CardContent>
     </Card>
   );
 }
 
-function GenerationCard({ generation }: { generation: EnrichedGeneration }) {
+function RunCard({ run }: { run: NamedRun }) {
   return (
-    <AppLink to="/app/$appSlug/generations/$generationId" params={{ generationId: generation.generationId }}>
+    <AppLink to="/app/$appSlug/generations/$generationId" params={{ generationId: run.runId }}>
       <Card variant="raised" size="default" className="transition-colors hover:bg-surface-base">
         <CardContent className="flex items-center justify-between gap-2">
-          <span className="truncate font-mono text-sm text-text-primary">{generation.testCaseName}</span>
-          <Badge variant={STATUS_BADGE_VARIANT[generation.status]} className="shrink-0">
-            {generation.status}
+          <span className="truncate font-mono text-sm text-text-primary">{run.testCaseName}</span>
+          <Badge variant={STATUS_BADGE_VARIANT[run.status]} className="shrink-0">
+            {run.status}
           </Badge>
         </CardContent>
       </Card>

@@ -87,10 +87,9 @@ apiTestSuite({
 
             expect(session.snapshotId).toBe(snapshotId);
             expect(session.testSuite).toBeDefined();
-            expect(session.generationSummary).toBeDefined();
-            expect(session.changes).toBeDefined();
             expect(session.changes).toHaveLength(0);
-            expect(session.generationSummary).toHaveLength(0);
+            expect(session.runs).toHaveLength(0);
+            expect(session.testsAwaitingRun).toHaveLength(0);
 
             await harness.request().snapshotEdit.discard({ snapshotId });
         });
@@ -185,25 +184,104 @@ apiTestSuite({
             expect(after.testSuite.testCases).toHaveLength(0);
         });
 
-        test("queueGenerations fires generation jobs via the provider", async ({ harness }) => {
+        // ─── Editing never starts a run; the editor asks for one explicitly ─────────
+
+        test("editing the suite starts no run, and offers the changed test to be run", async ({ harness }) => {
+            const { branchId, folderId } = await createBranch(harness);
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
+
+            await harness.request().snapshotEdit.addTest({
+                snapshotId,
+                name: "Edited, not run",
+                description: "Editing this test must not queue any execution of it.",
+                plan: "Original plan",
+                folderId,
+            });
+            const added = await harness.request().snapshotEdit.get({ snapshotId });
+            // biome-ignore lint/style/noNonNullAssertion: just created
+            const testCaseId = added.testSuite.testCases[0]!.id;
+
+            await harness.request().snapshotEdit.updateTest({ snapshotId, testCaseId, plan: "Revised plan" });
+
+            const session = await harness.request().snapshotEdit.get({ snapshotId });
+            expect(session.runs).toHaveLength(0);
+            expect(await harness.db.testGeneration.count({ where: { snapshotId } })).toBe(0);
+            expect(session.testsAwaitingRun).toEqual([testCaseId]);
+            expect(harness.generationProvider.firedBatches).toHaveLength(0);
+        });
+
+        test("startRuns starts one run per test and dispatches them", async ({ harness }) => {
             const { branchId, folderId } = await createBranch(harness);
             const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
             await harness.request().snapshotEdit.addTest({
                 snapshotId,
                 name: "Generate me",
-                description: "Ensures generation jobs fire when the test is queued.",
+                description: "Ensures a run is started and dispatched when the user asks for one.",
                 plan: "Run generation",
                 folderId,
             });
+            const { testsAwaitingRun } = await harness.request().snapshotEdit.get({ snapshotId });
 
-            const batchesBefore = harness.generationProvider.firedBatches.length;
+            const { runIds } = await harness
+                .request()
+                .snapshotEdit.startRuns({ snapshotId, testCaseIds: testsAwaitingRun });
 
-            await harness.request().snapshotEdit.queueGenerations({ snapshotId });
-
-            expect(harness.generationProvider.firedBatches.length).toBe(batchesBefore + 1);
+            expect(runIds).toHaveLength(1);
             const lastBatch = harness.generationProvider.firedBatches.at(-1);
-            expect(lastBatch?.generations).toHaveLength(1);
-            expect(lastBatch?.generations[0]?.testGenerationId).toBeDefined();
+            expect(lastBatch?.generations.map((g) => g.testGenerationId)).toEqual(runIds);
+
+            const runs = await harness.db.testGeneration.findMany({
+                where: { snapshotId },
+                select: { id: true, status: true },
+            });
+            expect(runs).toEqual([{ id: runIds[0], status: "queued" }]);
+
+            const session = await harness.request().snapshotEdit.get({ snapshotId });
+            expect(session.testsAwaitingRun).toHaveLength(0);
+        });
+
+        test("edit -> generate -> finalize promotes the snapshot with a run still in flight", async ({ harness }) => {
+            const { branchId, folderId } = await createBranch(harness);
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
+            await harness.request().snapshotEdit.addTest({
+                snapshotId,
+                name: "In flight",
+                description: "Its run is still going when the user commits the suite.",
+                plan: "Takes a while",
+                folderId,
+            });
+            const { testsAwaitingRun } = await harness.request().snapshotEdit.get({ snapshotId });
+            await harness.request().snapshotEdit.startRuns({ snapshotId, testCaseIds: testsAwaitingRun });
+
+            await harness.request().snapshotEdit.finalize({ snapshotId });
+
+            const branch = await harness.db.branch.findUniqueOrThrow({
+                where: { id: branchId },
+                select: { activeSnapshotId: true, pendingSnapshotId: true },
+            });
+            expect(branch.activeSnapshotId).toBe(snapshotId);
+            expect(branch.pendingSnapshotId).toBeNull();
+        });
+
+        test("edit -> finalize with nothing generated promotes the edit", async ({ harness }) => {
+            const { branchId, folderId } = await createBranch(harness);
+            const { snapshotId } = await harness.request().snapshotEdit.start({ branchId });
+            await harness.request().snapshotEdit.addTest({
+                snapshotId,
+                name: "Never run",
+                description: "Authored and committed without ever being executed.",
+                plan: "Some plan",
+                folderId,
+            });
+
+            await harness.request().snapshotEdit.finalize({ snapshotId });
+
+            const branch = await harness.db.branch.findUniqueOrThrow({
+                where: { id: branchId },
+                select: { activeSnapshotId: true },
+            });
+            expect(branch.activeSnapshotId).toBe(snapshotId);
+            expect(await harness.db.testCaseAssignment.count({ where: { snapshotId } })).toBe(1);
         });
 
         test("finalize activates the snapshot", async ({ harness }) => {
@@ -388,7 +466,7 @@ apiTestSuite({
                         folderId,
                     }),
                 () => harness.request().snapshotEdit.removeTest({ snapshotId, testCaseId: "any-test-case" }),
-                () => harness.request().snapshotEdit.queueGenerations({ snapshotId }),
+                () => harness.request().snapshotEdit.startRuns({ snapshotId, testCaseIds: [doomedTestCaseId] }),
                 () => harness.request().snapshotEdit.finalize({ snapshotId }),
                 () => harness.request().snapshotEdit.discard({ snapshotId }),
             ];

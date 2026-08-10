@@ -12,7 +12,7 @@ export function TestSuiteTab({ snapshotId }: { snapshotId: string }) {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
 
   const changesByTestCaseId = new Map(session.changes.map((c) => [c.testCaseId, c.type] as const));
-  const generationMap = new Map(session.generationSummary.map((g) => [g.testCaseId, g] as const));
+  const runByTestCaseId = new Map(session.runs.map((run) => [run.testCaseId, run] as const));
   const selectedTest = session.testSuite.testCases.find((tc) => tc.id === selectedTestId);
 
   return (
@@ -36,7 +36,7 @@ export function TestSuiteTab({ snapshotId }: { snapshotId: string }) {
               key={selectedTest.id}
               snapshotId={snapshotId}
               testCase={selectedTest}
-              generation={generationMap.get(selectedTest.id)}
+              run={runByTestCaseId.get(selectedTest.id)}
             />
           ) : (
             <EditTestDetailEmpty />

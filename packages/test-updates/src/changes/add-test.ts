@@ -10,18 +10,8 @@ export interface AddTestParams {
     scenarioName?: string;
 }
 
-export class AddTest extends TestSuiteChange<
-    AddTestParams,
-    { testCaseId: string; planId: string; generationId: string }
-> {
-    async apply({
-        snapshotDraft,
-        generationManager,
-    }: ApplyChangeParams): Promise<{ testCaseId: string; planId: string; generationId: string }> {
-        const { testCaseId, planId } = await snapshotDraft.addTestCase(this.params);
-
-        const generationId = await generationManager.addJob(planId);
-
-        return { testCaseId, planId, generationId };
+export class AddTest extends TestSuiteChange<AddTestParams, { testCaseId: string; planId: string }> {
+    async apply({ snapshotDraft }: ApplyChangeParams): Promise<{ testCaseId: string; planId: string }> {
+        return await snapshotDraft.addTestCase(this.params);
     }
 }

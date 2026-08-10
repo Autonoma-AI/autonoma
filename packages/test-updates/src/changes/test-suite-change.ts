@@ -1,12 +1,9 @@
 import { type Logger, logger } from "@autonoma/logger";
-import type { GenerationManager } from "../generation/generation-manager";
 import type { SnapshotDraft } from "../snapshot-draft";
 
 export interface ApplyChangeParams {
     /** An interface to the snapshot draft being updated. */
     snapshotDraft: SnapshotDraft;
-    /** A function to schedule test case generation. */
-    generationManager: GenerationManager;
 }
 
 /** Represents some update to the test suite of the application. */

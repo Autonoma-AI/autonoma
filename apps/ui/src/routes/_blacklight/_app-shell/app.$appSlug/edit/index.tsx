@@ -139,14 +139,14 @@ function EditSessionContent({ snapshotId }: { snapshotId: string }) {
 
 function GenerationsTrigger({ snapshotId }: { snapshotId: string }) {
   const { data: session } = useEditSession(snapshotId);
-  const pendingCount = session.pendingGenerations.length;
+  const awaitingCount = session.testsAwaitingRun.length;
 
   return (
     <TabsTrigger value="generations" className="gap-1.5">
       Generations
-      {pendingCount > 0 && (
+      {awaitingCount > 0 && (
         <Badge variant="secondary" className="ml-1 px-1.5 py-0 text-3xs">
-          {pendingCount}
+          {awaitingCount}
         </Badge>
       )}
     </TabsTrigger>

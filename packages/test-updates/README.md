@@ -1,10 +1,12 @@
 # @autonoma/test-updates
 
-> **Deprecated.** The analysis pipeline has moved onto `@autonoma/test-suite` (the suite module); this package now
-> serves only the manual snapshot editor, onboarding/CLI artifact upload, and the branches presentation reads, and
-> is deleted once those callers migrate. Do not add new consumers.
+> **Deprecated.** The analysis pipeline and the manual snapshot editor have both moved onto `@autonoma/test-suite`
+> (the suite module); this package now serves only onboarding/CLI artifact upload and the branches presentation
+> reads, and is deleted once those callers migrate. Do not add new consumers.
 
-Manages the lifecycle of test suite updates for a branch. Handles creating snapshot drafts, applying changes (add/update/remove test cases), scheduling generation jobs, assigning generation results, and finalizing (activating) snapshots.
+Manages the lifecycle of test suite updates for a branch: creating snapshot drafts, applying changes (add/remove
+test cases), and finalizing (activating) snapshots. Nothing here starts a run - a run begins only through the suite
+module's `startRun`.
 
 ## Exports
 
@@ -13,80 +15,55 @@ Manages the lifecycle of test suite updates for a branch. Handles creating snaps
 | Export                                 | Type     | Description                                                                                                                                                                                                                                                                                                                             |
 | -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `TestSuiteUpdater`                     | Class    | Top-level orchestrator for a test suite update session                                                                                                                                                                                                                                                                                  |
-| `SnapshotDraft`                        | Class    | Lower-level handle on a pending (processing) snapshot: `loadById`/`loadPending`/`start`, plus persist-only `updatePlan`/`addTestCase` (no generations queued). Used by the analysis pipeline to stage edits onto the run's own snapshot.                                                           |
+| `SnapshotDraft`                        | Class    | Lower-level handle on a pending (processing) snapshot: `loadById`/`loadPending`/`start`, plus `updatePlan`/`addTestCase`.                                                                                                                                                                                                                |
 | `summarizeChangesForSnapshots`         | Function | Suite-change counts (added/removed/updated) for many snapshots in one query, keyed by snapshot id. Prefer this over calling `summarizeChangesForSnapshot` per snapshot: the single-snapshot path builds the full change list, loading every assignment's test case and plan prose to produce three integers.                            |
 | `recordBranchDeployment`               | Function | Records where a branch's tests point and repoints the branch at it, injecting the previewkit bypass header when the URL belongs to a preview. Called at whatever moment the URL becomes known: at trigger time for a customer-deployed preview, and only once the build is live for one we build ourselves.                             |
 | `autonomaHostsPreviews`                | Function | Whether Autonoma builds and hosts an application's previews, from its onboarding preview mode. Only an explicit `previewkit` choice does: `existing_deploys` and an unmade choice both mean the customer deploys their own preview and only their trigger knows the URL. The webhook entry that decides whether to open a run and the run's own `resolvePreviewTarget` must both ask through here, or a run opens against a preview nobody will record. |
-| `MissingJobProviderError`              | Error    | Thrown when `queuePendingGenerations` is called without a job provider                                                                                                                                                                                                                                                                  |
-| `IncompleteGenerationsError`           | Error    | Thrown when finalizing a snapshot that still has pending/queued/running generations                                                                                                                                                                                                                                                     |
 | `FakeGenerationProvider`               | Class    | In-memory stub for tests - records fired batches                                                                                                                                                                                                                                                                                        |
 | `SnapshotNotPendingError`              | Error    | Snapshot is not in "processing" state                                                                                                                                                                                                                                                                                                   |
 | `BranchAlreadyHasPendingSnapshotError` | Error    | Branch already has an open draft                                                                                                                                                                                                                                                                                                        |
 | `ApplicationNotFoundError`             | Error    | Branch not found or does not belong to the specified organization                                                                                                                                                                                                                                                                       |
 
-**Types:** `GenerationProvider`, `PendingGeneration`, `GenerationJobOptions`, `TestSuiteInfo`, `SnapshotChange`, `SnapshotChangeSummary`, `SnapshotComparison`
+**Types:** `GenerationProvider`, `PendingGeneration`, `TestSuiteInfo`, `SnapshotChange`, `SnapshotChangeSummary`, `SnapshotComparison`
 
 **Changes (command pattern):**
 
-| Change class      | Description                                                                                                                                                                                                                                                                                                                                                  |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `AddTest`         | Adds a test case with a plan and schedules generation                                                                                                                                                                                                                                                                                                        |
-| `UpdateTest`      | Updates the plan for an existing test case and queues regeneration                                                                                                                                                                                                                                                                                           |
-| `ImportTest`      | Adopts an existing test case into the snapshot with a given plan and queues generation. The merge flow's counterpart to `UpdateTest`, for a test the snapshot does not assign yet (authored on a branch that merged in). Deliberately not `AddTest`: the `TestCase` already exists application-wide, and minting a second one would fork the test's identity |
-| `RemoveTest`      | Removes a test case from the snapshot                                                                                                                                                                                                                                                                                                                        |
-| `RegenerateSteps` | Queues a new generation for a test case's existing plan                                                                                                                                                                                                                                                                                                      |
-| `DiscardChange`   | Reverts a test case to its previous snapshot state                                                                                                                                                                                                                                                                                                           |
+| Change class | Description                          |
+| ------------ | ------------------------------------ |
+| `AddTest`    | Adds a test case with a plan         |
 
 ### Temporal entry point (`@autonoma/test-updates/temporal`)
 
-| Export                       | Type  | Description                                  |
-| ---------------------------- | ----- | -------------------------------------------- |
-| `TemporalGenerationProvider` | Class | Fires generation jobs via Temporal Workflows |
+| Export                       | Type  | Description                                                                                       |
+| ---------------------------- | ----- | ------------------------------------------------------------------------------------------------- |
+| `TemporalGenerationProvider` | Class | Dispatches already-started runs to the worker fleet as a batch Temporal Workflow. Only the editor's `startRuns` fires it. |
 
 ## Usage
 
 ### Starting and applying changes
 
 ```ts
-import { TestSuiteUpdater, AddTest, UpdateTest, RemoveTest } from "@autonoma/test-updates";
+import { TestSuiteUpdater, AddTest } from "@autonoma/test-updates";
 
 // Start a new update session (creates a pending snapshot)
 const updater = await TestSuiteUpdater.startUpdate({
     db,
     branchId: "branch-123",
-    jobProvider: myGenerationProvider, // optional - needed for queuePendingGenerations
     organizationId: "org-456", // optional - ownership check
 });
 
-// Apply changes
 await updater.apply(
     new AddTest({
         name: "Login flow",
+        description: "A user with valid credentials reaches the dashboard.",
         plan: "Navigate to /login, enter credentials, click Sign In, assert dashboard is visible",
+        folderId: "folder-123",
         scenarioId: "scenario-789", // optional
     }),
 );
-
-await updater.apply(
-    new UpdateTest({
-        testCaseId: "tc-abc",
-        plan: "Updated plan text",
-    }),
-);
-
-await updater.apply(new RemoveTest({ testCaseId: "tc-def" }));
 ```
 
-### Queueing generations
-
-```ts
-// Fire generation jobs for all pending generations
-await updater.queuePendingGenerations();
-```
-
-A generation passing its review is the definition of "validated" - there is no replay step and nothing pins a generation's steps onto its assignment.
-
-`continueUpdate` loads whichever snapshot is currently pending on the branch. Any caller that outlives one request - a workflow activity dispatched for a specific snapshot, a user's edit session - must use `continueUpdateBySnapshot` instead, so it keeps operating on the exact snapshot it opened even if a newer trigger has since replaced the branch's pending pointer:
+`continueUpdate` loads whichever snapshot is currently pending on the branch. Any caller that outlives one request - a workflow activity dispatched for a specific snapshot - must use `continueUpdateBySnapshot` instead, so it keeps operating on the exact snapshot it opened even if a newer trigger has since replaced the branch's pending pointer:
 
 ```ts
 const updater = await TestSuiteUpdater.continueUpdateBySnapshot({ db, snapshotId });
@@ -97,13 +74,8 @@ const updater = await TestSuiteUpdater.continueUpdateBySnapshot({ db, snapshotId
 ### Finalizing or cancelling
 
 ```ts
-// Activate the snapshot (fails if incomplete generations remain)
+// Activate the snapshot. Unconditional on what did or did not run.
 await updater.finalize();
-
-// Activate without running generations: discard any pending jobs first so they
-// don't block activation. Onboarding uses this - it commits the uploaded tests
-// without running them; they generate later when a PR triggers them.
-await updater.finalize({ discardPendingGenerations: true });
 
 // Or cancel the draft - marks the snapshot "cancelled" and clears the branch
 // pointer, preserving its generations, assignments, and runs for observability
@@ -122,9 +94,6 @@ const info = await updater.currentTestSuiteInfo();
 
 const changes = await updater.getChanges();
 // Array of { type: "added" | "removed" | "updated", testCaseId, testCaseName, ... }
-
-const summary = await updater.getGenerationSummary();
-// Array of { testCaseId, generationId, status }
 ```
 
 ## Architecture
@@ -141,11 +110,11 @@ Branch
 
 ### Command pattern for changes
 
-All mutations implement the `TestSuiteChange` abstract class with a single `apply()` method. Each change receives the `SnapshotDraft` (for DB mutations) and `GenerationManager` (for scheduling generation jobs). This keeps the `TestSuiteUpdater` thin - it just delegates to the change object.
+All mutations implement the `TestSuiteChange` abstract class with a single `apply()` method, receiving the `SnapshotDraft` to mutate. This keeps the `TestSuiteUpdater` thin - it just delegates to the change object.
 
 ### Generation providers
 
-The `GenerationProvider` interface decouples job scheduling from execution:
+The `GenerationProvider` interface decouples dispatching a started run from executing it:
 
 - **`TemporalGenerationProvider`** - production provider, submits batch Temporal Workflows
 - **`FakeGenerationProvider`** - test double, records fired batches in memory

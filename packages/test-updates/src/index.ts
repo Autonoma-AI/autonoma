@@ -1,4 +1,4 @@
-export { TestSuiteUpdater, MissingJobProviderError, IncompleteGenerationsError } from "./test-update-manager";
+export { TestSuiteUpdater } from "./test-update-manager";
 export type { GenerationProvider, PendingGeneration } from "./generation/generation-job-provider";
 export { FakeGenerationProvider } from "./generation/fake-generation-provider";
 export { TemporalGenerationProvider } from "./generation/temporal-generation-provider";

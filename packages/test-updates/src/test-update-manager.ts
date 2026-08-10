@@ -1,28 +1,15 @@
 import type { PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger } from "@autonoma/logger";
 import type { TestSuiteChange } from "./changes";
-import type { GenerationProvider } from "./generation/generation-job-provider";
-import { GenerationManager } from "./generation/generation-manager";
 import { SnapshotDraft } from "./snapshot-draft";
-
-export { MissingJobProviderError } from "./generation/generation-manager";
-
-export class IncompleteGenerationsError extends Error {
-    constructor(snapshotId: string) {
-        super(`Cannot finalize snapshot ${snapshotId}: there are still incomplete generations`);
-        this.name = "IncompleteGenerationsError";
-    }
-}
 
 interface TestSuiteUpdaterParams {
     snapshotDraft: SnapshotDraft;
-    generationManager: GenerationManager;
 }
 
 interface StartUpdateArgs {
     db: PrismaClient;
     branchId: string;
-    jobProvider?: GenerationProvider;
     organizationId?: string;
     source?: TriggerSource;
     /** The SHA of the head commit to update the test suite for. */
@@ -34,14 +21,12 @@ interface StartUpdateArgs {
 interface ContinueUpdateArgs {
     db: PrismaClient;
     branchId: string;
-    jobProvider?: GenerationProvider;
     organizationId?: string;
 }
 
 interface ContinueUpdateBySnapshotArgs {
     db: PrismaClient;
     snapshotId: string;
-    jobProvider?: GenerationProvider;
     organizationId?: string;
 }
 
@@ -53,7 +38,6 @@ export class TestSuiteUpdater {
     private readonly logger: Logger;
 
     private readonly snapshotDraft: SnapshotDraft;
-    private readonly generationManager: GenerationManager;
 
     public get snapshotId() {
         return this.snapshotDraft.snapshotId;
@@ -76,10 +60,9 @@ export class TestSuiteUpdater {
         return this.snapshotDraft.source;
     }
 
-    private constructor({ snapshotDraft, generationManager }: TestSuiteUpdaterParams) {
+    private constructor({ snapshotDraft }: TestSuiteUpdaterParams) {
         this.logger = logger.child({ name: this.constructor.name, snapshotId: snapshotDraft.snapshotId });
         this.snapshotDraft = snapshotDraft;
-        this.generationManager = generationManager;
     }
 
     public get headSha(): string | undefined {
@@ -93,18 +76,9 @@ export class TestSuiteUpdater {
     /**
      * Creates a new pending snapshot and returns an updater for it.
      *
-     * @param params.commitDiffHandler - Optional. When provided, enables commit recheck on finalize.
      * @param params.organizationId - Optional. When provided, verifies the branch belongs to this organization.
      */
-    public static async startUpdate({
-        db,
-        branchId,
-        jobProvider,
-        organizationId,
-        source,
-        headSha,
-        baseSha,
-    }: StartUpdateArgs) {
+    public static async startUpdate({ db, branchId, organizationId, source, headSha, baseSha }: StartUpdateArgs) {
         const snapshotDraft = await SnapshotDraft.start({
             db,
             branchId,
@@ -114,35 +88,18 @@ export class TestSuiteUpdater {
             baseSha,
         });
 
-        return new TestSuiteUpdater({
-            snapshotDraft,
-            generationManager: new GenerationManager({
-                db,
-                snapshotId: snapshotDraft.snapshotId,
-                organizationId: snapshotDraft.organizationId,
-                jobProvider,
-            }),
-        });
+        return new TestSuiteUpdater({ snapshotDraft });
     }
 
     /**
      * Loads the existing pending snapshot and returns an updater for it.
      *
-     * @param params.commitDiffHandler - Optional. When provided, enables commit recheck on finalize.
      * @param params.organizationId - Optional. When provided, verifies the branch belongs to this organization.
      */
-    public static async continueUpdate({ db, branchId, jobProvider, organizationId }: ContinueUpdateArgs) {
+    public static async continueUpdate({ db, branchId, organizationId }: ContinueUpdateArgs) {
         const snapshotDraft = await SnapshotDraft.loadPending({ db, branchId, organizationId });
 
-        return new TestSuiteUpdater({
-            snapshotDraft,
-            generationManager: new GenerationManager({
-                db,
-                snapshotId: snapshotDraft.snapshotId,
-                organizationId: snapshotDraft.organizationId,
-                jobProvider,
-            }),
-        });
+        return new TestSuiteUpdater({ snapshotDraft });
     }
 
     /**
@@ -154,23 +111,10 @@ export class TestSuiteUpdater {
      *
      * @throws {SnapshotNotPendingError} If the snapshot is not in "processing" status.
      */
-    public static async continueUpdateBySnapshot({
-        db,
-        snapshotId,
-        jobProvider,
-        organizationId,
-    }: ContinueUpdateBySnapshotArgs) {
+    public static async continueUpdateBySnapshot({ db, snapshotId, organizationId }: ContinueUpdateBySnapshotArgs) {
         const snapshotDraft = await SnapshotDraft.loadById({ db, snapshotId, organizationId });
 
-        return new TestSuiteUpdater({
-            snapshotDraft,
-            generationManager: new GenerationManager({
-                db,
-                snapshotId: snapshotDraft.snapshotId,
-                organizationId: snapshotDraft.organizationId,
-                jobProvider,
-            }),
-        });
+        return new TestSuiteUpdater({ snapshotDraft });
     }
 
     public async currentTestSuiteInfo() {
@@ -180,52 +124,15 @@ export class TestSuiteUpdater {
     public async apply<TResult>(change: TestSuiteChange<unknown, TResult>): Promise<TResult> {
         this.logger.info("Applying test suite change", { type: change.constructor.name });
 
-        const result = await change.apply({
-            snapshotDraft: this.snapshotDraft,
-            generationManager: this.generationManager,
-        });
+        const result = await change.apply({ snapshotDraft: this.snapshotDraft });
 
         this.logger.info("Finished applying change");
 
         return result;
     }
 
-    /**
-     * Fires generation jobs for all pending generations and marks them as queued.
-     *
-     * Delegates to the generation manager for validation, job firing, and status updates.
-     * Fire-and-forget - the caller does not wait for the dispatched batch to complete.
-     *
-     * @throws {MissingJobProviderError} If no job provider was supplied at construction time.
-     */
-    public async queuePendingGenerations() {
-        this.logger.info("Queueing pending generations");
-
-        const result = await this.generationManager.queuePendingGenerations();
-
-        this.logger.info("Pending generations queued", { generationsQueued: result.generationsQueued });
-
-        return result;
-    }
-
-    /** Returns all pending generation records for this snapshot. */
-    public async getPendingGenerations() {
-        return this.generationManager.getPendingGenerations();
-    }
-
-    /** Discards a single pending generation by ID. */
-    public async discardGeneration(generationId: string) {
-        this.logger.info("Discarding generation", { generationId });
-        await this.generationManager.discardGeneration(generationId);
-        this.logger.info("Generation discarded", { generationId });
-    }
-
     public async getChanges() {
         return this.snapshotDraft.getChanges();
-    }
-
-    public async getGenerationSummary() {
-        return this.generationManager.getGenerationSummary();
     }
 
     /**
@@ -245,33 +152,9 @@ export class TestSuiteUpdater {
         this.logger.info("Snapshot failed");
     }
 
-    /**
-     * Finalizes the snapshot by activating it.
-     *
-     * Validates that there are no incomplete (pending, queued, or running)
-     * generations before activation.
-     *
-     * @param discardPendingGenerations - When true, delete any `pending`
-     *   generation jobs first so they don't block activation. Used to activate a
-     *   snapshot without running its generations (onboarding), which also clears
-     *   pending jobs left on snapshots created before onboarding stopped
-     *   scheduling them. `queued`/`running` generations still block - those
-     *   represent work in flight, not deferred jobs.
-     * @throws {IncompleteGenerationsError} If incomplete generations remain after the optional discard.
-     */
-    public async finalize({ discardPendingGenerations = false }: { discardPendingGenerations?: boolean } = {}) {
-        this.logger.info("Finalizing snapshot", { discardPendingGenerations });
-
-        if (discardPendingGenerations) {
-            await this.generationManager.discardPendingGenerations();
-        }
-
-        const hasIncomplete = await this.generationManager.hasIncompleteGenerations();
-        if (hasIncomplete) {
-            this.logger.fatal("Cannot finalize snapshot with incomplete generations");
-            throw new IncompleteGenerationsError(this.snapshotDraft.snapshotId);
-        }
-
+    /** Finalizes the snapshot by activating it. */
+    public async finalize() {
+        this.logger.info("Finalizing snapshot");
         await this.snapshotDraft.activate();
         this.logger.info("Snapshot finalized and activated");
     }

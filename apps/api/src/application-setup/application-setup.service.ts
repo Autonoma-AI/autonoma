@@ -7,7 +7,6 @@ import type { ScenarioRecipeStore } from "@autonoma/scenario";
 import {
     AddTest,
     BranchAlreadyHasPendingSnapshotError,
-    type GenerationProvider,
     TestSuiteUpdater,
     fetchTestSuiteInfo,
 } from "@autonoma/test-updates";
@@ -46,7 +45,6 @@ type SetupWithBranch = {
 export class ApplicationSetupService {
     constructor(
         private readonly db: PrismaClient,
-        private readonly generationProvider: GenerationProvider,
         private readonly onboardingManager: OnboardingManager,
         private readonly recipeStore: ScenarioRecipeStore,
     ) {}
@@ -200,9 +198,9 @@ export class ApplicationSetupService {
      * branch's FIRST suite has nothing to stage against - with replay removed the
      * uploaded tests are immediately usable, so it must be activated on upload.
      * Otherwise a successful upload leaves the Tests page (which reads the active
-     * snapshot) showing an empty suite. Activation discards pending generations
-     * (nothing fires against an unconfigured SDK) and does not advance onboarding,
-     * so it is safe before the preview is verified.
+     * snapshot) showing an empty suite. The uploaded tests are not run here and
+     * activation does not advance onboarding, so it is safe before the preview is
+     * verified.
      *
      * Finish setup and onboarding's "Go live" are independent signals and nothing
      * enforces their order, so we can land here before `goLive` was ever clicked.
@@ -290,13 +288,6 @@ export class ApplicationSetupService {
             await this.recordCommit(branchId, body.commitSha);
         }
 
-        // applyTests only creates the pending TestGeneration rows, it never runs
-        // them - firing through the same gated path `addEvent`/`updateSetup` use
-        // (rather than calling `queueGenerations` directly) so artifact upload
-        // respects the same "preview must be verified first" precondition. CLI
-        // artifact upload can land before the deployment's SDK endpoint is even
-        // configured, and firing unconditionally sent every generation straight
-        // to a guaranteed "does not have an SDK URL configured" failure.
         await this.activateSnapshotAfterSetupCompletion(setupId, setup.applicationId, organizationId);
 
         log.info("Uploaded artifacts", {
@@ -442,24 +433,14 @@ export class ApplicationSetupService {
 
     private async getUpdater(branchId: string, organizationId: string) {
         try {
-            return await TestSuiteUpdater.startUpdate({
-                db: this.db,
-                branchId,
-                organizationId,
-                jobProvider: this.generationProvider,
-            });
+            return await TestSuiteUpdater.startUpdate({ db: this.db, branchId, organizationId });
         } catch (err) {
             if (!(err instanceof BranchAlreadyHasPendingSnapshotError)) {
                 throw err;
             }
 
             log.info("Pending snapshot exists, continuing update", { branchId });
-            return TestSuiteUpdater.continueUpdate({
-                db: this.db,
-                branchId,
-                organizationId,
-                jobProvider: this.generationProvider,
-            });
+            return TestSuiteUpdater.continueUpdate({ db: this.db, branchId, organizationId });
         }
     }
 

@@ -24,7 +24,6 @@ async function createSetupFixture(harness: APITestHarness, name: string) {
     // logic resolves to real manager methods.
     const service = new ApplicationSetupService(
         harness.db,
-        harness.generationProvider,
         harness.services.onboarding.manager,
         new ScenarioRecipeStore(harness.db),
     );

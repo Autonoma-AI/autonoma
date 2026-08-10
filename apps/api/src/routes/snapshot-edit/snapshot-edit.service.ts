@@ -1,23 +1,25 @@
 import type { BillingService } from "@autonoma/billing";
-import { ApplicationArchitecture, type PrismaClient, TriggerSource } from "@autonoma/db";
+import type { ApplicationArchitecture, PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import {
-    AddTest,
-    ApplicationNotFoundError,
-    BranchAlreadyHasPendingSnapshotError,
-    DiscardChange,
-    type GenerationProvider,
-    RegenerateSteps,
-    RemoveTest,
-    SnapshotNotPendingError,
-    TestSuiteUpdater,
-    UpdateTest,
-} from "@autonoma/test-updates";
+    BranchAlreadyOpenError,
+    BranchNotFoundError,
+    EDIT_SNAPSHOT_TRIGGER,
+    type OpenSnapshot,
+    type Suite,
+    type SuiteChange,
+    type SuiteRun,
+    SnapshotNotFoundError,
+    SnapshotNotOpenError,
+    TestSuiteStore,
+} from "@autonoma/test-suite";
+import type { GenerationProvider, PendingGeneration } from "@autonoma/test-updates";
 import { Service } from "../service";
 import { AnalysisInFlightError, EditSessionAlreadyOpenError, EditSessionSupersededError } from "./edit-session-errors";
+import { assertBranchCanRun, TestsNotRunnableError } from "./run-preconditions";
 
-/** The trigger source that marks a snapshot as owned by the manual editor rather than the analysis pipeline. */
-const EDIT_SESSION_SOURCE = TriggerSource.MANUAL;
+/** What a run that could not be dispatched records, in place of a result the customer will never get. */
+const DISPATCH_FAILURE_REASONING = "Could not be started. Contact the Autonoma team for help.";
 
 interface AddTestInput {
     name: string;
@@ -44,13 +46,24 @@ interface UpdateTestInput {
  */
 type EditSessionState = { state: "none" } | { state: "open"; snapshotId: string } | { state: "analysis-in-flight" };
 
+/**
+ * The manual test-suite editor: one open snapshot per branch, addressed by id, that a user edits and then either
+ * promotes or discards.
+ *
+ * Editing the suite never starts a run. A run is one execution of a test's plan and the customer is charged for
+ * it, so it begins only where the user asked for one - {@link startRuns} - and the credit is deducted against the
+ * run it started rather than swept up later.
+ */
 export class SnapshotEditService extends Service {
+    private readonly suite: TestSuiteStore;
+
     constructor(
         private readonly db: PrismaClient,
         private readonly generationProvider: GenerationProvider,
         private readonly billingService: BillingService,
     ) {
         super();
+        this.suite = new TestSuiteStore(db);
     }
 
     /**
@@ -72,7 +85,7 @@ export class SnapshotEditService extends Service {
             return { state: "none" };
         }
 
-        if (pending.source !== EDIT_SESSION_SOURCE) {
+        if (pending.source !== EDIT_SNAPSHOT_TRIGGER) {
             this.logger.info("Branch's open snapshot belongs to the analysis pipeline", {
                 branchId,
                 snapshotId: pending.id,
@@ -87,49 +100,38 @@ export class SnapshotEditService extends Service {
     async startEditSession(branchId: string, organizationId: string) {
         this.logger.info("Starting edit session", { branchId });
 
-        const updater = await this.startUpdate(branchId, organizationId);
-        const testSuite = await updater.currentTestSuiteInfo();
+        const snapshot = await this.openEditSnapshot(branchId, organizationId);
+        const testSuite = await snapshot.read();
 
-        this.logger.info("Edit session started", {
-            branchId,
-            snapshotId: updater.snapshotId,
-        });
+        this.logger.info("Edit session started", { branchId, snapshotId: snapshot.snapshotId });
 
-        return { snapshotId: updater.snapshotId, testSuite };
+        return { snapshotId: snapshot.snapshotId, testSuite };
     }
 
     async getEditSession(snapshotId: string, organizationId: string) {
         this.logger.info("Getting edit session", { snapshotId });
 
-        const updater = await this.editSession(snapshotId, organizationId);
-        const [testSuite, generationSummary, changes] = await Promise.all([
-            updater.currentTestSuiteInfo(),
-            updater.getGenerationSummary(),
-            updater.getChanges(),
+        const snapshot = await this.editSession(snapshotId, organizationId);
+        const [testSuite, changes, runs] = await Promise.all([
+            snapshot.read(),
+            this.suite.changesSince(snapshotId),
+            this.suite.latestRunPerTest(snapshotId),
         ]);
 
         return {
-            snapshotId: updater.snapshotId,
+            snapshotId: snapshot.snapshotId,
             testSuite,
-            generationSummary,
             changes,
+            runs,
+            testsAwaitingRun: testsAwaitingRun(changes, runs),
         };
     }
 
     async addTest(snapshotId: string, input: AddTestInput, organizationId: string) {
         this.logger.info("Adding test to edit session", { snapshotId, name: input.name });
 
-        const updater = await this.editSession(snapshotId, organizationId);
-
-        await updater.apply(
-            new AddTest({
-                name: input.name,
-                description: input.description,
-                plan: input.plan,
-                folderId: input.folderId,
-                scenarioId: input.scenarioId,
-            }),
-        );
+        const snapshot = await this.editSession(snapshotId, organizationId);
+        await snapshot.addTest(input);
 
         this.logger.info("Test added to edit session", { snapshotId });
     }
@@ -137,18 +139,15 @@ export class SnapshotEditService extends Service {
     async addTests(snapshotId: string, input: AddTestsInput, organizationId: string) {
         this.logger.info("Adding bulk tests to edit session", { snapshotId, count: input.tests.length });
 
-        const updater = await this.editSession(snapshotId, organizationId);
-
+        const snapshot = await this.editSession(snapshotId, organizationId);
         for (const test of input.tests) {
-            await updater.apply(
-                new AddTest({
-                    name: test.name,
-                    description: test.description,
-                    plan: test.plan,
-                    folderId: test.folderId,
-                    scenarioId: input.scenarioId,
-                }),
-            );
+            await snapshot.addTest({
+                name: test.name,
+                description: test.description,
+                plan: test.plan,
+                folderId: test.folderId,
+                scenarioId: input.scenarioId,
+            });
         }
 
         this.logger.info("Bulk tests added to edit session", { snapshotId, count: input.tests.length });
@@ -157,35 +156,17 @@ export class SnapshotEditService extends Service {
     async updateTest(snapshotId: string, input: UpdateTestInput, organizationId: string) {
         this.logger.info("Updating test in edit session", { snapshotId, testCaseId: input.testCaseId });
 
-        const updater = await this.editSession(snapshotId, organizationId);
-
-        await updater.apply(
-            new UpdateTest({
-                testCaseId: input.testCaseId,
-                plan: input.plan,
-                scenarioId: input.scenarioId,
-            }),
-        );
+        const snapshot = await this.editSession(snapshotId, organizationId);
+        await snapshot.revisePlan(input);
 
         this.logger.info("Test updated in edit session", { snapshotId, testCaseId: input.testCaseId });
-    }
-
-    async regenerateSteps(snapshotId: string, testCaseId: string, organizationId: string) {
-        this.logger.info("Regenerating steps for test in edit session", { snapshotId, testCaseId });
-
-        const updater = await this.editSession(snapshotId, organizationId);
-
-        await updater.apply(new RegenerateSteps({ testCaseId }));
-
-        this.logger.info("Steps regeneration scheduled for test in edit session", { snapshotId, testCaseId });
     }
 
     async removeTest(snapshotId: string, testCaseId: string, organizationId: string) {
         this.logger.info("Removing test from edit session", { snapshotId, testCaseId });
 
-        const updater = await this.editSession(snapshotId, organizationId);
-
-        await updater.apply(new RemoveTest({ testCaseId }));
+        const snapshot = await this.editSession(snapshotId, organizationId);
+        await snapshot.dropTest(testCaseId);
 
         this.logger.info("Test removed from edit session", { snapshotId, testCaseId });
     }
@@ -193,88 +174,48 @@ export class SnapshotEditService extends Service {
     async discardChange(snapshotId: string, testCaseId: string, organizationId: string) {
         this.logger.info("Discarding change for test case", { snapshotId, testCaseId });
 
-        const updater = await this.editSession(snapshotId, organizationId);
-
-        await updater.apply(new DiscardChange({ testCaseId }));
+        const snapshot = await this.editSession(snapshotId, organizationId);
+        await snapshot.discardTest(testCaseId);
 
         this.logger.info("Change discarded for test case", { snapshotId, testCaseId });
     }
 
-    async discardGeneration(snapshotId: string, generationId: string, organizationId: string) {
-        this.logger.info("Discarding generation", { snapshotId, generationId });
+    /**
+     * Start one run of each listed test's pinned plan and dispatch them. The only place the editor creates a run,
+     * and the only place it charges: the credit is deducted per run started, keyed on the run's own id, so a
+     * retried request re-deducts nothing.
+     */
+    async startRuns(snapshotId: string, testCaseIds: string[], organizationId: string) {
+        this.logger.info("Starting runs for edit session", { snapshotId, count: testCaseIds.length });
 
-        const updater = await this.editSession(snapshotId, organizationId);
+        const snapshot = await this.editSession(snapshotId, organizationId);
+        // Every precondition is checked before the first run exists, so a refused request charges nothing and
+        // leaves no half-started column behind.
+        const [architecture, suite] = await Promise.all([this.runnableArchitecture(snapshot), snapshot.read()]);
+        assertTestsRunnable(suite, testCaseIds);
+        await this.billingService.checkCreditsGate(organizationId, testCaseIds.length, architecture);
 
-        await updater.discardGeneration(generationId);
-
-        this.logger.info("Generation discarded", { snapshotId, generationId });
-    }
-
-    async queueGenerations(snapshotId: string, organizationId: string) {
-        this.logger.info("Queueing generations for edit session", { snapshotId });
-
-        const updater = await this.editSession(snapshotId, organizationId);
-        const pendingGenerations = await this.db.testGeneration.findMany({
-            where: {
-                snapshotId: updater.snapshotId,
-                status: "pending",
-                // Never queue/charge for investigation shadow generations - they are provisioned separately.
-                shadow: false,
-            },
-            select: {
-                id: true,
-                testPlan: {
-                    select: {
-                        testCase: {
-                            select: {
-                                application: {
-                                    select: { architecture: true },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        });
-
-        const webCount = pendingGenerations.filter(
-            (generation) => generation.testPlan.testCase.application.architecture === ApplicationArchitecture.WEB,
-        ).length;
-        const iosCount = pendingGenerations.filter(
-            (generation) => generation.testPlan.testCase.application.architecture === ApplicationArchitecture.IOS,
-        ).length;
-        const androidCount = pendingGenerations.filter(
-            (generation) => generation.testPlan.testCase.application.architecture === ApplicationArchitecture.ANDROID,
-        ).length;
-
-        if (webCount > 0) {
-            await this.billingService.checkCreditsGate(organizationId, webCount, ApplicationArchitecture.WEB);
-        }
-        if (iosCount > 0) {
-            await this.billingService.checkCreditsGate(organizationId, iosCount, ApplicationArchitecture.IOS);
-        }
-        if (androidCount > 0) {
-            await this.billingService.checkCreditsGate(organizationId, androidCount, ApplicationArchitecture.ANDROID);
+        const runs: PendingGeneration[] = [];
+        for (const testCaseId of testCaseIds) {
+            const { runId, scenarioId } = await snapshot.startRun(testCaseId);
+            await this.billingService.deductCreditsForGeneration(runId, { organizationId, architecture });
+            runs.push({ testGenerationId: runId, scenarioId, architecture });
         }
 
-        for (const generation of pendingGenerations) {
-            await this.billingService.deductCreditsForGeneration(generation.id, {
-                organizationId,
-                architecture: generation.testPlan.testCase.application.architecture,
-            });
-        }
+        await this.dispatch(snapshotId, runs);
 
-        await updater.queuePendingGenerations();
-
-        this.logger.info("Generations queued for edit session", { snapshotId });
+        this.logger.info("Runs started for edit session", { snapshotId, count: runs.length });
+        return { runIds: runs.map((run) => run.testGenerationId) };
     }
 
     async finalize(snapshotId: string, organizationId: string) {
         this.logger.info("Finalizing edit session", { snapshotId });
 
-        const updater = await this.editSession(snapshotId, organizationId);
-
-        await updater.finalize();
+        const snapshot = await this.editSession(snapshotId, organizationId);
+        // Unconditional on what did or did not run: an edit the user chose not to validate is still the suite
+        // they authored, and refusing to promote it would discard the whole session.
+        const promoted = await snapshot.promote();
+        if (!promoted) throw new EditSessionSupersededError();
 
         this.logger.info("Edit session finalized", { snapshotId });
     }
@@ -282,45 +223,21 @@ export class SnapshotEditService extends Service {
     async discard(snapshotId: string, organizationId: string) {
         this.logger.info("Discarding edit session", { snapshotId });
 
-        const updater = await this.editSession(snapshotId, organizationId);
-
-        await updater.cancel();
+        const snapshot = await this.editSession(snapshotId, organizationId);
+        const cancelled = await snapshot.cancel("Discarded by the user");
+        if (!cancelled) throw new EditSessionSupersededError();
 
         this.logger.info("Edit session discarded", { snapshotId });
     }
 
-    private async startUpdate(branchId: string, organizationId: string) {
-        // A manual edit does not advance the branch's commit, so the new snapshot
-        // represents the same head as the current active snapshot and contains no
-        // code diff. Carry the active snapshot's headSha forward as both headSha and
-        // baseSha so that the next diffs trigger keeps using it as the base instead
-        // of falling back to the PR base sha.
-        const headSha = await this.activeSnapshotHeadSha(branchId);
+    private async openEditSnapshot(branchId: string, organizationId: string): Promise<OpenSnapshot> {
         try {
-            return await TestSuiteUpdater.startUpdate({
-                db: this.db,
-                branchId,
-                jobProvider: this.generationProvider,
-                organizationId,
-                source: EDIT_SESSION_SOURCE,
-                headSha,
-                baseSha: headSha,
-            });
+            return await this.suite.openEditSnapshot({ branchId, organizationId });
         } catch (error) {
-            if (error instanceof ApplicationNotFoundError) throw new NotFoundError("Branch not found");
-            if (error instanceof BranchAlreadyHasPendingSnapshotError) {
-                throw await this.pendingSlotTaken(branchId, organizationId);
-            }
+            if (error instanceof BranchNotFoundError) throw new NotFoundError("Branch not found");
+            if (error instanceof BranchAlreadyOpenError) throw await this.pendingSlotTaken(branchId, organizationId);
             throw error;
         }
-    }
-
-    private async activeSnapshotHeadSha(branchId: string): Promise<string | undefined> {
-        const branch = await this.db.branch.findUnique({
-            where: { id: branchId },
-            select: { activeSnapshot: { select: { headSha: true } } },
-        });
-        return branch?.activeSnapshot?.headSha ?? undefined;
     }
 
     /**
@@ -329,33 +246,74 @@ export class SnapshotEditService extends Service {
      * Addressing by id rather than by branch is what makes a superseded session fail instead of silently adopting
      * the winner's snapshot: a superseded snapshot is no longer `processing`, so it cannot be read or written.
      */
-    private async editSession(snapshotId: string, organizationId: string): Promise<TestSuiteUpdater> {
-        const updater = await this.loadSnapshot(snapshotId, organizationId);
+    private async editSession(snapshotId: string, organizationId: string): Promise<OpenSnapshot> {
+        const snapshot = await this.reopen(snapshotId, organizationId);
 
-        if (updater.source !== EDIT_SESSION_SOURCE) {
+        if (snapshot.trigger !== EDIT_SNAPSHOT_TRIGGER) {
             this.logger.warn("Refusing an edit operation on an analysis snapshot", {
                 snapshotId,
-                extra: { source: updater.source },
+                extra: { trigger: snapshot.trigger },
             });
             throw new AnalysisInFlightError();
         }
 
-        return updater;
+        return snapshot;
     }
 
-    private async loadSnapshot(snapshotId: string, organizationId: string): Promise<TestSuiteUpdater> {
+    private async reopen(snapshotId: string, organizationId: string): Promise<OpenSnapshot> {
         try {
-            return await TestSuiteUpdater.continueUpdateBySnapshot({
-                db: this.db,
-                snapshotId,
-                jobProvider: this.generationProvider,
-                organizationId,
-            });
+            return await this.suite.reopen(snapshotId, { organizationId });
         } catch (error) {
-            if (error instanceof SnapshotNotPendingError) {
-                this.logger.warn("Edit session snapshot is no longer open", { snapshotId, extra: { error } });
-                throw new EditSessionSupersededError();
-            }
+            const gone = error instanceof SnapshotNotOpenError || error instanceof SnapshotNotFoundError;
+            if (!gone) throw error;
+
+            this.logger.warn("Edit session snapshot is no longer open", { snapshotId, extra: { error } });
+            throw new EditSessionSupersededError();
+        }
+    }
+
+    /** The architecture this branch's runs execute as, having refused a branch that cannot execute one at all. */
+    private async runnableArchitecture(snapshot: OpenSnapshot): Promise<ApplicationArchitecture> {
+        const branch = await this.db.branch.findUniqueOrThrow({
+            where: { id: snapshot.branchId },
+            select: {
+                application: { select: { architecture: true } },
+                deployment: {
+                    select: {
+                        webDeployment: { select: { url: true } },
+                        mobileDeployment: { select: { deploymentId: true } },
+                    },
+                },
+            },
+        });
+
+        const { architecture } = branch.application;
+        assertBranchCanRun(architecture, {
+            webDeployment: branch.deployment?.webDeployment ?? undefined,
+            mobileDeployment: branch.deployment?.mobileDeployment ?? undefined,
+        });
+        return architecture;
+    }
+
+    /**
+     * Hand the started runs to the worker fleet. They are marked `queued` before the dispatch, never after: the
+     * workflow flips a run to `running` the moment it picks it up, and a status write on the way back would race
+     * that flip and report a running test as queued forever.
+     */
+    private async dispatch(snapshotId: string, runs: PendingGeneration[]): Promise<void> {
+        if (runs.length === 0) return;
+
+        const runIds = runs.map((run) => run.testGenerationId);
+        await this.db.testGeneration.updateMany({ where: { id: { in: runIds } }, data: { status: "queued" } });
+
+        try {
+            await this.generationProvider.fireJobs(snapshotId, runs);
+        } catch (error) {
+            this.logger.fatal("Failed to dispatch runs for edit session", error, { snapshotId, runIds });
+            await this.db.testGeneration.updateMany({
+                where: { id: { in: runIds } },
+                data: { status: "failed", reasoning: DISPATCH_FAILURE_REASONING },
+            });
             throw error;
         }
     }
@@ -365,4 +323,23 @@ export class SnapshotEditService extends Service {
         const state = await this.getState(branchId, organizationId);
         return state.state === "open" ? new EditSessionAlreadyOpenError() : new AnalysisInFlightError();
     }
+}
+
+/** Every requested test must be one this snapshot assigns with a plan, or there is nothing to resolve a run from. */
+function assertTestsRunnable(suite: Suite, testCaseIds: string[]): void {
+    const runnable = new Set(suite.testCases.filter((test) => test.plan != null).map((test) => test.id));
+    const refused = testCaseIds.filter((testCaseId) => !runnable.has(testCaseId));
+    if (refused.length > 0) throw new TestsNotRunnableError(refused);
+}
+
+/**
+ * The tests the session changed but has not run yet - what "Generate all" offers, and the one place that set is
+ * derived. A removed test has nothing to run; a test whose run failed is offered again.
+ */
+function testsAwaitingRun(changes: SuiteChange[], runs: SuiteRun[]): string[] {
+    const ranSuccessfully = new Set(runs.filter((run) => run.status !== "failed").map((run) => run.testCaseId));
+    return changes
+        .filter((change) => change.type !== "removed")
+        .map((change) => change.testCaseId)
+        .filter((testCaseId) => !ranSuccessfully.has(testCaseId));
 }

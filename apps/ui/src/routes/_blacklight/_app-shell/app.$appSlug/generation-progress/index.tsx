@@ -67,12 +67,11 @@ function BackHeader() {
 
 function GenerationProgressContent({ snapshotId }: { snapshotId: string }) {
   const { data: session } = useEditSession(snapshotId);
-  const allGenerations = [...session.pendingGenerations, ...session.activeGenerations, ...session.completedGenerations];
 
   return (
     <div className="grid h-[calc(100dvh-340px)] grid-cols-2 gap-4">
       <ChangesPanel changes={session.changes} />
-      <GenerationsPanel generations={allGenerations} />
+      <GenerationsPanel runs={session.runs} />
     </div>
   );
 }

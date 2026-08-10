@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { INCOMPLETE_GENERATION_STATUSES, Prisma, type PrismaClient } from "@autonoma/db";
+import { INCOMPLETE_GENERATION_STATUSES, Prisma, type PrismaClient, type TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
 import {
@@ -50,6 +50,7 @@ export interface OpenSnapshotIdentity {
     branchId: string;
     applicationId: string;
     organizationId: string;
+    trigger: TriggerSource;
     headSha?: string;
     baseSha?: string;
 }
@@ -83,7 +84,9 @@ export class OpenSnapshot {
     public readonly branchId: string;
     public readonly applicationId: string;
     public readonly organizationId: string;
-    /** Absent on snapshots opened without git coordinates (the manual editor's). */
+    /** Which workflow opened this snapshot - the manual editor or the analysis pipeline. */
+    public readonly trigger: TriggerSource;
+    /** Absent on snapshots opened without git coordinates (an edit of a suite that arrived through onboarding). */
     public readonly headSha?: string;
     public readonly baseSha?: string;
 
@@ -106,6 +109,7 @@ export class OpenSnapshot {
         this.branchId = identity.branchId;
         this.applicationId = identity.applicationId;
         this.organizationId = identity.organizationId;
+        this.trigger = identity.trigger;
         this.headSha = identity.headSha;
         this.baseSha = identity.baseSha;
     }

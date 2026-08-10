@@ -74,12 +74,6 @@ export const snapshotEditRouter = router({
             services.snapshotEdit.updateTest(snapshotId, rest, organizationId),
         ),
 
-    regenerateSteps: writeProcedure
-        .input(z.object({ snapshotId: z.string(), testCaseId: z.string() }))
-        .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.snapshotEdit.regenerateSteps(input.snapshotId, input.testCaseId, organizationId),
-        ),
-
     removeTest: writeProcedure
         .input(z.object({ snapshotId: z.string(), testCaseId: z.string() }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
@@ -92,16 +86,10 @@ export const snapshotEditRouter = router({
             services.snapshotEdit.discardChange(input.snapshotId, input.testCaseId, organizationId),
         ),
 
-    discardGeneration: writeProcedure
-        .input(z.object({ snapshotId: z.string(), generationId: z.string() }))
+    startRuns: writeProcedure
+        .input(z.object({ snapshotId: z.string(), testCaseIds: z.array(z.string()).min(1) }))
         .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.snapshotEdit.discardGeneration(input.snapshotId, input.generationId, organizationId),
-        ),
-
-    queueGenerations: writeProcedure
-        .input(z.object({ snapshotId: z.string() }))
-        .mutation(({ ctx: { services, organizationId }, input }) =>
-            services.snapshotEdit.queueGenerations(input.snapshotId, organizationId),
+            services.snapshotEdit.startRuns(input.snapshotId, input.testCaseIds, organizationId),
         ),
 
     finalize: writeProcedure

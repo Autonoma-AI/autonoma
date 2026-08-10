@@ -13,7 +13,7 @@ import {
 import * as Sentry from "@sentry/node";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { encryptionHelper, generationProvider, getVercelEncryptionHelper, scenarioManager } from "../context";
+import { encryptionHelper, getVercelEncryptionHelper, scenarioManager } from "../context";
 import { env } from "../env";
 import { OnboardingManager } from "../routes/onboarding/onboarding-manager";
 import { ApplicationSetupService } from "./application-setup.service";
@@ -27,7 +27,7 @@ applicationSetupHttpRouter.use("*", requireApiKey({ db, appUrl: env.APP_URL }));
 
 const onboardingManager = new OnboardingManager(db, scenarioManager, encryptionHelper, { getVercelEncryptionHelper });
 const recipeStore = new ScenarioRecipeStore(db);
-const service = new ApplicationSetupService(db, generationProvider, onboardingManager, recipeStore);
+const service = new ApplicationSetupService(db, onboardingManager, recipeStore);
 
 applicationSetupHttpRouter.post("/setups", async (c) => {
     const { userId, organizationId } = c.var.user;

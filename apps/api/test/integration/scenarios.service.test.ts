@@ -29,7 +29,6 @@ async function createFixture(harness: APITestHarness, name: string) {
 
     const service = new ApplicationSetupService(
         harness.db,
-        harness.generationProvider,
         harness.services.onboarding,
         new ScenarioRecipeStore(harness.db),
     );

@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { type Prisma, type PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { toSlug } from "@autonoma/utils";
-import type { AddTestParams, ImportTestParams, UpdateTestParams } from "./changes";
+import type { AddTestParams } from "./changes";
 import { createBranchSnapshot } from "./queries/create-branch-snapshot";
 import { getChangesForSnapshot, type SnapshotChange } from "./queries/snapshot-changes";
 
@@ -30,6 +30,13 @@ export class ApplicationNotFoundError extends Error {
 }
 
 export type TestSuiteInfo = Awaited<ReturnType<SnapshotDraft["currentTestSuiteInfo"]>>;
+
+/** The plan text (and the scenario it runs against) a test case is being pointed at. */
+interface PlanRevision {
+    testCaseId: string;
+    plan: string;
+    scenarioId?: string;
+}
 
 interface SnapshotDraftParams {
     db: PrismaClient;
@@ -330,7 +337,7 @@ export class SnapshotDraft {
     }
 
     /** Updates the test plan for a test case. */
-    public async updatePlan({ testCaseId, plan, scenarioId }: UpdateTestParams) {
+    public async updatePlan({ testCaseId, plan, scenarioId }: PlanRevision) {
         this.logger.info("Updating plan for test case", { testCaseId, scenarioId });
 
         const { planId } = await this.db.$transaction(async (tx) => {
@@ -358,7 +365,7 @@ export class SnapshotDraft {
      * first time. The plan is minted here rather than repointing at the source branch's plan record, so the two
      * snapshots never share one mutable plan row.
      */
-    public async importTestCase({ testCaseId, plan, scenarioId }: ImportTestParams) {
+    public async importTestCase({ testCaseId, plan, scenarioId }: PlanRevision) {
         this.logger.info("Importing test case into snapshot", { testCaseId, scenarioId });
 
         const { planId } = await this.db.$transaction(async (tx) => {
@@ -376,7 +383,7 @@ export class SnapshotDraft {
     }
 
     /** Creates a new plan record for a test case, owned by this draft's organization. */
-    private async mintPlan(tx: Prisma.TransactionClient, { testCaseId, plan, scenarioId }: UpdateTestParams) {
+    private async mintPlan(tx: Prisma.TransactionClient, { testCaseId, plan, scenarioId }: PlanRevision) {
         this.logger.info("Creating plan record", { testCaseId });
 
         const { id: planId } = await tx.testPlan.create({

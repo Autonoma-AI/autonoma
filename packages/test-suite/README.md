@@ -7,8 +7,8 @@ snapshots a branch's suite evolves through - the single open snapshot being writ
 the analysis store's aggregate, and the scenario rows a fork carries along are `@autonoma/scenario`'s
 (`forkScenarioDataForSnapshot`, called from `openSnapshot`).
 
-Replaces the analysis-facing half of `@autonoma/test-updates`, which is deprecated and survives only for the manual
-editor / onboarding callers until they migrate.
+Replaces `@autonoma/test-updates`, which is deprecated and survives only for the onboarding / CLI-upload callers
+until they migrate.
 
 ## Vocabulary
 
@@ -18,12 +18,13 @@ editor / onboarding callers until they migrate.
 | **Open snapshot** | A snapshot in `processing`, and the handle on it. The only thing that can be written.     |
 | **Run**           | One execution of a plan (`TestGeneration`). Started explicitly; never created by an edit. |
 | **Suite**         | The tests a snapshot assigns, each with its pinned plan.                                  |
+| **Edit snapshot** | An open snapshot the manual editor owns (`MANUAL`) rather than an analysis run.           |
 
 ## Exports
 
 | Export           | Type  | Description                                                                                        |
 | ---------------- | ----- | -------------------------------------------------------------------------------------------------- |
-| `TestSuiteStore` | Class | Entry point. `openSnapshot` / `reopen` / `read` / `readAssignments` / `changesSince` / `resolveSource`. |
+| `TestSuiteStore` | Class | Entry point. `openSnapshot` / `openEditSnapshot` / `reopen` / `read` / `readAssignments` / `latestRunPerTest` / `changesSince` / `resolveSource`. |
 | `OpenSnapshot`   | Class | The handle on one open snapshot: suite edits, `startRun`, `withTransaction`, and the terminals.     |
 | `deriveForkPointSnapshotId` | Function | The one rule turning a branch's pointers into the snapshot its suite diverged from. |
 
@@ -31,7 +32,8 @@ Errors: `BranchNotFoundError`, `BranchAlreadyOpenError` (carries `pendingSnapsho
 `SnapshotNotFoundError`, `SnapshotNotOpenError` (carries the actual status), `NoSnapshotBaseError`,
 `TestNotAssignedError`, `TestPlanMissingError`.
 
-Types: `Suite`, `SuiteAssignment`, `SuiteChange`, `SnapshotSource`, `ResolvedSnapshotSource`, `BranchForkPoint`.
+Types: `Suite`, `SuiteAssignment`, `SuiteRun`, `SuiteChange`, `SnapshotSource`, `ResolvedSnapshotSource`,
+`BranchForkPoint`. Constant: `EDIT_SNAPSHOT_TRIGGER`, the trigger an edit session's snapshot carries.
 
 ## The contract
 
@@ -48,6 +50,10 @@ const resolved = await store.resolveSource({ branchId, headSha, fallbackBaseSha 
 // snapshot's head can lag the real fork point when merges to main are not analyzed.
 const open = await store.openSnapshot({ branchId, headSha, source: resolved.source, trigger: "WEBHOOK" });
 
+// A manual edit changes the suite, not the commit: it always forks the branch's active snapshot and
+// inherits its head as both head and base, so the next analysis still diffs from where the branch was.
+const editing = await store.openEditSnapshot({ branchId, organizationId });
+
 // Plain suite edits. None of them starts a run.
 const { testCaseId, planId, slug } = await open.addTest({ name, description, plan, folderId });
 await open.adoptTest({ testCaseId, plan });      // merge-import: an existing TestCase joins this suite
@@ -59,6 +65,9 @@ await open.discardTest(testCaseId);              // back to what the source snap
 // The only way a run begins. Resolves the pinned plan at this moment and returns the scenario it
 // carries, so the caller can provision before executing.
 const { runId, scenarioId } = await open.startRun(testCaseId);
+
+// Where each of the snapshot's tests stands: its most recent run, for every test one was started for.
+const runs = await store.latestRunPerTest(open.snapshotId);
 
 // Terminals. Exactly one wins, and each IS the compare-and-swap: `false` means another actor
 // settled this snapshot first. Promotion is unconditional on what did or did not run.

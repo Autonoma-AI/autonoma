@@ -1,8 +1,8 @@
 import type { WorkflowArchitecture } from "@autonoma/workflow";
 
+/** One started run, as far as dispatching it to the worker fleet is concerned. */
 export interface PendingGeneration {
     testGenerationId: string;
-    planId: string;
     scenarioId: string | undefined;
     architecture: WorkflowArchitecture;
 }

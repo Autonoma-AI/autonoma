@@ -1,17 +1,15 @@
 import { expect } from "vitest";
 import { AddTest } from "../src/changes/add-test";
-import { FakeGenerationProvider } from "../src/generation/fake-generation-provider";
 import { testUpdateSuite } from "./harness";
 
 testUpdateSuite({
     name: "TestSuiteUpdater",
     cases: (test) => {
-        test("apply: adds a test case and schedules generation", async ({
+        test("apply: adds a test case without starting a run", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },
         }) => {
-            const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
+            const updater = await harness.startUpdater(organizationId, applicationId);
 
             await updater.apply(
                 new AddTest({
@@ -22,22 +20,18 @@ testUpdateSuite({
                 }),
             );
 
-            await updater.queuePendingGenerations();
-
-            expect(jobProvider.firedBatches).toHaveLength(1);
-            expect(jobProvider.firedBatches[0]!.generations).toHaveLength(1);
+            const suite = await updater.currentTestSuiteInfo();
+            expect(suite.testCases).toHaveLength(1);
+            expect(await harness.db.testGeneration.count({ where: { snapshotId: updater.snapshotId } })).toBe(0);
         });
 
         // -- finalize() --
 
-        test("finalize: activates the snapshot when all generations are complete", async ({
+        test("finalize: activates the snapshot", async ({
             harness,
             seedResult: { organizationId, applicationId, folderId },
         }) => {
-            const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, {
-                jobProvider,
-            });
+            const updater = await harness.startUpdater(organizationId, applicationId);
 
             await updater.apply(
                 new AddTest({
@@ -48,117 +42,13 @@ testUpdateSuite({
                 }),
             );
 
-            await updater.queuePendingGenerations();
-            // biome-ignore lint/style/noNonNullAssertion: just created
-            const { testGenerationId: generationId } = jobProvider.firedBatches[0]!.generations[0]!;
-
-            await harness.db.testGeneration.update({
-                where: { id: generationId },
-                data: { status: "success" },
-            });
-
             await updater.finalize();
-        });
 
-        test("finalize: throws when there are incomplete generations", async ({
-            harness,
-            seedResult: { organizationId, applicationId, folderId },
-        }) => {
-            const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, {
-                jobProvider,
-            });
-
-            await updater.apply(
-                new AddTest({
-                    folderId,
-                    name: "Incomplete test",
-                    description: "Tests incomplete check",
-                    plan: "Some plan",
-                }),
-            );
-
-            // Generation is still pending - finalize should throw
-            await expect(updater.finalize()).rejects.toThrow("Cannot finalize snapshot");
-        });
-
-        test("finalize: discardPendingGenerations clears pending jobs and activates", async ({
-            harness,
-            seedResult: { organizationId, applicationId, folderId },
-        }) => {
-            const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, {
-                jobProvider,
-            });
-            const snapshotId = updater.snapshotId;
-
-            // A leftover pending generation (as on snapshots from before onboarding
-            // stopped scheduling them) would otherwise block finalize.
-            await updater.apply(
-                new AddTest({
-                    folderId,
-                    name: "Pending leftover",
-                    description: "Tests discard-and-finalize",
-                    plan: "Some plan",
-                }),
-            );
-            expect(await harness.db.testGeneration.count({ where: { snapshotId, status: "pending" } })).toBe(1);
-
-            await updater.finalize({ discardPendingGenerations: true });
-
-            expect(await harness.db.testGeneration.count({ where: { snapshotId } })).toBe(0);
             const snapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
-                where: { id: snapshotId },
+                where: { id: updater.snapshotId },
                 select: { status: true },
             });
             expect(snapshot.status).toBe("active");
-        });
-
-        // -- queuePendingGenerations() --
-
-        test("queuePendingGenerations: fires jobs and marks generations as queued", async ({
-            harness,
-            seedResult: { organizationId, applicationId, folderId },
-        }) => {
-            const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
-
-            await updater.apply(
-                new AddTest({
-                    folderId,
-                    name: "Queue test A",
-                    description: "First test to queue",
-                    plan: "Plan A",
-                }),
-            );
-            await updater.apply(
-                new AddTest({
-                    folderId,
-                    name: "Queue test B",
-                    description: "Second test to queue",
-                    plan: "Plan B",
-                }),
-            );
-
-            await updater.queuePendingGenerations();
-
-            // Verify a single batch was fired with both generations
-            expect(jobProvider.firedBatches).toHaveLength(1);
-            // biome-ignore lint/style/noNonNullAssertion: asserted above
-            const batch = jobProvider.firedBatches[0]!.generations;
-            expect(batch).toHaveLength(2);
-        });
-
-        test("queuePendingGenerations: no-op when no pending generations exist", async ({
-            harness,
-            seedResult: { organizationId, applicationId },
-        }) => {
-            const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
-
-            await updater.queuePendingGenerations();
-
-            expect(jobProvider.firedBatches).toHaveLength(0);
         });
 
         // -- getChanges() --
@@ -167,8 +57,7 @@ testUpdateSuite({
             harness,
             seedResult: { organizationId, applicationId, folderId },
         }) => {
-            const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
+            const updater = await harness.startUpdater(organizationId, applicationId);
 
             await updater.apply(
                 new AddTest({
@@ -188,33 +77,27 @@ testUpdateSuite({
 
         // -- cancel() --
 
-        test("cancel: marks snapshot cancelled and allows new edit session", async ({
+        test("cancel: marks snapshot cancelled and clears the branch's pending pointer", async ({
             harness,
             seedResult: { organizationId, applicationId },
         }) => {
-            const jobProvider = new FakeGenerationProvider();
-            const updater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
+            const updater = await harness.startUpdater(organizationId, applicationId);
             const snapshotId = updater.snapshotId;
 
             await updater.cancel();
 
-            // Branch should have no pending snapshot
             const branch = await harness.db.branch.findUniqueOrThrow({
                 where: { id: updater.branchId },
                 select: { pendingSnapshotId: true },
             });
             expect(branch.pendingSnapshotId).toBeNull();
 
-            // Snapshot should be preserved, marked cancelled
+            // The snapshot is preserved for observability, marked cancelled.
             const snapshot = await harness.db.branchSnapshot.findUnique({
                 where: { id: snapshotId },
                 select: { status: true },
             });
             expect(snapshot?.status).toBe("cancelled");
-
-            // Should be able to start a new session
-            const newUpdater = await harness.startUpdater(organizationId, applicationId, { jobProvider });
-            expect(newUpdater.snapshotId).toBeDefined();
         });
     },
 });

@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient, TriggerSource } from "@autonoma/db";
+import { type Prisma, type PrismaClient, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import {
     BranchAlreadyOpenError,
@@ -12,6 +12,7 @@ import {
 import { OpenSnapshot, type OpenSnapshotIdentity } from "./open-snapshot";
 import { copyForwardSuite } from "./queries/copy-forward";
 import { type SuiteAssignment, readAssignments } from "./queries/read-assignments";
+import { type SuiteRun, readLatestRunPerTest } from "./queries/read-runs";
 import { type Suite, readSuite } from "./queries/read-suite";
 import {
     type ResolveSourceInput,
@@ -21,6 +22,18 @@ import {
     resolveSnapshotSource,
 } from "./queries/resolve-source";
 import { type SuiteChange, computeSuiteChanges } from "./queries/suite-changes";
+
+/**
+ * The trigger an edit session's snapshot carries. It is what tells the manual editor's snapshot apart from an
+ * analysis run's in the branch's single pending slot, so the editor can refuse a snapshot it does not own.
+ */
+export const EDIT_SNAPSHOT_TRIGGER = TriggerSource.MANUAL;
+
+export interface OpenEditSnapshotInput {
+    branchId: string;
+    /** When provided, verifies the branch belongs to this organization. */
+    organizationId?: string;
+}
 
 export interface OpenSnapshotInput {
     branchId: string;
@@ -64,20 +77,7 @@ export class TestSuiteStore {
         this.logger.info("Opening a new snapshot", { branch: { branchId }, extra: { headSha, trigger } });
 
         const identity = await this.db.$transaction(async (tx) => {
-            await tx.$queryRaw`SELECT id FROM branch WHERE id = ${branchId} FOR UPDATE`;
-
-            const branch = await tx.branch.findUnique({
-                where: { id: branchId, organizationId: input.organizationId },
-                select: {
-                    organizationId: true,
-                    applicationId: true,
-                    activeSnapshotId: true,
-                    pendingSnapshotId: true,
-                    baseSnapshotId: true,
-                },
-            });
-            if (branch == null) throw new BranchNotFoundError(branchId);
-            if (branch.pendingSnapshotId != null) throw new BranchAlreadyOpenError(branchId, branch.pendingSnapshotId);
+            const branch = await this.lockBranchForOpen(tx, branchId, input.organizationId);
 
             const resolved = await this.resolveSourceRow(tx, branchId, branch.applicationId, source);
             this.assertSourceStillCurrent(branchId, branch.activeSnapshotId ?? undefined, resolved);
@@ -126,6 +126,7 @@ export class TestSuiteStore {
                 branchId,
                 applicationId: branch.applicationId,
                 organizationId: branch.organizationId,
+                trigger,
                 headSha,
                 baseSha: resolved.baseSha,
             };
@@ -136,6 +137,67 @@ export class TestSuiteStore {
         this.logger.info("Snapshot opened", {
             branch: { branchId },
             snapshot: { snapshotId: identity.snapshotId, headSha, baseSha: identity.baseSha },
+        });
+        return new OpenSnapshot({ kind: "root", db: this.db }, identity);
+    }
+
+    /**
+     * Open a snapshot for a manual edit session, forking from the branch's active snapshot.
+     *
+     * An edit changes the suite, not the commit, so the snapshot inherits the active one's `headSha` as both its
+     * head and its base rather than advancing either: the next analysis then still diffs from the sha the branch
+     * was last analyzed at, instead of treating the edit as a new base. That is also why there is no `source`
+     * parameter - an edit has nowhere else it could fork from - and no `headSha`: a branch whose suite arrived
+     * through onboarding has no sha to inherit, and an edit is legal there.
+     *
+     * Like {@link openSnapshot}, throws {@link BranchAlreadyOpenError} when the branch's single pending slot is
+     * taken - by another edit session, or by an analysis run the editor must not touch.
+     */
+    public async openEditSnapshot({ branchId, organizationId }: OpenEditSnapshotInput): Promise<OpenSnapshot> {
+        this.logger.info("Opening an edit snapshot", { branch: { branchId } });
+
+        const identity = await this.db.$transaction(async (tx) => {
+            const branch = await this.lockBranchForOpen(tx, branchId, organizationId);
+            const sourceSnapshotId = branch.activeSnapshotId ?? undefined;
+            const sourceSnapshot =
+                sourceSnapshotId == null
+                    ? undefined
+                    : await tx.branchSnapshot.findUniqueOrThrow({
+                          where: { id: sourceSnapshotId },
+                          select: { headSha: true },
+                      });
+            const headSha = sourceSnapshot?.headSha ?? undefined;
+
+            const created = await tx.branchSnapshot.create({
+                data: {
+                    branchId,
+                    source: EDIT_SNAPSHOT_TRIGGER,
+                    headSha,
+                    baseSha: headSha,
+                    prevSnapshotId: sourceSnapshotId,
+                },
+                select: { id: true },
+            });
+            if (sourceSnapshotId != null) {
+                await copyForwardSuite({ tx, sourceSnapshotId, targetSnapshotId: created.id });
+            }
+            await tx.branch.update({ where: { id: branchId }, data: { pendingSnapshotId: created.id } });
+
+            const identity: OpenSnapshotIdentity = {
+                snapshotId: created.id,
+                branchId,
+                applicationId: branch.applicationId,
+                organizationId: branch.organizationId,
+                trigger: EDIT_SNAPSHOT_TRIGGER,
+                headSha,
+                baseSha: headSha,
+            };
+            return identity;
+        });
+
+        this.logger.info("Edit snapshot opened", {
+            branch: { branchId },
+            snapshot: { snapshotId: identity.snapshotId, headSha: identity.headSha, baseSha: identity.baseSha },
         });
         return new OpenSnapshot({ kind: "root", db: this.db }, identity);
     }
@@ -153,6 +215,7 @@ export class TestSuiteStore {
             where: { id: snapshotId, branch: { organizationId: options?.organizationId } },
             select: {
                 status: true,
+                source: true,
                 headSha: true,
                 baseSha: true,
                 branchId: true,
@@ -169,6 +232,7 @@ export class TestSuiteStore {
                 branchId: snapshot.branchId,
                 applicationId: snapshot.branch.applicationId,
                 organizationId: snapshot.branch.organizationId,
+                trigger: snapshot.source,
                 headSha: snapshot.headSha ?? undefined,
                 baseSha: snapshot.baseSha ?? undefined,
             },
@@ -186,6 +250,11 @@ export class TestSuiteStore {
      */
     public async readAssignments(snapshotIds: string[]): Promise<SuiteAssignment[]> {
         return readAssignments(this.db, snapshotIds);
+    }
+
+    /** Where each of a snapshot's tests stands. See {@link readLatestRunPerTest}. */
+    public async latestRunPerTest(snapshotId: string): Promise<SuiteRun[]> {
+        return readLatestRunPerTest(this.db, snapshotId);
     }
 
     /**
@@ -209,6 +278,29 @@ export class TestSuiteStore {
      */
     public async resolveSource(input: ResolveSourceInput): Promise<ResolvedSnapshotSource> {
         return resolveSnapshotSource(this.db, input);
+    }
+
+    /**
+     * Take the branch's row lock and read the pointers an open decides from, refusing a branch that already holds
+     * an open snapshot. Every opener goes through here, so the one-open-snapshot-per-branch rule is enforced under
+     * the lock rather than by each caller checking first.
+     */
+    private async lockBranchForOpen(tx: Prisma.TransactionClient, branchId: string, organizationId?: string) {
+        await tx.$queryRaw`SELECT id FROM branch WHERE id = ${branchId} FOR UPDATE`;
+
+        const branch = await tx.branch.findUnique({
+            where: { id: branchId, organizationId },
+            select: {
+                organizationId: true,
+                applicationId: true,
+                activeSnapshotId: true,
+                pendingSnapshotId: true,
+                baseSnapshotId: true,
+            },
+        });
+        if (branch == null) throw new BranchNotFoundError(branchId);
+        if (branch.pendingSnapshotId != null) throw new BranchAlreadyOpenError(branchId, branch.pendingSnapshotId);
+        return branch;
     }
 
     /**

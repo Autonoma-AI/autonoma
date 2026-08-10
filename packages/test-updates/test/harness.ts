@@ -1,8 +1,6 @@
 import { type PrismaClient, createClient } from "@autonoma/db";
 import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { type TestAPI, expect } from "vitest";
-import type { GenerationProvider } from "../src/generation/generation-job-provider";
-import { GenerationManager } from "../src/generation/generation-manager";
 import { SnapshotDraft, type TestSuiteInfo } from "../src/snapshot-draft";
 import { TestSuiteUpdater } from "../src/test-update-manager";
 
@@ -120,66 +118,8 @@ export class TestUpdatesHarness implements IntegrationHarness {
         return SnapshotDraft.start({ db: this.db, branchId });
     }
 
-    /** Builds a GenerationManager for a SnapshotDraft. */
-    generationManagerFor(draft: SnapshotDraft, options?: { jobProvider?: GenerationProvider }): GenerationManager {
-        return new GenerationManager({
-            db: this.db,
-            snapshotId: draft.snapshotId,
-            organizationId: draft.organizationId,
-            jobProvider: options?.jobProvider,
-        });
-    }
-
-    /** Creates a fresh branch with a deployment and active snapshot, then starts a SnapshotDraft and GenerationManager on it. */
-    async startDraftWithDeployment(
-        organizationId: string,
-        applicationId: string,
-        options?: { jobProvider?: GenerationProvider },
-    ): Promise<{ draft: SnapshotDraft; manager: GenerationManager }> {
-        const branchId = await this.createBranch(organizationId, applicationId);
-
-        const deployment = await this.db.branchDeployment.create({
-            data: {
-                branchId,
-                organizationId,
-                webDeployment: {
-                    create: { url: "https://test.example.com", organizationId },
-                },
-            },
-        });
-
-        const snapshot = await this.db.branchSnapshot.create({
-            data: {
-                branchId,
-                source: "MANUAL",
-                status: "active",
-            },
-        });
-
-        await this.db.branch.update({
-            where: { id: branchId },
-            data: { activeSnapshotId: snapshot.id, deploymentId: deployment.id },
-        });
-
-        const draft = await SnapshotDraft.start({ db: this.db, branchId });
-        const manager = new GenerationManager({
-            db: this.db,
-            snapshotId: draft.snapshotId,
-            organizationId: draft.organizationId,
-            jobProvider: options?.jobProvider,
-        });
-
-        return { draft, manager };
-    }
-
     /** Creates a fresh branch with a deployment and active snapshot, then starts a TestSuiteUpdater on it. */
-    async startUpdater(
-        organizationId: string,
-        applicationId: string,
-        options?: {
-            jobProvider?: GenerationProvider;
-        },
-    ): Promise<TestSuiteUpdater> {
+    async startUpdater(organizationId: string, applicationId: string): Promise<TestSuiteUpdater> {
         const branchId = await this.createBranch(organizationId, applicationId);
 
         const deployment = await this.db.branchDeployment.create({
@@ -205,11 +145,7 @@ export class TestUpdatesHarness implements IntegrationHarness {
             data: { activeSnapshotId: snapshot.id, deploymentId: deployment.id },
         });
 
-        return TestSuiteUpdater.startUpdate({
-            db: this.db,
-            branchId,
-            jobProvider: options?.jobProvider,
-        });
+        return TestSuiteUpdater.startUpdate({ db: this.db, branchId });
     }
 }
 

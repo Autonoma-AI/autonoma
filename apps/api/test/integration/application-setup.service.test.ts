@@ -19,12 +19,7 @@ async function createSetupFixture(harness: APITestHarness, name: string) {
     // OnboardingManager (not the OnboardingService wrapper), so generation
     // enqueue on setup completion resolves to a real method.
     const onboardingManager = harness.services.onboarding.manager;
-    const service = new ApplicationSetupService(
-        harness.db,
-        harness.generationProvider,
-        onboardingManager,
-        new ScenarioRecipeStore(harness.db),
-    );
+    const service = new ApplicationSetupService(harness.db, onboardingManager, new ScenarioRecipeStore(harness.db));
     const { id: setupId } = await service.createSetup(harness.userId, harness.organizationId, app.id, app.name);
 
     return { app, setupId, service, onboardingManager };
@@ -44,7 +39,6 @@ apiTestSuite({
 
             const service = new ApplicationSetupService(
                 harness.db,
-                harness.generationProvider,
                 harness.services.onboarding,
                 new ScenarioRecipeStore(harness.db),
             );

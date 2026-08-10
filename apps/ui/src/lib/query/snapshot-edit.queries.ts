@@ -4,52 +4,43 @@ import type { inferRouterOutputs } from "@trpc/server";
 import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
 
-type GenerationSummary = inferRouterOutputs<AppRouter>["snapshotEdit"]["get"]["generationSummary"][number];
+type EditSession = inferRouterOutputs<AppRouter>["snapshotEdit"]["get"];
+type SuiteRun = EditSession["runs"][number];
 
 const SESSION_POLL_MS = 5000;
 
-export interface EnrichedGeneration {
-    testCaseId: string;
-    generationId: string;
-    status: GenerationSummary["status"];
+/** A run of one test, carrying the test's name so a card can render without joining the suite itself. */
+export interface NamedRun extends SuiteRun {
     testCaseName: string;
 }
 
-function selectEditSession(session: inferRouterOutputs<AppRouter>["snapshotEdit"]["get"]) {
-    const { generationSummary, changes } = session;
+/** A test the session changed and has not run yet - what the editor offers to run. */
+export interface TestAwaitingRun {
+    testCaseId: string;
+    testCaseName: string;
+}
 
-    const changedTestCaseIds = new Set(
-        changes.filter((c) => c.type === "added" || c.type === "updated").map((c) => c.testCaseId),
-    );
-    const generatedTestCaseIds = new Set(
-        generationSummary.filter((g) => g.status !== "failed").map((g) => g.testCaseId),
-    );
-    const pendingGenerationCount = [...changedTestCaseIds].filter((id) => !generatedTestCaseIds.has(id)).length;
-
+function selectEditSession(session: EditSession) {
     const testCaseNames = new Map(session.testSuite.testCases.map((tc) => [tc.id, tc.name]));
-    const enriched = generationSummary.map((g) => ({
-        ...g,
-        testCaseName: testCaseNames.get(g.testCaseId) ?? "Unknown",
+    const nameOf = (testCaseId: string) => testCaseNames.get(testCaseId) ?? "Unknown";
+
+    const runs: NamedRun[] = session.runs.map((run) => ({ ...run, testCaseName: nameOf(run.testCaseId) }));
+    const testsAwaitingRun: TestAwaitingRun[] = session.testsAwaitingRun.map((testCaseId) => ({
+        testCaseId,
+        testCaseName: nameOf(testCaseId),
     }));
-
-    const pendingGenerations = enriched.filter((g) => g.status === "pending");
-    const activeGenerations = enriched.filter((g) => g.status === "queued" || g.status === "running");
-    const completedGenerations = enriched.filter((g) => g.status === "success" || g.status === "failed");
-
-    const hasIncompleteGenerations = pendingGenerations.length > 0 || activeGenerations.length > 0;
 
     return {
         ...session,
-        hasIncompleteGenerations,
-        pendingGenerationCount,
-        pendingGenerations,
-        activeGenerations,
-        completedGenerations,
+        runs,
+        testsAwaitingRun,
+        activeRuns: runs.filter((run) => isRunInFlight(run.status)),
+        finishedRuns: runs.filter((run) => !isRunInFlight(run.status)),
     };
 }
 
-function hasIncompleteGenerations(generationSummary: GenerationSummary[]): boolean {
-    return generationSummary.some((g) => g.status === "pending" || g.status === "queued" || g.status === "running");
+function isRunInFlight(status: SuiteRun["status"]): boolean {
+    return status === "pending" || status === "queued" || status === "running";
 }
 
 /**
@@ -68,7 +59,7 @@ export function useEditSession(snapshotId: string) {
         ...trpc.snapshotEdit.get.queryOptions({ snapshotId }),
         select: selectEditSession,
         refetchInterval: ({ state }) =>
-            state.data == null || hasIncompleteGenerations(state.data.generationSummary) ? SESSION_POLL_MS : false,
+            state.data == null || state.data.runs.some((run) => isRunInFlight(run.status)) ? SESSION_POLL_MS : false,
     });
 }
 
@@ -147,21 +138,6 @@ export function useRemoveTestFromEdit() {
     });
 }
 
-export function useRegenerateSteps() {
-    const queryClient = useQueryClient();
-    return useAPIMutation({
-        ...trpc.snapshotEdit.regenerateSteps.mutationOptions({
-            onSettled: (_data, _error, variables) => {
-                void queryClient.invalidateQueries({
-                    queryKey: trpc.snapshotEdit.get.queryKey({ snapshotId: variables.snapshotId }),
-                });
-            },
-        }),
-        successToast: { title: "Steps regeneration scheduled" },
-        errorToast: { title: "Failed to regenerate steps" },
-    });
-}
-
 export function useDiscardChange() {
     const queryClient = useQueryClient();
     return useAPIMutation({
@@ -177,33 +153,19 @@ export function useDiscardChange() {
     });
 }
 
-export function useDiscardGeneration() {
+/** Start a run of each listed test. The only way the editor runs anything - editing a test never starts one. */
+export function useStartRuns() {
     const queryClient = useQueryClient();
     return useAPIMutation({
-        ...trpc.snapshotEdit.discardGeneration.mutationOptions({
+        ...trpc.snapshotEdit.startRuns.mutationOptions({
             onSettled: (_data, _error, variables) => {
                 void queryClient.invalidateQueries({
                     queryKey: trpc.snapshotEdit.get.queryKey({ snapshotId: variables.snapshotId }),
                 });
             },
         }),
-        successToast: { title: "Generation discarded" },
-        errorToast: { title: "Failed to discard generation" },
-    });
-}
-
-export function useQueueGenerations() {
-    const queryClient = useQueryClient();
-    return useAPIMutation({
-        ...trpc.snapshotEdit.queueGenerations.mutationOptions({
-            onSettled: (_data, _error, variables) => {
-                void queryClient.invalidateQueries({
-                    queryKey: trpc.snapshotEdit.get.queryKey({ snapshotId: variables.snapshotId }),
-                });
-            },
-        }),
-        successToast: { title: "Generations queued" },
-        errorToast: { title: "Failed to queue generations" },
+        successToast: { title: "Tests queued to run" },
+        errorToast: { title: "Failed to start the runs" },
     });
 }
 
