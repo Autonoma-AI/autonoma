@@ -12,7 +12,14 @@ import { jwt, mcp, oAuthProxy, organization } from "better-auth/plugins";
 import type { CookieOptions } from "hono/utils/cookie";
 import type Redis from "ioredis";
 import { env } from "./env";
+import { microsoftDomainAssertion } from "./microsoft-domain-assertion";
 import { PlatformEventEmitter } from "./posthog/emit-platform-events";
+import {
+    type SignupDomainAssertion,
+    assertedCompanyDomain,
+    rememberSignupDomainAssertion,
+    takeSignupDomainAssertion,
+} from "./signup-domain-assertion";
 import { SignupHooks } from "./signup-hooks/signup-hooks";
 import { upsertOrganizationForSignup } from "./upsert-organization-for-signup";
 import { vercelPreferredOrgKey } from "./vercel-marketplace/vercel-helpers";
@@ -253,6 +260,11 @@ export async function ensureOrgMembership(
     userId: string,
     email: string,
     displayName?: string,
+    /**
+     * What the identity provider asserted about this address's domain, when it asserted anything.
+     * Overrides the consumer-provider guess - see {@link assertedCompanyDomain}.
+     */
+    assertion?: SignupDomainAssertion,
 ): Promise<OrgMembershipResult> {
     // A blank email would key the org below on an empty domain, upserting everyone who
     // ever arrives without one into a single shared organization - as its owner. Entra
@@ -343,9 +355,16 @@ export async function ensureOrgMembership(
         });
     } else {
         const domain = extractDomain(email);
-        // A consumer provider domain means the next signup at it is a stranger, not a colleague, so the
+        // A personal-mailbox domain means the next signup at it is a stranger, not a colleague, so the
         // organization is keyed on the whole address instead of the domain.
-        const isPersonalDomain = isConsumerEmailDomain(domain);
+        //
+        // The provider's own answer wins where there is one. A hand-maintained list of consumer
+        // providers can only ever approximate "is this domain one organization?", and it approximates
+        // in the expensive direction: a provider it has not heard of pools strangers together. Where
+        // the provider states the fact outright there is nothing left to approximate, so the list is
+        // consulted only for providers that assert nothing.
+        const assertedCompany = assertedCompanyDomain(assertion, domain);
+        const isPersonalDomain = assertedCompany != null ? !assertedCompany : isConsumerEmailDomain(domain);
         const namedAfterPerson = isPersonalDomain && displayName != null;
         const org = await upsertOrganizationForSignup(conn, {
             domain: isPersonalDomain ? email : domain,
@@ -442,6 +461,41 @@ function microsoftProvider(): MicrosoftProviderConfig | undefined {
         return undefined;
     }
     return { clientId, clientSecret, tenantId: env.MICROSOFT_TENANT_ID };
+}
+
+/**
+ * The Microsoft provider with the domain-assertion hook attached, or undefined when the provider is
+ * not configured.
+ *
+ * `mapProfileToUser` rather than a custom `getUserInfo`, and the distinction matters: better-auth's own
+ * `getUserInfo` for this provider decodes the id token, fetches the profile photo, and works out
+ * `emailVerified` from three different claims. Replacing it to read one claim would silently drop all
+ * of that. This hook is handed the same decoded token and is used purely for its side effect - it
+ * overrides no field, so every bit of better-auth's behaviour is preserved.
+ */
+function microsoftProviderWithAssertion(redisClient: Redis) {
+    if (MICROSOFT_PROVIDER == null) return undefined;
+    return {
+        clientId: MICROSOFT_PROVIDER.clientId,
+        clientSecret: MICROSOFT_PROVIDER.clientSecret,
+        tenantId: MICROSOFT_PROVIDER.tenantId,
+        mapProfileToUser: async (profile: unknown) => {
+            const assertion = microsoftDomainAssertion(profile);
+            const email = readClaimString(profile, "email") ?? readClaimString(profile, "preferred_username");
+            if (assertion != null && email != null) {
+                await rememberSignupDomainAssertion(redisClient, email, assertion);
+            }
+            // No field overrides: better-auth keeps every value it derived itself.
+            return {};
+        },
+    };
+}
+
+/** One string claim off a decoded id token, without trusting its shape. */
+function readClaimString(profile: unknown, claim: string): string | undefined {
+    if (typeof profile !== "object" || profile == null) return undefined;
+    const value = Reflect.get(profile, claim);
+    return typeof value === "string" && value.trim() !== "" ? value : undefined;
 }
 
 // Resolved once: each builder logs when it finds nothing, and betterAuth and
@@ -623,6 +677,17 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
                     const payload = decodeIdTokenPayload(token.idToken);
                     if (payload.email == null || payload.email === "") return null;
 
+                    // `hd` is Google stating that this address belongs to a Workspace domain it
+                    // administers, and it is the whole answer for this provider: signing in as
+                    // `someone@acme.com` requires acme.com to be a Workspace domain, and Workspace
+                    // always sends `hd` - so its absence means a consumer account. Recorded here
+                    // because this is the only point that sees the id token; `ensureOrgMembership`
+                    // picks it up when it chooses the organization.
+                    await rememberSignupDomainAssertion(redisClient, payload.email, {
+                        provider: "google",
+                        managedDomain: payload.hd,
+                    });
+
                     return {
                         user: {
                             id: payload.sub ?? "",
@@ -636,13 +701,14 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
                 },
             },
             github: GITHUB_PROVIDER,
-            microsoft: MICROSOFT_PROVIDER,
+            microsoft: microsoftProviderWithAssertion(redisClient),
         },
         databaseHooks: {
             user: {
                 create: {
                     after: async (user, context) => {
-                        const result = await ensureOrgMembership(conn, user.id, user.email, user.name);
+                        const assertion = await takeSignupDomainAssertion(redisClient, user.email);
+                        const result = await ensureOrgMembership(conn, user.id, user.email, user.name, assertion);
 
                         try {
                             platformEvents.onUserCreated({
