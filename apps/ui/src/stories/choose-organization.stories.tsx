@@ -32,6 +32,49 @@ const twoOrganizations: TrpcFixtures = {
   },
 };
 
+/**
+ * The shape that broke it: staff and anyone consulting for several customers accumulate memberships,
+ * and the list grows a row for each. Twenty-four is what one real account had.
+ */
+const manyOrganizations: TrpcFixtures = {
+  organization: {
+    mine: [
+      "Autonoma",
+      "Longevo",
+      "Horizon",
+      "Celllabs",
+      "Usehorizon",
+      "Sytrex",
+      "Homa",
+      "Sandstone",
+      "Eddi",
+      "Autometa",
+      "Agree",
+      "Centinel",
+      "Volantisedu",
+      "onecrew",
+      "Coderhouse",
+      "Eon",
+      "Eonrides",
+      "Northwind Bank",
+      "Qualitate",
+      "Purecobalt",
+      "Newagesysit",
+      "Liveflow",
+      "Assignar",
+      "Bettermode",
+    ].map((name, index) => ({
+      id: `org_fixture_${index}`,
+      name,
+      slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      isActive: index === 0,
+      memberCount: 2 + (index % 18),
+      applicationCount: index % 12,
+      joinedAt: new Date("2026-05-12T09:24:00Z"),
+    })),
+  },
+};
+
 const meta = {
   title: "Pages/ChooseOrganization",
   component: PageStory,
@@ -47,4 +90,15 @@ type Story = StoryObj<typeof meta>;
 
 export const TwoOrganizations: Story = {
   args: { path: "/choose-organization" },
+};
+
+/**
+ * Twenty-four organizations, which is taller than a laptop viewport. The frame used to centre the
+ * list in a fixed-height flex container with no scroller, so the overflow went off BOTH ends and the
+ * heading and first rows sat at negative coordinates - unreachable, because `scrollTop` cannot go
+ * below zero. Shoot this one short (e.g. `--viewport 1280x800`) or it proves nothing.
+ */
+export const ManyOrganizations: Story = {
+  args: { path: "/choose-organization" },
+  parameters: { msw: { handlers: appShellHandlers(manyOrganizations) } },
 };

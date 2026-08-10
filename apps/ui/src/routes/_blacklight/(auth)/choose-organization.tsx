@@ -103,8 +103,15 @@ function OrganizationChoices() {
 
 function ChooseOrgFrame({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex h-full items-center justify-center bg-surface-void">
-      <div className="flex w-full max-w-md flex-col items-center gap-6 px-6 text-center">
+    // `items-start` + `overflow-y-auto` here and `my-auto` on the child, rather than the obvious
+    // `items-center`, and the difference is the whole bug. `align-items: center` on a fixed-height
+    // container distributes the overflow of a too-tall child across BOTH ends, so the top sits at a
+    // negative offset that no scrolling can reach - `scrollTop` cannot go below zero. An `auto` block
+    // margin centres exactly the same way when there is room, and collapses to zero when there is
+    // not, which keeps the first row reachable. One real account has 24 organizations, enough to put
+    // the heading and the first four off the top of a laptop screen with no way to get to them.
+    <div className="flex h-full items-start justify-center overflow-y-auto bg-surface-void">
+      <div className="my-auto flex w-full max-w-md flex-col items-center gap-6 px-6 py-10 text-center">
         <div className="flex size-12 items-center justify-center border border-border-mid bg-surface-base">
           <BuildingsIcon size={22} className="text-primary" />
         </div>
