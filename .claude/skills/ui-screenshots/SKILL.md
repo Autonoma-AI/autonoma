@@ -53,13 +53,23 @@ Writing fixtures: put a literal where the type demands it and let `pnpm --filter
 
 ## Shooting
 
+Boot the server, wait for it, shoot, and kill it - as **one** command:
+
 ```bash
-pnpm --filter @autonoma/ui storybook          # dev server on :6006 - run in background, takes ~15s
-pnpm --filter @autonoma/ui storybook:shoot -- --story pages-mypage--default
+cd apps/ui
+PORT=6041   # any free port; see below on why not 6006
+VITE_API_URL=https://api.autonoma.app ./node_modules/.bin/storybook dev -p "$PORT" --no-open --quiet &
+SB=$!; trap 'kill $SB 2>/dev/null' EXIT
+until curl -sf "localhost:$PORT/index.json" >/dev/null; do sleep 1; done
+pnpm --filter @autonoma/ui storybook:shoot --story pages-mypage--default --url "http://localhost:$PORT"
 ```
 
-- Story id = lowercased title with `/` -> `-`, then `--`, then the **kebab-cased** export name: `Pages/MyPage` + `Default` -> `pages-mypage--default`, and `WithOptimizedToggle` -> `--with-optimized-toggle` (NOT `--withoptimizedtoggle`). A wrong id silently screenshots Storybook's "Couldn't find story" error page, so for any multi-word export confirm the id against `curl -s localhost:6006/index.json`.
-- Flags: `--story` (repeatable), `--out` (default `screenshots/`, gitignored), `--viewport 1440x900`, `--full-page`, `--settle-ms 500`, `--wait-until networkidle`, `--allow-unmocked`.
+- **Run that whole block in a single invocation.** A `trap ... EXIT` only fires in the shell that set it, and each agent tool call is a separate shell - launch in one call and shoot in the next and the trap is simply gone, leaving a Storybook dev server alive at ~60% CPU until a human notices. Nine of them once accumulated in one worktree over two days. If you must split the steps, kill by port when you are finished: `lsof -ti tcp:$PORT | xargs kill`. Either way, end with `pgrep -fl storybook` and confirm nothing of yours is left.
+- **Keep the `until curl` line.** Storybook takes ~15s to boot. Shoot before it is listening and Playwright dies with `page.goto: Timeout 30000ms exceeded`, which reads like a broken script and invites a retry - i.e. a second orphaned server.
+- **Use an explicit port, never the default 6006.** The `storybook` package script hardcodes 6006, and with ~100 worktrees on this machine another one is usually already there - you would silently screenshot a different branch's UI. Everything you point at the server, `index.json` included, must use the port you launched.
+- `VITE_API_URL` does not affect the MSW mocking, which matches any origin - it changes only the API URL a screen *prints*. `env.VITE_API_URL` defaults to `http://localhost:4000` and `getApiOrigin()` returns it verbatim on localhost, so the MCP dialog, the planner command block, finish-setup and the deployment-signal endpoint all render a dev URL into the image unless you set it. Harmless on other screens, so it stays in the block rather than being a thing to remember per story.
+- Story id = lowercased title with `/` -> `-`, then `--`, then the **kebab-cased** export name: `Pages/MyPage` + `Default` -> `pages-mypage--default`, and `WithOptimizedToggle` -> `--with-optimized-toggle` (NOT `--withoptimizedtoggle`). A wrong id silently screenshots Storybook's "Couldn't find story" error page, so for any multi-word export confirm the id against `curl -s "localhost:$PORT/index.json"`.
+- Flags: `--story` (repeatable), `--out` (default `screenshots/`, gitignored), `--viewport 1440x900`, `--full-page`, `--settle-ms 500`, `--wait-until networkidle`, `--allow-unmocked`. Pass them straight after the script name - **no `--` separator**, which pnpm 11 forwards as a positional and the script rejects with `ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL`.
 - The script EXITS 1 listing any tRPC procedure that had no fixture - add the missing fixtures rather than passing `--allow-unmocked`.
 - ALWAYS Read the PNG yourself before uploading. Never post a screenshot showing an error state, empty shell, or "Something went wrong".
 
@@ -68,8 +78,8 @@ pnpm --filter @autonoma/ui storybook:shoot -- --story pages-mypage--default
 The default `--wait-until networkidle` waits for the network to go quiet, so it can only ever photograph a **settled** screen. A story that holds a query open to show its skeleton never reaches idle, and the run dies on `page.goto: Timeout 30000ms exceeded`. Wait for the document instead, and pick the moment with `--settle-ms`:
 
 ```bash
-pnpm --filter @autonoma/ui storybook:shoot -- --wait-until domcontentloaded --settle-ms 4000 \
-  --story waiting-screens--home
+pnpm --filter @autonoma/ui storybook:shoot --wait-until domcontentloaded --settle-ms 4000 \
+  --story waiting-screens--home --url "http://localhost:$PORT"
 ```
 
 `apps/ui/src/stories/waiting-screens.stories.tsx` is the worked example: each export leaves one tRPC procedure unanswered, so the screen holds still in its waiting state. A **stalled procedure needs no fixture** - it never resolves, so the fixture-error exit does not fire.
@@ -131,7 +141,7 @@ The root `README.md` is the public mirror's front page and embeds two product sc
 **When you change the PR review page or the analysis issue page, re-shoot the one you affected and commit it in the same PR.** A stale screenshot on the front page is worse than none - it advertises a UI we no longer ship.
 
 ```bash
-pnpm --filter @autonoma/ui storybook:shoot -- \
+pnpm --filter @autonoma/ui storybook:shoot --url "http://localhost:$PORT" \
   --story pages-authoritativeprpage--report --viewport 1600x470 --out screenshots/readme
 cwebp -q 88 apps/ui/screenshots/readme/pages-authoritativeprpage--report.png \
   -o .github/assets/pr-review.webp

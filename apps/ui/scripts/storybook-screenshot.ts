@@ -52,12 +52,13 @@ interface CliOptions {
 
 /**
  * Screenshots Storybook stories to PNG. Expects a running storybook dev
- * server (`pnpm --filter @autonoma/ui storybook`). Fails when a story hits a
- * tRPC procedure with no fixture, so screenshots never silently show error
- * states - pass --allow-unmocked to override.
+ * server - see the `ui-screenshots` skill for the block that boots one on its
+ * own port and kills it afterwards. Fails when a story hits a tRPC procedure
+ * with no fixture, so screenshots never silently show error states - pass
+ * --allow-unmocked to override.
  *
  * Usage:
- *   pnpm --filter @autonoma/ui storybook:shoot -- --story pages-apphome--default
+ *   pnpm --filter @autonoma/ui storybook:shoot --story pages-apphome--default
  *
  * To capture a LOADING state, wait for the document rather than the network -
  * a story that holds a query open never reaches `networkidle`, so the default
@@ -142,7 +143,7 @@ function parseCliOptions(): CliOptions {
 
     const storyIds = values.story ?? [];
     if (storyIds.length === 0) {
-        console.error("Usage: storybook:shoot -- --story <story-id> [--story <story-id> ...]");
+        console.error("Usage: storybook:shoot --story <story-id> [--story <story-id> ...]");
         console.error("Story ids are the ?path=/story/<id> slug in the storybook URL.");
         process.exit(1);
     }

@@ -18,7 +18,7 @@ Every image needs **descriptive alt text**. `llms.txt` / `llms-full.txt` are gen
 
 ## Capture mechanics
 
-**UI** - `pnpm --filter @autonoma/ui storybook`, then `storybook:shoot -- --story <id> --viewport WxH`. Confirm story ids against `curl -s localhost:6006/index.json`; a wrong id silently shoots Storybook's error page.
+**UI** - use the launch-wait-shoot-kill block in the `ui-screenshots` skill, adding `--viewport WxH`. Boot Storybook on your own port (not the default 6006, which another worktree usually holds) and always kill it in the same shell that started it; confirm story ids against `curl -s "localhost:$PORT/index.json"`, since a wrong id silently shoots Storybook's error page.
 
 > **Always start Storybook with `VITE_API_URL=https://api.autonoma.app` for docs shots.** Storybook runs on localhost, and `getApiOrigin()` (`apps/ui/src/lib/api-origin.ts`) returns `env.VITE_API_URL` there - so any screen that renders an endpoint bakes `http://localhost:4000` into the image. The MCP config screen shows the whole `claude mcp add` command, so an unset env teaches readers the wrong URL. Check the frame for dev hostnames before shipping any shot.
 

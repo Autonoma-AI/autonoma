@@ -26,7 +26,7 @@ import { dashboardFixtures } from "./app-home.stories";
  *
  * Shoot them with the document wait, since a held-open query never reaches
  * `networkidle`:
- *   storybook:shoot -- --wait-until domcontentloaded --settle-ms 2500 --story ...
+ *   storybook:shoot --wait-until domcontentloaded --settle-ms 2500 --story ...
  */
 
 /** Longer than any screenshot run, so the waiting state is what gets captured. */

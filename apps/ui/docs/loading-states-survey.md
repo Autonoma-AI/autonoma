@@ -450,10 +450,11 @@ stories removed with the code: #2130 moves those routes, and it carries its own
 Stories: `src/stories/waiting-screens.stories.tsx` (`Waiting/Screens`). Each export holds one screen still
 by stalling the procedure it waits on, or failing it. Neither needs a fixture.
 
+Boot Storybook with the block from the `ui-screenshots` skill (own port, killed in the same shell), then:
+
 ```bash
-pnpm --filter @autonoma/ui storybook
-pnpm --filter @autonoma/ui storybook:shoot -- --wait-until domcontentloaded --settle-ms 4000 \
-  --story waiting-screens--app-layout --story waiting-screens--home-warm
+pnpm --filter @autonoma/ui storybook:shoot --wait-until domcontentloaded --settle-ms 4000 \
+  --story waiting-screens--app-layout --story waiting-screens--home-warm --url "http://localhost:$PORT"
 ```
 
 `--wait-until` exists because of finding #15: the default `networkidle` cannot photograph a screen that is
