@@ -12,6 +12,7 @@ import {
     type PreviewConfig,
 } from "@autonoma/types";
 import { z } from "zod";
+import { applicationBranchRefs } from "../../github/application-branch-refs";
 import type { OnboardingGithubRepository, OnboardingManagerOptions } from "./onboarding-dependencies";
 import {
     defaultPreviewkitConfig,
@@ -120,13 +121,14 @@ export class PreviewkitConfigService {
                 id: true,
                 name: true,
                 githubRepositoryId: true,
+                previewDeployRef: true,
                 mainBranch: { select: { name: true } },
                 previewkitConfig: { select: { document: true } },
             },
         });
         if (application == null) throw new NotFoundError("Application not found");
 
-        const deployBranch = application.mainBranch?.name ?? undefined;
+        const deployBranch = applicationBranchRefs(application).deploy;
         const installationRepos = await this.resolveInstallationRepos(organizationId);
         // The read path keeps working with a display-only placeholder so the
         // editor loads even when GitHub is briefly unreachable; save() refuses it.

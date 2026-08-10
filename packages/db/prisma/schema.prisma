@@ -400,6 +400,14 @@ model Application {
   mainBranchId String? @unique @map("main_branch_id")
   mainBranch   Branch? @relation("MainBranch", fields: [mainBranchId], references: [id])
 
+  // The git ref the base preview (environment 0) builds from, when it is NOT the
+  // app's trunk - typically an integration branch carrying preview config that has
+  // not been merged yet. Null means "deploy the trunk". This is deliberately NOT
+  // the main-branch record: that one is the app's trunk identity and drives suite
+  // lineage, merge reconciliation and every "main" label, so overwriting it to
+  // redirect a preview silently redefines what main means.
+  previewDeployRef String? @map("preview_deploy_ref")
+
   signingSecretEnc String? @map("signing_secret_enc")
 
   folders                  Folder[]

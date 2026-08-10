@@ -1,0 +1,19 @@
+-- The base preview's deploy ref, split out of the main-branch record.
+--
+-- Until now, choosing which branch environment 0 builds from overwrote
+-- `branch.name` and `main_branch_info.github_ref` - the app's trunk identity.
+-- That silently redefined "main" for suite lineage, merge reconciliation and
+-- every UI label. The deploy ref now lives on its own column; null means
+-- "deploy the trunk".
+--
+-- No backfill, deliberately. Null already resolves to the trunk - the same
+-- `main_branch_info.github_ref` the deploy read before - so every existing app
+-- keeps building exactly what it builds today. Copying that ref into the new
+-- column would have changed nothing about the deploy and would have made every
+-- app look pinned, which is a different thing from being pinned: an app pinned
+-- to its own trunk has no drift to detect against.
+--
+-- A trunk that an earlier deploy-branch choice overwrote stays overwritten here.
+-- Repairing those needs each repository's default branch from GitHub, which SQL
+-- cannot ask for.
+ALTER TABLE "application" ADD COLUMN "preview_deploy_ref" TEXT;

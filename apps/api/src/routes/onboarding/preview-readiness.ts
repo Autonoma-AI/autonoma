@@ -7,6 +7,7 @@ import {
 } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { parseStringRecord, previewConfigSchema, projectManifest, resolvePrimaryUrl } from "@autonoma/types";
+import { applicationBranchRefs } from "../../github/application-branch-refs";
 import {
     buildServiceSummaries,
     classifyPreviewFailures,
@@ -286,6 +287,7 @@ export async function buildPreviewkitReadiness(
         where: { id: applicationId, organizationId },
         select: {
             githubRepositoryId: true,
+            previewDeployRef: true,
             mainBranch: { select: { name: true, activeSnapshot: { select: { headSha: true } } } },
         },
     });
@@ -397,7 +399,9 @@ export async function buildPreviewkitReadiness(
     const primaryUrl = resolvePrimaryUrl(manifest, urls);
     const appBuilds = toAppBuildOutcomeMap(effectiveLatestBuild?.appBuilds ?? []);
     const derivedServices = buildServiceSummaries({
-        branchName: application.mainBranch?.name ?? environment.headRef,
+        // The ref the environment actually built is the honest label; it differs from
+        // the trunk whenever the base preview is pointed at an integration branch.
+        branchName: environment.headRef ?? application.mainBranch?.name,
         environment,
         manifest,
         latestBuild: effectiveLatestBuild,
@@ -413,9 +417,15 @@ export async function buildPreviewkitReadiness(
         : derivedServices;
     const failedServiceCount = services.filter((service) => service.status === "failed").length;
     const degradedServiceCount = services.filter((service) => service.status === "fallback").length;
+    // Drift is "the trunk moved past what we deployed", which only means anything
+    // while the base preview tracks the trunk. Pointed at an integration branch, the
+    // environment's own head IS the current head, so it can never read as stale.
+    const trackedHeadSha = applicationBranchRefs(application).deployTracksTrunk
+        ? (application.mainBranch?.activeSnapshot?.headSha ?? environment.headSha)
+        : environment.headSha;
     const previewStatus = derivePreviewStatus({
         previewkitStatus: environment.status,
-        currentHeadSha: application.mainBranch?.activeSnapshot?.headSha ?? environment.headSha,
+        currentHeadSha: trackedHeadSha,
         deployedHeadSha: environment.headSha,
         primaryUrl,
         failedServiceCount,

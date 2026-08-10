@@ -11,6 +11,7 @@ import {
     type SecretItem,
 } from "@autonoma/types";
 import { z } from "zod";
+import { applicationBranchRefs } from "../../github/application-branch-refs";
 import { isGithubNotFound, normalizeBranchName } from "../../github/git-ref";
 import { computeArtifactStatus } from "../app-generations/artifact-status";
 import { assertApplicationInOrg } from "./assert-application-in-org";
@@ -497,11 +498,17 @@ export class OnboardingManager {
     /**
      * Sets the branch the base preview (environment 0) deploys from - the app's
      * stored deploy ref, which {@link startMainBranchRun} resolves at deploy time.
-     * Defaults to the repo's default branch; this is how a coding agent or the UI
-     * overrides it. Persisting the branch is deliberately separate from triggering a
-     * deploy, so the branch can be picked without deploying yet. The branch is
-     * validated against GitHub (a 404 means it doesn't exist) so a typo can't
-     * silently break the deploy.
+     * Unset means the app's trunk; this is how a coding agent or the UI redirects
+     * the base preview at an integration branch that isn't merged yet.
+     *
+     * This writes ONLY the deploy ref. It deliberately leaves the main-branch
+     * record alone: that record is the app's trunk identity, and it drives suite
+     * lineage, merge reconciliation and every "main" label in the product, so
+     * pointing it at an integration branch silently redefines what main means.
+     *
+     * Persisting the branch is separate from triggering a deploy, so the branch can
+     * be picked without deploying yet. The branch is validated against GitHub (a 404
+     * means it doesn't exist) so a typo can't silently break the deploy.
      */
     async setDeployBranch(applicationId: string, organizationId: string, branch: string): Promise<{ branch: string }> {
         this.logger.info("Setting PreviewKit deploy branch", { applicationId, organizationId, extra: { branch } });
@@ -513,12 +520,9 @@ export class OnboardingManager {
 
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
-            select: { githubRepositoryId: true, mainBranchId: true },
+            select: { githubRepositoryId: true },
         });
-        // The deploy branch is stored on the app's main-branch record (the base
-        // environment, distinct from the git default branch it tracks); its absence
-        // is a structural data error - every application is created with one.
-        if (application?.mainBranchId == null) throw new NotFoundError("Application has no main branch record");
+        if (application == null) throw new NotFoundError("Application not found");
 
         const github = this.options.github;
         if (github != null && application.githubRepositoryId != null) {
@@ -534,13 +538,10 @@ export class OnboardingManager {
             }
         }
 
-        await this.db.$transaction([
-            this.db.branch.update({ where: { id: application.mainBranchId }, data: { name: normalized } }),
-            this.db.mainBranchInfo.updateMany({
-                where: { branchId: application.mainBranchId },
-                data: { githubRef: normalized },
-            }),
-        ]);
+        await this.db.application.update({
+            where: { id: applicationId },
+            data: { previewDeployRef: normalized },
+        });
 
         return { branch: normalized };
     }
@@ -563,7 +564,7 @@ export class OnboardingManager {
         const [application, listed] = await Promise.all([
             this.db.application.findFirst({
                 where: { id: applicationId, organizationId },
-                select: { mainBranch: { select: { name: true } } },
+                select: { previewDeployRef: true, mainBranch: { select: { name: true } } },
             }),
             github?.listApplicationBranches(organizationId, applicationId).catch((err: unknown) => {
                 this.logger.warn("Failed to list branches from GitHub; deploy-branch picker falls back to free text", {
@@ -574,7 +575,7 @@ export class OnboardingManager {
             }),
         ]);
 
-        const currentBranch = application?.mainBranch?.name ?? undefined;
+        const currentBranch = application == null ? undefined : applicationBranchRefs(application).deploy;
         const defaultBranch = listed?.defaultBranch;
 
         // Default first, then the current selection (if it isn't the default and

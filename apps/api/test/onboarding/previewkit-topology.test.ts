@@ -519,6 +519,59 @@ integrationTestSuite({
             expect(config.deployBranch).toBe("release");
         });
 
+        test("setDeployBranch redirects the base preview without redefining the app's trunk", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 93_043);
+            const { github, applications } = buildTopologyServices(harness, orgId, []);
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                github,
+                applications,
+            });
+            await setStep(harness, appId, "previewkit_configuring");
+            const before = await harness.db.application.findUniqueOrThrow({
+                where: { id: appId },
+                select: { mainBranch: { select: { name: true } }, mainBranchInfo: { select: { githubRef: true } } },
+            });
+
+            await manager.setDeployBranch(appId, orgId, "autonoma-integration");
+
+            const after = await harness.db.application.findUniqueOrThrow({
+                where: { id: appId },
+                select: {
+                    previewDeployRef: true,
+                    mainBranch: { select: { name: true } },
+                    mainBranchInfo: { select: { githubRef: true } },
+                },
+            });
+            expect(after.previewDeployRef).toBe("autonoma-integration");
+            expect(after.mainBranch?.name).toBe(before.mainBranch?.name);
+            expect(after.mainBranchInfo?.githubRef).toBe(before.mainBranchInfo?.githubRef);
+        });
+
+        test("the deploy-branch picker falls back to the trunk when no deploy ref is set", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 93_044);
+            const { github, applications } = buildTopologyServices(harness, orgId, []);
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                github,
+                applications,
+            });
+            const trunk = await harness.db.application.findUniqueOrThrow({
+                where: { id: appId },
+                select: { mainBranch: { select: { name: true } } },
+            });
+
+            const options = await manager.listDeployBranchOptions(appId, orgId);
+
+            expect(options.currentBranch).toBe(trunk.mainBranch?.name);
+        });
+
         test("setDeployBranch rejects a branch that doesn't exist on GitHub", async ({
             harness,
             seedResult: { orgId, createApp },

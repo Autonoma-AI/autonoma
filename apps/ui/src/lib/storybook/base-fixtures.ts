@@ -21,6 +21,7 @@ export const baseApplication: RouterOutputs["applications"]["list"][number] = {
     disabled: false,
     githubRepositoryId: 123456,
     mainBranchId: "branch_fixture_01",
+    previewDeployRef: null,
     signingSecretEnc: null,
     createdAt: FIXTURE_EPOCH,
     updatedAt: FIXTURE_EPOCH,

@@ -6,6 +6,7 @@ import type { PreviewRedeployAppMode, PreviewTeardownTarget, TriggerPreviewRedep
 import type { AnalysisRunWorkflowInput, PreviewBuildWorkflowInput } from "@autonoma/workflow";
 import { z } from "zod";
 import { env } from "../env";
+import { applicationBranchRefs } from "../github/application-branch-refs";
 import { githubErrorStatus, normalizeBranchName } from "../github/git-ref";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
@@ -448,6 +449,7 @@ export class PreviewkitTriggerService extends Service {
                 organizationId: true,
                 githubRepositoryId: true,
                 mainBranchId: true,
+                previewDeployRef: true,
                 mainBranch: { select: { name: true } },
                 mainBranchInfo: { select: { githubRef: true } },
             },
@@ -477,10 +479,9 @@ export class PreviewkitTriggerService extends Service {
         if (repo == null) throw new NotFoundError("Linked GitHub repository not found or inaccessible");
 
         const githubRepositoryId = application.githubRepositoryId;
-        // The repo default applies only when nothing is configured, never as a silent fallback for a ref that has
-        // gone missing - a chosen branch that no longer exists errors below.
-        const deployRef = application.mainBranchInfo?.githubRef ?? application.mainBranch?.name ?? repo.defaultBranch;
-        const branchName = normalizeBranchName(deployRef);
+        // The repo default applies only when the app has no refs at all, never as a silent fallback for a ref
+        // that has gone missing - a chosen branch that no longer exists errors below.
+        const branchName = normalizeBranchName(applicationBranchRefs(application).deploy ?? repo.defaultBranch);
         const headSha = await this.githubInstallationService
             .getBranchHead(application.organizationId, githubRepositoryId, branchName)
             .catch((err: unknown) => {
