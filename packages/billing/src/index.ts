@@ -7,6 +7,13 @@ export { syncStripeDataToDb } from "./stripe-sync";
 export { processWebhookEvent } from "./webhook-handlers";
 export { ensureBillingProvisioning } from "./billing-provisioning";
 export {
+    claimFreeStartEntitlement,
+    organizationHoldsFreeStartGrant,
+    recordFreeStartIneligibility,
+    resolveFreeStartEligibility,
+} from "./free-start-eligibility";
+export type { FreeStartEligibility, GrantedOrganization } from "./free-start-eligibility";
+export {
     processVercelInvoicePaid,
     processVercelInvoiceNotPaid,
     processVercelInvoiceRefunded,

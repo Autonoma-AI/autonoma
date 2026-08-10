@@ -1,5 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { ensureBillingProvisioning } from "@autonoma/billing";
+import {
+    claimFreeStartEntitlement,
+    ensureBillingProvisioning,
+    organizationHoldsFreeStartGrant,
+    recordFreeStartIneligibility,
+} from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { ThirdPartyError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
@@ -310,6 +315,17 @@ async function ensureVercelUserAndOrg(params: EnsureVercelUserAndOrgParams): Pro
         }
     }
 
+    // This is the loop the check exists for. `resolveTeamOrg` keys on the Vercel TEAM id, so every new
+    // team is a new organization - create a team, install, sign in, collect another full starting
+    // balance, invite the same colleagues, repeat. Capping per organization cannot see that; capping
+    // per person can.
+    //
+    // Claimed rather than checked-then-granted, and this path is why it matters: an SSO callback is
+    // retried by browsers and opened in two tabs, so two callbacks for the same address could both read
+    // "entitled" and both grant a full balance. The claim settles that on a unique index, before any
+    // credits exist.
+    const claimed = await claimFreeStartEntitlement(db, email, organizationId);
+
     // Independent once organizationId is known - member linkage and billing
     // provisioning touch unrelated tables.
     await Promise.all([
@@ -318,9 +334,16 @@ async function ensureVercelUserAndOrg(params: EnsureVercelUserAndOrgParams): Pro
             update: {},
             create: { userId, organizationId, role: "owner" },
         }),
-        // A Vercel install creates the organization, so it is a creation site and keeps the grant.
-        ensureBillingProvisioning(db, organizationId, { grantFreeStart: true }),
+        // A Vercel install creates the organization, so it is a creation site - but the grant is still
+        // the address's to spend, and a new Vercel team is exactly how it used to be spent twice.
+        ensureBillingProvisioning(db, organizationId, { grantFreeStart: claimed }),
     ]);
+
+    // Joining an organization that already holds a grant spends the entitlement too, even though this
+    // call did not make one. Nothing to do when the claim above already recorded it.
+    if (!claimed && (await organizationHoldsFreeStartGrant(db, organizationId))) {
+        await recordFreeStartIneligibility(db, email, organizationId, env.INTERNAL_DOMAIN);
+    }
 
     logger.info("Vercel user and org resolved", { userId, organizationId });
 

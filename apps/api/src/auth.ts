@@ -1,4 +1,9 @@
-import { ensureBillingProvisioning } from "@autonoma/billing";
+import {
+    claimFreeStartEntitlement,
+    ensureBillingProvisioning,
+    organizationHoldsFreeStartGrant,
+    recordFreeStartIneligibility,
+} from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
 import { isPreviewOrigin } from "@autonoma/types";
@@ -329,6 +334,11 @@ export async function ensureOrgMembership(
     if (existing != null) {
         // A membership that already existed: make sure a customer row is there, but fund nothing.
         await ensureBillingProvisioning(conn, existing.organizationId);
+        // Auto-joining a funded organization spends this address's own entitlement, so it cannot be
+        // spent again on an organization of its own later.
+        if (await organizationHoldsFreeStartGrant(conn, existing.organizationId)) {
+            await recordFreeStartIneligibility(conn, email, existing.organizationId, env.INTERNAL_DOMAIN);
+        }
         return {
             organizationId: existing.organizationId,
             orgName: existing.organization.name,
@@ -395,8 +405,13 @@ export async function ensureOrgMembership(
         create: { userId, organizationId: orgId, role: "owner" },
     });
 
-    // The one place a signup's organization is created, so the one place the starting grant belongs.
-    await ensureBillingProvisioning(conn, orgId, { grantFreeStart: true });
+    // The one place a signup's organization is created, so the one place the starting grant belongs -
+    // and even here only when this address has not already had the benefit of one elsewhere.
+    //
+    // Claimed rather than checked-then-granted: two concurrent sign-ins for the same address would both
+    // read "entitled" and both grant. The claim settles it on a unique index before any credits exist.
+    const claimed = await claimFreeStartEntitlement(conn, email, orgId);
+    await ensureBillingProvisioning(conn, orgId, { grantFreeStart: claimed });
 
     return { organizationId: orgId, orgName, orgSlug, isNewUser: true };
 }

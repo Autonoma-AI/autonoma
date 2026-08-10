@@ -209,7 +209,24 @@ const baseTrpcFixtures: TrpcFixtures = {
     // List views poll preview liveness; default to none so a story that doesn't
     // set it renders without the badge (and never errors on the unmocked call).
     previewAccess: { livenessForApplication: {}, livenessForFleet: {} },
+    organization: {
+        // The app shell's switcher reads this on every page under it.
+        mine: [
+            {
+                id: ORG_ID,
+                name: "Acme",
+                slug: "acme",
+                isActive: true,
+                memberCount: 2,
+                applicationCount: 1,
+                joinedAt: FIXTURE_EPOCH,
+            },
+        ],
+    },
     billing: {
+        // The billing page asks this to explain a zero balance, so the baseline answers the ordinary
+        // case - entitled, nothing to explain - and a story overrides it to show the notice.
+        freeStartEligibility: { eligible: true, blockedBy: [] },
         status: {
             creditBalance: 740,
             subscriptionCreditBalance: 500,

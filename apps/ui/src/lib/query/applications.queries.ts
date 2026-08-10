@@ -7,6 +7,17 @@ export function useApplications() {
     return useSuspenseQuery(trpc.applications.list.queryOptions());
 }
 
+/**
+ * The slug for an application id, or undefined until the list resolves.
+ *
+ * A plain `useQuery` rather than the suspense one above, because callers want this only to build a link -
+ * suspending a screen on a URL fragment would trade a working page for a tidy one.
+ */
+export function useApplicationSlug(applicationId: string): string | undefined {
+    const { data } = useQuery(trpc.applications.list.queryOptions());
+    return data?.find((application) => application.id === applicationId)?.slug;
+}
+
 export function useCreateApplication() {
     const queryClient = useQueryClient();
     const router = useRouter();

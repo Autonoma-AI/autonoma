@@ -1,5 +1,9 @@
 import type { PostHogAnalytics } from "@autonoma/analytics";
-import { ensureBillingProvisioning } from "@autonoma/billing";
+import {
+    ensureBillingProvisioning,
+    organizationHoldsFreeStartGrant,
+    recordFreeStartIneligibility,
+} from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import {
@@ -584,6 +588,12 @@ export class OrganizationService extends Service {
 
             return { organizationId: invitation.organizationId, slug: invitation.organization.slug };
         });
+
+        // Joining a funded organization spends this address's entitlement to a starting grant of its
+        // own - the loop being closed is one grant, nine invitations, nine more funded organizations.
+        if (await organizationHoldsFreeStartGrant(this.db, organizationId)) {
+            await recordFreeStartIneligibility(this.db, user.email, organizationId, this.internalDomain);
+        }
 
         await Promise.all([
             ensureBillingProvisioning(this.db, organizationId),

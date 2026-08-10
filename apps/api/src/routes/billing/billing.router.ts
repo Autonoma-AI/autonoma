@@ -1,3 +1,4 @@
+import { resolveFreeStartEligibility } from "@autonoma/billing";
 import { BILLING_CHECKOUT_TYPES } from "@autonoma/types";
 import { z } from "zod";
 import { protectedProcedure, writeProcedure, router } from "../../trpc";
@@ -5,6 +6,16 @@ import { protectedProcedure, writeProcedure, router } from "../../trpc";
 const billingRouterImpl = router({
     status: protectedProcedure.query(({ ctx: { services, organizationId } }) =>
         services.billing.getBillingStatus(organizationId),
+    ),
+    /**
+     * Whether this account would receive the free starting credits in a new organization, and which
+     * organizations spent that entitlement if not.
+     *
+     * Keyed on the user rather than the active organization on purpose: the entitlement is per person,
+     * which is the whole point of it. Read by the UI so "this organization has no credits" can say why.
+     */
+    freeStartEligibility: protectedProcedure.query(({ ctx: { db, user } }) =>
+        resolveFreeStartEligibility(db, user.email),
     ),
     createCheckoutSession: writeProcedure
         .input(

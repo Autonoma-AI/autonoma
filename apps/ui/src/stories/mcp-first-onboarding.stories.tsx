@@ -99,6 +99,48 @@ export const Waiting: Story = {
  * actually lands on. It renders the identical view but, unlike `previewkit-config`,
  * has no Suspense boundary of its own, which is why the command block carries one.
  */
+/**
+ * The same screen with no credits to run the command with.
+ *
+ * The command is replaced rather than annotated, and the manual escape hatch goes with it: the planner
+ * spends credits on its first generation, and configuring previews by hand would leave somebody stuck a
+ * step later having done the work. The panel names where the free credits went and links to billing.
+ */
+export const WaitingWithoutCredits: Story = {
+  args: { path: `/onboarding?step=previewkit-config&appId=${baseApplication.id}` },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers({
+        ...waitingFixtures,
+        billing: {
+          // Balance is what gates; eligibility only supplies the reason shown.
+          status: {
+            creditBalance: 0,
+            subscriptionCreditBalance: 0,
+            topupCreditBalance: 0,
+            provider: "stripe",
+            subscriptionStatus: undefined,
+            currentPeriodEnd: undefined,
+            cancelAtPeriodEnd: false,
+            gracePeriodEndsAt: undefined,
+            autoTopUpEnabled: false,
+            autoTopUpThreshold: 0,
+            cliCreditsSpent: 0,
+            transactions: [],
+          },
+          freeStartEligibility: {
+            eligible: false,
+            blockedBy: [
+              { id: "org_fixture_02", name: "Northwind QA" },
+              { id: "org_fixture_03", name: "Northwind Staging" },
+            ],
+          },
+        },
+      }),
+    },
+  },
+};
+
 export const WaitingFromPreviewEnvironment: Story = {
   args: { path: `/onboarding?step=preview-environment&appId=${baseApplication.id}` },
   parameters: { msw: { handlers: appShellHandlers(waitingFixtures) } },

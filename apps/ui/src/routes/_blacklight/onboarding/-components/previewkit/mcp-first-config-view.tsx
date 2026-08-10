@@ -2,8 +2,10 @@ import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { SlidersIcon } from "@phosphor-icons/react/Sliders";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { NoCreditsPanel } from "components/no-credits-panel";
 import { PlannerCommandBlock } from "components/planner-command-block";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
+import { useCreditBalance } from "lib/query/billing.queries";
 import { useEffect, useState } from "react";
 import { AgentConfiguringScreen } from "./agent-configuring-screen";
 
@@ -97,6 +99,12 @@ export function McpFirstConfigView({
 }
 
 function McpFirstPairing({ appId, connected, copy }: { appId: string; connected: boolean; copy: McpFirstCopy }) {
+  // Undefined while the balance loads, and undefined does NOT gate: a slow read must not withhold the
+  // command from somebody who can use it. The server refuses the work anyway, so this only spares the
+  // reader a failure they could not have predicted.
+  const creditBalance = useCreditBalance();
+  const noCredits = creditBalance != null && creditBalance <= 0;
+
   return (
     <div className="flex flex-col gap-6">
       <div className="relative grid grid-cols-1 border border-primary lg:grid-cols-[minmax(0,1fr)_22rem]">
@@ -107,11 +115,23 @@ function McpFirstPairing({ appId, connected, copy }: { appId: string; connected:
             <div className="flex size-10 items-center justify-center border border-primary-ink text-primary-ink shadow-[0_0_15px_var(--accent-glow)]">
               <RobotIcon size={20} weight="bold" />
             </div>
-            <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">{copy.heading}</h2>
-            <p className="max-w-xl text-2xs leading-relaxed text-text-secondary">{copy.blurb}</p>
+            {/* Withheld when there are no credits: this copy tells the reader to paste a command into a
+                terminal, and there is no command below it to paste. The panel brings its own heading. */}
+            {noCredits ? undefined : (
+              <>
+                <h2 className="font-mono text-sm font-bold uppercase tracking-widest text-text-primary">
+                  {copy.heading}
+                </h2>
+                <p className="max-w-xl text-2xs leading-relaxed text-text-secondary">{copy.blurb}</p>
+              </>
+            )}
           </div>
 
-          <PlannerCommandBlock applicationId={appId} />
+          {/* The command spends credits, so on a zero balance it is an offer of a failure - replaced
+              rather than annotated. Balance decides and not entitlement, because an account whose free
+              credits went elsewhere may have paid since, and one that is still entitled may have spent
+              its balance. */}
+          {noCredits ? <NoCreditsPanel applicationId={appId} /> : <PlannerCommandBlock applicationId={appId} />}
         </div>
 
         <ConnectionCube connected={connected} />
@@ -120,7 +140,7 @@ function McpFirstPairing({ appId, connected, copy }: { appId: string; connected:
       {/* Once the agent connects this page is only a handoff beat before the
           configuring screen, so drop the manual escape hatch - otherwise someone
           could click into the manual stepper mid-handoff and desync the two flows. */}
-      {connected ? undefined : (
+      {connected || noCredits ? undefined : (
         <div className="flex items-center justify-center gap-2 border-t border-border-dim pt-5">
           <span className="text-2xs text-text-secondary">Rather wire it up yourself?</span>
           <Link

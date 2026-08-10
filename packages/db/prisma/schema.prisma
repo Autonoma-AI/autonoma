@@ -1984,6 +1984,31 @@ model OrganizationSettings {
   @@map("organization_settings")
 }
 
+/// An email address that has already had the benefit of the free starting credits, and is therefore
+/// not entitled to another.
+///
+/// Keyed on the address rather than a user id on purpose. The entitlement follows the person, and a
+/// user row does not: deleting an account and signing up again mints a new id for the same human,
+/// which is the cheapest way to reset a per-user cap. The address survives that.
+///
+/// Written when a grant is made, and when somebody joins an organization that holds one - so it also
+/// covers the expensive version, where one person takes the grant and invites colleagues who each
+/// then create their own funded organization.
+model FreeStartIneligibility {
+  id    String @id @default(cuid())
+  /// Normalized: trimmed and lower-cased before writing, so case cannot be used to get a second grant.
+  email String @unique
+
+  /// The organizations whose starting grant this address had the benefit of, oldest first. Kept for the
+  /// UI, which has to answer "why do I have no credits" with something better than "you don't".
+  organizationIds String[] @map("organization_ids")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("free_start_ineligibility")
+}
+
 model CreditTransaction {
   id             String                @id @default(cuid())
   organizationId String                @map("organization_id")
