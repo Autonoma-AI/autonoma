@@ -87,8 +87,25 @@ const configuringFixtures: TrpcFixtures = {
           tool: "apply_config",
           status: "done",
         },
+        // An errored call belongs in the fixture: agents get things wrong, read the
+        // error, and carry on - so the feed has to look calm when one does.
         {
           id: "log_fixture_04",
+          message: "Pointed the api app at apps/api/Dockerfile",
+          timestamp: "2026-01-05T10:14:50.000Z",
+          tool: "apply_config",
+          status: "error",
+          error: "No Dockerfile at apps/api/Dockerfile",
+        },
+        {
+          id: "log_fixture_05",
+          message: "Pointed the api app at api/Dockerfile instead",
+          timestamp: "2026-01-05T10:15:10.000Z",
+          tool: "apply_config",
+          status: "done",
+        },
+        {
+          id: "log_fixture_06",
           message: "Deploying the preview off main",
           timestamp: "2026-01-05T10:15:40.000Z",
           tool: "trigger_deploy",

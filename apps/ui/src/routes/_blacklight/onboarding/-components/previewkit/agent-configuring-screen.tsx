@@ -21,7 +21,6 @@ import { BellSlashIcon } from "@phosphor-icons/react/BellSlash";
 import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { CaretUpIcon } from "@phosphor-icons/react/CaretUp";
 import { CheckCircleIcon } from "@phosphor-icons/react/CheckCircle";
-import { CircleIcon } from "@phosphor-icons/react/Circle";
 import { EyeIcon } from "@phosphor-icons/react/Eye";
 import { EyeSlashIcon } from "@phosphor-icons/react/EyeSlash";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
@@ -29,7 +28,7 @@ import { InfoIcon } from "@phosphor-icons/react/Info";
 import { PlugsConnectedIcon } from "@phosphor-icons/react/PlugsConnected";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
-import { XCircleIcon } from "@phosphor-icons/react/XCircle";
+import { WrenchIcon } from "@phosphor-icons/react/Wrench";
 import { Link, Navigate } from "@tanstack/react-router";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import { PreviewLink } from "components/preview-link";
@@ -123,7 +122,10 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
   if (session == null) return undefined;
 
   const logs = session.logs;
-  const doneCount = logs.filter((entry) => entry.status === "done").length;
+  // A tool call that errored is finished, not outstanding: the error went back to the
+  // agent, which adapts and moves on. Counting only `done` left the bar permanently
+  // short of the work the agent had actually got through.
+  const finishedCount = logs.filter((entry) => entry.status !== "running").length;
   const total = logs.length;
   const running = [...logs].reverse().find((entry) => entry.status === "running");
   const ready = session.previewVerificationStatus === "ready";
@@ -213,7 +215,7 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
           </span>
         </div>
         <span className="ml-auto font-mono text-2xs text-text-secondary">
-          {doneCount} / {total} calls
+          {finishedCount} / {total} calls
         </span>
       </div>
 
@@ -232,7 +234,7 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
         </div>
       ) : undefined}
 
-      <Progress value={total === 0 ? 0 : (doneCount / total) * 100} />
+      <Progress value={total === 0 ? 0 : (finishedCount / total) * 100} />
 
       {pendingEnv != null && (
         <EnvRequestForm
@@ -716,24 +718,31 @@ function ToolCallRow({ entry }: { entry: AgentLogEntry }) {
   const showToolTag = entry.message != null && entry.tool != null;
   return (
     <div className="flex items-start gap-2 text-2xs">
-      <StatusGlyph status={entry.status} />
+      <ToolCallGlyph status={entry.status} />
       <span className="text-text-primary">{summary}</span>
       {showToolTag ? (
         <span className="font-mono text-text-secondary">{entry.tool}</span>
       ) : entry.toolArguments != null ? (
         <span className="truncate font-mono text-text-secondary">{JSON.stringify(entry.toolArguments)}</span>
       ) : undefined}
-      {entry.status === "error" && entry.error != null && <span className="text-status-critical">{entry.error}</span>}
     </div>
   );
 }
 
-function StatusGlyph({ status }: { status?: AgentLogEntry["status"] }) {
-  if (status === "done") return <CheckCircleIcon weight="fill" className="size-3.5 shrink-0 text-status-success" />;
-  if (status === "error") return <XCircleIcon weight="fill" className="size-3.5 shrink-0 text-status-critical" />;
+/**
+ * Whether this tool call is still in flight, and nothing more.
+ *
+ * A tool call that errors is the agent's own business: the error goes back to it and
+ * it adapts, retries, or picks another route - which is the loop working, not the
+ * product failing. Scoring each call with a green tick or a red cross put our name on
+ * the agent's trial and error and made a healthy run look broken. So a finished call
+ * gets one neutral mark whichever way it went, and only "still running" is worth
+ * distinguishing. The status is still recorded server-side for support.
+ */
+function ToolCallGlyph({ status }: { status?: AgentLogEntry["status"] }) {
   if (status === "running")
     return <BrailleSpinner animation="braille" size="sm" className="w-3.5 shrink-0 text-center text-primary" />;
-  return <CircleIcon className="size-3.5 shrink-0 text-text-secondary" />;
+  return <WrenchIcon className="mt-px size-3.5 shrink-0 text-text-secondary" />;
 }
 
 /**
