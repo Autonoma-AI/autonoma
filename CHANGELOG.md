@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.260810.1](https://github.com/Autonoma-AI/agent/compare/v1.260808.2...v1.260810.1) (2026-08-10)
+
+
+### Features
+
+* **analysis:** the Reporter authors how a PR reads, and itemizes its flows ([#2329](https://github.com/Autonoma-AI/agent/issues/2329)) ([77373c8](https://github.com/Autonoma-AI/agent/commit/77373c888dbed9dc84a83bc904c6ab1733dc75b6))
+* **api:** let an agent read and update an app's standing instructions over MCP ([#2404](https://github.com/Autonoma-AI/agent/issues/2404)) ([14636ae](https://github.com/Autonoma-AI/agent/commit/14636ae805b4dd648ed1b1fba035f31517466be8))
+* **auth:** let Google say whether a domain is a company, instead of guessing from a list ([#2359](https://github.com/Autonoma-AI/agent/issues/2359)) ([e40e82f](https://github.com/Autonoma-AI/agent/commit/e40e82f54a68915516eb00a1ce3908d10e209f52))
+* **auth:** only mint an auto-join domain key when a provider vouches for it ([#2367](https://github.com/Autonoma-AI/agent/issues/2367)) ([3f8524f](https://github.com/Autonoma-AI/agent/commit/3f8524f2b545e2fd587dd5f03df0117538ffd3d1))
+* **auth:** organization invites and multi-organization accounts ([#2341](https://github.com/Autonoma-AI/agent/issues/2341)) ([4931a9e](https://github.com/Autonoma-AI/agent/commit/4931a9ed60a6b7f94583afdb035c99528c3af4c9))
+* **billing:** make the free starting credits an entitlement per person ([#2383](https://github.com/Autonoma-AI/agent/issues/2383)) ([d6cc24a](https://github.com/Autonoma-AI/agent/commit/d6cc24a7bcdc06dbd9ac1d6b28598b64f510084c))
+* **email:** send invitations from the product, not the onboarding sender ([#2372](https://github.com/Autonoma-AI/agent/issues/2372)) ([17d9f07](https://github.com/Autonoma-AI/agent/commit/17d9f0706af1e128ff03332490c7d3789276dd56))
+* **platform:** give CI credentials per workflow via OIDC, not per runner ([#2362](https://github.com/Autonoma-AI/agent/issues/2362)) ([2a34e52](https://github.com/Autonoma-AI/agent/commit/2a34e52877de0688a80908e03ae4cb014c788c6c))
+* **platform:** keep one runner warm per pool during the working window ([#2379](https://github.com/Autonoma-AI/agent/issues/2379)) ([431dee3](https://github.com/Autonoma-AI/agent/commit/431dee3e2bfff06840c314d0ec965cdd3ffff09f))
+* **platform:** run the fleet through github-aws-runners, on our own AMI ([#2351](https://github.com/Autonoma-AI/agent/issues/2351)) ([62f42b8](https://github.com/Autonoma-AI/agent/commit/62f42b80b5f66a60d497d7fb6c961cf080560486))
+* **previewkit:** add a fleet-wide kill switch for main-branch (PR-0) builds ([#2388](https://github.com/Autonoma-AI/agent/issues/2388)) ([970f403](https://github.com/Autonoma-AI/agent/commit/970f403f3202daeb5109c4bea0b08fa1efce8225))
+* **previewkit:** deploy kube-state-metrics for pod resource requests ([#2364](https://github.com/Autonoma-AI/agent/issues/2364)) ([8f29df3](https://github.com/Autonoma-AI/agent/commit/8f29df33c36c8ce77b1a7e2f46dbd697e1ddacb5))
+* **previewkit:** NVMe image caches and a warm node for faster wakes ([#2358](https://github.com/Autonoma-AI/agent/issues/2358)) ([a59d51d](https://github.com/Autonoma-AI/agent/commit/a59d51da09c10b6055ad8cb7e0bc965845011709))
+* **previewkit:** read the SDK endpoint path from the preview config ([#2116](https://github.com/Autonoma-AI/agent/issues/2116)) ([d2a553e](https://github.com/Autonoma-AI/agent/commit/d2a553e808dba13cfb198f985193949e4789e5e6))
+* **previewkit:** store the preview config topology relationally ([#2354](https://github.com/Autonoma-AI/agent/issues/2354)) ([27bb2aa](https://github.com/Autonoma-AI/agent/commit/27bb2aacc023d449bc55530cc3691444e6908f77))
+* **terraform:** import EKS node groups for both clusters ([#2410](https://github.com/Autonoma-AI/agent/issues/2410)) ([fbca146](https://github.com/Autonoma-AI/agent/commit/fbca1462ed0a766919fcc6f901d5275cfc659ab6))
+* **terraform:** import the production and previewkit EKS clusters ([#2398](https://github.com/Autonoma-AI/agent/issues/2398)) ([68db3bd](https://github.com/Autonoma-AI/agent/commit/68db3bdb27118aa8a62b53da0847f10938921c78))
+
+
+### Bug Fixes
+
+* **auth:** stop CloudFront 414-ing the Microsoft sign-in callback ([#2387](https://github.com/Autonoma-AI/agent/issues/2387)) ([97fcd7d](https://github.com/Autonoma-AI/agent/commit/97fcd7dec297a84cbe3e4e69d8dac93192335a18))
+* **auth:** stop pooling strangers by email provider, and give the org one source of truth ([#2357](https://github.com/Autonoma-AI/agent/issues/2357)) ([b35d8ee](https://github.com/Autonoma-AI/agent/commit/b35d8eea9c77c49f087137cff2dee5ae0105803f))
+* **auth:** write the active org to Postgres too, and open Members to every org ([#2349](https://github.com/Autonoma-AI/agent/issues/2349)) ([84b0d2d](https://github.com/Autonoma-AI/agent/commit/84b0d2dad1cf3112e1c0b12c7f8b8712662a0256))
+* **billing:** close an unlimited free-credit mint ([#2374](https://github.com/Autonoma-AI/agent/issues/2374)) ([4006975](https://github.com/Autonoma-AI/agent/commit/40069759af4a006d84842d943fb2bc2e0d265177))
+* **cli:** keep a recoverable MCP registration failure recoverable ([#2391](https://github.com/Autonoma-AI/agent/issues/2391)) ([e763f98](https://github.com/Autonoma-AI/agent/commit/e763f9854d4a6117bb52145a7038fb82dc819c37))
+* **cli:** let the recipe retry loop actually retry ([#2392](https://github.com/Autonoma-AI/agent/issues/2392)) ([e53ba9f](https://github.com/Autonoma-AI/agent/commit/e53ba9fa0ba2df5c79bfd87f2751034a52c5df96))
+* **cli:** pin the spawned Claude Code session to Opus ([#2393](https://github.com/Autonoma-AI/agent/issues/2393)) ([59f8e9f](https://github.com/Autonoma-AI/agent/commit/59f8e9f45fd0fbf8049f8e621ab80b5dac44be4c))
+* **cli:** stop a failed MCP sign-in from killing the whole run ([#2390](https://github.com/Autonoma-AI/agent/issues/2390)) ([06b9895](https://github.com/Autonoma-AI/agent/commit/06b98959c3382f6ba19d1b068214902d016c7fc0))
+* **email:** send invitations from no-reply, since nothing reads replies ([#2382](https://github.com/Autonoma-AI/agent/issues/2382)) ([934a421](https://github.com/Autonoma-AI/agent/commit/934a421dddb905a4674b87cd88d0f5a57f8b71fa))
+* let classifiers retire unsalvageable tests ([#2400](https://github.com/Autonoma-AI/agent/issues/2400)) ([161f350](https://github.com/Autonoma-AI/agent/commit/161f3507798bd999e1724da0dfb61282638e8a86))
+* **organization:** a company org could not invite anyone from outside its domain ([#2371](https://github.com/Autonoma-AI/agent/issues/2371)) ([2dc1b2f](https://github.com/Autonoma-AI/agent/commit/2dc1b2f9b35daa9c9f818df6a9f2c72e1718b238))
+* **platform:** let the runner user write to the node tree, and assert it ([#2389](https://github.com/Autonoma-AI/agent/issues/2389)) ([14806de](https://github.com/Autonoma-AI/agent/commit/14806de5cee167263341b31a23dbadb2ce51a185))
+* **platform:** match runner pools on all of a job's labels, not any one ([#2360](https://github.com/Autonoma-AI/agent/issues/2360)) ([13ef013](https://github.com/Autonoma-AI/agent/commit/13ef013dfbef8410a8251fc73885777b4a05637e))
+* **platform:** stop runners deleting from the state and database buckets ([#2394](https://github.com/Autonoma-AI/agent/issues/2394)) ([cb7502a](https://github.com/Autonoma-AI/agent/commit/cb7502a33aa231e3b12f43b19172fff30923b754))
+* **ui:** leave the app-scoped URL when the organization changes ([#2352](https://github.com/Autonoma-AI/agent/issues/2352)) ([82814dc](https://github.com/Autonoma-AI/agent/commit/82814dcf2687b72e172ba939fd9f2a1c8a0fcca6))
+* **ui:** make org switching work, and cross-org deep links work for everyone ([#2356](https://github.com/Autonoma-AI/agent/issues/2356)) ([1b1ba40](https://github.com/Autonoma-AI/agent/commit/1b1ba40262fb880647121b5820e12d820f0d5773))
+* **ui:** stop the naming screen bouncing back to itself after saving ([#2347](https://github.com/Autonoma-AI/agent/issues/2347)) ([89f87ae](https://github.com/Autonoma-AI/agent/commit/89f87aea579a03102396ae65fc74bcfd84428f8f))
+* **ui:** the organization picker's first rows were unreachable ([#2369](https://github.com/Autonoma-AI/agent/issues/2369)) ([41dca84](https://github.com/Autonoma-AI/agent/commit/41dca8469ba5d4183203595dbd20fd458bcf659e))
+* **ui:** the organizations panel promised the opposite of what switching now does ([#2370](https://github.com/Autonoma-AI/agent/issues/2370)) ([a132924](https://github.com/Autonoma-AI/agent/commit/a132924bd610f44b67f903d02c7fe37b42fc47ec))
+
 ## [1.260808.2](https://github.com/Autonoma-AI/agent/compare/v1.260808.1...v1.260808.2) (2026-08-08)
 
 
