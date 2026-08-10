@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
+import { logStreamHandler, type LogStreamEvent } from "lib/storybook/log-stream-handler";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { HttpResponse, http } from "msw";
@@ -440,37 +441,9 @@ export const BuildFailed: Story = {
   parameters: { msw: { handlers: appShellHandlers(previewTabFixtures) } },
 };
 
-/** One SSE frame per event, in the previewkit stream's wire format (Loki-style nanosecond ids). */
-function sseFrames(events: Array<{ event: string; data?: object | string; at: Date }>): string {
-  return events
-    .map((entry) => {
-      const data = typeof entry.data === "string" ? entry.data : JSON.stringify(entry.data ?? {});
-      return `id: ${entry.at.getTime()}000000\nevent: ${entry.event}\ndata: ${data}\n\n`;
-    })
-    .join("");
-}
-
-/**
- * Answers the previewkit log-stream SSE endpoint. The stream is closed after the canned frames - the
- * screenshot script waits for network idle, which an open SSE connection would block forever.
- */
-function logStreamHandler(frames: { build: string; app: string }) {
-  return http.get("*/v1/previewkit/environments/:owner/:repo/:pr/logs/stream", ({ request }) => {
-    const source = new URL(request.url).searchParams.get("source") === "app" ? "app" : "build";
-    const encoder = new TextEncoder();
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode(frames[source]));
-        controller.close();
-      },
-    });
-    return new HttpResponse(body, { headers: { "Content-Type": "text/event-stream" } });
-  });
-}
-
 const readyAt = (second: number) => new Date(FIXTURE_EPOCH.getTime() + second * 1000);
 
-const readyBuildFrames = sseFrames([
+const readyBuildFrames: LogStreamEvent[] = [
   { event: "phase", data: { kind: "phase", message: "cloning repository" }, at: readyAt(0) },
   { event: "log", data: { kind: "log", message: "acme/web-app@a22387c extracted (412 files)" }, at: readyAt(2) },
   { event: "phase", data: { kind: "phase", message: "building images" }, at: readyAt(3) },
@@ -478,12 +451,12 @@ const readyBuildFrames = sseFrames([
   { event: "log", data: { kind: "log", message: "#8 DONE 41.3s" }, at: readyAt(51) },
   { event: "status", data: { kind: "status", message: "ready" }, at: readyAt(52) },
   { event: "done", data: "ready", at: readyAt(52) },
-]);
+];
 
-const readyAppFrames = sseFrames([
+const readyAppFrames: LogStreamEvent[] = [
   { event: "log", data: { kind: "log", message: "Server listening on port 3000" }, at: readyAt(55) },
   { event: "log", data: { kind: "log", message: "GET /health 200 4ms" }, at: readyAt(58) },
-]);
+];
 
 export const Ready: Story = {
   args: { path: PREVIEW_PATH },
@@ -567,7 +540,7 @@ export const Idle: Story = {
   parameters: {
     msw: {
       handlers: [
-        logStreamHandler({ build: readyBuildFrames, app: "" }),
+        logStreamHandler({ build: readyBuildFrames, app: [] }),
         ...appShellHandlers(idlePreviewTabFixtures("asleep")),
       ],
     },
@@ -584,7 +557,7 @@ export const Waking: Story = {
   parameters: {
     msw: {
       handlers: [
-        logStreamHandler({ build: readyBuildFrames, app: "" }),
+        logStreamHandler({ build: readyBuildFrames, app: [] }),
         ...appShellHandlers(idlePreviewTabFixtures("waking")),
       ],
     },

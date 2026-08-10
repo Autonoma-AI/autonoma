@@ -46,6 +46,18 @@ export interface UseBuildLogStreamOptions {
     headers?: Record<string, string> | undefined;
     /** fetch credentials mode. Defaults to "include" so session cookies also flow. */
     credentials?: RequestCredentials | undefined;
+    /**
+     * An opaque token identifying the run being watched. Changing it throws away the
+     * accumulated entries and opens a fresh connection.
+     *
+     * Needed because the stream is terminal but the URL is not: a `done` event ends
+     * the stream for good, while the URL (owner/repo/pr/source) is the same for every
+     * deploy this environment will ever run. Without a reset the viewer stays dead on
+     * the attempt that ended, still showing its terminal badge while a new deploy runs
+     * behind it. The server already scopes a fresh connection to the latest attempt,
+     * so reconnecting is all that is required.
+     */
+    resetKey?: string | undefined;
 }
 
 /** Server event payload for `log` / `phase` / `status` events (the `data:` JSON). */
@@ -77,6 +89,7 @@ export function useBuildLogStream({
     url,
     headers,
     credentials = "include",
+    resetKey,
 }: UseBuildLogStreamOptions): BuildLogStreamState {
     const [entries, setEntries] = useState<BuildLogEntry[]>([]);
     const [phase, setPhase] = useState<string>();
@@ -90,7 +103,8 @@ export function useBuildLogStream({
             return;
         }
 
-        // Reset accumulated state when the target stream changes.
+        // Reset accumulated state when the target stream, or the run it is watching,
+        // changes.
         setEntries([]);
         setPhase(undefined);
         setBuildStatus(undefined);
@@ -172,7 +186,7 @@ export function useBuildLogStream({
         });
 
         return () => controller.abort();
-    }, [url, headers, credentials]);
+    }, [url, headers, credentials, resetKey]);
 
     return { entries, phase, buildStatus, connection, error };
 }

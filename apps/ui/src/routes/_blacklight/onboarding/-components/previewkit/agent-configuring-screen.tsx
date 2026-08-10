@@ -456,6 +456,8 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
   // poll flips it under a mounted fiber, so a hook declared after those returns
   // changes the hook count mid-render and throws React #310.
   const [logSourceOverride, setLogSourceOverride] = useState<PreviewLogSource | undefined>(undefined);
+  // Same constraint: declared before the mode early returns, never after.
+  const attemptKey = useDeployAttemptKey(diagnostics.status);
 
   // Before a path is picked the agent is still reading the repo, and there is
   // nothing to deploy either way - a Deploy panel here would show an idle status
@@ -517,6 +519,11 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
       <div className="flex items-center gap-2">
         <SectionTitle>Deploy</SectionTitle>
         <DeployStatusBadge status={diagnostics.status} />
+        {/* One status, one phase, one place - the log card below reports neither, so
+            these cannot come to disagree with it. */}
+        {diagnostics.phase != null ? (
+          <span className="font-mono text-2xs text-text-secondary">{diagnostics.phase.replaceAll("_", " ")}</span>
+        ) : undefined}
       </div>
 
       {previewUrl != null ? (
@@ -574,6 +581,8 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
             repo={repoName(diagnostics.logs.repoFullName)}
             pr={diagnostics.logs.prNumber}
             appBuilding={imageBuilding}
+            resetKey={attemptKey}
+            viewerHeader={false}
             source={logSource}
             onSourceChange={setLogSourceOverride}
           />
@@ -590,6 +599,37 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
  * than re-declared, so the badge cannot drift from what the API sends.
  */
 type PreviewReadinessService = ReturnType<typeof usePreviewReadiness>["data"]["services"][number];
+
+/** The deploy status as readiness reports it, likewise taken from the query output. */
+type PreviewDeployStatus = ReturnType<typeof usePreviewReadiness>["data"]["diagnostics"]["status"];
+
+/**
+ * A token that changes every time a new deploy attempt begins, for the log stream to
+ * restart on.
+ *
+ * The stream is terminal but its URL is not: once a deploy ends, the SSE connection
+ * closes for good, while the URL is identical for every deploy this environment will
+ * ever run. So the viewer stayed frozen on the attempt that ended, showing "failed"
+ * next to a DEPLOY badge that said "building" - the same page telling two stories.
+ *
+ * Readiness going from a terminal status back to `building` is the only client-visible
+ * sign a new attempt started. There is no attempt id to read instead: a
+ * `PreviewkitBuild` row is written at FINISH and upserted per (environment, commit), so
+ * a same-commit redeploy reuses the row and nothing new exists to key off at start.
+ */
+function useDeployAttemptKey(status: PreviewDeployStatus): string {
+  const [attempt, setAttempt] = useState(0);
+  const previousRef = useRef(status);
+  // A transition over polled data, and a genuine side effect (throwing away a live
+  // subscription's accumulated state) - which is what useEffect is for.
+  useEffect(() => {
+    const previous = previousRef.current;
+    previousRef.current = status;
+    const restarted = (previous === "ready" || previous === "failed") && status === "building";
+    if (restarted) setAttempt((current) => current + 1);
+  }, [status]);
+  return String(attempt);
+}
 
 /**
  * The status word on a service badge. A managed service (postgres, redis, ...) is a

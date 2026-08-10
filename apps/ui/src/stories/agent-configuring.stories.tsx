@@ -1,6 +1,7 @@
 import { previewConfigSchema } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
+import { logStreamHandler, type LogStreamEvent } from "lib/storybook/log-stream-handler";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { Suspense } from "react";
 import { userEvent, within } from "storybook/test";
@@ -223,6 +224,66 @@ function withReadyPreview(): TrpcFixtures {
   };
 }
 
+const buildAt = (second: number) => new Date(CONNECTED_AT.getTime() + second * 1000);
+
+/** Build output for a deploy that is past the image build and rolling the services out. */
+const buildFrames: LogStreamEvent[] = [
+  { event: "phase", data: { kind: "phase", message: "cloning repository" }, at: buildAt(0) },
+  { event: "log", data: { kind: "log", message: "acme/storefront@a22387c extracted (412 files)" }, at: buildAt(2) },
+  { event: "phase", data: { kind: "phase", message: "building images" }, at: buildAt(3) },
+  { event: "log", data: { kind: "log", message: "#8 [5/9] RUN pnpm install --frozen-lockfile" }, at: buildAt(9) },
+  { event: "log", data: { kind: "log", message: "#8 DONE 41.3s" }, at: buildAt(51) },
+  {
+    event: "log",
+    data: { kind: "log", message: "#16 writing layer sha256:9899b563237de9f1d4ac5f86" },
+    at: buildAt(58),
+  },
+  { event: "phase", data: { kind: "phase", message: "deploying-services" }, at: buildAt(60) },
+];
+
+/**
+ * Runtime output from the pods rolling out. The screen follows the deploy onto the App
+ * logs tab at this phase, so a story without these shows an empty panel that reads as
+ * a broken stream rather than the state it is meant to document.
+ */
+const appFrames: LogStreamEvent[] = [
+  {
+    event: "log",
+    data: { kind: "log", message: "db: database system is ready to accept connections" },
+    at: buildAt(62),
+  },
+  { event: "log", data: { kind: "log", message: "redis: Ready to accept connections tcp" }, at: buildAt(63) },
+  { event: "log", data: { kind: "log", message: "api: listening on port 4000" }, at: buildAt(66) },
+  { event: "log", data: { kind: "log", message: "web: ready in 812ms" }, at: buildAt(68) },
+];
+
+/**
+ * A deploy far enough along that its logs are streaming: the phase and status sit
+ * together above the log tabs, rather than the tabs carrying a second status badge of
+ * their own reading from the stream.
+ */
+function withStreamingLogs(): TrpcFixtures {
+  const readiness = configuringFixtures.onboarding?.getPreviewReadiness;
+  return {
+    ...configuringFixtures,
+    onboarding: {
+      ...configuringFixtures.onboarding,
+      getPreviewReadiness:
+        readiness == null
+          ? readiness
+          : {
+              ...readiness,
+              diagnostics: {
+                status: "building",
+                phase: "deploying-services",
+                actions: [],
+                logs: { available: true, repoFullName: "acme/storefront", prNumber: 0 },
+              },
+            },
+    },
+  };
+}
+
 /** The same session with its last activity pushed well past the stalled threshold. */
 function withStalledHeartbeat(): TrpcFixtures {
   const fixtures = withPreviewPath("existing_deploys");
@@ -315,6 +376,20 @@ export const PreviewReady: Story = {
   parameters: {
     msw: {
       handlers: appShellHandlers(withReadyPreview()),
+    },
+  },
+};
+
+/**
+ * Mid-deploy with the log stream mounted. One status and one phase, above the tabs -
+ * the log card no longer carries its own badge fed by the stream, which is how the
+ * page came to read "DEPLOY building" beside "build logs failed".
+ */
+export const DeployStreaming: Story = {
+  args: { applicationId: baseApplication.id },
+  parameters: {
+    msw: {
+      handlers: [logStreamHandler({ build: buildFrames, app: appFrames }), ...appShellHandlers(withStreamingLogs())],
     },
   },
 };

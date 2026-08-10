@@ -23,6 +23,12 @@ interface BuildLogStreamViewerProps {
   url?: string | undefined;
   /** Extra request headers, e.g. `{ Authorization: "Bearer <token>" }`. */
   headers?: Record<string, string> | undefined;
+  /**
+   * Token identifying the run being watched. Changing it drops what has accumulated
+   * and reconnects - the URL alone cannot express "this is a different deploy", so a
+   * caller that knows a new attempt started passes a new value here.
+   */
+  resetKey?: string | undefined;
   /** Header label; defaults to the build-log wording. */
   title?: string | undefined;
   /** Empty-state text while waiting for the first entry. */
@@ -53,6 +59,7 @@ interface BuildLogStreamViewerProps {
 export function BuildLogStreamViewer({
   url,
   headers,
+  resetKey,
   title = "build logs",
   waitingText = "waiting for build output…",
   emptyState,
@@ -62,7 +69,7 @@ export function BuildLogStreamViewer({
   levelFilter = "all",
   className,
 }: BuildLogStreamViewerProps) {
-  const { entries, phase, buildStatus, connection, error } = useBuildLogStream({ url, headers });
+  const { entries, phase, buildStatus, connection, error } = useBuildLogStream({ url, headers, resetKey });
   const bodyRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
 

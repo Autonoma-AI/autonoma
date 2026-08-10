@@ -38,6 +38,19 @@ interface PreviewLogsTabsProps {
   fill?: boolean | undefined;
   /** Extra request headers, e.g. `{ Authorization: "Bearer <token>" }`. */
   headers?: Record<string, string> | undefined;
+  /**
+   * Token identifying the run being watched, forwarded to both streams. Changing it
+   * drops what they have accumulated and reconnects. Pass it whenever the same
+   * environment can deploy more than once while this stays mounted - otherwise the
+   * viewer keeps showing the attempt that ended.
+   */
+  resetKey?: string | undefined;
+  /**
+   * When false, the viewers drop their own title/status header. For callers whose
+   * surrounding layout already reports the deploy's status - two badges reading from
+   * different sources is how a page ends up contradicting itself. Defaults to true.
+   */
+  viewerHeader?: boolean | undefined;
   /** Controls the active tab. When omitted, the tabs are uncontrolled and default to App logs. */
   source?: PreviewLogSource | undefined;
   /** Called when the user switches tabs - use it to persist the choice (e.g. in the URL). */
@@ -70,6 +83,8 @@ export function PreviewLogsTabs({
   runtimeOnly,
   fill,
   headers,
+  resetKey,
+  viewerHeader = true,
   source,
   onSourceChange,
   toolbar = false,
@@ -165,11 +180,12 @@ export function PreviewLogsTabs({
           <BuildLogStreamViewer
             url={buildPreviewLogStreamUrl(owner, repo, pr, "app", app, filter)}
             headers={headers}
+            resetKey={resetKey}
             title="app logs"
             waitingText={appWaitingText}
             emptyState={appEmptyState}
             fill={fill}
-            header={!toolbar}
+            header={!toolbar && viewerHeader}
             footer={toolbar}
             levelFilter={toolbar ? level : undefined}
           />
@@ -180,9 +196,10 @@ export function PreviewLogsTabs({
           <BuildLogStreamViewer
             url={buildPreviewLogStreamUrl(owner, repo, pr, "build", app, filter)}
             headers={headers}
+            resetKey={resetKey}
             waitingText={buildWaitingText}
             fill={fill}
-            header={!toolbar}
+            header={!toolbar && viewerHeader}
             footer={toolbar}
             levelFilter={toolbar ? level : undefined}
           />

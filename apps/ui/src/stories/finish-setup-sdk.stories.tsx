@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
+import { logStreamHandler, type LogStreamEvent } from "lib/storybook/log-stream-handler";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import type { RouterOutputs } from "lib/trpc";
-import { HttpResponse, http } from "msw";
 import { userEvent, within } from "storybook/test";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
@@ -472,38 +472,9 @@ function sdkValidatedFixtures(
   };
 }
 
-/** One SSE frame per event, in the previewkit stream's wire format (Loki-style nanosecond ids). */
-function sseFrames(events: Array<{ event: string; data?: object | string; at: Date }>): string {
-  return events
-    .map((entry) => {
-      const data = typeof entry.data === "string" ? entry.data : JSON.stringify(entry.data ?? {});
-      return `id: ${entry.at.getTime()}000000\nevent: ${entry.event}\ndata: ${data}\n\n`;
-    })
-    .join("");
-}
-
-/**
- * Answers the previewkit log-stream SSE endpoint. The stream is closed after
- * the canned frames - the screenshot script waits for network idle, which an
- * open SSE connection would block forever.
- */
-function logStreamHandler(frames: { build: string; app: string }) {
-  return http.get("*/v1/previewkit/environments/:owner/:repo/:pr/logs/stream", ({ request }) => {
-    const source = new URL(request.url).searchParams.get("source") === "app" ? "app" : "build";
-    const encoder = new TextEncoder();
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(encoder.encode(frames[source]));
-        controller.close();
-      },
-    });
-    return new HttpResponse(body, { headers: { "Content-Type": "text/event-stream" } });
-  });
-}
-
 const at = (second: number) => new Date(FIXTURE_EPOCH.getTime() + second * 1000);
 
-const failedBuildFrames = sseFrames([
+const failedBuildFrames: LogStreamEvent[] = [
   { event: "phase", data: { kind: "phase", message: "cloning repository" }, at: at(0) },
   { event: "log", data: { kind: "log", message: "acme/web@d34db33 extracted (412 files)" }, at: at(2) },
   { event: "phase", data: { kind: "phase", message: "building images" }, at: at(3) },
@@ -526,18 +497,18 @@ const failedBuildFrames = sseFrames([
   },
   { event: "status", data: { kind: "status", message: "failed" }, at: at(70) },
   { event: "done", data: "failed", at: at(70) },
-]);
+];
 
-const idleAppFrames = sseFrames([]);
+const idleAppFrames: LogStreamEvent[] = [];
 
-const inProgressBuildFrames = sseFrames([
+const inProgressBuildFrames: LogStreamEvent[] = [
   { event: "phase", data: { kind: "phase", message: "cloning repository" }, at: at(0) },
   { event: "log", data: { kind: "log", message: "acme/web@d34db33 extracted (412 files)" }, at: at(2) },
   { event: "phase", data: { kind: "phase", message: "building images" }, at: at(3) },
   { event: "log", data: { kind: "log", message: "#7 [4/9] COPY . /app" }, at: at(6) },
   { event: "log", data: { kind: "log", message: "#8 [5/9] RUN pnpm install --frozen-lockfile" }, at: at(9) },
   { event: "log", data: { kind: "log", message: "#8 41.2s progress: resolved 1247, downloaded 1189" }, at: at(50) },
-]);
+];
 
 /**
  * The finish-setup SDK step across the preview-target states the deploy/redeploy
