@@ -50,7 +50,13 @@ interface ConfigCard {
  * agent set up without an editable surface they are told not to touch.
  */
 export function PreviewTakingShape({ applicationId }: { applicationId: string }) {
-  const { data } = usePreviewkitConfig(applicationId);
+  // The agent rewrites this config as it works - swapping a database version,
+  // adding a service, filling in a build - and every one of those writes lands
+  // server-side over MCP. Nothing here mutates it, so nothing would invalidate it:
+  // without the poll the cards freeze on whatever the config was when the screen
+  // opened, which is how "it created postgres 16, changed it to 18, and the UI
+  // still says 16" happens.
+  const { data } = usePreviewkitConfig(applicationId, { poll: true });
   const [openCardId, setOpenCardId] = useState<string | undefined>(undefined);
 
   const cards = buildCards(data.document);

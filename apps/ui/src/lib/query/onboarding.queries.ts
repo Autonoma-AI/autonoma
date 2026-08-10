@@ -11,6 +11,13 @@ const AGENT_SESSION_IDLE_POLL_MS = 8000;
 const EMPTY_DEPLOYMENTS_POLL_MS = 20_000;
 /** Poll while setup is unfinished, so the screen watching it sees the moment it finishes. */
 const ONBOARDING_STATE_POLL_MS = 5000;
+/**
+ * Poll for a config the agent is editing over MCP. Every write comes from the
+ * server, so no client mutation ever invalidates this query - without a poll the
+ * screen shows whatever the config was when the page loaded. Slower than the
+ * activity stream: the config changes a handful of times per session, not per second.
+ */
+const AGENT_CONFIG_POLL_MS = 5000;
 
 /**
  * Returns an onError handler that, on a backend step-mismatch error
@@ -396,8 +403,22 @@ export function useTriggerPreviewkitMainDeploy() {
     });
 }
 
-export function usePreviewkitConfig(applicationId: string) {
-    return useSuspenseQuery(trpc.onboarding.getPreviewkitConfig.queryOptions({ applicationId }));
+/**
+ * The application's PreviewKit config document.
+ *
+ * `poll` is opt-in, and deliberately so. A read-only view of a config an agent is
+ * writing over MCP has to poll or it never updates - nothing on the client mutates
+ * it, so nothing invalidates it. The editable form and the settings draft read the
+ * same query while the user has unsaved changes on screen, and a background refetch
+ * there would fight them, so those keep the plain fetch-once behavior.
+ */
+export function usePreviewkitConfig(applicationId: string, options: { poll?: boolean } = {}) {
+    return useSuspenseQuery(
+        trpc.onboarding.getPreviewkitConfig.queryOptions(
+            { applicationId },
+            options.poll === true ? { refetchInterval: AGENT_CONFIG_POLL_MS } : {},
+        ),
+    );
 }
 
 export function useDeployBranches(applicationId: string) {
