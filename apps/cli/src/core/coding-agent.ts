@@ -30,6 +30,27 @@ const CODEX_BEARER_TOKEN_ENV = "AUTONOMA_MCP_TOKEN";
 const CLAUDE_CONNECTED_MARKER = "Connected";
 
 /**
+ * Model the spawned Claude session runs on, as an alias rather than a pinned id so it
+ * tracks the latest Opus release instead of needing a bump here every time one ships.
+ *
+ * Pinned deliberately rather than left to the client's own default, which is not stable:
+ * Claude Code picks a model from the account's plan and silently drops to a cheaper one
+ * as usage limits approach. This handoff is the most consequential part of a planner run
+ * - it installs the SDK, boots the app, and validates against a live environment - and a
+ * mid-run downgrade shows up as the agent quietly getting worse at it, with nothing in
+ * the output saying why. Passed in argv, which outranks an `ANTHROPIC_MODEL` inherited
+ * from the developer's shell.
+ */
+const CLAUDE_MODEL = "opus";
+
+/**
+ * Env var Claude Code reads the model for its own subagents from. Set to the same model:
+ * subagents otherwise default to a cheaper tier, and this run delegates real work to them
+ * (repo exploration, config edits), so the ceiling has to hold there too.
+ */
+const CLAUDE_SUBAGENT_MODEL_ENV = "CLAUDE_CODE_SUBAGENT_MODEL";
+
+/**
  * The autonomy the interactive agent runs with, in plain-language labels that map
  * to Claude's `--permission-mode`. `plan` (read-only) is intentionally excluded -
  * it can't implement anything, so it's irrelevant to a handoff whose whole job is
@@ -312,10 +333,15 @@ export class ClaudeLauncher extends BaseLauncher {
 
     buildArgs(message: string, permissionMode: PermissionMode, interactive: boolean): string[] {
         // Headless uses `-p` (autonomous print mode) with verbose logs; interactive
-        // attaches the REPL. Both take the same `--permission-mode`.
+        // attaches the REPL. Both take the same `--permission-mode` and `--model`.
         return interactive
-            ? ["--permission-mode", permissionMode, message]
-            : ["-p", message, "--permission-mode", permissionMode, "--verbose"];
+            ? ["--permission-mode", permissionMode, "--model", CLAUDE_MODEL, message]
+            : ["-p", message, "--permission-mode", permissionMode, "--model", CLAUDE_MODEL, "--verbose"];
+    }
+
+    /** Carry the model floor into the session's subagents, which read it from the env. */
+    protected override spawnEnv(extra?: Record<string, string>): NodeJS.ProcessEnv {
+        return { ...super.spawnEnv(extra), [CLAUDE_SUBAGENT_MODEL_ENV]: CLAUDE_MODEL };
     }
 
     /**

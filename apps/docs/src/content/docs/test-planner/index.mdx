@@ -179,7 +179,7 @@ With nobody to answer a question, everything that would have been asked has to a
 - **It refuses rather than guesses** when a wrong guess would spend the run on the wrong thing - several frontends and no `--frontend` plans a test suite for an app you did not mean, so it fails with a clear error instead.
 - **It chooses, and says so, where the choice is cheap.** Two coding agents installed and no `--coding-agent` picks the first and names it in a warning. Refusing there would skip the preview environment entirely and leave every later step planning against an app with nowhere to deploy - far worse than running the other agent. Pass `--coding-agent` to decide it yourself.
 
-The coding agent it starts runs headless too (`claude -p`, `codex exec`), fully autonomous by default.
+The coding agent it starts runs headless too (`claude -p`, `codex exec`), fully autonomous by default. Claude Code is started on Opus, for its own session and for any subagent it spawns - these steps install the SDK and validate it against a live app, and a weaker model there fails in ways that read as your app being broken.
 
 :::note
 The run sets an environment variable when it spawns a coding agent, and refuses to spawn another while that variable is set. Without it, an agent that runs the planner would have the planner spawn an agent, which would run the planner - so a nested invocation stops rather than recursing.

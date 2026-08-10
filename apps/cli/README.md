@@ -118,6 +118,11 @@ Steps 1 and 7 hand the terminal to your **locally installed coding agent** (Clau
 CLI) the way `git commit` opens your editor - the dashboard steps aside, and control comes back
 when the agent exits.
 
+Claude Code is started on Opus, for its own session and for any subagent it spawns, rather than on
+whatever model your plan happens to hand it. These two steps install the SDK, boot your app and
+validate it against a live environment, and a weaker model there fails in ways that read as your
+app being broken.
+
 <p align="center">
   <img src="https://docs.autonoma.app/img/test-planner/tui-handoff.png" alt="The planner's terminal just before the handoff: a modal over the dimmed dashboard badged UP NEXT, headed 'Handing off to Claude Code', explaining that the terminal is about to switch and that you come straight back afterwards, with a footer reading 'Continuing in 10s - enter continue now'" width="100%">
 </p>

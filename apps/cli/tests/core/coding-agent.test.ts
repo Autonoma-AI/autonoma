@@ -220,6 +220,42 @@ describe("selectLauncher", () => {
     });
 });
 
+// The handoff is where the run installs the SDK and validates against a live app, and
+// Claude Code's own default is not stable - it drops to a cheaper model as the account's
+// usage limits approach. Both invocations have to name the model, and so does the env the
+// session's subagents read.
+describe("ClaudeLauncher model pinning", () => {
+    const MSG = "read the prompt file";
+    const claude = new ClaudeLauncher({ cwd: "/tmp/repo", env: {} });
+
+    test("names the model in both the interactive and headless invocations", () => {
+        expect(claude.buildArgs(MSG, "bypassPermissions", true)).toEqual([
+            "--permission-mode",
+            "bypassPermissions",
+            "--model",
+            "opus",
+            MSG,
+        ]);
+        expect(claude.buildArgs(MSG, "bypassPermissions", false)).toEqual([
+            "-p",
+            MSG,
+            "--permission-mode",
+            "bypassPermissions",
+            "--model",
+            "opus",
+            "--verbose",
+        ]);
+    });
+
+    test("pins the subagent model too, over anything the developer's shell set", async () => {
+        const inherited = new ClaudeLauncher({ cwd: "/tmp/repo", env: { CLAUDE_CODE_SUBAGENT_MODEL: "haiku" } });
+
+        await inherited.launch({ message: MSG, permissionMode: "bypassPermissions", interactive: false });
+
+        expect(spawnCalls[0]?.env).toMatchObject({ CLAUDE_CODE_SUBAGENT_MODEL: "opus" });
+    });
+});
+
 describe("CodexLauncher.buildArgs", () => {
     const MSG = "read the prompt file";
     const codex = new CodexLauncher({ cwd: "/tmp/repo", env: {} });
