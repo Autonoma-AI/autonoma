@@ -519,6 +519,11 @@ export class PreviewkitTriggerService extends Service {
      * every branch of every connected repo, which is why most deliveries here resolve to nothing.
      */
     async startMainBranchRunFromPushWebhook(organizationId: string, payload: Record<string, unknown>): Promise<void> {
+        // Correcting the deploy ref is bookkeeping rather than a build, so it runs even
+        // with main-branch builds switched off - otherwise the kill switch quietly
+        // leaves apps pinned to branches that no longer exist.
+        if (await this.releaseDeployRefForDeletedBranch(organizationId, payload)) return;
+
         if (!env.PREVIEWKIT_MAIN_BRANCH_BUILDS_ENABLED) {
             this.logger.info("Skipped main-branch push deploy: main-branch builds are disabled", { organizationId });
             return;
@@ -575,6 +580,64 @@ export class PreviewkitTriggerService extends Service {
             });
             return undefined;
         }
+    }
+
+    /**
+     * Deleting the branch the base preview follows hands it back to the app's trunk.
+     *
+     * This is the end of an onboarding: the integration branch carrying the preview
+     * config merges, GitHub deletes it, and the base preview should go back to
+     * tracking the trunk rather than pointing at a ref that no longer exists - which
+     * would fail every subsequent deploy with "Deploy branch not found on GitHub"
+     * while the stale environment kept accruing preview usage.
+     *
+     * Returns true when it handled the delivery, so the caller stops: a deletion is
+     * never also a deploy target.
+     */
+    private async releaseDeployRefForDeletedBranch(
+        organizationId: string,
+        payload: Record<string, unknown>,
+    ): Promise<boolean> {
+        const parsed = pushWebhookSchema.safeParse(payload);
+        if (!parsed.success) return false;
+
+        const { ref, after, deleted, repository } = parsed.data;
+        if (!ref.startsWith("refs/heads/")) return false;
+        const isDeletion = deleted === true || ZERO_SHA.test(after);
+        if (!isDeletion) return false;
+
+        const branch = normalizeBranchName(ref);
+        const application = await this.db.application.findFirst({
+            where: { organizationId, githubRepositoryId: repository.id, previewDeployRef: branch },
+            select: { id: true },
+        });
+        if (application == null) return true;
+
+        this.logger.info("Deploy branch was deleted; returning the base preview to the app's trunk", {
+            applicationId: application.id,
+            repo: repository.full_name,
+            extra: { deletedBranch: branch },
+        });
+        await this.db.application.update({ where: { id: application.id }, data: { previewDeployRef: null } });
+
+        // Best-effort, and the ref is corrected FIRST so it survives whatever happens
+        // here. The trunk is not guaranteed to resolve - an app whose trunk was itself
+        // overwritten by an old deploy-branch choice can be pointed at a branch that is
+        // also gone - and the deploy can decline for reasons that have nothing to do
+        // with this webhook (main-branch builds switched off, no credits, the
+        // installation losing access). Letting any of those escape would turn a
+        // successful correction into a 500 that GitHub retries, and the retry finds the
+        // ref already cleared and does nothing - so the preview would never redeploy at
+        // all. Logged instead; the next push to the trunk picks it up.
+        try {
+            await this.startMainBranchRun(application.id, organizationId);
+        } catch (err) {
+            this.logger.warn("Could not redeploy the base preview on the trunk after its deploy branch was deleted", {
+                applicationId: application.id,
+                err,
+            });
+        }
+        return true;
     }
 
     /** Undefined when the push is irrelevant: a tag, a deletion, an untracked branch, or no live environment 0. */

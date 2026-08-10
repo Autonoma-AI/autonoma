@@ -636,6 +636,58 @@ apiTestSuite({
             });
         });
 
+        test("deleting the deploy branch returns the base preview to the app's trunk", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            await setMainBranchEnvironment(harness, "autonoma-integration", "ready");
+            const app = await harness.db.application.findFirstOrThrow({
+                where: { organizationId: harness.organizationId, githubRepositoryId: REPO_ID },
+                select: { id: true },
+            });
+            await harness.db.application.update({
+                where: { id: app.id },
+                data: { previewDeployRef: "autonoma-integration" },
+            });
+
+            await service.startMainBranchRunFromPushWebhook(
+                harness.organizationId,
+                pushPayload("autonoma-integration", "0".repeat(40), true),
+            );
+
+            const after = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { previewDeployRef: true },
+            });
+            expect(after.previewDeployRef).toBeNull();
+        });
+
+        test("deleting an unrelated branch leaves the deploy ref alone", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            await setMainBranchEnvironment(harness, "autonoma-integration", "ready");
+            const app = await harness.db.application.findFirstOrThrow({
+                where: { organizationId: harness.organizationId, githubRepositoryId: REPO_ID },
+                select: { id: true },
+            });
+            await harness.db.application.update({
+                where: { id: app.id },
+                data: { previewDeployRef: "autonoma-integration" },
+            });
+
+            await service.startMainBranchRunFromPushWebhook(
+                harness.organizationId,
+                pushPayload("some-other-branch", "0".repeat(40), true),
+            );
+
+            const after = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { previewDeployRef: true },
+            });
+            expect(after.previewDeployRef).toBe("autonoma-integration");
+        });
+
         test("startMainBranchRunFromPushWebhook ignores a push to a branch the environment does not track", async ({
             harness,
             seedResult: { service },
