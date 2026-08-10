@@ -231,6 +231,14 @@ export const env = createEnv({
         RESEND_API_KEY: z.string().min(1).optional(),
         RESEND_AUDIENCE_ID: z.string().min(1).optional(),
         RESEND_FROM_EMAIL: z.string().min(1).optional().default("Autonoma <hello@autonoma.app>"),
+        /**
+         * Sender for organization invitations specifically. Separate from `RESEND_FROM_EMAIL` because
+         * that one also sends the onboarding email, which is deliberately from a person - an invitation
+         * from someone's personal address instead of the product reads as a mistake.
+         *
+         * Any local part works without DNS changes: verification in Resend is per domain.
+         */
+        RESEND_INVITES_FROM_EMAIL: z.string().min(1).optional().default("Autonoma <invites@autonoma.app>"),
         CAL_ONBOARDING_LINK: z.string().url().optional(),
         SLACK_BOT_TOKEN: z.string().min(1).optional(),
         DISCORD_INVITE_URL: z.string().url().optional(),

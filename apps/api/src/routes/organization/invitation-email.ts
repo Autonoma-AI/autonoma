@@ -3,6 +3,8 @@ import type { OutgoingEmail } from "../../email/email-sender";
 
 interface InvitationEmailParams {
     to: string;
+    /** Who it comes from - the product, not whoever the environment's default sender happens to be. */
+    from: string;
     organizationName: string;
     inviterName: string;
     acceptUrl: string;
@@ -20,6 +22,7 @@ function formatExpiry(expiresAt: Date): string {
 
 export function buildInvitationEmail({
     to,
+    from,
     organizationName,
     inviterName,
     acceptUrl,
@@ -30,6 +33,7 @@ export function buildInvitationEmail({
 
     return {
         to,
+        from,
         subject: `${inviterName} invited you to ${organizationName} on Autonoma`,
         html: renderBrandedEmail({
             eyebrow: "Invitation",

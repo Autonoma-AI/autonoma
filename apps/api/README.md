@@ -344,7 +344,9 @@ Three things put a membership on an account:
   would auto-join by domain anyway is refused server-side, with an error saying so - but the Members
   page itself is shown for **every** organization. It was once hidden for auto-join orgs, which
   created a trap: someone invited into one could join it and then had no way to leave, because
-  `Leave` lives on that page.
+  `Leave` lives on that page. Invitations go out as `RESEND_INVITES_FROM_EMAIL`, not the default
+  `RESEND_FROM_EMAIL` - the default also sends the onboarding email, which is deliberately from a
+  person, and an invitation from someone's personal address reads as a mistake.
 - **Vercel Marketplace installs and the admin org switcher**, which both upsert directly.
 
 `organization.setActive` is what switches organizations, and it replaces better-auth's

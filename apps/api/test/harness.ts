@@ -53,6 +53,11 @@ export class APITestHarness implements IntegrationHarness {
      * so a test about internal-vs-customer precedence cannot disagree with the code under test.
      */
     public readonly internalDomain: string = env.INTERNAL_DOMAIN;
+    /**
+     * The sender invitations go out as, read from the same env the services use so a test cannot
+     * disagree with the code about what it should be.
+     */
+    public readonly invitesFromEmail: string = env.RESEND_INVITES_FROM_EMAIL;
     public organization?: Organization;
     public user?: User;
     public session?: Session;

@@ -97,6 +97,17 @@ apiTestSuite({
             expect(mail?.html).toContain(invitation.acceptUrl);
         });
 
+        test("the invitation comes from the product, not the environment's default sender", async ({ harness }) => {
+            // The default sender also sends the onboarding email, which is deliberately from a person.
+            // An invitation arriving from that address reads as a mistake, so invitations carry their own.
+            const email = uniqueEmail("branded");
+            await inviteTo(harness, email);
+
+            const mail = harness.emailSender.sent.find((sent) => sent.to === email);
+            expect(mail?.from).toBe(harness.invitesFromEmail);
+            expect(mail?.from).toMatch(/^Autonoma </);
+        });
+
         test("an invitation survives a mail provider failure", async ({ harness }) => {
             const email = uniqueEmail("mail-down");
             harness.emailSender.failNextSend = true;

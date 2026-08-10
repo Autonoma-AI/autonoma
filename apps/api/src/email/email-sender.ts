@@ -6,6 +6,15 @@ export interface OutgoingEmail {
     to: string;
     subject: string;
     html: string;
+    /**
+     * Who this particular message comes from, overriding the environment's default sender.
+     *
+     * Different kinds of mail want different senders, and the difference is not cosmetic: an
+     * invitation should come from the product, while the onboarding email is a person asking for a
+     * reply and would be undermined by a no-reply-looking address. One global `from` cannot be right
+     * for both, so the message carries its own.
+     */
+    from?: string;
 }
 
 /**
@@ -28,11 +37,12 @@ export class ResendEmailSender implements EmailSender {
         this.client = new Resend(apiKey);
     }
 
-    async send({ to, subject, html }: OutgoingEmail): Promise<void> {
-        this.logger.info("Sending email", { extra: { to, subject } });
+    async send(email: OutgoingEmail): Promise<void> {
+        const { to, subject, html } = email;
+        this.logger.info("Sending email", { extra: { to, subject, from: email.from ?? this.fromEmail } });
 
         const result = await this.client.emails.send({
-            from: this.fromEmail,
+            from: email.from ?? this.fromEmail,
             to,
             subject,
             html,
@@ -61,8 +71,8 @@ export class LoggingEmailSender implements EmailSender {
         this.logger = logger.child({ name: this.constructor.name });
     }
 
-    async send({ to, subject }: OutgoingEmail): Promise<void> {
-        this.logger.warn("No email provider configured - email not sent", { extra: { to, subject } });
+    async send({ to, subject, from }: OutgoingEmail): Promise<void> {
+        this.logger.warn("No email provider configured - email not sent", { extra: { to, subject, from } });
     }
 }
 

@@ -78,6 +78,8 @@ export class OrganizationService extends Service {
         private readonly appUrl: string,
         /** Bare domain of the internal org, so slug lookups can prefer a customer's copy. */
         private readonly internalDomain: string,
+        /** Sender for invitation emails - the product, not the environment's default person. */
+        private readonly invitesFromEmail: string,
     ) {
         super();
     }
@@ -221,6 +223,7 @@ export class OrganizationService extends Service {
             .send(
                 buildInvitationEmail({
                     to: invitation.email,
+                    from: this.invitesFromEmail,
                     organizationName: organization.name,
                     inviterName,
                     acceptUrl: this.acceptUrl(invitation.id),

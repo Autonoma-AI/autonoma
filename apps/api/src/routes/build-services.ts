@@ -242,6 +242,7 @@ export function buildServices({
             analytics,
             env.APP_URL,
             env.INTERNAL_DOMAIN,
+            env.RESEND_INVITES_FROM_EMAIL,
         ),
         rateLimiter,
         onboardingAgentSession,
