@@ -267,6 +267,13 @@ environment missing: the repository id is read from another environment the orga
 same repo, the head from GitHub, and environment 0 goes through `startMainBranchRun` (only the
 Application knows which branch it deploys). The credits gate still applies to all of it.
 
+`PREVIEWKIT_MAIN_BRANCH_BUILDS_ENABLED` (default `true`) is a fleet-wide kill switch on environment 0
+specifically: while off, `startMainBranchRun` (onboarding's first deploy, and the missing-environment
+recovery path above) throws `ConflictError`, and `startMainBranchRunFromPushWebhook` (every push to a
+tracked main branch) logs and no-ops. It does not touch PR previews, and it does not touch a redeploy
+of an environment 0 that already exists (`startRunForRedeploy` → `startExplicitBuild`), which stays
+covered by "explicit deploy requests are not refusable" above.
+
 ### Previewkit deploy credits gate
 
 A new preview deploy or per-app redeploy (never teardown) is declined once an org's combined

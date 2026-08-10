@@ -193,6 +193,11 @@ export const env = createEnv({
         // org whose setting is enabled actually get blocked. Two gates (this env switch + the per-org setting) so
         // a flip is deliberate, per-org, and instantly reversible for the whole fleet.
         PREVIEWKIT_BILLING_ENABLED: z.stringbool().default(false),
+        // Global master kill switch for main-branch (PR-0) preview builds, fleet-wide. ON by default; set to
+        // false to pause onboarding's initial environment-0 deploy and every push-triggered environment-0
+        // rebuild across every organization, without touching PR previews or a redeploy of an EXISTING
+        // environment 0 (that path is explicit and never refused - see PreviewkitTriggerService).
+        PREVIEWKIT_MAIN_BRANCH_BUILDS_ENABLED: z.stringbool().default(true),
         // VPC-internal Grafana Loki backing the previewkit log streams
         // (GET .../logs/stream, both ?source=build and ?source=app). Build
         // logs are pushed by the previewkit worker (its LOKI_URL); app

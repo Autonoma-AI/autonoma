@@ -69,6 +69,17 @@ async function withExternalDeploys(
     }
 }
 
+/** Flips the main-branch (PR-0) build kill switch off for the duration of `fn`, restoring it afterward. */
+async function withMainBranchBuildsDisabled(fn: () => Promise<void>): Promise<void> {
+    const previous = env.PREVIEWKIT_MAIN_BRANCH_BUILDS_ENABLED;
+    env.PREVIEWKIT_MAIN_BRANCH_BUILDS_ENABLED = false;
+    try {
+        await fn();
+    } finally {
+        env.PREVIEWKIT_MAIN_BRANCH_BUILDS_ENABLED = previous;
+    }
+}
+
 async function setCreditBalance(harness: APITestHarness, organizationId: string, creditBalance: number): Promise<void> {
     await harness.db.billingCustomer.upsert({
         where: { organizationId },
@@ -591,6 +602,19 @@ apiTestSuite({
             expect(deploySpy).not.toHaveBeenCalled();
         });
 
+        test("startMainBranchRun rejects when main-branch builds are disabled fleet-wide", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.startAnalysisRun.mockClear();
+
+            await withMainBranchBuildsDisabled(async () => {
+                await expect(service.startMainBranchRun(app.id, harness.organizationId)).rejects.toThrow(ConflictError);
+            });
+
+            expect(harness.startAnalysisRun).not.toHaveBeenCalled();
+        });
+
         test("startMainBranchRunFromPushWebhook updates environment 0 on a push to the tracked branch", async ({
             harness,
             seedResult: { service },
@@ -712,6 +736,25 @@ apiTestSuite({
             await service.startMainBranchRunFromPushWebhook(harness.organizationId, { ref: "refs/heads/main" });
 
             expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+        });
+
+        test("startMainBranchRunFromPushWebhook no-ops when main-branch builds are disabled fleet-wide", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            await setMainBranchEnvironment(harness, "main", "ready");
+            harness.triggerWorkflow.mockClear();
+            harness.startAnalysisRun.mockClear();
+
+            await withMainBranchBuildsDisabled(async () => {
+                await service.startMainBranchRunFromPushWebhook(
+                    harness.organizationId,
+                    pushPayload("main", "push-sha-8"),
+                );
+            });
+
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+            expect(harness.startAnalysisRun).not.toHaveBeenCalled();
         });
 
         test("startRunForPullRequest builds the PR itself instead of letting a run decide", async ({

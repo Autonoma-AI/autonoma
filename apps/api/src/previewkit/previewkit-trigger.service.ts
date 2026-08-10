@@ -433,6 +433,10 @@ export class PreviewkitTriggerService extends Service {
     async startMainBranchRun(applicationId: string, callerOrgId: string | undefined): Promise<MainBranchDeployResult> {
         this.logger.info("Triggering main-branch preview deploy", { applicationId });
 
+        if (!env.PREVIEWKIT_MAIN_BRANCH_BUILDS_ENABLED) {
+            throw new ConflictError("Main-branch preview builds are temporarily disabled");
+        }
+
         const application = await this.db.application.findFirst({
             where: {
                 id: applicationId,
@@ -514,6 +518,11 @@ export class PreviewkitTriggerService extends Service {
      * every branch of every connected repo, which is why most deliveries here resolve to nothing.
      */
     async startMainBranchRunFromPushWebhook(organizationId: string, payload: Record<string, unknown>): Promise<void> {
+        if (!env.PREVIEWKIT_MAIN_BRANCH_BUILDS_ENABLED) {
+            this.logger.info("Skipped main-branch push deploy: main-branch builds are disabled", { organizationId });
+            return;
+        }
+
         const target = await this.resolveMainBranchPushTarget(organizationId, payload);
         if (target == null) {
             this.logger.info("Push does not update a main-branch preview environment", { organizationId });
