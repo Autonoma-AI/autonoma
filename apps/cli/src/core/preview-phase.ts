@@ -78,7 +78,11 @@ export interface PreviewPhaseDeps {
     applicationId: string;
     launcher: AgentLauncher;
     permissionMode: PermissionMode;
-    /** Bearer token for headless MCP auth. Omit interactively, where the agent signs in. */
+    /**
+     * The run's own credential. Always pass it when the run holds one: headless it is
+     * the only way to authorize the MCP server, and interactively it is what a failed
+     * browser sign-in falls back to.
+     */
     apiToken?: string;
     mcpUrl: string;
     interactive: boolean;
@@ -123,6 +127,7 @@ export async function runPreviewPhase(deps: PreviewPhaseDeps): Promise<PreviewPh
         name: MCP_SERVER_NAME,
         url: deps.mcpUrl,
         apiToken: deps.apiToken,
+        browserSignIn: deps.interactive,
     });
 
     // Minted per handoff: codes are single-use and short-lived, and this run hands off

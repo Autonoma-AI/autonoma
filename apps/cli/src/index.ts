@@ -615,6 +615,39 @@ function ensureAutonomaAuth(): boolean {
 }
 
 /**
+ * Hand the preview environment to a coding agent, and report rather than raise
+ * whatever comes back.
+ *
+ * Nothing this step can do is worth the run. The knowledge base, scenarios and tests
+ * do not need a preview - only the dry run does, and that is reported where it
+ * happens - so a preview that does not come up is a warning. That holds for a thrown
+ * error just as much as for an unverified outcome: this used to let a coding agent
+ * that could not register or authorize an MCP server kill the whole run seconds after
+ * it started, before a single step had run.
+ */
+async function runPreviewHandoffStep(
+    frontDoor: FrontDoorPlan,
+    config: ReturnType<typeof loadConfig>,
+    nonInteractive: boolean,
+): Promise<void> {
+    const { runPreviewHandoff, describeIncompletePreview } = await import("./core/front-door");
+    try {
+        const result = await runPreviewHandoff({ plan: frontDoor, config, nonInteractive });
+        track("cli_preview_phase_finished", { outcome: result.kind });
+        const problem = describeIncompletePreview(result);
+        if (problem != null) p.log.warn(problem);
+    } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        track("cli_preview_phase_finished", { outcome: "error" });
+        trackError(err, { source: "preview_phase" });
+        p.log.warn(`Couldn't set up your preview environment: ${message}`);
+        p.log.info(
+            "The rest of the run continues - finish the preview in the Autonoma app, or run again once it's sorted.",
+        );
+    }
+}
+
+/**
  * Run the dry run and read back where the app stands, reporting both.
  *
  * Never fatal. The test suite is generated and uploaded by the time this runs, so a
@@ -860,13 +893,7 @@ async function main() {
     }
 
     if (frontDoor != null && previewPending) {
-        const { runPreviewHandoff, describeIncompletePreview } = await import("./core/front-door");
-        const result = await runPreviewHandoff({ plan: frontDoor, config, nonInteractive });
-        track("cli_preview_phase_finished", { outcome: result.kind });
-        const problem = describeIncompletePreview(result);
-        // Never fatal: the knowledge base, scenarios and tests do not need a preview.
-        // Only the dry run does, and that is reported where it happens.
-        if (problem != null) p.log.warn(problem);
+        await runPreviewHandoffStep(frontDoor, config, nonInteractive);
     }
 
     // Starting over is a flag as well as a question, so a run with nobody to ask can

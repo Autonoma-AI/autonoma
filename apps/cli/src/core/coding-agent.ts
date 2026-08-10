@@ -1,13 +1,24 @@
 import type { StdioOptions } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import spawn from "cross-spawn";
 import which from "which";
 import * as p from "../ui/prompts";
 import { isSpawnedByPlanner as spawnedByPlanner, SPAWNED_BY_PLANNER_ENV } from "./agent-env";
 import { debugLog } from "./debug";
+import { captureLog } from "./logs";
 import { readPreferences, updatePreferences } from "./preferences";
 
 /** Ceiling on a client's own `mcp` subcommands, which talk to the server to health-check it. */
 const MCP_COMMAND_TIMEOUT_MS = 60_000;
+
+/**
+ * How much of an attached subcommand's stderr is kept for reporting. Enough for the
+ * client's own diagnosis and a short stack; a chatty child cannot grow the buffer
+ * past it.
+ */
+const ATTACHED_STDERR_CAP = 4000;
 
 /**
  * Set on the environment of every coding agent this CLI spawns, and refused at spawn
@@ -28,6 +39,24 @@ const CODEX_BEARER_TOKEN_ENV = "AUTONOMA_MCP_TOKEN";
  * server and fails loudly on its first tool call. Neither is silent.
  */
 const CLAUDE_CONNECTED_MARKER = "Connected";
+
+/**
+ * What `claude mcp get` prints for a registration carrying a bearer header.
+ *
+ * Claude turns OAuth off entirely while one is set - "OAuth fallback is disabled when
+ * headers.Authorization is set" - so a header left behind by an earlier run's token
+ * fallback makes `mcp login` impossible. Without clearing it first, a token that later
+ * goes bad can never be replaced by a sign-in, and the run is stuck re-applying the
+ * credential that stopped working.
+ */
+const CLAUDE_AUTH_HEADER_MARKER = "Authorization:";
+
+/**
+ * Where Claude Code remembers, keyed by server NAME, that a server needed
+ * authorization. Undocumented internal state of another tool, so everything that
+ * touches it is best effort.
+ */
+const CLAUDE_NEEDS_AUTH_CACHE_FILE = "mcp-needs-auth-cache.json";
 
 /**
  * Model the spawned Claude session runs on, as an alias rather than a pinned id so it
@@ -73,11 +102,18 @@ export interface McpServerSpec {
     /** Streamable HTTP endpoint. */
     url: string;
     /**
-     * Bearer token for headless authorization. When absent, the client authorizes
-     * interactively through a browser sign-in, which needs a terminal - so this is
-     * required for any run that does not have one.
+     * The run's own credential, sent as a bearer header. Pass it whenever the run
+     * holds one: headless it is the only way to authorize, and interactively it is
+     * what a failed browser sign-in falls back to.
      */
     apiToken?: string;
+    /**
+     * Try the client's own browser sign-in before falling back to {@link apiToken}.
+     * The sign-in is the better credential - scoped to the user, revocable by signing
+     * out - but it needs someone at the keyboard to approve it, so this is true only
+     * where there is one.
+     */
+    browserSignIn: boolean;
 }
 
 /** What registering a server leaves the spawned agent needing. */
@@ -165,6 +201,22 @@ interface CommandResult {
     stdout: string;
     stderr: string;
 }
+
+/** Exit code and captured stderr of a subcommand that was given the terminal. */
+interface AttachedResult {
+    code: number | undefined;
+    stderr: string;
+}
+
+/** Outcome of a client's own browser sign-in. A failure here is recoverable. */
+interface SignInResult {
+    ok: boolean;
+    /** Parenthesised detail to append to a message, or "" when there is none to add. */
+    detail: string;
+}
+
+/** How a server ended up authorized, which decides what the spawn needs in its env. */
+type Authorization = { via: "sign-in" } | { via: "token"; apiToken: string };
 
 /**
  * Whether this process is itself running inside an agent the CLI spawned. Callers
@@ -281,43 +333,102 @@ export abstract class BaseLauncher implements AgentLauncher {
     /**
      * Sign this client in to a server through its own browser flow.
      *
-     * Refused outright without a terminal. The flow prints a URL, opens a browser and
-     * blocks on the callback, so a run with nobody at the keyboard would not fail - it
-     * would hang, indefinitely, on a prompt nobody can see. A run without a terminal
-     * is meant to have passed an API token instead, and the error says so rather than
-     * describing the sign-in that could not happen.
+     * Never throws. A sign-in is a convenience over the credential the run is already
+     * holding, so every way it can fail - no terminal to open a browser from, a
+     * client that exits non-zero - resolves to a result the caller can fall back on.
+     * Refusing without a terminal is still the right call: the flow prints a URL and
+     * blocks on a callback, so with nobody at the keyboard it would not fail, it would
+     * hang indefinitely on a prompt nobody can see.
      */
-    protected async signIn(serverName: string): Promise<void> {
+    protected async signIn(serverName: string): Promise<SignInResult> {
         if (process.stdin.isTTY !== true) {
-            throw new Error(
-                `Cannot sign ${this.label} in to the ${serverName} MCP server without a terminal: that flow opens ` +
-                    `a browser and waits for it. Set AUTONOMA_API_TOKEN so the run authorizes with an API key instead.`,
-            );
+            return { ok: false, detail: " (no terminal to run a browser sign-in from)" };
         }
 
         p.log.info(`Authorizing ${this.label} with Autonoma - approve it in the browser that opens.`);
         const login = await this.runAttached(["mcp", "login", serverName]);
-        if (login !== 0) {
+        if (login.code === 0) return { ok: true, detail: "" };
+
+        debugLog(`${this.label} sign-in failed`, { serverName, code: login.code, stderr: login.stderr });
+        return { ok: false, detail: describeSignInFailure(login) };
+    }
+
+    /**
+     * The credential a registration must have when no browser sign-in is on the table.
+     * Its absence is a configuration error worth stating now, rather than an
+     * unauthorized server the spawned agent discovers on its first tool call.
+     */
+    protected requireHeadlessToken(spec: McpServerSpec): string {
+        if (spec.apiToken != null) return spec.apiToken;
+        throw new Error(
+            `Cannot authorize the ${spec.name} MCP server for ${this.label} without a terminal: a browser ` +
+                `sign-in needs someone to approve it. Set AUTONOMA_API_TOKEN so the run authorizes with an ` +
+                `API key instead.`,
+        );
+    }
+
+    /**
+     * Authorize a server that a browser sign-in was preferred for, and say how it
+     * ended up authorized so the caller can register it accordingly.
+     *
+     * A failed sign-in is not the end of the run. The token that falls back here is
+     * the same one that already authorized every API call made to get this far, so
+     * refusing to use it loses the run to a browser that would not open. It also
+     * repairs what the attempt broke: a failed `mcp login` clears whatever stored
+     * credentials the client had, which is why a first failure used to make every
+     * later run fail too.
+     */
+    protected async authorizeInteractively(spec: McpServerSpec): Promise<Authorization> {
+        const signIn = await this.signIn(spec.name);
+        if (signIn.ok) return { via: "sign-in" };
+
+        if (spec.apiToken == null) {
             throw new Error(
-                `${this.label} could not sign in to the ${serverName} MCP server (exit ${login ?? "unknown"}).`,
+                `${this.label} could not sign in to the ${spec.name} MCP server${signIn.detail}, and this run ` +
+                    `has no API token to fall back on. Set AUTONOMA_API_TOKEN and run again.`,
             );
         }
+
+        captureLog("warn", "Browser sign-in failed; authorizing the MCP server with the run's API token", {
+            source: "coding_agent",
+            agent: this.id,
+            detail: signIn.detail,
+        });
+        p.log.warn(
+            `${this.label} couldn't sign in to the ${spec.name} MCP server${signIn.detail}. Authorizing it with ` +
+                `this run's API token instead.`,
+        );
+        return { via: "token", apiToken: spec.apiToken };
     }
 
     /**
      * Run a subcommand that hands the terminal over - an interactive OAuth sign-in.
-     * The client prints a URL, opens a browser and waits on the callback, so it needs
-     * this process's stdio rather than pipes.
+     * The client prints a URL, opens a browser and waits on the callback, so stdin and
+     * stdout stay attached to this process.
+     *
+     * stderr is the exception: it is piped so the client's own diagnosis can be quoted
+     * back and reported, and echoed as it arrives so the user still watches it live.
+     * Inheriting it would put that text on screen and nowhere else, which is what made
+     * every sign-in failure look identical from the outside.
      */
-    protected runAttached(args: string[]): Promise<number | undefined> {
+    protected runAttached(args: string[]): Promise<AttachedResult> {
         debugLog(`Running ${this.command} ${args.join(" ")} attached`);
-        return new Promise<number | undefined>((resolve) => {
-            const proc = spawn(this.command, args, { cwd: this.opts.cwd, env: this.opts.env, stdio: "inherit" });
+        return new Promise<AttachedResult>((resolve) => {
+            const proc = spawn(this.command, args, {
+                cwd: this.opts.cwd,
+                env: this.opts.env,
+                stdio: ["inherit", "inherit", "pipe"],
+            });
+            let stderr = "";
+            proc.stderr?.on("data", (chunk: Buffer) => {
+                process.stderr.write(chunk);
+                if (stderr.length < ATTACHED_STDERR_CAP) stderr += chunk.toString();
+            });
             proc.on("error", (err: Error) => {
                 debugLog(`${this.command} ${args[0] ?? ""} failed to spawn`, { err });
-                resolve(undefined);
+                resolve({ code: undefined, stderr: err.message });
             });
-            proc.on("close", (code) => resolve(code ?? undefined));
+            proc.on("close", (code) => resolve({ code: code ?? undefined, stderr }));
         });
     }
 }
@@ -345,15 +456,118 @@ export class ClaudeLauncher extends BaseLauncher {
     }
 
     /**
-     * `--scope user` and not the default (`local`): the default binds the server to the
-     * directory the command ran in. The planner can be invoked from anywhere in a repo,
-     * and a server registered against the wrong directory looks exactly like one that
-     * was never authorized - the agent simply has no Autonoma tools.
-     *
-     * With a token the header goes into Claude's own config and there is nothing to
-     * sign in to. Without one, the browser sign-in runs attached to the terminal.
+     * Headless registers with the bearer header outright - there is no browser to sign
+     * in with. Interactively the registration goes in without one so the client's own
+     * sign-in can claim it, and the header is applied only if that sign-in fails.
      */
     async registerMcpServer(spec: McpServerSpec): Promise<McpRegistration> {
+        const registration = await this.register(spec);
+        // Only on the way out, and on every successful path: a stale verdict blocks the
+        // agent no matter which of them got us here.
+        await this.forgetNeedsAuthVerdict(spec.name);
+        return registration;
+    }
+
+    /**
+     * Forget Claude's cached "this server needs authorization" verdict for this name.
+     *
+     * Claude caches that verdict per server NAME and then skips connecting on every
+     * later session - "Skipping connection (cached needs-auth)" in its own debug log -
+     * whatever the registration now holds. The health check this class runs to decide
+     * whether to sign in is itself what writes the entry, and a successful one does not
+     * clear it. Without this, a registration can report Connected, answer tool calls
+     * over HTTP, and still be invisible to the agent we spawn: no Autonoma tools, and
+     * nothing on screen saying why.
+     *
+     * Best effort by design. It reaches into another tool's internal state, so a missing
+     * file, a changed format or an unwritable home degrades to a debug line rather than
+     * failing a registration that is otherwise fine.
+     */
+    private async forgetNeedsAuthVerdict(serverName: string): Promise<void> {
+        const configDir = this.opts.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+        const cachePath = join(configDir, CLAUDE_NEEDS_AUTH_CACHE_FILE);
+        try {
+            const parsed: unknown = JSON.parse(await readFile(cachePath, "utf-8"));
+            if (!isRecord(parsed) || !(serverName in parsed)) return;
+
+            const remaining = { ...parsed };
+            delete remaining[serverName];
+            await writeFile(cachePath, JSON.stringify(remaining), "utf-8");
+            debugLog("Cleared a cached needs-auth verdict", { server: serverName });
+        } catch (err) {
+            debugLog("Could not clear the cached needs-auth verdict", { cachePath, err });
+        }
+    }
+
+    private async register(spec: McpServerSpec): Promise<McpRegistration> {
+        await this.dropRegistrationPointingElsewhere(spec);
+
+        if (!spec.browserSignIn) {
+            await this.addServer(spec, this.requireHeadlessToken(spec));
+            return { env: {} };
+        }
+
+        const registered = await this.addServer(spec, undefined);
+        if (registered.includes(CLAUDE_CONNECTED_MARKER)) return { env: {} };
+
+        // Connected is the only reason to keep a header: it means an earlier run's
+        // fallback token still works, and re-doing the sign-in would cost a browser
+        // round-trip for nothing. Anything else and the header has to go, because it is
+        // what stops the sign-in below from being possible at all.
+        const authorizable = registered.includes(CLAUDE_AUTH_HEADER_MARKER)
+            ? await this.clearBearerHeader(spec)
+            : registered;
+        if (authorizable.includes(CLAUDE_CONNECTED_MARKER)) return { env: {} };
+
+        const authorization = await this.authorizeInteractively(spec);
+        if (authorization.via === "sign-in") return { env: {} };
+
+        // `mcp add` will not update an existing registration, so the one added moments
+        // ago has to go before the header can take its place.
+        await this.runCommand(["mcp", "remove", spec.name, "-s", "user"]);
+        await this.addServer(spec, authorization.apiToken);
+        return { env: {} };
+    }
+
+    /**
+     * An existing registration is only useful if it points where this run does. `mcp
+     * add` will not update one, so a registration left over from another environment
+     * would be reused in silence and the agent would work against the wrong Autonoma.
+     * Replace it rather than inherit it.
+     */
+    private async dropRegistrationPointingElsewhere(spec: McpServerSpec): Promise<void> {
+        const existing = await this.runCommand(["mcp", "get", spec.name]);
+        if (existing.code !== 0 || existing.stdout.includes(spec.url)) return;
+
+        debugLog("Replacing an MCP registration that points elsewhere", { server: spec.name, url: spec.url });
+        await this.runCommand(["mcp", "remove", spec.name, "-s", "user"]);
+    }
+
+    /**
+     * Re-register without the bearer header, so a browser sign-in becomes possible
+     * again. Returns what `get` then reported - which may be Connected on its own, if
+     * the client still holds OAuth credentials the header had been masking.
+     */
+    private async clearBearerHeader(spec: McpServerSpec): Promise<string> {
+        debugLog("Clearing a bearer header that would block the browser sign-in", { server: spec.name });
+        await this.runCommand(["mcp", "remove", spec.name, "-s", "user"]);
+        return await this.addServer(spec, undefined);
+    }
+
+    /**
+     * Add the server and confirm the client actually holds it, returning what `get`
+     * reported so the caller can also read whether it is authorized.
+     *
+     * `mcp add` exits non-zero when the server is already registered, which is the
+     * normal case on every run after the first, so its exit code is a hint and `get`
+     * is the verdict.
+     *
+     * `--scope user` and not the default (`local`): the default binds the server to
+     * the directory the command ran in. The planner can be invoked from anywhere in a
+     * repo, and a server registered against the wrong directory looks exactly like one
+     * that was never authorized - the agent simply has no Autonoma tools.
+     */
+    private async addServer(spec: McpServerSpec, apiToken: string | undefined): Promise<string> {
         const add = ["mcp", "add", "--transport", "http", "--scope", "user", spec.name, spec.url];
         // The token goes in argv, where `ps` can read it for the length of this call,
         // and is then stored in plaintext in Claude's user config. Claude has no
@@ -362,21 +576,7 @@ export class ClaudeLauncher extends BaseLauncher {
         // so there is no alternative here. It is also not new exposure: this is the
         // same AUTONOMA_API_TOKEN the user pasted to start the planner, already in that
         // process's own argv for the whole run, which is far longer than this call.
-        if (spec.apiToken != null) add.push("--header", `Authorization: Bearer ${spec.apiToken}`);
-
-        // `mcp add` exits non-zero when the server is already registered, which is the
-        // normal case on every run after the first. `get` is what actually answers
-        // whether the client has it, so the add's exit code is a hint, not a verdict.
-        //
-        // But an existing registration is only useful if it points where this run does.
-        // `mcp add` will not update one, so a registration left over from another
-        // environment would be reused in silence and the agent would work against the
-        // wrong Autonoma. Replace it rather than inherit it.
-        const existing = await this.runCommand(["mcp", "get", spec.name]);
-        if (existing.code === 0 && !existing.stdout.includes(spec.url)) {
-            debugLog("Replacing an MCP registration that points elsewhere", { server: spec.name, url: spec.url });
-            await this.runCommand(["mcp", "remove", spec.name, "-s", "user"]);
-        }
+        if (apiToken != null) add.push("--header", `Authorization: Bearer ${apiToken}`);
 
         await this.runCommand(add);
         const registered = await this.runCommand(["mcp", "get", spec.name]);
@@ -386,12 +586,7 @@ export class ClaudeLauncher extends BaseLauncher {
                     `${firstLine(registered.stderr) || firstLine(registered.stdout) || "unknown error"}`,
             );
         }
-
-        if (spec.apiToken == null && !registered.stdout.includes(CLAUDE_CONNECTED_MARKER)) {
-            await this.signIn(spec.name);
-        }
-
-        return { env: {} };
+        return registered.stdout;
     }
 }
 
@@ -437,8 +632,26 @@ export class CodexLauncher extends BaseLauncher {
      * server overwrites its entry, so a re-run cannot leave a stale URL behind.
      */
     async registerMcpServer(spec: McpServerSpec): Promise<McpRegistration> {
+        if (!spec.browserSignIn) {
+            const apiToken = this.requireHeadlessToken(spec);
+            await this.addServer(spec, apiToken);
+            return { env: { [CODEX_BEARER_TOKEN_ENV]: apiToken } };
+        }
+
+        await this.addServer(spec, undefined);
+        const authorization = await this.authorizeInteractively(spec);
+        if (authorization.via === "sign-in") return { env: {} };
+
+        // Re-adding overwrites, so the token registration simply replaces the one the
+        // sign-in was meant to claim.
+        await this.addServer(spec, authorization.apiToken);
+        return { env: { [CODEX_BEARER_TOKEN_ENV]: authorization.apiToken } };
+    }
+
+    /** Add (or overwrite) the server, with the token read from an env var by name. */
+    private async addServer(spec: McpServerSpec, apiToken: string | undefined): Promise<void> {
         const add = ["mcp", "add", spec.name, "--url", spec.url];
-        if (spec.apiToken != null) add.push("--bearer-token-env-var", CODEX_BEARER_TOKEN_ENV);
+        if (apiToken != null) add.push("--bearer-token-env-var", CODEX_BEARER_TOKEN_ENV);
 
         const added = await this.runCommand(add);
         if (added.code !== 0) {
@@ -447,13 +660,6 @@ export class CodexLauncher extends BaseLauncher {
                     `${firstLine(added.stderr) || firstLine(added.stdout) || "unknown error"}`,
             );
         }
-
-        if (spec.apiToken == null) {
-            await this.signIn(spec.name);
-            return { env: {} };
-        }
-
-        return { env: { [CODEX_BEARER_TOKEN_ENV]: spec.apiToken } };
     }
 }
 
@@ -536,6 +742,22 @@ export async function selectLauncher(
 export function parsePermissionMode(value?: string): PermissionMode | undefined {
     if (value === "default" || value === "acceptEdits" || value === "bypassPermissions") return value;
     return undefined;
+}
+
+/**
+ * Why a sign-in failed, for a message the next person can act on. The client writes
+ * its own diagnosis to stderr and exits; without quoting it back, an operator reading
+ * telemetry sees only "exit 1" and has nothing to go on.
+ */
+function describeSignInFailure(login: AttachedResult): string {
+    const reason = firstLine(login.stderr);
+    const code = login.code ?? "unknown";
+    return reason.length > 0 ? ` (exit ${code}: ${reason})` : ` (exit ${code})`;
+}
+
+/** Narrow parsed JSON to a plain object before indexing into it. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** First non-empty line of a command's output, for quoting back in an error. */

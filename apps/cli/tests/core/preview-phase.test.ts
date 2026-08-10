@@ -89,7 +89,9 @@ describe("runPreviewPhase", () => {
             timing: TIMING,
         });
 
-        expect(agent.registrations).toEqual([{ name: "autonoma", url: MCP_URL, apiToken: undefined }]);
+        expect(agent.registrations).toEqual([
+            { name: "autonoma", url: MCP_URL, apiToken: undefined, browserSignIn: true },
+        ]);
         expect(agent.launches).toHaveLength(1);
     });
 

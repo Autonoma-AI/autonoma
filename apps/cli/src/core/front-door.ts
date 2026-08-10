@@ -108,10 +108,11 @@ export type PreviewHandoffResult =
  * The terminal is handed over the way the SDK step already does it - the dashboard
  * steps aside while the agent has the screen, and comes back when it exits.
  *
- * Authorization splits on whether there is a human: interactively the agent signs in
+ * Authorization prefers a human where there is one: interactively the agent signs in
  * through its own browser flow, which is the better credential (scoped, revocable by
- * signing out). Headless there is no browser, so the run's API token goes in as a
- * bearer header instead.
+ * signing out). The run's API token goes along either way - headless it is the only
+ * way to authorize, and interactively it is what the sign-in falls back to rather
+ * than losing the run to a browser that would not open.
  */
 export async function runPreviewHandoff(deps: PreviewHandoffDeps): Promise<PreviewHandoffResult> {
     const { plan, config, nonInteractive } = deps;
@@ -141,7 +142,7 @@ export async function runPreviewHandoff(deps: PreviewHandoffDeps): Promise<Previ
             applicationId: plan.applicationId,
             launcher,
             permissionMode,
-            apiToken: interactive ? undefined : config.autonomaApiToken,
+            apiToken: config.autonomaApiToken,
             mcpUrl: resolveMcpUrl(config.autonomaApiUrl),
             interactive,
         });
@@ -213,7 +214,7 @@ export async function runSdkRepairHandoff(deps: PreviewHandoffDeps): Promise<Sdk
             applicationId: plan.applicationId,
             launcher,
             permissionMode,
-            apiToken: interactive ? undefined : config.autonomaApiToken,
+            apiToken: config.autonomaApiToken,
             mcpUrl: resolveMcpUrl(config.autonomaApiUrl),
             interactive,
         });
