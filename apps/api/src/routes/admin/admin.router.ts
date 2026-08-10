@@ -75,6 +75,32 @@ export const adminRouter = router({
             services.previewkitTrigger.startMainBranchRun(input.applicationId, undefined),
         ),
     /**
+     * ONE-OFF REMEDIATION - delete these two procedures once the sweep has run.
+     *
+     * They exist to clean up applications whose trunk record was overwritten by a
+     * deploy-branch choice, back when those were the same field. Nothing creates new
+     * ones - the deploy ref is its own column now - and `reconcileTrunkFromPushWebhook`
+     * keeps every trunk pointed at its repository's default branch from here on, so
+     * this is a finite backlog rather than an ongoing condition and does not warrant a
+     * permanent surface.
+     *
+     * They are procedures rather than a data migration only because deciding whether
+     * an app is mispinned needs its repository's default branch from GitHub, which
+     * SQL cannot ask.
+     *
+     * Read-only: reports the applications whose trunk no longer matches their
+     * repository's default branch.
+     */
+    auditTrunkPins: internalProcedure.query(({ ctx: { services } }) => services.github.auditTrunkPins()),
+    /**
+     * Points one application's trunk record back at its repository's default branch,
+     * leaving the base preview building whatever branch it builds today. Admin-gated,
+     * so the application lookup is unscoped. Part of the one-off remediation above.
+     */
+    repairTrunkPin: internalProcedure
+        .input(z.object({ applicationId: z.string().min(1) }))
+        .mutation(({ ctx: { services }, input }) => services.github.repairTrunkPin(input.applicationId)),
+    /**
      * Resolves the manual Environment Factory options for a preview environment:
      * the linked application's scenarios, the preview's app URLs, and a suggested
      * SDK URL. Returns a `disabledReason` when a manual up cannot be run. Admin-only.

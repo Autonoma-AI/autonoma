@@ -13,6 +13,7 @@ import {
 import { z } from "zod";
 import { env } from "../env";
 import { Service } from "../routes/service";
+import { applicationBranchRefs } from "./application-branch-refs";
 import { githubErrorStatus } from "./git-ref";
 
 /**
@@ -71,6 +72,38 @@ export interface RepositoryListing {
 
 /** Bound for the GitHub repo listing - a stale/uninstalled app can hang the token mint. */
 const LIST_REPOSITORIES_TIMEOUT_MS = 8_000;
+
+/** The `push` payload fields the trunk reconciliation reads; the rest belong to other handlers. */
+const pushRepositorySchema = z.object({
+    repository: z.object({
+        id: z.number().int().positive(),
+        default_branch: z.string().optional(),
+    }),
+});
+
+/** Apps whose default branch is resolved together during a trunk-pin audit. */
+const TRUNK_AUDIT_BATCH_SIZE = 10;
+
+/**
+ * One application whose trunk record disagrees with its repository's real default
+ * branch - the residue of the era when choosing a deploy branch overwrote the
+ * trunk. `unreadable` means GitHub would not say what the default branch is, so
+ * the app is neither confirmed healthy nor confirmed mispinned.
+ */
+export interface TrunkPinAudit {
+    applicationId: string;
+    applicationName: string;
+    organizationId: string;
+    organizationName: string;
+    githubRepositoryId: number;
+    /** What Autonoma currently calls this app's main branch. */
+    trunkRef: string | undefined;
+    /** What GitHub says the repository's default branch is, when it could be read. */
+    defaultBranch?: string;
+    /** The base preview's own ref, which a repair leaves untouched. */
+    previewDeployRef?: string;
+    unreadable?: string;
+}
 
 /**
  * What an install attempt did, so the callback can tell the user which of three quite
@@ -674,19 +707,214 @@ export class GitHubInstallationService extends Service {
     }
 
     /**
-     * Resolves the application's deploy ref to the repo's real default branch. Called
-     * only on the first link, when the app still carries the seeded fallback ref and
-     * the default branch first becomes known - never on a re-link, so it can't
-     * overwrite a branch the user has since chosen. A no-op when the ref already
-     * matches the default.
+     * Every application whose trunk record no longer matches its repository's default
+     * branch. Before the deploy ref was split out, choosing which branch the base
+     * preview built rewrote the trunk, and nothing ever put it back - so an app could
+     * be left calling an integration branch "main", which silently disables merge
+     * reconciliation and freezes the main-branch suite baseline.
+     *
+     * A ONE-OFF: nothing produces new mispins, and
+     * {@link reconcileTrunkFromPushWebhook} corrects any drift from here on, so this
+     * and {@link repairTrunkPin} come out once the existing backlog is repaired. They
+     * are code rather than a data migration only because the comparison needs each
+     * repository's default branch from GitHub, which SQL cannot ask for.
+     *
+     * Read-only, and reports rather than hides what it could not check: an app whose
+     * default branch GitHub refuses to serve comes back with `unreadable` instead of
+     * being dropped, because a short list of mispinned apps looks like a clean bill
+     * of health.
+     */
+    async auditTrunkPins(): Promise<TrunkPinAudit[]> {
+        this.logger.info("Auditing application trunk pins");
+
+        const applications = await this.db.application.findMany({
+            where: {
+                disabled: false,
+                githubRepositoryId: { not: null },
+                organization: { githubInstallation: { status: "active" } },
+            },
+            orderBy: [{ organization: { name: "asc" } }, { name: "asc" }],
+            select: {
+                id: true,
+                name: true,
+                previewDeployRef: true,
+                githubRepositoryId: true,
+                organization: { select: { id: true, name: true } },
+                mainBranch: { select: { name: true } },
+                mainBranchInfo: { select: { githubRef: true } },
+            },
+        });
+
+        const findings: TrunkPinAudit[] = [];
+        for (let start = 0; start < applications.length; start += TRUNK_AUDIT_BATCH_SIZE) {
+            const batch = applications.slice(start, start + TRUNK_AUDIT_BATCH_SIZE);
+            const audited = await Promise.all(batch.map((application) => this.auditOneTrunkPin(application)));
+            for (const finding of audited) {
+                if (finding != null) findings.push(finding);
+            }
+        }
+
+        this.logger.info("Audited application trunk pins", {
+            extra: { scanned: applications.length, findings: findings.length },
+        });
+        return findings;
+    }
+
+    private async auditOneTrunkPin(application: {
+        id: string;
+        name: string;
+        previewDeployRef: string | null;
+        githubRepositoryId: number | null;
+        organization: { id: string; name: string };
+        mainBranch: { name: string } | null;
+        mainBranchInfo: { githubRef: string } | null;
+    }): Promise<TrunkPinAudit | undefined> {
+        const githubRepositoryId = application.githubRepositoryId;
+        if (githubRepositoryId == null) return undefined;
+
+        const trunkRef = application.mainBranchInfo?.githubRef ?? application.mainBranch?.name;
+        const base = {
+            applicationId: application.id,
+            applicationName: application.name,
+            organizationId: application.organization.id,
+            organizationName: application.organization.name,
+            githubRepositoryId,
+            trunkRef,
+            previewDeployRef: application.previewDeployRef ?? undefined,
+        };
+
+        try {
+            const repository = await this.getRepository(application.organization.id, githubRepositoryId);
+            if (trunkRef === repository.defaultBranch) return undefined;
+            return { ...base, defaultBranch: repository.defaultBranch };
+        } catch (err) {
+            this.logger.warn("Could not read a repository's default branch while auditing trunk pins", {
+                applicationId: application.id,
+                err,
+            });
+            return { ...base, unreadable: err instanceof Error ? err.message : String(err) };
+        }
+    }
+
+    /**
+     * Keeps an application's trunk pointed at its repository's real default branch,
+     * off a signal we already receive.
+     *
+     * Every `push` payload carries `repository.default_branch`, and push fires for
+     * every branch of every connected repo - so this is the cheapest continuous check
+     * available, and it needs no new GitHub App event subscription.
+     *
+     * Reconciling was NOT safe before the deploy ref moved to its own column: the trunk
+     * record doubled as the base preview's deploy branch, so correcting it would have
+     * yanked the preview off a branch someone had deliberately chosen. That is the whole
+     * reason {@link linkRepository} only ever resolved it on a FIRST link. With the two
+     * separated the trunk is simply "whatever GitHub says the default branch is", and a
+     * customer who renames theirs should not have to wait for an operator to notice.
+     *
+     * This is also what makes the audit/repair pair a one-off rather than a permanent
+     * surface: it clears the existing backlog, and this keeps the backlog from refilling.
+     *
+     * Best-effort - a webhook must not fail because a bookkeeping write did.
+     */
+    async reconcileTrunkFromPushWebhook(organizationId: string, payload: Record<string, unknown>): Promise<void> {
+        const parsed = pushRepositorySchema.safeParse(payload);
+        if (!parsed.success) return;
+
+        const { id: githubRepositoryId, default_branch: defaultBranch } = parsed.data.repository;
+        if (defaultBranch == null || defaultBranch === "") return;
+
+        try {
+            const application = await this.db.application.findUnique({
+                where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
+                select: {
+                    id: true,
+                    previewDeployRef: true,
+                    mainBranch: { select: { name: true } },
+                    mainBranchInfo: { select: { githubRef: true } },
+                },
+            });
+            if (application == null) return;
+
+            const trunk = applicationBranchRefs(application).trunk;
+            if (trunk === defaultBranch) return;
+
+            this.logger.info("Trunk no longer matches the repository default branch; correcting", {
+                applicationId: application.id,
+                organizationId,
+                extra: { from: trunk, to: defaultBranch },
+            });
+            await this.setMainBranchToRepoDefault(application.id, defaultBranch);
+        } catch (err) {
+            this.logger.warn("Could not reconcile the trunk against the repository default branch", {
+                organizationId,
+                err,
+            });
+        }
+    }
+
+    /**
+     * Points one application's trunk record back at its repository's default branch.
+     *
+     * Deliberately does NOT touch `previewDeployRef`: the base preview keeps building
+     * whatever branch it builds today, which for an app mid-onboarding is the branch
+     * carrying its unmerged preview config. Only what Autonoma calls "main" changes,
+     * which is the part that was wrong.
+     */
+    async repairTrunkPin(applicationId: string): Promise<{ from: string | undefined; to: string }> {
+        this.logger.info("Repairing application trunk pin", { applicationId });
+
+        const application = await this.db.application.findUnique({
+            where: { id: applicationId },
+            select: {
+                organizationId: true,
+                githubRepositoryId: true,
+                mainBranch: { select: { name: true } },
+                mainBranchInfo: { select: { githubRef: true } },
+            },
+        });
+        if (application == null) throw new NotFoundError("Application not found");
+        if (application.githubRepositoryId == null) {
+            throw new ConflictError("Application is not linked to a GitHub repository");
+        }
+
+        const repository = await this.getRepository(application.organizationId, application.githubRepositoryId);
+        // Reported through the same resolution the audit flagged the app by, so the
+        // `from` in the result is the ref that was actually wrong.
+        const from = applicationBranchRefs(application).trunk;
+        await this.setMainBranchToRepoDefault(applicationId, repository.defaultBranch);
+
+        this.logger.info("Repaired application trunk pin", {
+            applicationId,
+            extra: { from, to: repository.defaultBranch },
+        });
+        return { from, to: repository.defaultBranch };
+    }
+
+    /**
+     * Resolves the application's trunk to the repo's real default branch. Called on the
+     * first link, when the app still carries the seeded fallback ref and the default
+     * branch first becomes known - never on a re-link, so it can't overwrite a branch
+     * the user has since chosen - and by {@link repairTrunkPin}.
+     *
+     * The no-op check has to consider BOTH columns. They can disagree: a Vercel
+     * production deploy used to correct `githubRef` alone, leaving `name` behind, and
+     * two production applications are in that state today. Checking `name` only meant
+     * an app whose `githubRef` was the wrong one returned early and reported success
+     * while staying mispinned on the very field the audit compares.
      */
     private async setMainBranchToRepoDefault(applicationId: string, defaultBranch: string): Promise<void> {
         const app = await this.db.application.findUnique({
             where: { id: applicationId },
-            select: { mainBranchId: true, mainBranch: { select: { name: true } } },
+            select: {
+                mainBranchId: true,
+                mainBranch: { select: { name: true } },
+                mainBranchInfo: { select: { githubRef: true } },
+            },
         });
         const branchId = app?.mainBranchId;
-        if (branchId == null || app?.mainBranch?.name === defaultBranch) return;
+        const alreadyResolved =
+            app?.mainBranch?.name === defaultBranch && app?.mainBranchInfo?.githubRef === defaultBranch;
+        if (branchId == null || alreadyResolved) return;
 
         this.logger.info("Setting main-branch deploy ref to repo default", {
             applicationId,

@@ -324,7 +324,11 @@ async function dispatchWebhookEvent(
             await mergeGateService.requestStartFromCommentWebhook(organizationId, payload);
             return;
         case "push":
-            await startMainBranchPushDeploy(organizationId, payload);
+            // Independent of the deploy: one corrects bookkeeping, the other builds.
+            await Promise.all([
+                githubService.reconcileTrunkFromPushWebhook(organizationId, payload),
+                startMainBranchPushDeploy(organizationId, payload),
+            ]);
             return;
         default:
             return;

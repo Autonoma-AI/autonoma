@@ -448,6 +448,170 @@ apiTestSuite({
             expect(branch.mainBranch?.mainInfo?.githubRef).toBe("master");
         });
 
+        test("auditTrunkPins finds an app whose trunk drifted off the repo default, and repairTrunkPin fixes it", async ({
+            harness,
+            seedResult: { fakeClient },
+        }) => {
+            const app = await createUnlinkedApp(harness, "Mispinned Trunk App");
+            fakeClient.addRepository({
+                id: 3021,
+                name: "mispinned-repo",
+                fullName: "org/mispinned-repo",
+                defaultBranch: "master",
+                private: false,
+            });
+            await connectInstallation(harness, 88_893);
+            await harness.services.github.linkRepository(harness.organizationId, app.id, 3021);
+
+            // Reproduce the old behaviour: choosing a deploy branch rewrote the trunk.
+            const appRow = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { mainBranchId: true },
+            });
+            const mainBranchId = appRow.mainBranchId;
+            if (mainBranchId == null) throw new Error("seeded app has no main branch");
+            await harness.db.branch.update({ where: { id: mainBranchId }, data: { name: "autonoma-integration" } });
+            await harness.db.mainBranchInfo.updateMany({
+                where: { branchId: mainBranchId },
+                data: { githubRef: "autonoma-integration" },
+            });
+            await harness.db.application.update({
+                where: { id: app.id },
+                data: { previewDeployRef: "autonoma-integration" },
+            });
+
+            const findings = await harness.services.github.auditTrunkPins();
+            const finding = findings.find((candidate) => candidate.applicationId === app.id);
+            expect(finding).toMatchObject({ trunkRef: "autonoma-integration", defaultBranch: "master" });
+
+            const repaired = await harness.services.github.repairTrunkPin(app.id);
+
+            expect(repaired).toEqual({ from: "autonoma-integration", to: "master" });
+            const after = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: {
+                    previewDeployRef: true,
+                    mainBranch: { select: { name: true, mainInfo: { select: { githubRef: true } } } },
+                },
+            });
+            expect(after.mainBranch?.name).toBe("master");
+            expect(after.mainBranch?.mainInfo?.githubRef).toBe("master");
+            // The base preview keeps building the branch that carries the config.
+            expect(after.previewDeployRef).toBe("autonoma-integration");
+        });
+
+        test("repairTrunkPin fixes a trunk whose githubRef drifted while its branch name did not", async ({
+            harness,
+            seedResult: { fakeClient },
+        }) => {
+            const app = await createUnlinkedApp(harness, "Half Drifted Trunk App");
+            fakeClient.addRepository({
+                id: 3023,
+                name: "half-drifted-repo",
+                fullName: "org/half-drifted-repo",
+                defaultBranch: "main",
+                private: false,
+            });
+            await connectInstallation(harness, 88_894);
+            await harness.services.github.linkRepository(harness.organizationId, app.id, 3023);
+
+            // The state a Vercel production deploy used to leave behind: githubRef
+            // corrected on its own, branch.name untouched. Two production apps are
+            // like this, and the audit flags them by githubRef.
+            const appRow = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { mainBranchId: true },
+            });
+            const mainBranchId = appRow.mainBranchId;
+            if (mainBranchId == null) throw new Error("seeded app has no main branch");
+            await harness.db.mainBranchInfo.updateMany({
+                where: { branchId: mainBranchId },
+                data: { githubRef: "aws-staging" },
+            });
+
+            const findings = await harness.services.github.auditTrunkPins();
+            expect(findings.find((candidate) => candidate.applicationId === app.id)).toMatchObject({
+                trunkRef: "aws-staging",
+                defaultBranch: "main",
+            });
+
+            const repaired = await harness.services.github.repairTrunkPin(app.id);
+
+            // Would have returned { from: "main", to: "main" } and changed nothing,
+            // because the no-op guard only looked at branch.name.
+            expect(repaired).toEqual({ from: "aws-staging", to: "main" });
+            const after = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { mainBranch: { select: { name: true, mainInfo: { select: { githubRef: true } } } } },
+            });
+            expect(after.mainBranch?.mainInfo?.githubRef).toBe("main");
+            expect(after.mainBranch?.name).toBe("main");
+        });
+
+        test("a push reconciles a trunk that drifted from the repository default branch", async ({
+            harness,
+            seedResult: { fakeClient },
+        }) => {
+            const app = await createUnlinkedApp(harness, "Renamed Default App");
+            fakeClient.addRepository({
+                id: 3025,
+                name: "renamed-default-repo",
+                fullName: "org/renamed-default-repo",
+                defaultBranch: "main",
+                private: false,
+            });
+            await connectInstallation(harness, 88_895);
+            await harness.services.github.linkRepository(harness.organizationId, app.id, 3025);
+            await harness.db.application.update({
+                where: { id: app.id },
+                data: { previewDeployRef: "autonoma-integration" },
+            });
+
+            // The repo's default branch is renamed on GitHub; the next push carries it.
+            await harness.services.github.reconcileTrunkFromPushWebhook(harness.organizationId, {
+                ref: "refs/heads/trunk",
+                after: "a".repeat(40),
+                repository: { id: 3025, full_name: "org/renamed-default-repo", default_branch: "trunk" },
+            });
+
+            const after = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: {
+                    previewDeployRef: true,
+                    mainBranch: { select: { name: true, mainInfo: { select: { githubRef: true } } } },
+                },
+            });
+            expect(after.mainBranch?.name).toBe("trunk");
+            expect(after.mainBranch?.mainInfo?.githubRef).toBe("trunk");
+            // The base preview keeps building whatever it was pointed at.
+            expect(after.previewDeployRef).toBe("autonoma-integration");
+        });
+
+        test("a push leaves an already-correct trunk alone", async ({ harness, seedResult: { fakeClient } }) => {
+            const app = await createUnlinkedApp(harness, "Correct Trunk App");
+            fakeClient.addRepository({
+                id: 3026,
+                name: "correct-trunk-repo",
+                fullName: "org/correct-trunk-repo",
+                defaultBranch: "master",
+                private: false,
+            });
+            await connectInstallation(harness, 88_896);
+            await harness.services.github.linkRepository(harness.organizationId, app.id, 3026);
+
+            await harness.services.github.reconcileTrunkFromPushWebhook(harness.organizationId, {
+                ref: "refs/heads/feature",
+                after: "b".repeat(40),
+                repository: { id: 3026, full_name: "org/correct-trunk-repo", default_branch: "master" },
+            });
+
+            const after = await harness.db.application.findUniqueOrThrow({
+                where: { id: app.id },
+                select: { mainBranch: { select: { name: true } } },
+            });
+            expect(after.mainBranch?.name).toBe("master");
+        });
+
         test("linkRepository does not overwrite a user-chosen deploy branch on re-link", async ({
             harness,
             seedResult: { fakeClient },
