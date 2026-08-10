@@ -62,16 +62,21 @@ apiTestSuite({
             }
         });
 
-        test("a provider that asserts nothing still falls back to the consumer-provider list", async ({ harness }) => {
-            // No assertion is what a GitHub or email sign-in looks like.
-            const first = await signUp(harness.db, `${uniqueLocalPart()}@outlook.com`, "Github One", undefined);
+        test("with no assertion nobody is pooled, listed provider or not", async ({ harness }) => {
+            // No assertion is what a GitHub or email sign-in looks like. The list still short-circuits a
+            // domain it recognises, but it is no longer what keeps strangers apart - an unrecognised
+            // domain reaches the same answer by the default, which is what makes the list survivable.
+            const listed = `${uniqueLocalPart()}@outlook.com`;
+            const first = await signUp(harness.db, listed, "Github One", undefined);
             const second = await signUp(harness.db, `${uniqueLocalPart()}@outlook.com`, "Github Two", undefined);
             expect(second.organizationId).not.toBe(first.organizationId);
 
-            const domain = `corp-${randomBytes(4).toString("hex")}.example`;
-            const a = await signUp(harness.db, `${uniqueLocalPart()}@${domain}`, "Corp One", undefined);
-            const b = await signUp(harness.db, `${uniqueLocalPart()}@${domain}`, "Corp Two", undefined);
-            expect(b.organizationId).toBe(a.organizationId);
+            const unlisted = `corp-${randomBytes(4).toString("hex")}.example`;
+            const a = await signUp(harness.db, `${uniqueLocalPart()}@${unlisted}`, "Corp One", undefined);
+            const b = await signUp(harness.db, `${uniqueLocalPart()}@${unlisted}`, "Corp Two", undefined);
+            expect(b.organizationId).not.toBe(a.organizationId);
+            // And no auto-join key was minted for it, so a later signup cannot be pooled either.
+            expect(await harness.db.organization.findFirst({ where: { domain: unlisted } })).toBeNull();
         });
 
         test("a Microsoft tenant-verified domain shares one organization", async ({ harness }) => {

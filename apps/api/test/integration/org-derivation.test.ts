@@ -1,6 +1,8 @@
 import { randomBytes } from "node:crypto";
+import type { PrismaClient } from "@autonoma/db";
 import { expect } from "vitest";
 import { ensureOrgMembership } from "../../src/auth";
+import type { SignupDomainAssertion } from "../../src/signup-domain-assertion";
 import { apiTestSuite } from "../api-test";
 
 function uniqueLocalPart(): string {
@@ -18,9 +20,9 @@ function uniqueLocalPart(): string {
 apiTestSuite({
     name: "org-derivation",
     cases: (test) => {
-        async function signUpWith(harness: Parameters<typeof ensureOrgMembership>[0], email: string, name: string) {
-            const user = await harness.user.create({ data: { name, email, emailVerified: true } });
-            return { user, result: await ensureOrgMembership(harness, user.id, email, name) };
+        async function signUpWith(db: PrismaClient, email: string, name: string, assertion?: SignupDomainAssertion) {
+            const user = await db.user.create({ data: { name, email, emailVerified: true } });
+            return { user, result: await ensureOrgMembership(db, user.id, email, name, assertion) };
         }
 
         test("two strangers on the same consumer provider get separate organizations", async ({ harness }) => {
@@ -37,10 +39,14 @@ apiTestSuite({
             }
         });
 
-        test("colleagues on a company domain share one organization", async ({ harness }) => {
+        test("colleagues on a vouched company domain share one organization", async ({ harness }) => {
+            // Vouched, because an unvouched domain is no longer an auto-join key - see
+            // `signup-organization-key.test.ts`. The provider's assertion is what makes them colleagues
+            // rather than two strangers who happen to share a domain suffix.
             const domain = `acme-${randomBytes(4).toString("hex")}.com`;
-            const first = await signUpWith(harness.db, `${uniqueLocalPart()}@${domain}`, "First Colleague");
-            const second = await signUpWith(harness.db, `${uniqueLocalPart()}@${domain}`, "Second Colleague");
+            const vouched = { provider: "google", managedDomain: domain } as const;
+            const first = await signUpWith(harness.db, `${uniqueLocalPart()}@${domain}`, "First Colleague", vouched);
+            const second = await signUpWith(harness.db, `${uniqueLocalPart()}@${domain}`, "Second Colleague", vouched);
 
             expect(second.result.organizationId).toBe(first.result.organizationId);
             const members = await harness.db.member.count({ where: { organizationId: first.result.organizationId } });
@@ -63,9 +69,12 @@ apiTestSuite({
             expect(org.nameConfirmedAt).toBeNull();
         });
 
-        test("a company-domain organization is treated as already named", async ({ harness }) => {
+        test("a vouched company-domain organization is treated as already named", async ({ harness }) => {
             const domain = `corp-${randomBytes(4).toString("hex")}.com`;
-            const { result } = await signUpWith(harness.db, `${uniqueLocalPart()}@${domain}`, "Corp Person");
+            const { result } = await signUpWith(harness.db, `${uniqueLocalPart()}@${domain}`, "Corp Person", {
+                provider: "google",
+                managedDomain: domain,
+            });
 
             const org = await harness.db.organization.findUniqueOrThrow({
                 where: { id: result.organizationId },
@@ -103,8 +112,14 @@ apiTestSuite({
             // `Organization.domain` is unique and case-sensitive, so a provider that hands back
             // `Acme.com` for one colleague and `acme.com` for the next would split the team in two.
             const domain = `Corp-${randomBytes(4).toString("hex")}.COM`;
-            const first = await signUpWith(harness.db, `${uniqueLocalPart()}@${domain}`, "Mixed Case");
-            const second = await signUpWith(harness.db, `${uniqueLocalPart()}@${domain.toLowerCase()}`, "Lower Case");
+            const first = await signUpWith(harness.db, `${uniqueLocalPart()}@${domain}`, "Mixed Case", {
+                provider: "google",
+                managedDomain: domain,
+            });
+            const second = await signUpWith(harness.db, `${uniqueLocalPart()}@${domain.toLowerCase()}`, "Lower Case", {
+                provider: "google",
+                managedDomain: domain.toLowerCase(),
+            });
 
             expect(second.result.organizationId).toBe(first.result.organizationId);
 

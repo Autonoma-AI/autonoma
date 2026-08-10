@@ -11,6 +11,12 @@ const SLUG_SUFFIX_BYTES = 3;
 const FALLBACK_SLUG = "org";
 const UNIQUE_CONSTRAINT_CODE = "P2002";
 
+export interface ResolvedOrganization {
+    id: string;
+    name: string;
+    slug: string;
+}
+
 export interface SignupOrganization {
     /**
      * The value `Organization.domain` is keyed on: a company's email domain, or a whole email address
@@ -27,12 +33,6 @@ export interface SignupOrganization {
     preferredSlug: string;
     /** Set for a name that needs no confirming - one derived from a company's own domain. */
     nameConfirmedAt?: Date;
-}
-
-interface ResolvedOrganization {
-    id: string;
-    name: string;
-    slug: string;
 }
 
 /**
@@ -57,7 +57,7 @@ export async function upsertOrganizationForSignup(
     const base = org.preferredSlug.length > 0 ? org.preferredSlug : FALLBACK_SLUG;
 
     for (let attempt = 0; attempt < SLUG_ATTEMPTS; attempt++) {
-        const existing = await findByDomain(conn, domain);
+        const existing = await findOrganizationByDomain(conn, domain);
         if (existing != null) {
             logger.info("Joined existing organization", { organizationId: existing.id });
             return existing;
@@ -100,7 +100,10 @@ export async function upsertOrganizationForSignup(
  * legacy `Acme.com` row would not be found by `acme.com`, and the next colleague to sign in would get a
  * second organization rather than joining the one their team is already in.
  */
-async function findByDomain(conn: PrismaClient, domain: string): Promise<ResolvedOrganization | undefined> {
+export async function findOrganizationByDomain(
+    conn: PrismaClient,
+    domain: string,
+): Promise<ResolvedOrganization | undefined> {
     const select = { id: true, name: true, slug: true };
     const exact = await conn.organization.findUnique({ where: { domain }, select });
     if (exact != null) return exact;

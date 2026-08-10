@@ -1,7 +1,7 @@
 import { ensureBillingProvisioning } from "@autonoma/billing";
 import type { PrismaClient } from "@autonoma/db";
 import { logger } from "@autonoma/logger";
-import { isConsumerEmailDomain, isPreviewOrigin } from "@autonoma/types";
+import { isPreviewOrigin } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
 import { apiKey } from "@better-auth/api-key";
 import { redisStorage } from "@better-auth/redis-storage";
@@ -14,6 +14,7 @@ import type Redis from "ioredis";
 import { env } from "./env";
 import { microsoftDomainAssertion } from "./microsoft-domain-assertion";
 import { PlatformEventEmitter } from "./posthog/emit-platform-events";
+import { resolveSignupOrganizationKey } from "./resolve-signup-organization-key";
 import {
     type SignupDomainAssertion,
     assertedCompanyDomain,
@@ -355,25 +356,23 @@ export async function ensureOrgMembership(
         });
     } else {
         const domain = extractDomain(email);
-        // A personal-mailbox domain means the next signup at it is a stranger, not a colleague, so the
-        // organization is keyed on the whole address instead of the domain.
-        //
-        // The provider's own answer wins where there is one. A hand-maintained list of consumer
-        // providers can only ever approximate "is this domain one organization?", and it approximates
-        // in the expensive direction: a provider it has not heard of pools strangers together. Where
-        // the provider states the fact outright there is nothing left to approximate, so the list is
-        // consulted only for providers that assert nothing.
-        const assertedCompany = assertedCompanyDomain(assertion, domain);
-        const isPersonalDomain = assertedCompany != null ? !assertedCompany : isConsumerEmailDomain(domain);
-        const namedAfterPerson = isPersonalDomain && displayName != null;
+        // What the organization is keyed on decides whether anyone else at this domain is later
+        // dropped into it - see `resolveSignupOrganizationKey`, which mints a new auto-join key only
+        // on a provider's assertion of the domain.
+        const { key, autoJoin } = await resolveSignupOrganizationKey(conn, {
+            email,
+            domain,
+            assertedCompany: assertedCompanyDomain(assertion, domain),
+        });
+        const namedAfterPerson = !autoJoin && displayName != null;
         const org = await upsertOrganizationForSignup(conn, {
-            domain: isPersonalDomain ? email : domain,
+            domain: key,
             name: namedAfterPerson ? displayName : titleCase(domain.split(".")[0] ?? domain),
             preferredSlug: toSlug(namedAfterPerson ? displayName : domain),
-            // A name derived from a real email domain is the company's own name and needs no
-            // confirming. A personal-email org is named after whoever signed up first, who is
-            // not necessarily whose organization it is, so it stays unconfirmed and gets asked.
-            nameConfirmedAt: isPersonalDomain ? undefined : new Date(),
+            // A shared company organization carries the company's own name and needs no confirming.
+            // One person's organization is named after whoever signed up, who is not necessarily whose
+            // organization it is, so it stays unconfirmed and gets asked once.
+            nameConfirmedAt: autoJoin ? new Date() : undefined,
         });
         orgId = org.id;
         orgName = org.name;
