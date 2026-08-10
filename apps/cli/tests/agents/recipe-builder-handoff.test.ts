@@ -18,6 +18,8 @@ import type { AgentLauncher } from "../../src/core/coding-agent";
 
 interface FakeSpec {
     exitCode: number;
+    id?: string;
+    label?: string;
     available?: boolean;
     /** Whether the agent writes the completion marker (a finished session does). */
     writeMarker: boolean;
@@ -29,8 +31,8 @@ interface FakeSpec {
 function fakeLauncher(spec: FakeSpec): AgentLauncher & { calls: number } {
     const launcher = {
         calls: 0,
-        id: "fake",
-        label: "Fake Agent",
+        id: spec.id ?? "fake",
+        label: spec.label ?? "Fake Agent",
         isAvailable: () => Promise.resolve(spec.available ?? true),
         registerMcpServer: () => Promise.resolve({ env: {} }),
         async launch(): Promise<number> {
@@ -134,7 +136,7 @@ describe("runRecipeBuilder handoff + completion", () => {
 
     test("incomplete: agent exits without a completion marker -> bounded re-launch -> hand-back", async () => {
         await seedHandoffPhase(true);
-        const launcher = fakeLauncher({ exitCode: 1, writeMarker: false, outputDir: dir });
+        const launcher = fakeLauncher({ exitCode: 0, writeMarker: false, outputDir: dir });
 
         const result = await runRecipeBuilder(baseInput(launcher));
 
@@ -143,6 +145,41 @@ describe("runRecipeBuilder handoff + completion", () => {
         // One launch in the handoff phase + exactly one bounded re-launch in completion.
         expect(launcher.calls).toBe(2);
         expect((await loadState()).phase).toBe("completion"); // never advanced to submit
+    });
+
+    // The whole point of the re-launch is to finish a session that ran and fell short.
+    // An agent that exits non-zero instantly did not run, so spending the one allowed
+    // retry re-running the same broken binary spends it for nothing - on real machines
+    // both attempts went in under a second, and the user was then told a recipe file
+    // was missing rather than that their agent would not start.
+    test("an agent that exits immediately is not retried when nothing else is installed", async () => {
+        await seedHandoffPhase(true);
+        const launcher = fakeLauncher({ exitCode: 1, writeMarker: false, outputDir: dir });
+
+        const result = await runRecipeBuilder(baseInput(launcher));
+
+        expect(result.success).toBe(false);
+        expect(launcher.calls).toBe(1);
+        expect(result.summary).toMatch(/exited immediately/);
+        expect(result.summary).toMatch(/Fake Agent/);
+    });
+
+    test("an agent that exits immediately hands the retry to another installed agent", async () => {
+        await seedHandoffPhase(true);
+        const broken = fakeLauncher({ exitCode: 1, writeMarker: false, outputDir: dir });
+        const working = fakeLauncher({
+            exitCode: 0,
+            writeMarker: true,
+            outputDir: dir,
+            id: "other",
+            label: "Other Agent",
+        });
+
+        const result = await runRecipeBuilder({ ...baseInput(broken), launchers: [broken, working] });
+
+        expect(broken.calls).toBe(1);
+        expect(working.calls).toBe(1);
+        expect(result.success).toBe(true);
     });
 
     test("a stale completion marker is cleared before launch - it can't fake success", async () => {

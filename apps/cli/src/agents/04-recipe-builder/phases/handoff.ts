@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { track } from "../../../core/analytics";
 import type { AgentLauncher, PermissionMode } from "../../../core/coding-agent";
 import { selectLauncher } from "../../../core/coding-agent";
 import { debugLog } from "../../../core/debug";
@@ -10,6 +11,7 @@ import * as p from "../../../ui/prompts";
 import { COMPLETION_MARKER_FILE, readCompletion } from "../completion";
 import { watchForCompletion } from "../completion-watch";
 import { INTEGRATION_PROMPT_FILE, writeIntegrationPrompt } from "../integration-prompt";
+import { type AgentLaunch, describeLaunchOutcome } from "../launch-outcome";
 import { findRecipeUploadProblems, loadRecipe, type RecipeReadResult, RECIPE_FILE } from "../recipe";
 import type { RecipeBuilderState } from "../state";
 import { saveRecipeState } from "../state";
@@ -94,7 +96,7 @@ export async function runHandoffPhase(
     state.permissionMode = permissionMode;
     await saveRecipeState(outputDir, state);
 
-    await launchAgent(launcher, permissionMode, {
+    state.lastLaunch = await launchAgent(launcher, permissionMode, {
         outputDir,
         recipePath,
         cliCommand: deps.cliCommand,
@@ -155,27 +157,94 @@ export async function runCompletionPhase(
         }
 
         const failure = describeIncompleteRecipe(read, uploadProblems, recipePath, deps.cliCommand);
-        if (launcher != null && (state.launchAttempts ?? 0) < MAX_LAUNCH_ATTEMPTS) {
-            p.log.warn("The integration isn't complete yet. Launching the agent to finish it...");
-            state.agentId = launcher.id;
-            state.priorFailure = failure;
-            await saveRecipeState(outputDir, state);
+        const retry = await planRetry(state, launcher, deps, failure);
+        if (retry.kind === "give-up") return { kind: "handback", summary: handbackSummary(retry.summary, outputDir) };
 
-            await launchAgent(launcher, state.permissionMode ?? "bypassPermissions", {
-                outputDir,
-                recipePath,
-                cliCommand: deps.cliCommand,
-                interactive: deps.interactive,
-                priorFailure: failure,
-                userGuidance: state.userGuidance,
-            });
-            state.launchAttempts = (state.launchAttempts ?? 0) + 1;
-            await saveRecipeState(outputDir, state);
-            continue;
-        }
+        p.log.warn(retry.announcement);
+        state.agentId = retry.launcher.id;
+        state.priorFailure = retry.priorFailure;
+        await saveRecipeState(outputDir, state);
 
-        return { kind: "handback", summary: handbackSummary(failure, outputDir) };
+        state.lastLaunch = await launchAgent(retry.launcher, state.permissionMode ?? "bypassPermissions", {
+            outputDir,
+            recipePath,
+            cliCommand: deps.cliCommand,
+            interactive: deps.interactive,
+            priorFailure: retry.priorFailure,
+            userGuidance: state.userGuidance,
+        });
+        state.launchAttempts = (state.launchAttempts ?? 0) + 1;
+        await saveRecipeState(outputDir, state);
     }
+}
+
+/** What the completion phase does next when the integration is not finished. */
+type RetryPlan =
+    | { kind: "relaunch"; launcher: AgentLauncher; priorFailure?: string; announcement: string }
+    | { kind: "give-up"; summary: string };
+
+/**
+ * Whether relaunching can plausibly finish the integration, and with which agent.
+ *
+ * The distinction that decides this is whether the last launch RAN. A session that
+ * worked and fell short is exactly what the re-launch exists for, and it gets the
+ * recipe diagnosis so it resumes rather than starting over. A session that exited
+ * immediately did no work at all, and running the same binary again does not do more
+ * - on real machines both allowed attempts were spent that way in under a second,
+ * after which the user was told a recipe file was missing. So a failed-to-start
+ * launch moves to a different agent if one is installed, and otherwise stops and
+ * says what actually went wrong. The attempt ceiling still applies to both paths,
+ * so two agents that each fail to start cannot hand the run back and forth.
+ */
+async function planRetry(
+    state: RecipeBuilderState,
+    launcher: AgentLauncher | undefined,
+    deps: HandoffDeps,
+    failure: string,
+): Promise<RetryPlan> {
+    const lastLaunch = state.lastLaunch;
+    const outcome = lastLaunch == null ? undefined : describeLaunchOutcome(lastLaunch);
+    const failedToStart = outcome?.kind === "failed-to-start" ? outcome.summary : undefined;
+    // A launch that never ran says nothing about the integration, so reporting the
+    // absent recipe would tell the wrong story - that is the swap this exists for.
+    const summary = failedToStart ?? failure;
+
+    if (launcher == null) return { kind: "give-up", summary };
+    if ((state.launchAttempts ?? 0) >= MAX_LAUNCH_ATTEMPTS) return { kind: "give-up", summary };
+
+    if (failedToStart != null && lastLaunch != null) {
+        const alternative = await findOtherAvailableAgent(deps.launchers, lastLaunch.agentId);
+        if (alternative == null) return { kind: "give-up", summary: failedToStart };
+        return {
+            kind: "relaunch",
+            launcher: alternative,
+            // No prior failure: nothing was attempted, so telling a fresh agent that a
+            // prior session "did not complete" would send it hunting for work that was
+            // never started.
+            announcement: `${failedToStart} Trying ${alternative.label} instead...`,
+        };
+    }
+
+    return {
+        kind: "relaunch",
+        launcher,
+        priorFailure: failure,
+        announcement: "The integration isn't complete yet. Launching the agent to finish it...",
+    };
+}
+
+/**
+ * An installed agent that is not the one that just failed to start. Availability is
+ * re-probed rather than remembered: this runs precisely because something about the
+ * chosen agent turned out not to work.
+ */
+async function findOtherAvailableAgent(
+    launchers: AgentLauncher[],
+    failedAgentId: string,
+): Promise<AgentLauncher | undefined> {
+    const others = launchers.filter((l) => l.id !== failedAgentId);
+    const availability = await Promise.all(others.map((l) => l.isAvailable()));
+    return others.find((_, index) => availability[index]);
 }
 
 function handbackSummary(failure: string, outputDir: string): string {
@@ -195,12 +264,20 @@ interface LaunchTarget {
     userGuidance?: string;
 }
 
-/** Render the prompt file and run the agent with the terminal handed over to it. */
+/**
+ * Render the prompt file and run the agent with the terminal handed over to it,
+ * reporting what the launch did.
+ *
+ * The exit code does not decide whether the integration succeeded - the marker and
+ * the recipe do - but it is the only evidence of whether the agent ran at all, and
+ * discarding it is what let a session that died in 300ms be treated the same as one
+ * that worked for half an hour.
+ */
 async function launchAgent(
     launcher: AgentLauncher,
     permissionMode: PermissionMode,
     target: LaunchTarget,
-): Promise<void> {
+): Promise<AgentLaunch> {
     const promptFile = await writeIntegrationPrompt({
         outputDir: target.outputDir,
         recipePath: target.recipePath,
@@ -238,6 +315,7 @@ async function launchAgent(
 
     // Hand the terminal (SIGINT + raw mode) to the agent, then take it back.
     suspend();
+    const startedAt = Date.now();
     try {
         const exitCode = await launcher.launch({
             message: launchMessage(promptFile),
@@ -248,7 +326,23 @@ async function launchAgent(
             // own and needs no watcher.
             watch: target.interactive ? (proc) => watchForCompletion(target.outputDir, proc) : undefined,
         });
-        p.log.info(`${launcher.label} exited (code ${exitCode ?? "unknown"}). Back to the planner.`);
+        const launch: AgentLaunch = {
+            agentLabel: launcher.label,
+            agentId: launcher.id,
+            exitCode,
+            durationMs: Date.now() - startedAt,
+        };
+        p.log.info(
+            `${launcher.label} exited (code ${exitCode ?? "unknown"}) after ` +
+                `${Math.round(launch.durationMs / 1000)}s. Back to the planner.`,
+        );
+        track("cli_agent_launch_finished", {
+            agent: launcher.id,
+            exit_code: exitCode,
+            duration_ms: launch.durationMs,
+            outcome: describeLaunchOutcome(launch).kind,
+        });
+        return launch;
     } finally {
         resume();
     }

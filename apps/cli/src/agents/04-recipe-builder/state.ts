@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { PermissionMode } from "../../core/coding-agent";
+import type { AgentLaunch } from "./launch-outcome";
 
 export type EntityStatus = "pending" | "recipe-accepted" | "tested-up" | "tested-down" | "skipped";
 
@@ -34,6 +35,10 @@ export interface RecipeBuilderState {
     /** How many times the interactive agent has been launched for this handoff.
      *  Bounds the re-launch to finish an incomplete session. */
     launchAttempts?: number;
+    /** What the most recent launch did, so the completion phase can tell a session
+     *  that ran and fell short from one that never started. Persisted because the two
+     *  phases are separate calls with `--resume` in between. */
+    lastLaunch?: AgentLaunch;
     /** Why a prior session didn't complete, carried into the re-launch so the agent
      *  resumes at the first unfinished item instead of redoing finished work. */
     priorFailure?: string;
