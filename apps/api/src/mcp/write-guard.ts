@@ -3,6 +3,7 @@ import { logger as rootLogger } from "@autonoma/logger";
 import type { AgentLogEntry } from "@autonoma/types";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { Services } from "../routes/build-services";
+import { instructionsConflictResult } from "./instructions-conflict-result";
 import { recipeConflictResult } from "./recipe-conflict-result";
 import { resolveVercelState } from "./resolve-vercel-state";
 import { describeError, jsonResult, toToolResult } from "./tool-result";
@@ -107,9 +108,9 @@ export function createWriteGuard(services: Services): WriteGuard {
             }
         } catch (err) {
             logger.warn(`${tool} failed`, { applicationId, err });
-            // A losing recipe race is not a failure the agent should give up on - hand back the
-            // merge inputs instead of an error string. Undefined for anything else.
-            return recipeConflictResult(err) ?? toToolResult(err);
+            // A losing race is not a failure the agent should give up on - hand back the merge
+            // inputs instead of an error string. Both return undefined for anything else.
+            return recipeConflictResult(err) ?? instructionsConflictResult(err) ?? toToolResult(err);
         }
     };
 }

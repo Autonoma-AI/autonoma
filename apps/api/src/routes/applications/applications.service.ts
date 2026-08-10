@@ -1,10 +1,12 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { Application, PrismaClient } from "@autonoma/db";
 import { ApplicationArchitecture, Prisma, SnapshotStatus, TriggerSource } from "@autonoma/db";
 import { ConflictError, NotFoundError } from "@autonoma/errors";
 import type { EncryptionHelper } from "@autonoma/scenario";
+import { APPLICATION_INSTRUCTIONS_MAX_LENGTH } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
 import { Service } from "../service";
+import { ApplicationInstructionsConflictError } from "./application-instructions-conflict-error";
 
 const deploymentInclude = {
     mainBranch: {
@@ -59,6 +61,40 @@ type UpdateDataInput = Partial<Pick<Application, "name">> &
     );
 
 type UpdateSettingsInput = Pick<Application, "customInstructions" | "testScopeGuidelines">;
+
+/** The two free-text instruction fields, as stored. */
+type ApplicationInstructions = Pick<Application, "customInstructions" | "testScopeGuidelines">;
+
+interface UpdateInstructionsInput {
+    applicationId: string;
+    organizationId: string;
+    /**
+     * Each field is applied only when present: omitted leaves it untouched, `null` clears it. A
+     * caller editing one field must not have to resend the other, which is how the value it never
+     * meant to touch gets rewritten from a stale copy.
+     */
+    customInstructions?: string | null;
+    testScopeGuidelines?: string | null;
+    /** The fingerprint the caller read before editing. Omitted makes the write unconditional. */
+    baseFingerprint?: string;
+}
+
+/** Trim, and treat blank as cleared, so "  " and "" and null are one stored state. */
+function normalizeInstructions(value: string | null | undefined): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value == null) return null;
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * Identifies one revision of the pair of fields, so a write can tell whether it is editing what
+ * its caller actually read. Covers both fields together because they are read and written as one
+ * document, and a caller that read a stale copy of either is editing blind.
+ */
+function instructionsFingerprint({ customInstructions, testScopeGuidelines }: ApplicationInstructions): string {
+    return createHash("sha256").update(JSON.stringify({ customInstructions, testScopeGuidelines })).digest("hex");
+}
 
 class NoMainBranchError extends Error {
     constructor(applicationId: string) {
@@ -560,5 +596,81 @@ export class ApplicationsService extends Service {
         this.logger.info("Application settings updated", { applicationId: id });
 
         return result;
+    }
+
+    /**
+     * The two instruction fields plus the fingerprint a write must quote back. Separate from
+     * `listApplications` (which already returns them on the row) because a caller that is about to
+     * edit needs the fingerprint, and a whole application row does not carry one.
+     */
+    async getInstructions(id: string, organizationId: string) {
+        this.logger.info("Reading application instructions", { applicationId: id, organizationId });
+
+        const application = await this.db.application.findFirst({
+            where: { id, organizationId },
+            select: { customInstructions: true, testScopeGuidelines: true },
+        });
+
+        if (application == null) throw new NotFoundError();
+
+        this.logger.info("Application instructions read", { applicationId: id });
+
+        return {
+            customInstructions: application.customInstructions,
+            testScopeGuidelines: application.testScopeGuidelines,
+            fingerprint: instructionsFingerprint(application),
+            maxLength: APPLICATION_INSTRUCTIONS_MAX_LENGTH,
+        };
+    }
+
+    /**
+     * Write one or both instruction fields, refusing a write whose base is stale.
+     *
+     * The read and the compare-and-set share a transaction because they are the whole point: these
+     * fields are hand-written prose with no version history behind them, so a write that lands on
+     * top of an edit it never saw destroys words nobody can get back.
+     */
+    async updateInstructions(input: UpdateInstructionsInput) {
+        const { applicationId, organizationId, baseFingerprint } = input;
+        this.logger.info("Updating application instructions", { applicationId, organizationId });
+
+        const result = await this.db.$transaction(async (tx) => {
+            const application = await tx.application.findFirst({
+                where: { id: applicationId, organizationId },
+                select: { customInstructions: true, testScopeGuidelines: true },
+            });
+
+            if (application == null) throw new NotFoundError();
+
+            const currentFingerprint = instructionsFingerprint(application);
+            if (baseFingerprint != null && baseFingerprint !== currentFingerprint) {
+                this.logger.warn("Rejecting a stale instructions write", {
+                    applicationId,
+                    extra: { baseFingerprint, currentFingerprint },
+                });
+                throw new ApplicationInstructionsConflictError(applicationId, {
+                    current: application,
+                    currentFingerprint,
+                    baseFingerprint,
+                });
+            }
+
+            return await tx.application.update({
+                where: { id: applicationId },
+                data: {
+                    customInstructions: normalizeInstructions(input.customInstructions),
+                    testScopeGuidelines: normalizeInstructions(input.testScopeGuidelines),
+                },
+                select: { customInstructions: true, testScopeGuidelines: true },
+            });
+        });
+
+        this.logger.info("Application instructions updated", { applicationId });
+
+        return {
+            customInstructions: result.customInstructions,
+            testScopeGuidelines: result.testScopeGuidelines,
+            fingerprint: instructionsFingerprint(result),
+        };
     }
 }

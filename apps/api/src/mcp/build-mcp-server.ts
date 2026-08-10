@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Services } from "../routes/build-services";
 import { registerApplyConfigTool } from "./apply-config-tool";
 import { registerDebugTools } from "./debug-tools";
+import { registerInstructionsTools } from "./instructions-tools";
 import { listAccessibleRepos } from "./list-accessible-repos";
 import type { McpAnalytics } from "./mcp-analytics";
 import type { McpPrincipal } from "./mcp-principal";
@@ -73,6 +74,7 @@ export function buildMcpServer(surface: McpSurface, deps: BuildMcpServerDeps): M
     registerReadTools(server, { services, analytics, resolveTarget });
     registerApplyConfigTool(server, { services, analytics, resolveTarget, guard });
     registerRecipeTools(server, { services, analytics, resolveTarget, guard, userId: principal.userId });
+    registerInstructionsTools(server, { services, analytics, resolveTarget, guard });
 
     return server;
 }

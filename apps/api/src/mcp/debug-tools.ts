@@ -45,6 +45,8 @@ Each issue's kind tells you where its fix lives, so route on it rather than assu
 - environment: the preview could not run properly (a missing secret, a broken service). Fix it with the deploy tools below - get_secret_status / set_secret / edit_previewkit_config - no repo change needed.
 - scenario: the test data was missing or wrong. Fix it with the recipe tools below - list_scenarios / get_recipe / dry_run_scenario - which take effect with no redeploy.
 
+A fourth outcome has no fix in this repo: the issue is not real, or the run went wrong for a reason no future run should repeat. When you conclude an issue is a FALSE POSITIVE - the behavior it flagged is intended - say so where the next run will read it: get_app_instructions(repoFullName), then update_app_instructions with that point merged into testScopeGuidelines. Use customInstructions the same way for a quirk of the app the agent has to know to get through a flow. Both are the user's settings text, so merge into what is there and pass the fingerprint you read; do not replace it wholesale. Only record what will still be true next month - not a note about the PR in front of you.
+
 When you have fixed the cause and pushed, call start_analysis(repoFullName, prNumber) to ask Autonoma to re-check the PR against its preview - so you can confirm the fix from here without switching to GitHub to comment /start analysis. It no-ops quietly if the gate/activation is not enabled for the org; poll get_analysis afterward for the new verdict.
 
 Recommended flow when a PREVIEW fails to build or deploy (for a test or app failure, get_analysis above is the entry point):

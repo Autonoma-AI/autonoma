@@ -99,7 +99,18 @@ property on the `mcp.tool_called` analytics event, so usage per address stays di
 "every address serves the same tools" is a property of that file rather than an agreement between
 builders. Those functions are groupings, not surfaces: `registerDebugTools` and
 `registerOnboardingTools` hold the tools only one job uses, and `registerReadTools` /
-`registerApplyConfigTool` / `registerRecipeTools` hold the ones both jobs reach for.
+`registerApplyConfigTool` / `registerRecipeTools` / `registerInstructionsTools` hold the ones both
+jobs reach for.
+
+`registerInstructionsTools` is the one write that is not about configuration: `get_app_instructions`
+and `update_app_instructions` read and edit `Application.customInstructions` and
+`testScopeGuidelines` - the two free-text fields a user maintains on the settings page, which reach
+the execution agent and the plan-authoring agent respectively. They exist so that what an agent
+establishes in one session (a flagged issue that was a false positive, a screen that misleads the
+agent) survives it, instead of being rediscovered next week. A write is a full replacement of a
+human's prose with no version history behind it, so it is a compare-and-set: `get_app_instructions`
+returns a `fingerprint`, and a write quoting a stale one comes back as a `conflict` result carrying
+the current text to merge against, rather than overwriting it.
 
 Writes run through `createWriteGuard`, which decides per call whether the write serializes with a
 human. That decision is about the application, not the address: while an agent is driving an

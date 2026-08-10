@@ -90,14 +90,24 @@ async function toolNamesOn(surface: McpSurface): Promise<string[]> {
     }
 }
 
+/**
+ * Tools added since the merge. They are listed separately from the two historical sets because
+ * those record a promise - what an old address must never stop serving - and a tool added today
+ * was never part of it. Keeping them apart means this file still fails on a tool that vanishes,
+ * while a tool that arrives is one line here rather than an edit to the promise.
+ */
+const TOOLS_ADDED_SINCE_THE_MERGE = ["get_app_instructions", "update_app_instructions"];
+
+const EXPECTED_TOOLS = [
+    ...new Set([...HISTORICAL_DEBUG_TOOLS, ...HISTORICAL_ONBOARDING_TOOLS, ...TOOLS_ADDED_SINCE_THE_MERGE]),
+];
+
 describe("the MCP tool surface", () => {
-    it("serves exactly the union of the two historical surfaces on /v1/mcp, with no duplicates", async () => {
+    it("serves exactly the historical union plus what was added since, with no duplicates", async () => {
         const names = await toolNamesOn("mcp");
 
         expect(new Set(names).size).toBe(names.length);
-        expect([...names].sort()).toEqual(
-            [...new Set([...HISTORICAL_DEBUG_TOOLS, ...HISTORICAL_ONBOARDING_TOOLS])].sort(),
-        );
+        expect([...names].sort()).toEqual([...EXPECTED_TOOLS].sort());
     });
 
     it("serves the same tools on every address, so an alias is never the lesser surface", async () => {
@@ -129,7 +139,7 @@ describe("the MCP tool surface", () => {
  * server does not have is worse than guidance that names none - it reads as authoritative and
  * sends the agent looking for something that was renamed out from under it.
  */
-const GUIDANCE_ENTRY_POINTS = ["pair", "get_analysis"];
+const GUIDANCE_ENTRY_POINTS = ["pair", "get_analysis", "get_app_instructions", "update_app_instructions"];
 
 describe("the connect-time instructions", () => {
     it("only sends an agent to tools that exist", async () => {

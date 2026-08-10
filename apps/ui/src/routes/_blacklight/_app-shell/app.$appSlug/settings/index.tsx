@@ -27,6 +27,7 @@ import {
   Skeleton,
   Textarea,
 } from "@autonoma/blacklight";
+import { APPLICATION_INSTRUCTIONS_MAX_LENGTH } from "@autonoma/types";
 import { GithubLogoIcon } from "@phosphor-icons/react/GithubLogo";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { LinkBreakIcon } from "@phosphor-icons/react/LinkBreak";
@@ -47,7 +48,7 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/setti
   component: SettingsPage,
 });
 
-const MAX_INSTRUCTIONS_LENGTH = 2000;
+const MAX_INSTRUCTIONS_LENGTH = APPLICATION_INSTRUCTIONS_MAX_LENGTH;
 
 const EXAMPLE_INSTRUCTIONS = [
   "Always use the email test-user@example.com when logging in.",

@@ -1,4 +1,5 @@
 import { ApplicationArchitecture } from "@autonoma/db";
+import { APPLICATION_INSTRUCTIONS_MAX_LENGTH } from "@autonoma/types";
 import { z } from "zod";
 import { zfd } from "zod-form-data";
 import { protectedProcedure, writeProcedure, router } from "../../trpc";
@@ -35,8 +36,8 @@ const UpdateDataSchema = z.discriminatedUnion("architecture", [
 
 const UpdateSettingsSchema = z.object({
     id: z.string(),
-    customInstructions: z.string().max(5000).nullable(),
-    testScopeGuidelines: z.string().max(5000).nullable(),
+    customInstructions: z.string().max(APPLICATION_INSTRUCTIONS_MAX_LENGTH).nullable(),
+    testScopeGuidelines: z.string().max(APPLICATION_INSTRUCTIONS_MAX_LENGTH).nullable(),
 });
 
 export const applicationsRouter = router({
