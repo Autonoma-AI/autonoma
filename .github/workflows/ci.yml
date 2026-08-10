@@ -42,10 +42,17 @@ jobs:
         id: filter
         with:
           filters: |
+            # This workflow file is in both filters on purpose. A change to ci.yml can
+            # break either job - both were migrated to self-hosted runners without
+            # ever running here, because the narrow filters meant a workflow-only
+            # change skipped them. A job you cannot exercise from a PR that edits it
+            # is a job that breaks on someone else's unrelated commit.
             db:
               - 'packages/db/prisma/**'
+              - '.github/workflows/ci.yml'
             k8s:
               - 'packages/k8s/**'
+              - '.github/workflows/ci.yml'
 
   check-migrations:
     name: Check Prisma Migrations
@@ -99,7 +106,8 @@ jobs:
 
   k8s-integration:
     name: K8s Integration (kind)
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: [self-hosted, autonoma-4vcpu]
+    timeout-minutes: 30
     needs: changes
     # Real kind cluster; only worth spinning up when @autonoma/k8s itself changes.
     if: needs.changes.outputs.k8s == 'true'
@@ -110,23 +118,11 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
-      - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       # The suite creates and tears down its own kind cluster, so we only need
       # the kind + kubectl binaries present (Docker is already on the runner).
-      - name: Install kind and kubectl
-        run: |
-          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64
-          chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
-          curl -Lo ./kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-          chmod +x ./kubectl && sudo mv ./kubectl /usr/local/bin/kubectl
 
       - name: Integration test
         run: TESTING=true pnpm --filter @autonoma/k8s test:integration
