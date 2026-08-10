@@ -489,14 +489,23 @@ function microsoftProvider(): MicrosoftProviderConfig | undefined {
 }
 
 /**
+ * Scopes requested from Entra, replacing better-auth's defaults for this provider - which also
+ * ask for `User.Read` and `offline_access`. Sign-in needs an identity and nothing else, and
+ * those two are expensive here: `User.Read` upgrades the access token to a Microsoft Graph JWT
+ * (~2KB) and `offline_access` adds a refresh token (~1.4KB), both of which then ride back
+ * through the OAuth proxy. See the size ceiling documented on the provider below.
+ */
+const MICROSOFT_SCOPES: string[] = ["openid", "profile", "email"];
+
+/**
  * The Microsoft provider with the domain-assertion hook attached, or undefined when the provider is
  * not configured.
  *
  * `mapProfileToUser` rather than a custom `getUserInfo`, and the distinction matters: better-auth's own
- * `getUserInfo` for this provider decodes the id token, fetches the profile photo, and works out
- * `emailVerified` from three different claims. Replacing it to read one claim would silently drop all
- * of that. This hook is handed the same decoded token and is used purely for its side effect - it
- * overrides no field, so every bit of better-auth's behaviour is preserved.
+ * `getUserInfo` for this provider decodes the id token and works out `emailVerified` from three
+ * different claims. Replacing it to read one claim would silently drop all of that. This hook is
+ * handed the same decoded token and is used purely for its side effect - it overrides no field, so
+ * every bit of better-auth's behaviour is preserved.
  */
 function microsoftProviderWithAssertion(redisClient: Redis) {
     if (MICROSOFT_PROVIDER == null) return undefined;
@@ -504,6 +513,16 @@ function microsoftProviderWithAssertion(redisClient: Redis) {
         clientId: MICROSOFT_PROVIDER.clientId,
         clientSecret: MICROSOFT_PROVIDER.clientSecret,
         tenantId: MICROSOFT_PROVIDER.tenantId,
+        // Everything the provider hands back is charged twice. The OAuth proxy replays this
+        // profile to the originating environment in a query string, encrypted to hex - two
+        // characters per byte - and CloudFront fronts every app origin with a hard, unraisable
+        // 8192-byte limit on the request URI. Past it CloudFront answers 414 itself, so the
+        // callback dies as a blank page the API never sees. Entra's default token set alone
+        // reaches ~10KB there, and better-auth compounds it by inlining the Graph profile photo
+        // into `image` as a base64 data URI.
+        disableDefaultScope: true,
+        scope: MICROSOFT_SCOPES,
+        disableProfilePhoto: true,
         mapProfileToUser: async (profile: unknown) => {
             const assertion = microsoftDomainAssertion(profile);
             const email = readClaimString(profile, "email") ?? readClaimString(profile, "preferred_username");
