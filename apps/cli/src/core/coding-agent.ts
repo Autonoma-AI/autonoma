@@ -41,6 +41,20 @@ const CODEX_BEARER_TOKEN_ENV = "AUTONOMA_MCP_TOKEN";
 const CLAUDE_CONNECTED_MARKER = "Connected";
 
 /**
+ * Output that means the client's own binary could not be executed at all, rather than
+ * anything about the server it was asked to register. Patterns rather than a set: each
+ * is a fragment of a longer line from a shell or the OS. Seen in the wild on Windows,
+ * where an npm shim resolved to a path cmd.exe refused to run - reported as "could not
+ * register the MCP server", which sent the reader looking in entirely the wrong place.
+ */
+const CLIENT_NOT_EXECUTABLE_PATTERNS = [
+    /is not recognized as an internal or external command/i,
+    /command not found/i,
+    /\bENOENT\b/,
+    /no such file or directory/i,
+];
+
+/**
  * What `claude mcp get` prints for a registration carrying a bearer header.
  *
  * Claude turns OAuth off entirely while one is set - "OAuth fallback is disabled when
@@ -213,10 +227,21 @@ interface SignInResult {
     ok: boolean;
     /** Parenthesised detail to append to a message, or "" when there is none to add. */
     detail: string;
+    /**
+     * The client's own binary would not run. No credential rescues that - the token
+     * fallback would apply itself through the same binary - so this is a broken
+     * installation to report, not an authorization step to retry differently.
+     */
+    clientUnusable: boolean;
+}
+
+/** Authorization that came from the run's own API token, not a browser sign-in. */
+interface TokenAuthorization {
+    apiToken: string;
 }
 
 /** How a server ended up authorized, which decides what the spawn needs in its env. */
-type Authorization = { via: "sign-in" } | { via: "token"; apiToken: string };
+type Authorization = { via: "sign-in" } | ({ via: "token" } & TokenAuthorization);
 
 /**
  * Whether this process is itself running inside an agent the CLI spawned. Callers
@@ -342,15 +367,19 @@ export abstract class BaseLauncher implements AgentLauncher {
      */
     protected async signIn(serverName: string): Promise<SignInResult> {
         if (process.stdin.isTTY !== true) {
-            return { ok: false, detail: " (no terminal to run a browser sign-in from)" };
+            return { ok: false, detail: " (no terminal to run a browser sign-in from)", clientUnusable: false };
         }
 
         p.log.info(`Authorizing ${this.label} with Autonoma - approve it in the browser that opens.`);
         const login = await this.runAttached(["mcp", "login", serverName]);
-        if (login.code === 0) return { ok: true, detail: "" };
+        if (login.code === 0) return { ok: true, detail: "", clientUnusable: false };
 
         debugLog(`${this.label} sign-in failed`, { serverName, code: login.code, stderr: login.stderr });
-        return { ok: false, detail: describeSignInFailure(login) };
+        return {
+            ok: false,
+            detail: describeSignInFailure(login, this.label),
+            clientUnusable: isClientNotExecutable(login.stderr),
+        };
     }
 
     /**
@@ -381,10 +410,23 @@ export abstract class BaseLauncher implements AgentLauncher {
     protected async authorizeInteractively(spec: McpServerSpec): Promise<Authorization> {
         const signIn = await this.signIn(spec.name);
         if (signIn.ok) return { via: "sign-in" };
+        return { via: "token", ...this.fallBackToToken(spec, signIn) };
+    }
+
+    /**
+     * Switch to the run's own API token after a browser sign-in did not happen, for
+     * whatever reason - it was refused, it failed, or the client folded it into a
+     * registration that failed. Throws only when there is no token to switch to.
+     */
+    protected fallBackToToken(spec: McpServerSpec, signIn: SignInResult): TokenAuthorization {
+        const detail = signIn.detail;
+        if (signIn.clientUnusable) {
+            throw new Error(`Could not register the ${spec.name} MCP server with ${this.label}:${detail}`);
+        }
 
         if (spec.apiToken == null) {
             throw new Error(
-                `${this.label} could not sign in to the ${spec.name} MCP server${signIn.detail}, and this run ` +
+                `${this.label} could not sign in to the ${spec.name} MCP server${detail}, and this run ` +
                     `has no API token to fall back on. Set AUTONOMA_API_TOKEN and run again.`,
             );
         }
@@ -392,13 +434,13 @@ export abstract class BaseLauncher implements AgentLauncher {
         captureLog("warn", "Browser sign-in failed; authorizing the MCP server with the run's API token", {
             source: "coding_agent",
             agent: this.id,
-            detail: signIn.detail,
+            detail,
         });
         p.log.warn(
-            `${this.label} couldn't sign in to the ${spec.name} MCP server${signIn.detail}. Authorizing it with ` +
+            `${this.label} couldn't sign in to the ${spec.name} MCP server${detail}. Authorizing it with ` +
                 `this run's API token instead.`,
         );
-        return { via: "token", apiToken: spec.apiToken };
+        return { apiToken: spec.apiToken };
     }
 
     /**
@@ -583,7 +625,7 @@ export class ClaudeLauncher extends BaseLauncher {
         if (registered.code !== 0) {
             throw new Error(
                 `Could not register the ${spec.name} MCP server with ${this.label}: ` +
-                    `${firstLine(registered.stderr) || firstLine(registered.stdout) || "unknown error"}`,
+                    `${describeCommandFailure(registered, this.label)}`,
             );
         }
         return registered.stdout;
@@ -638,14 +680,45 @@ export class CodexLauncher extends BaseLauncher {
             return { env: { [CODEX_BEARER_TOKEN_ENV]: apiToken } };
         }
 
-        await this.addServer(spec, undefined);
-        const authorization = await this.authorizeInteractively(spec);
-        if (authorization.via === "sign-in") return { env: {} };
+        const signIn = await this.addServerAndSignIn(spec);
+        if (signIn.ok) return { env: {} };
 
         // Re-adding overwrites, so the token registration simply replaces the one the
-        // sign-in was meant to claim.
+        // sign-in was folded into. With a token env var named, `mcp add` registers and
+        // stops - it starts no OAuth flow, which is what makes this a viable fallback
+        // on a machine that could not open a browser in the first place.
+        const authorization = this.fallBackToToken(spec, signIn);
         await this.addServer(spec, authorization.apiToken);
         return { env: { [CODEX_BEARER_TOKEN_ENV]: authorization.apiToken } };
+    }
+
+    /**
+     * Register the server the interactive way, which for Codex is one step rather than
+     * two: given a `--url` and no bearer token, `codex mcp add` detects the server's
+     * OAuth support, prints an authorization URL, opens a browser and waits on the
+     * callback - all inside the add.
+     *
+     * Two consequences. It needs the terminal: run through a pipe, the URL it tells the
+     * user to "copy above manually" when the browser fails to open goes into a buffer
+     * nobody reads, turning a recoverable prompt into a dead end. And a clean exit means
+     * the server is registered AND signed in, so following it with `mcp login` would
+     * only open a second browser flow for a session that is already authorized.
+     */
+    private async addServerAndSignIn(spec: McpServerSpec): Promise<SignInResult> {
+        if (process.stdin.isTTY !== true) {
+            return { ok: false, detail: " (no terminal to run a browser sign-in from)", clientUnusable: false };
+        }
+
+        p.log.info(`Authorizing ${this.label} with Autonoma - approve it in the browser that opens.`);
+        const added = await this.runAttached(["mcp", "add", spec.name, "--url", spec.url]);
+        if (added.code === 0) return { ok: true, detail: "", clientUnusable: false };
+
+        debugLog(`${this.label} registration sign-in failed`, { code: added.code, stderr: added.stderr });
+        return {
+            ok: false,
+            detail: describeSignInFailure(added, this.label),
+            clientUnusable: isClientNotExecutable(added.stderr),
+        };
     }
 
     /** Add (or overwrite) the server, with the token read from an env var by name. */
@@ -657,7 +730,7 @@ export class CodexLauncher extends BaseLauncher {
         if (added.code !== 0) {
             throw new Error(
                 `Could not register the ${spec.name} MCP server with ${this.label}: ` +
-                    `${firstLine(added.stderr) || firstLine(added.stdout) || "unknown error"}`,
+                    `${describeCommandFailure(added, this.label)}`,
             );
         }
     }
@@ -745,14 +818,35 @@ export function parsePermissionMode(value?: string): PermissionMode | undefined 
 }
 
 /**
+ * Why one of a client's own subcommands failed, in terms of the thing that is actually
+ * wrong. A shell that cannot run the binary is a broken installation, not a rejected
+ * registration, and saying so is the difference between checking your PATH and hunting
+ * a server that was never the problem.
+ */
+function describeCommandFailure(result: CommandResult, label: string): string {
+    return explainFailureReason(firstLine(result.stderr) || firstLine(result.stdout) || "unknown error", label);
+}
+
+/** Whether output means the client's binary could not be executed at all. */
+function isClientNotExecutable(output: string): boolean {
+    return CLIENT_NOT_EXECUTABLE_PATTERNS.some((pattern) => pattern.test(output));
+}
+
+/** Restate a raw failure reason as the thing that is actually wrong. */
+function explainFailureReason(reason: string, label: string): string {
+    if (!isClientNotExecutable(reason)) return reason;
+    return `${label} is on your PATH but could not be run (${reason}). Reinstall it, then run again.`;
+}
+
+/**
  * Why a sign-in failed, for a message the next person can act on. The client writes
  * its own diagnosis to stderr and exits; without quoting it back, an operator reading
  * telemetry sees only "exit 1" and has nothing to go on.
  */
-function describeSignInFailure(login: AttachedResult): string {
+function describeSignInFailure(login: AttachedResult, label: string): string {
     const reason = firstLine(login.stderr);
     const code = login.code ?? "unknown";
-    return reason.length > 0 ? ` (exit ${code}: ${reason})` : ` (exit ${code})`;
+    return reason.length > 0 ? ` (exit ${code}: ${explainFailureReason(reason, label)})` : ` (exit ${code})`;
 }
 
 /** Narrow parsed JSON to a plain object before indexing into it. */

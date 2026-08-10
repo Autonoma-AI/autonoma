@@ -60,6 +60,8 @@ let spawnCalls: SpawnCall[] = [];
 let configDir: string;
 /** Exit code each spawned subcommand reports, keyed by its first argument pair. */
 let exitCodes: Map<string, number>;
+/** Exit codes for consecutive calls to the same subcommand, consumed in order. */
+let exitCodeSequences: Map<string, number[]>;
 /** stdout each spawned subcommand emits, keyed the same way. */
 let stdouts: Map<string, string>;
 /** stderr each spawned subcommand emits, keyed the same way. */
@@ -78,9 +80,10 @@ function fakeProcess(args: string[]) {
         stderr: Readable.from([stderrs.get(key) ?? ""]),
         kill: () => true,
     });
+    const code = exitCodeSequences.get(key)?.shift() ?? exitCodes.get(key) ?? 0;
     queueMicrotask(() => {
         // Let the readables drain before the close listener tears the process down.
-        setTimeout(() => proc.emit("close", exitCodes.get(key) ?? 0), 0);
+        setTimeout(() => proc.emit("close", code), 0);
     });
     return proc;
 }
@@ -108,6 +111,7 @@ beforeEach(async () => {
     selectMock.mockReset();
     spawnCalls = [];
     exitCodes = new Map();
+    exitCodeSequences = new Map();
     stdouts = new Map();
     stderrs = new Map();
     spawnMock.mockReset();
@@ -414,6 +418,19 @@ describe("ClaudeLauncher.registerMcpServer", () => {
         await expect(claude().registerMcpServer(SPEC)).rejects.toThrow(/Could not register/);
     });
 
+    // A shell that cannot run the binary is a broken installation, not a rejected
+    // registration. Seen on Windows, where an npm shim resolved to a path cmd.exe
+    // refused to run - and the reader was pointed at the MCP server instead.
+    test("blames the installation when the client binary cannot be run", async () => {
+        exitCodes.set("mcp add", 1);
+        exitCodes.set("mcp get", 1);
+        stderrs.set("mcp get", "'C:\\npm\\claude.exe' is not recognized as an internal or external command,\n");
+
+        await expect(claude().registerMcpServer(SPEC)).rejects.toThrow(
+            /Claude Code is on your PATH but could not be run/,
+        );
+    });
+
     // The sign-in is a convenience over a credential the run already holds. Losing the
     // whole run to a browser that would not open is the worse outcome - and because a
     // failed `mcp login` clears whatever credentials the client had, re-adding with the
@@ -560,18 +577,31 @@ describe("CodexLauncher.registerMcpServer", () => {
         expect(registration.env).toEqual({ AUTONOMA_MCP_TOKEN: "ask_test" });
     });
 
-    test("signs in through the browser when there is someone to approve it", async () => {
+    // `codex mcp add --url` detects the server's OAuth support and runs the whole flow
+    // itself, so the add IS the sign-in. A separate `mcp login` afterwards would only
+    // open a second browser flow for a session that is already authorized.
+    test("signs in as part of the add, without a second login flow", async () => {
         const registration = await codex().registerMcpServer(SPEC);
 
         expect(spawnCalls[0]?.args).toEqual(["mcp", "add", SPEC.name, "--url", SPEC.url]);
-        expect(spawnCalls[1]?.args).toEqual(["mcp", "login", SPEC.name]);
+        expect(spawnCalls.map((call) => commandKey(call.args))).not.toContain("mcp login");
         expect(registration.env).toEqual({});
     });
 
+    // Piping it hid the authorization URL: when the browser fails to open, Codex prints
+    // "copy the URL above manually" - and there was no URL above, because we had it.
+    test("gives the add the terminal, since it prints a URL and waits on a callback", async () => {
+        await codex().registerMcpServer(SPEC);
+
+        expect(spawnCalls[0]?.stdio).toEqual(["inherit", "inherit", "pipe"]);
+    });
+
     // Re-adding overwrites, so the token registration simply replaces the one the
-    // sign-in was meant to claim - and the spawn now needs the token in its env.
-    test("falls back to the run's API token when the browser sign-in fails", async () => {
-        exitCodes.set("mcp login", 1);
+    // sign-in was folded into - and the spawn now needs the token in its env. Naming a
+    // token env var also stops Codex starting an OAuth flow, which is what makes this
+    // survivable on the machine that could not open a browser to begin with.
+    test("falls back to the run's API token when the add's sign-in fails", async () => {
+        exitCodeSequences.set("mcp add", [1, 0]);
 
         const registration = await codex().registerMcpServer({ ...SPEC, apiToken: "ask_test" });
 
@@ -581,10 +611,34 @@ describe("CodexLauncher.registerMcpServer", () => {
         expect(adds[1]?.args).toContain("--bearer-token-env-var");
     });
 
-    test("fails when the registration itself fails", async () => {
+    test("quotes what the add said when it fails and there is no token to fall back on", async () => {
+        exitCodes.set("mcp add", 1);
+        stderrs.set("mcp add", "Browser launch failed; please copy the URL above manually.\n");
+
+        await expect(codex().registerMcpServer(SPEC)).rejects.toThrow(/Browser launch failed/);
+    });
+
+    // A binary that will not execute is a broken installation, and the token fallback
+    // would apply itself through that same binary - so "Set AUTONOMA_API_TOKEN" is the
+    // wrong instruction. Codex folds its sign-in into `mcp add`, which is the path that
+    // used to answer a shell error with authorization advice.
+    test("tells the user to reinstall, not to set a token, when the binary will not run", async () => {
+        exitCodes.set("mcp add", 1);
+        stderrs.set("mcp add", "codex: command not found\n");
+
+        const error: unknown = await codex()
+            .registerMcpServer(SPEC)
+            .then(() => undefined)
+            .catch((err: unknown) => err);
+
+        expect(String(error)).toMatch(/Codex CLI is on your PATH but could not be run/);
+        expect(String(error)).not.toMatch(/AUTONOMA_API_TOKEN/);
+    });
+
+    test("fails when the token registration itself fails", async () => {
         exitCodes.set("mcp add", 1);
 
-        await expect(codex().registerMcpServer(SPEC)).rejects.toThrow(/Could not register/);
+        await expect(codex().registerMcpServer(HEADLESS_SPEC)).rejects.toThrow(/Could not register/);
     });
 
     test("refuses the browser sign-in when there is no terminal", async () => {
