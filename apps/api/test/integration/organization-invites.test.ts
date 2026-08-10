@@ -133,16 +133,14 @@ apiTestSuite({
             await expect(inviteTo(harness, member.email)).rejects.toThrow(/already a member/i);
         });
 
-        test("an org anyone can join by email domain cannot invite", async ({ harness }) => {
+        /**
+         * A domain-keyed organization acting as the caller. `domain` is unique, so it is randomised per
+         * run - a hardcoded value passes once and then collides with the previous run's row.
+         */
+        async function domainKeyedOrgSession(harness: APITestHarness) {
+            const domain = `acme-${randomBytes(4).toString("hex")}.test`;
             const org = await harness.db.organization.create({
-                // Unique per run: `organization.domain` is unique, so a hardcoded value makes the suite
-                // impossible to re-run against a database that persists between runs - which is what
-                // local verification uses.
-                data: {
-                    name: "Acme",
-                    slug: `acme-${randomBytes(4).toString("hex")}`,
-                    domain: `acme-${randomBytes(4).toString("hex")}.test`,
-                },
+                data: { name: "Acme", slug: `acme-${randomBytes(4).toString("hex")}`, domain },
             });
             await harness.db.member.create({
                 data: { userId: harness.userId, organizationId: org.id, role: "owner" },
@@ -155,10 +153,33 @@ apiTestSuite({
                     activeOrganizationId: org.id,
                 },
             });
+            return { domain, org, session };
+        }
 
+        test("inviting an address at the organization's own auto-join domain is refused as pointless", async ({
+            harness,
+        }) => {
+            const { domain, session } = await domainKeyedOrgSession(harness);
+
+            // This person is auto-joined the moment they sign up, so an invitation adds nothing.
             await expect(
-                harness.request(session).organization.invite({ email: uniqueEmail("pointless") }),
+                harness
+                    .request(session)
+                    .organization.invite({ email: `newcomer-${randomBytes(4).toString("hex")}@${domain}` }),
             ).rejects.toThrow(/automatically/i);
+        });
+
+        test("a domain-keyed organization can invite someone from outside its domain", async ({ harness }) => {
+            // The defect this replaced: every invitation from a domain-keyed organization was refused,
+            // so a company could not invite a contractor on gmail, anyone at a partner company, or a
+            // founder's own personal address - the only people who actually need an invitation.
+            const { session } = await domainKeyedOrgSession(harness);
+            const outsider = uniqueEmail("contractor");
+
+            const invitation = await harness.request(session).organization.invite({ email: outsider });
+
+            expect(invitation.email).toBe(outsider);
+            expect(invitation.acceptUrl).toContain(`/invite/${invitation.id}`);
         });
 
         test("accepting adds a membership and keeps the ones the user already had", async ({ harness }) => {

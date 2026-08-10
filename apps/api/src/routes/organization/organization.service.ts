@@ -9,7 +9,7 @@ import {
     type MyOrganization,
     type OrganizationMember,
     type PendingInvitation,
-    orgHasAutoJoinDomain,
+    emailAutoJoinsOrg,
 } from "@autonoma/types";
 import type { Auth } from "../../auth";
 import type { EmailSender } from "../../email/email-sender";
@@ -158,11 +158,13 @@ export class OrganizationService extends Service {
 
         if (organization == null) throw new NotFoundError("Organization not found");
 
-        // An org anyone can auto-join by email domain has nothing to invite anyone to; offering
-        // it would produce invitations that are indistinguishable from just signing up.
-        if (orgHasAutoJoinDomain(organization.domain ?? undefined)) {
+        // Only pointless when THIS address would be auto-joined anyway. It used to refuse every
+        // invitation from a domain-keyed organization, which locked out exactly the people who need
+        // an invitation: a contractor on gmail, someone at a partner company, a founder's personal
+        // address. None of them will ever be auto-joined, so the invitation is the only way in.
+        if (emailAutoJoinsOrg(email, organization.domain ?? undefined)) {
             throw new BadRequestError(
-                `Anyone with an @${organization.domain} email joins ${organization.name} automatically, so invitations aren't needed.`,
+                `${email} joins ${organization.name} automatically with an @${organization.domain} address, so no invitation is needed.`,
             );
         }
 

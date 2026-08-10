@@ -13,3 +13,19 @@
 export function orgHasAutoJoinDomain(domain: string | undefined): boolean {
     return domain != null && domain.includes("@") === false;
 }
+
+/**
+ * Whether this address would be auto-joined into an organization keyed on `orgDomain` - the only case
+ * where sending an invitation achieves nothing, because signing up already puts them there.
+ *
+ * Note what this is NOT: "does the organization have an auto-join domain". A company organization
+ * still needs to invite people from outside it - a contractor on gmail, someone at a partner company,
+ * a founder's own personal address. Refusing every invitation just because the organization happens to
+ * be domain-keyed locks those people out, which is exactly what it did.
+ */
+export function emailAutoJoinsOrg(email: string, orgDomain: string | undefined): boolean {
+    if (!orgHasAutoJoinDomain(orgDomain)) return false;
+    const inviteeDomain = email.split("@")[1]?.trim().toLowerCase();
+    if (inviteeDomain == null || inviteeDomain === "") return false;
+    return inviteeDomain === orgDomain?.trim().toLowerCase();
+}

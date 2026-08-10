@@ -38,6 +38,27 @@ const DEFAULT_ERROR_TITLE = "An unexpected error occurred";
 
 const INTERNAL_ERROR_PATTERNS = [/prisma/i, /invocation in/i, /constraint/i, /\.ts:\d+/];
 
+/**
+ * Codes where the server's message was written for the person reading it - a rule they ran into, not a
+ * crash. Those get the message as the toast title, because heading a deliberate explanation with "an
+ * unexpected error occurred" tells the reader to go find an engineer instead of reading the sentence.
+ */
+const EXPECTED_ERROR_CODES: ReadonlySet<string> = new Set([
+    "BAD_REQUEST",
+    "CONFLICT",
+    "FORBIDDEN",
+    "NOT_FOUND",
+    "PRECONDITION_FAILED",
+    "UNPROCESSABLE_CONTENT",
+    "TOO_MANY_REQUESTS",
+]);
+
+function isExpectedError(error: unknown): boolean {
+    if (!isTRPCClientError(error)) return false;
+    const code = error.data?.code;
+    return typeof code === "string" && EXPECTED_ERROR_CODES.has(code);
+}
+
 function extractErrorMessage(error: unknown): string | undefined {
     const message = isTRPCClientError(error) ? error.message : error instanceof Error ? error.message : undefined;
     if (message == null) return undefined;
@@ -73,12 +94,15 @@ export function useAPIMutation<TData = unknown, TError = DefaultError, TVariable
             if (isDemoReadOnlyError(error)) {
                 return onError?.(...args);
             }
+            const explained = isExpectedError(error) ? extractErrorMessage(error) : undefined;
             const props =
                 typeof errorToast === "function"
                     ? errorToast(error, variables)
-                    : (errorToast ?? { title: DEFAULT_ERROR_TITLE });
+                    : (errorToast ?? { title: explained ?? DEFAULT_ERROR_TITLE });
 
-            const description = props.description != null ? String(props.description) : extractErrorMessage(error);
+            // A message already shown as the title must not be repeated underneath it.
+            const fallbackDescription = explained != null ? undefined : extractErrorMessage(error);
+            const description = props.description != null ? String(props.description) : fallbackDescription;
             toastManager.add({
                 title: String(props.title ?? ""),
                 description,
