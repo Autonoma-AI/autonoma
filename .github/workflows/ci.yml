@@ -133,7 +133,8 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: [self-hosted, autonoma-4vcpu]
+    timeout-minutes: 20
     if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
@@ -141,12 +142,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -156,7 +151,7 @@ jobs:
       # entry, and the prefix restore-keys pulls the newest prior one so a PR's
       # later commits only recompute the packages that actually changed.
       - name: Turbo cache
-        uses: useblacksmith/cache@v5
+        uses: actions/cache@v4
         with:
           path: .turbo
           key: turbo-${{ github.job }}-${{ github.sha }}
@@ -168,7 +163,8 @@ jobs:
 
   test:
     name: Test
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: [self-hosted, autonoma-8vcpu]
+    timeout-minutes: 30
     if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
@@ -179,20 +175,14 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
-      - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
-        run: pnpm --filter @autonoma/engine-web exec playwright install --with-deps chromium
+        run: pnpm --filter @autonoma/engine-web exec playwright install chromium
 
       - name: Turbo cache
-        uses: useblacksmith/cache@v5
+        uses: actions/cache@v4
         with:
           path: .turbo
           key: turbo-${{ github.job }}-${{ github.sha }}
@@ -212,7 +202,8 @@ jobs:
 
   integration-tests:
     name: Integration tests
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: [self-hosted, autonoma-4vcpu]
+    timeout-minutes: 30
     if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
@@ -220,12 +211,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -241,7 +226,8 @@ jobs:
 
   build:
     name: Build
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: [self-hosted, autonoma-8vcpu]
+    timeout-minutes: 30
     if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
@@ -250,17 +236,11 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
-      - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Turbo cache
-        uses: useblacksmith/cache@v5
+        uses: actions/cache@v4
         with:
           path: .turbo
           key: turbo-${{ github.job }}-${{ github.sha }}
@@ -272,7 +252,8 @@ jobs:
 
   typecheck:
     name: Typecheck
-    runs-on: blacksmith-8vcpu-ubuntu-2404
+    runs-on: [self-hosted, autonoma-8vcpu]
+    timeout-minutes: 30
     if: github.event.pull_request.draft == false && github.event.action != 'edited'
     steps:
       - name: Checkout
@@ -281,17 +262,11 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
 
-      - name: Setup Node.js
-        uses: useblacksmith/setup-node@v5
-        with:
-          node-version: 24
-          cache: pnpm
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
       - name: Turbo cache
-        uses: useblacksmith/cache@v5
+        uses: actions/cache@v4
         with:
           path: .turbo
           key: turbo-${{ github.job }}-${{ github.sha }}
