@@ -174,7 +174,7 @@ export class APITestHarness implements IntegrationHarness {
         // (`ensureOrgMembership`), which is what grants the free starting credits. Without it the
         // harness org sits at a zero balance no real one ever has, and any flow behind the credits
         // gate - queueing generations, triggering a preview - fails on "Insufficient credits".
-        await ensureBillingProvisioning(this.db, this.organization.id);
+        await ensureBillingProvisioning(this.db, this.organization.id, { grantFreeStart: true });
     }
 
     async afterAll() {

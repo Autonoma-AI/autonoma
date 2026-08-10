@@ -318,7 +318,8 @@ async function ensureVercelUserAndOrg(params: EnsureVercelUserAndOrgParams): Pro
             update: {},
             create: { userId, organizationId, role: "owner" },
         }),
-        ensureBillingProvisioning(db, organizationId),
+        // A Vercel install creates the organization, so it is a creation site and keeps the grant.
+        ensureBillingProvisioning(db, organizationId, { grantFreeStart: true }),
     ]);
 
     logger.info("Vercel user and org resolved", { userId, organizationId });

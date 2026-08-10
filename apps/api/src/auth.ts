@@ -225,6 +225,15 @@ export type AuthSession = {
  * The plugin's read endpoint (`list`) stays open - it grants nothing.
  */
 const DISABLED_ORGANIZATION_PATHS: ReadonlySet<string> = new Set([
+    // Creating and deleting organizations are both ways to mint free credits, because the starting
+    // grant is per organization: create one and the next sign-in funds it, or delete your only one
+    // and the next sign-in derives a fresh funded one. Nothing in the product creates organizations
+    // this way - they come from `ensureOrgMembership`, the Vercel install flow and the admin switcher -
+    // so closing these costs no feature. `update` goes too: `organization.rename` is the supported
+    // path and it also stamps `nameConfirmedAt`, which the plugin's version would skip.
+    "/organization/create",
+    "/organization/update",
+    "/organization/delete",
     "/organization/invite-member",
     "/organization/accept-invitation",
     "/organization/reject-invitation",
@@ -318,6 +327,7 @@ export async function ensureOrgMembership(
         }));
 
     if (existing != null) {
+        // A membership that already existed: make sure a customer row is there, but fund nothing.
         await ensureBillingProvisioning(conn, existing.organizationId);
         return {
             organizationId: existing.organizationId,
@@ -385,7 +395,8 @@ export async function ensureOrgMembership(
         create: { userId, organizationId: orgId, role: "owner" },
     });
 
-    await ensureBillingProvisioning(conn, orgId);
+    // The one place a signup's organization is created, so the one place the starting grant belongs.
+    await ensureBillingProvisioning(conn, orgId, { grantFreeStart: true });
 
     return { organizationId: orgId, orgName, orgSlug, isNewUser: true };
 }
@@ -802,7 +813,11 @@ export function buildAuth({ redisClient, conn, platformEvents: injectedPlatformE
             },
         },
         plugins: [
-            organization(),
+            organization({
+                // The path list above already refuses `/organization/create`; this makes the plugin
+                // itself refuse, so a rename of the route upstream cannot quietly re-open it.
+                allowUserToCreateOrganization: false,
+            }),
             apiKey({
                 schema: {
                     apikey: { modelName: "apiKey" },
