@@ -28,6 +28,12 @@ An Autonoma-hosted preview gets its own database, so a test run creates and dest
 
 The two mistakes are not symmetrical. Choosing Autonoma-hosted when you did not need to costs a preview environment we build for you anyway. Choosing your own pipeline when your data is not tenant-scoped writes test data into your real database, in front of your users, and it cannot be taken back.
 
+Autonoma-hosted is therefore the default, and it is the one a coding agent will pick on its own.
+
+**A coding agent will never choose this path for you.** It is available on any host - Vercel or the signed webhook below - but it always takes your own decision, so the agent has to pass your answer back before Autonoma will accept it.
+
+What differs is whether it raises the option. On Vercel our integration makes it a genuine choice, so the agent will ask. Anywhere else it will set up Autonoma-hosted previews and say nothing about this path; ask for it and it will explain both sides first. Either way you can pick it yourself in the Autonoma UI, which routes on the same questions.
+
 :::note
 "Tenant-scoped" means a test can create everything it needs underneath one deletable owner. If a test signs up an organization, works inside it, and deleting that organization removes every row it touched, you are tenant-scoped. Global tables that all tenants read - a shared product catalogue, a public listings table, a global search index - are what break this.
 :::

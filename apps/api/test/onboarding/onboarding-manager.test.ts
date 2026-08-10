@@ -259,6 +259,67 @@ integrationTestSuite({
             );
         });
 
+        test("confirming existing-deploys setup is refused until a signal has landed", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 91_031);
+            await manager.completeGithub(appId, orgId);
+            await manager.selectPreviewEnvironmentMode(appId, orgId, "existing_deploys");
+
+            await expect(manager.confirmExistingDeploysSetup(appId, orgId)).rejects.toThrow(
+                "No deployment signal has reached Autonoma yet",
+            );
+            expect((await manager.getState(appId)).step).toBe("existing_deploys_configuring");
+        });
+
+        test("switching preview path is refused once a preview is verified", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 91_032);
+            await manager.completeGithub(appId, orgId);
+            await manager.selectPreviewEnvironmentMode(appId, orgId, "existing_deploys");
+            await manager.acceptDeploymentSignal({
+                bodyText: deploymentSignalBody(appId, "https://verified.example.com"),
+                signature: deploymentSignalSignature(
+                    deploymentSignalBody(appId, "https://verified.example.com"),
+                    "shared-secret",
+                ),
+            });
+
+            await expect(manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit")).rejects.toThrow(
+                "already has a verified preview",
+            );
+            const state = await manager.getState(appId);
+            expect(state.previewEnvironmentMode).toBe("existing_deploys");
+            expect(state.previewUrl).toBe("https://verified.example.com");
+        });
+
+        test("re-selecting the same path preserves the verified preview instead of restarting", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 91_033);
+            await manager.completeGithub(appId, orgId);
+            await manager.selectPreviewEnvironmentMode(appId, orgId, "existing_deploys");
+            await manager.acceptDeploymentSignal({
+                bodyText: deploymentSignalBody(appId, "https://same-path.example.com"),
+                signature: deploymentSignalSignature(
+                    deploymentSignalBody(appId, "https://same-path.example.com"),
+                    "shared-secret",
+                ),
+            });
+
+            const after = await manager.selectPreviewEnvironmentMode(appId, orgId, "existing_deploys");
+
+            expect(after.step).toBe("preview_verified");
+            expect(after.previewUrl).toBe("https://same-path.example.com");
+        });
+
         test("triggerPreviewkitMainDeploy calls PreviewKit for main env 0", async ({
             harness,
             seedResult: { orgId, createApp },

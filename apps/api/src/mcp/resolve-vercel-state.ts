@@ -23,6 +23,6 @@ export async function resolveVercelState(
         return { installed: projects.connected, linked: projects.linkedProject != null };
     } catch (err) {
         logger.warn("Could not resolve Vercel state; assuming this app is not on Vercel", { applicationId, err });
-        return { installed: false, linked: false };
+        return { installed: false, linked: false, unresolved: true };
     }
 }

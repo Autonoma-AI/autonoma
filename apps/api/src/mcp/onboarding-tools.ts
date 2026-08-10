@@ -25,6 +25,7 @@ import type { McpPrincipal } from "./mcp-principal";
 import { resolveDryRunTarget } from "./resolve-dry-run-target";
 import { resolveMcpTarget } from "./resolve-mcp-target";
 import { resolveVercelState } from "./resolve-vercel-state";
+import { assertTheirPipelineIsAllowed } from "./their-pipeline-gate";
 import { describeError, errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
 import {
     VERCEL_PLAYBOOK,
@@ -46,6 +47,8 @@ const RECENT_LOG_TAIL_LINES = 30;
 const DEFAULT_TARGET_LOG_LINES = 200;
 const MAX_TARGET_LOG_LINES = 1000;
 const ACTIVITY_DESCRIPTION_MAX_LENGTH = 120;
+/** Long enough that quoting the user is easier than passing "yes" to get past the check. */
+const USER_REQUEST_MIN_LENGTH = 15;
 
 /**
  * An optional short, human-readable summary an agent attaches to a write. The user
@@ -79,17 +82,19 @@ Do not guess which one: pair(code) returns \`previewSource\` and the full playbo
 
 On their own pipeline there are two ways Autonoma learns a preview is live, and the playbook you get names which applies - do not assume the webhook. If the project is on **Vercel**, Autonoma's Marketplace integration reports deployments already, and the work is connecting the project (get_vercel_setup); hand-writing a signed webhook there produces previews Autonoma cannot even reach, because linking the project is also what applies the deployment-protection bypass. Every other host is the signed webhook (get_signal_setup).
 
-Which to pick is a question about where test data lands, and the two options are NOT equally safe. An Autonoma-hosted preview gets its own database, so a run creates and destroys data in an environment nothing else shares. Their own previews point at a real database - commonly staging, sometimes production - so a run writes into it, and anything it creates that no tenant owns STAYS there. Picture a marketplace with no per-preview database: a test run creates listings, and real users see them.
-- No preview environments today - Autonoma-hosted, since there is nothing to connect to.
-- Previews today, and every row of data hangs off a tenant (an org/account/workspace that can be deleted whole) - either works. Wiring their existing previews is less to change, so prefer it only when you are CONFIDENT the tenant covers everything.
-- Previews today, but data is NOT cleanly tenant-scoped - Autonoma-hosted, even though previews already exist.
-- **Not sure? Pick Autonoma-hosted.** Being wrong that way costs a preview we build for them anyway. Being wrong the other way writes test data into their real database in front of their users, and we cannot take it back. Never pick their-pipeline just because previews exist - you must also be sure a run cannot leave anything behind.
+**Autonoma-hosted is the default. Their own pipeline is the exception, and it takes an explicit request from the user.** Two reasons, and neither is something you can settle by reading the repo:
+- **Where test data lands.** An Autonoma-hosted preview gets its own database, so a run creates and destroys data in an environment nothing else shares. Their own previews point at a real database - commonly staging, sometimes production - so a run writes into it, and anything it creates that no tenant owns STAYS there. Picture a marketplace with no per-preview database: a test run creates listings, and real users see them.
+- **What Autonoma can see.** On their pipeline Autonoma builds nothing, verifies nothing and holds no build or app logs, so when a preview is broken there is nothing to debug it with. On Autonoma-hosted previews all of that exists.
+**Their own pipeline always takes the user's own decision** - select_preview_path refuses it without their words. What changes by app is whether you should RAISE it:
+- **On Vercel** (Autonoma's integration is there, so it is a genuine choice): ask. It fits when the previews are entirely Vercel's - the backend in the same deployable unit, and either data cleanly scoped to a tenant a teardown can delete whole, or a branchable database (Neon, Supabase, PlanetScale) giving each preview its own. A backend deployed elsewhere, or global tables a tenant teardown would leak into, means Autonoma-hosted - which plenty of Vercel projects choose deliberately.
+- **Anywhere else**: do not bring it up. Pick Autonoma-hosted and carry on. If the USER asks ("can't we just use our previews?"), explain both sides - theirs is less to change, but test data lands in whatever database those previews point at and a failure leaves us no logs - then pass their answer.
+A deploy workflow in the repo is NOT evidence for any of this: a YAML file cannot tell you whether those previews work, whether they are isolated, or which database they point at - so finding one is never a reason to pick.
 
 Start every session by pairing - and pair FIRST, before you analyze the repo, read files, or plan. Pairing is low-risk: it only claims the app's config so the UI can show you are connected, it changes NO code and deploys NOTHING, and the user can take over at any time. This matters because the user is watching the Autonoma UI live and sees no activity at all until you pair - pairing is what flips the UI into "your agent is connected and configuring" and starts streaming what you do as feedback. If you spend minutes inspecting the project before pairing, the user just stares at an idle screen with no idea anything is happening (and may give up). So do NOT front-load repo analysis; pair immediately, then investigate.
 1. The user starts onboarding in the Autonoma UI and clicks "Configure with coding agent". The UI shows a short pairing CODE.
 2. Call pair(code) with it IMMEDIATELY, as your very first action - then do any repo analysis you need. That claims the app for you and returns its applicationId, how it gets its previews, and the playbook to follow. Use that applicationId for every other tool.
 3. CHECK YOU ARE IN THE RIGHT REPO. pair returns \`repository\` - the repo this app is linked to. Confirm your working directory is that repo (\`git remote get-url origin\`) BEFORE you read a single file. An agent run from the wrong checkout will happily analyze an unrelated codebase and pick a path from evidence that has nothing to do with the app. If it does not match, stop and tell the user rather than guessing.
-4. If pair reports \`previewSource: "not-chosen-yet"\`, the choice is yours to make: read the repo (does it already build previews? is every table owned by a tenant you could delete whole?), pick using the trade-off above, and call select_preview_path. Do that from evidence in the code rather than by asking the user to self-assess - you can read the schema, they are guessing. Tell them what you picked and why. Only fall back to asking if the repo genuinely does not say.
+4. If pair reports \`previewSource: "not-chosen-yet"\`, call select_preview_path with \`autonoma-hosted\` and tell the user that is what you picked. That is the default and it is safe: the worst case is a preview Autonoma builds for them anyway. It changes only if the user chooses their own deploys, in which case pass their words in \`userRequest\`. On Vercel you may ask them; anywhere else do not raise it unless they do. This is the opposite of the rest of onboarding, where you should read the code rather than make the user self-assess - here the deciding facts (does that pipeline work, what database does it point at, do they want us in it) are not in the code.
 
 Every playbook is also readable on demand, without pairing, so a long session that has pushed one out of context can re-read it instead of guessing: \`autonoma://autonoma-hosted-playbook\`, \`autonoma://vercel-playbook\`, \`autonoma://own-pipeline-playbook\`. Read the one pair() named, not the one you remember.
 
@@ -166,7 +171,7 @@ function playbookFor(mode: OnboardingPreviewEnvironmentMode | undefined, vercel:
     const external = isVercelPath(vercel) ? VERCEL_PLAYBOOK : EXTERNAL_DEPLOYS_PLAYBOOK;
     if (mode === "previewkit") return PREVIEWKIT_PLAYBOOK;
     if (mode === "existing_deploys") return external;
-    return `This app has not picked a path yet, so picking it is your first job: read the repo, decide with the trade-off in the preamble, and call select_preview_path. Both playbooks follow so you can see what each commits you to.\n\n${PREVIEWKIT_PLAYBOOK}\n\n${external}`;
+    return `This app has not picked a path yet. Call select_preview_path with \`autonoma-hosted\` unless the user has asked for their own pipeline - that is the default, and the playbook for it follows. The other playbook is included only so you can see what their-pipeline would commit them to; it needs the user to ask for it.\n\n${PREVIEWKIT_PLAYBOOK}\n\n${external}`;
 }
 
 /** Everything the onboarding MCP tools need: the service graph, the authenticated user, and the write guard. */
@@ -666,20 +671,19 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
             description:
                 "Commit how this app will get its previews, when pair() reported `not-chosen-yet`. FIRST confirm your " +
                 "working directory is the repo pair() named in `repository` - a path picked from the wrong " +
-                "checkout is worse than no answer. Then decide from the " +
-                "REPO, not from asking the user to self-assess: whether previews already exist (a deploy workflow, a " +
-                "host config, preview URLs on past pull requests) and whether every table hangs off a tenant you " +
-                "could delete whole. Prefer `autonoma-hosted` when there are no previews, or when data is not cleanly " +
-                "tenant-scoped - an Autonoma-hosted preview gets its own database, so a run cannot leave rows behind " +
-                "in whatever staging or production database their existing previews point at. Prefer " +
-                "`their-pipeline` when previews already exist AND the data is tenant-scoped, since that is far less " +
-                "to change. Deploying on Vercel does NOT by itself decide this - the data-isolation trade-off above " +
-                "does. A Vercel project is a perfectly normal `autonoma-hosted` app, and people choose that " +
-                "deliberately for the per-preview database; pick `their-pipeline` only if the same tenant-scoping " +
-                "test passes. If you do pick `their-pipeline` for a Vercel project, the playbook that comes back " +
-                "names the Vercel tools rather than the webhook. Say WHY in " +
-                "`reason` - the user is watching, and this is a decision they would otherwise " +
-                "have answered a questionnaire to make. Returns the playbook for the path you chose; follow it next.",
+                "checkout is worse than no answer. `autonoma-hosted` is the default and is almost always the answer: " +
+                "an Autonoma-hosted preview gets its own database, so a run cannot leave rows behind in whatever " +
+                "staging or production database their existing previews point at. `their-pipeline` always needs " +
+                "the USER to choose it - pass their words in `userRequest`; the server refuses without them. " +
+                "Whether you RAISE it depends on the app: if it is on Vercel, our integration makes it a real " +
+                "choice, so ask - it suits previews that are entirely Vercel's (backend in the same deployable " +
+                "unit, and either tenant-scoped data or a branchable database like Neon/Supabase/PlanetScale per " +
+                "preview), while a backend deployed elsewhere or shared global tables mean `autonoma-hosted`. If " +
+                "it is NOT on Vercel, do not bring it up at all: pick `autonoma-hosted` and move on. Only if the " +
+                'user asks ("can\'t we use our own previews?") do you explain both sides and pass their answer. A ' +
+                "deploy workflow in the repo is NOT evidence for any of this: you cannot tell from a YAML file " +
+                "whether it works, whether its data is isolated, or whether it points at production. Say WHY in " +
+                "`reason` - the user is watching. Returns the playbook for the path you chose; follow it next.",
             inputSchema: {
                 applicationId: z.string(),
                 path: z
@@ -690,9 +694,19 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                     .min(1)
                     .max(ACTIVITY_DESCRIPTION_MAX_LENGTH)
                     .describe("Why this path, in one line, from what you found in the repo. Shown to the user."),
+                userRequest: z
+                    .string()
+                    .min(USER_REQUEST_MIN_LENGTH)
+                    .max(ACTIVITY_DESCRIPTION_MAX_LENGTH)
+                    .optional()
+                    .describe(
+                        "Required to pick `their-pipeline`: the user's OWN words choosing their existing " +
+                            "deploys, quoted, not your summary of the repo. Leave unset if they have not " +
+                            "answered - on Vercel, ask them; anywhere else, do not raise it unprompted.",
+                    ),
             },
         },
-        async ({ applicationId, path, reason }) =>
+        async ({ applicationId, path, reason, userRequest }) =>
             guardedWrite(
                 {
                     applicationId,
@@ -703,11 +717,17 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                 async (org) => {
                     const mode: OnboardingPreviewEnvironmentMode =
                         path === "autonoma-hosted" ? "previewkit" : "existing_deploys";
+                    // Resolved before the write, so a refusal changes nothing.
+                    const vercelBefore =
+                        mode === "existing_deploys"
+                            ? await resolveVercelState(services, applicationId, org)
+                            : undefined;
+                    if (vercelBefore != null) assertTheirPipelineIsAllowed(vercelBefore, userRequest);
                     // Independent: the Vercel state is the org's installation and this
                     // app's project link, none of which the mode write touches.
                     const [, vercel] = await Promise.all([
                         services.onboarding.selectPreviewEnvironmentMode(applicationId, org, mode),
-                        resolveVercelState(services, applicationId, org),
+                        vercelBefore ?? resolveVercelState(services, applicationId, org),
                     ]);
                     return {
                         previewSource: previewSourceOf(mode),
@@ -1332,8 +1352,8 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
             description:
                 "For apps whose previews come from their own pipeline: mark the wiring finished so onboarding advances from " +
                 "configuring to waiting for signals. Call it once you have SEEN a signal land via get_signal_status - " +
-                "confirming before then just moves the UI on while the wiring is still broken. Pass a short " +
-                "`description` - the user watches it on the activity feed.",
+                "it is refused until one has, because confirming before then just moves the UI on while the wiring is " +
+                "still broken. Pass a short `description` - the user watches it on the activity feed.",
             inputSchema: { applicationId: z.string(), description: activityDescription },
         },
         async ({ applicationId, description }) =>

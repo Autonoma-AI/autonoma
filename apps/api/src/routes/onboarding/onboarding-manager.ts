@@ -281,6 +281,28 @@ export class OnboardingManager {
     ) {
         this.logger.info("Selecting onboarding preview environment mode", { applicationId, mode });
         await this.ensureApplicationHasRepository(applicationId, organizationId);
+
+        // Selecting a path resets the step and clears the preview URL, so it is
+        // destructive to any progress already made on the current one. Re-picking the
+        // same path is therefore a no-op rather than a restart - an agent that calls
+        // this twice should not lose a preview - and switching away is refused once
+        // the preview is verified, because that discards a finished setup.
+        const current = await this.db.onboardingState.findUnique({
+            where: { applicationId },
+            select: { step: true, previewEnvironmentMode: true },
+        });
+        if (current?.previewEnvironmentMode === mode) return this.getState(applicationId);
+        if (
+            current != null &&
+            current.previewEnvironmentMode != null &&
+            isStepAtOrPast(current.step, "preview_verified")
+        ) {
+            throw new ConflictError(
+                "This app already has a verified preview on its current path, and switching would discard it. " +
+                    "Change the preview source in the Autonoma UI if that is really what the user wants.",
+            );
+        }
+
         const state = await this.loadStateOrEarlier(applicationId, "preview_environment");
         await state.selectPreviewEnvironmentMode(mode);
         return this.getState(applicationId);
@@ -291,10 +313,27 @@ export class OnboardingManager {
      * `existing_deploys_waiting`. Uses the actual current state (not an earlier
      * one) so a signal that already advanced the row to `preview_verified` is
      * never rolled back; the waiting state treats the call as idempotent.
+     *
+     * Requires a signal to have actually landed. This path builds nothing and
+     * keeps no logs, so confirming wiring we have never seen work moves onboarding
+     * forward over a setup that may be silently broken with nothing to diagnose it
+     * from. The preview URL only exists because a signal delivered it, which is the
+     * same thing the UI's own confirm button waits for.
      */
     async confirmExistingDeploysSetup(applicationId: string, organizationId: string) {
         this.logger.info("Confirming existing-deploys setup", { applicationId });
         await this.ensureApplicationHasRepository(applicationId, organizationId);
+        const signal = await this.db.onboardingState.findUnique({
+            where: { applicationId },
+            select: { previewUrl: true },
+        });
+        if (signal?.previewUrl == null) {
+            throw new ConflictError(
+                "No deployment signal has reached Autonoma yet, so there is nothing to confirm. Run a deploy " +
+                    "through the pipeline and wait for the signal to land - if it never does, the wiring is wrong " +
+                    "and confirming here would only hide that.",
+            );
+        }
         const state = await this.loadState(applicationId);
         await state.confirmExistingDeploysSetup();
         return this.getState(applicationId);

@@ -58,8 +58,8 @@ const NEXT_STEP: Record<OnboardingStep, (previewStatus: PreviewDiagnosticsStatus
         "This app has no repository linked. Call get_github_connection for the repositories Autonoma can " +
         "see, then link_repository with the full 'owner/repo' name - that completes the GitHub step itself.",
     preview_environment: () =>
-        "This app has not committed to how it gets its previews. Read the repo, weigh the data-isolation " +
-        "trade-off in the playbook, and call select_preview_path.",
+        "This app has not committed to how it gets its previews. Call select_preview_path with " +
+        "'autonoma-hosted' - the default - unless the user has asked to use their own deploys.",
     previewkit_configuring: () =>
         "Autonoma hosts this app's previews and none has been deployed yet. Save a valid config with " +
         "apply_config, call trigger_deploy, and poll get_session_status until diagnostics.status is `ready`.",

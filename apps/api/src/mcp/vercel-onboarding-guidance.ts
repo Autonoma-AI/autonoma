@@ -15,6 +15,13 @@ export interface VercelState {
     installed: boolean;
     /** THIS app has a Vercel project linked - the point past which the integration is live. */
     linked: boolean;
+    /**
+     * The state could not be read, so `installed`/`linked` are defaults rather than
+     * facts. Callers that only pick which playbook to hand over can ignore this; a
+     * caller GATING on Vercel must not, or a transient failure silently becomes
+     * "not on Vercel" and the same repo decides differently run to run.
+     */
+    unresolved?: boolean;
 }
 
 /**
