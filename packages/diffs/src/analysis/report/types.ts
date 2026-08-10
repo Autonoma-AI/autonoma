@@ -1,4 +1,5 @@
 import {
+    type AnalysisFlow,
     type AnalysisIssueKind,
     analysisIssueKindSchema,
     type AnalysisIssueSeverity,
@@ -15,6 +16,7 @@ import {
 } from "@autonoma/types";
 import type { ScreenshotLoader } from "../../agents/tools/run-evidence/run-evidence-types";
 import type { Codebase } from "../../codebase";
+import type { FlowCorrections } from "./flows";
 
 /**
  * The Reporter's own DTOs, kept analysis-native so nothing here depends on the deprecated healing/bugs path.
@@ -101,6 +103,32 @@ export interface ReporterPriorReport {
     reportMarkdown: string;
 }
 
+/**
+ * One test in the branch's LAST-KNOWN VERDICT MAP: every test any snapshot of this PR has investigated, carrying its
+ * most recent verdict. This is what the report describes, rather than one snapshot's findings.
+ *
+ * The reasoning is that Impact Analysis's non-selection is itself a judgement. A test the latest diff did not select
+ * was affirmatively decided to be unaffected by it, so its earlier pass is the best evidence available and evidence we
+ * deliberately chose not to refresh. A test that WAS re-selected and then hit a fault supersedes its own earlier pass,
+ * because the map only ever holds the most recent verdict.
+ *
+ * Structurally a superset of `AnalysisFlowMember`, so it can be handed straight to the flow derivation.
+ */
+export interface ReporterBranchTest {
+    slug: string;
+    /** The test's name - the agent clusters on meaning, and a slug is a poor carrier of it. */
+    name: string;
+    category: AnalysisVerdict;
+    /** Whether this verdict came from the run being reported, or was carried from an earlier snapshot. */
+    checkedThisRun: boolean;
+    /** Whether the finding sits under a client-owned issue - the only reading of an `environment_failure`'s side. */
+    attributedToClientIssue: boolean;
+    /** One line of what happened, from the last-known classification. */
+    headline?: string;
+    /** The short SHA the verdict came from. Present on carried rows, where "when" is load-bearing. */
+    fromSha?: string;
+}
+
 /** A one-line scenario entry; the full recipe is fetched on demand via `read_scenario`. */
 export interface ReporterScenarioSummary {
     id: string;
@@ -136,6 +164,11 @@ export interface ReporterInput {
     /** The Impact Analysis stage's account of why it selected the tests it did (provenance/context). */
     impactReasoning?: string;
     findings: ReporterFinding[];
+    /**
+     * The branch's last-known verdict per test, across every snapshot of this PR. Includes this run's findings (as
+     * `checkedThisRun`) so the flows partition ONE list; the prompt renders the two halves at different fidelity.
+     */
+    branchTests: ReporterBranchTest[];
     existingIssues: ReporterExistingIssue[];
     priorReports: ReporterPriorReport[];
     scenarioIndex: ReporterScenarioSummary[];
@@ -182,16 +215,26 @@ export type ReporterIssueResult =
     | { kind: "carry_forward"; existingIssueId: string; content: ReporterIssueContent }
     | { kind: "resolve"; existingIssueId: string; resolvingFindingSlug: string; note: string };
 
-/** What the Reporter returns: the holistic report prose plus every issue reconciliation. */
+/** What the Reporter returns: how the PR reads, its flow itemization, the report prose, and every reconciliation. */
 export interface ReporterResult {
-    /** The holistic PR report prose (Markdown), grounded. */
+    /**
+     * The PR's title, about eight words. Overridden by deterministic copy for an open bug and for a run that needed
+     * no tests, so what lands here is what a reader sees only in between - see `analysisPrTitle`.
+     */
+    title: string;
+    /**
+     * The PR's headline: 1-3 sentences of plain prose for the surfaces that render prose but neither Markdown blocks
+     * nor our inline tokens (the GitHub comment and the PR page). States the CUMULATIVE state of the branch, not the
+     * latest snapshot's counts. Flattened at persist.
+     */
+    headline: string;
+    /** The branch's verdict map, clustered into reader-facing units, with every status and owner derived. */
+    flows: AnalysisFlow[];
+    /** What the partition had to correct to total the map. Measured, not enforced - nothing rejected these. */
+    flowCorrections: FlowCorrections;
+    /** The holistic PR report prose (Markdown), grounded. Never re-lists {@link flows}. */
     reportMarkdown: string;
     /** The assets `reportMarkdown` may embed inline by `evidence:<assetId>` token. */
     reportEvidenceManifest: EvidenceManifestEntry[];
-    /**
-     * The same verdict as one plain paragraph, for the surfaces that render prose but neither Markdown blocks nor
-     * our inline tokens: the GitHub PR comment body and the PR page's verdict subtitle. Flattened at persist.
-     */
-    summary: string;
     issues: ReporterIssueResult[];
 }

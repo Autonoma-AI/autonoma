@@ -283,6 +283,262 @@ export function countAnalysisFindingBuckets(categories: Iterable<string>): Analy
 }
 
 /**
+ * How much of a flow the branch's evidence actually establishes. Ordered by how much it should worry a reader.
+ *
+ * `partial` exists so a flow is never reported as a flat failure when part of it held up: three passing checks and one
+ * that could not run is not the same reading as four that could not run, and collapsing them is exactly the
+ * pessimism that makes a report unusable.
+ */
+export const analysisFlowStatusSchema = z.enum(["broken", "verified", "partial", "unverified"]);
+export type AnalysisFlowStatus = z.infer<typeof analysisFlowStatusSchema>;
+
+/** Which side a flow's gaps sit on - the question a reader asks before anything else: is this mine to fix? */
+export const analysisFlowOwnerSchema = z.enum(["client", "autonoma", "none"]);
+export type AnalysisFlowOwner = z.infer<typeof analysisFlowOwnerSchema>;
+
+/**
+ * One test's last-known verdict on the branch, as the flow derivation sees it. Assembled from the branch's findings
+ * (the most recent classification per test across every snapshot), never from one run alone.
+ */
+export interface AnalysisFlowMember {
+    /** The test's slug - the handle the Reporter cites a flow's members by. */
+    slug: string;
+    /** The stored `AnalysisVerdict` of the test's last-known classification. */
+    category: string;
+    /** Whether that verdict came from the run being reported, or was carried from an earlier snapshot. */
+    checkedThisRun: boolean;
+    /**
+     * Whether the finding is attributed to a client-owned issue. This is the ONLY reading of an
+     * `environment_failure`'s side: the taxonomy carries no owner for it, so the Reporter's own placement decides.
+     */
+    attributedToClientIssue: boolean;
+}
+
+/**
+ * A FLOW: one unit of app behaviour, named in the reader's language, that a group of tests covers together.
+ *
+ * A flow is a DERIVED VIEW over the branch's last-known verdict per test, re-clustered on every run with no
+ * cross-snapshot identity. The durable facts stay where they already live - `AnalysisFinding.currentClassification`
+ * for a test's verdict, the branch-scoped `AnalysisIssue` for a problem that outlives a snapshot - so a flow can be
+ * renamed, split or merged between runs with no reconciliation, and nothing downstream depends on last run's grouping.
+ *
+ * The division of labour is the whole point. The Reporter names a flow and explains it, in words a reader recognizes;
+ * every JUDGEMENT about it is derived here from the verdicts it cites. A model that could author its own status could
+ * quietly promote a flow with a failed check to "verified" - it cannot, because it does not hold that pen.
+ */
+export const analysisFlowSchema = z.object({
+    /** The reader-facing name, authored by the Reporter: "Guest checkout", not `checkout-guest-express-lane`. */
+    title: z.string().min(1),
+    /** One sentence, authored by the Reporter: what was confirmed, or why it could not be. */
+    detail: z.string(),
+    status: analysisFlowStatusSchema,
+    owner: analysisFlowOwnerSchema,
+    /** Cited tests whose last-known verdict confirmed the app. */
+    passedCount: z.number().int().nonnegative(),
+    /** Cited tests whose last-known verdict is a coverage-plane gap. */
+    gapCount: z.number().int().nonnegative(),
+    /** Cited tests whose last-known verdict is a client bug. */
+    bugCount: z.number().int().nonnegative(),
+    /** How many cited verdicts came from the run being reported. Zero means the whole flow is carried from earlier. */
+    checkedThisRunCount: z.number().int().nonnegative(),
+    /** The tests this flow covers. Every test in the branch's map lands in exactly one flow. */
+    testSlugs: z.array(z.string()),
+});
+export type AnalysisFlow = z.infer<typeof analysisFlowSchema>;
+
+/**
+ * A flow's status from the verdicts it cites. Derived over the bucket partition rather than verdict literals, so a
+ * new verdict is placed once, in `VERDICT_TIER`, and reaches this automatically.
+ *
+ * An empty flow reads `unverified`: citing no test establishes nothing, and reporting that as a pass would be the one
+ * error this whole derivation exists to prevent.
+ */
+export function deriveAnalysisFlowStatus(members: readonly AnalysisFlowMember[]): AnalysisFlowStatus {
+    if (members.length === 0) return "unverified";
+    const buckets = countAnalysisFindingBuckets(members.map((member) => member.category));
+    if (buckets.bug > 0) return "broken";
+    if (buckets.coverage === 0) return "verified";
+    return buckets.passed > 0 ? "partial" : "unverified";
+}
+
+/**
+ * Which side a flow sits on: theirs the moment any one of its gaps is theirs, since a flow the reader can unblock is
+ * one they need to see. Ours only when every gap is ours, and nobody's when there is no gap at all.
+ */
+export function deriveAnalysisFlowOwner(members: readonly AnalysisFlowMember[]): AnalysisFlowOwner {
+    const owners = members.map(flowMemberOwner);
+    if (owners.includes("client")) return "client";
+    if (owners.includes("autonoma")) return "autonoma";
+    return "none";
+}
+
+/**
+ * Which side ONE gap sits on. Every coverage category but `environment_failure` is owned by the taxonomy itself; an
+ * env gap can be either side, so it is read off the Reporter's attribution - a finding it filed under a client-owned
+ * issue is fixable configuration, and an unattributed one stays ours. Owning a gap beats nagging about it.
+ */
+function flowMemberOwner(member: AnalysisFlowMember): AnalysisFlowOwner {
+    const owner = analysisCoverageOwner(member.category);
+    if (owner === "undecided") return member.attributedToClientIssue ? "client" : "autonoma";
+    if (owner === "client" || owner === "autonoma") return owner;
+    return "none";
+}
+
+/** Combine a Reporter-authored flow with the verdicts it cites into the persisted shape every surface reads. */
+export function summarizeAnalysisFlow(
+    authored: { title: string; detail: string },
+    members: readonly AnalysisFlowMember[],
+): AnalysisFlow {
+    const buckets = countAnalysisFindingBuckets(members.map((member) => member.category));
+    return {
+        title: authored.title,
+        detail: authored.detail,
+        status: deriveAnalysisFlowStatus(members),
+        owner: deriveAnalysisFlowOwner(members),
+        passedCount: buckets.passed,
+        gapCount: buckets.coverage,
+        bugCount: buckets.bug,
+        checkedThisRunCount: members.filter((member) => member.checkedThisRun).length,
+        testSlugs: members.map((member) => member.slug),
+    };
+}
+
+/** How many flows fall in each status - the numerator and denominator every PR-level surface counts from. */
+export interface AnalysisFlowTally {
+    broken: number;
+    verified: number;
+    partial: number;
+    unverified: number;
+    total: number;
+}
+
+export function tallyAnalysisFlows(flows: readonly AnalysisFlow[]): AnalysisFlowTally {
+    const tally: AnalysisFlowTally = { broken: 0, verified: 0, partial: 0, unverified: 0, total: flows.length };
+    for (const flow of flows) tally[flow.status] += 1;
+    return tally;
+}
+
+/**
+ * The counts a PR-level verdict is derived from. The flow itemization is preferred when the run has one, and the
+ * per-run counts are the fallback for a row written before it.
+ */
+export interface AnalysisPrVerdictInput {
+    /** The run's flow itemization. Empty on a row written before flows existed, or one whose blob did not parse. */
+    flows: readonly AnalysisFlow[];
+    /** Open bug-kind issues on the branch. */
+    openBugCount: number;
+    /** Tests that produced a terminal verdict this run - the pre-flows reading of "was anything exercised". */
+    investigatedCount: number;
+    /** Coverage-plane findings this run - the pre-flows reading of "was anything left unconfirmed". */
+    coverageGapCount: number;
+}
+
+/**
+ * The PR-level verdict. Every PR-level surface reads the same persisted flows and the same open-bug count, so they
+ * agree by construction - that is the fix for the surfaces drifting apart, where the PR page and the GitHub comment
+ * fed the verdict from different things and landed on different states for the same run.
+ *
+ * An ABSENT itemization is not an empty one. Every report written before this feature has `flows = NULL`, which both
+ * read boundaries turn into `[]`; deriving "nothing needed testing" from that would render a green no-tests verdict
+ * over a run that investigated a dozen tests and left half of them unconfirmed. So an absent itemization falls back
+ * to the counts every surface used before it, which are still on the row.
+ */
+export function derivePrVerdict(input: AnalysisPrVerdictInput): AnalysisVerdictState {
+    if (input.flows.length === 0) {
+        return deriveAnalysisVerdict({
+            bugCount: input.openBugCount,
+            coverageGapCount: input.coverageGapCount,
+            investigatedCount: input.investigatedCount,
+        });
+    }
+    const tally = tallyAnalysisFlows(input.flows);
+    return deriveAnalysisVerdict({
+        bugCount: input.openBugCount,
+        coverageGapCount: tally.total - tally.verified,
+        investigatedCount: tally.total,
+    });
+}
+
+/** The title each verdict falls back to when the Reporter authored none - the copy every surface used before it. */
+const DERIVED_TITLE: Record<AnalysisVerdictState, string> = {
+    bug_found: "Autonoma found bugs in this PR",
+    not_confirmed: "Autonoma couldn't confirm this change",
+    no_tests_needed: "No tests needed for this change",
+    healthy: "Autonoma verified this change",
+};
+
+/**
+ * The PR's title, resolving what the Reporter authored against the two cases we state ourselves.
+ *
+ * A bug is the one outcome we raise as an ALARM rather than describe, so it keeps deterministic copy and a count -
+ * no wording a model could choose serves a reader better than being told plainly how many bugs are open. A run that
+ * needed no tests states our decision, for the same reason. Everything in between is the Reporter's, because "what
+ * happened on this PR" is exactly the thing counts cannot say.
+ *
+ * Keyed on the VERDICT rather than on the flow count, so a row with no itemization falls back to the copy its own
+ * counts earn instead of claiming nothing needed testing.
+ *
+ * Shared rather than re-implemented per surface: the GitHub comment and the PR page render the same title, and the
+ * last time each surface owned its own copy they disagreed about the same run.
+ *
+ * The empty-`authored` branch is TEMPORARY, and is the only place '' is read as "unauthored". It pairs with the
+ * `DEFAULT ''` on `AnalysisReport.title`, which marks the reports written before the Reporter authored titles;
+ * remove the two together once no live surface can reach one.
+ */
+export function analysisPrTitle(authored: string, state: AnalysisVerdictState, openBugCount: number): string {
+    if (openBugCount > 0) return `Autonoma found ${openBugCount} ${openBugCount === 1 ? "bug" : "bugs"} in this PR`;
+    if (state === "no_tests_needed") return DERIVED_TITLE.no_tests_needed;
+    if (authored.trim().length > 0) return authored.trim();
+    // Only reachable for a pre-Reporter report; see the note above.
+    return DERIVED_TITLE[state];
+}
+
+/** The pill each verdict falls back to when there is no itemization to count a ratio from. */
+const DERIVED_PILL: Record<AnalysisVerdictState, string> = {
+    bug_found: "Bugs found",
+    not_confirmed: "Not confirmed",
+    no_tests_needed: "No tests needed",
+    healthy: "Passing",
+};
+
+/**
+ * The PR-level pill: the one place a whole PR is compressed to about twelve characters. A bug is the only outcome
+ * stated as an alarm; everything else is a RATIO, so a run that verified six of seven flows never reads the same as
+ * one that verified none. A row with no itemization has no ratio to state and falls back to its verdict's word.
+ */
+export function analysisFlowPillLabel(
+    state: AnalysisVerdictState,
+    tally: AnalysisFlowTally,
+    openBugCount: number,
+): string {
+    if (openBugCount > 0) return `${openBugCount} ${openBugCount === 1 ? "bug" : "bugs"}`;
+    if (tally.total === 0) return DERIVED_PILL[state];
+    return `${tally.verified}/${tally.total} verified`;
+}
+
+/** Marks a flow established at an earlier commit and not re-run, so a cumulative list is not read as all-fresh. */
+const CARRIED_NOTE = "carried from an earlier commit";
+
+/**
+ * One flow's composition, in the words every surface uses. Shared rather than re-derived per surface for the same
+ * reason the title and the pill are: the last time each surface owned its own copy of a cross-surface string, they
+ * disagreed about the same run.
+ *
+ * A partial flow always states how much of it held up - three passing checks beside one that could not run is not the
+ * same reading as four that could not, and collapsing them is the pessimism the itemization exists to remove.
+ * Returns undefined when there is nothing to add beyond the flow's own status, so a caller can omit the line.
+ */
+export function analysisFlowComposition(flow: AnalysisFlow): string | undefined {
+    const total = flow.testSlugs.length;
+    const parts: string[] = [];
+    if (flow.passedCount > 0 && flow.passedCount < total) {
+        parts.push(`${flow.passedCount} of ${total} ${total === 1 ? "check" : "checks"} passed`);
+    }
+    if (flow.checkedThisRunCount === 0) parts.push(CARRIED_NOTE);
+    return parts.length > 0 ? parts.join(" \u00b7 ") : undefined;
+}
+
+/**
  * How a test entered the analysis run:
  *
  * - `pre_existing`: an affected test the PR's diff touched (Impact Analysis marked it via `RegenerateSteps`). Its
@@ -447,17 +703,24 @@ export const analysisReportDataSchema = z.object({
     /** The Impact Analysis stage's account of why it selected the tests it did (admin-only on the snapshot page). */
     impactReasoning: z.string().optional(),
     /**
-     * The Reporter's holistic PR report prose (Markdown), the hero of the PR page and the snapshot per-job view.
-     * Absent while a run is still authoring it (the page keeps polling) or when the run degraded to a
-     * finding-derived verdict with no prose. Its inline `evidence:` image tokens resolve against `reportEvidence`;
-     * `issue:`/`finding:` link tokens resolve against the branch's issues and this report's findings.
+     * The Reporter's holistic PR report prose (Markdown), the hero of the PR page and the snapshot per-job view. Its
+     * inline `evidence:` image tokens resolve against `reportEvidence`; `issue:`/`finding:` link tokens resolve
+     * against the branch's issues and this report's findings.
+     *
+     * Never empty: a report row exists only once the Reporter has authored one, and `finish` refuses prose that
+     * sanitizing emptied.
      */
-    reportMarkdown: z.string().optional(),
+    reportMarkdown: z.string(),
     /**
-     * The Reporter's one-paragraph summary of the run, for the surfaces that show prose but not a document: the PR
-     * page's verdict subtitle. Absent on a run that predates the Reporter (those rows were backfilled to empty).
+     * The Reporter's title for the PR as a whole (about eight words). EMPTY on a report written before the Reporter
+     * authored titles - `analysisPrTitle` is the one place that reads it as unauthored, and it also overrides the
+     * authored value for an open bug and for a run that needed no tests.
      */
-    summary: z.string().optional(),
+    title: z.string(),
+    /** The Reporter's headline: the CUMULATIVE state of the branch in 1-3 plain sentences. Never empty. */
+    headline: z.string(),
+    /** The branch's flow itemization: what this PR has established and what it has not. Empty on a pre-flows run. */
+    flows: z.array(analysisFlowSchema),
     /** The signed assets `reportMarkdown` may embed inline by `evidence:<assetId>` token (referenced ones only). */
     reportEvidence: z.array(resolvedEvidenceAssetSchema),
     /** The persisted app-health verdict for the run (issue-derived at finalize): `client_bug` or `passed`. */
@@ -651,8 +914,16 @@ export const analysisForPrSchema = z.discriminatedUnion("status", [
         status: z.literal("complete"),
         /** The app-health verdict: `client_bug` when the branch has an open bug issue, else `passed`. */
         verdict: analysisVerdictSchema,
-        /** The Reporter's one-paragraph summary of the run. */
-        summary: z.string().optional(),
+        /** The Reporter's title for the PR as a whole. Empty on a report written before the Reporter authored one. */
+        title: z.string(),
+        /** The Reporter's headline: the cumulative state of the branch in 1-3 plain sentences. */
+        headline: z.string(),
+        /**
+         * The branch's flow itemization: which parts of the app this PR has established and which it has not. A
+         * consumer reading `verdict` alone learns only whether a bug was found - these say how much was covered, which
+         * is the difference between "nothing broke" and "we checked".
+         */
+        flows: z.array(analysisFlowSchema),
         /** The Reporter's holistic report prose. Its `evidence:` image tokens resolve against `reportEvidence`, and
          * its `issue:` tokens against the `issues` below. */
         reportMarkdown: z.string().optional(),

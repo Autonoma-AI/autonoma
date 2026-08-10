@@ -100,7 +100,9 @@ const analysisReportData: AnalysisReportFixture = {
     "checkout tests that exercise those surfaces and authored one new test for the guest add-to-cart path the " +
     "diff opens up.",
   reportMarkdown: REPORT_MARKDOWN,
-  summary:
+  flows: [],
+  title: "Checkout blocked at Place order",
+  headline:
     "Checkout is broken on this PR: the Place order button never enables even with a valid card and address, so " +
     "no customer can complete a purchase.",
   reportEvidence: [{ assetId: "asset_report_1", url: MOCK_SCREENSHOT, kind: "screenshot" }],

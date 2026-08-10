@@ -26,6 +26,7 @@ import { resolveRunTarget } from "../../codebase/run-target";
 import { type SnapshotContext, withSnapshotContext } from "../../codebase/snapshot-context";
 import { createModelSession, getStorage } from "../../services";
 import { uploadConversation } from "../../upload-conversation";
+import { loadBranchTests } from "./branch-tests";
 
 /** How many prior branch reports to carry as cumulative context. */
 const PRIOR_REPORTS_LIMIT = 3;
@@ -63,8 +64,28 @@ export async function runReporter(input: RunReporterInput, deps: RunReporterDeps
     const produce = deps.produceResult ?? produceReporterResult;
     const result = await produce(input);
     const output = await persistReporterResult(snapshotId, result, impactReasoning, logger);
+    logFlowQuality(result, logger);
     logger.info("Reporter stage finished", { extra: output });
     return output;
+}
+
+/**
+ * The only measurement of how well the agent is clustering. Nothing rejects a bad partition (an unplaced test keeps
+ * its verdict and lands under a generic name), so without this we would never learn that the prompt stopped working.
+ * A rising sweep share, or a flow count that tracks the test count one-for-one, both mean it has.
+ */
+function logFlowQuality(result: ReporterResult, logger: Logger): void {
+    const placed = result.flows.reduce((total, flow) => total + flow.testSlugs.length, 0);
+    logger.info("Reporter flow quality", {
+        extra: {
+            flowCount: result.flows.length,
+            placedTestCount: placed,
+            sweptTestCount: result.flowCorrections.sweptSlugs.length,
+            duplicateSlugCount: result.flowCorrections.duplicateSlugs.length,
+            unknownSlugCount: result.flowCorrections.unknownSlugs.length,
+            authoredTitle: result.title !== "",
+        },
+    });
 }
 
 /** The default producer: clone the snapshot's repo and run the real ReporterAgent inside it. */
@@ -102,9 +123,10 @@ async function buildReporterInput(
     logger: Logger,
 ): Promise<ReporterInput> {
     const { snapshotId, impactReasoning } = input;
-    const [target, findings, existingIssues, priorReports, scenario] = await Promise.all([
+    const [target, findings, branchTests, existingIssues, priorReports, scenario] = await Promise.all([
         resolveRunTarget(context),
         loadReporterFindings(snapshotId),
+        loadBranchTests(context.branchId, snapshotId, logger),
         loadExistingIssues(context.branchId, logger),
         loadPriorReports(snapshotId, context.branchId),
         loadScenarioContext(snapshotId, logger),
@@ -116,6 +138,7 @@ async function buildReporterInput(
         range: { baseSha: context.baseSha, headSha: context.headSha },
         impactReasoning,
         findings,
+        branchTests,
         existingIssues,
         priorReports,
         scenarioIndex: scenario.index,
@@ -416,7 +439,9 @@ async function writeReport(tx: PrismaWriteClient, input: WriteReportInput): Prom
         coverage: input.header.coverage,
         impactReasoning: reasoning,
         reportMarkdown: input.result.reportMarkdown,
-        summary: input.result.summary,
+        title: input.result.title,
+        headline: input.result.headline,
+        flows: input.result.flows,
         evidenceManifest: input.result.reportEvidenceManifest,
     };
     await tx.analysisReport.upsert({

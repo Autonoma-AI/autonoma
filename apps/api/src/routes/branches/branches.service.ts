@@ -26,6 +26,8 @@ import {
     type SnapshotChangeSummary,
 } from "@autonoma/test-updates";
 import {
+    type AnalysisFlow,
+    analysisFlowSchema,
     type AnalysisForPr,
     type AnalysisIssueDetail,
     type AnalysisIssueFindingInstance,
@@ -101,6 +103,17 @@ const PR_LIST_ORDER: Prisma.BranchOrderByWithRelationInput[] = [
     { prInfo: { prUpdatedAt: { sort: "desc", nulls: "last" } } },
     { createdAt: "desc" },
 ];
+
+/**
+ * The stored flow itemization, validated at the read boundary. A row written before the Reporter authored flows has
+ * none, and a malformed blob is dropped whole rather than surfaced half-rendered - a partial list would understate
+ * what the PR covers, which is exactly the misread the itemization exists to fix.
+ */
+function parseAnalysisFlows(flows: unknown): AnalysisFlow[] {
+    if (flows == null) return [];
+    const parsed = analysisFlowSchema.array().safeParse(flows);
+    return parsed.success ? parsed.data : [];
+}
 
 /** Fallback suite-change counts for a snapshot the batched summary has no entry for. */
 const NO_SUITE_CHANGES: SnapshotChangeSummary = { added: 0, removed: 0, updated: 0 };
@@ -390,7 +403,9 @@ export class BranchesService extends Service {
                 where: { snapshotId, organizationId },
                 select: {
                     reportMarkdown: true,
-                    summary: true,
+                    title: true,
+                    headline: true,
+                    flows: true,
                     evidenceManifest: true,
                     verdict: true,
                     clientBugCount: true,
@@ -427,10 +442,12 @@ export class BranchesService extends Service {
             return {
                 branchId: report.snapshot.branchId,
                 impactReasoning: report.impactReasoning ?? undefined,
-                // Both prose columns are NOT NULL, but a row predating the Reporter that had no narration to backfill
-                // from carries "". Absence is expressed once, here, so no consumer repeats the check.
-                reportMarkdown: report.reportMarkdown !== "" ? report.reportMarkdown : undefined,
-                summary: report.summary !== "" ? report.summary : undefined,
+                reportMarkdown: report.reportMarkdown,
+                // `title` defaults to "" on a report written before the Reporter authored one. `analysisPrTitle` is
+                // the single place that reads that as unauthored, so nothing is translated on the way out.
+                title: report.title,
+                headline: report.headline,
+                flows: parseAnalysisFlows(report.flows),
                 reportEvidence,
                 verdict: this.toAppHealthVerdict(report.verdict, snapshotId),
                 clientBugCount: report.clientBugCount,
@@ -703,7 +720,9 @@ export class BranchesService extends Service {
                     select: {
                         snapshotId: true,
                         verdict: true,
-                        summary: true,
+                        title: true,
+                        headline: true,
+                        flows: true,
                         reportMarkdown: true,
                         evidenceManifest: true,
                         coverage: true,
@@ -759,8 +778,10 @@ export class BranchesService extends Service {
                 status: "complete",
                 verdict: this.toAppHealthVerdict(report.verdict, report.snapshotId),
                 // Both prose columns are NOT NULL, but a row predating the Reporter carries "" - treat empty as absent.
-                summary: report.summary !== "" ? report.summary : undefined,
-                reportMarkdown: report.reportMarkdown !== "" ? report.reportMarkdown : undefined,
+                title: report.title,
+                headline: report.headline,
+                flows: parseAnalysisFlows(report.flows),
+                reportMarkdown: report.reportMarkdown,
                 reportEvidence,
                 coverage: coverage.success ? coverage.data : undefined,
                 testCount: report.testCount,

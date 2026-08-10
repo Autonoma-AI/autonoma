@@ -17,9 +17,10 @@ export interface ReporterAgentConfig {
 }
 
 /**
- * Reconciles a job's findings into de-duped, branch-scoped issues and authors one holistic PR report, on the
- * AgentLoop harness: a per-run loop holds the minted-evidence allow-list, and the terminal tool enforces the
- * coverage guarantees and grounds every authored surface before the result is returned.
+ * Reconciles a job's findings into de-duped, branch-scoped issues, clusters the branch's last-known verdict per test
+ * into reader-facing flows, and authors how the PR reads: its title, its headline, and one holistic report. Runs on
+ * the AgentLoop harness - a per-run loop holds the minted-evidence allow-list, and the terminal tool enforces the
+ * coverage guarantees, derives every flow's status and owner, and grounds every authored surface before returning.
  */
 export class ReporterAgent extends Agent<ReporterInput, ReporterResult, ReporterAgentLoop> {
     private readonly logger: Logger;
@@ -45,6 +46,7 @@ export class ReporterAgent extends Agent<ReporterInput, ReporterResult, Reporter
                 appSlug: input.appSlug,
                 runKind: input.target.kind,
                 findings: input.findings.length,
+                branchTests: input.branchTests.length,
                 existingIssues: input.existingIssues.length,
             },
         });
@@ -77,6 +79,7 @@ export class ReporterAgent extends Agent<ReporterInput, ReporterResult, Reporter
             screenshotLoader: input.screenshotLoader,
             scenarioLoader: input.scenarioLoader,
             findings: input.findings,
+            branchTests: input.branchTests,
             existingIssues: input.existingIssues,
             scenarioIndex: input.scenarioIndex,
         });

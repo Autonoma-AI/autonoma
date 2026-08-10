@@ -1,31 +1,44 @@
 import type { AnalysisVerdict } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
-import { buildReporterPrompt } from "../../../src/analysis/report/prompt";
-import type { ReporterExistingIssue, ReporterFinding, ReporterInput } from "../../../src/analysis/report/types";
+import { REPORTER_SYSTEM_PROMPT, buildReporterPrompt } from "../../../src/analysis/report/prompt";
+import type {
+    ReporterBranchTest,
+    ReporterExistingIssue,
+    ReporterFinding,
+    ReporterInput,
+} from "../../../src/analysis/report/types";
 import { Codebase } from "../../../src/codebase";
 
 function finding(slug: string, category: AnalysisVerdict, extra: Partial<ReporterFinding> = {}): ReporterFinding {
     return { slug, category, headline: `${slug} headline`, selfHealed: false, screenshots: [], ...extra };
 }
 
-function openBugIssue(id: string): ReporterExistingIssue {
+function branchTest(
+    slug: string,
+    category: AnalysisVerdict,
+    extra: Partial<ReporterBranchTest> = {},
+): ReporterBranchTest {
     return {
-        id,
-        title: id,
-        kind: "bug",
-        severity: "high",
-        status: "open",
-        actualBehavior: "The button stayed disabled.",
-        findingSlugs: ["checkout"],
+        slug,
+        name: `${slug} test`,
+        category,
+        checkedThisRun: true,
+        attributedToClientIssue: false,
+        ...extra,
     };
 }
 
-function promptText(findings: ReporterFinding[], existingIssues: ReporterExistingIssue[] = []): string {
+function promptText(
+    findings: ReporterFinding[],
+    branchTests: ReporterBranchTest[] = findings.map((f) => branchTest(f.slug, f.category)),
+    existingIssues: ReporterExistingIssue[] = [],
+): string {
     const input: ReporterInput = {
         appSlug: "acme",
         target: { kind: "pull_request", prNumber: 42, prTitle: "Add coupon codes" },
         range: { baseSha: "aaaaaaa", headSha: "bbbbbbb" },
         findings,
+        branchTests,
         existingIssues,
         priorReports: [],
         scenarioIndex: [],
@@ -37,68 +50,77 @@ function promptText(findings: ReporterFinding[], existingIssues: ReporterExistin
     return typeof content === "string" ? content : "";
 }
 
-describe("buildReporterPrompt - the verdict is handed over, never authored", () => {
-    it("states the amber verdict and forbids prose that implies the change is safe", () => {
-        const text = promptText([
-            finding("checkout", "passed"),
-            finding("coupons", "scenario_issue"),
-            finding("cart", "engine_artifact"),
-        ]);
-
-        expect(text).toContain(
-            "3 test(s) investigated this job: 1 confirmed the app, 0 found a bug, 2 check(s) did not complete",
-        );
-        expect(text).toContain("1 scenario_issue");
-        expect(text).toContain("1 engine_artifact");
-        expect(text).toContain("this PR reads NOT CONFIRMED");
-        // The exact copy every other surface renders, so the prose cannot describe a different run.
-        expect(text).toContain("Autonoma couldn't confirm this change - 2 checks didn't complete.");
-        expect(text).toContain("The change was NOT fully exercised.");
-        expect(text).toContain("Never call the change safe, verified, clean, or good to merge");
+/**
+ * The constraint text IS the product here: what the Reporter is told is the only thing standing between a reader and
+ * a report that describes the wrong commit, or one that reads as an all-clear over flows that never ran.
+ */
+describe("REPORTER_SYSTEM_PROMPT", () => {
+    it("makes honesty a completeness obligation rather than a list of banned words", () => {
+        // The old design handed the agent a verdict computed from counts and forbade it from softening the copy. It
+        // authors the top line now, so a vocabulary ban would protect nothing - omission is the live failure.
+        expect(REPORTER_SYSTEM_PROMPT).toContain("your account must add up to everything that happened");
+        expect(REPORTER_SYSTEM_PROMPT).toContain("The way this goes wrong is never a lie - it is omission");
+        expect(REPORTER_SYSTEM_PROMPT).not.toContain("you do not author it");
     });
 
-    it("leads a clean run with what was verified rather than with the absence of bugs", () => {
-        const text = promptText([finding("checkout", "passed"), finding("cart", "passed")]);
-
-        expect(text).toContain("this PR reads HEALTHY");
-        expect(text).toContain("Autonoma verified this change - the app held up.");
-        expect(text).toContain("Lead with what we verified, concretely");
+    it("tells the agent it is describing the whole branch, and why a stale pass still counts", () => {
+        // Phrased as "branch" rather than "pull request" because a main-branch run has no PR but accumulates
+        // evidence across commits in exactly the same way.
+        expect(REPORTER_SYSTEM_PROMPT).toContain("the WHOLE branch, not the latest commit");
+        expect(REPORTER_SYSTEM_PROMPT).toContain("supersedes its own earlier pass");
     });
 
-    it("settles a run whose own test found a bug as red, without quoting a bug count it does not yet own", () => {
-        const text = promptText([finding("checkout", "client_bug"), finding("cart", "passed")]);
-
-        // Coverage guarantee 1 forces this finding under an issue, so red really is settled here.
-        expect(text).toContain("This PR therefore reads BUG FOUND (red): a test found a bug this job");
-        expect(text).toContain("Lead with what breaks for a user");
-        expect(text).not.toContain("NOT CONFIRMED");
+    it("asks for clustering by feature, and forbids the agent from judging its own flows", () => {
+        // Splitting a feature by outcome is what hides that most of it works, which is the pessimism being fixed.
+        expect(REPORTER_SYSTEM_PROMPT).toContain("Cluster by FEATURE, not by outcome");
+        expect(REPORTER_SYSTEM_PROMPT).toContain("Do not state whether a flow counts as verified");
     });
 
-    it("states BOTH readings for a carried bug the run may resolve, rather than calling red settled", () => {
-        const text = promptText([finding("cart", "passed")], [openBugIssue("issue_place_order")]);
-
-        expect(text).toContain("Open bug issue(s) carried from earlier runs on this branch: 1.");
-        // Resolving is what a passing covering test requires, so the prompt must not claim the verdict is settled -
-        // that would both mis-state the outcome and discourage the resolve.
-        expect(text).not.toContain("settled");
-        expect(text).toContain("leave the carried bug issue(s) open and the PR reads BUG FOUND (red)");
-        expect(text).toContain("resolve them");
-        expect(text).toContain('it reads HEALTHY, headline: "Autonoma verified this change - the app held up."');
-        // And a rule for each branch, so whichever way it reconciles, the prose has one to follow.
-        expect(text).toContain("If it stays red: Lead with what breaks for a user");
-        expect(text).toContain("If you resolve it: Every affected test ran and confirmed the app.");
+    it("keeps the report from duplicating the itemization rendered above it", () => {
+        expect(REPORTER_SYSTEM_PROMPT).toContain("DO NOT re-list the flows");
     });
 
     it("asks for the reason, and for the disclosure, when the run decided the change needed no test", () => {
-        const text = promptText([]);
-
-        expect(text).toContain("this PR reads NO TESTS NEEDED");
-        expect(text).toContain("No tests needed for this change.");
         // A confident verdict is only worth anything if it says WHY, and says so when it declined to cover something
         // the reader can see - a reader who disagrees and asks for a test is a coverage lead.
-        expect(text).toContain("Give the SPECIFIC reason");
-        expect(text).toContain("If the change touches something a user sees and we deliberately did not exercise it");
-        expect(text).toContain("Never claim the change does not affect the UI");
+        expect(REPORTER_SYSTEM_PROMPT).toContain("Give the SPECIFIC reason");
+        expect(REPORTER_SYSTEM_PROMPT).toContain(
+            "If the change touches something a user sees and we deliberately did not exercise it",
+        );
+        expect(REPORTER_SYSTEM_PROMPT).toContain("Never claim the change does not affect the UI");
+        expect(REPORTER_SYSTEM_PROMPT).toContain("paraphrase it, never quote it");
+    });
+});
+
+describe("buildReporterPrompt", () => {
+    it("lists every branch test, marking which are carried from an earlier commit", () => {
+        // The carried half is the part the agent has no other way to see; without it the report describes only the
+        // newest commit, which is the defect this whole stage was reworked to fix.
+        const text = promptText(
+            [finding("checkout", "passed")],
+            [
+                branchTest("checkout", "passed"),
+                branchTest("billing", "passed", { checkedThisRun: false, fromSha: "abc1234" }),
+            ],
+        );
+
+        expect(text).toContain("# The branch's tests (2) - cluster ALL of these into flows, each exactly once");
+        expect(text).toContain("Checked at this commit: 1. Carried from earlier commits: 1.");
+        expect(text).toContain("- checkout [passed, this commit] checkout test");
+        expect(text).toContain("- billing [passed, carried from abc1234] billing test");
+    });
+
+    it("separates this commit's findings from the branch list, and counts them", () => {
+        const text = promptText([finding("checkout", "passed"), finding("cart", "engine_artifact")]);
+
+        expect(text).toContain("# Findings at this commit (2: 1 confirmed the app, 1 did not complete)");
+    });
+
+    it("says plainly when a branch carries no tests at all", () => {
+        const text = promptText([], []);
+
+        expect(text).toContain("(none - no test has been investigated on this PR)");
+        expect(text).toContain("(none - no test ran at this commit)");
     });
 
     it("shows a coverage finding's account of the fault, which is where an env gap's owner is readable", () => {

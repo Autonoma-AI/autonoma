@@ -10,8 +10,10 @@ import type { ScreenshotLoader } from "../../agents/tools/run-evidence/run-evide
 import type { Codebase } from "../../codebase";
 import { type CoverageViolations, computeCoverageViolations } from "./coverage";
 import { groundNarrative, resolvePrimaryScreenshot, validateSuspectedCause } from "./evidence";
+import { type AuthoredFlow, type FlowPartition, partitionFlows } from "./flows";
 import type { RecordedIssueAction } from "./issue-actions";
 import type {
+    ReporterBranchTest,
     ReporterEvidenceAsset,
     ReporterExistingIssue,
     ReporterFinding,
@@ -26,6 +28,7 @@ interface ReporterAgentLoopParams extends AgentConfig<ReporterResult> {
     screenshotLoader?: ScreenshotLoader;
     scenarioLoader?: ReporterScenarioLoader;
     findings: readonly ReporterFinding[];
+    branchTests: readonly ReporterBranchTest[];
     existingIssues: readonly ReporterExistingIssue[];
     scenarioIndex: readonly ReporterScenarioSummary[];
 }
@@ -44,6 +47,7 @@ export class ReporterAgentLoop extends AgentLoop<ReporterResult> implements Code
     private readonly scenarioLoader?: ReporterScenarioLoader;
 
     private readonly findings: readonly ReporterFinding[];
+    private readonly branchTests: readonly ReporterBranchTest[];
     private readonly existingIssues: readonly ReporterExistingIssue[];
     private readonly scenarioIndex: readonly ReporterScenarioSummary[];
 
@@ -71,6 +75,7 @@ export class ReporterAgentLoop extends AgentLoop<ReporterResult> implements Code
         screenshotLoader,
         scenarioLoader,
         findings,
+        branchTests,
         existingIssues,
         scenarioIndex,
         ...config
@@ -80,6 +85,7 @@ export class ReporterAgentLoop extends AgentLoop<ReporterResult> implements Code
         this.screenshotLoader = screenshotLoader;
         this.scenarioLoader = scenarioLoader;
         this.findings = findings;
+        this.branchTests = branchTests;
         this.existingIssues = existingIssues;
         this.scenarioIndex = scenarioIndex;
 
@@ -115,6 +121,19 @@ export class ReporterAgentLoop extends AgentLoop<ReporterResult> implements Code
      */
     public checkCoverage(): CoverageViolations {
         return computeCoverageViolations(this.findings, this.existingIssues, this.recordedActions);
+    }
+
+    // --- Flows ------------------------------------------------------------------------------------------------
+
+    /**
+     * Resolve the agent's authored flows against the branch's verdict map: every test lands in exactly one flow, and
+     * every status and owner is derived from the verdicts rather than taken from the agent.
+     *
+     * Deliberately NOT a guarantee like the coverage checks above. Those reject a finish because an uncovered bug
+     * would disappear from the product; an unplaced test loses only its name, so it is corrected here instead.
+     */
+    public partitionFlows(authored: readonly AuthoredFlow[]): FlowPartition {
+        return partitionFlows(authored, this.branchTests);
     }
 
     // --- Evidence: the fetched-asset allow-list -------------------------------------------------------------

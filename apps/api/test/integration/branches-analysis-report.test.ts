@@ -14,10 +14,11 @@ apiTestSuite({
                 data: {
                     snapshotId,
                     verdict: "client_bug",
+                    title: "Autonoma checked this PR",
                     testCount: 2,
                     clientBugCount: 1,
                     impactReasoning: "Selected the checkout tests because the PR touches the cart.",
-                    summary: "The checkout flow has a client bug: the submit button never enables.",
+                    headline: "The checkout flow has a client bug: the submit button never enables.",
                     reportMarkdown: "## Checkout is broken\nThe submit button never enables.",
                     organizationId: harness.organizationId,
                 },
@@ -41,7 +42,7 @@ apiTestSuite({
 
             expect(report).not.toBeNull();
             expect(report?.impactReasoning).toContain("checkout");
-            expect(report?.summary).toContain("client bug");
+            expect(report?.headline).toContain("client bug");
             // Bugs sort ahead of passing checks, and each finding is routed by its own id.
             expect(report?.findings.map((f) => f.id)).toEqual([
                 findingFor("checkout-submit"),
@@ -65,8 +66,9 @@ apiTestSuite({
                 data: {
                     snapshotId,
                     verdict: "passed",
+                    title: "Autonoma checked this PR",
                     testCount: 1,
-                    summary: "The rewritten test passes.",
+                    headline: "The rewritten test passes.",
                     reportMarkdown: "## Run\n\nThe rewritten test passes.",
                     organizationId: harness.organizationId,
                 },

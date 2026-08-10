@@ -415,7 +415,8 @@ async function createTrackedPr(
             data: {
                 snapshotId: snapshot.id,
                 verdict: "passed",
-                summary: "Run complete.",
+                title: "Autonoma checked this PR",
+                headline: "Run complete.",
                 reportMarkdown: "## Run",
                 organizationId: harness.organizationId,
             },

@@ -28,8 +28,10 @@ export {
     authoredIssueContentSchema,
 } from "./report";
 export type {
+    FlowCorrections,
     ReporterInput,
     ReporterResult,
+    ReporterBranchTest,
     ReporterFinding,
     ReporterExistingIssue,
     ReporterPriorReport,

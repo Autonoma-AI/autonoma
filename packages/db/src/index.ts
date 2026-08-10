@@ -3,6 +3,7 @@ import { execSync } from "node:child_process";
 import path from "node:path";
 import type {
     AgentLogEntrySchema,
+    analysisFlowSchema,
     Blueprint as PreviewkitConfigBlueprint,
     Build as PreviewkitBuild,
     DatabaseSetupLocation as PreviewkitDatabaseSetupLocation,
@@ -167,6 +168,8 @@ declare global {
         export type EvidenceManifest = z.infer<typeof evidenceManifestEntrySchema>[];
         export type PrimaryScreenshot = z.infer<typeof primaryScreenshotSchema>;
         export type SuspectedCause = z.infer<typeof suspectedCauseSchema>;
+        /** The Reporter's flow itemization stored on `AnalysisReport.flows` (display-only, re-derived each run). */
+        export type AnalysisFlows = z.infer<typeof analysisFlowSchema>[];
         export type ScenarioAuth = {
             cookies?: Array<{
                 name: string;

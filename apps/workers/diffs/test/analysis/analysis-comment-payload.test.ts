@@ -18,6 +18,24 @@ const context: AnalysisCommentContext = {
 
 const sign = async (key: string): Promise<string> => `signed:${key}`;
 
+function flow(
+    title: string,
+    overrides: Partial<AnalysisCommentInput["flows"] extends (infer F)[] | undefined ? F : never> = {},
+) {
+    return {
+        title,
+        detail: `${title} detail`,
+        status: "verified" as const,
+        owner: "none" as const,
+        passedCount: 1,
+        gapCount: 0,
+        bugCount: 0,
+        checkedThisRunCount: 1,
+        testSlugs: [title.toLowerCase()],
+        ...overrides,
+    };
+}
+
 function bugIssue(overrides: Partial<AnalysisCommentInput["bugIssues"][number]> = {}) {
     return {
         id: "issue_csv_export",
@@ -48,7 +66,8 @@ describe("buildAnalysisCommentPayload", () => {
                     ],
                     total: 5,
                 },
-                summary: "The app misbehaved on one flow; two runs were engine flakes.",
+                title: "Checkout crashes on export",
+                headline: "The app misbehaved on one flow; two runs were engine flakes.",
             },
             context,
             async (key) => {
@@ -58,9 +77,10 @@ describe("buildAnalysisCommentPayload", () => {
         );
 
         expect(payload.state).toBe("critical");
-        expect(payload.stateLabel).toBe("BUG FOUND");
-        expect(payload.headline).toBe("Autonoma found 1 bug in this PR.");
-        expect(payload.summary).toBe("The app misbehaved on one flow; two runs were engine flakes.");
+        expect(payload.kind).toBe("analysis");
+        // A bug is the one outcome we state ourselves, with a count - the authored title is overridden for it.
+        expect(payload.title).toBe("Autonoma found 1 bug in this PR");
+        expect(payload.headline).toBe("The app misbehaved on one flow; two runs were engine flakes.");
         expect(payload.commitRef).toBe("e5d627a");
         expect(payload.bugs).toHaveLength(1);
         expect(payload.bugs[0]).toMatchObject({
@@ -167,73 +187,125 @@ describe("buildAnalysisCommentPayload", () => {
         expect(payload.bugs[0]?.evidence).toEqual([]);
     });
 
-    it("splits the coverage gaps by owner: what the reader must fix, then what is ours", async () => {
+    it("itemizes the flows into wins, the reader's gaps, and ours", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
                 testCount: 9,
                 bugIssues: [],
-                coverage: {
-                    byCategory: [
-                        { category: "scenario_issue", count: 2 },
-                        { category: "engine_artifact", count: 2 },
-                        { category: "environment_failure", count: 3 },
-                        { category: "plan_mismatch", count: 1 },
-                    ],
-                    total: 8,
-                },
-                // Of the three env gaps, the Reporter traced one to configuration the reader owns.
-                clientEnvironmentFailures: 1,
+                flows: [
+                    flow("Guest checkout"),
+                    flow("Coupon codes", {
+                        status: "unverified",
+                        owner: "client",
+                        passedCount: 0,
+                        gapCount: 2,
+                        testSlugs: ["coupon-a", "coupon-b"],
+                    }),
+                    flow("Invoices", {
+                        status: "partial",
+                        owner: "autonoma",
+                        passedCount: 3,
+                        gapCount: 1,
+                        testSlugs: ["inv-a", "inv-b", "inv-c", "inv-d"],
+                    }),
+                ],
                 coverageIssues: [{ id: "issue_coupon_scenario", title: "Checkout scenario seeds no coupon codes" }],
             },
             context,
             sign,
         );
 
-        const attention = payload.notes.find((note) => note.tone === "attention");
-        expect(attention?.heading).toBe("⚠️ Needs your attention");
-        expect(attention?.items).toEqual([
-            "2 scenario issues - the test data these flows need was not seeded, so they never ran.",
-            "1 environment failure - the preview could not be exercised with the configuration it has.",
-        ]);
-        // The why-it-matters line: a setup gap outlives the run it was found in.
-        expect(attention?.lines[0]).toContain("block every future run on this branch");
+        // The wins have a block of their own. The body used to carry only losses, so a run that verified most of a
+        // PR read as a failure - which is the whole defect the itemization fixes.
+        const [verified, yours, ours] = payload.flowGroups;
+        expect(verified?.heading).toBe("✅ What we verified");
+        expect(verified?.flows).toEqual([{ title: "Guest checkout", detail: "Guest checkout detail" }]);
+
+        expect(yours?.heading).toBe("⚠️ Couldn't check - yours to fix");
+        expect(yours?.tone).toBe("attention");
+        expect(yours?.flows.map((f) => f.title)).toEqual(["Coupon codes"]);
+        expect(yours?.lines[0]).toContain("block every future run on this branch");
         // What to fix comes from the issue the Reporter filed, deep-linked to its detail page.
-        expect(attention?.links).toEqual([
+        expect(yours?.links).toEqual([
             {
                 label: "Checkout scenario seeds no coupon codes",
                 href: "https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_coupon_scenario",
             },
         ]);
 
-        const ours = payload.notes.find((note) => note.tone === "quiet");
-        expect(ours?.heading).toBe("On our side");
-        expect(ours?.items).toEqual([
-            "2 engine artifacts - our runner could not complete these checks.",
-            // The two env gaps the Reporter did not place on the reader read as ours, in our words.
-            "2 environment failures - the preview environment was not reachable when we ran.",
-            "1 unresolved test - the app rendered correctly, but the test's plan no longer matches it and our rewrite could not stabilize it.",
-        ]);
-        expect(ours?.lines[0]).toContain("Nothing here is yours to fix.");
-        // A kept plan_mismatch might be a defect we misdiagnosed, so it is never silently ours.
-        expect(ours?.lines[0]).toContain("Worth a glance");
-        expect(ours?.links).toEqual([]);
+        expect(ours?.heading).toBe("Couldn't check - on us");
+        expect(ours?.tone).toBe("quiet");
+        // A partial flow says how much of it held up, so it is never read as a flat failure.
+        expect(ours?.flows[0]).toEqual({
+            title: "Invoices",
+            detail: "Invoices detail",
+            meta: "3 of 4 checks passed",
+        });
     });
 
-    it("keeps an unplaced environment failure on our side rather than nagging the reader about it", async () => {
+    it("caps a group and links the rest, rather than burying the comment under a long branch", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 2,
+                testCount: 8,
                 bugIssues: [],
-                coverage: { byCategory: [{ category: "environment_failure", count: 2 }], total: 2 },
+                flows: Array.from({ length: 8 }, (_, index) => flow(`Flow ${index}`)),
             },
             context,
             sign,
         );
 
-        expect(payload.notes.map((note) => note.tone)).toEqual(["quiet"]);
-        expect(payload.notes[0]?.items).toEqual([
-            "2 environment failures - the preview environment was not reachable when we ran.",
+        expect(payload.flowGroups[0]?.flows).toHaveLength(6);
+        expect(payload.flowGroups[0]?.overflow).toEqual({
+            count: 2,
+            href: "https://beta.autonoma.app/app/acme/pull-requests/42/",
+        });
+    });
+
+    it("marks a flow nothing re-ran at this commit as carried, so a cumulative list is not read as all-fresh", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            { testCount: 0, bugIssues: [], flows: [flow("Billing", { checkedThisRunCount: 0 })] },
+            context,
+            sign,
+        );
+
+        expect(payload.flowGroups[0]?.flows[0]?.meta).toBe("carried from an earlier commit");
+    });
+
+    it("keeps the reader's issue links when the only client-owned gap sits in a flow that also holds a bug", async () => {
+        // A flow mixing a client_bug test with a scenario_issue test is skipped as `broken` (its bug is a card), so
+        // keying the block on the flow list alone would drop the one actionable thing in the comment.
+        const payload = await buildAnalysisCommentPayload(
+            {
+                testCount: 2,
+                bugIssues: [bugIssue()],
+                flows: [flow("Checkout", { status: "broken", owner: "client", bugCount: 1, passedCount: 0 })],
+                coverageIssues: [{ id: "issue_coupon_scenario", title: "Checkout scenario seeds no coupon codes" }],
+            },
+            context,
+            sign,
+        );
+
+        const yours = payload.flowGroups.find((group) => group.heading.includes("yours to fix"));
+        expect(yours?.links).toEqual([
+            {
+                label: "Checkout scenario seeds no coupon codes",
+                href: "https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_coupon_scenario",
+            },
         ]);
+    });
+
+    it("leaves a broken flow out of the itemization, since its bug already has a card", async () => {
+        const payload = await buildAnalysisCommentPayload(
+            {
+                testCount: 2,
+                bugIssues: [bugIssue()],
+                flows: [flow("Checkout", { status: "broken", bugCount: 1, passedCount: 0 }), flow("Search")],
+            },
+            context,
+            sign,
+        );
+
+        expect(payload.flowGroups.flatMap((group) => group.flows.map((f) => f.title))).toEqual(["Search"]);
     });
 
     it("reports removed invalid tests as one quiet line, in neither owner's block", async () => {
@@ -264,11 +336,14 @@ describe("buildAnalysisCommentPayload", () => {
         const payload = await buildAnalysisCommentPayload({ testCount: 3, bugIssues: [] }, context, sign);
 
         expect(payload.state).toBe("healthy");
-        expect(payload.stateLabel).toBe("HEALTHY");
+        // Nothing was authored and there is no itemization, so the title falls back to the copy this run's own COUNTS
+        // earn. It must not read "no tests needed" - three tests ran, and every pre-flows report reaches this path.
+        expect(payload.title).toBe("Autonoma verified this change");
         expect(payload.headline).toBe("Autonoma verified this change - the app held up.");
         expect(payload.summary).toBeUndefined();
         expect(payload.bugs).toEqual([]);
         expect(payload.notes).toEqual([]);
+        expect(payload.flowGroups).toEqual([]);
         expect(payload.warnings).toEqual([]);
     });
 
@@ -287,12 +362,11 @@ describe("buildAnalysisCommentPayload", () => {
         );
 
         // A pass with a coverage gap must NOT read as green: "no bug" is not "verified".
+        // The colour is still computed from counts - it drives the merge gate and the rail - but it no longer
+        // renders as a badge word above the headline.
         expect(payload.state).toBe("warning");
-        expect(payload.stateLabel).toBe("NOT CONFIRMED");
+        expect(payload.stateLabel).toBeUndefined();
         expect(payload.headline).toBe("Autonoma couldn't confirm this change - 1 check didn't complete.");
-        expect(payload.notes[0]?.items).toEqual([
-            "1 scenario issue - the test data these flows need was not seeded, so they never ran.",
-        ]);
     });
 
     it("is a green NO TESTS NEEDED when the run decided the change needed no test", async () => {
@@ -300,7 +374,8 @@ describe("buildAnalysisCommentPayload", () => {
             {
                 testCount: 0,
                 bugIssues: [],
-                summary: "The change is a parser refactor already covered by unit tests, so no browser test was added.",
+                headline:
+                    "The change is a parser refactor already covered by unit tests, so no browser test was added.",
             },
             context,
             sign,
@@ -309,12 +384,13 @@ describe("buildAnalysisCommentPayload", () => {
         // GitHub offers a tick, a grey circle or a red cross - there is no calm grey, so anything but green reads as
         // an unresolved problem. The state label and headline carry what kind of green this is.
         expect(payload.state).toBe("healthy");
-        expect(payload.stateLabel).toBe("NO TESTS NEEDED");
-        expect(payload.headline).toBe("No tests needed for this change.");
+        expect(payload.title).toBe("No tests needed for this change");
 
         const markdown = renderMarkdown(payload);
-        expect(markdown).toContain("🟢");
+        // Only a bug carries a marker now: a run that needed no tests is not a problem to flag.
+        expect(markdown).toContain("## No tests needed for this change");
         expect(markdown).not.toContain("⚪");
+        expect(markdown).not.toContain("🟢");
         expect(markdown).not.toContain("couldn't fully test this PR");
         // The reason is the Reporter's to give; the deterministic copy never generalizes to "this doesn't touch the UI".
         expect(markdown).toContain("already covered by unit tests");
@@ -338,7 +414,7 @@ describe("buildAnalysisCommentPayload", () => {
             {
                 testCount: 3,
                 bugIssues: [bugIssue()],
-                summary: "The app misbehaved.",
+                headline: "The app misbehaved.",
                 mergeGateBlocking: true,
             },
             context,
@@ -346,7 +422,7 @@ describe("buildAnalysisCommentPayload", () => {
         );
         const body = renderMarkdown(payload);
 
-        expect(payload.summary).toContain("The app misbehaved.");
+        expect(payload.headline).toBe("The app misbehaved.");
         expect(payload.summary).toContain("/autonoma-skip <reason>");
         expect(body).toContain("This check blocks merging");
         expect(body).toContain("`/autonoma-skip <reason>`");
@@ -364,46 +440,49 @@ describe("buildAnalysisCommentPayload", () => {
 
     it("omits the skip callout when the gate is not blocking (default)", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { testCount: 3, bugIssues: [bugIssue()], summary: "The app misbehaved." },
+            { testCount: 3, bugIssues: [bugIssue()], headline: "The app misbehaved." },
             context,
             sign,
         );
 
-        expect(payload.summary).toBe("The app misbehaved.");
+        expect(payload.summary).toBeUndefined();
     });
 
-    it("renders the summary and both owner blocks into the shared markdown, quieting only ours", async () => {
+    it("renders the itemization into the shared markdown, quieting only what is ours", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
                 testCount: 5,
                 bugIssues: [],
-                coverage: {
-                    byCategory: [
-                        { category: "scenario_issue", count: 1 },
-                        { category: "plan_mismatch", count: 3 },
-                    ],
-                    total: 4,
-                },
+                title: "Orders verified; invoices couldn't be seeded",
+                headline: "One flow never ran for want of seeded data; three tests could not be stabilized.",
+                flows: [
+                    flow("Orders"),
+                    flow("Invoices", { status: "unverified", owner: "client", passedCount: 0, gapCount: 1 }),
+                    flow("Reports", { status: "unverified", owner: "autonoma", passedCount: 0, gapCount: 3 }),
+                ],
                 coverageIssues: [{ id: "issue_seed", title: "Orders scenario seeds no paid invoice" }],
-                summary: "One flow never ran for want of seeded data; three tests could not be stabilized.",
             },
             context,
             sign,
         );
         const body = renderMarkdown(payload);
 
-        // An amber run has no cards, so the title has to name the outcome rather than fall back to a neutral one.
-        expect(body).toContain("## 🟡 Autonoma couldn't confirm this PR");
+        // The Reporter's title is the heading, with no marker: only a bug is raised as an alarm.
+        expect(body).toContain("## Orders verified; invoices couldn't be seeded");
+        expect(body).not.toContain("🟡");
+        // ...and no badge word compressing the headline back into the binary it replaced.
+        expect(body).not.toContain("**NOT CONFIRMED**");
         expect(body).toContain("One flow never ran for want of seeded data; three tests could not be stabilized.");
-        // The reader's block is a plain, visible section with a real bullet list...
-        expect(body).toContain("**⚠️ Needs your attention**");
-        expect(body).toContain("- 1 scenario issue - the test data these flows need was not seeded");
+
+        // The wins read at the same weight as everything else, as a real bullet list.
+        expect(body).toContain("**✅ What we verified**");
+        expect(body).toContain("- **Orders** - Orders detail");
+        expect(body).toContain("**⚠️ Couldn't check - yours to fix**");
         expect(body).toContain(
-            "- [Orders scenario seeds no paid invoice](<https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_seed>)",
+            "[Orders scenario seeds no paid invoice](<https://beta.autonoma.app/app/acme/pull-requests/42/issues/issue_seed>)",
         );
-        // ...while ours is blockquoted, so it reads as reported rather than requested.
-        expect(body).toContain("> **On our side**");
-        expect(body).toContain("> - 3 unresolved tests - the app rendered correctly");
+        // ...while what is ours is blockquoted, so it is visible without being asked of the reader.
+        expect(body).toContain("> **Couldn't check - on us**");
         expect(body).toContain("> Nothing here is yours to fix.");
     });
 

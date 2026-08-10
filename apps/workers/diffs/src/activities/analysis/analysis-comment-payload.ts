@@ -4,6 +4,8 @@ import type {
     AutonomaCommentBug,
     AutonomaCommentCta,
     AutonomaCommentEvidence,
+    AutonomaCommentFlow,
+    AutonomaCommentFlowGroup,
     AutonomaCommentHandoff,
     AutonomaCommentNote,
     AutonomaCommentPayload,
@@ -16,14 +18,15 @@ import {
     type AnalysisVerdictState,
     type CoverageSummary,
     type SuspectedCause,
-    analysisCoverageOwner,
+    type AnalysisFlow,
+    analysisFlowComposition,
+    analysisPrTitle,
     analysisVerdictHeadline,
-    analysisVerdictLabel,
     buildAnalysisFindingUrl,
     buildAnalysisIssueUrl,
     buildPreviewFrontDoorUrl,
     buildPrPageUrl,
-    deriveAnalysisVerdict,
+    derivePrVerdict,
 } from "@autonoma/types";
 
 /**
@@ -64,43 +67,31 @@ const COVERAGE_CATEGORY_NOUN: Record<AnalysisVerdict, string> = {
     invalid_test: "invalid test",
 };
 
-/**
- * What each coverage gap means for the reader, appended to its count. Keyed over the SSOT so a new verdict is a
- * compile error until it has copy; the app-health entries never render (they are not coverage gaps).
- * `environment_failure` reads differently depending on whose it is, so its client-side wording lives here and its
- * infra-side wording in {@link OUR_ENVIRONMENT_EXPLANATION}.
- */
-const COVERAGE_CATEGORY_EXPLANATION: Record<AnalysisVerdict, string> = {
-    client_bug: "the app misbehaved",
-    passed: "the app held up",
-    scenario_issue: "the test data these flows need was not seeded, so they never ran",
-    environment_failure: "the preview could not be exercised with the configuration it has",
-    engine_artifact: "our runner could not complete these checks",
-    plan_mismatch:
-        "the app rendered correctly, but the test's plan no longer matches it and our rewrite could not stabilize it",
-    // Never rendered as a gap: a removal is reported on its own quiet line, not asked of either side.
-    invalid_test: "the test's premise is impossible, so it was removed",
-};
+/** The wins block. Listed in the comment, not buried behind a click: most readers never open the PR page. */
+const VERIFIED_HEADING = "✅ What we verified";
 
-/** An `environment_failure` on our side: the preview infrastructure, not the reader's configuration. */
-const OUR_ENVIRONMENT_EXPLANATION = "the preview environment was not reachable when we ran";
-
-/** The visible block: gaps only the reader can fix, and why they matter beyond this run. */
-const ATTENTION_HEADING = "⚠️ Needs your attention";
-const ATTENTION_WHY =
+/** The one block the reader can act on. */
+const YOURS_HEADING = "⚠️ Couldn't check - yours to fix";
+const YOURS_WHY =
     "These are setup gaps, not app bugs - but they block every future run on this branch until they are fixed, not just this one.";
-/** Lead-in for the issues behind the gaps, each carrying the Reporter's account of what to fix. */
-const ATTENTION_ISSUES_LEAD = "What to fix:";
+const YOURS_ISSUES_LEAD = "What to fix:";
 
-/** The quiet block: gaps that are ours. Reported so the reader knows what was skipped, never asked of them. */
-const OUR_SIDE_HEADING = "On our side";
-const OUR_SIDE_WHY = "Nothing here is yours to fix.";
+/** Reported so the reader knows what was skipped, never asked of them. */
+const OURS_HEADING = "Couldn't check - on us";
+const OURS_WHY = "Nothing here is yours to fix.";
+
+/** How many flows one group shows before linking the rest; a long branch must not bury the comment. */
+const MAX_FLOWS_PER_GROUP = 6;
 
 /**
- * The one gap in the quiet block that still deserves a human eye: a `plan_mismatch` is kept rather than removed
- * precisely because it might be a real defect the classifier misdiagnosed.
+ * The one note the comment still carries. A removed test is a conclusion rather than a problem, so it is stated once,
+ * quietly, and asked of nobody - which is also why it is not a flow.
  */
-const PLAN_MISMATCH_NOTE = "Worth a glance: an unresolved test can be a real defect we misdiagnosed.";
+function buildCoverageNotes(input: AnalysisCommentInput): AutonomaCommentNote[] {
+    const removed = countFor(input.coverage, ANALYSIS_VERDICT.invalid_test);
+    if (removed === 0) return [];
+    return [{ tone: "quiet", items: [], lines: [describeRemovedTests(removed)], links: [] }];
+}
 
 /** The removal line, whose grammar is the only reason the two readings are separate copy. */
 const REMOVED_TEST_WHY = "it covered something the app contradicts, so it will not run again";
@@ -169,19 +160,18 @@ export interface AnalysisCommentInput {
     bugIssues: AnalysisCommentIssue[];
     /** The coverage-confidence plane summary, partitioned by owner into the body blocks. Absent when malformed. */
     coverage?: CoverageSummary;
-    /**
-     * How many of this run's `environment_failure` gaps are the READER'S to fix. The taxonomy carries no owner field
-     * for them (a preview we could not exercise can be either side), so this count is the Reporter's own placement:
-     * an env gap it attributed to an open environment/scenario issue is one it judged fixable configuration. The
-     * remainder are ours. Defaults to none, which keeps an unplaced env gap on our side rather than nagging.
-     */
-    clientEnvironmentFailures?: number;
     /** The open issues behind this run's client-owned gaps - what to fix, in the Reporter's words. */
     coverageIssues?: AnalysisCommentCoverageIssue[];
     /** True when the merge gate is live for this org and the verdict blocks the PR; drives the skip-instruction callout. */
     mergeGateBlocking?: boolean;
-    /** The Reporter's one-paragraph run summary, rendered under the headline. Absent on a pre-Reporter run. */
-    summary?: string;
+    /** The Reporter's title. Empty on a report written before the Reporter authored one. */
+    title?: string;
+    /** The Reporter's headline for the PR as a whole. */
+    headline?: string;
+    /** The branch's flow itemization - what this PR has established and what it has not. Absent on a pre-flows run. */
+    flows?: AnalysisFlow[];
+    /** The PR page, where a capped group's remaining flows are shown in full. */
+    prPageUrl?: string;
 }
 
 /**
@@ -200,14 +190,21 @@ export async function buildAnalysisCommentPayload(
     context: AnalysisCommentContext,
     signScreenshot: (s3Key: string) => Promise<string | undefined>,
 ): Promise<AutonomaCommentPayload> {
-    // The verdict every surface shares, computed from counts alone - never from the Reporter's prose, which cannot be
-    // allowed to talk an unconfirmed run into reading green.
+    // The verdict every surface shares, derived from the flow itemization when the run has one and from its raw
+    // counts when it does not - never from the Reporter's prose, which cannot be allowed to talk an unconfirmed run
+    // into reading green.
+    const flows = input.flows ?? [];
     const verdictCounts: AnalysisVerdictCounts = {
         bugCount: input.bugIssues.length,
         coverageGapCount: input.coverage?.total ?? 0,
         investigatedCount: input.testCount,
     };
-    const verdictState = deriveAnalysisVerdict(verdictCounts);
+    const verdictState = derivePrVerdict({
+        flows,
+        openBugCount: verdictCounts.bugCount,
+        investigatedCount: verdictCounts.investigatedCount,
+        coverageGapCount: verdictCounts.coverageGapCount,
+    });
     const state: AutonomaCommentState = COMMENT_STATE[verdictState];
 
     // The visible preview links (the top CTA and each bug's "Open preview") point at
@@ -231,16 +228,18 @@ export async function buildAnalysisCommentPayload(
 
     return {
         state,
-        stateLabel: analysisVerdictLabel(verdictState),
+        kind: "analysis",
         prNumber: context.prNumber,
-        headline: analysisVerdictHeadline(verdictCounts),
-        summary: buildSummary(input.summary, input.mergeGateBlocking),
+        title: analysisPrTitle(input.title ?? "", verdictState, input.bugIssues.length),
+        headline: input.headline ?? analysisVerdictHeadline(verdictCounts),
+        summary: input.mergeGateBlocking === true ? MERGE_GATE_SKIP_CALLOUT : undefined,
+        flowGroups: buildFlowGroups(input, context, flows),
         handoff: input.bugIssues.length > 0 ? buildHandoff(input.bugIssues, context) : undefined,
         commitRef: context.commitSha.slice(0, 7),
         assetBaseUrl: context.assetBaseUrl,
         ctas,
         services: [],
-        notes: buildCoverageNotes(input, context),
+        notes: buildCoverageNotes(input),
         warnings: [],
         details: [],
         previewUrls: hasPreview ? [context.previewUrl!] : [],
@@ -249,122 +248,88 @@ export async function buildAnalysisCommentPayload(
 }
 
 /**
- * The prose block rendered under the headline: the Reporter's one-paragraph summary, plus the skip-instruction
- * callout when the merge gate is blocking this PR. Either may be absent; returns undefined when both are.
+ * The flow itemization: what this pull request has established, and what it has not.
+ *
+ * This replaces the per-category gap counts the body used to carry ("2 engine artifacts - our runner could not
+ * complete these checks"). Those named no flow and reported only losses - there was nowhere for "we confirmed guest
+ * checkout" to appear at all, so a run that verified six flows of seven read as pure failure.
+ *
+ * A `broken` flow is deliberately absent: its bug already has a card above, and repeating it here would report the
+ * same problem twice. Every other flow appears exactly once, in the group matching how much of it we established -
+ * and a flow the reader can unblock is listed as theirs, since that is the only group they can act on.
  */
-function buildSummary(summary: string | undefined, mergeGateBlocking: boolean | undefined): string | undefined {
-    const parts: string[] = [];
-    if (summary != null && summary !== "") parts.push(summary);
-    if (mergeGateBlocking === true) parts.push(MERGE_GATE_SKIP_CALLOUT);
-    return parts.length > 0 ? parts.join("\n\n") : undefined;
+function buildFlowGroups(
+    input: AnalysisCommentInput,
+    context: AnalysisCommentContext,
+    flows: readonly AnalysisFlow[],
+): AutonomaCommentFlowGroup[] {
+    const verified: AnalysisFlow[] = [];
+    const yours: AnalysisFlow[] = [];
+    const ours: AnalysisFlow[] = [];
+    for (const flow of flows) {
+        if (flow.status === "broken") continue;
+        if (flow.status === "verified") verified.push(flow);
+        else if (flow.owner === "client") yours.push(flow);
+        else ours.push(flow);
+    }
+
+    const prPageUrl = input.prPageUrl ?? buildPrUrl(context);
+    // The reader's issues ride on this group whenever the Reporter filed any, even when no flow landed in it: a flow
+    // that mixes a bug with a client-owned gap is skipped as `broken` (its bug is already a card above), and dropping
+    // the links with it would take the only actionable half out of the comment.
+    const links = (input.coverageIssues ?? []).map((issue) => ({
+        label: issue.title,
+        href: buildAnalysisIssueUrl(context.appBaseUrl, context.appSlug, context.prNumber, issue.id),
+    }));
+
+    const groups: AutonomaCommentFlowGroup[] = [];
+    if (verified.length > 0) {
+        groups.push(toFlowGroup(VERIFIED_HEADING, "attention", verified, [], prPageUrl));
+    }
+    if (yours.length > 0 || links.length > 0) {
+        const lines = links.length > 0 ? [YOURS_WHY, YOURS_ISSUES_LEAD] : [YOURS_WHY];
+        groups.push(toFlowGroup(YOURS_HEADING, "attention", yours, lines, prPageUrl, links));
+    }
+    if (ours.length > 0) {
+        groups.push(toFlowGroup(OURS_HEADING, "quiet", ours, [OURS_WHY], prPageUrl));
+    }
+    return groups;
+}
+
+/** One group, capped so a large branch does not bury the comment; the rest are a click away on the PR page. */
+function toFlowGroup(
+    heading: string,
+    tone: "attention" | "quiet",
+    flows: AnalysisFlow[],
+    lines: string[],
+    prPageUrl: string,
+    links: AutonomaCommentCta[] = [],
+): AutonomaCommentFlowGroup {
+    const shown = flows.slice(0, MAX_FLOWS_PER_GROUP);
+    const hidden = flows.length - shown.length;
+    return {
+        heading,
+        tone,
+        flows: shown.map(toCommentFlow),
+        lines,
+        links,
+        overflow: hidden > 0 ? { count: hidden, href: prPageUrl } : undefined,
+    };
 }
 
 /**
- * The coverage-confidence plane, partitioned by OWNER into the body's blocks: what only the reader can fix (visible,
- * with why it matters beyond this run and links to the issues that say what to fix), what is ours (quiet, and never
- * asked of them), and the removed `invalid_test`s (one quiet line - a deliberate removal is not a problem to report).
- *
- * Each block appears only when this run actually produced a gap for it, so a clean run's body stays empty.
+ * One flow as the comment shows it. The composition line - where a mixed flow stays honest, since three passing
+ * checks beside one that could not run is not a flat failure - is shared with the PR page, so the two surfaces cannot
+ * word the same flow differently.
  */
-function buildCoverageNotes(input: AnalysisCommentInput, context: AnalysisCommentContext): AutonomaCommentNote[] {
-    const gaps = partitionCoverageGaps(input);
-    const notes: AutonomaCommentNote[] = [];
-
-    if (gaps.client.length > 0) {
-        const links = (input.coverageIssues ?? []).map((issue) => ({
-            label: issue.title,
-            href: buildAnalysisIssueUrl(context.appBaseUrl, context.appSlug, context.prNumber, issue.id),
-        }));
-        const lines = links.length > 0 ? [ATTENTION_WHY, ATTENTION_ISSUES_LEAD] : [ATTENTION_WHY];
-        notes.push({
-            tone: "attention",
-            heading: ATTENTION_HEADING,
-            items: gaps.client.map(describeGap),
-            lines,
-            links,
-        });
-    }
-
-    if (gaps.autonoma.length > 0) {
-        const hasPlanMismatch = gaps.autonoma.some((gap) => gap.category === ANALYSIS_VERDICT.plan_mismatch);
-        const why = hasPlanMismatch ? `${OUR_SIDE_WHY} ${PLAN_MISMATCH_NOTE}` : OUR_SIDE_WHY;
-        notes.push({
-            tone: "quiet",
-            heading: OUR_SIDE_HEADING,
-            items: gaps.autonoma.map(describeGap),
-            lines: [why],
-            links: [],
-        });
-    }
-
-    // A removal is a conclusion, not a problem: one quiet line, in neither owner's block.
-    const removed = countFor(input.coverage, ANALYSIS_VERDICT.invalid_test);
-    if (removed > 0) {
-        notes.push({ tone: "quiet", items: [], lines: [describeRemovedTests(removed)], links: [] });
-    }
-
-    return notes;
+function toCommentFlow(flow: AnalysisFlow): AutonomaCommentFlow {
+    return { title: flow.title, detail: flow.detail, meta: analysisFlowComposition(flow) };
 }
 
 /** The removed-test line: a deliberate, evidence-backed removal, stated once and left alone. */
 function describeRemovedTests(count: number): string {
     const noun = describeCount(ANALYSIS_VERDICT.invalid_test, count);
     return `${noun} removed - ${count === 1 ? REMOVED_TEST_WHY : REMOVED_TESTS_WHY}.`;
-}
-
-/** One coverage gap group as a block reports it: how many tests, and which wording explains it. */
-interface CoverageGap {
-    category: AnalysisVerdict;
-    count: number;
-    /** Overrides the category's default explanation - the infra-side reading of an `environment_failure`. */
-    explanation?: string;
-}
-
-interface PartitionedCoverageGaps {
-    client: CoverageGap[];
-    autonoma: CoverageGap[];
-}
-
-/**
- * Split the run's coverage gaps between the two owners. Every category but `environment_failure` is owned by the
- * taxonomy itself; env gaps are split by the Reporter's own count of the ones it traced to fixable configuration,
- * clamped to the category's total so a stale count can never invent gaps. `invalid_test` belongs to neither block.
- */
-function partitionCoverageGaps(input: AnalysisCommentInput): PartitionedCoverageGaps {
-    const partitioned: PartitionedCoverageGaps = { client: [], autonoma: [] };
-    for (const entry of input.coverage?.byCategory ?? []) {
-        if (entry.count <= 0) continue;
-        const owner = analysisCoverageOwner(entry.category);
-        if (owner === "client") {
-            partitioned.client.push({ category: entry.category, count: entry.count });
-            continue;
-        }
-        if (owner === "autonoma") {
-            partitioned.autonoma.push({ category: entry.category, count: entry.count });
-            continue;
-        }
-        // `invalid_test` owns no block at all; it is reported as a removal instead.
-        if (owner !== "undecided") continue;
-
-        // `environment_failure`: the reader's share is what the Reporter placed, the rest is ours.
-        const onClient = Math.min(Math.max(input.clientEnvironmentFailures ?? 0, 0), entry.count);
-        if (onClient > 0) partitioned.client.push({ category: entry.category, count: onClient });
-        const onUs = entry.count - onClient;
-        if (onUs > 0) {
-            partitioned.autonoma.push({
-                category: entry.category,
-                count: onUs,
-                explanation: OUR_ENVIRONMENT_EXPLANATION,
-            });
-        }
-    }
-    return partitioned;
-}
-
-/** One gap as a bullet: how many tests it cost, and what it means. */
-function describeGap(gap: CoverageGap): string {
-    const explanation = gap.explanation ?? COVERAGE_CATEGORY_EXPLANATION[gap.category];
-    return `${describeCount(gap.category, gap.count)} - ${explanation}.`;
 }
 
 function describeCount(category: AnalysisVerdict, count: number): string {

@@ -73,6 +73,39 @@ export const AutonomaCommentNoteSchema = z.object({
 });
 export type AutonomaCommentNote = z.infer<typeof AutonomaCommentNoteSchema>;
 
+/** One flow in the analysis comment's itemization: what it is, how it went, and how much of it held up. */
+export const AutonomaCommentFlowSchema = z.object({
+    title: z.string(),
+    detail: z.string(),
+    /**
+     * The flow's composition, e.g. "3 of 4 checks passed". Present whenever a flow is not wholly one thing, so a
+     * partial flow is never read as a flat failure - the whole reason a flow reports a mix rather than a verdict.
+     */
+    meta: z.string().optional(),
+});
+export type AutonomaCommentFlow = z.infer<typeof AutonomaCommentFlowSchema>;
+
+/**
+ * One group of the analysis comment's flow itemization: what we verified, what the reader must fix, what is ours.
+ *
+ * This replaces the per-category gap counts the body used to carry ("2 engine artifacts - our runner could not
+ * complete these checks"), which named no flow and reported only losses. A reader needs to know WHICH parts of their
+ * app are covered, and the wins have to appear next to the gaps or the comment reads as pure loss.
+ */
+export const AutonomaCommentFlowGroupSchema = z.object({
+    heading: z.string(),
+    /** `attention` renders plainly, at the weight of the bug cards; `quiet` renders blockquoted. */
+    tone: z.enum(["attention", "quiet"]),
+    /** Closing paragraphs under the flows: why the group matters. */
+    lines: z.array(z.string()).default([]),
+    flows: z.array(AutonomaCommentFlowSchema).default([]),
+    /** The issues behind the group's flows - the reader's "what to fix", in the Reporter's own words. */
+    links: z.array(AutonomaCommentCtaSchema).default([]),
+    /** How many flows were cut from a capped group, and where the reader sees all of them. */
+    overflow: z.object({ count: z.number().int().positive(), href: z.string() }).optional(),
+});
+export type AutonomaCommentFlowGroup = z.infer<typeof AutonomaCommentFlowGroupSchema>;
+
 export const AutonomaCommentServiceSchema = z.object({
     name: z.string(),
     status: z.enum(["ready", "failed", "building", "skipped", "unknown"]),
@@ -109,16 +142,26 @@ export type AutonomaCommentHandoff = z.infer<typeof AutonomaCommentHandoffSchema
 
 export const AutonomaCommentPayloadSchema = z.object({
     state: AutonomaCommentStateSchema,
-    // Set on the PreviewKit status comment so it renders a fixed "PreviewKit" title instead of the
-    // generic "Autonoma PR #N" heading. Absent on the test/analysis comments.
-    kind: z.literal("preview").optional(),
+    /**
+     * Which comment this is, when it renders differently from the default test-run comment.
+     *
+     * - `preview`: the PreviewKit status comment, which renders a fixed "PreviewKit" title.
+     * - `analysis`: the authoritative analysis comment, which states its own outcome in {@link title} and
+     *   {@link headline} rather than through a state badge. Only a bug carries a status colour there; every other
+     *   outcome is reported in words, because a run that verified six flows of seven has no honest colour.
+     */
+    kind: z.enum(["preview", "analysis"]).optional(),
     prNumber: z.number().int().positive(),
     /**
-     * Overrides the default badge word for `state` (e.g. the analysis comment renders "NOT CONFIRMED" over the amber
-     * `warning` state, "BUG FOUND" over `critical`). Absent means the renderer's generic per-state label, so other
-     * comment kinds that share these states (preview, investigation) keep their own wording.
+     * Overrides the default badge word for `state`. Absent means the renderer's generic per-state label. Not rendered
+     * at all on the `analysis` comment, whose title and headline carry the outcome.
      */
     stateLabel: z.string().optional(),
+    /**
+     * The comment's `##` heading, overriding the state-derived title. The analysis comment authors this for every
+     * outcome except an open bug, which we state ourselves with a count.
+     */
+    title: z.string().optional(),
     headline: z.string(),
     /**
      * An optional prose paragraph rendered right under the headline - the analysis comment's constrained
@@ -138,6 +181,11 @@ export const AutonomaCommentPayloadSchema = z.object({
      * what is ours to chase. Empty on every other comment kind, which carries its coverage caveats in `warnings`.
      */
     notes: z.array(AutonomaCommentNoteSchema).default([]),
+    /**
+     * The analysis comment's flow itemization, rendered under the bug cards: what this PR has verified and what it
+     * has not, in the reader's own vocabulary. Empty on every other comment kind.
+     */
+    flowGroups: z.array(AutonomaCommentFlowGroupSchema).default([]),
     warnings: z.array(z.string()).default([]),
     details: z.array(z.object({ summary: z.string(), body: z.string() })).default([]),
     handoff: AutonomaCommentHandoffSchema.optional(),

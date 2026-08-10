@@ -3,6 +3,8 @@ import type { AppHealthVerdict } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import {
     ANALYSIS_VERDICT,
+    type AnalysisFlow,
+    analysisFlowSchema,
     type AnalysisIssueKind,
     type AnalysisIssueSeverity,
     analysisCoverageOwner,
@@ -27,6 +29,19 @@ const BUG_KIND = analysisIssueKindSchema.enum.bug;
 /** The status of an issue that is still live - the only one the comment surfaces. */
 const OPEN = "open";
 
+/**
+ * The stored flow itemization, validated at the read boundary. A row written before the Reporter authored flows has
+ * none, and a malformed blob is dropped whole rather than surfaced half-rendered: the surfaces fall back to their
+ * deterministic copy, which is honest, where a partial list would silently understate what the PR covers.
+ */
+function parseFlows(flows: unknown, logger: Logger): AnalysisFlow[] {
+    if (flows == null) return [];
+    const parsed = analysisFlowSchema.array().safeParse(flows);
+    if (parsed.success) return parsed.data;
+    logger.warn("Skipping a malformed flow itemization on the PR comment", { extra: { error: parsed.error.message } });
+    return [];
+}
+
 /** Where a coverage issue whose stored severity does not parse sorts - listed, but last (as the merge gate does). */
 const UNPARSED_SEVERITY: AnalysisIssueSeverity = analysisIssueSeveritySchema.enum.low;
 
@@ -37,11 +52,14 @@ export interface LoadedAnalysisComment {
     testCount: number;
     bugIssues: AnalysisCommentIssue[];
     coverage?: CoverageSummary;
-    /** How many of this run's `environment_failure` gaps the Reporter placed on the reader's side. */
-    clientEnvironmentFailures: number;
+    /** The Reporter's title for the PR as a whole. Absent on a run that predates it. */
+    title?: string;
+    /** The branch's flow itemization: what this PR has established and what it has not. Empty on a pre-flows run. */
+    flows: AnalysisFlow[];
     /** The open issues behind this run's client-owned coverage gaps, most actionable first. */
     coverageIssues: AnalysisCommentCoverageIssue[];
-    summary?: string;
+    /** The Reporter's headline for the PR as a whole. Absent on a run that predates it. */
+    headline?: string;
 }
 
 /** The columns each open bug issue contributes to its card, plus the findings its designated instance is picked from. */
@@ -79,9 +97,12 @@ const coverageGapSelect = {
 type CoverageGapRow = Prisma.AnalysisFindingGetPayload<{ select: typeof coverageGapSelect }>;
 
 /**
- * Read the persisted run for its PR comment: the app-health verdict, the Reporter's one-paragraph summary, the
+ * Read the persisted run for its PR comment: the app-health verdict, the Reporter's title/headline/flows, the
  * coverage-plane summary, the branch's OPEN bug issues (the only ones the comment cards, ordered bugs-first by
- * descending severity via the shared comparator), and the owner split of the coverage gaps the body groups by.
+ * descending severity via the shared comparator), and the open issues behind the reader's coverage gaps.
+ *
+ * Ownership itself is no longer counted here - it rides on each flow, derived from the issue its finding is
+ * attributed to. What survives is the issue LIST, which is the reader's "what to fix".
  *
  * JSON columns (`coverage`, `primaryScreenshot`, `suspectedCause`) are validated here at the read boundary and
  * degrade to absent on a shape mismatch rather than throwing. Returns undefined when the snapshot has no report -
@@ -95,7 +116,9 @@ export async function loadAnalysisCommentInput(snapshotId: string): Promise<Load
         select: {
             verdict: true,
             testCount: true,
-            summary: true,
+            title: true,
+            headline: true,
+            flows: true,
             coverage: true,
             snapshot: { select: { branchId: true } },
         },
@@ -125,26 +148,27 @@ export async function loadAnalysisCommentInput(snapshotId: string): Promise<Load
     const input = {
         verdict,
         testCount: report.testCount,
-        // Rows written before the Reporter authored a summary were backfilled to "" - treat empty as absent.
-        summary: report.summary !== "" ? report.summary : undefined,
+        // Not translated: this path only ever reads a row the current run just wrote, and `finish` refuses prose that
+        // sanitizing emptied. A legacy `title` of "" reads as unauthored in `analysisPrTitle`, and nowhere else.
+        title: report.title,
+        headline: report.headline,
+        flows: parseFlows(report.flows, logger),
         coverage: coverage.success ? coverage.data : undefined,
-        clientEnvironmentFailures: clientOwned.environmentFailures,
         coverageIssues: clientOwned.issues,
         bugIssues: toBugIssues(bugRows, snapshotId),
     };
     logger.info("Loaded analysis PR comment input", {
         extra: {
             bugIssueCount: input.bugIssues.length,
-            clientEnvironmentFailures: input.clientEnvironmentFailures,
+            flowCount: input.flows.length,
             coverageIssueCount: input.coverageIssues.length,
         },
     });
     return input;
 }
 
-/** The client-owned share of the run's coverage gaps: the env count on their side, and the issues behind the gaps. */
+/** The issues behind the run's client-owned coverage gaps - the reader's "what to fix". */
 interface ClientOwnedGaps {
-    environmentFailures: number;
     issues: AnalysisCommentCoverageIssue[];
 }
 
@@ -163,7 +187,6 @@ interface ClientOwnedGaps {
  * reading as our problem on its second run.
  */
 function resolveClientOwnedGaps(rows: CoverageGapRow[], logger: Logger): ClientOwnedGaps {
-    let environmentFailures = 0;
     const issues = new Map<
         string,
         { card: AnalysisCommentCoverageIssue; kind: AnalysisIssueKind; severity: AnalysisIssueSeverity }
@@ -176,15 +199,12 @@ function resolveClientOwnedGaps(rows: CoverageGapRow[], logger: Logger): ClientO
         if (owner !== "client" && owner !== "undecided") continue;
 
         const issue = parseCoverageIssue(row.issue, logger);
-        if (owner === "undecided") {
-            if (issue == null) continue;
-            environmentFailures += 1;
-        }
+        // An unattributed environment gap is ours, so it contributes no issue and nothing to ask of the reader.
         if (issue != null) issues.set(issue.card.id, issue);
     }
 
     const ordered = [...issues.values()].sort((a, b) => compareAnalysisIssues(a, b)).map((entry) => entry.card);
-    return { environmentFailures, issues: ordered };
+    return { issues: ordered };
 }
 
 /**

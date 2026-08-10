@@ -10,6 +10,8 @@ export type {
     AutonomaCommentCta,
     AutonomaCommentEvidence,
     AutonomaCommentHandoff,
+    AutonomaCommentFlow,
+    AutonomaCommentFlowGroup,
     AutonomaCommentNote,
     AutonomaCommentPayload,
     AutonomaCommentService,

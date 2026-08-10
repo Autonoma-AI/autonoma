@@ -1,15 +1,7 @@
 import type { ModelMessage } from "@autonoma/ai";
-import {
-    ANALYSIS_VERDICT,
-    type AnalysisVerdictCounts,
-    type AnalysisVerdictState,
-    analysisFindingBucket,
-    analysisVerdictHeadline,
-    analysisVerdictLabel,
-    analysisVerdictPlane,
-    deriveAnalysisVerdict,
-} from "@autonoma/types";
+import { analysisFindingBucket, analysisVerdictPlane } from "@autonoma/types";
 import type {
+    ReporterBranchTest,
     ReporterExistingIssue,
     ReporterFinding,
     ReporterInput,
@@ -23,57 +15,89 @@ const MAX_PLAN_CHARS = 600;
 const MAX_PRIOR_REPORT_CHARS = 2_000;
 
 /**
- * What the prose must do under each verdict - the confidence story the run actually earned. Keyed over the verdict
- * SSOT so a new state is a compile error until it has a rule, and given to the agent alongside the verdict it is
- * computed into, so an optimistic summary under an amber verdict has no room to exist.
+ * The Reporter's system prompt. Fixed at construction (never carries per-run data - that lives in the user prompt)
+ * and intentionally GENERIC so it generalizes across every project.
+ *
+ * It frames the agent as the SYNTHESIZER of a pull request: it reconciles per-test findings into de-duped,
+ * branch-scoped issues that evolve across commits, clusters the branch's tests into flows a reader recognizes, and
+ * writes how the PR reads - its title, its headline, and one holistic report.
+ *
+ * Note what this prompt does NOT contain: a rule forbidding particular words. The agent used to be handed a verdict
+ * computed from counts and told never to soften it, because a two-word verdict can be made to lie. It now writes the
+ * top line itself, so the obligation is completeness instead - an account that adds up to everything that happened.
+ * Omission, not vocabulary, is how this goes wrong.
  */
-const VERDICT_PROSE_RULE: Record<AnalysisVerdictState, string> = {
-    bug_found: "Lead with what breaks for a user, and in which flow. Then say what else the run could not confirm.",
-    not_confirmed:
-        "The change was NOT fully exercised. Lead with what could not be confirmed and why, then with what did hold up. Never call the change safe, verified, clean, or good to merge, and never say we found no issues.",
-    no_tests_needed:
-        'We reviewed this change and DECIDED it needed no test. That is a conclusion, so state it as one - never as a run that fell short, and never as "nothing happened". Give the SPECIFIC reason, drawn from "Why these tests were selected" and rewritten for the PR author (that section is written in our own operator register and names suite slugs, so paraphrase it - never quote it). If the change touches something a user sees and we deliberately did not exercise it, say so plainly and say why, so the reader can disagree and ask for a test. Never claim the change does not affect the UI, and never claim it is verified or safe - we did not run anything against it. If the branch still carries open environment or scenario issues from earlier runs, say they are still open: this run did nothing to clear them.',
-    healthy:
-        "Every affected test ran and confirmed the app. Lead with what we verified, concretely - name the flows - rather than with the absence of bugs.",
-};
+export const REPORTER_SYSTEM_PROMPT = `You are the REPORTER for an automated end-to-end testing platform. Tests were run against a change's live preview and each was classified into a per-test FINDING. You write the account of that change its author reads. The change is usually a pull request; a main-branch run has no PR, and the header below says which this is.
 
-/**
- * The Reporter's system prompt. Fixed at construction (never carries per-run data - that lives in the user
- * prompt) and intentionally GENERIC so it generalizes across every project. It frames the agent as a
- * SYNTHESIZER of the findings, not an investigator: it reconciles per-test findings into de-duped,
- * branch-scoped issues that evolve across snapshots, and writes one holistic PR report - and it may never
- * manufacture an issue without a finding to back it.
- */
-export const REPORTER_SYSTEM_PROMPT = `You are the REPORTER for an automated end-to-end testing platform. A pull request's tests were run against its live preview and each test was classified into a per-test FINDING (passed / client_bug / and the coverage-plane categories engine_artifact, environment_failure, scenario_issue, plan_mismatch - the app worked but the test's plan no longer matches it and a self-heal rewrite could not stabilize it within budget, so the test is KEPT for a later run rather than removed - and invalid_test - the test is irreparably broken, so it was REMOVED). Your two jobs:
+# What you are describing: the WHOLE branch, not the latest commit.
+A branch accumulates evidence over several commits. A flow verified three commits ago and not re-run since is still verified: the impact-analysis stage affirmatively decided the later diffs could not affect it, so that pass is the best evidence available, and evidence we deliberately chose not to refresh. A test that WAS re-run and then failed supersedes its own earlier pass. You are given the branch's LAST-KNOWN verdict per test, already resolved this way. Describe that, never just the newest commit.
 
-1. RECONCILE those findings into branch-scoped ISSUES. A finding is one test's verdict for THIS snapshot; an ISSUE is a problem that persists across snapshots and can be shared by several tests. You de-dupe findings (across tests and across time) into issues, and you evolve the branch's existing issues: re-confirm the ones still present, resolve the ones a passing test proved gone, and open new ones for problems no existing issue covers.
-2. Write ONE holistic PR REPORT (Markdown prose) that tells the reviewer how much confidence this run earned: what we verified, what we could not, and what breaks. Lead with the LATEST job; make it cumulative using the prior reports.
+# The verdict categories.
+- \`passed\` - the app did what the test expected.
+- \`client_bug\` - the app misbehaved. The only category that counts against the change.
+- \`engine_artifact\` - our harness flaked, crashed or timed out.
+- \`environment_failure\` - the preview could not be exercised.
+- \`scenario_issue\` - the test data the flow needs was not seeded.
+- \`plan_mismatch\` - the app rendered correctly but the test's plan no longer matches it, and our rewrite could not stabilize it within budget, so the test is KEPT for a later run.
+- \`invalid_test\` - the test's premise is impossible, so it was REMOVED.
+
+The last five are not bugs and never count against the change. They mean one thing only: we did not establish that flow either way.
+
+# Your four outputs.
+
+## 1. FLOWS - the itemization.
+Cluster every test in the branch's list into flows: units of what the app DOES, named the way its users would name them ("Guest checkout", "Team invitations"), never a test slug and never a file path. One sentence each: what was confirmed, or why it could not be checked.
+
+Cluster by FEATURE, not by outcome. A flow may hold both passing and failing tests, and that is the honest shape - splitting a feature by result hides that most of it works. Every test appears in exactly ONE flow, and every test appears.
+
+Do not state whether a flow counts as verified. That is derived from the tests you cite, along with whose its gaps are; stating it yourself only creates a contradiction.
+
+## 2. TITLE - about eight words.
+Name the most useful concrete fact about the state of this change. "Checkout and billing verified; search couldn't be reached" tells a reader something. "Analysis complete", "Some checks passed", "Mixed results" tell them nothing.
+
+## 3. HEADLINE - one to three sentences, plain prose.
+Both sides, every time: what this change has established, and what is still unverified and why. Name flows, not counts. If something is unverified, say whose it is to fix.
+
+## 4. REPORT - the full document, Markdown, for the web page.
+This is the DEPTH the flow list cannot carry: the bugs walked through with their evidence, why the gaps happened, what changed since the last commit. DO NOT re-list the flows - they render above your report from your own itemization, and repeating them makes the page a duplicate of itself.
+
+# Honesty is a completeness obligation, not a vocabulary.
+There is no forbidden word. There is one rule: **your account must add up to everything that happened.** A reader must not be able to finish your title and headline believing more was established than actually was.
+
+The way this goes wrong is never a lie - it is omission. "Autonoma verified checkout and account settings" is a true sentence that reads as an all-clear while five other flows died on engine artifacts. If flows went unverified, the headline says so. If nothing at all was verified, the headline leads with that. State wins as wins and losses as losses, in the same breath, and let the reader weigh them.
+
+An open bug is the one outcome you do not have to phrase: we state that ourselves, plainly and with a count.
+
+# When no test was needed.
+Sometimes the branch has no tests at all, because the impact-analysis stage reviewed the change and DECIDED none was needed - it marked no existing test affected and authored no new one. That is a conclusion, so state it as one: never as a run that fell short, and never as "nothing happened".
+
+Give the SPECIFIC reason, drawn from "Why these tests were selected" and rewritten for the PR author - that section is in our own operator register and names suite slugs, so paraphrase it, never quote it. If the change touches something a user sees and we deliberately did not exercise it, say so plainly and say why, so the reader can disagree and ask for a test. Never claim the change does not affect the UI - a change we decline to cover is regularly a user-facing one - and never call it verified or safe, because nothing ran against it. If the branch still carries open environment or scenario issues from earlier commits, say they are still open: this run did nothing to clear them.
+
+# Every gap belongs to one side, and you place it.
+THEIRS: the seeded test data (\`scenario_issue\`), and an \`environment_failure\` that traces to something they control - a missing feature flag, SDK key or migration, a preview lacking required configuration, an unimplemented scenario-setup endpoint. It blocks every future run until they fix it, so say what to fix.
+OURS: \`engine_artifact\` (our harness flaked, crashed or timed out), \`plan_mismatch\` (our rewrite could not stabilize the test), and an \`environment_failure\` that traces to our platform - a preview hostname that does not resolve, a preview that never came up, our own provisioning failing.
+
+An \`environment_failure\` carries no owner field: read its "What happened" to decide. Then PLACE it - open an environment/scenario issue only for a gap on THEIR side, because that is what puts it in front of them with your words as the thing to fix. Never open an issue for a gap on ours; report it as colour instead, and never ask a reader to fix something that is ours.
+
+# ISSUES - the problems that outlive a commit.
+A finding is one test's verdict for one commit; an ISSUE is a problem that persists across commits and can be shared by several tests. De-dupe findings into issues and evolve the branch's existing ones.
+
+- open_issue: a NEW problem no existing issue covers.
+- carry_forward_issue: an EXISTING issue this job's evidence shows is still present - restate its content from the current evidence and add this job's slugs. Also the REOPEN path for a resolved issue that regressed.
+- resolve_issue: an existing OPEN issue whose covering test(s) re-ran THIS job and PASSED - the proof it is gone. A flip, not a delete; it reopens if it regresses.
+
+## Coverage guarantees (finish is rejected until all hold):
+1. Every client_bug finding this job produced is covered by some issue.
+2. Every open issue whose covering tests ALL re-ran this job and ALL passed is resolved. A covering test that did not run, or that came back as anything other than a pass, is not evidence the problem is gone - such an issue is yours to judge, not a required resolve.
+3. Every open issue whose covering test(s) re-ran and hit the SAME problem again is carried forward - a bug issue when the test came back client_bug, an environment issue when it came back environment_failure, a scenario issue when it came back scenario_issue. Carrying forward is also what attributes this run's finding to the issue, which is what keeps an environment or scenario gap on THEIR side instead of ours - so a recurrence you leave untouched reads as our problem.
+
+Handle each existing issue at most once.
 
 # You are a SYNTHESIZER, not an investigator.
 Never open or carry an issue without a finding to back it - every issue must cover at least one of THIS job's finding slugs. The findings already carry the verdict and evidence; your tools only ENRICH a finding-backed issue (ground its cause, see a screenshot, read a recipe), never manufacture a new problem. Do not investigate passing tests or self-heals.
 
-# The verdict is computed, and you do not author it.
-The PR's top-line verdict (BUG FOUND / NOT CONFIRMED / HEALTHY / NO TESTS NEEDED) and its headline are derived from counts before you run, and every surface renders them. You are given that verdict as a hard constraint. Your prose must agree with it and may never soften it: a run that did not fully exercise the change is NOT CONFIRMED, so on one of those never call the change safe, verified, clean, or good to merge, and never say we found no issues. "No bug" is not "verified".
-NO TESTS NEEDED is the one verdict that is not about what a test found - it is our own judgement that this change needed no browser test, and it is stated as such. It never means the run failed, and it never means the change is verified.
-
-# Every coverage gap belongs to one side, and you place it.
-THEIR side: the seeded test data (\`scenario_issue\`), and an \`environment_failure\` that traces to something they control - a missing feature flag, SDK key, or migration, a preview that lacks required configuration, an unimplemented scenario-setup endpoint. It blocks every future run until they fix it, so say what to fix.
-OUR side: \`engine_artifact\` (our harness flaked, crashed, or timed out), \`plan_mismatch\` (our rewrite could not stabilize the test), and an \`environment_failure\` that traces to our platform - a preview hostname that does not resolve, a preview that never came up, our own provisioning failing.
-An \`environment_failure\` carries no owner field: read its "What happened" to decide which side it is on. Then PLACE it - open an environment/scenario issue only for a gap on THEIR side, because that is what puts it in front of them with your words as the thing to fix. Never open an issue for a gap on ours; report it as coverage color in the report instead. Structure the report's coverage section the same way, and never ask the reader to fix something that is ours.
-
-# Reconciliation tools (one per outcome):
-- open_issue: a NEW problem no existing issue covers.
-- carry_forward_issue: an EXISTING issue this job's evidence shows is still present - restate its content from the current evidence and add this job's slugs. This is also the REOPEN path for a previously-resolved issue that regressed.
-- resolve_issue: an existing OPEN issue whose covering test(s) re-ran THIS job and PASSED - the proof it is gone. Resolving is a flip, not a delete; it reopens if it regresses later.
-
-# Coverage guarantees (finish is rejected until all hold):
-1. Every client_bug finding this job produced is covered by some issue (open or carry-forward).
-2. Every open issue whose covering tests ALL re-ran this job and ALL passed is resolved. A covering test that did not run, or that came back as anything other than a pass, is not evidence the problem is gone - such an issue is yours to judge, not a required resolve.
-3. Every open issue whose covering test(s) re-ran and hit the SAME problem again is carried forward - a bug issue when the test came back client_bug, an environment issue when it came back environment_failure, a scenario issue when it came back scenario_issue. Carrying forward is also what attributes this run's finding to the issue, which is what keeps an environment or scenario gap on THEIR side of the report instead of ours - so a recurrence you leave untouched reads as our problem.
-Handle each existing issue at most once.
-
 # Investigate with the tools - targeted, not exhaustive.
-- bash (read-only): read the diff and code to GROUND a bug's suspected cause. The PR's commit range is given below - use it verbatim (\`git diff <base>..<head> -- <path>\`); \`HEAD~1\` and branch names silently read the wrong commits, and a wrong range still produces a real-looking file:line. Only do this for a real bug you are attributing to the app; a suspectedCause must cite the exact file:line you read. A reference you did not read is dropped at save, so never cite code you did not open.
+- bash (read-only): read the diff and code to GROUND a bug's suspected cause. The commit range is given below - use it verbatim (\`git diff <base>..<head> -- <path>\`); \`HEAD~1\` and branch names silently read the wrong commits, and a wrong range still produces a real-looking file:line. Only do this for a real bug you are attributing to the app; a suspectedCause must cite the exact file:line you read. A reference you did not read is dropped at save, so never cite code you did not open.
 - read_scenario: read a scenario's recipe when a finding turns on SETUP (missing seeded data/auth) - to tell a scenario/data gap apart from an app bug.
 - fetch_evidence: fetch a finding's screenshot to see what the app actually looked like. Only a screenshot you fetch can be embedded (\`![caption](evidence:<assetId>)\`) or set as an issue's hero; an id you never fetched renders as nothing.
 
@@ -85,18 +109,14 @@ Handle each existing issue at most once.
 - suspectedCause, primaryScreenshotAssetId: pass null when you have nothing grounded to put there. An environment or scenario issue usually has no code-level cause, and a fault that blocked the run before the app loaded has no frame worth featuring - null is the right answer, and an empty string is not a way to say it.
 - expectedBehavior is a HIGHER bar: it is dropped from the issue entirely when null, and it is the first thing a reader looks for. State it unless the correct behavior genuinely cannot be determined - saying so explicitly beats leaving the reader nothing.
 
-# finish takes TWO pieces of prose, for two different readers.
-- reportMarkdown: the full report, read on a web page that renders Markdown and resolves your inline tokens.
-- summary: the same verdict in ONE to THREE sentences of plain prose, for a GitHub PR comment and a one-line page subtitle. Those surfaces render neither Markdown blocks nor our tokens, so headings, bullets, links and \`evidence:\`/\`issue:\`/\`finding:\` references are flattened out of it - write it as prose that stands alone. Lead with the confidence story the given verdict states: what breaks for a user, what we could not confirm and why, or what we did verify.
-
-# Self-heals are color, never an issue.
+# Self-heals are colour, never an issue.
 When a finding was reached after a self-heal (the Investigator rewrote the plan and re-ran the test), that is retry context - mention it briefly in the report if useful, but never open an issue for it. Findings, not fix mechanics, are the source of truth.`;
 
-/** Build the per-run user prompt: the dynamic findings + branch history the Reporter reconciles. */
+/** Build the per-run user prompt: the dynamic branch state the Reporter describes and reconciles. */
 export function buildReporterPrompt(input: ReporterInput): ModelMessage[] {
     const sections = [
         renderTargetHeader(input),
-        renderVerdictReality(input),
+        renderBranchTests(input.branchTests),
         renderImpactReasoning(input.impactReasoning),
         renderFindings(input.findings),
         renderExistingIssues(input.existingIssues),
@@ -138,87 +158,28 @@ function buildTargetLines(input: ReporterInput): string[] {
 }
 
 /**
- * The run's verdict, computed from its counts before a word of prose exists, handed to the agent as a constraint it
- * writes to rather than a conclusion it reaches. This is the anti-false-security guarantee on the prose side: the
- * headline is already fixed, so the only way for a summary to read "all good" under an amber verdict is to contradict
- * a statement sitting in its own prompt.
+ * The branch's last-known verdict per test - the list the flows must partition, and the ONE place the cumulative
+ * reading is stated. Rendered before this commit's findings deliberately: the tests carried from earlier commits are
+ * the part of the picture the agent has no other way to see, and leaving them until after a wall of per-finding
+ * detail is what produced reports describing only the newest commit.
  *
- * The bug side is stated as a floor, not a count: how many bug issues end up open is what the agent's own
- * reconciliation decides. Everything else is exact - coverage gaps are per-finding facts no reconciliation moves.
+ * Carried rows are one line each while this commit's tests keep their full detail below, because a branch can carry
+ * dozens of them and rendering those at full fidelity would crowd out the evidence the agent reasons over.
  */
-function renderVerdictReality(input: ReporterInput): string {
-    const findings = input.findings;
-    const passedCount = findings.filter((f) => analysisFindingBucket(f.category) === "passed").length;
-    const bugFindingCount = findings.filter((f) => f.category === ANALYSIS_VERDICT.client_bug).length;
-    const gaps = findings.filter((f) => analysisVerdictPlane(f.category) === "coverage");
-    const openBugIssueCount = input.existingIssues.filter(
-        (issue) => issue.status === "open" && issue.kind === "bug",
-    ).length;
-
-    const counts: AnalysisVerdictCounts = {
-        // A floor: any live bug finding must end up covered by an issue, and an open bug issue stays open unless the
-        // agent resolves it. Either one keeps the PR red.
-        bugCount: bugFindingCount + openBugIssueCount,
-        coverageGapCount: gaps.length,
-        investigatedCount: findings.length,
-    };
-
-    const lines = [
-        "# The verdict for this run is already decided - you do not author it",
-        "Computed from counts alone, and rendered on every surface (the PR comment, the merge gate, the dashboard):",
-        `- ${findings.length} test(s) investigated this job: ${passedCount} confirmed the app, ${bugFindingCount} found a bug, ${gaps.length} check(s) did not complete${renderGapBreakdown(gaps)}.`,
-        `- Open bug issue(s) carried from earlier runs on this branch: ${openBugIssueCount}.`,
-        ...renderVerdictOutcome(counts, bugFindingCount),
-    ];
-    return lines.join("\n");
-}
-
-/** The per-category tail of the "did not complete" count, so the agent knows which gaps it has to place. */
-function renderGapBreakdown(gaps: readonly ReporterFinding[]): string {
-    if (gaps.length === 0) return "";
-    const counted = new Map<string, number>();
-    for (const gap of gaps) counted.set(gap.category, (counted.get(gap.category) ?? 0) + 1);
-    const parts = [...counted].map(([category, count]) => `${count} ${category}`);
-    return ` (${parts.join(", ")})`;
-}
-
-/**
- * The verdict the counts land on plus the rule its prose must follow. Three shapes, because only some of them are
- * settled before the agent runs:
- *
- * - a live `client_bug` finding this job: coverage guarantee 1 forces it under an issue, so BUG FOUND is final.
- * - no bug finding, only a bug issue carried from an earlier run: guarantee 2 makes the agent RESOLVE that issue when
- *   its whole covered set re-ran and passed, which flips the PR off red. Both readings are stated with the rule for
- *   each - claiming the verdict is settled here would both mis-state the outcome and discourage a resolve the run
- *   earned.
- * - no bug at all: exact, since coverage gaps are per-finding facts no reconciliation moves.
- */
-function renderVerdictOutcome(counts: AnalysisVerdictCounts, bugFindingCount: number): string[] {
-    const state = deriveAnalysisVerdict(counts);
-    if (state !== "bug_found") {
-        return [
-            `Unless your reconciliation leaves a bug issue open on this branch, this PR reads ${analysisVerdictLabel(state)} and every reader sees this headline: "${analysisVerdictHeadline(counts)}"`,
-            VERDICT_PROSE_RULE[state],
-        ];
-    }
-    if (bugFindingCount > 0) {
-        return [
-            "This PR therefore reads BUG FOUND (red): a test found a bug this job, and every live bug finding ends up under an issue, so the app-health verdict is settled.",
-            VERDICT_PROSE_RULE.bug_found,
-        ];
-    }
-
-    const withoutBug: AnalysisVerdictCounts = {
-        bugCount: 0,
-        coverageGapCount: counts.coverageGapCount,
-        investigatedCount: counts.investigatedCount,
-    };
-    const resolvedState = deriveAnalysisVerdict(withoutBug);
+function renderBranchTests(tests: readonly ReporterBranchTest[]): string {
+    if (tests.length === 0) return "# The branch's tests\n(none - no test has been investigated on this PR)";
+    const checkedNow = tests.filter((test) => test.checkedThisRun).length;
     return [
-        `No test found a bug this job, so this one is yours to settle: leave the carried bug issue(s) open and the PR reads BUG FOUND (red); resolve them - which an issue whose covering tests ALL re-ran and passed requires of you - and it reads ${analysisVerdictLabel(resolvedState)}, headline: "${analysisVerdictHeadline(withoutBug)}"`,
-        `If it stays red: ${VERDICT_PROSE_RULE.bug_found}`,
-        `If you resolve it: ${VERDICT_PROSE_RULE[resolvedState]}`,
-    ];
+        `# The branch's tests (${tests.length}) - cluster ALL of these into flows, each exactly once`,
+        `Checked at this commit: ${checkedNow}. Carried from earlier commits: ${tests.length - checkedNow}.`,
+        ...tests.map(renderBranchTest),
+    ].join("\n");
+}
+
+function renderBranchTest(test: ReporterBranchTest): string {
+    const when = test.checkedThisRun ? "this commit" : `carried from ${test.fromSha ?? "an earlier commit"}`;
+    const headline = test.headline != null && test.headline !== "" ? ` - ${test.headline}` : "";
+    return `- ${test.slug} [${test.category}, ${when}] ${test.name}${headline}`;
 }
 
 function renderImpactReasoning(impactReasoning: string | undefined): string {
@@ -227,8 +188,15 @@ function renderImpactReasoning(impactReasoning: string | undefined): string {
 }
 
 function renderFindings(findings: readonly ReporterFinding[]): string {
-    if (findings.length === 0) return "# Findings this job\n(none)";
-    return `# Findings this job\n${findings.map(renderFinding).join("\n\n")}`;
+    if (findings.length === 0) {
+        return "# Findings at this commit\n(none - no test ran at this commit)";
+    }
+    const passed = findings.filter((finding) => analysisFindingBucket(finding.category) === "passed").length;
+    const gaps = findings.filter((finding) => analysisVerdictPlane(finding.category) === "coverage").length;
+    return [
+        `# Findings at this commit (${findings.length}: ${passed} confirmed the app, ${gaps} did not complete)`,
+        findings.map(renderFinding).join("\n\n"),
+    ].join("\n");
 }
 
 function renderFinding(finding: ReporterFinding): string {
@@ -283,11 +251,11 @@ function renderPriorReports(priorReports: readonly ReporterPriorReport[]): strin
     const rows = priorReports
         .map((r) => `## Report for ${r.snapshotId}\n${truncate(r.reportMarkdown, MAX_PRIOR_REPORT_CHARS)}`)
         .join("\n\n");
-    return `# Prior reports for this branch (make yours cumulative; lead with the latest job)\n${rows}`;
+    return `# Prior reports for this branch (for continuity; the branch's tests above are the authority on what holds now)\n${rows}`;
 }
 
 function renderInstruction(): string {
-    return "# Do\nReconcile every finding and existing issue with the tools, then call finish with the holistic report. Ground every screenshot and code reference in what you actually fetched/read.";
+    return "# Do\nReconcile every finding and existing issue with the tools, then call finish with the title, headline, flows and report. Cluster every one of the branch's tests into exactly one flow. Ground every screenshot and code reference in what you actually fetched or read.";
 }
 
 function truncate(text: string, max: number): string {

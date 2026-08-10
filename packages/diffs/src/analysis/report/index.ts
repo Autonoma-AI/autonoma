@@ -9,8 +9,10 @@ export type {
     RecordedOpenIssueAction,
     RecordedResolveIssueAction,
 } from "./issue-actions";
+export type { FlowCorrections } from "./flows";
 export { reporterIssueKindSchema, reporterIssueSeveritySchema, reporterIssueStatusSchema } from "./types";
 export type {
+    ReporterBranchTest,
     ReporterEvidenceAsset,
     ReporterExistingIssue,
     ReporterFinding,

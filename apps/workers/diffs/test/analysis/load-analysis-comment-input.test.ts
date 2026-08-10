@@ -53,7 +53,7 @@ class CommentInputHarness implements IntegrationHarness {
      * A branch with TWO completed runs of the same test, so "which run does the card feature" is a real question:
      * both snapshots carry a `checkout` finding with its own clip, one day apart.
      */
-    async seedBranch(summary = "Checkout is broken on this PR."): Promise<SeededBranch> {
+    async seedBranch(headline = "Checkout is broken on this PR."): Promise<SeededBranch> {
         const n = next();
         const org = await this.db.organization.create({ data: { name: `Org ${n}`, slug: `org-${n}` } });
         const app = await this.db.application.create({
@@ -76,7 +76,8 @@ class CommentInputHarness implements IntegrationHarness {
                 snapshotId: newer,
                 organizationId: org.id,
                 verdict: "client_bug",
-                summary,
+                headline,
+                title: "Checkout broken on this PR",
                 reportMarkdown: "## Report\nCheckout is broken.",
                 clientBugCount: 1,
                 testCount: 2,
@@ -281,12 +282,15 @@ integrationTestSuite({
             expect(card?.screenshotKey).toBe("s3://bucket/hero.png");
         });
 
-        test("reports a pre-Reporter empty summary as absent rather than blank prose", async ({ harness }) => {
-            const branch = await harness.seedBranch("");
+        test("passes the Reporter's prose straight through, translating nothing", async ({ harness }) => {
+            // This path only ever reads a row the current run just wrote, and `finish` refuses prose that sanitizing
+            // emptied - so there is no empty case to translate, and the read boundary carries no guard for one.
+            const branch = await harness.seedBranch("Checkout is broken on this PR.");
 
             const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
-            expect(loaded?.summary).toBeUndefined();
+            expect(loaded?.headline).toBe("Checkout is broken on this PR.");
+            expect(loaded?.title).toBe("Checkout broken on this PR");
         });
 
         test("skips an issue whose severity cannot be parsed rather than surfacing it malformed", async ({
@@ -332,7 +336,6 @@ integrationTestSuite({
 
             const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
-            expect(loaded?.clientEnvironmentFailures).toBe(1);
             // Same severity, so they hold the query's slug order: `coupons` before `invoices`.
             expect(loaded?.coverageIssues.map((issue) => issue.title)).toEqual([
                 "Checkout scenario seeds no coupon codes",
@@ -353,7 +356,6 @@ integrationTestSuite({
             const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
             // Severity only decides where the issue sorts; dropping the row would silently move the gap to our side.
-            expect(loaded?.clientEnvironmentFailures).toBe(1);
             expect(loaded?.coverageIssues.map((issue) => issue.title)).toEqual([
                 "Preview is missing the Firestore index invoices need",
             ]);
@@ -372,7 +374,6 @@ integrationTestSuite({
 
             const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
-            expect(loaded?.clientEnvironmentFailures).toBe(0);
             expect(loaded?.coverageIssues).toEqual([]);
         });
 

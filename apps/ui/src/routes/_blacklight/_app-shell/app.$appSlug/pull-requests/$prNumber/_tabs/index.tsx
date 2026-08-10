@@ -1,10 +1,12 @@
 import { Badge, Panel, PanelBody, Skeleton, StatusDot } from "@autonoma/blacklight";
+import { countAnalysisFindingBuckets } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { useSuspenseQueries } from "@tanstack/react-query";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { AnalysisJobStatus } from "components/analysis/analysis-job-status";
+import { AnalysisFlowList } from "components/analysis/flow-list";
 import { AnalysisOpenIssuesList } from "components/analysis/open-issues-list";
 import { AnalysisPrIssuesHeadline } from "components/analysis/pr-issues-headline";
 import { AnalysisReportProse } from "components/analysis/report-prose";
@@ -193,7 +195,15 @@ function AuthoritativeReportColumn({
 
   return (
     <>
-      <AnalysisPrIssuesHeadline issues={openIssues} testCount={report.testCount} summary={report.summary} />
+      <AnalysisPrIssuesHeadline
+        issues={openIssues}
+        title={report.title}
+        headline={report.headline}
+        flows={report.flows}
+        testCount={report.testCount}
+        coverageGapCount={countAnalysisFindingBuckets(report.findings.map((f) => f.category)).coverage}
+      />
+      <AnalysisFlowList flows={report.flows} />
       {report.reportMarkdown != null && (
         <AnalysisReportProse
           markdown={report.reportMarkdown}

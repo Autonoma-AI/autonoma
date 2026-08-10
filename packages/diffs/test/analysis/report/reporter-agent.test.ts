@@ -55,6 +55,19 @@ function issueCall(toolName: string, input: Record<string, unknown>): ScriptedCa
     };
 }
 
+/** A finish call with the authored surfaces the tool requires; individual cases override what they assert on. */
+function finishCall(input: Record<string, unknown>): ScriptedCall {
+    return {
+        toolName: "finish",
+        input: {
+            title: "Checkout broken, login verified",
+            headline: "One bug: checkout never completes. Login held up.",
+            flows: [],
+            ...input,
+        },
+    };
+}
+
 function finding(slug: string, category: AnalysisVerdict, screenshots: ReporterEvidenceAsset[] = []): ReporterFinding {
     return { slug, category, headline: `${slug} headline`, selfHealed: false, screenshots };
 }
@@ -83,11 +96,20 @@ let root: string;
 const screenshotLoader = { loadScreenshot: async (key: string) => Buffer.from(`png-${key}`) };
 
 function makeInput(overrides: Partial<ReporterInput>): ReporterInput {
+    const findings = overrides.findings ?? [];
     return {
         appSlug: "acme",
         target: { kind: "pull_request", prNumber: 42, prTitle: "A PR", prBody: "a description" },
         range: { baseSha: "aaaa111", headSha: "bbbb222" },
         findings: [],
+        // A branch whose every test ran at this commit - the simple case, unless a test says otherwise.
+        branchTests: findings.map((f) => ({
+            slug: f.slug,
+            name: `${f.slug} test`,
+            category: f.category,
+            checkedThisRun: true,
+            attributedToClientIssue: false,
+        })),
         existingIssues: [],
         priorReports: [],
         scenarioIndex: [],
@@ -120,13 +142,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                 primaryFindingSlug: "checkout",
                 primaryScreenshotAssetId: "checkout-final",
             }),
-            {
-                toolName: "finish",
-                input: {
-                    reportMarkdown: "## Report\nCheckout is broken; login works.",
-                    summary: "One bug: checkout never completes.",
-                },
-            },
+            finishCall({ reportMarkdown: "## Report\nCheckout is broken; login works." }),
         ]);
         const input = makeInput({
             findings: [
@@ -168,13 +184,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                 // References a screenshot that was never fetched - must not become the hero.
                 primaryScreenshotAssetId: "checkout-step2",
             }),
-            {
-                toolName: "finish",
-                input: {
-                    reportMarkdown: "Report ![c](evidence:checkout-step2)",
-                    summary: "One bug: checkout never completes.",
-                },
-            },
+            finishCall({ reportMarkdown: "Report ![c](evidence:checkout-step2)" }),
         ]);
         const input = makeInput({
             findings: [
@@ -212,13 +222,10 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                 primaryFindingSlug: "signup",
                 primaryScreenshotAssetId: null,
             }),
-            {
-                toolName: "finish",
-                input: {
-                    reportMarkdown: "## Report\nThe environment blocked all release validation.",
-                    summary: "The environment blocked every test; nothing about the app was validated.",
-                },
-            },
+            finishCall({
+                reportMarkdown: "## Report\nThe environment blocked all release validation.",
+                headline: "The environment blocked every test; nothing about the app was validated.",
+            }),
         ]);
         const input = makeInput({ findings: [finding("signup", "environment_failure")] });
 
@@ -253,7 +260,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                 findingSlugs: ["checkout"],
                 primaryFindingSlug: "checkout",
             }),
-            { toolName: "finish", input: { reportMarkdown: "final", summary: "One bug: checkout never completes." } },
+            finishCall({ reportMarkdown: "final" }),
         ]);
         const input = makeInput({ findings: [finding("checkout", "client_bug")] });
 
@@ -265,10 +272,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
 
     it("guarantee 1: rejects finishing until every client_bug finding is covered, then self-corrects", async () => {
         const model = scriptedModel([
-            {
-                toolName: "finish",
-                input: { reportMarkdown: "premature", summary: "One bug: checkout never completes." },
-            },
+            finishCall({ reportMarkdown: "premature" }),
             issueCall("open_issue", {
                 title: "Checkout bug",
                 kind: "bug",
@@ -278,7 +282,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                 findingSlugs: ["checkout"],
                 primaryFindingSlug: "checkout",
             }),
-            { toolName: "finish", input: { reportMarkdown: "final", summary: "One bug: checkout never completes." } },
+            finishCall({ reportMarkdown: "final" }),
         ]);
         const input = makeInput({ findings: [finding("checkout", "client_bug")] });
 
@@ -291,15 +295,12 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
 
     it("guarantee 2: rejects finishing until an open issue whose test passed is resolved", async () => {
         const model = scriptedModel([
-            {
-                toolName: "finish",
-                input: { reportMarkdown: "premature", summary: "One bug: checkout never completes." },
-            },
+            finishCall({ reportMarkdown: "premature" }),
             {
                 toolName: "resolve_issue",
                 input: { existingIssueId: "iss-1", resolvingFindingSlug: "login", note: "login passes now" },
             },
-            { toolName: "finish", input: { reportMarkdown: "final", summary: "One bug: checkout never completes." } },
+            finishCall({ reportMarkdown: "final" }),
         ]);
         const input = makeInput({
             findings: [finding("login", "passed")],
@@ -323,10 +324,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                 findingSlugs: ["checkout"],
                 primaryFindingSlug: "checkout",
             }),
-            {
-                toolName: "finish",
-                input: { reportMarkdown: "premature", summary: "One bug: checkout never completes." },
-            },
+            finishCall({ reportMarkdown: "premature" }),
             issueCall("carry_forward_issue", {
                 existingIssueId: "iss-2",
                 title: "Checkout still broken",
@@ -337,7 +335,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                 findingSlugs: ["checkout"],
                 primaryFindingSlug: "checkout",
             }),
-            { toolName: "finish", input: { reportMarkdown: "final", summary: "One bug: checkout never completes." } },
+            finishCall({ reportMarkdown: "final" }),
         ]);
         const input = makeInput({
             findings: [finding("checkout", "client_bug")],
@@ -386,10 +384,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
                 toolName: "resolve_issue",
                 input: { existingIssueId: "iss-passing", resolvingFindingSlug: "c-fixed", note: "passes now" },
             },
-            {
-                toolName: "finish",
-                input: { reportMarkdown: "Holistic report.", summary: "One bug: checkout never completes." },
-            },
+            finishCall({ reportMarkdown: "Holistic report." }),
         ]);
         const input = makeInput({
             findings: [
@@ -411,5 +406,99 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
         expect(result.issues.filter((i) => i.kind === "resolve")).toHaveLength(1);
         const carriedIds = result.issues.flatMap((i) => (i.kind === "carry_forward" ? [i.existingIssueId] : [])).sort();
         expect(carriedIds).toEqual(["iss-open", "iss-resolved"]);
+    });
+
+    it("derives each flow's status and owner, and sweeps the tests the agent forgot to place", async () => {
+        // The agent names one flow and forgets two tests. Neither omission may cost a verdict: the swept tests keep
+        // their real categories, and the named flow cannot read as verified while it holds a gap.
+        const model = scriptedModel([
+            finishCall({
+                reportMarkdown: "Checkout is mostly fine.",
+                flows: [{ title: "Guest checkout", detail: "Cart totals were confirmed.", testSlugs: ["cart", "pay"] }],
+            }),
+        ]);
+        const input = makeInput({
+            findings: [finding("cart", "passed"), finding("pay", "engine_artifact"), finding("search", "passed")],
+            branchTests: [
+                {
+                    slug: "cart",
+                    name: "Cart totals",
+                    category: "passed",
+                    checkedThisRun: true,
+                    attributedToClientIssue: false,
+                },
+                {
+                    slug: "pay",
+                    name: "Pay with card",
+                    category: "engine_artifact",
+                    checkedThisRun: true,
+                    attributedToClientIssue: false,
+                },
+                {
+                    slug: "search",
+                    name: "Search",
+                    category: "passed",
+                    checkedThisRun: true,
+                    attributedToClientIssue: false,
+                },
+                {
+                    slug: "billing",
+                    name: "Billing history",
+                    category: "passed",
+                    checkedThisRun: false,
+                    attributedToClientIssue: false,
+                    fromSha: "abc1234",
+                },
+            ],
+        });
+
+        const { result } = await new ReporterAgent({ model }).run(input);
+
+        const [checkout, swept] = result.flows;
+        expect(checkout?.title).toBe("Guest checkout");
+        expect(checkout?.status).toBe("partial");
+        expect(checkout?.passedCount).toBe(1);
+        expect(checkout?.gapCount).toBe(1);
+        // An engine artifact is ours, so this flow must never be listed as something the reader has to fix.
+        expect(checkout?.owner).toBe("autonoma");
+
+        expect(swept?.title).toBe("Other checks");
+        expect(swept?.testSlugs).toEqual(["search", "billing"]);
+        expect(swept?.status).toBe("verified");
+        // The carried verdict counts as a win, and the flow records that neither test ran at this commit.
+        expect(swept?.checkedThisRunCount).toBe(1);
+        expect(result.flowCorrections.sweptSlugs).toEqual(["search", "billing"]);
+    });
+
+    it("refuses a finish whose prose survives validation but not sanitizing, then accepts the retry", async () => {
+        // min(1) accepts "#  " and a bare image; flattening then strips both to nothing. Caught here so no read site
+        // downstream has to translate an empty string back into "absent".
+        const model = scriptedModel([
+            finishCall({ reportMarkdown: "Report.", title: "#  ", headline: "![shot](evidence:a1)" }),
+            finishCall({ reportMarkdown: "Report.", title: "Cart verified", headline: "The cart held up." }),
+        ]);
+
+        const { result, conversation } = await new ReporterAgent({ model }).run(
+            makeInput({ findings: [finding("cart", "passed")] }),
+        );
+
+        expect(JSON.stringify(conversation)).toContain("Nothing was left of the PR's title and the PR's headline");
+        expect(result.title).toBe("Cart verified");
+        expect(result.headline).toBe("The cart held up.");
+    });
+
+    it("flattens the authored title and headline, which render where Markdown does not", async () => {
+        const model = scriptedModel([
+            finishCall({
+                reportMarkdown: "Report.",
+                title: "## Checkout verified",
+                headline: "See [the issue](issue:iss-1) for details.",
+            }),
+        ]);
+
+        const { result } = await new ReporterAgent({ model }).run(makeInput({ findings: [finding("cart", "passed")] }));
+
+        expect(result.title).toBe("Checkout verified");
+        expect(result.headline).toBe("See the issue for details.");
     });
 });

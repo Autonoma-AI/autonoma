@@ -844,7 +844,8 @@ apiTestSuite({
                 data: {
                     snapshotId: snapshot.id,
                     verdict: "passed",
-                    summary: "The run found no client bugs.",
+                    title: "Autonoma checked this PR",
+                    headline: "The run found no client bugs.",
                     reportMarkdown: "## Run\n\nNo client bugs.",
                     organizationId: harness.organizationId,
                 },
@@ -1203,7 +1204,8 @@ async function createSnapshotWithBugs(
         data: {
             snapshotId: snapshot.id,
             verdict: "client_bug",
-            summary: "The run found client bugs.",
+            title: "Autonoma checked this PR",
+            headline: "The run found client bugs.",
             reportMarkdown: "## Run\n\nClient bugs found.",
             organizationId: harness.organizationId,
         },

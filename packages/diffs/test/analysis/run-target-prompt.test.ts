@@ -19,6 +19,7 @@ function reporterInput(target: AnalysisRunTarget): ReporterInput {
         target,
         range: { baseSha: "aaaa111", headSha: "bbbb222" },
         findings: [],
+        branchTests: [],
         existingIssues: [],
         priorReports: [],
         scenarioIndex: [],

@@ -1,83 +1,52 @@
-import { Badge } from "@autonoma/blacklight";
-import { type AnalysisIssueSummary, type AnalysisVerdictState, deriveAnalysisVerdict } from "@autonoma/types";
-import { RUN_VERDICT_COPY, VerdictHeadline } from "components/analysis/verdict-headline";
+import {
+  type AnalysisFlow,
+  type AnalysisIssueSummary,
+  analysisFlowPillLabel,
+  analysisPrTitle,
+  derivePrVerdict,
+  tallyAnalysisFlows,
+} from "@autonoma/types";
+import { VerdictHeadline } from "components/analysis/verdict-headline";
 
 /**
- * The verdict headline for the PR as a whole, driven by the branch's OPEN issues rather than one run's findings - so it
- * reflects the cumulative state across every snapshot (a bug found two commits ago and still open keeps the PR red).
- * The per-run counterpart is `PrVerdictHeadline` on the snapshot page.
+ * How the PR reads, as a whole - the Reporter's own words over the branch's cumulative state.
  *
- * The prose prefers the Reporter's authored summary - what actually happened on THIS PR - and falls back to the
- * generic policy sentence only for a run old enough to have no summary.
+ * Both strings are authored, because a PR that verified six flows of seven has no honest two-word verdict; what a
+ * reader needs is which parts are covered and which are not. The badge stays derived (from the flow tally and the
+ * branch's open bugs), so the colour and the ratio can never be talked into disagreeing with the evidence.
+ *
+ * Issues are branch-scoped and outlive any one run, so a bug found two commits ago and still open keeps the PR red.
  */
 export function AnalysisPrIssuesHeadline({
   issues,
+  title,
+  headline,
+  flows,
   testCount,
-  summary,
+  coverageGapCount,
 }: {
   issues: AnalysisIssueSummary[];
-  /** Tests the run reached a verdict on. Zero means nothing was exercised. */
+  /** The Reporter's title. Empty on a report written before the Reporter authored one. */
+  title: string;
+  /** The Reporter's headline - always present, since a report exists only once one was authored. */
+  headline: string;
+  flows: AnalysisFlow[];
+  /** The run's investigated-test count - the pre-flows reading, for a report written before the itemization. */
   testCount: number;
-  /** The Reporter's one-paragraph account of the run. Absent on a run that predates it. */
-  summary?: string;
+  /** The run's coverage-plane finding count - the other half of that fallback. */
+  coverageGapCount: number;
 }) {
   const bugCount = issues.filter((issue) => issue.kind === "bug").length;
-  const otherCount = issues.length - bugCount;
-  const state = deriveAnalysisVerdict({
-    bugCount,
-    coverageGapCount: otherCount,
-    investigatedCount: testCount,
-  });
-  const copy = headlineCopy(state, bugCount);
+  const tally = tallyAnalysisFlows(flows);
+  const state = derivePrVerdict({ flows, openBugCount: bugCount, investigatedCount: testCount, coverageGapCount });
 
   return (
     <VerdictHeadline
       state={state}
-      badge={copy.badge}
-      title={copy.title}
-      pills={
-        otherCount > 0 && (
-          <Badge variant="outline" className="font-mono text-3xs">
-            {otherCount} environment/scenario {otherCount === 1 ? "issue" : "issues"}
-          </Badge>
-        )
-      }
+      badge={analysisFlowPillLabel(state, tally, bugCount)}
+      title={analysisPrTitle(title, state, bugCount)}
     >
-      {summary ?? copy.prose}
-      {otherCount > 0 &&
-        ` ${otherCount} environment/scenario ${otherCount === 1 ? "issue" : "issues"} could not confirm app health and don't block the PR.`}
+      {headline}
     </VerdictHeadline>
   );
-}
-
-interface HeadlineCopy {
-  badge: string;
-  title: string;
-  prose: string;
-}
-
-/** The PR's wording: the badge counts the branch's OPEN issues, which outlive any single run. */
-function headlineCopy(state: AnalysisVerdictState, bugCount: number): HeadlineCopy {
-  switch (state) {
-    case "bug_found":
-      return {
-        badge: `${bugCount} open ${bugCount === 1 ? "bug" : "bugs"}`,
-        title: "This PR has open bugs to fix",
-        prose: "Only bug issues count against this PR - review each one below.",
-      };
-    case "not_confirmed":
-      return {
-        badge: RUN_VERDICT_COPY.not_confirmed.badge,
-        title: RUN_VERDICT_COPY.not_confirmed.title,
-        prose: "Environment/scenario issues couldn't confirm app health; they don't block the PR.",
-      };
-    case "no_tests_needed":
-      return RUN_VERDICT_COPY.no_tests_needed;
-    case "healthy":
-      return {
-        badge: "No open bugs",
-        title: "No open bugs on this PR",
-        prose: "Everything the agent checked passed or was non-blocking.",
-      };
-  }
 }

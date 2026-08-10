@@ -2,6 +2,8 @@ import { logger as rootLogger } from "@autonoma/logger";
 import type {
     AutonomaCommentBug,
     AutonomaCommentEvidence,
+    AutonomaCommentFlow,
+    AutonomaCommentFlowGroup,
     AutonomaCommentHandoff,
     AutonomaCommentNote,
     AutonomaCommentPayload,
@@ -66,8 +68,14 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
     // Text-first: a status emoji + generated title, then the state label + headline as plain markdown - no
     // status-pill image, so a markdown-only renderer still shows the state. The bug/warning count in the title
     // is wrapped in a `code` span to stand out, which escaping would otherwise neutralize.
-    sections.push("", `## ${STATE_ICONS[payload.state]} ${renderTitle(payload)}`, "");
-    sections.push(`**${payload.stateLabel ?? STATE_LABELS[payload.state]}** - ${escapeMarkdown(payload.headline)}`);
+    sections.push("", `## ${renderIcon(payload)}${renderTitle(payload)}`, "");
+    // The analysis comment states its outcome in words. A badge word in front of a nuanced headline would compress it
+    // straight back into the binary the headline exists to replace, so that comment renders the headline alone.
+    if (payload.kind === "analysis") {
+        sections.push(escapeMarkdown(payload.headline));
+    } else {
+        sections.push(`**${payload.stateLabel ?? STATE_LABELS[payload.state]}** - ${escapeMarkdown(payload.headline)}`);
+    }
 
     // The run-level narration (analysis comment) sits right under the headline as a prose paragraph. It is
     // LLM-authored, so it is sanitized the same way rich bug prose is.
@@ -87,8 +95,10 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
         sections.push("", ...(rich ? [] : ["**Top issues**"]), renderBugList(payload));
     }
 
-    // The owner-grouped blocks sit between the bugs and the CTAs: what breaks, then what we could not confirm and
-    // whose it is to fix, then where to go next.
+    // The flow itemization sits between the bugs and the CTAs: what breaks, then what this PR has and has not
+    // established, then where to go next.
+    for (const group of payload.flowGroups) sections.push("", renderFlowGroup(group));
+
     for (const note of payload.notes) sections.push("", renderNote(note));
 
     if (payload.ctas.length > 0) sections.push("", renderCtas(payload));
@@ -130,6 +140,51 @@ export function renderMarkdown(payload: AutonomaCommentPayload, options?: { mark
     if (payload.handoff != null) sections.push("", renderHandoff(payload.handoff));
 
     return sections.join("\n");
+}
+
+/**
+ * The comment's status emoji. Every comment kind but `analysis` gets one per state.
+ *
+ * The analysis comment shows one only for a bug. GitHub offers a green tick, a grey circle and a red X, and any
+ * non-green marker there reads as an unresolved problem - so a run that verified six flows of seven would be stamped
+ * with the same alarm as one that verified none. A bug is the single outcome worth raising that way; the rest is
+ * reported in words.
+ */
+function renderIcon(payload: AutonomaCommentPayload): string {
+    if (payload.kind === "analysis" && payload.state !== "critical") return "";
+    return `${STATE_ICONS[payload.state]} `;
+}
+
+/**
+ * One flow group. Same weighting rule as the note blocks below: an `attention` group renders plainly, at the weight
+ * of the bug cards, while a `quiet` one is blockquoted because the reader is not being asked to act on it.
+ */
+function renderFlowGroup(group: AutonomaCommentFlowGroup): string {
+    const blocks: string[] = [`**${escapeMarkdown(group.heading)}**`];
+    if (group.flows.length > 0) {
+        blocks.push(group.flows.map(renderFlow).join("\n"));
+    }
+    if (group.overflow != null) {
+        const { count, href } = group.overflow;
+        blocks.push(renderTextLink(`and ${count} more ${count === 1 ? "flow" : "flows"}`, href));
+    }
+    for (const line of group.lines) blocks.push(escapeMarkdown(line));
+    if (group.links.length > 0) {
+        blocks.push(group.links.map((link) => `- ${renderTextLink(link.label, link.href)}`).join("\n"));
+    }
+    const body = blocks.join("\n\n");
+    if (group.tone === "attention") return body;
+    return body
+        .split("\n")
+        .map((line) => (line === "" ? ">" : `> ${line}`))
+        .join("\n");
+}
+
+/** One flow as a bullet: its name, what we learned, and - when it is a mix - how much of it held up. */
+function renderFlow(flow: AutonomaCommentFlow): string {
+    const meta = flow.meta != null && flow.meta !== "" ? ` _(${escapeMarkdown(flow.meta)})_` : "";
+    const detail = flow.detail !== "" ? ` - ${escapeMarkdown(flow.detail)}` : "";
+    return `- **${escapeMarkdown(flow.title)}**${detail}${meta}`;
 }
 
 /**
@@ -192,6 +247,9 @@ function renderTitle(payload: AutonomaCommentPayload): string {
     // The preview status comment (environment building/ready/failed) carries a fixed title; the
     // state emoji + label already convey the outcome, so it never adopts the test-run titles below.
     if (payload.kind === "preview") return `Preview Environment #${payload.prNumber}`;
+    // A caller that resolved its own title (the analysis comment) has already decided what this PR reads as, from
+    // more than the state word available here.
+    if (payload.title != null && payload.title !== "") return escapeMarkdown(payload.title);
     const counts = countByMarker(payload.bugs);
     const rich = payload.bugs.some(isRichBug);
     // The rich investigation comment highlights the count and uses friendlier warning/healthy titles; the plain

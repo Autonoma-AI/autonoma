@@ -94,10 +94,11 @@ export async function postAnalysisComment({
             testCount: report.testCount,
             bugIssues: report.bugIssues,
             coverage: report.coverage,
-            clientEnvironmentFailures: report.clientEnvironmentFailures,
             coverageIssues: report.coverageIssues,
             mergeGateBlocking,
-            summary: report.summary,
+            title: report.title,
+            headline: report.headline,
+            flows: report.flows,
         },
         {
             prNumber: target.prNumber,
