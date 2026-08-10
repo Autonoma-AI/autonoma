@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { isProtectedPreviewkitEnvKey } from "@autonoma/types";
 import type * as k8s from "@kubernetes/client-node";
 import type { AppConfig } from "../config/schema";
+import { warmNodeAffinity } from "./warm-node-preference";
 
 interface AppResourceOptions {
     app: AppConfig;
@@ -201,6 +202,7 @@ export function buildAppDeployment(opts: AppResourceOptions): k8s.V1Deployment {
                 },
                 spec: {
                     nodeSelector: { "kubernetes.io/arch": "amd64" },
+                    affinity: warmNodeAffinity(),
                     containers: [
                         {
                             name: app.name,

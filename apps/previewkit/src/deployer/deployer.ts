@@ -29,6 +29,7 @@ import {
     buildCentralGatekeeperRole,
     buildCentralGatekeeperRoleBinding,
 } from "./resource-factory";
+import { warmNodeAffinity } from "./warm-node-preference";
 
 /** ConfigMap name marking that a database's one-time setup already ran. */
 function setupMarkerName(service: string): string {
@@ -195,6 +196,7 @@ export class Deployer {
             const recipe = this.recipeRegistry.get(svcConfig.recipe);
             const resources = recipe.generate(svcConfig, namespace);
             this.mirrorRecipeImages(resources);
+            this.preferWarmNode(resources);
 
             for (const pvc of resources.persistentVolumeClaims) {
                 await this.applyPvc(namespace, pvc);
@@ -967,6 +969,25 @@ export class Deployer {
                     container.image = mirrored;
                 }
             }
+        }
+    }
+
+    /**
+     * Stamps the warm-node scheduling preference onto every recipe-generated
+     * workload, so infra services (postgres first in the wake order) land on
+     * the node with the warm image cache when it has room. Mutates in place
+     * before apply, like `mirrorRecipeImages`. App Deployments get the same
+     * preference in `buildAppDeployment`. A recipe that ever sets its own
+     * affinity keeps it.
+     */
+    private preferWarmNode(resources: RecipeResources): void {
+        const podSpecs = [
+            ...resources.deployments.map((d) => d.spec?.template.spec),
+            ...resources.statefulSets.map((s) => s.spec?.template.spec),
+        ];
+        for (const podSpec of podSpecs) {
+            if (podSpec == null) continue;
+            podSpec.affinity ??= warmNodeAffinity();
         }
     }
 

@@ -82,6 +82,18 @@ describe("buildAppDeployment", () => {
         expect(dep.metadata?.labels?.["previewkit.dev/managed-by"]).toBe("previewkit");
     });
 
+    it("prefers the warm node without requiring it", () => {
+        const dep = buildAppDeployment(baseOpts);
+        const nodeAffinity = dep.spec!.template.spec!.affinity?.nodeAffinity;
+        // Preferred, never required: a missing/full warm node must not make
+        // the pod unschedulable - it falls back to the spot pool.
+        expect(nodeAffinity?.requiredDuringSchedulingIgnoredDuringExecution).toBeUndefined();
+        const preferred = nodeAffinity?.preferredDuringSchedulingIgnoredDuringExecution?.[0];
+        expect(preferred?.preference.matchExpressions).toEqual([
+            { key: "previewkit.dev/node-role", operator: "In", values: ["warm"] },
+        ]);
+    });
+
     it("sets the correct image and port", () => {
         const dep = buildAppDeployment(baseOpts);
         const container = dep.spec!.template.spec!.containers[0]!;

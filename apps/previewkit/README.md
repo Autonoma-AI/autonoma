@@ -578,7 +578,7 @@ Kubernetes manifests live under the repo's `deployment/` directory (applied with
 - `deployment/previewkit/cluster/` -- one-time cluster bootstrap:
     - `config/` -- `namespace.yaml` (the shared `system` + `cronjobs` namespaces), `storage-class.yaml`, `vpc-cni-network-policy.yaml`
     - `secrets-manager/` -- `cluster-secret-store.yaml` + `service-account.yaml` (External Secrets Operator -> AWS Secrets Manager)
-    - `karpenter/` -- `nodepool.yaml` (default spot pool + gatekeeper pool), `nodeclass.yaml`
+    - `karpenter/` -- `nodepool.yaml` (default spot pool: NVMe-backed instance types, 4h consolidation) + `nodeclass.yaml` (its EC2NodeClass, RAID0 instance store), `nodepool-warm.yaml` (the static on-demand warm node's own EC2NodeClass + NodePool + ballast Deployment)
     - `ingress/` -- ingress-nginx values and the shared gateway HTTPRoute
     - `gatekeeper/` -- the central Gatekeeper (3-replica leader-elected proxy: sleep/wake + routing for every preview) and its wildcard Ingress, plus `migrate-existing-previews.sh` -- the one-time rollout tool that moves already-running previews off their old per-namespace gatekeepers (dry-run by default; run with `--apply` after applying the manifests, and re-run for stragglers)
     - `logging/` -- `alloy.yaml` (DaemonSet shipping preview pod logs to Loki)
