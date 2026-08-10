@@ -27,8 +27,23 @@ const configDocument = previewConfigSchema.parse({
       build_secrets: ["STRIPE_SECRET_KEY"],
       connections: [{ key: "DATABASE_URL", value: "{{db.url}}" }],
     },
+    {
+      name: "api",
+      repository: "acme/storefront",
+      dockerfile: "api/Dockerfile",
+      port: 4000,
+      health_check: "/health",
+      build_secrets: [],
+      connections: [
+        { key: "DATABASE_URL", value: "{{db.url}}" },
+        { key: "REDIS_URL", value: "{{redis.url}}" },
+      ],
+    },
   ],
-  services: [{ name: "db", recipe: "postgres", version: "16" }],
+  services: [
+    { name: "db", recipe: "postgres", version: "16" },
+    { name: "redis", recipe: "redis", version: "7" },
+  ],
 });
 
 /**
@@ -91,8 +106,10 @@ const configuringFixtures: TrpcFixtures = {
         logs: { available: false },
       },
       services: [
-        { name: "web", status: "building" },
-        { name: "db", status: "ready" },
+        { name: "web", kind: "app", status: "building", statusSource: "pipeline" },
+        { name: "api", kind: "app", status: "building", statusSource: "pipeline" },
+        { name: "db", kind: "managed", status: "building", statusSource: "pipeline" },
+        { name: "redis", kind: "managed", status: "building", statusSource: "pipeline" },
       ],
     },
     getPreviewkitConfig: {
@@ -179,8 +196,10 @@ function withReadyPreview(): TrpcFixtures {
                 logs: { available: true, repoFullName: "acme/storefront", prNumber: 0 },
               },
               services: [
-                { name: "web", status: "ready" },
-                { name: "db", status: "ready" },
+                { name: "web", kind: "app", status: "ready", statusSource: "cluster" },
+                { name: "api", kind: "app", status: "ready", statusSource: "cluster" },
+                { name: "db", kind: "managed", status: "ready", statusSource: "cluster" },
+                { name: "redis", kind: "managed", status: "ready", statusSource: "cluster" },
               ],
             },
     },

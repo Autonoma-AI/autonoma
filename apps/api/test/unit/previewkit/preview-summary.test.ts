@@ -97,6 +97,51 @@ describe("buildServiceSummaries", () => {
 
         expect(web!.status).toBe("failed");
     });
+
+    // The reported inconsistency: "db unknown" sitting next to "api building" for the
+    // whole length of a deploy. A managed service has no lifecycle row of its own, so
+    // it follows the environment - which is never "unknown" while a deploy is running.
+    it("reports a managed service as building while the environment is still deploying", () => {
+        const inFlight: PreviewkitStatus[] = ["pending", "building", "deploying"];
+        for (const status of inFlight) {
+            const summaries = buildServiceSummaries({
+                branchName: "feature/login",
+                environment: environment(status, "deploying"),
+                manifest: { services: [{ name: "db", recipe: "postgres", version: "16" }] },
+                latestBuild: null,
+                appBuilds: {},
+            });
+
+            expect(summaries.find((service) => service.name === "db")?.status).toBe("building");
+        }
+    });
+
+    it("reports a managed service as failed when the environment failed, never unknown", () => {
+        const summaries = buildServiceSummaries({
+            branchName: "feature/login",
+            environment: environment("failed", "build_failed"),
+            manifest: { services: [{ name: "redis", recipe: "redis", version: "7" }] },
+            latestBuild: null,
+            appBuilds: {},
+        });
+
+        expect(summaries.find((service) => service.name === "redis")?.status).toBe("failed");
+    });
+
+    it("keeps a managed service ready with the environment, and stopped once it is torn down", () => {
+        const manifest = { services: [{ name: "db", recipe: "postgres", version: "16" }] };
+        const statusFor = (status: PreviewkitStatus) =>
+            buildServiceSummaries({
+                branchName: "feature/login",
+                environment: environment(status, "ready"),
+                manifest,
+                latestBuild: null,
+                appBuilds: {},
+            }).find((service) => service.name === "db")?.status;
+
+        expect(statusFor("ready")).toBe("ready");
+        expect(statusFor("torn_down")).toBe("stopped");
+    });
 });
 
 describe("buildPreviewAppSummaries", () => {

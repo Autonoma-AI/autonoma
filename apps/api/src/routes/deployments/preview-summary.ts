@@ -1,6 +1,12 @@
 import type { PreviewkitAppStatus, PreviewkitStatus } from "@autonoma/db";
 import type { PreviewkitManifest } from "@autonoma/types";
 
+// The environment statuses in which the pipeline is still working. Asked through
+// `isEnvironmentInFlight` rather than re-listed at each call site: several separate
+// derivations key off this same set, and a new status wired into only some of them
+// is exactly the drift that leaves a service reporting nothing.
+const IN_FLIGHT_ENVIRONMENT_STATUSES: ReadonlySet<PreviewkitStatus> = new Set(["pending", "building", "deploying"]);
+
 type PreviewEnvironmentStatus =
     | "ready"
     | "building"
@@ -199,8 +205,7 @@ export function buildServiceSummaries({
             name: service.name,
             kind,
             iconKey: resolvePreviewServiceIconKey({ name: service.name, kind, recipe: service.recipe }),
-            status:
-                environment.status === "torn_down" ? "stopped" : environment.status === "ready" ? "ready" : "unknown",
+            status: deriveManagedServiceStatus(environment.status),
             logAvailability: "runtime_only",
             branch: null,
             branchSource: "unknown",
@@ -343,9 +348,7 @@ export function isBuildingOverPriorAttempt(
     previewkitStatus: PreviewkitStatus,
     latestBuild: { finishedAt: Date | null } | null,
 ): boolean {
-    const environmentInFlight =
-        previewkitStatus === "pending" || previewkitStatus === "building" || previewkitStatus === "deploying";
-    return environmentInFlight && latestBuild != null && latestBuild.finishedAt != null;
+    return isEnvironmentInFlight(previewkitStatus) && latestBuild != null && latestBuild.finishedAt != null;
 }
 
 export function derivePreviewStatus({
@@ -366,9 +369,7 @@ export function derivePreviewStatus({
     if (previewkitStatus === "torn_down") return "stopped";
     if (previewkitStatus === "failed") return primaryUrl != null ? "degraded" : "failed";
     if (currentHeadSha != null && currentHeadSha !== "" && currentHeadSha !== deployedHeadSha) return "stale";
-    if (previewkitStatus === "pending" || previewkitStatus === "building" || previewkitStatus === "deploying") {
-        return "building";
-    }
+    if (isEnvironmentInFlight(previewkitStatus)) return "building";
     if (previewkitStatus === "ready") {
         if (failedServiceCount > 0 || degradedServiceCount > 0) return "degraded";
         return "ready";
@@ -394,10 +395,30 @@ function deriveAppStatus(
     // No per-app row yet (config not resolved, or a service handled
     // elsewhere): fall back to the build outcome and the env-level status.
     if (build?.status === "failed") return "failed";
-    if (environmentStatus === "pending" || environmentStatus === "building" || environmentStatus === "deploying")
-        return "building";
+    if (isEnvironmentInFlight(environmentStatus)) return "building";
     if (environmentStatus === "failed") return "failed";
     return "unknown";
+}
+
+/**
+ * Status for a managed service (postgres, redis, ...) from the environment it
+ * lives in. These are recipe pods, not apps built from the PR: nothing writes a
+ * per-service lifecycle row, so the environment IS the only truth available - and
+ * it is enough. The recipe pods come up inside the deploy's `deploying-services`
+ * phase, ahead of the apps, so an environment still working is a service still
+ * starting, and an environment that failed is a service that never came up.
+ */
+function deriveManagedServiceStatus(environmentStatus: PreviewkitStatus): PreviewServiceStatus {
+    if (environmentStatus === "torn_down") return "stopped";
+    if (environmentStatus === "ready") return "ready";
+    if (environmentStatus === "failed") return "failed";
+    if (isEnvironmentInFlight(environmentStatus)) return "building";
+    return "unknown";
+}
+
+/** True while the pipeline is still working on this environment (pending, building, or deploying). */
+function isEnvironmentInFlight(status: PreviewkitStatus): boolean {
+    return IN_FLIGHT_ENVIRONMENT_STATUSES.has(status);
 }
 
 function mapAppStatus(status: PreviewkitAppStatus): PreviewServiceStatus {
@@ -415,7 +436,7 @@ function isAppInFlight(status: PreviewkitAppStatus): boolean {
 export function mapBuildStatus(status: PreviewkitStatus): "ready" | "building" | "failed" | "unknown" {
     if (status === "ready") return "ready";
     if (status === "failed") return "failed";
-    if (status === "pending" || status === "building" || status === "deploying") return "building";
+    if (isEnvironmentInFlight(status)) return "building";
     return "unknown";
 }
 

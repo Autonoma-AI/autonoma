@@ -396,9 +396,12 @@ function statusTitle(status: "idle" | "building" | "ready" | "failed") {
   return "Waiting for preview";
 }
 
-function serviceStatusColor(status: "ready" | "building" | "failed" | "unknown") {
+/** Dot colour per service status. Typed off the query output so a new status is a compile error here, not a silently grey dot. */
+function serviceStatusColor(status: PreviewReadinessData["services"][number]["status"]) {
   if (status === "ready") return "bg-status-success";
   if (status === "failed") return "bg-status-critical";
   if (status === "building") return "bg-status-warn";
+  // `idle` is healthy-but-asleep, not unknown - dim rather than alarming.
+  if (status === "idle") return "bg-border-mid";
   return "bg-border-mid";
 }

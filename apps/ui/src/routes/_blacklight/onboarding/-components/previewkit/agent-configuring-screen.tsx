@@ -554,12 +554,12 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
                 render={
                   <Badge variant="outline" className="cursor-help gap-1.5 font-mono">
                     {service.name}
-                    <span className="text-text-secondary">{service.status}</span>
+                    <span className="text-text-secondary">{serviceStatusLabel(service)}</span>
                     <InfoIcon size={11} className="text-text-secondary" />
                   </Badge>
                 }
               />
-              <TooltipContent className="max-w-xs">{serviceStatusHint(service.status)}</TooltipContent>
+              <TooltipContent className="max-w-xs">{serviceStatusHint(service)}</TooltipContent>
             </Tooltip>
           ))}
         </div>
@@ -583,11 +583,52 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
   );
 }
 
-/** Human explanation of a preview service's status, shown on hover - the raw word alone (e.g. "unknown") is opaque. */
-function serviceStatusHint(status: "ready" | "building" | "failed" | "unknown"): string {
-  if (status === "ready") return "This service is up and accepting connections.";
-  if (status === "building") return "This service is still starting up.";
-  if (status === "failed") return "This service failed to start.";
+/**
+ * One service as the readiness poll reports it. Taken from the query output rather
+ * than re-declared, so the badge cannot drift from what the API sends.
+ */
+type PreviewReadinessService = ReturnType<typeof usePreviewReadiness>["data"]["services"][number];
+
+/**
+ * The status word on a service badge. A managed service (postgres, redis, ...) is a
+ * recipe the environment provisions rather than something built from the repo, so
+ * "building" would describe work that never happens for it - it reads "starting".
+ */
+function serviceStatusLabel(service: PreviewReadinessService): string {
+  if (service.kind === "managed" && service.status === "building") return "starting";
+  return service.status;
+}
+
+/**
+ * Human explanation of a service's status, shown on hover - the raw word alone is thin.
+ *
+ * `statusSource` changes what is true, not just the wording. A `cluster` verdict is
+ * the workload's live replica readiness, so "ready" there means it is genuinely
+ * serving; a `pipeline` verdict only means the deploy step for it succeeded, which
+ * stays true even if the thing crashed a second later. Saying "up and accepting
+ * connections" off a pipeline verdict would be a guess dressed as a fact.
+ */
+function serviceStatusHint(service: PreviewReadinessService): string {
+  const managed = service.kind === "managed";
+  const fromCluster = service.statusSource === "cluster";
+  if (service.status === "ready") {
+    return fromCluster
+      ? "Running and passing its readiness checks."
+      : "Deployed successfully. Autonoma hasn't confirmed it is serving yet.";
+  }
+  if (service.status === "building") {
+    if (fromCluster) return "Started, waiting for it to report ready.";
+    return managed
+      ? "The preview environment is bringing this service up."
+      : "This app is still being built and deployed.";
+  }
+  if (service.status === "idle") {
+    return "Up, but scaled to zero while nothing is using it. The next request wakes it.";
+  }
+  if (service.status === "failed") {
+    if (service.error != null) return `Not staying up: ${service.error}`;
+    return managed ? "This service never came up." : "This app failed to build or deploy.";
+  }
   return "Autonoma hasn't reported this service's status yet - it may still be starting.";
 }
 

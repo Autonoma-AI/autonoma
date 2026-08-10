@@ -6,6 +6,7 @@ import {
     type PrismaClient,
 } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
+import type { WorkloadLiveness } from "@autonoma/k8s/preview-liveness";
 import { parseStringRecord, previewConfigSchema, projectManifest, resolvePrimaryUrl } from "@autonoma/types";
 import { applicationBranchRefs } from "../../github/application-branch-refs";
 import {
@@ -16,6 +17,7 @@ import {
     toAppBuildOutcomeMap,
     type PreviewFailure,
 } from "../deployments/preview-summary";
+import { resolvePreviewLivenessService } from "../preview-access/resolve-preview-liveness";
 import { OnboardingAnalytics } from "./onboarding-analytics";
 import { isStepAtOrPast } from "./onboarding-step-order";
 
@@ -40,7 +42,27 @@ export interface PreviewDiagnostics {
 
 export interface PreviewReadinessService {
     name: string;
-    status: "ready" | "building" | "failed" | "unknown";
+    /**
+     * What this service is, which decides how its status reads. An `app` is built
+     * from the repo and deployed as its own pod; a `managed` service is a recipe
+     * (postgres, redis, ...) the environment provisions, so "building" there means
+     * the environment is bringing it up, not that anything is being compiled.
+     */
+    kind: "app" | "managed";
+    /**
+     * `idle` only ever comes from the cluster: the workload is deployed and healthy
+     * but scaled to zero by the Gatekeeper idle loop. It is not a failure and not a
+     * build state - it is a preview asleep, which the next request wakes.
+     */
+    status: "ready" | "building" | "failed" | "idle" | "unknown";
+    /**
+     * Where `status` came from. `pipeline` is the deploy's own verdict - it says a
+     * workload was successfully handed to Kubernetes, not that it is up. `cluster`
+     * is the live readiness of the running workload, the same signal the preview
+     * link and the Gatekeeper act on, so it can see a service that deployed cleanly
+     * and then crashlooped.
+     */
+    statusSource: "pipeline" | "cluster";
     url?: string;
     port?: number;
     error?: string;
@@ -58,6 +80,9 @@ const PREVIEWKIT_DEPLOY_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
 
 const previewkitEnvironmentSelect = {
     id: true,
+    // The Kubernetes namespace, which is how the cluster's live workload state is
+    // keyed - it is what turns "the deploy succeeded" into "the service is up".
+    namespace: true,
     repoFullName: true,
     resolvedConfig: true,
     status: true,
@@ -437,13 +462,19 @@ export async function buildPreviewkitReadiness(
         repoFullName: environment.repoFullName,
         prNumber: MAIN_BRANCH_PREVIEW_ENVIRONMENT_NUMBER,
     };
+    // Two independent reads - one against our own database, one against the preview
+    // cluster - on a query the onboarding screen polls every few seconds.
+    const [appIndexByName, liveness] = await Promise.all([
+        resolveFailureAppIndexes(db, environment.resolvedConfig, applicationId),
+        readWorkloadLiveness(environment.namespace),
+    ]);
     const failures = buildingOverPriorAttempt
         ? []
         : classifyPreviewFailures({
               appBuilds,
               services,
               environmentError: environment.error ?? latestBuild?.error ?? undefined,
-              appIndexByName: await resolveFailureAppIndexes(db, environment.resolvedConfig, applicationId),
+              appIndexByName,
           });
     const diagnostics = diagnosticsFromPreviewStatus({
         status: previewStatus,
@@ -489,13 +520,83 @@ export async function buildPreviewkitReadiness(
         mode: "previewkit",
         ...(primaryUrl != null ? { previewUrl: primaryUrl } : {}),
         diagnostics,
-        services: services.map((service) => ({
-            name: service.name,
-            status: toReadinessServiceStatus(service.status),
-            ...(service.endpoint != null ? { url: service.endpoint } : {}),
-            ...(service.port != null ? { port: service.port } : {}),
-            ...(service.statusReason != null ? { error: service.statusReason } : {}),
-        })),
+        services: services.map((service) => {
+            // `logAvailability` already carries the distinction: only an app is built
+            // from the PR, so only an app has build output. Deriving from it keeps the
+            // two views of "is this ours to build?" from drifting apart.
+            const kind = service.logAvailability === "build_and_runtime" ? ("app" as const) : ("managed" as const);
+            const pipelineStatus = toReadinessServiceStatus(service.status);
+            const live = liveness.get(service.name);
+            const resolved = resolveServiceStatus(pipelineStatus, live);
+            const error = resolved.error ?? service.statusReason ?? undefined;
+            return {
+                name: service.name,
+                kind,
+                status: resolved.status,
+                statusSource: resolved.statusSource,
+                ...(service.endpoint != null ? { url: service.endpoint } : {}),
+                ...(service.port != null ? { port: service.port } : {}),
+                ...(error != null ? { error } : {}),
+            };
+        }),
+    };
+}
+
+/**
+ * The live per-workload state of one preview namespace, keyed by workload name.
+ *
+ * The names line up with the config by construction: the deployer names an app's
+ * Deployment after the app and a recipe's StatefulSet after the service
+ * (`postgres-recipe.ts` builds it as `config.name`), so "db" here is the same "db"
+ * the user configured.
+ *
+ * Best effort by design. Liveness needs cross-cluster reach that not every
+ * deployment has, and a read failure already degrades to the last snapshot inside
+ * the service - so an empty map simply leaves every service on the pipeline's own
+ * verdict, exactly as before. A liveness outage must never fail the onboarding poll.
+ */
+async function readWorkloadLiveness(namespace: string): Promise<Map<string, WorkloadLiveness>> {
+    const service = resolvePreviewLivenessService();
+    if (service == null) return new Map();
+
+    const fleet = await service.getFleet();
+    const workloads = fleet.get(namespace)?.workloads ?? [];
+    return new Map(workloads.map((workload) => [workload.name, workload]));
+}
+
+/**
+ * One service's reported status, preferring what the cluster can see over what the
+ * deploy claimed.
+ *
+ * These answer different questions. The pipeline's verdict means "the deploy step
+ * for this workload succeeded", which is true forever after it happens - it cannot
+ * see a database that accepted its manifest and then crashlooped on startup, and it
+ * is why a preview could read all-green while nothing served a request. The cluster
+ * reads the workload's actual replica readiness, the same signal the preview link
+ * and the Gatekeeper act on.
+ *
+ * The cluster only wins where it has something to say. Mid-deploy the workload does
+ * not exist yet, so there is no entry and the pipeline's "building" stands - which
+ * is right, and is why this is an overlay rather than a replacement.
+ */
+export function resolveServiceStatus(
+    pipelineStatus: PreviewReadinessService["status"],
+    live: WorkloadLiveness | undefined,
+): {
+    status: PreviewReadinessService["status"];
+    statusSource: PreviewReadinessService["statusSource"];
+    error?: string;
+} {
+    if (live == null) return { status: pipelineStatus, statusSource: "pipeline" };
+    if (live.state === "healthy") return { status: "ready", statusSource: "cluster" };
+    if (live.state === "waking") return { status: "building", statusSource: "cluster" };
+    if (live.state === "asleep") return { status: "idle", statusSource: "cluster" };
+    // The Kubernetes reason (CrashLoopBackOff, ImagePullBackOff, ...) is the whole
+    // value of asking the cluster: it names what a green deploy could not tell you.
+    return {
+        status: "failed",
+        statusSource: "cluster",
+        error: live.reason ?? "The workload is not staying up.",
     };
 }
 
