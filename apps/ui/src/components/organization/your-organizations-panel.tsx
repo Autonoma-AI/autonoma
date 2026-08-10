@@ -50,8 +50,7 @@ export function YourOrganizationsPanel() {
       </PanelHeader>
       <PanelBody>
         <p className="mb-4 text-xs text-text-secondary">
-          Switching applies to this browser for as long as you stay signed in. Signing in again starts you back in your
-          first organization.
+          Whichever you switch to is remembered, so signing in again brings you back to it.
         </p>
         <div className="divide-y divide-border-dim">
           {organizations.map((organization) => (
