@@ -236,9 +236,15 @@ export const env = createEnv({
          * that one also sends the onboarding email, which is deliberately from a person - an invitation
          * from someone's personal address instead of the product reads as a mistake.
          *
+         * `no-reply` rather than `invites`, and the reason is that nothing here sets `reply_to`: a
+         * reply to an invitation goes to whatever address this names. `invites@` looks like somewhere a
+         * person could answer, so a reply would be sent and silently lost; `no-reply@` tells the reader
+         * not to bother. If it ever becomes a monitored mailbox, point this at it and the promise the
+         * name makes becomes true.
+         *
          * Any local part works without DNS changes: verification in Resend is per domain.
          */
-        RESEND_INVITES_FROM_EMAIL: z.string().min(1).optional().default("Autonoma <invites@autonoma.app>"),
+        RESEND_INVITES_FROM_EMAIL: z.string().min(1).optional().default("Autonoma <no-reply@autonoma.app>"),
         CAL_ONBOARDING_LINK: z.string().url().optional(),
         SLACK_BOT_TOKEN: z.string().min(1).optional(),
         DISCORD_INVITE_URL: z.string().url().optional(),
