@@ -40,6 +40,10 @@ interface AppCardProps {
   /** Whether to show the per-app role toggles (frontend, SDK host). With a single
    * app there is nothing to choose - it is both by default - so they stay hidden. */
   showRoleToggles: boolean;
+  /** Whether this is the app the SDK endpoint resolves to, so only it offers the
+   * handler's mount path. True for a single-app project even with the toggles
+   * hidden, since that app is the SDK host by default. */
+  isSdkHost: boolean;
   /** Start expanded. Cards default to open so the fields are visible and never
    * auto-collapse while editing. */
   defaultExpanded?: boolean;
@@ -64,6 +68,7 @@ export function AppCard({
   dependencyOptions,
   showDependsOn,
   showRoleToggles,
+  isSdkHost,
   defaultExpanded = true,
   repo,
   repoAppCount = 0,
@@ -169,8 +174,9 @@ export function AppCard({
                   }
                 />
                 <TooltipContent className="max-w-xs">
-                  The app that serves the Autonoma SDK endpoint (/api/autonoma), where test data is created and torn
-                  down before each run. Often the same app as the frontend; in a split front/API project it is the API.
+                  The app that serves the Autonoma SDK endpoint, where test data is created and torn down before each
+                  run. Often the same app as the frontend; in a split front/API project it is the API. Its mount path is
+                  the SDK path field below.
                 </TooltipContent>
               </Tooltip>
               <Switch
@@ -229,6 +235,18 @@ export function AppCard({
               onChange={(port) => onChange(app.id, { port })}
               hint="The port your app listens on"
             />
+            {isSdkHost ? (
+              <AppField
+                app={app}
+                issues={issues}
+                field="sdkPath"
+                label="SDK path"
+                placeholder="/api/autonoma"
+                value={app.sdkPath}
+                onChange={(sdkPath) => onChange(app.id, { sdkPath })}
+                hint="Where this app serves the Autonoma SDK handler. Blank uses /api/autonoma"
+              />
+            ) : undefined}
             {/* Path, build context, and start command only apply to auto-detect /
                 Dockerfile builds. Manual builds copy the whole repo root and bake
                 their own entrypoint (the workdir is shown in the build spec), so

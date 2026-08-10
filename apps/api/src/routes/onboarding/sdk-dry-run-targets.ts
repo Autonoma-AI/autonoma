@@ -1,7 +1,8 @@
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { previewConfigSchema, resolveSdkAppName } from "@autonoma/types";
+import { resolveConfiguredSdkPath } from "@autonoma/scenario";
+import { declaredSdkPath, previewConfigSchema, resolveSdkAppName } from "@autonoma/types";
 import { z } from "zod";
 import { type DeployFreshness, deployFreshness } from "../../previewkit/deploy-freshness";
 import { buildSdkUrl } from "./sdk-url";
@@ -20,8 +21,9 @@ export type SdkDryRunTargetSource = "previewkit" | "external" | "vercel";
 export type SdkDryRunTargetAvailability = "ready" | "building" | "failed" | "no_preview";
 
 /**
- * A preview environment the SDK dry-run can target. The SDK endpoint follows the
- * fixed convention `<previewUrl>/api/autonoma`.
+ * A preview environment the SDK dry-run can target. The endpoint is the SDK app's
+ * preview origin plus the path its config declares, defaulting to the
+ * `/api/autonoma` convention when it declares none.
  */
 export interface SdkDryRunTarget {
     id: string;
@@ -116,22 +118,28 @@ function firstPreviewAppName(urls: Record<string, string>): string | undefined {
     return undefined;
 }
 
+/** The app hosting the Environment Factory handler and the path it mounts it at, as this env's config declares them. */
+interface ConfiguredSdkRoles {
+    appName?: string;
+    /** Absent when the config declares no path, which means the convention applies. */
+    path?: string;
+}
+
 /**
- * The app hosting the SDK handler per the env's resolved config. An unparsable
- * `resolvedConfig` silently falls back to "first URL wins", which can point the
- * SDK at an app with no handler - log it so the misroute is traceable. A null
- * config (env created before its first deploy resolved) is expected and stays quiet.
+ * An unparsable `resolvedConfig` silently falls back to "first URL wins", which can point the SDK at an app with no
+ * handler - log it so the misroute is traceable. A null config (env created before its first deploy resolved) is
+ * expected and stays quiet.
  */
-function sdkAppNameFromConfig(resolvedConfig: unknown, environmentId: string, logger: Logger): string | undefined {
-    if (resolvedConfig == null) return undefined;
+function sdkRolesFromConfig(resolvedConfig: unknown, environmentId: string, logger: Logger): ConfiguredSdkRoles {
+    if (resolvedConfig == null) return {};
     const parsed = previewConfigSchema.safeParse(resolvedConfig);
     if (!parsed.success) {
         logger.warn("Preview environment has malformed resolvedConfig; falling back to first preview URL", {
             extra: { environmentId, issues: parsed.error.issues },
         });
-        return undefined;
+        return {};
     }
-    return resolveSdkAppName(parsed.data.apps);
+    return { appName: resolveSdkAppName(parsed.data.apps), path: declaredSdkPath(parsed.data.apps) };
 }
 
 interface PreviewkitTargetInfo {
@@ -145,6 +153,8 @@ interface PreviewkitTargetInfo {
     /** Absent while the env is still building (urls fill in at deploy time). */
     previewUrl?: string;
     sdkAppName?: string;
+    /** The `sdk_path` this env's config declares, if any; absent means the convention. */
+    sdkPath?: string;
     freshness: DeployFreshness;
 }
 
@@ -179,13 +189,21 @@ function buildPreviewkitTargetInfo(
         }),
     };
 
-    const configuredAppName = sdkAppNameFromConfig(environment.resolvedConfig, environment.id, logger);
-    const configuredUrl = configuredAppName != null ? urls[configuredAppName] : undefined;
+    const configured = sdkRolesFromConfig(environment.resolvedConfig, environment.id, logger);
+    const configuredUrl = configured.appName != null ? urls[configured.appName] : undefined;
     if (configuredUrl != null && configuredUrl.length > 0) {
-        return { ...base, previewUrl: configuredUrl, sdkAppName: configuredAppName };
+        return { ...base, previewUrl: configuredUrl, sdkAppName: configured.appName, sdkPath: configured.path };
     }
 
-    return { ...base, previewUrl: firstPreviewUrl(urls), sdkAppName: firstPreviewAppName(urls) };
+    // The config named no deployed app, so the app guess falls back to the first
+    // deployed URL. The declared path still holds: it is a property of the
+    // handler's code, not of which app we managed to resolve.
+    return {
+        ...base,
+        previewUrl: firstPreviewUrl(urls),
+        sdkAppName: firstPreviewAppName(urls),
+        sdkPath: configured.path,
+    };
 }
 
 /**
@@ -215,7 +233,7 @@ export async function listSdkDryRunTargets(
     const logger = rootLogger.child({ name: "listSdkDryRunTargets", applicationId });
     logger.info("Listing SDK dry-run targets");
 
-    const [application, openBranches] = await Promise.all([
+    const [application, openBranches, configuredSdkPath] = await Promise.all([
         db.application.findFirst({
             where: { id: applicationId, organizationId },
             select: {
@@ -238,6 +256,10 @@ export async function listSdkDryRunTargets(
             },
             orderBy: { createdAt: "desc" },
         }),
+        // From the LIVE config, not from each environment's resolved config: the route the handler is mounted at is
+        // usually only known after the preview that serves it has already deployed, so reading the deploy-time photo
+        // would make the first validation of a non-conventional endpoint fail on a path the user had already fixed.
+        resolveConfiguredSdkPath(db, applicationId),
     ]);
     if (application == null) throw new NotFoundError("Application not found");
 
@@ -311,7 +333,10 @@ export async function listSdkDryRunTargets(
             headSha: mainPreviewkitTarget.headSha,
             branchName: mainPreviewkitTarget.headRef ?? application.mainBranch?.name,
             previewUrl: mainPreviewkitTarget.previewUrl,
-            sdkUrl: mainPreviewkitTarget.previewUrl != null ? buildSdkUrl(mainPreviewkitTarget.previewUrl) : undefined,
+            sdkUrl:
+                mainPreviewkitTarget.previewUrl != null
+                    ? buildSdkUrl(mainPreviewkitTarget.previewUrl, configuredSdkPath ?? mainPreviewkitTarget.sdkPath)
+                    : undefined,
             freshness: mainPreviewkitTarget.freshness,
             requiresSharedSecretInput: false,
             isAutoDetected: false,
@@ -366,7 +391,10 @@ export async function listSdkDryRunTargets(
                 headSha: previewkitTarget.headSha,
                 branchName: branchName !== "" ? branchName : undefined,
                 previewUrl: previewkitTarget.previewUrl,
-                sdkUrl: previewkitTarget.previewUrl != null ? buildSdkUrl(previewkitTarget.previewUrl) : undefined,
+                sdkUrl:
+                    previewkitTarget.previewUrl != null
+                        ? buildSdkUrl(previewkitTarget.previewUrl, configuredSdkPath ?? previewkitTarget.sdkPath)
+                        : undefined,
                 freshness: previewkitTarget.freshness,
                 requiresSharedSecretInput: false,
                 isAutoDetected,

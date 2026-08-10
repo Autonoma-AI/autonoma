@@ -9,7 +9,7 @@ import {
     SdkClient,
     SdkHttpError,
 } from "@autonoma/scenario";
-import { type PreviewConfig, resolveSdkAppName } from "@autonoma/types";
+import { type PreviewConfig, resolveSdkAppName, sdkPathOf, trustedPreviewConfigSchema } from "@autonoma/types";
 import { resolvePreviewkitBypassToken } from "@autonoma/utils";
 import { env } from "../../env";
 import { DryRunSubject } from "./dry-run-subject";
@@ -20,6 +20,7 @@ import type {
     PreviewkitSecretsUpsertResult,
 } from "./onboarding-dependencies";
 import type { OnboardingVercelCapabilityService } from "./onboarding-vercel-capability";
+import { upsertConfig } from "./previewkit-config-helpers";
 import { listSdkDryRunTargets, type SdkDryRunTargets } from "./sdk-dry-run-targets";
 import { OnboardingApplicationNotFoundError, type ScenarioDryRunResult } from "./states/onboarding-state";
 
@@ -125,9 +126,10 @@ export class OnboardingSdkCapabilityService {
 
     /**
      * Validate the supplied SDK config by calling discover, then persist it on
-     * success. The endpoint is the chosen preview env URL + the fixed
-     * `/api/autonoma` path (built by the caller). On failure the config is never
-     * persisted and `lastDiscoveryError` is populated. Never touches `step`.
+     * success. The endpoint is the chosen preview env URL + the path that env's
+     * config declares, defaulting to `/api/autonoma` (both resolved by the caller,
+     * see `listSdkDryRunTargets`). On failure the config is never persisted and
+     * `lastDiscoveryError` is populated. Never touches `step`.
      */
     async configureAndDiscover(
         applicationId: string,
@@ -201,6 +203,8 @@ export class OnboardingSdkCapabilityService {
                 applicationId,
                 modelCount: response.schema.models.length,
             });
+
+            await this.recordVerifiedSdkPath(applicationId, webhookUrl);
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             this.logger.warn("Discovery failed; leaving SDK unconfigured", { applicationId, error: message });
@@ -642,6 +646,57 @@ export class OnboardingSdkCapabilityService {
                 },
             }),
         ]);
+
+        await this.recordVerifiedSdkPath(applicationId, webhookUrl);
+    }
+
+    /**
+     * Write the path the handler actually answered on into the application's preview config, so the endpoint stops
+     * depending on the `/api/autonoma` convention - or on an agent having remembered to declare it. Discover is the
+     * only moment the platform knows a path for certain: it just called it and got a schema back.
+     *
+     * Runs after the transaction, not inside it, and swallows nothing while failing nothing: the discovery result is
+     * already persisted and correct, so a config write that cannot land must not undo it. The endpoint keeps working
+     * either way - this only removes the dependency on the convention for the NEXT read.
+     *
+     * Applications whose previews Autonoma does not build have no config row and are skipped, which also keeps this
+     * from touching an endpoint a customer registered by hand on their own pipeline.
+     */
+    private async recordVerifiedSdkPath(applicationId: string, webhookUrl: string): Promise<void> {
+        try {
+            const verifiedPath = sdkPathOf(webhookUrl);
+            if (verifiedPath == null) return;
+
+            const stored = await this.db.previewkitConfig.findUnique({
+                where: { applicationId },
+                select: { document: true },
+            });
+            if (stored == null) return;
+
+            // Parsed with the TRUSTED schema on purpose. The deploy reads this same document honoring each app's
+            // `resources`, so a read-modify-write through a schema that discards them would silently reset a tuned
+            // app to the standard tier on its next deploy - a side effect this write has no business having.
+            const parsed = trustedPreviewConfigSchema.safeParse(stored.document);
+            if (!parsed.success) return;
+
+            const config = parsed.data;
+            const hostAppName = resolveSdkAppName(config.apps);
+            const hostApp = config.apps.find((app) => app.name === hostAppName);
+            if (hostApp == null || hostApp.sdk_path === verifiedPath) return;
+
+            hostApp.sdk_path = verifiedPath;
+            await upsertConfig(this.db, applicationId, config);
+
+            this.logger.info("Recorded the verified SDK endpoint path on the preview config", {
+                applicationId,
+                extra: { app: hostApp.name, sdkPath: verifiedPath },
+            });
+        } catch (err) {
+            this.logger.warn("Could not record the verified SDK endpoint path; the endpoint itself is unaffected", {
+                applicationId,
+                err,
+            });
+        }
     }
 
     private async resolveManagedTargetContext(

@@ -4,6 +4,7 @@ import {
     isPreviewkitDatabaseEngine,
     isSameRepository,
     PREVIEWKIT_RUNTIME_CATALOG,
+    resolveSdkAppName,
     validateHookSteps,
     validatePreviewConfigSemantics,
     zodIssuesToConfigIssues,
@@ -162,6 +163,12 @@ export interface AppDraft {
      * target it. Independent of `primary` - a full-stack app is both.
      */
     sdkImplemented: boolean;
+    /**
+     * Path the handler is mounted at on this app. Blank means the app declares
+     * nothing and the `/api/autonoma` convention applies, so it compiles to no
+     * `sdk_path` key at all rather than to the default spelled out.
+     */
+    sdkPath: string;
     dependsOn: string[];
     /** Unified variable list: secrets (sensitive) and connections (bindings). */
     env: EnvRowDraft[];
@@ -336,6 +343,25 @@ export function nextDraftId(): number {
     return draftIdCounter;
 }
 
+/**
+ * Draft id of the app that will host the Environment Factory handler, so the
+ * editor can offer its mount path on that app only. Undefined when there are no
+ * apps yet.
+ *
+ * The precedence (declared, else the frontend, else the first app) is NOT
+ * reimplemented here - it is asked of `resolveSdkAppName`, the same function the
+ * deploy and every up resolve with, so the editor cannot drift from the runtime.
+ * Apps are projected under their index rather than their name because a draft's
+ * names are blank or duplicated while the user is still typing.
+ */
+export function sdkHostAppId(apps: readonly AppDraft[]): number | undefined {
+    const hostIndex = resolveSdkAppName(
+        apps.map((app, index) => ({ name: String(index), primary: app.primary, sdk_implemented: app.sdkImplemented })),
+    );
+    if (hostIndex == null) return undefined;
+    return apps[Number(hostIndex)]?.id;
+}
+
 export function emptyAppDraft(repository: string, origin: AppDraftOrigin = "manual"): AppDraft {
     // A fresh app defaults to Manual mode (auto-detect is no longer a choice),
     // seeded with the default runtime's build script + entrypoint so it is valid
@@ -358,6 +384,7 @@ export function emptyAppDraft(repository: string, origin: AppDraftOrigin = "manu
         healthCheck: "/",
         primary: false,
         sdkImplemented: false,
+        sdkPath: "",
         dependsOn: [],
         env: [],
         origin,
@@ -535,6 +562,7 @@ function appDraftFromConfig(app: PreviewConfig["apps"][number], origin: AppDraft
     draft.healthCheck = app.health_check ?? "";
     draft.primary = app.primary === true;
     draft.sdkImplemented = app.sdk_implemented === true;
+    draft.sdkPath = app.sdk_path ?? "";
     draft.dependsOn = app.depends_on ?? [];
     // Connections become non-sensitive binding rows; build-time secret keys seed
     // sensitive rows (value blank - the store never returns it), marked build-time.
@@ -944,6 +972,7 @@ function compileApp(app: AppDraft): Record<string, unknown> {
     if (app.healthCheck.trim() !== "") compiled.health_check = app.healthCheck.trim();
     if (app.primary) compiled.primary = true;
     if (app.sdkImplemented) compiled.sdk_implemented = true;
+    if (app.sdkPath.trim() !== "") compiled.sdk_path = app.sdkPath.trim();
     if (app.dependsOn.length > 0) compiled.depends_on = app.dependsOn;
 
     // Secrets (sensitive rows) live in the secret store; only their build-time subset is named
@@ -1186,6 +1215,7 @@ export const APP_DRAFT_FIELDS = [
     "healthCheck",
     "primary",
     "sdkImplemented",
+    "sdkPath",
     "dependsOn",
     "env",
     "connections",
@@ -1231,6 +1261,7 @@ const APP_FIELD_LOCATIONS: Record<AppDraftField, { label: string; tab: string }>
     healthCheck: { label: "Health check", tab: "Overview" },
     primary: { label: "Frontend role", tab: "Overview" },
     sdkImplemented: { label: "SDK role", tab: "Overview" },
+    sdkPath: { label: "SDK path", tab: "Overview" },
     dependsOn: { label: "Depends on", tab: "Overview" },
     env: { label: "Variables", tab: "Variables" },
     connections: { label: "Variables", tab: "Variables" },
@@ -1339,6 +1370,7 @@ const APP_FIELD_BY_DOCUMENT_KEY: Record<string, AppDraftField> = {
     health_check: "healthCheck",
     primary: "primary",
     sdk_implemented: "sdkImplemented",
+    sdk_path: "sdkPath",
     depends_on: "dependsOn",
     connections: "connections",
     build_secrets: "buildSecrets",

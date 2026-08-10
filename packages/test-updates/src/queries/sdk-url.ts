@@ -1,9 +1,7 @@
 /**
- * Fixed convention: the Autonoma SDK / diff webhook lives at
- * `<preview>/api/autonoma`. Single source of truth so every diff-trigger path
- * (onboarding deployment-signal, Vercel, PreviewKit) derives the same webhook
- * URL from a preview origin.
+ * Re-export so the existing `@autonoma/test-updates` importers keep their path.
+ * The endpoint URL rules live in `@autonoma/types` (`sdk-endpoint.ts`), which has
+ * no workspace dependencies and is therefore reachable from `@autonoma/scenario`
+ * too - this package is not.
  */
-export function buildSdkUrl(previewUrl: string): string {
-    return `${previewUrl.replace(/\/$/, "")}/api/autonoma`;
-}
+export { DEFAULT_SDK_PATH, applySdkPath, buildSdkUrl } from "@autonoma/types";

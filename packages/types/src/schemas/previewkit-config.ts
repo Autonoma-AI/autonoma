@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DEFAULT_SDK_PATH } from "../sdk-endpoint";
 import { isReservedPreviewkitEnvKey } from "./previewkit-builtins";
 import { type BlueprintNodePm, PREVIEWKIT_NODE_PM_CATALOG } from "./previewkit-node-pm";
 import {
@@ -31,6 +32,11 @@ export type PreviewResourceRole = keyof typeof STANDARD_RESOURCES;
 export const PREVIEW_CONFIG_VERSION = 2;
 
 const k8sNameRegex = /^[a-z0-9][a-z0-9-]*[a-z0-9]$/;
+
+// An app-relative mount path: leading slash, and nothing that belongs to the
+// rest of a URL. Rejecting `?` and `#` is what lets `applySdkPath` carry the
+// stored URL's own query across the swap without ambiguity.
+const SDK_PATH_PATTERN = /^\/[^\s?#]*$/;
 
 // A GitHub repository full name: `owner/repo`, exactly one slash, no whitespace.
 const repoFullNameRegex = /^[^/\s]+\/[^/\s]+$/;
@@ -626,11 +632,24 @@ function buildPreviewConfigSchema<TBuild extends z.ZodType>(build: TBuild, allow
             command: z.string().optional(),
             health_check: z.string().optional(),
             primary: z.boolean().optional(),
-            // This app serves the Environment Factory handler (`/api/autonoma`), so
-            // scenario up/down calls go to its preview URL. Independent of `primary`:
-            // a full-stack app (Next.js, Rails) is both the browsed frontend and the
-            // SDK host, while a split topology mounts the handler on its API service.
+            // This app serves the Environment Factory handler, so scenario up/down
+            // calls go to its preview URL. Independent of `primary`: a full-stack app
+            // (Next.js, Rails) is both the browsed frontend and the SDK host, while a
+            // split topology mounts the handler on its API service.
             sdk_implemented: z.boolean().optional(),
+            // Where on that app the handler is mounted. Deliberately NO `.default()`:
+            // absent has to stay distinguishable from an explicit `/api/autonoma`,
+            // because it is what tells a caller to leave an already-stored endpoint
+            // URL alone (see `applySdkPath`). Give it a default and every endpoint a
+            // customer registered by hand at another path gets rewritten to the
+            // convention.
+            sdk_path: z
+                .string()
+                .regex(
+                    SDK_PATH_PATTERN,
+                    `Must be an absolute path with no query or fragment, like "${DEFAULT_SDK_PATH}"`,
+                )
+                .optional(),
             resources: buildResourcesSchema("app", allowCustomResources),
             depends_on: z.array(z.string()).optional(),
         })
@@ -756,15 +775,27 @@ export type AppConfig = PreviewConfig["apps"][number];
 export type Connection = z.infer<typeof connectionSchema>;
 
 /**
- * The minimum an app entry has to expose to answer "which app is the primary /
- * the SDK host?" - so the resolvers below work on a full {@link AppConfig} and on
- * the projections (the API's manifest view) alike.
+ * The role fields, as they are read back out of a STORED document. Looser than the authoring schema above on
+ * purpose - `nullish` rather than `optional`, and no pattern on the path - because this parses whatever is already
+ * in the column, including documents written by an older version of this package. Tightening it here would make a
+ * stale document unreadable rather than merely out of date.
  */
-export interface AppRole {
-    name: string;
-    primary?: boolean | null;
-    sdk_implemented?: boolean | null;
-}
+const appRoleSchema = z.object({
+    name: z.string(),
+    primary: z.boolean().nullish(),
+    sdk_implemented: z.boolean().nullish(),
+    sdk_path: z.string().nullish(),
+});
+
+/**
+ * The minimum an app entry has to expose to answer "which app is the primary / the SDK host, and where does it
+ * mount the handler?" - so the resolvers below work on a full {@link AppConfig} and on the projections (the API's
+ * manifest view) alike.
+ *
+ * Inferred from {@link appRoleSchema} rather than declared beside it: the two are the same four fields, and a
+ * hand-written twin is a second definition that drifts the first time one of them gains a role.
+ */
+export type AppRole = z.infer<typeof appRoleSchema>;
 
 /**
  * The app a reviewer opens and the agents browse: the one marked `primary`, else the first declared. That fallback
@@ -812,6 +843,47 @@ export function resolveSdkAppName(apps: readonly AppRole[]): string | undefined 
  */
 export function isSdkAppAmbiguous(apps: readonly AppRole[]): boolean {
     return apps.length > 1 && !apps.some((app) => app.sdk_implemented === true);
+}
+
+/**
+ * The path the SDK host mounts the Environment Factory handler at, or undefined
+ * when the topology declares nothing.
+ *
+ * Read off whichever app {@link resolveSdkAppName} resolved, so a full-stack app
+ * that never set `sdk_implemented` still gets its own declared path honored.
+ *
+ * Undefined is NOT "it is at the default": it means the config has no opinion, so
+ * a caller holding an endpoint URL already must keep it (see `applySdkPath`), and
+ * a caller composing one from scratch applies `DEFAULT_SDK_PATH` (`buildSdkUrl`).
+ */
+export function declaredSdkPath(apps: readonly AppRole[]): string | undefined {
+    const sdkAppName = resolveSdkAppName(apps);
+    if (sdkAppName == null) return undefined;
+    return apps.find((app) => app.name === sdkAppName)?.sdk_path ?? undefined;
+}
+
+/**
+ * The narrowest read of a stored config document: the app roles and nothing else. Deliberately NOT
+ * {@link previewConfigSchema} - a document that fails full validation (a stale shape, a field this package is
+ * behind on) must not stop a provision that needs one string out of it.
+ */
+const sdkPathDocumentSchema = z.object({ apps: z.array(appRoleSchema) });
+
+/**
+ * {@link declaredSdkPath} against a raw stored document (a `PreviewkitConfig.document`
+ * or a `PreviewkitEnvironment.resolvedConfig` JSON column), for the callers that
+ * hold the column rather than a parsed config.
+ *
+ * An unreadable document yields undefined, which is the same answer as a document
+ * that declares no path: "no opinion, leave the endpoint as it is". That is the
+ * safe direction - guessing the convention here is what would rewrite an endpoint
+ * a customer registered by hand - and a genuinely malformed document is caught,
+ * loudly, by the full schema at deploy time.
+ */
+export function sdkPathFromDocument(document: unknown): string | undefined {
+    const parsed = sdkPathDocumentSchema.safeParse(document);
+    if (!parsed.success) return undefined;
+    return declaredSdkPath(parsed.data.apps);
 }
 
 /** A `{{target.property}}` connection token parsed into its parts. */

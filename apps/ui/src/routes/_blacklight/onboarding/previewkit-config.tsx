@@ -63,6 +63,7 @@ import {
   withSecretRows,
   mapIssuesToDraft,
   pruneDanglingDependsOn,
+  sdkHostAppId,
   snapshotDocument,
   type AppDraft,
   type DraftIssues,
@@ -1066,6 +1067,7 @@ function AppsStep({
                       dependencyOptions={dependencyOptions.filter((name) => name !== app.name)}
                       showDependsOn={hasDependencyRepos}
                       showRoleToggles={draftApps.length > 1}
+                      isSdkHost={sdkHostAppId(draftApps) === app.id}
                       repo={groupRepo}
                       repoAppCount={groupRepoAppCount}
                       onChange={onUpdateApp}

@@ -22,7 +22,14 @@ export const INTEGRATION_PROMPT_VERSION = 11;
 /** The rendered prompt lives here in the app's planner output dir. */
 export const INTEGRATION_PROMPT_FILE = "integration-prompt.md";
 
-/** Preferred endpoint path unless the repo has a clearly better convention. */
+/**
+ * Preferred endpoint path unless the repo has a clearly better convention.
+ *
+ * A deliberate copy of `DEFAULT_SDK_PATH` in `@autonoma/types`: this CLI is
+ * published to npm as a standalone bundle and has no workspace dependencies, so
+ * it cannot import it. The value is the platform's fallback for an app that
+ * declares no `sdk_path`, so the two must not drift.
+ */
 const DEFAULT_ENDPOINT_PATH = "/api/autonoma";
 
 /** Branch the agent cuts off the repo's default branch for the integration. */
@@ -135,7 +142,10 @@ STOP immediately and say EXACTLY what is missing and why you can't proceed.
    JavaScript/npm package.
 2. Implement ONE endpoint (prefer "${DEFAULT_ENDPOINT_PATH}" unless the repo has a
    clearly better convention) that handles the discover / up / down protocol through
-   the SDK handler. The signing secret AUTONOMA_SHARED_SECRET is ALREADY provisioned
+   the SDK handler. If you mount it anywhere OTHER than "${DEFAULT_ENDPOINT_PATH}",
+   say so on its own line in IMPLEMENTATION.md, exactly as
+   "SDK endpoint path: /your/path" - Autonoma assumes the default and the next step
+   of the setup has to be told the real one, or every scenario provision 404s. The signing secret AUTONOMA_SHARED_SECRET is ALREADY provisioned
    in the app's environment - verify the x-signature HMAC against that env value (the
    SDK reads it for you). Do NOT hardcode a secret or overwrite the env value.
 3. Implement a real factory for EVERY entity the entity audit says needs one:

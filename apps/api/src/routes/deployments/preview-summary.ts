@@ -65,6 +65,7 @@ export function missingPreviewSummary(headSha: string | null, reason: string) {
         status: "missing" as const,
         primaryUrl: null,
         sdkAppUrl: null,
+        sdkPath: null,
         phase: null,
         error: reason,
         headSha,
@@ -103,8 +104,9 @@ export function legacyPreviewSummary({
         status: "ready" as const,
         primaryUrl: url,
         // A legacy env has no resolved config to read a role flag from: the one
-        // known URL is both the preview and the SDK host.
+        // known URL is both the preview and the SDK host, at the conventional path.
         sdkAppUrl: url,
+        sdkPath: null,
         phase: null,
         error: null,
         headSha,

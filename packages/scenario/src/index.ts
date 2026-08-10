@@ -20,7 +20,7 @@ export type {
 } from "./apply-scenario-recipe-update";
 export { resolveRecipePayload } from "@autonoma/types/scenario-recipe-resolver";
 export { findRecipeProblems } from "./find-recipe-problems";
-export { resolveSdkConfig, type SdkConfig } from "./sdk-config-resolver";
+export { resolveConfiguredSdkPath, resolveSdkConfig, type SdkConfig } from "./sdk-config-resolver";
 export {
     provisionScenarioInstance,
     teardownScenarioInstance,

@@ -2,11 +2,13 @@ import type { Prisma, PrismaClient } from "@autonoma/db";
 import { APIError, BadRequestError, NotFoundError } from "@autonoma/errors";
 import {
     type EncryptionHelper,
+    resolveConfiguredSdkPath,
     ScenarioRecipeStore,
     provisionScenarioInstance,
     teardownScenarioInstance,
 } from "@autonoma/scenario";
 import {
+    applySdkPath,
     type AuthPayload,
     parseStringRecord,
     projectManifest,
@@ -14,6 +16,7 @@ import {
     resolveDeclaredSdkAppUrl,
     resolvePrimaryUrl,
     resolveSdkAppUrl,
+    resolveSdkPath,
     type ScenarioVariableScalar,
 } from "@autonoma/types";
 import { resolvePreviewkitBypassToken } from "@autonoma/utils";
@@ -120,8 +123,9 @@ export class PreviewkitEnvFactoryService extends Service {
      * owning Application, its scenarios that have an active recipe, the preview's
      * app URLs, and a suggested SDK URL (the app the config declares as the SDK
      * host, else the preview branch's persisted SDK endpoint, else the primary
-     * origin + the main-branch webhook path). Returns a `disabledReason` instead of
-     * throwing when a manual up cannot be run.
+     * origin - always at the path the config declares, falling back to the
+     * main-branch webhook's and then the convention). Returns a `disabledReason`
+     * instead of throwing when a manual up cannot be run.
      */
     async getOptions(environmentId: string): Promise<EnvFactoryOptions> {
         this.logger.info("Resolving previewkit env-factory options", { environmentId });
@@ -196,12 +200,26 @@ export class PreviewkitEnvFactoryService extends Service {
         // lives. Absent a declaration, the persisted endpoint stands - it may encode a
         // deliberate override - and last comes the origin-derived guess for an env with
         // no branch deployment yet (e.g. main-branch env 0).
+        //
+        // A declared `sdk_path` applies to all three: the host and the path are
+        // separate statements, so a persisted endpoint can be right about the origin
+        // and still carry the path its writer assumed.
         const mainWebhookUrl = application.mainBranch?.deployment?.webhookUrl;
+        // The live config wins over this environment's resolved config: the photo taken at deploy time predates any
+        // correction made since, and the path is a property of the handler's code rather than of the deploy.
+        const declaredPath = (await resolveConfiguredSdkPath(this.db, application.id)) ?? resolveSdkPath(manifest);
         const declaredSdkAppUrl = resolveDeclaredSdkAppUrl(manifest, urls);
         const declaredSdkUrl =
-            declaredSdkAppUrl != null ? derivePreviewSdkUrl(declaredSdkAppUrl, mainWebhookUrl) : undefined;
-        const persistedSdkUrl = environment.branch?.deployment?.webhookUrl ?? undefined;
-        const derivedSdkUrl = derivePreviewSdkUrl(resolveSdkAppUrl(manifest, urls), mainWebhookUrl);
+            declaredSdkAppUrl != null
+                ? derivePreviewSdkUrl({ origin: declaredSdkAppUrl, declaredPath, mainWebhookUrl })
+                : undefined;
+        const persistedEndpoint = environment.branch?.deployment?.webhookUrl;
+        const persistedSdkUrl = persistedEndpoint != null ? applySdkPath(persistedEndpoint, declaredPath) : undefined;
+        const derivedSdkUrl = derivePreviewSdkUrl({
+            origin: resolveSdkAppUrl(manifest, urls),
+            declaredPath,
+            mainWebhookUrl,
+        });
 
         const suggestedSdkUrl = declaredSdkUrl ?? persistedSdkUrl ?? derivedSdkUrl;
         if (suggestedSdkUrl == null) {

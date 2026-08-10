@@ -10,7 +10,7 @@ import {
 } from "@autonoma/blacklight";
 import { useState } from "react";
 import { AppCard } from "../../../../onboarding/-components/previewkit/app-card";
-import type { AppDraft } from "../../../../onboarding/-components/previewkit/topology-draft";
+import { sdkHostAppId, type AppDraft } from "../../../../onboarding/-components/previewkit/topology-draft";
 import { AppHooks } from "./-app-hooks";
 import { usePreviewDraft } from "./-draft-context";
 import { EnvVarManager } from "./-variables/env-var-manager";
@@ -92,6 +92,7 @@ export function AppView({ app }: { app: AppDraft }) {
           dependencyOptions={allNames.filter((name) => name.trim() !== "" && name !== app.name)}
           showDependsOn={repoGroups.length > 1}
           showRoleToggles={deployableApps.length > 1}
+          isSdkHost={sdkHostAppId(deployableApps) === app.id}
           defaultExpanded
           onChange={updateApp}
           onSetPrimary={setPrimaryApp}

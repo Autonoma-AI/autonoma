@@ -6,7 +6,13 @@ import { previewConfigSchema } from "../schemas/previewkit-config";
  * without carrying the whole merged config around.
  */
 export type PreviewkitManifest = {
-    apps?: Array<{ name: string; port?: number; primary?: boolean; sdk_implemented?: boolean }>;
+    apps?: Array<{
+        name: string;
+        port?: number;
+        primary?: boolean;
+        sdk_implemented?: boolean;
+        sdk_path?: string;
+    }>;
     services?: Array<{ name: string; recipe?: string; version?: string }>;
 };
 
@@ -24,6 +30,7 @@ export function projectManifest(resolvedConfig: unknown): PreviewkitManifest {
             port: app.port,
             primary: app.primary ?? undefined,
             sdk_implemented: app.sdk_implemented ?? undefined,
+            sdk_path: app.sdk_path ?? undefined,
         })),
         services: parsed.data.services.map((service) => ({
             name: service.name,

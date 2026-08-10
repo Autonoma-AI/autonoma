@@ -1,5 +1,10 @@
+import { parseUrl } from "./parse-url";
+
 /**
  * The one place that knows what a previewkit preview hostname looks like.
+ *
+ * Parse failures here stay silent (see {@link parseUrl}) on purpose: the strings reaching these checks are
+ * unauthenticated, attacker-controlled `to` values, so a log line per rejection would be a free spam vector.
  *
  * Before this module the rule was written out seven times - twice as a regex in
  * the API (CORS, trusted origins) and five times as an inline `endsWith` in the UI
@@ -118,17 +123,4 @@ function isTrustedPreviewUrl(url: URL, internalDomain: string): boolean {
     // rejects a lookalike host that merely nests under the preview domain.
     const label = url.hostname.slice(0, -`.preview.${internalDomain}`.length);
     return PREVIEW_LABEL_PATTERN.test(label);
-}
-
-function parseUrl(candidate: string): URL | undefined {
-    try {
-        return new URL(candidate);
-    } catch {
-        // Parse-or-default, not swallowed error handling: `new URL` throwing IS the
-        // answer to "is this a URL", and every caller turns undefined into a plain
-        // rejection. Deliberately not logged - the strings reaching here are
-        // unauthenticated, attacker-controlled `to` values, so a log line per parse
-        // failure would be a free log-spam vector for no diagnostic value.
-        return undefined;
-    }
 }

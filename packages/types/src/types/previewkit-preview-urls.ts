@@ -1,4 +1,4 @@
-import { declaredSdkAppName, resolvePrimaryAppName } from "../schemas/previewkit-config";
+import { declaredSdkAppName, declaredSdkPath, resolvePrimaryAppName } from "../schemas/previewkit-config";
 import type { PreviewkitManifest } from "./previewkit-manifest";
 
 /**
@@ -29,4 +29,13 @@ export function resolveSdkAppUrl(manifest: PreviewkitManifest, urls: Record<stri
     const declaredAppName = declaredSdkAppName(manifest.apps ?? []);
     if (declaredAppName != null) return urls[declaredAppName];
     return resolvePrimaryUrl(manifest, urls);
+}
+
+/**
+ * The path the SDK host mounts the handler at, as this environment's config declares it. Undefined means the config
+ * has no opinion, NOT that it is at the convention: a caller composing an endpoint then applies the default
+ * (`buildSdkUrl`), and one holding a stored endpoint leaves its path alone (`applySdkPath`).
+ */
+export function resolveSdkPath(manifest: PreviewkitManifest): string | undefined {
+    return declaredSdkPath(manifest.apps ?? []);
 }

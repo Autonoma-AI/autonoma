@@ -5,6 +5,8 @@ import {
     type BlueprintFacts,
     blueprintToBuild,
     connectionTargets,
+    declaredSdkPath,
+    sdkPathFromDocument,
     connectionTokens,
     DEPRECATED_BUILD_FRAMEWORKS,
     previewConfigSchema,
@@ -719,5 +721,72 @@ describe("validateHookSteps", () => {
             "pre_deploy",
         );
         expect(issues.map((issue) => issue.code)).toEqual(["empty_hook_app", "empty_hook_command"]);
+    });
+});
+
+describe("sdk_path", () => {
+    function parseWithApps(apps: unknown) {
+        return previewConfigSchema.safeParse({ version: 2, apps });
+    }
+
+    const app = (name: string, extra: Record<string, unknown> = {}) => ({
+        name,
+        repository: "acme/web",
+        port: 3000,
+        ...extra,
+    });
+
+    it("accepts an absolute path and leaves it off the parsed app when unset", () => {
+        const declared = parseWithApps([app("web", { sdk_path: "/autonoma" })]);
+        expect(declared.success).toBe(true);
+        if (declared.success) expect(declared.data.apps[0]?.sdk_path).toBe("/autonoma");
+
+        // No Zod default on purpose: absent must stay distinguishable from an
+        // explicit "/api/autonoma", because that is what tells a caller to leave an
+        // already-stored endpoint URL alone.
+        const silent = parseWithApps([app("web")]);
+        expect(silent.success).toBe(true);
+        if (silent.success) expect(silent.data.apps[0]?.sdk_path).toBeUndefined();
+    });
+
+    it.each(["api/autonoma", "https://api.customer.com/autonoma", "/autonoma?v=2", "/autonoma#frag"])(
+        "rejects %s",
+        (path) => {
+            expect(parseWithApps([app("web", { sdk_path: path })]).success).toBe(false);
+        },
+    );
+
+    it("reads the path off the app that hosts the handler", () => {
+        expect(
+            declaredSdkPath([
+                { name: "web", primary: true, sdk_path: "/frontend-route" },
+                { name: "api", sdk_implemented: true, sdk_path: "/autonoma" },
+            ]),
+        ).toBe("/autonoma");
+    });
+
+    it("falls back to the primary app's path when no app declares the SDK role", () => {
+        expect(declaredSdkPath([{ name: "api" }, { name: "web", primary: true, sdk_path: "/seed" }])).toBe("/seed");
+    });
+
+    it("reads a raw stored document, and treats an unreadable one as no opinion", () => {
+        expect(sdkPathFromDocument({ apps: [{ name: "api", sdk_implemented: true, sdk_path: "/autonoma" }] })).toBe(
+            "/autonoma",
+        );
+        // Narrower than the full schema on purpose: a document missing fields the
+        // deploy needs still answers this question.
+        expect(sdkPathFromDocument({ apps: [{ name: "web", sdk_path: "/seed" }] })).toBe("/seed");
+        expect(sdkPathFromDocument({ apps: "not-an-array" })).toBeUndefined();
+        expect(sdkPathFromDocument(null)).toBeUndefined();
+    });
+
+    it("is undefined when the host app declares no path", () => {
+        expect(
+            declaredSdkPath([
+                { name: "api", sdk_implemented: true },
+                { name: "web", primary: true },
+            ]),
+        ).toBeUndefined();
+        expect(declaredSdkPath([])).toBeUndefined();
     });
 });

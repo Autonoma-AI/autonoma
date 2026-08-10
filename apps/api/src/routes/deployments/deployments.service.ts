@@ -6,6 +6,7 @@ import {
     projectManifest,
     resolvePrimaryUrl,
     resolveSdkAppUrl,
+    resolveSdkPath,
 } from "@autonoma/types";
 import type { PreviewkitTriggerService } from "../../previewkit/previewkit-trigger.service";
 import { Service } from "../service";
@@ -570,6 +571,7 @@ export class DeploymentsService extends Service {
         const urls = parseStringRecord(environment.urls);
         const primaryUrl = resolvePrimaryUrl(manifest, urls);
         const sdkAppUrl = resolveSdkAppUrl(manifest, urls);
+        const sdkPath = resolveSdkPath(manifest);
         const appBuilds = toAppBuildOutcomeMap(effectiveLatestBuild?.appBuilds ?? []);
         const derivedServices = buildServiceSummaries({
             branchName,
@@ -609,6 +611,7 @@ export class DeploymentsService extends Service {
             // whose other variants report an absent URL as null, and the shape is serialized to the UI.
             primaryUrl: primaryUrl ?? null,
             sdkAppUrl: sdkAppUrl ?? null,
+            sdkPath: sdkPath ?? null,
             phase: environment.phase,
             error: buildingOverPriorAttempt ? null : environment.error,
             headSha: currentHeadSha ?? environment.headSha,

@@ -306,6 +306,7 @@ const chromeFixtures: TrpcFixtures = {
       status: "missing",
       primaryUrl: null,
       sdkAppUrl: null,
+      sdkPath: null,
       phase: null,
       error: "No preview environment for this PR.",
       headSha: HEAD_SHA,

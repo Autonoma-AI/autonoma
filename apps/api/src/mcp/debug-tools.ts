@@ -234,8 +234,12 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                     return jsonResult({
                         primaryUrl: summary.primaryUrl,
                         // The handler lives on the app flagged `sdk_implemented`, which
-                        // is the primary app only in a single-app / full-stack project.
-                        sdkUrl: derivePreviewSdkUrl(summary.sdkAppUrl ?? summary.primaryUrl, undefined),
+                        // is the primary app only in a single-app / full-stack project,
+                        // at the path that app declares (else the convention).
+                        sdkUrl: derivePreviewSdkUrl({
+                            origin: summary.sdkAppUrl ?? summary.primaryUrl,
+                            declaredPath: summary.sdkPath,
+                        }),
                         endpoints,
                         freshness: summaryFreshness(summary),
                     });
