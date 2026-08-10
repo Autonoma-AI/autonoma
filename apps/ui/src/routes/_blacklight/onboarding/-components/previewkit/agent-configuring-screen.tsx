@@ -305,7 +305,12 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
       <Separator />
 
       <Suspense fallback={<Skeleton className="h-48 w-full" />}>
-        <DeploySection applicationId={applicationId} showLogs={showDetails} />
+        <DeploySection
+          applicationId={applicationId}
+          showLogs={showDetails}
+          agentName={agentDisplayName(session.agentClient)}
+          agentStalled={stalled}
+        />
       </Suspense>
 
       {ready ? (
@@ -448,7 +453,19 @@ function AttentionMenu({
  * the deploy-verify screen uses, so the user can watch the deploy and see failures
  * as they happen instead of a bare spinner.
  */
-function DeploySection({ applicationId, showLogs }: { applicationId: string; showLogs: boolean }) {
+function DeploySection({
+  applicationId,
+  showLogs,
+  agentName,
+  agentStalled,
+}: {
+  applicationId: string;
+  showLogs: boolean;
+  /** Whose iteration this is, for the wording when a deploy fails while they work. */
+  agentName: string;
+  /** True when the agent's heartbeat has gone quiet - nobody is acting on a failure. */
+  agentStalled: boolean;
+}) {
   const { data } = usePreviewReadiness(applicationId);
   const { diagnostics, previewUrl, services } = data;
   // Must stay above the mode early returns below. `usePreviewReadiness` polls, and
@@ -456,8 +473,9 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
   // poll flips it under a mounted fiber, so a hook declared after those returns
   // changes the hook count mid-render and throws React #310.
   const [logSourceOverride, setLogSourceOverride] = useState<PreviewLogSource | undefined>(undefined);
-  // Same constraint: declared before the mode early returns, never after.
+  // Same constraint on both: declared before the mode early returns, never after.
   const attemptKey = useDeployAttemptKey(diagnostics.status);
+  const [logsExpanded, setLogsExpanded] = useState(false);
 
   // Before a path is picked the agent is still reading the repo, and there is
   // nothing to deploy either way - a Deploy panel here would show an idle status
@@ -482,7 +500,7 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <SectionTitle>Preview signal</SectionTitle>
-          <DeployStatusBadge status={diagnostics.status} />
+          <DeployStatusBadge status={diagnostics.status} retrying={false} />
         </div>
         {previewUrl != null ? (
           <PreviewLink
@@ -513,12 +531,17 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
   // failure marker is on the build stream; the app stream is empty on a build/platform
   // failure). An explicit tab pick always wins.
   const logSource: PreviewLogSource = logSourceOverride ?? (isReady || appRollingOut ? "app" : "build");
+  // Whether a deploy is producing output right now, which is the only time an open log
+  // panel is telling the truth. `building` covers the whole pipeline; the request window
+  // is the minute between dispatch and the worker picking it up, where the status is
+  // still idle but a deploy is genuinely on its way.
+  const deployRunning = diagnostics.status === "building" || isPreviewDeployRequestPhase(diagnostics.phase);
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2">
         <SectionTitle>Deploy</SectionTitle>
-        <DeployStatusBadge status={diagnostics.status} />
+        <DeployStatusBadge status={diagnostics.status} retrying={!agentStalled} />
         {/* One status, one phase, one place - the log card below reports neither, so
             these cannot come to disagree with it. */}
         {diagnostics.phase != null ? (
@@ -544,10 +567,7 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
 
       {diagnostics.error != null ? (
         isFailed ? (
-          <div className="flex items-start gap-2 border-l-2 border-status-critical bg-status-critical/10 px-3 py-2">
-            <WarningCircleIcon size={14} className="mt-0.5 shrink-0 text-status-critical" />
-            <p className="font-mono text-2xs text-text-secondary">{diagnostics.error}</p>
-          </div>
+          <FailedDeployNote error={diagnostics.error} agentName={agentName} agentStalled={agentStalled} />
         ) : (
           // A "not deployed yet" / still-building note is informational, not an
           // error - keep it neutral. Red is reserved for an actual failure.
@@ -576,16 +596,35 @@ function DeploySection({ applicationId, showLogs }: { applicationId: string; sho
 
       {showLogs ? (
         diagnostics.logs.available ? (
-          <PreviewLogsTabs
-            owner={repoOwner(diagnostics.logs.repoFullName)}
-            repo={repoName(diagnostics.logs.repoFullName)}
-            pr={diagnostics.logs.prNumber}
-            appBuilding={imageBuilding}
-            resetKey={attemptKey}
-            viewerHeader={false}
-            source={logSource}
-            onSourceChange={setLogSourceOverride}
-          />
+          <>
+            {/* Off a running deploy the terminal is an invitation to misread: the agent
+                spends most of a session reading the repo and editing config, none of
+                which produces a line, so an open panel showing the last deploy's output
+                reads as what is happening right now. Deploying, it opens itself. */}
+            {!deployRunning ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-fit gap-1.5 px-0 text-text-secondary"
+                onClick={() => setLogsExpanded((value) => !value)}
+              >
+                {logsExpanded ? <CaretUpIcon weight="bold" /> : <CaretDownIcon weight="bold" />}
+                {logsExpanded ? "Hide logs" : "View logs from the last deploy"}
+              </Button>
+            ) : undefined}
+            {deployRunning || logsExpanded ? (
+              <PreviewLogsTabs
+                owner={repoOwner(diagnostics.logs.repoFullName)}
+                repo={repoName(diagnostics.logs.repoFullName)}
+                pr={diagnostics.logs.prNumber}
+                appBuilding={imageBuilding}
+                resetKey={attemptKey}
+                viewerHeader={false}
+                source={logSource}
+                onSourceChange={setLogSourceOverride}
+              />
+            ) : undefined}
+          </>
         ) : (
           <p className="font-mono text-2xs text-text-secondary">Logs appear once a deploy starts.</p>
         )
@@ -674,9 +713,76 @@ function serviceStatusHint(service: PreviewReadinessService): string {
   return "Autonoma hasn't reported this service's status yet - it may still be starting.";
 }
 
-function DeployStatusBadge({ status }: { status: "idle" | "building" | "ready" | "failed" }) {
+/**
+ * A failed deploy attempt, told as the iteration it is.
+ *
+ * A build failing while an agent is setting the app up is the ordinary middle of
+ * the process, not an incident: the agent reads the error, changes the config and
+ * deploys again, exactly like a person would. Rendering it in critical red made a
+ * run that was going fine look like the product had broken, and there is nothing
+ * for the user to do about it - so the note says who is on it, and keeps the error
+ * itself as dim supporting detail rather than the headline.
+ *
+ * Silence is the case that DOES need the user: an agent that failed and then went
+ * quiet has left the app stuck, and only they can restart it. That one keeps the
+ * warning tone and asks for the nudge.
+ */
+function FailedDeployNote({
+  error,
+  agentName,
+  agentStalled,
+}: {
+  error: string;
+  agentName: string;
+  agentStalled: boolean;
+}) {
+  if (agentStalled) {
+    return (
+      <div className="flex items-start gap-2 border-l-2 border-status-warn bg-status-warn/10 px-3 py-2">
+        <WarningCircleIcon size={14} className="mt-0.5 shrink-0 text-status-warn" />
+        <div className="flex flex-col gap-1">
+          <p className="text-2xs text-text-primary">
+            This deploy failed and {agentName} has gone quiet without retrying.
+          </p>
+          <p className="font-mono text-3xs leading-relaxed text-text-secondary">{error}</p>
+          <p className="text-3xs leading-relaxed text-text-secondary">
+            Tell it to continue in the terminal you started it from - it cannot see this screen - or take over above and
+            fix the config here.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-start gap-2 border-l-2 border-border-mid bg-surface-void px-3 py-2">
+      <WrenchIcon size={14} className="mt-0.5 shrink-0 text-text-secondary" />
+      <div className="flex flex-col gap-1">
+        <p className="text-2xs text-text-primary">This deploy failed. {agentName} is working through it.</p>
+        <p className="font-mono text-3xs leading-relaxed text-text-secondary">{error}</p>
+        <p className="text-3xs leading-relaxed text-text-secondary">
+          Builds usually take a couple of attempts to get right. Nothing for you to do unless it asks.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The deploy's own state. A failed attempt reads as a warning rather than a
+ * critical while an agent is still iterating on it - see {@link FailedDeployNote};
+ * the two are deliberately the same judgement, so the badge and the note beneath
+ * it cannot disagree about how alarming this is.
+ */
+function DeployStatusBadge({
+  status,
+  retrying,
+}: {
+  status: "idle" | "building" | "ready" | "failed";
+  retrying: boolean;
+}) {
   if (status === "ready") return <Badge variant="success">ready</Badge>;
-  if (status === "failed") return <Badge variant="critical">failed</Badge>;
+  if (status === "failed") return <Badge variant={retrying ? "warn" : "critical"}>failed</Badge>;
   if (status === "building") return <Badge variant="status-running">building</Badge>;
   return <Badge variant="secondary">idle</Badge>;
 }

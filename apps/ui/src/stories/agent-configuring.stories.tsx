@@ -284,9 +284,42 @@ function withStreamingLogs(): TrpcFixtures {
   };
 }
 
-/** The same session with its last activity pushed well past the stalled threshold. */
-function withStalledHeartbeat(): TrpcFixtures {
-  const fixtures = withPreviewPath("existing_deploys");
+/**
+ * A deploy that failed and is not being retried yet - the state the screen spends most
+ * of its time in after a bad build, while the agent reads the error and edits config.
+ * Nothing is producing log lines, so the panel is a toggle rather than an open terminal.
+ */
+function withFailedDeploy(): TrpcFixtures {
+  const readiness = configuringFixtures.onboarding?.getPreviewReadiness;
+  return {
+    ...configuringFixtures,
+    onboarding: {
+      ...configuringFixtures.onboarding,
+      getPreviewReadiness:
+        readiness == null
+          ? readiness
+          : {
+              ...readiness,
+              diagnostics: {
+                status: "failed",
+                phase: "building-images",
+                error: 'app "api": image build failed: step 6/9 `RUN pnpm build` exited with code 1',
+                actions: [],
+                logs: { available: true, repoFullName: "acme/storefront", prNumber: 0 },
+              },
+              services: [
+                { name: "web", kind: "app", status: "ready", statusSource: "cluster" },
+                { name: "api", kind: "app", status: "failed", statusSource: "pipeline" },
+                { name: "db", kind: "managed", status: "ready", statusSource: "cluster" },
+                { name: "redis", kind: "managed", status: "ready", statusSource: "cluster" },
+              ],
+            },
+    },
+  };
+}
+
+/** Any fixture set with its agent heartbeat pushed past the stalled threshold. */
+function withStaleHeartbeat(fixtures: TrpcFixtures): TrpcFixtures {
   const onboarding = fixtures.onboarding ?? {};
   const session = onboarding.getAgentSession;
   return {
@@ -395,6 +428,38 @@ export const DeployStreaming: Story = {
 };
 
 /**
+ * The last deploy failed and nothing is running. The error is stated in full, and the
+ * logs behind it are one click away rather than open - an open terminal with a finished
+ * deploy's output in it reads as the state of right now, which is what made the screen
+ * look permanently broken while the agent was quietly fixing the config.
+ */
+export const DeployFailedIdle: Story = {
+  args: { applicationId: baseApplication.id },
+  parameters: {
+    msw: {
+      handlers: [logStreamHandler({ build: buildFrames, app: [] }), ...appShellHandlers(withFailedDeploy())],
+    },
+  },
+};
+
+/**
+ * The same failed deploy, but the agent has gone quiet without retrying. This is the
+ * one failure that genuinely needs the user, so it keeps the warning tone and asks
+ * for the nudge - the contrast with `DeployFailedIdle` is the whole point.
+ */
+export const DeployFailedAgentQuiet: Story = {
+  args: { applicationId: baseApplication.id },
+  parameters: {
+    msw: {
+      handlers: [
+        logStreamHandler({ build: buildFrames, app: [] }),
+        ...appShellHandlers(withStaleHeartbeat(withFailedDeploy())),
+      ],
+    },
+  },
+};
+
+/**
  * The agent's heartbeat has gone quiet. The server does not release control for
  * 30 minutes, so without this the user watches a spinner the whole time with no
  * idea the agent is waiting on THEM - in a terminal it cannot see this screen from.
@@ -403,7 +468,7 @@ export const AgentStalled: Story = {
   args: { applicationId: baseApplication.id },
   parameters: {
     msw: {
-      handlers: appShellHandlers(withStalledHeartbeat()),
+      handlers: appShellHandlers(withStaleHeartbeat(withPreviewPath("existing_deploys"))),
     },
   },
 };
