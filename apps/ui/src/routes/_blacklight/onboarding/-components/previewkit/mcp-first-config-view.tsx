@@ -1,7 +1,7 @@
-import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
+// import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { RobotIcon } from "@phosphor-icons/react/Robot";
-import { SlidersIcon } from "@phosphor-icons/react/Sliders";
-import { Link, useNavigate } from "@tanstack/react-router";
+// import { SlidersIcon } from "@phosphor-icons/react/Sliders";
+import { useNavigate } from "@tanstack/react-router";
 import { NoCreditsPanel } from "components/no-credits-panel";
 import { PlannerCommandBlock } from "components/planner-command-block";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
@@ -140,7 +140,7 @@ function McpFirstPairing({ appId, connected, copy }: { appId: string; connected:
       {/* Once the agent connects this page is only a handoff beat before the
           configuring screen, so drop the manual escape hatch - otherwise someone
           could click into the manual stepper mid-handoff and desync the two flows. */}
-      {connected || noCredits ? undefined : (
+      {/* {connected || noCredits ? undefined : (
         <div className="flex items-center justify-center gap-2 border-t border-border-dim pt-5">
           <span className="text-2xs text-text-secondary">Rather wire it up yourself?</span>
           <Link
@@ -153,7 +153,7 @@ function McpFirstPairing({ appId, connected, copy }: { appId: string; connected:
             <ArrowRightIcon size={13} weight="bold" />
           </Link>
         </div>
-      )}
+      )} */}
     </div>
   );
 }
