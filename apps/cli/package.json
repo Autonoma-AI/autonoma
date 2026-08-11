@@ -1,6 +1,6 @@
 {
     "name": "@autonoma-ai/planner",
-    "version": "0.1.28",
+    "version": "0.1.29",
     "description": "One command to set up Autonoma: a preview environment, an end-to-end test suite generated from your codebase, the SDK integration, and a dry run proving it works.",
     "keywords": [
         "ai-agent",

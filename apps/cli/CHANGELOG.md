@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.1.29](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.28...cli-v0.1.29) (2026-08-11)
+
+
+### Features
+
+* **analysis:** freeze the classifier's preview app-log window ([#2186](https://github.com/Autonoma-AI/agent/issues/2186)) ([68c696b](https://github.com/Autonoma-AI/agent/commit/68c696b5a5cd2ae6f94b5a312743e7f0572bdb6f))
+* catch and stop recipes seeding dates that expire ([#2238](https://github.com/Autonoma-AI/agent/issues/2238)) ([e23e515](https://github.com/Autonoma-AI/agent/commit/e23e5158be00a117b66fb99d27f5498e86a72d4b))
+* **onboarding:** set previews up on an integration branch instead of asking which branch to use ([#2399](https://github.com/Autonoma-AI/agent/issues/2399)) ([2995a55](https://github.com/Autonoma-AI/agent/commit/2995a557019cd47b923a58bc68d1574cdaa09ea6))
+* **previewkit:** read the SDK endpoint path from the preview config ([#2116](https://github.com/Autonoma-AI/agent/issues/2116)) ([d2a553e](https://github.com/Autonoma-AI/agent/commit/d2a553e808dba13cfb198f985193949e4789e5e6))
+
+
+### Bug Fixes
+
+* **cli:** keep a recoverable MCP registration failure recoverable ([#2391](https://github.com/Autonoma-AI/agent/issues/2391)) ([e763f98](https://github.com/Autonoma-AI/agent/commit/e763f9854d4a6117bb52145a7038fb82dc819c37))
+* **cli:** let the recipe retry loop actually retry ([#2392](https://github.com/Autonoma-AI/agent/issues/2392)) ([e53ba9f](https://github.com/Autonoma-AI/agent/commit/e53ba9fa0ba2df5c79bfd87f2751034a52c5df96))
+* **cli:** pin the spawned Claude Code session to Opus ([#2393](https://github.com/Autonoma-AI/agent/issues/2393)) ([59f8e9f](https://github.com/Autonoma-AI/agent/commit/59f8e9f45fd0fbf8049f8e621ab80b5dac44be4c))
+* **cli:** stop a failed MCP sign-in from killing the whole run ([#2390](https://github.com/Autonoma-AI/agent/issues/2390)) ([06b9895](https://github.com/Autonoma-AI/agent/commit/06b98959c3382f6ba19d1b068214902d016c7fc0))
+* **cli:** upgrade js-yaml to 5.2.3 ([#2317](https://github.com/Autonoma-AI/agent/issues/2317)) ([5eb8e84](https://github.com/Autonoma-AI/agent/commit/5eb8e84ff7928b5eb923632a49d2b9d6673d0f26))
+* **onboarding:** find and repair applications whose trunk drifted off the repo default ([#2401](https://github.com/Autonoma-AI/agent/issues/2401)) ([e464847](https://github.com/Autonoma-AI/agent/commit/e46484796b077eeb4fe50347d45a3b8f24ba908e))
+
 ## [0.1.28](https://github.com/Autonoma-AI/agent/compare/cli-v0.1.27...cli-v0.1.28) (2026-08-07)
 
 
