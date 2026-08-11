@@ -5,7 +5,6 @@ export {
     type EnsureCachedCheckoutOptions,
     UnfetchableShaError,
 } from "./codebase-cache";
-export { requireCasesDir, resolveCasesDir } from "./cases-dir";
-export { env as evalEnv } from "./env";
+export { casesDir } from "./cases-dir";
 export { type EvidenceKeys, MissingEvidenceError, probeEvidence } from "./evidence-probe";
 export { DiffsJudge } from "./judge";

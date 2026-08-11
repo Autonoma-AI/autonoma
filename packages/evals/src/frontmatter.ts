@@ -10,25 +10,12 @@ import { z } from "zod";
  * rubric in the body.
  */
 
-/**
- * Current eval-case frontmatter schema version. The corpus lives in a separate
- * private repo; bump this whenever a frontmatter change could make older corpus
- * cases load wrong, so the loader can warn on drift without coupling the two repos.
- */
-export const CASE_SCHEMA_VERSION = 1;
-
 /** Fields every per-step frontmatter schema carries. */
 export const baseFrontmatterSchema = z.object({
     /** Human note describing what the case exercises. Ignored by checks. */
     description: z.string().optional(),
     /** When true, the case is loaded but its body is not run (e.g. freshly captured, not yet authored). */
     skip: z.boolean().optional(),
-    /**
-     * Frontmatter schema version this case was authored against. Optional and
-     * advisory: the loader warns (never throws) when it differs from
-     * {@link CASE_SCHEMA_VERSION}, surfacing corpus-vs-harness drift.
-     */
-    schemaVersion: z.number().int().positive().optional(),
 });
 
 /**

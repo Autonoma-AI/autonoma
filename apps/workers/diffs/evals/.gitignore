@@ -3,9 +3,3 @@
 
 # Per-eval JSON result files (pass-rate reports)
 **/results/
-
-# Eval cases carry client data and live in a separate PRIVATE repo, located via
-# DIFFS_EVAL_CASES_DIR (see README.md). They must NEVER be committed here; this
-# is a safety net against an accidental local checkout or capture under the
-# in-tree default path being re-added.
-**/cases/

@@ -5,7 +5,7 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { assembleDiffsAgentInput } from "../../src/analysis/assemble-input";
 import { createGithubApp } from "../../src/create-services";
 import { serializeAnalysisInput } from "../analysis/analysis-input";
-import { requireCasesDir } from "../framework/cases-dir";
+import { casesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { resolveSnapshotCoords } from "./snapshot-coords";
 
@@ -35,7 +35,7 @@ export async function captureAnalysis(params: CaptureAnalysisParams): Promise<st
     const logger = rootLogger.child({ name: "captureAnalysis" });
     const { snapshotId } = params;
     const name = params.name ?? snapshotId;
-    const caseDir = path.join(requireCasesDir("analysis"), name);
+    const caseDir = path.join(casesDir("analysis"), name);
 
     logger.info("Capturing analysis case", { extra: { snapshotId, name, caseDir } });
 

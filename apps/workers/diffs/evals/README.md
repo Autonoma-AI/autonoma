@@ -21,58 +21,34 @@ Step-agnostic primitives live in `framework/`; each step also has a
 `capture-<step>.ts` library and a `capture-<step>-cli.ts` entry under `capture/`,
 both wired through the package's `capture:<step>` scripts.
 
-## Where the cases live (private corpus)
+## Where the cases live
 
-The eval **harness** (this directory) is open source. The eval **cases** are
-not: a captured case carries client data - test-plan prompts, plan/scenario
-content (including fixtures that may hold seeded credentials), client repo
-owner/name, S3 keys, and model conversations. So the corpus lives in a separate
-**private** repo (`autonoma/eval-cases`) and is **never committed here**. The
-`**/cases/` paths are gitignored as a safety net.
+Cases are committed here, at `evals/cases/<step>/<name>/`, resolved from
+`framework/cases-dir.ts`. Both the eval suites and the capture commands read the
+same in-tree path, so a corpus change and the harness change that needs it land
+in one commit.
 
-The harness reads the corpus from a configurable, optional root,
-`DIFFS_EVAL_CASES_DIR`, validated in `evals/framework/env.ts`. The private repo
-mirrors the public `evals/<step>/cases` layout - `DIFFS_EVAL_CASES_DIR` simply
-stands in for the `evals/` prefix - so each step resolves its cases to
-`${DIFFS_EVAL_CASES_DIR}/<step>/cases/<name>/`.
-
-```
-some-parent/
-├── <this-repo>/apps/workers/diffs/evals/   # harness (public)
-└── eval-cases/                              # corpus (private), DIFFS_EVAL_CASES_DIR
-    ├── analysis/cases/<name>/
-    └── classifier/cases/<name>/
-```
-
-**Local setup:** clone the private repo alongside this one and point the env var
-at it:
-
-```bash
-git clone git@github.com:autonoma/eval-cases.git
-export DIFFS_EVAL_CASES_DIR="$(pwd)/eval-cases"
-```
-
-- **Unset / missing directory:** every suite resolves **zero cases and no-ops**
-  (it does not fail), so public CI and external contributors are never broken.
-  Public CI never sets the var.
-- **Set:** cases load from `${DIFFS_EVAL_CASES_DIR}/<step>/cases`.
-- Capture commands **write into the same root** and **error with a clear
-  message** when it is unset (capture genuinely needs somewhere to write).
-
-A case may carry an optional `schemaVersion` in its frontmatter; the loader
-**warns** (never fails) when it differs from `CASE_SCHEMA_VERSION` in
-`framework/frontmatter.ts`, surfacing corpus-vs-harness drift without coupling
-the two repos.
+A captured case carries client data - test-plan prompts, plan/scenario content
+(including fixtures that may hold seeded credentials), client repo owner/name, S3
+keys, and model conversations - so the whole `evals/cases/` root is stripped from
+the public mirror by `.opensource-ignore`, the same way the planner corpus under
+`apps/cli/evals/cases/` is. Every step's cases sit under that one root so the
+strip rule is a single directory rather than a glob per step. The harness around
+it stays public; a step with no cases on disk (in the mirror, or before its first
+capture) resolves **zero cases and no-ops** rather than failing, so external
+contributors are never broken.
 
 ## The eval-case contract
 
-Each case is a folder under `${DIFFS_EVAL_CASES_DIR}/<step>/cases/<name>/` (see
-[Where the cases live](#where-the-cases-live-private-corpus)):
+Each case is a folder under `evals/cases/<step>/<name>/`:
 
 - **`input.json`** - the **frozen, assembled `XxxAgentInput`**, snapshotted at capture time so
   eval runs need no database. The codebase is stored as coordinates
   `{ owner, repo, installationId, baseSha, headSha }`; the `FlowIndex` / `ScenarioIndex` are
-  stored as their underlying arrays and reconstructed at load.
+  stored as their underlying arrays and reconstructed at load. Anything that is a pure
+  function of those coords is **not** frozen - the classifier's diff stat is read at run
+  time through the same `readPrDiffStat` production calls, since a frozen copy could only
+  go stale against that helper.
 - **`expected.md`** - YAML frontmatter holds the **deterministic checks**; the body holds the
   **LLM-judge rubric**. A case passes iff **all frontmatter checks pass AND the judge passes**.
 
@@ -244,15 +220,12 @@ a handle that may have expired mid-sweep.
 
 ## Running the evals
 
-Evals are gated behind `RUN_EVALS` and need `DIFFS_EVAL_CASES_DIR` pointed at the
-private corpus (see [Where the cases live](#where-the-cases-live-private-corpus)) - with it
-unset the suites collect, resolve **zero cases, and pass**. They also need real model credentials
-(`GEMINI_API_KEY`, `GROQ_KEY`, `OPENROUTER_API_KEY`) plus `git` and `rg` on PATH. Private-repo
-cases also need the `GITHUB_APP_*` credentials to mint a clone token; public-repo cases and cases
+Evals are gated behind `RUN_EVALS` and need real model credentials (`GEMINI_API_KEY`,
+`GROQ_KEY`, `OPENROUTER_API_KEY`) plus `git` and `rg` on PATH. Cases against a private client
+repo also need the `GITHUB_APP_*` credentials to mint a clone token; public-repo cases and cases
 whose commits are already in the repo cache run without them.
 
 ```bash
-export DIFFS_EVAL_CASES_DIR=/path/to/eval-cases
 pnpm --filter @autonoma/worker-diffs eval
 ```
 
@@ -269,10 +242,8 @@ coordinates, **validate both SHAs are fetchable** (refusing to write a case with
 dead SHA), and freeze the production loader's output to disk. Both read the DB;
 eval runs never touch it.
 
-Capture **writes into the private corpus** at
-`${DIFFS_EVAL_CASES_DIR}/<step>/cases/<name>/`, so `DIFFS_EVAL_CASES_DIR` must be
-set - the commands error with a clear message otherwise. After capturing, commit
-the new case in the private `eval-cases` repo, never here.
+Capture writes the case to `evals/cases/<step>/<name>/`, alongside the ones already
+committed.
 
 `capture:classifier` additionally needs `LOKI_URL` for a previewkit-managed PR, whose
 app-log window it freezes (see [The frozen app-log
@@ -290,7 +261,7 @@ in `expected.md`, then flip `skip: false`.
 
 **Classifier - what capture recomputes.** Everything the classifier reasons from is
 reassembled through the **same helpers the production activity uses** (the generation
-select, `buildRunFacts`, `describeProvision`, the diff stat, the PR metadata), so a
+select, `buildRunFacts`, `describeProvision`, the PR metadata), so a
 frozen case cannot quietly diverge from what production classified. Two things are
 recomputed rather than read back, and **both are bounded to the classification's own
 `createdAt`**, because the source behind each is mutable and a capture typically runs

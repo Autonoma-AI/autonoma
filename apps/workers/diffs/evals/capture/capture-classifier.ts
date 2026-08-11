@@ -2,7 +2,6 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { db } from "@autonoma/db";
-import { readPrDiffStat } from "@autonoma/diffs";
 import { PreviewEnvironment, PriorRuns, readPreviewConnectionKeys } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { SELF_HEAL_RERUN_REASON } from "@autonoma/types";
@@ -12,7 +11,7 @@ import { loadSnapshotMeta, resolveGitHubAccess } from "../../src/codebase/snapsh
 import { createGithubApp } from "../../src/create-services";
 import { previewSecrets } from "../../src/preview-secrets";
 import { type ProductionCapabilities, serializeClassifierInput } from "../classifier/classifier-input";
-import { requireCasesDir } from "../framework/cases-dir";
+import { casesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { freezeAppLogWindow } from "./freeze-app-log-window";
 import { resolveSnapshotCoords } from "./snapshot-coords";
@@ -52,7 +51,7 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
     const logger = rootLogger.child({ name: "captureClassifier" });
     const { classificationId } = params;
     const name = params.name ?? classificationId;
-    const caseDir = path.join(requireCasesDir("classifier"), name);
+    const caseDir = path.join(casesDir("classifier"), name);
 
     logger.info("Capturing classifier case", { extra: { classificationId, name, caseDir } });
 
@@ -66,20 +65,18 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
 
     const githubApp = createGithubApp();
     const coords = await resolveSnapshotCoords(snapshotId, githubApp);
-    // Rehydrate through the same cache path the eval uses. It validates SHA-fetchability, so a case whose head
-    // was force-pushed away is refused here instead of failing every future run of the suite; and its checkout
-    // is the clone the diff stat is read from, so capture never clones the repo twice.
-    const codebase = await ensureCachedCheckout(coords, { githubApp });
+    // Rehydrate through the same cache path the eval uses, for its SHA-fetchability check: a case whose head
+    // was force-pushed away is refused here instead of failing every future run of the suite.
+    await ensureCachedCheckout(coords, { githubApp });
 
     const meta = await loadSnapshotMeta(snapshotId);
     const github = await resolveGitHubAccess(meta);
-    const [target, diffSummary, generation] = await Promise.all([
+    const [target, generation] = await Promise.all([
         resolveRunTarget({
             branchId: meta.branchId,
             githubRepositoryId: meta.githubRepositoryId,
             githubClient: github.githubClient,
         }),
-        readPrDiffStat({ root: codebase.root, baseSha: coords.baseSha, headSha: coords.headSha }),
         loadGenerationRow(classification.generationId),
     ]);
 
@@ -126,7 +123,6 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
             affectedReason: resolveAffectedReason(classification),
         },
         provision: describeProvision(generation),
-        diffSummary,
         prTitle: target.prTitle,
         prBody: target.prBody,
         priorPass: await loadPriorPass(classification),

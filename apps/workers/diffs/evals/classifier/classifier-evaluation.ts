@@ -1,5 +1,5 @@
 import { InlineMp4VideoUploader, type UploadedVideo } from "@autonoma/ai";
-import { type EvidenceLoader, StorageEvidenceLoader, summarizeSessionCost } from "@autonoma/diffs";
+import { type EvidenceLoader, StorageEvidenceLoader, readPrDiffStat, summarizeSessionCost } from "@autonoma/diffs";
 import { ClassifierAgent, type RunVerdict } from "@autonoma/diffs/analysis";
 import { Evaluation, type LoadedCase, type RunCaseHelpers } from "@autonoma/evals";
 import { logger as rootLogger } from "@autonoma/logger";
@@ -38,8 +38,8 @@ const TIMEOUT_PER_RUN_MS = 900_000;
  * Each case rehydrates the codebase from frozen coords, checks every storage key it references is still
  * downloadable, fetches the run's media, and runs {@link ClassifierAgent} directly - no workflow, no DB, no
  * writes. The prior-runs baseline is served from the frozen prose and `get_app_logs` from the frozen log window;
- * the recording is read live, so a replay grades the vision probes alongside the reasoning and touches nothing
- * but git, S3 and the models.
+ * the recording and the PR's diff stat are read live, so a replay grades the vision probes alongside the
+ * reasoning and touches nothing but git, S3 and the models.
  *
  * `get_preview_env` and `get_app_logs` ARE served, from the name list and the log window frozen at capture - the
  * two live-infra capabilities that reduce to data. `run_script` does not: it is a query against a live backend,
@@ -104,6 +104,14 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
         const { coords, input, media, baseline, appLogs } = rehydrateClassifierInput(testCase.input);
         const codebase = await this.rehydrateCodebase(coords, helpers, testCase.name);
 
+        // Read live rather than frozen, through the helper production calls: the stat is a pure function of the
+        // two SHAs the case pins and the clone above, so freezing it could only go stale against that helper.
+        const diffSummary = await readPrDiffStat({
+            root: codebase.root,
+            baseSha: coords.baseSha,
+            headSha: coords.headSha,
+        });
+
         const evidenceLoader = new StorageEvidenceLoader(S3Storage.createFromEnv());
         await this.probeReferencedEvidence(media, evidenceLoader, helpers, testCase.name);
         const finalScreenshot = await this.loadFinalScreenshot(media, evidenceLoader);
@@ -133,6 +141,7 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
                 ...input,
                 run: { ...input.run, recording, finalScreenshot },
                 codebase,
+                diffSummary,
                 screenshotLoader: evidenceLoader,
                 loadBaseline: async () => baseline,
                 // `previewEnv` rides in on `input` when the case froze one. `run_script` has no frozen form.

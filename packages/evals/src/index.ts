@@ -5,7 +5,6 @@ export {
     type ConfidenceBand,
     type CountBounds,
     type IdentifierSetCheck,
-    CASE_SCHEMA_VERSION,
     baseFrontmatterSchema,
     checkConfidenceBand,
     checkCountBounds,

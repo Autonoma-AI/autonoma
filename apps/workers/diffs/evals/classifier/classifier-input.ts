@@ -116,6 +116,10 @@ const frozenRunSchema = z.object({
  *
  * `baseSha` / `headSha` are deliberately NOT stored twice: the classifier renders them into its prompt and the
  * clone needs them too, and both read the single pair on `codebase`.
+ *
+ * The diff stat is likewise not frozen: it is `git diff base..head --stat` over a clone every case already
+ * rehydrates, so the evaluation reads it through the same `readPrDiffStat` production calls. A frozen copy
+ * would keep grading the old string if that helper ever changed.
  */
 export const classifierCaseInputSchema = z.object({
     codebase: codebaseCoordsSchema,
@@ -123,7 +127,6 @@ export const classifierCaseInputSchema = z.object({
     prNumber: z.number().int().nonnegative(),
     test: z.object({ slug: z.string().min(1), plan: z.string(), affectedReason: z.string() }),
     provision: z.object({ status: z.string(), detail: z.string(), seeded: z.string().optional() }),
-    diffSummary: z.string(),
     prTitle: z.string().optional(),
     prBody: z.string().optional(),
     priorPass: z.object({ category: z.string(), headline: z.string(), rootCause: z.string().optional() }).optional(),
@@ -157,7 +160,7 @@ export type FrozenRunMedia = ClassifierCaseInput["run"];
  */
 export type FrozenClassifierInput = Omit<
     ClassifierInput,
-    "codebase" | "screenshotLoader" | "previewScript" | "loadBaseline" | "loadAppLogs" | "run"
+    "codebase" | "diffSummary" | "screenshotLoader" | "previewScript" | "loadBaseline" | "loadAppLogs" | "run"
 > & { run: RunFacts };
 
 /** What rehydration yields: the git coordinates, the pure input, and the pieces the caller must fetch. */
@@ -187,7 +190,6 @@ export function rehydrateClassifierInput(parsed: ClassifierCaseInput): Rehydrate
         },
         test: parsed.test,
         provision: parsed.provision,
-        diffSummary: parsed.diffSummary,
         priorPass: parsed.priorPass,
         baseSha: parsed.codebase.baseSha,
         headSha: parsed.codebase.headSha,
@@ -215,7 +217,6 @@ export interface ClassifierCaseSource {
     prNumber: number;
     test: ClassifierInput["test"];
     provision: ClassifierInput["provision"];
-    diffSummary: string;
     prTitle?: string;
     prBody?: string;
     priorPass?: ClassifierInput["priorPass"];
@@ -241,7 +242,6 @@ export function serializeClassifierInput(source: ClassifierCaseSource): Classifi
         prNumber: source.prNumber,
         test: source.test,
         provision: source.provision,
-        diffSummary: source.diffSummary,
         prTitle: source.prTitle,
         prBody: source.prBody,
         priorPass: source.priorPass,

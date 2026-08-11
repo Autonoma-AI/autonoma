@@ -3,7 +3,6 @@ import path from "node:path";
 import matter from "@11ty/gray-matter";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { z } from "zod";
-import { CASE_SCHEMA_VERSION } from "./frontmatter";
 
 /**
  * A single eval case loaded from disk: the frozen, assembled agent input plus
@@ -23,11 +22,8 @@ export interface LoadedCase<TInput, TFrontmatter> {
 }
 
 export interface CaseLoaderConfig<TInput, TFrontmatter> {
-    /**
-     * Directory containing one folder per case, or `undefined` when the corpus
-     * root is unset - in which case zero cases load.
-     */
-    casesDir: string | undefined;
+    /** Directory containing one folder per case. */
+    casesDir: string;
     /** Schema for `input.json`. */
     inputSchema: z.ZodType<TInput>;
     /** Schema for the `expected.md` frontmatter. */
@@ -47,19 +43,14 @@ const EXPECTED_FILE = "expected.md";
  * its `skip` flag (see {@link loadCase}): an **active** (`skip: false`) case
  * throws - that is a real authoring error - while a **skipped** (`skip: true`)
  * case is dropped with a warning, since the author has parked it and it would
- * not run anyway. This means a stale skipped fixture in the private corpus can
- * never take down a whole suite at load time.
+ * not run anyway. This means a stale skipped fixture can never take down a whole
+ * suite at load time.
  */
 export function loadCases<TInput, TFrontmatter>(
     config: CaseLoaderConfig<TInput, TFrontmatter>,
 ): LoadedCase<TInput, TFrontmatter>[] {
     const logger = rootLogger.child({ name: "loadCases" });
     const { casesDir, inputSchema, frontmatterSchema } = config;
-
-    if (casesDir == null) {
-        logger.info("No cases directory configured; loading zero cases");
-        return [];
-    }
 
     let entries: string[];
     try {
@@ -108,7 +99,6 @@ function loadCase<TInput, TFrontmatter>(
     }
 
     const { data, content } = matter(readFileSync(expectedPath, "utf-8"));
-    warnOnSchemaDrift(name, data, logger);
 
     // `skip` is read leniently here (before the full frontmatter parse) so it can
     // protect a case even when the rest of its frontmatter no longer parses.
@@ -141,24 +131,3 @@ function fileExists(filePath: string): boolean {
 }
 
 const skipProbe = z.object({ skip: z.boolean().optional() });
-
-const schemaVersionProbe = z.object({ schemaVersion: z.number().int().positive().optional() });
-
-/**
- * Surface corpus-vs-harness drift: the cases corpus lives in a separate private
- * repo, so a case authored against an older frontmatter schema can outlive a
- * change here. This warns (never throws) when a case declares a `schemaVersion`
- * different from {@link CASE_SCHEMA_VERSION}; a case with no declared version is
- * treated as current and ignored.
- */
-function warnOnSchemaDrift(name: string, data: unknown, logger: Logger): void {
-    const parsed = schemaVersionProbe.safeParse(data);
-    if (!parsed.success) return;
-
-    const declared = parsed.data.schemaVersion;
-    if (declared != null && declared !== CASE_SCHEMA_VERSION) {
-        logger.warn("Eval case schema version drift; re-capture or migrate the case", {
-            extra: { name, declaredVersion: declared, currentVersion: CASE_SCHEMA_VERSION },
-        });
-    }
-}

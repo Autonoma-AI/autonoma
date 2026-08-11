@@ -8,10 +8,10 @@ import {
 } from "../evals/classifier/classifier-input";
 
 /**
- * The frozen corpus lives in a separate private repo, so nothing here can load a real case. What CAN be proven
- * without it is the property the corpus depends on: that freezing an assembled classification and rehydrating
- * it returns the same facts, through JSON, with the media reduced to addresses. A silent loss here would not
- * fail loudly - it would quietly grade the classifier on less than it had in production.
+ * Proves the property the corpus depends on, over a source that exercises every field at once: freezing an
+ * assembled classification and rehydrating it returns the same facts, through JSON, with the media reduced to
+ * addresses. A silent loss here would not fail loudly - it would quietly grade the classifier on less than it
+ * had in production. That the committed cases themselves still parse is checked by `eval-corpus.test.ts`.
  */
 
 const RUN: RunFacts = {
@@ -44,7 +44,6 @@ const SOURCE: ClassifierCaseSource = {
     prNumber: 1234,
     test: { slug: "checkout-happy-path", plan: "1. Log in\n2. Check out", affectedReason: "The diff touches checkout" },
     provision: { status: "up", detail: "Valid auth credentials WERE returned", seeded: "User=1, Order=3" },
-    diffSummary: " src/checkout.ts | 12 ++++---",
     prTitle: "Speed up checkout",
     prBody: "Debounces the submit handler.",
     priorPass: { category: "plan_mismatch", headline: "The test asserted an old toast", rootCause: "stale copy" },
@@ -86,7 +85,6 @@ describe("classifier eval case round-trip", () => {
         expect(input.test).toEqual(SOURCE.test);
         expect(input.provision).toEqual(SOURCE.provision);
         expect(input.priorPass).toEqual(SOURCE.priorPass);
-        expect(input.diffSummary).toBe(SOURCE.diffSummary);
         expect(input.run.steps).toEqual(RUN.steps);
         expect(input.run.inspectableSteps).toEqual(RUN.inspectableSteps);
         expect(input.run.architecture).toBe("WEB");
