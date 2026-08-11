@@ -27,7 +27,7 @@ async function createApp(harness: APITestHarness, name: string): Promise<SeededA
     return { applicationId: application.id, mainBranchId: application.mainBranchId };
 }
 
-/** A snapshot promoted to the branch's active pointer, as `TestSuiteUpdater.finalize` leaves it. */
+/** A snapshot promoted to the branch's active pointer, as `OpenSnapshot.promote` leaves it. */
 async function createActiveSnapshot(harness: APITestHarness, branchId: string, headSha: string): Promise<string> {
     const snapshot = await harness.db.branchSnapshot.create({
         data: { branchId, source: "GITHUB_PUSH", status: "active", baseSha: "base", headSha },

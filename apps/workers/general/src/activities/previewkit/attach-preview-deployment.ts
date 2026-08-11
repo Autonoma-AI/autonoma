@@ -1,7 +1,7 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { buildSdkUrl, recordBranchDeployment } from "@autonoma/test-updates";
-import { sdkPathFromDocument } from "@autonoma/types";
+import { recordBranchDeployment } from "@autonoma/scenario";
+import { buildSdkUrl, sdkPathFromDocument } from "@autonoma/types";
 import type { AttachPreviewDeploymentInput, AttachPreviewDeploymentOutput } from "@autonoma/workflow/activities";
 
 const logger = rootLogger.child({ name: "attachPreviewDeployment" });
@@ -24,7 +24,6 @@ export async function attachPreviewDeployment(
 
     const deploymentId = await recordBranchDeployment({
         db,
-        logger,
         branchId,
         organizationId,
         url,

@@ -3,7 +3,7 @@ import { createBillingService } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { S3Storage } from "@autonoma/storage";
-import { TemporalGenerationProvider } from "@autonoma/test-updates/temporal";
+import { triggerBatchGeneration } from "@autonoma/workflow";
 import type { Context as HonoContext } from "hono";
 import type { AuthSession, AuthUser } from "./auth";
 import { buildAuth } from "./auth";
@@ -38,8 +38,6 @@ export function getVercelEncryptionHelper(): EncryptionHelper {
     return vercelEncryptionHelperInstance;
 }
 
-export const generationProvider = new TemporalGenerationProvider();
-
 // Billing service for the managed LLM proxy (planner CLI) credit gate +
 // metering. The tRPC layer builds its own instance via build-services; the raw
 // Hono proxy router needs one too. Stateless wrapper over `db`.
@@ -67,9 +65,9 @@ export function createServiceContext() {
             scenarioManager,
             encryptionHelper,
             getVercelEncryptionHelper,
-            generationProvider,
             githubApp,
             startAnalysisRun: previewkitTriggers.startAnalysisRun,
+            startGenerationBatch: triggerBatchGeneration,
             startPreviewBuild: previewkitTriggers.startPreviewBuild,
             triggerPreviewTeardown: previewkitTriggers.teardown,
             triggerPreviewRedeployApp: previewkitTriggers.redeployApp,

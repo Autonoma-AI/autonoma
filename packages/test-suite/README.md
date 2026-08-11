@@ -7,9 +7,6 @@ snapshots a branch's suite evolves through - the single open snapshot being writ
 the analysis store's aggregate, and the scenario rows a fork carries along are `@autonoma/scenario`'s
 (`forkScenarioDataForSnapshot`, called from `openSnapshot`).
 
-Replaces `@autonoma/test-updates`, which is deprecated and survives only for the onboarding / CLI-upload callers
-until they migrate.
-
 ## Vocabulary
 
 | Word              | Means                                                                                    |
@@ -24,7 +21,7 @@ until they migrate.
 
 | Export           | Type  | Description                                                                                        |
 | ---------------- | ----- | -------------------------------------------------------------------------------------------------- |
-| `TestSuiteStore` | Class | Entry point. `openSnapshot` / `openEditSnapshot` / `reopen` / `read` / `readAssignments` / `latestRunPerTest` / `changesSince` / `resolveSource`. |
+| `TestSuiteStore` | Class | Entry point. `openSnapshot` / `openEditSnapshot` / `reopen` / `read` / `readAssignments` / `latestRunPerTest` / `changesSince` / `changesAgainst` / `summarizeChanges` / `resolveSource`. |
 | `OpenSnapshot`   | Class | The handle on one open snapshot: suite edits, `startRun`, `withTransaction`, and the terminals.     |
 | `deriveForkPointSnapshotId` | Function | The one rule turning a branch's pointers into the snapshot its suite diverged from. |
 
@@ -32,8 +29,9 @@ Errors: `BranchNotFoundError`, `BranchAlreadyOpenError` (carries `pendingSnapsho
 `SnapshotNotFoundError`, `SnapshotNotOpenError` (carries the actual status), `NoSnapshotBaseError`,
 `TestNotAssignedError`, `TestPlanMissingError`.
 
-Types: `Suite`, `SuiteAssignment`, `SuiteRun`, `SuiteChange`, `SnapshotSource`, `ResolvedSnapshotSource`,
-`BranchForkPoint`. Constant: `EDIT_SNAPSHOT_TRIGGER`, the trigger an edit session's snapshot carries.
+Types: `Suite`, `SuiteAssignment`, `SuiteRun`, `SuiteChange`, `SuiteChangeSummary`, `SnapshotComparison`,
+`SnapshotSource`, `ResolvedSnapshotSource`, `BranchForkPoint`. Constant: `EDIT_SNAPSHOT_TRIGGER`, the trigger an
+edit session's snapshot carries.
 
 ## The contract
 
@@ -68,6 +66,13 @@ const { runId, scenarioId } = await open.startRun(testCaseId);
 
 // Where each of the snapshot's tests stands: its most recent run, for every test one was started for.
 const runs = await store.latestRunPerTest(open.snapshotId);
+
+// What a snapshot changed. `changesSince` measures against what it was opened from; `changesAgainst`
+// against a snapshot you name (a PR view compares the active snapshot to the branch's fork point).
+// `summarizeChanges` is the counts-only read for a whole history list - one query, not one per row.
+const changes = await store.changesSince(snapshotId);
+const sincePrFork = await store.changesAgainst(activeSnapshotId, forkPointSnapshotId);
+const counts = await store.summarizeChanges([{ snapshotId, prevSnapshotId }]);
 
 // Terminals. Exactly one wins, and each IS the compare-and-swap: `false` means another actor
 // settled this snapshot first. Promotion is unconditional on what did or did not run.

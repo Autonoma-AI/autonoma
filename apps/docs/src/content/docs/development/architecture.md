@@ -56,7 +56,6 @@ packages/
   secrets/          Secret storage and retrieval
   storage/          S3 file storage
   test-suite/       A branch's suite lineage - snapshots, the open snapshot, and runs
-  test-updates/     Test suite update logic (deprecated - migrating to test-suite)
   try/              Go-style [value, error] result tuples
   types/            Shared Zod schemas and TypeScript types
   utils/            Shared utilities

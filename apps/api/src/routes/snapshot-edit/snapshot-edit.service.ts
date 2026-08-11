@@ -13,7 +13,7 @@ import {
     SnapshotNotOpenError,
     TestSuiteStore,
 } from "@autonoma/test-suite";
-import type { GenerationProvider, PendingGeneration } from "@autonoma/test-updates";
+import type { TestPlanItem, TriggerBatchGenerationParams, WorkflowArchitecture, WorkflowRef } from "@autonoma/workflow";
 import { Service } from "../service";
 import { AnalysisInFlightError, EditSessionAlreadyOpenError, EditSessionSupersededError } from "./edit-session-errors";
 import { assertBranchCanRun, TestsNotRunnableError } from "./run-preconditions";
@@ -59,7 +59,7 @@ export class SnapshotEditService extends Service {
 
     constructor(
         private readonly db: PrismaClient,
-        private readonly generationProvider: GenerationProvider,
+        private readonly startGenerationBatch: (params: TriggerBatchGenerationParams) => Promise<WorkflowRef>,
         private readonly billingService: BillingService,
     ) {
         super();
@@ -195,17 +195,17 @@ export class SnapshotEditService extends Service {
         assertTestsRunnable(suite, testCaseIds);
         await this.billingService.checkCreditsGate(organizationId, testCaseIds.length, architecture);
 
-        const runs: PendingGeneration[] = [];
+        const testPlans: TestPlanItem[] = [];
         for (const testCaseId of testCaseIds) {
             const { runId, scenarioId } = await snapshot.startRun(testCaseId);
             await this.billingService.deductCreditsForGeneration(runId, { organizationId, architecture });
-            runs.push({ testGenerationId: runId, scenarioId, architecture });
+            testPlans.push({ testGenerationId: runId, scenarioId });
         }
 
-        await this.dispatch(snapshotId, runs);
+        await this.dispatch(snapshotId, architecture, testPlans);
 
-        this.logger.info("Runs started for edit session", { snapshotId, count: runs.length });
-        return { runIds: runs.map((run) => run.testGenerationId) };
+        this.logger.info("Runs started for edit session", { snapshotId, count: testPlans.length });
+        return { runIds: testPlans.map((plan) => plan.testGenerationId) };
     }
 
     async finalize(snapshotId: string, organizationId: string) {
@@ -300,14 +300,18 @@ export class SnapshotEditService extends Service {
      * workflow flips a run to `running` the moment it picks it up, and a status write on the way back would race
      * that flip and report a running test as queued forever.
      */
-    private async dispatch(snapshotId: string, runs: PendingGeneration[]): Promise<void> {
-        if (runs.length === 0) return;
+    private async dispatch(
+        snapshotId: string,
+        architecture: WorkflowArchitecture,
+        testPlans: TestPlanItem[],
+    ): Promise<void> {
+        if (testPlans.length === 0) return;
 
-        const runIds = runs.map((run) => run.testGenerationId);
+        const runIds = testPlans.map((plan) => plan.testGenerationId);
         await this.db.testGeneration.updateMany({ where: { id: { in: runIds } }, data: { status: "queued" } });
 
         try {
-            await this.generationProvider.fireJobs(snapshotId, runs);
+            await this.startGenerationBatch({ snapshotId, testPlans, architecture });
         } catch (error) {
             this.logger.fatal("Failed to dispatch runs for edit session", error, { snapshotId, runIds });
             await this.db.testGeneration.updateMany({

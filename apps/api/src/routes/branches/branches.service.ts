@@ -18,13 +18,7 @@ import type { AnalysisJobStatus, Prisma } from "@autonoma/db";
 import type { PrismaClient } from "@autonoma/db";
 import { InternalError, NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
-import { deriveForkPointSnapshotId } from "@autonoma/test-suite";
-import {
-    getChangesForSnapshot,
-    summarizeChangesForSnapshots,
-    fetchTestSuiteInfo,
-    type SnapshotChangeSummary,
-} from "@autonoma/test-updates";
+import { deriveForkPointSnapshotId, type SuiteChangeSummary, TestSuiteStore } from "@autonoma/test-suite";
 import {
     type AnalysisFlow,
     analysisFlowSchema,
@@ -116,7 +110,7 @@ function parseAnalysisFlows(flows: unknown): AnalysisFlow[] {
 }
 
 /** Fallback suite-change counts for a snapshot the batched summary has no entry for. */
-const NO_SUITE_CHANGES: SnapshotChangeSummary = { added: 0, removed: 0, updated: 0 };
+const NO_SUITE_CHANGES: SuiteChangeSummary = { added: 0, removed: 0, updated: 0 };
 
 /**
  * An authoritative snapshot's `AnalysisJob` lifecycle, as the PR page consumes it. Present only for a snapshot
@@ -373,6 +367,8 @@ function parseSuspectedCause(json: Prisma.JsonValue | null): AnalysisIssueDetail
 }
 
 export class BranchesService extends Service {
+    private readonly suite: TestSuiteStore;
+
     constructor(
         private readonly db: PrismaClient,
         private readonly github: GitHubInstallationService,
@@ -380,6 +376,7 @@ export class BranchesService extends Service {
         private readonly prCache: PullRequestCacheService,
     ) {
         super();
+        this.suite = new TestSuiteStore(db);
     }
 
     /**
@@ -1478,10 +1475,8 @@ export class BranchesService extends Service {
 
         const snapshotIds = snapshots.map((s) => s.id);
         const [changeSummaryBySnapshot, healthBySnapshot, authoritativeBySnapshot] = await Promise.all([
-            summarizeChangesForSnapshots(
-                this.db,
-                snapshots.map((s) => ({ snapshotId: s.id, prevSnapshotId: s.prevSnapshotId })),
-                this.logger,
+            this.suite.summarizeChanges(
+                snapshots.map((s) => ({ snapshotId: s.id, prevSnapshotId: s.prevSnapshotId ?? undefined })),
             ),
             aggregateSnapshotHealth(
                 this.db,
@@ -1585,7 +1580,7 @@ export class BranchesService extends Service {
             branch: { ...branchRest, prNumber: prInfo?.prNumber },
         };
 
-        const changes = await getChangesForSnapshot(this.db, snapshotId, snapshot.prevSnapshotId, this.logger);
+        const changes = await this.suite.changesAgainst(snapshotId, snapshot.prevSnapshotId ?? undefined);
 
         // Created tests are the assignments added vs. the previous snapshot; resolve them
         // from the already-computed changes so a single diff drives both surfaces. The
@@ -1690,13 +1685,10 @@ export class BranchesService extends Service {
             });
         }
 
-        const testSuite = await fetchTestSuiteInfo(this.db, branch.activeSnapshotId);
-        const changes = await getChangesForSnapshot(
-            this.db,
-            branch.activeSnapshotId,
-            comparisonSnapshotId ?? null,
-            this.logger,
-        );
+        const [testSuite, changes] = await Promise.all([
+            this.suite.read(branch.activeSnapshotId),
+            this.suite.changesAgainst(branch.activeSnapshotId, comparisonSnapshotId),
+        ]);
 
         return {
             hasActiveCheckpoint: true as const,

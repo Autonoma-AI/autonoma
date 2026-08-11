@@ -38,7 +38,6 @@
         "@autonoma/secrets": "workspace:*",
         "@autonoma/storage": "workspace:*",
         "@autonoma/test-suite": "workspace:*",
-        "@autonoma/test-updates": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/utils": "workspace:*",
         "@autonoma/workflow": "workspace:*",

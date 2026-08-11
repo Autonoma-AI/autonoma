@@ -1,7 +1,7 @@
 import type { BillingService } from "@autonoma/billing";
 import type { Prisma, PreviewkitStatus, PrismaClient } from "@autonoma/db";
 import { ConflictError, InsufficientPreviewCreditsError, NotFoundError } from "@autonoma/errors";
-import { autonomaHostsPreviews } from "@autonoma/test-updates";
+import { autonomaHostsPreviews } from "@autonoma/scenario";
 import type { PreviewRedeployAppMode, PreviewTeardownTarget, TriggerPreviewRedeployAppParams } from "@autonoma/types";
 import type { AnalysisRunWorkflowInput, PreviewBuildWorkflowInput } from "@autonoma/workflow";
 import { z } from "zod";

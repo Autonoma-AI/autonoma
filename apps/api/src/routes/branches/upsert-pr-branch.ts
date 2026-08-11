@@ -17,7 +17,7 @@ export interface UpsertPrBranchParams {
  * preview environment is provisioned, before any diff runs), so it takes a `db` handle rather than living on a
  * constructed service. An existing branch has its `name` refreshed to the current head ref; a new branch is
  * created with no snapshots. The base snapshot is intentionally NOT pinned here - it is pinned when the branch's
- * first snapshot is created (see `SnapshotDraft.start`).
+ * first snapshot is created (see `TestSuiteStore.openSnapshot`).
  *
  * A new branch's PR cache is seeded `open`: both callers only fire for an open PR (previewkit deploys and diff
  * triggers), and the PR list filters on an exact `prState`, so without this seed an eagerly-created preview-only

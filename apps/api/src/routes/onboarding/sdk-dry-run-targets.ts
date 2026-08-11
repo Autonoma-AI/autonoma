@@ -2,11 +2,10 @@ import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { resolveConfiguredSdkPath } from "@autonoma/scenario";
-import { declaredSdkPath, previewConfigSchema, resolveSdkAppName } from "@autonoma/types";
+import { buildSdkUrl, declaredSdkPath, previewConfigSchema, resolveSdkAppName } from "@autonoma/types";
 import { z } from "zod";
 import { applicationBranchRefs } from "../../github/application-branch-refs";
 import { type DeployFreshness, deployFreshness } from "../../previewkit/deploy-freshness";
-import { buildSdkUrl } from "./sdk-url";
 
 export type SdkDryRunTargetSource = "previewkit" | "external" | "vercel";
 

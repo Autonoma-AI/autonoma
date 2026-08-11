@@ -4,12 +4,7 @@ import type { Prisma, PrismaClient } from "@autonoma/db";
 import { BadRequestError, NotFoundError } from "@autonoma/errors";
 import { logger } from "@autonoma/logger";
 import type { ScenarioRecipeStore } from "@autonoma/scenario";
-import {
-    AddTest,
-    BranchAlreadyHasPendingSnapshotError,
-    TestSuiteUpdater,
-    fetchTestSuiteInfo,
-} from "@autonoma/test-updates";
+import { BranchAlreadyOpenError, type OpenSnapshot, TestSuiteStore } from "@autonoma/test-suite";
 import {
     type SetupEventBody,
     type UpdateSetupBody,
@@ -43,11 +38,15 @@ type SetupWithBranch = {
 };
 
 export class ApplicationSetupService {
+    private readonly suite: TestSuiteStore;
+
     constructor(
         private readonly db: PrismaClient,
         private readonly onboardingManager: OnboardingManager,
         private readonly recipeStore: ScenarioRecipeStore,
-    ) {}
+    ) {
+        this.suite = new TestSuiteStore(db);
+    }
 
     async createSetup(userId: string, organizationId: string, applicationId: string, repoName?: string) {
         const setup = await this.db.$transaction(async (tx) => {
@@ -281,8 +280,8 @@ export class ApplicationSetupService {
         if (branchId == null) throw new Error("Application has no main branch");
         this.assertNoScenarioRecipesInArtifacts(body.artifacts ?? []);
 
-        const updater = await this.getUpdater(branchId, organizationId);
-        await this.applyTests(updater, body.testCases ?? [], setup.applicationId, organizationId);
+        const snapshot = await this.openSuite(branchId, organizationId);
+        await this.applyTests(snapshot, body.testCases ?? [], setup.applicationId, organizationId);
         await this.createFileEvents(setupId, body);
         if (body.commitSha != null) {
             await this.recordCommit(branchId, body.commitSha);
@@ -299,7 +298,7 @@ export class ApplicationSetupService {
 
     /**
      * Stamps the commit the artifacts were generated from onto the pending
-     * snapshot the updater just created (head_sha), mirroring how the GitHub
+     * snapshot the upload just opened (head_sha), mirroring how the GitHub
      * diff flow records commits. Once that snapshot activates it becomes the
      * branch's active snapshot, so its head_sha is the branch's handled commit.
      */
@@ -383,9 +382,9 @@ export class ApplicationSetupService {
         const snapshotId = branch?.pendingSnapshot?.id ?? branch?.activeSnapshot?.id;
         if (snapshotId == null) return { tests: [] };
 
-        const suiteInfo = await fetchTestSuiteInfo(this.db, snapshotId);
+        const suite = await this.suite.read(snapshotId);
         return {
-            tests: suiteInfo.testCases
+            tests: suite.testCases
                 .filter((tc) => tc.plan != null)
                 .map((tc) => ({ id: tc.id, name: tc.name, slug: tc.slug, prompt: tc.plan!.prompt })),
         };
@@ -431,21 +430,28 @@ export class ApplicationSetupService {
         return setup;
     }
 
-    private async getUpdater(branchId: string, organizationId: string) {
+    /**
+     * The snapshot an upload writes into: a fresh edit snapshot on the branch, or the one already open on it.
+     *
+     * An upload is not a session the user drives, so it adopts whatever is open rather than refusing - a retried
+     * or resumed upload must land in the same snapshot as the first attempt, and the idempotency filter in
+     * {@link applyTests} is what keeps it from duplicating tests.
+     */
+    private async openSuite(branchId: string, organizationId: string): Promise<OpenSnapshot> {
         try {
-            return await TestSuiteUpdater.startUpdate({ db: this.db, branchId, organizationId });
+            return await this.suite.openEditSnapshot({ branchId, organizationId });
         } catch (err) {
-            if (!(err instanceof BranchAlreadyHasPendingSnapshotError)) {
+            if (!(err instanceof BranchAlreadyOpenError)) {
                 throw err;
             }
 
-            log.info("Pending snapshot exists, continuing update", { branchId });
-            return TestSuiteUpdater.continueUpdate({ db: this.db, branchId, organizationId });
+            log.info("Snapshot already open on the branch, writing into it", { branchId });
+            return this.suite.reopen(err.pendingSnapshotId, { organizationId });
         }
     }
 
     private async applyTests(
-        updater: TestSuiteUpdater,
+        snapshot: OpenSnapshot,
         testCases: NonNullable<UploadArtifactsBody["testCases"]>,
         applicationId: string,
         organizationId: string,
@@ -509,16 +515,14 @@ export class ApplicationSetupService {
 
             const folderId = await this.findOrCreateFolder(applicationId, organizationId, folderName, folderCache);
 
-            await updater.apply(
-                new AddTest({
-                    name: testCase.name,
-                    description: frontmatter.description,
-                    plan: plan.trim(),
-                    folderId,
-                    scenarioId,
-                    scenarioName,
-                }),
-            );
+            await snapshot.addTest({
+                name: testCase.name,
+                description: frontmatter.description,
+                plan: plan.trim(),
+                folderId,
+                scenarioId,
+                scenarioName,
+            });
 
             // Guard against duplicates within this same batch too.
             existingKeys.add(dedupeKey);

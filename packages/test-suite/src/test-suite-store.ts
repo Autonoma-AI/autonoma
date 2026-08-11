@@ -22,6 +22,7 @@ import {
     resolveSnapshotSource,
 } from "./queries/resolve-source";
 import { type SuiteChange, computeSuiteChanges } from "./queries/suite-changes";
+import { type SnapshotComparison, type SuiteChangeSummary, summarizeSuiteChanges } from "./queries/summarize-changes";
 
 /**
  * The trigger an edit session's snapshot carries. It is what tells the manual editor's snapshot apart from an
@@ -269,6 +270,25 @@ export class TestSuiteStore {
         });
         if (snapshot == null) throw new SnapshotNotFoundError(snapshotId);
         return computeSuiteChanges(this.db, snapshotId, snapshot.prevSnapshotId ?? undefined);
+    }
+
+    /**
+     * The suite changes a snapshot carries relative to an explicitly named earlier snapshot, rather than the one it
+     * was opened from. What a PR diff view asks: an active snapshot several analyses deep has left its immediate
+     * predecessor behind, and the interesting comparison is against the branch's fork point.
+     */
+    public async changesAgainst(snapshotId: string, comparedToSnapshotId?: string): Promise<SuiteChange[]> {
+        return computeSuiteChanges(this.db, snapshotId, comparedToSnapshotId);
+    }
+
+    /**
+     * Added/removed/updated counts for many snapshots in one query, keyed by snapshot id. See
+     * {@link summarizeSuiteChanges} for why this is not {@link changesSince} in a loop.
+     */
+    public async summarizeChanges(
+        comparisons: readonly SnapshotComparison[],
+    ): Promise<Map<string, SuiteChangeSummary>> {
+        return summarizeSuiteChanges(this.db, comparisons);
     }
 
     /**

@@ -8,7 +8,7 @@ import { withSnapshotContext } from "../../codebase/snapshot-context";
 
 /**
  * Impact Analysis stage. Fails fast unless the snapshot is `processing` (later stages read its frozen baseline
- * and stage edits onto it via SnapshotDraft, which requires `processing`) - the branch's real pending snapshot.
+ * and stage edits onto it via `OpenSnapshot`, which requires `processing`) - the branch's real pending snapshot.
  * Then absorbs the merge flow on a main-branch run and reuses the DiffsAgent to select the tests the diff affects
  * and author brand-new ones, materializing each through the canonical update actions (see `selectImpactTargets`).
  * Hands the resulting targets to the Investigator fan-out and returns the agent's selection reasoning for the report.

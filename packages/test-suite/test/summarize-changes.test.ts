@@ -1,18 +1,8 @@
 import type { PrismaClient } from "@autonoma/db";
 import { expect } from "vitest";
-import {
-    type SnapshotComparison,
-    summarizeChangesForSnapshot,
-    summarizeChangesForSnapshots,
-} from "../src/queries/snapshot-changes";
-import { testUpdateSuite } from "./harness";
-
-interface SuiteFixture {
-    organizationId: string;
-    applicationId: string;
-    folderId: string;
-    branchId: string;
-}
+import { computeSuiteChanges } from "../src/queries/suite-changes";
+import { type SnapshotComparison, summarizeSuiteChanges } from "../src/queries/summarize-changes";
+import { type SeedResult, testSuiteSuite } from "./harness";
 
 /**
  * Seeds a three-snapshot chain covering every comparison outcome:
@@ -21,7 +11,7 @@ interface SuiteFixture {
  * s1: kept (same plan), dropped (new plan -> updated), introduced (-> added)
  * s2: kept, introduced (dropped gone -> removed)
  */
-async function seedChain(db: PrismaClient, fixture: SuiteFixture) {
+async function seedChain(db: PrismaClient, fixture: SeedResult) {
     // Test cases are unique per application, and the suite seeds one application for all cases.
     const suffix = crypto.randomUUID().slice(0, 8);
     const kept = await createTestCase(db, fixture, `kept-${suffix}`);
@@ -49,7 +39,7 @@ async function seedChain(db: PrismaClient, fixture: SuiteFixture) {
     return { s0, s1, s2 };
 }
 
-async function createTestCase(db: PrismaClient, fixture: SuiteFixture, slug: string): Promise<string> {
+async function createTestCase(db: PrismaClient, fixture: SeedResult, slug: string): Promise<string> {
     const testCase = await db.testCase.create({
         data: {
             applicationId: fixture.applicationId,
@@ -63,12 +53,7 @@ async function createTestCase(db: PrismaClient, fixture: SuiteFixture, slug: str
     return testCase.id;
 }
 
-async function createPlan(
-    db: PrismaClient,
-    fixture: SuiteFixture,
-    testCaseId: string,
-    prompt: string,
-): Promise<string> {
+async function createPlan(db: PrismaClient, fixture: SeedResult, testCaseId: string, prompt: string): Promise<string> {
     const plan = await db.testPlan.create({
         data: { testCaseId, organizationId: fixture.organizationId, prompt },
         select: { id: true },
@@ -95,22 +80,34 @@ async function createAssignment(
 
 /** The per-snapshot path this batched query replaced, kept as the reference implementation. */
 async function summarizeOneByOne(db: PrismaClient, comparisons: readonly SnapshotComparison[]) {
-    const summaries = await Promise.all(
-        comparisons.map((c) => summarizeChangesForSnapshot(db, c.snapshotId, c.prevSnapshotId)),
+    const changeLists = await Promise.all(
+        comparisons.map((c) => computeSuiteChanges(db, c.snapshotId, c.prevSnapshotId)),
     );
-    return new Map(comparisons.map((c, index) => [c.snapshotId, summaries[index]]));
+    return new Map(
+        comparisons.map((c, index) => {
+            const changes = changeLists[index] ?? [];
+            return [
+                c.snapshotId,
+                {
+                    added: changes.filter((change) => change.type === "added").length,
+                    removed: changes.filter((change) => change.type === "removed").length,
+                    updated: changes.filter((change) => change.type === "updated").length,
+                },
+            ];
+        }),
+    );
 }
 
-testUpdateSuite({
-    name: "summarizeChangesForSnapshots",
+testSuiteSuite({
+    name: "summarizeSuiteChanges",
     cases: (test) => {
         test("counts added, removed and updated per snapshot across a chain", async ({ harness, seedResult }) => {
             const { s0, s1, s2 } = await seedChain(harness.db, seedResult);
 
-            const summaries = await summarizeChangesForSnapshots(harness.db, [
+            const summaries = await summarizeSuiteChanges(harness.db, [
                 { snapshotId: s2, prevSnapshotId: s1 },
                 { snapshotId: s1, prevSnapshotId: s0 },
-                { snapshotId: s0, prevSnapshotId: null },
+                { snapshotId: s0 },
             ]);
 
             // First snapshot on the branch: every assignment is new.
@@ -130,7 +127,7 @@ testUpdateSuite({
             const comparisons: SnapshotComparison[] = [{ snapshotId: s2, prevSnapshotId: s1 }];
 
             const [batched, oneByOne] = await Promise.all([
-                summarizeChangesForSnapshots(harness.db, comparisons),
+                summarizeSuiteChanges(harness.db, comparisons),
                 summarizeOneByOne(harness.db, comparisons),
             ]);
 
@@ -141,15 +138,13 @@ testUpdateSuite({
         test("treats a snapshot with no assignments as having no changes", async ({ harness, seedResult }) => {
             const empty = await createSnapshot(harness.db, seedResult.branchId);
 
-            const summaries = await summarizeChangesForSnapshots(harness.db, [
-                { snapshotId: empty, prevSnapshotId: null },
-            ]);
+            const summaries = await summarizeSuiteChanges(harness.db, [{ snapshotId: empty }]);
 
             expect(summaries.get(empty)).toEqual({ added: 0, removed: 0, updated: 0 });
         });
 
         test("returns an empty map for an empty comparison list", async ({ harness }) => {
-            expect(await summarizeChangesForSnapshots(harness.db, [])).toEqual(new Map());
+            expect(await summarizeSuiteChanges(harness.db, [])).toEqual(new Map());
         });
     },
 });

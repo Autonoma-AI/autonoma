@@ -21,7 +21,6 @@
         "@autonoma/k8s": "workspace:*",
         "@autonoma/logger": "workspace:*",
         "@autonoma/scenario": "workspace:*",
-        "@autonoma/test-updates": "workspace:*",
         "@autonoma/types": "workspace:*",
         "@autonoma/workflow": "workspace:*",
         "@sentry/node": "catalog:",

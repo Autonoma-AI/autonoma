@@ -26,9 +26,9 @@ export interface AssembleDiffsAgentInputParams {
  * This is the DB-backed side-input loader behind the eval-capture utility, which
  * freezes the assembled input to disk.
  *
- * It reads the snapshot directly and never opens a `TestSuiteUpdater`: the
- * updater only loads *pending* snapshots, but capture targets finalized (active)
- * ones, and analysis here only needs to read the snapshot's data, not mutate it.
+ * It reads the snapshot directly and never opens an `OpenSnapshot`: the suite
+ * store only hands out handles on *open* snapshots, but capture targets finalized
+ * (active) ones, and analysis here only reads the snapshot, never mutates it.
  * The merge flow is therefore not run here - it writes to the suite, and its home
  * is the Impact Analysis stage (`selectImpactTargets`).
  */

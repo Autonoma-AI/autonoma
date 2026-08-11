@@ -5,9 +5,13 @@ import type { GitHubApp } from "@autonoma/github";
 import { LokiLogStore } from "@autonoma/logger/loki-log-store";
 import { ScenarioRecipeStore, type EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
 import type { StorageProvider } from "@autonoma/storage";
-import type { GenerationProvider } from "@autonoma/test-updates";
 import type { TriggerPreviewRedeployAppParams, PreviewTeardownTarget } from "@autonoma/types";
-import type { AnalysisRunWorkflowInput, PreviewBuildWorkflowInput } from "@autonoma/workflow";
+import type {
+    AnalysisRunWorkflowInput,
+    PreviewBuildWorkflowInput,
+    TriggerBatchGenerationParams,
+    WorkflowRef,
+} from "@autonoma/workflow";
 import type Redis from "ioredis";
 import { ApplicationSetupService } from "../application-setup/application-setup.service";
 import type { Auth } from "../auth";
@@ -105,10 +109,10 @@ export interface ServicesParams {
     scenarioManager: ScenarioManager;
     encryptionHelper: EncryptionHelper;
     getVercelEncryptionHelper: () => EncryptionHelper;
-    generationProvider: GenerationProvider;
     githubApp: GitHubApp;
     /** Required, not optional: production and tests must exercise the same seam. */
     startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<void>;
+    startGenerationBatch: (params: TriggerBatchGenerationParams) => Promise<WorkflowRef>;
     startPreviewBuild: (input: PreviewBuildWorkflowInput) => Promise<void>;
     triggerPreviewTeardown: (target: PreviewTeardownTarget) => Promise<void>;
     triggerPreviewRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;
@@ -127,9 +131,9 @@ export function buildServices({
     scenarioManager,
     encryptionHelper,
     getVercelEncryptionHelper,
-    generationProvider,
     githubApp,
     startAnalysisRun,
+    startGenerationBatch,
     startPreviewBuild,
     triggerPreviewTeardown,
     triggerPreviewRedeployApp,
@@ -242,7 +246,7 @@ export function buildServices({
         rateLimiter,
         onboardingAgentSession,
         onboardingAnalytics,
-        snapshotEdit: new SnapshotEditService(conn, generationProvider, billingService),
+        snapshotEdit: new SnapshotEditService(conn, startGenerationBatch, billingService),
         billing: billingService,
         applicationSetups: new ApplicationSetupsService(conn, applicationSetupService, apiKeysService),
         diffsTrigger: diffsTriggerService,

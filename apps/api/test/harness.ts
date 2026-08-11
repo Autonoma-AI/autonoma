@@ -5,7 +5,7 @@ import { FakeGitHubApp } from "@autonoma/github";
 import { type IntegrationHarness, createTestDatabase } from "@autonoma/integration-test";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { S3Storage, type StorageProvider } from "@autonoma/storage";
-import { FakeGenerationProvider } from "@autonoma/test-updates";
+import type { TriggerBatchGenerationParams, WorkflowRef } from "@autonoma/workflow";
 import Redis from "ioredis";
 import { vi } from "vitest";
 import { type Auth, buildAuth } from "../src/auth";
@@ -32,6 +32,16 @@ export class RecordingEmailSender implements EmailSender {
     }
 }
 
+/**
+ * Typed so a test reading `mock.lastCall` gets the real params back rather than `any` - the spy is the only
+ * place the batch a dispatch handed over is observable.
+ */
+function fakeStartGenerationBatch() {
+    return vi
+        .fn<(params: TriggerBatchGenerationParams) => Promise<WorkflowRef>>()
+        .mockResolvedValue({ workflowId: "", runId: "" });
+}
+
 export class APITestHarness implements IntegrationHarness {
     public triggerWorkflow = vi.fn().mockResolvedValue(undefined);
     /**
@@ -39,7 +49,8 @@ export class APITestHarness implements IntegrationHarness {
      * the workflow, so this is the only place the API's decision is observable.
      */
     public startAnalysisRun = vi.fn().mockResolvedValue(undefined);
-    public readonly generationProvider: FakeGenerationProvider;
+    /** Spy on the generation-batch dispatch, so a test can assert which runs the editor handed to the fleet. */
+    public startGenerationBatch = fakeStartGenerationBatch();
     public readonly services: Services;
     public readonly githubApp: FakeGitHubApp;
     public readonly emailSender: RecordingEmailSender;
@@ -67,7 +78,6 @@ export class APITestHarness implements IntegrationHarness {
     constructor(
         public readonly db: PrismaClient,
         services: Services,
-        generationProvider: FakeGenerationProvider,
         redisClient: Redis,
         githubApp: FakeGitHubApp,
         emailSender: RecordingEmailSender,
@@ -75,7 +85,6 @@ export class APITestHarness implements IntegrationHarness {
     ) {
         this.redisClient = redisClient;
         this.services = services;
-        this.generationProvider = generationProvider;
         this.githubApp = githubApp;
         this.emailSender = emailSender;
         this.auth = auth;
@@ -108,7 +117,7 @@ export class APITestHarness implements IntegrationHarness {
 
         const triggerWorkflow = vi.fn().mockResolvedValue(undefined);
         const startAnalysisRun = vi.fn().mockResolvedValue(undefined);
-        const generationProvider = new FakeGenerationProvider();
+        const startGenerationBatch = fakeStartGenerationBatch();
 
         const storage: StorageProvider = new S3Storage({
             bucket: s3Bucket,
@@ -129,18 +138,19 @@ export class APITestHarness implements IntegrationHarness {
             scenarioManager,
             encryptionHelper,
             getVercelEncryptionHelper: () => encryptionHelper,
-            generationProvider,
             githubApp,
             startAnalysisRun,
+            startGenerationBatch,
             startPreviewBuild: triggerWorkflow,
             triggerPreviewTeardown: triggerWorkflow,
             triggerPreviewRedeployApp: triggerWorkflow,
             emailSender,
         });
 
-        const harness = new APITestHarness(db, services, generationProvider, redisClient, githubApp, emailSender, auth);
+        const harness = new APITestHarness(db, services, redisClient, githubApp, emailSender, auth);
         harness.triggerWorkflow = triggerWorkflow as typeof harness.triggerWorkflow;
         harness.startAnalysisRun = startAnalysisRun;
+        harness.startGenerationBatch = startGenerationBatch;
         return harness;
     }
 

@@ -265,9 +265,6 @@ importers:
       '@autonoma/test-suite':
         specifier: workspace:*
         version: link:../../packages/test-suite
-      '@autonoma/test-updates':
-        specifier: workspace:*
-        version: link:../../packages/test-updates
       '@autonoma/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -1005,9 +1002,6 @@ importers:
       '@autonoma/scenario':
         specifier: workspace:*
         version: link:../../../packages/scenario
-      '@autonoma/test-updates':
-        specifier: workspace:*
-        version: link:../../../packages/test-updates
       '@autonoma/types':
         specifier: workspace:*
         version: link:../../../packages/types
@@ -2115,43 +2109,6 @@ importers:
       '@autonoma/utils':
         specifier: workspace:*
         version: link:../utils
-    devDependencies:
-      '@autonoma/integration-test':
-        specifier: workspace:*
-        version: link:../integration-test
-      '@types/node':
-        specifier: 'catalog:'
-        version: 25.2.3
-      dotenv:
-        specifier: 'catalog:'
-        version: 17.3.1
-      typescript:
-        specifier: 'catalog:'
-        version: 7.0.2
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(jsdom@29.1.1(@noble/hashes@2.3.0))(msw@2.15.0(@types/node@25.2.3)(typescript@7.0.2))(vite@8.0.16(@types/node@25.2.3)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.49.0)(tsx@4.21.0)(yaml@2.8.3))
-
-  packages/test-updates:
-    dependencies:
-      '@autonoma/db':
-        specifier: workspace:*
-        version: link:../db
-      '@autonoma/github':
-        specifier: workspace:*
-        version: link:../github
-      '@autonoma/logger':
-        specifier: workspace:*
-        version: link:../logger
-      '@autonoma/types':
-        specifier: workspace:*
-        version: link:../types
-      '@autonoma/utils':
-        specifier: workspace:*
-        version: link:../utils
-      '@autonoma/workflow':
-        specifier: workspace:*
-        version: link:../workflow
     devDependencies:
       '@autonoma/integration-test':
         specifier: workspace:*

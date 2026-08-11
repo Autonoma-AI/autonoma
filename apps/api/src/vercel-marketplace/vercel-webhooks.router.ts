@@ -3,6 +3,7 @@ import { processVercelInvoiceNotPaid, processVercelInvoicePaid, processVercelInv
 import { db } from "@autonoma/db";
 import { ThirdPartyError } from "@autonoma/errors";
 import { logger as rootLogger } from "@autonoma/logger";
+import { buildSdkUrl } from "@autonoma/types";
 import { Hono } from "hono";
 import { z } from "zod";
 import { getVercelEncryptionHelper } from "../context";
@@ -10,7 +11,6 @@ import { diffsTriggerService } from "../diffs/diffs-service";
 import { env } from "../env";
 import { buildGitHubApp } from "../github/github-app";
 import { GitHubInstallationService } from "../github/github-installation.service";
-import { buildSdkUrl } from "../routes/onboarding/sdk-url";
 import {
     adoptVercelInstallationSharedSecret,
     applyVercelProtectionBypassHeader,

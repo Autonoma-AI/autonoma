@@ -7,7 +7,7 @@ export interface AnalysisTestTarget {
     planId?: string;
     /** The scenario that plan pins, when it pins one. */
     scenarioId?: string;
-    /** The owning organization, verified by the `TestSuiteUpdater`. */
+    /** The owning organization, verified by the suite store when the snapshot was opened. */
     organizationId: string;
 }
 

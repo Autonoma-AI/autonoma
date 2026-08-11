@@ -169,11 +169,11 @@ Sentry-based structured logging. Provides a logger that integrates with Sentry f
 
 ### scenario
 
-Environment Factory scenario logic. Handles test scenario definitions, data seeding, and teardown for isolated test environments.
+Environment Factory scenario logic. Handles test scenario definitions, data seeding, and teardown for isolated test environments. It also owns which deployment the SDK endpoint belongs to: the branch deployment recording where a branch's tests point, and whether Autonoma hosts that preview at all. How the endpoint URL is spelled lives in `types` (`sdk-endpoint.ts`) instead, so callers that cannot depend on this package can still reach it.
 
-**Key exports:** Scenario classes and types
+**Key exports:** Scenario classes and types, `resolveSdkConfig`, `resolveConfiguredSdkPath`, `recordBranchDeployment`, `autonomaHostsPreviews`
 
-**When to modify:** Adding new test scenarios, changing how test data is seeded, or adjusting the Environment Factory protocol.
+**When to modify:** Adding new test scenarios, changing how test data is seeded, adjusting the Environment Factory protocol, or changing how a preview URL is recorded and reached.
 
 ### secrets
 
@@ -196,16 +196,6 @@ The data-access layer for a branch's test suite lineage: the line of immutable s
 **Key exports:** `TestSuiteStore`, `OpenSnapshot`, `deriveForkPointSnapshotId`
 
 **When to modify:** Changing how a branch's suite evolves - opening or finalizing a snapshot, adding or adopting a test, revising a plan.
-
-### test-updates
-
-Test suite update logic. Handles applying changes to test suites - adding, removing, and modifying test cases.
-
-**Deprecated.** `test-suite` replaced its analysis-facing half; this package survives only for the manual editor and onboarding callers until they migrate. Don't build anything new on it.
-
-**Key exports:** Test update service classes
-
-**When to modify:** Only to migrate a remaining caller onto `test-suite`.
 
 ### try
 

@@ -127,6 +127,19 @@ export class ScenarioTestHarness implements IntegrationHarness {
         return org.id;
     }
 
+    /** A branch with no deployment recorded yet - what `recordBranchDeployment` is called against. */
+    async createBranch(organizationId: string, applicationId: string, prNumber: number): Promise<string> {
+        const branch = await this.db.branch.create({
+            data: {
+                name: `branch-pr-${prNumber}-${Date.now()}`,
+                organizationId,
+                applicationId,
+                prInfo: { create: { applicationId, prNumber } },
+            },
+        });
+        return branch.id;
+    }
+
     async createApp(
         organizationId: string,
         opts?: { webhookUrl?: string; signingSecret?: string },

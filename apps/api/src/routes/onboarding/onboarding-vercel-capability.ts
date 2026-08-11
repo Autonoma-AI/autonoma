@@ -1,6 +1,7 @@
 import { type PrismaClient, VercelInstallationStatus } from "@autonoma/db";
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
+import { buildSdkUrl } from "@autonoma/types";
 import { env } from "../../env";
 import {
     adoptVercelInstallationSharedSecret,
@@ -15,7 +16,6 @@ import {
 import type { OnboardingManagerOptions } from "./onboarding-dependencies";
 import { writePreviewUrl } from "./preview-readiness";
 import type { SdkDryRunTarget } from "./sdk-dry-run-targets";
-import { buildSdkUrl } from "./sdk-url";
 import { OnboardingApplicationNotFoundError } from "./states/onboarding-state";
 
 const VERCEL_READY_STATE = "READY";

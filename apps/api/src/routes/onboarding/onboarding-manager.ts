@@ -2,8 +2,9 @@ import { type OnboardingPreviewEnvironmentMode, type OnboardingStep, type Prisma
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
-import { SnapshotNotPendingError, TestSuiteUpdater } from "@autonoma/test-updates";
+import { SnapshotNotFoundError, SnapshotNotOpenError, TestSuiteStore } from "@autonoma/test-suite";
 import {
+    buildSdkUrl,
     previewConfigSchema,
     validatePreviewConfigSemantics,
     type PreviewConfig,
@@ -51,7 +52,6 @@ import {
     type OnboardingPreviewkitConfig,
     type PreviewkitConfigValidationResult,
 } from "./previewkit-config-service";
-import { buildSdkUrl } from "./sdk-url";
 import { CompletedState } from "./states/completed-state";
 import { DiffTriggerState } from "./states/diff-trigger-state";
 import { ExistingDeploysConfiguringState } from "./states/existing-deploys-configuring-state";
@@ -142,6 +142,7 @@ export class OnboardingManager {
     private readonly sdkCapability: OnboardingSdkCapabilityService;
     private readonly vercelCapability: OnboardingVercelCapabilityService;
     private readonly analytics: OnboardingAnalytics;
+    private readonly suite: TestSuiteStore;
 
     private static readonly states: Partial<
         Record<
@@ -167,6 +168,7 @@ export class OnboardingManager {
         private readonly options: OnboardingManagerOptions = {},
     ) {
         this.logger = logger.child({ name: "OnboardingManager" });
+        this.suite = new TestSuiteStore(db);
         this.previewkitConfig = new PreviewkitConfigService(db, options);
         this.analytics = new OnboardingAnalytics(db);
         this.vercelCapability = new OnboardingVercelCapabilityService(db, options);
@@ -1365,15 +1367,8 @@ export class OnboardingManager {
                 branchId,
                 snapshotId: pendingSnapshotId,
             });
-            const updater = await TestSuiteUpdater.continueUpdateBySnapshot({
-                db: this.db,
-                snapshotId: pendingSnapshotId,
-                organizationId,
-            });
-            await updater.finalize();
-            this.logger.info("Pending snapshot activated", { applicationId, branchId });
-        } catch (err) {
-            if (err instanceof SnapshotNotPendingError) {
+            const promoted = await this.promoteIfStillOpen(pendingSnapshotId, organizationId);
+            if (!promoted) {
                 // Benign: a concurrent/duplicate signal already activated this
                 // snapshot (go-live + a later setup-completion both target it).
                 this.logger.info("Pending snapshot already activated - skipping", {
@@ -1383,6 +1378,8 @@ export class OnboardingManager {
                 });
                 return;
             }
+            this.logger.info("Pending snapshot activated", { applicationId, branchId });
+        } catch (err) {
             // Log but don't block onboarding completion. The snapshot stays
             // pending; a later setup-completion signal re-attempts activation via
             // activateSnapshotAfterSetupCompletion.
@@ -1391,6 +1388,20 @@ export class OnboardingManager {
                 branchId,
                 error: err instanceof Error ? err.message : String(err),
             });
+        }
+    }
+
+    /**
+     * Promote the snapshot, reporting `false` rather than throwing when it has already settled - whether the race
+     * was lost at the reopen or at the promote itself. Both are the same benign duplicate signal.
+     */
+    private async promoteIfStillOpen(snapshotId: string, organizationId: string): Promise<boolean> {
+        try {
+            const snapshot = await this.suite.reopen(snapshotId, { organizationId });
+            return await snapshot.promote();
+        } catch (err) {
+            if (err instanceof SnapshotNotOpenError || err instanceof SnapshotNotFoundError) return false;
+            throw err;
         }
     }
 }

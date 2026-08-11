@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
+import { recordBranchDeployment } from "@autonoma/scenario";
 import { TestSuiteStore } from "@autonoma/test-suite";
-import { recordBranchDeployment } from "@autonoma/test-updates";
 import type { AnalysisRunWorkflowInput } from "@autonoma/workflow";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
@@ -281,7 +281,6 @@ export class DiffsTriggerService extends Service {
         if (url != null) {
             await recordBranchDeployment({
                 db: this.db,
-                logger: this.logger,
                 branchId,
                 organizationId,
                 url,

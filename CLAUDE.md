@@ -459,23 +459,23 @@ Use structured context (Sentry breadcrumbs, tags, extra data) so logs are search
 ```ts
 import { type Logger, logger } from "@autonoma/logger";
 
-export class TestSuiteUpdater {
+export class SnapshotEditService {
     private readonly logger: Logger;
 
     constructor(private readonly snapshotId: string) {
         this.logger = logger.child({ name: this.constructor.name, snapshotId });
     }
 
-    public async apply(change: TestSuiteChange) {
-        this.logger.info("Applying test suite change", { type: change.constructor.name });
+    public async addTest(input: AddTestInput) {
+        this.logger.info("Adding test to edit session", { name: input.name });
         // ... do work ...
-        this.logger.info("Finished applying change");
+        this.logger.info("Test added to edit session");
     }
 
     public async finalize() {
-        this.logger.info("Finalizing snapshot");
+        this.logger.info("Finalizing edit session");
         // ... do work ...
-        this.logger.info("Snapshot finalized and activated");
+        this.logger.info("Edit session finalized");
     }
 }
 ```

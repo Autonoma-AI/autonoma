@@ -1,12 +1,13 @@
 import type { PrismaClient } from "@autonoma/db";
-import type { Logger } from "@autonoma/logger";
+import { logger as rootLogger } from "@autonoma/logger";
 
 /** Header that clears the previewkit Gatekeeper, so a webhook call reaches a sleeping preview instead of the proxy. */
 const PREVIEWKIT_BYPASS_HEADER = "x-previewkit-bypass";
 
+const logger = rootLogger.child({ name: "recordBranchDeployment" });
+
 export interface RecordBranchDeploymentParams {
     db: PrismaClient;
-    logger: Logger;
     branchId: string;
     organizationId: string;
     /** The origin the branch's tests run against. */
@@ -21,7 +22,6 @@ export interface RecordBranchDeploymentParams {
  */
 export async function recordBranchDeployment({
     db,
-    logger,
     branchId,
     organizationId,
     url,
@@ -30,7 +30,7 @@ export async function recordBranchDeployment({
 }: RecordBranchDeploymentParams): Promise<string> {
     logger.info("Recording branch deployment", { branch: { branchId }, extra: { url } });
 
-    const mergedWebhookHeaders = await withPreviewkitBypassHeader({ db, logger, url, webhookHeaders });
+    const mergedWebhookHeaders = await withPreviewkitBypassHeader({ db, url, webhookHeaders });
 
     return await db.$transaction(async (tx) => {
         const deployment = await tx.branchDeployment.create({
@@ -59,12 +59,9 @@ export async function recordBranchDeployment({
  */
 async function withPreviewkitBypassHeader({
     db,
-    logger,
     url,
     webhookHeaders,
-}: Pick<RecordBranchDeploymentParams, "db" | "logger" | "url" | "webhookHeaders">): Promise<
-    Record<string, string> | undefined
-> {
+}: Pick<RecordBranchDeploymentParams, "db" | "url" | "webhookHeaders">): Promise<Record<string, string> | undefined> {
     const instance = await db.previewkitAppInstance.findFirst({
         where: { url },
         select: { environment: { select: { bypassToken: true } } },

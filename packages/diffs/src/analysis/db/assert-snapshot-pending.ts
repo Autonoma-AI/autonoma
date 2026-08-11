@@ -6,10 +6,10 @@ const PENDING_STATUS = "processing";
 /**
  * Throw unless `snapshotId` is a `processing` twin. The entire investigation assumes it runs against the
  * detached, still-pending twin that `maybeTriggerInvestigation` creates: selection reads the twin's frozen
- * baseline suite, and the persist / recipe-repair steps stage edits onto it through `SnapshotDraft`, which
+ * baseline suite, and the persist / recipe-repair steps stage edits onto it through `OpenSnapshot`, which
  * requires `processing`. Point the workflow at an `active` diffs snapshot by mistake (e.g. a hand-started
  * `investigation-<diffsSnapshotId>` that skipped twin creation) and nothing catches it until persist throws
- * `SnapshotNotPendingError` - after selection and the browser runs have already burned scarce activity slots.
+ * `SnapshotNotOpenError` - after selection and the browser runs have already burned scarce activity slots.
  * Calling this at the top of the run turns that slow, confusing failure into an instant, clearly worded one.
  */
 export async function assertSnapshotPending(db: PrismaClient, snapshotId: string): Promise<void> {

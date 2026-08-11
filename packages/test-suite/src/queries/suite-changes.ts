@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
+import { type AssignmentDiffEntry, classifyAssignmentChanges } from "./classify-assignment-changes";
 
 const logger = rootLogger.child({ name: "computeSuiteChanges" });
 
@@ -36,16 +37,12 @@ const assignmentSelect = {
 } as const;
 
 /**
- * The suite changes a snapshot carries relative to the snapshot it was opened from.
+ * The suite changes a snapshot carries relative to the snapshot it was opened from, each with the
+ * plan prose behind it. What changed is {@link classifyAssignmentChanges}'s call; this read only
+ * loads the rows and dresses the answer.
  *
- * Derived by diffing assignments per `testCaseId`:
- * - Present in snapshot but not source -> "added"
- * - Present in source but not snapshot -> "removed"
- * - Present in both with a different `planId` -> "updated"
- * - Same `planId` in both -> unchanged (omitted)
- *
- * A snapshot with no source snapshot reports every assignment as "added". Pure read: valid for open
- * and terminal snapshots alike, which is what lets a settlement report what a failed run discarded.
+ * Pure read: valid for open and terminal snapshots alike, which is what lets a settlement report
+ * what a failed run discarded.
  */
 export async function computeSuiteChanges(
     db: PrismaClient | Prisma.TransactionClient,
@@ -54,61 +51,42 @@ export async function computeSuiteChanges(
 ): Promise<SuiteChange[]> {
     logger.info("Computing suite changes", { snapshot: { snapshotId }, extra: { prevSnapshotId } });
 
-    if (prevSnapshotId == null) {
-        const assignments = await db.testCaseAssignment.findMany({
-            where: { snapshotId },
-            select: assignmentSelect,
-        });
-        return assignments.map((assignment) => added(assignment));
-    }
-
     const [currentAssignments, previousAssignments] = await Promise.all([
         db.testCaseAssignment.findMany({ where: { snapshotId }, select: assignmentSelect }),
-        db.testCaseAssignment.findMany({ where: { snapshotId: prevSnapshotId }, select: assignmentSelect }),
+        prevSnapshotId == null
+            ? undefined
+            : db.testCaseAssignment.findMany({ where: { snapshotId: prevSnapshotId }, select: assignmentSelect }),
     ]);
 
-    const previousByTestCaseId = new Map(previousAssignments.map((a) => [a.testCaseId, a]));
-    const currentByTestCaseId = new Map(currentAssignments.map((a) => [a.testCaseId, a]));
-
-    const changes: SuiteChange[] = [];
-
-    for (const [testCaseId, current] of currentByTestCaseId) {
-        const previous = previousByTestCaseId.get(testCaseId);
-        if (previous == null) {
-            changes.push(added(current));
-        } else if (current.planId !== previous.planId) {
-            changes.push({
-                type: "updated",
-                testCaseId: current.testCase.id,
-                testCaseName: current.testCase.name,
-                testCaseSlug: current.testCase.slug,
-                testCaseFolderId: current.testCase.folderId,
-                plan: current.plan?.prompt ?? "",
-                previousPlan: previous.plan?.prompt ?? "",
-            });
-        }
-    }
-
-    for (const [testCaseId, previous] of previousByTestCaseId) {
-        if (!currentByTestCaseId.has(testCaseId)) {
-            changes.push({
-                type: "removed",
-                testCaseId: previous.testCase.id,
-                testCaseName: previous.testCase.name,
-                testCaseSlug: previous.testCase.slug,
-                testCaseFolderId: previous.testCase.folderId,
-                previousPlan: previous.plan?.prompt ?? "",
-            });
-        }
-    }
+    const changes = classifyAssignmentChanges(
+        byTestCaseId(currentAssignments),
+        previousAssignments == null ? undefined : byTestCaseId(previousAssignments),
+    ).map(toSuiteChange);
 
     logger.info("Suite changes computed", { snapshot: { snapshotId }, extra: { count: changes.length } });
     return changes;
 }
 
 interface AssignmentRow {
+    testCaseId: string;
+    planId: string | null;
     testCase: { id: string; name: string; slug: string; folderId: string };
     plan: { prompt: string } | null;
+}
+
+function byTestCaseId(assignments: AssignmentRow[]): Map<string, AssignmentRow> {
+    return new Map(assignments.map((assignment) => [assignment.testCaseId, assignment]));
+}
+
+function toSuiteChange(entry: AssignmentDiffEntry<AssignmentRow>): SuiteChange {
+    switch (entry.type) {
+        case "added":
+            return added(entry.current);
+        case "updated":
+            return updated(entry.current, entry.previous);
+        case "removed":
+            return removed(entry.previous);
+    }
 }
 
 function added(assignment: AssignmentRow): AddedSuiteChange {
@@ -118,6 +96,33 @@ function added(assignment: AssignmentRow): AddedSuiteChange {
         testCaseName: assignment.testCase.name,
         testCaseSlug: assignment.testCase.slug,
         testCaseFolderId: assignment.testCase.folderId,
-        plan: assignment.plan?.prompt ?? "",
+        plan: promptOf(assignment),
     };
+}
+
+function updated(current: AssignmentRow, previous: AssignmentRow): UpdatedSuiteChange {
+    return {
+        type: "updated",
+        testCaseId: current.testCase.id,
+        testCaseName: current.testCase.name,
+        testCaseSlug: current.testCase.slug,
+        testCaseFolderId: current.testCase.folderId,
+        plan: promptOf(current),
+        previousPlan: promptOf(previous),
+    };
+}
+
+function removed(previous: AssignmentRow): RemovedSuiteChange {
+    return {
+        type: "removed",
+        testCaseId: previous.testCase.id,
+        testCaseName: previous.testCase.name,
+        testCaseSlug: previous.testCase.slug,
+        testCaseFolderId: previous.testCase.folderId,
+        previousPlan: promptOf(previous),
+    };
+}
+
+function promptOf(assignment: AssignmentRow): string {
+    return assignment.plan?.prompt ?? "";
 }

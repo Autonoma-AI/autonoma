@@ -207,7 +207,7 @@ apiTestSuite({
             expect(session.runs).toHaveLength(0);
             expect(await harness.db.testGeneration.count({ where: { snapshotId } })).toBe(0);
             expect(session.testsAwaitingRun).toEqual([testCaseId]);
-            expect(harness.generationProvider.firedBatches).toHaveLength(0);
+            expect(harness.startGenerationBatch).not.toHaveBeenCalled();
         });
 
         test("startRuns starts one run per test and dispatches them", async ({ harness }) => {
@@ -227,8 +227,8 @@ apiTestSuite({
                 .snapshotEdit.startRuns({ snapshotId, testCaseIds: testsAwaitingRun });
 
             expect(runIds).toHaveLength(1);
-            const lastBatch = harness.generationProvider.firedBatches.at(-1);
-            expect(lastBatch?.generations.map((g) => g.testGenerationId)).toEqual(runIds);
+            const lastBatch = harness.startGenerationBatch.mock.lastCall?.[0];
+            expect(lastBatch?.testPlans.map((plan) => plan.testGenerationId)).toEqual(runIds);
 
             const runs = await harness.db.testGeneration.findMany({
                 where: { snapshotId },

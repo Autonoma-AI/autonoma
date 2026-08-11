@@ -2,7 +2,7 @@ import { db } from "@autonoma/db";
 import { OctokitGitHubApp } from "@autonoma/github";
 import { isOnboardingComplete } from "@autonoma/github/comment";
 import { logger as rootLogger } from "@autonoma/logger";
-import { autonomaHostsPreviews } from "@autonoma/test-updates";
+import { autonomaHostsPreviews } from "@autonoma/scenario";
 import type { ResolvePreviewTargetInput, ResolvePreviewTargetOutput } from "@autonoma/workflow/activities";
 import { env } from "../../env";
 

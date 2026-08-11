@@ -25,5 +25,6 @@ export type { Suite, SuiteTestCase, SuiteTestPlan } from "./queries/read-suite";
 export type { SuiteAssignment } from "./queries/read-assignments";
 export type { SuiteRun } from "./queries/read-runs";
 export type { SuiteChange } from "./queries/suite-changes";
+export type { SnapshotComparison, SuiteChangeSummary } from "./queries/summarize-changes";
 export type { ResolveSourceInput, ResolvedSnapshotSource, SnapshotSource } from "./queries/resolve-source";
 export { deriveForkPointSnapshotId, type BranchForkPoint } from "./queries/fork-point";
