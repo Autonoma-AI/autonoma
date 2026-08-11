@@ -1,11 +1,36 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { defineFactory } from "@autonoma-ai/sdk";
-import { db } from "@autonoma/db";
+import {
+    AnalysisJobStatus,
+    CreditTransactionType as CreditTransactionTypeEnum,
+    OnboardingPreviewVerificationStatus as OnboardingPreviewVerificationStatusEnum,
+    OnboardingStep as OnboardingStepEnum,
+    PreviewkitAppStatus as PreviewkitAppStatusEnum,
+    PreviewkitStatus,
+    SubscriptionStatus as SubscriptionStatusEnum,
+    VercelInstallationStatus,
+    db,
+} from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
+import {
+    analysisFlowSchema,
+    analysisIssueKindSchema,
+    analysisIssueSeveritySchema,
+    evidenceManifestEntrySchema,
+    primaryScreenshotSchema,
+    suspectedCauseSchema,
+} from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
 import { z } from "zod";
 
 const logger = rootLogger.child({ name: "AutonomaSdkFactories" });
+
+/** `PreviewkitAppInstance.port` is required; a recipe that omits it gets the usual web port. */
+const DEFAULT_PREVIEW_APP_PORT = 3000;
+
+/** Wallet defaults for a seeded tenant - enough that no billing screen renders an out-of-credits state. */
+const DEFAULT_CREDIT_BALANCE = 50_000;
+const DEFAULT_SUBSCRIPTION_CREDITS = 40_000;
 
 /**
  * Slug/name/email identifiers are honored VERBATIM when a scenario supplies them
@@ -39,6 +64,44 @@ function loose<T extends z.ZodRawShape>(shape: T) {
     // Zod v4 loose object: extra keys allowed, unknown keys not required to match.
     return z.object(shape).loose();
 }
+
+/**
+ * A `Json` column a recipe fills verbatim (a previewkit topology, an evidence
+ * manifest, a step trace). Validated at the boundary rather than passed through
+ * untyped, so a malformed document fails the `up` with a field path instead of
+ * a Prisma error thrown from inside the driver.
+ */
+const JsonDocument = z.record(z.string(), z.json());
+
+/**
+ * The analysis `Json` columns are typed in the Prisma schema (`/// [EvidenceManifest]`
+ * and friends), so a recipe filling one has to match that shape or the write does
+ * not compile. Reuse the schemas those annotations name rather than restating them
+ * here - a drift between the two would only show up as a runtime read failure in
+ * the UI.
+ */
+const EvidenceManifest = z.array(evidenceManifestEntrySchema);
+const AnalysisFlows = z.array(analysisFlowSchema);
+const AnalysisCoverage = z.object({
+    total: z.number(),
+    byCategory: z.array(z.object({ category: z.string(), count: z.number() })),
+});
+
+/**
+ * Zod views of the Prisma enums these factories write, derived from the generated enum objects
+ * rather than re-listed. A hand-copy is only checked for *valid members*, never for staying in
+ * sync: a new member added to the Prisma enum is silently invisible here, `safeParse` fails, and
+ * the default fires with no compile error. That already happened - `superseded` was missing from
+ * the previewkit status list, so a recipe seeding a superseded build silently got `ready`.
+ */
+const OnboardingStep = z.enum(OnboardingStepEnum);
+const OnboardingPreviewVerificationStatus = z.enum(OnboardingPreviewVerificationStatusEnum);
+const SubscriptionStatus = z.enum(SubscriptionStatusEnum);
+const CreditTransactionType = z.enum(CreditTransactionTypeEnum);
+const VercelInstallationStatusSchema = z.enum(VercelInstallationStatus);
+const PreviewkitStatusSchema = z.enum(PreviewkitStatus);
+const PreviewkitAppStatus = z.enum(PreviewkitAppStatusEnum);
+const AnalysisJobStatusSchema = z.enum(AnalysisJobStatus);
 
 const emptyRef = z.object({ id: z.string() });
 
@@ -249,6 +312,11 @@ const BenchmarkBatchFactory = defineFactory({
 // ─────────────────────────────────────────────────────────────────────────
 
 const ApplicationInput = loose({
+    // Honored verbatim, like BranchSnapshot.id: the onboarding flow addresses an
+    // application by primary id (`/onboarding?appId=…`), not by slug, so a test
+    // that deep-links into onboarding needs the id it can write down. Everything
+    // under `/app/:slug` resolves by slug instead - that one is honored below.
+    id: z.string().optional(),
     name: z.string().optional(),
     slug: z.string().optional(),
     architecture: z.enum(["WEB", "IOS", "ANDROID"]).optional(),
@@ -271,6 +339,7 @@ const ApplicationFactory = defineFactory({
         const slug = slugOrSuffixed(data.slug, name, suffix);
         const row = await db.application.create({
             data: {
+                id: data.id ?? undefined,
                 name,
                 slug,
                 architecture: data.architecture ?? "WEB",
@@ -314,11 +383,22 @@ const ApplicationSetupFactory = defineFactory({
 
 // The real ApplicationsService.createApplication seeds an OnboardingState row;
 // the app's list gate only checks app-count, but the Finish-setup / SDK-validation
-// screens read this, so seed it complete for a coherent tenant.
+// screens read this. Defaults describe a finished tenant, which is what most
+// scenarios want.
+//
+// A scenario that wants the OPPOSITE - an app still mid-setup, so the
+// Finish-setup wizard is reachable - must set `step` to an earlier value AND
+// seed no Scenario and no TestCase for the application. OnboardingManager.getState
+// treats content as proof of completion (`hasContent && !artifactsUploaded`), so an
+// early `step` alone still redirects /finish-setup to the app overview.
 const OnboardingStateInput = loose({
     applicationId: z.string(),
     productionUrl: z.string().optional(),
     previewUrl: z.string().optional(),
+    step: z.string().optional(),
+    previewVerificationStatus: z.string().optional(),
+    completed: z.boolean().optional(),
+    dryRunPassed: z.boolean().optional(),
 });
 
 const OnboardingStateFactory = defineFactory({
@@ -326,13 +406,15 @@ const OnboardingStateFactory = defineFactory({
     refSchema: emptyRef,
     create: async (data) => {
         const now = new Date();
+        const step = OnboardingStep.safeParse(data.step).data ?? "completed";
         const row = await db.onboardingState.create({
             data: {
                 applicationId: data.applicationId,
-                step: "completed",
-                completedAt: now,
-                dryRunPassedAt: now,
-                previewVerificationStatus: "ready",
+                step,
+                completedAt: (data.completed ?? step === "completed") ? now : undefined,
+                dryRunPassedAt: (data.dryRunPassed ?? step === "completed") ? now : undefined,
+                previewVerificationStatus:
+                    OnboardingPreviewVerificationStatus.safeParse(data.previewVerificationStatus).data ?? "ready",
                 productionUrl: data.productionUrl ?? undefined,
                 previewUrl: data.previewUrl ?? undefined,
             },
@@ -575,39 +657,306 @@ const ApiKeyFactory = defineFactory({
     },
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// Billing. BillingCustomer is the org's wallet; CreditTransaction joins to it
+// by organizationId (not by its own id), so a scenario that seeds transactions
+// must seed the customer too.
+// ─────────────────────────────────────────────────────────────────────────
+
+const BillingCustomerInput = loose({
+    organizationId: z.string(),
+    creditBalance: z.number().optional(),
+    subscriptionCreditBalance: z.number().optional(),
+    subscriptionStatus: z.string().optional(),
+    autoTopUpEnabled: z.boolean().optional(),
+    autoTopUpThreshold: z.number().optional(),
+});
+
+const BillingCustomerFactory = defineFactory({
+    inputSchema: BillingCustomerInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const suffix = randomBytes(6).toString("hex");
+        const row = await db.billingCustomer.create({
+            data: {
+                organizationId: data.organizationId,
+                // Globally unique. Never a real Stripe id - these tenants must
+                // never resolve against the live Stripe account.
+                stripeCustomerId: `cus_autonoma_test_${suffix}`,
+                creditBalance: data.creditBalance ?? DEFAULT_CREDIT_BALANCE,
+                subscriptionCreditBalance: data.subscriptionCreditBalance ?? DEFAULT_SUBSCRIPTION_CREDITS,
+                subscriptionStatus: SubscriptionStatus.safeParse(data.subscriptionStatus).data ?? "active",
+                autoTopUpEnabled: data.autoTopUpEnabled ?? false,
+                autoTopUpThreshold: data.autoTopUpThreshold ?? 0,
+            },
+        });
+        return { id: row.id };
+    },
+});
+
+const CreditTransactionInput = loose({
+    organizationId: z.string(),
+    type: z.string().optional(),
+    amount: z.number().optional(),
+    balanceAfter: z.number().optional(),
+});
+
+const CreditTransactionFactory = defineFactory({
+    inputSchema: CreditTransactionInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const amount = data.amount ?? DEFAULT_SUBSCRIPTION_CREDITS;
+        const row = await db.creditTransaction.create({
+            data: {
+                organizationId: data.organizationId,
+                type: CreditTransactionType.safeParse(data.type).data ?? "SUBSCRIPTION_GRANT",
+                amount,
+                balanceAfter: data.balanceAfter ?? amount,
+            },
+        });
+        return { id: row.id };
+    },
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Vercel. The chain the UI walks is
+// VercelInstallation -> VercelProject -> VercelProjectConnection -> Application,
+// so the onboarding "select a deployment" step shows nothing unless all four
+// exist. VercelDeployment hangs off the connection.
+// ─────────────────────────────────────────────────────────────────────────
+
+const VercelInstallationInput = loose({
+    organizationId: z.string(),
+    userId: z.string(),
+    vercelInstallationId: z.string().optional(),
+    vercelAccountId: z.string().optional(),
+    vercelUserId: z.string().optional(),
+    status: z.string().optional(),
+    maxOverageAmountUsd: z.number().optional(),
+});
+
+const VercelInstallationFactory = defineFactory({
+    inputSchema: VercelInstallationInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const suffix = randomBytes(6).toString("hex");
+        const row = await db.vercelInstallation.create({
+            data: {
+                // Globally unique - a scenario templating this with {testRunId}
+                // is what keeps concurrent runs apart; the fallback covers recipes
+                // that do not care.
+                vercelInstallationId: data.vercelInstallationId ?? `icfg_autonoma_test_${suffix}`,
+                vercelAccountId: data.vercelAccountId ?? `team_autonoma_test_${suffix}`,
+                vercelUserId: data.vercelUserId ?? `user_autonoma_test_${suffix}`,
+                organizationId: data.organizationId,
+                userId: data.userId,
+                status: VercelInstallationStatusSchema.safeParse(data.status).data ?? "active",
+                maxOverageAmountUsd: data.maxOverageAmountUsd ?? undefined,
+            },
+        });
+        return { id: row.id };
+    },
+});
+
+const VercelProjectInput = loose({
+    vercelInstallationId: z.string(),
+    name: z.string().optional(),
+    vercelProjectId: z.string().optional(),
+    productionUrl: z.string().optional(),
+    githubRepositoryId: z.number().optional(),
+});
+
+const VercelProjectFactory = defineFactory({
+    inputSchema: VercelProjectInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const suffix = randomBytes(6).toString("hex");
+        const row = await db.vercelProject.create({
+            data: {
+                // `vercelInstallationId` here is the local VercelInstallation row id
+                // (the FK), not Vercel's own installation id - the recipe passes a
+                // _ref, so it resolves to the row.
+                vercelInstallationId: data.vercelInstallationId,
+                vercelProjectId: data.vercelProjectId ?? `prj_autonoma_test_${suffix}`,
+                name: data.name ?? `autonoma-test-project-${suffix}`,
+                productionUrl: data.productionUrl ?? undefined,
+                githubRepositoryId: data.githubRepositoryId ?? undefined,
+            },
+        });
+        return { id: row.id };
+    },
+});
+
+const VercelProjectConnectionInput = loose({
+    projectId: z.string(),
+    applicationId: z.string(),
+});
+
+const VercelProjectConnectionFactory = defineFactory({
+    inputSchema: VercelProjectConnectionInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const row = await db.vercelProjectConnection.create({
+            data: {
+                projectId: data.projectId,
+                applicationId: data.applicationId,
+            },
+        });
+        return { id: row.id };
+    },
+});
+
+const VercelDeploymentInput = loose({
+    projectConnectionId: z.string(),
+    branchSnapshotId: z.string().optional(),
+    vercelDeploymentId: z.string().optional(),
+    vercelCheckRunId: z.string().optional(),
+});
+
+const VercelDeploymentFactory = defineFactory({
+    inputSchema: VercelDeploymentInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const suffix = randomBytes(6).toString("hex");
+        const row = await db.vercelDeployment.create({
+            data: {
+                vercelDeploymentId: data.vercelDeploymentId ?? `dpl_autonoma_test_${suffix}`,
+                vercelCheckRunId: data.vercelCheckRunId ?? `check_autonoma_test_${suffix}`,
+                projectConnectionId: data.projectConnectionId,
+                branchSnapshotId: data.branchSnapshotId ?? undefined,
+            },
+        });
+        return { id: row.id };
+    },
+});
+
 const PreviewkitEnvironmentInput = loose({
     organizationId: z.string(),
     branchId: z.string().optional(),
     namespace: z.string().optional(),
     repoFullName: z.string().optional(),
     prNumber: z.number().optional(),
+    githubRepositoryId: z.number().optional(),
     headSha: z.string().optional(),
     headRef: z.string().optional(),
     status: z.string().optional(),
+    phase: z.string().optional(),
+    urls: z.record(z.string(), z.string()).optional(),
+    resolvedConfig: JsonDocument.optional(),
+    deployed: z.boolean().optional(),
 });
-
-const PreviewkitEnvironmentStatus = z.enum(["pending", "building", "deploying", "ready", "failed", "torn_down"]);
 
 const PreviewkitEnvironmentFactory = defineFactory({
     inputSchema: PreviewkitEnvironmentInput,
     refSchema: emptyRef,
     // Real path (PreviewkitTriggerService.onDeploymentCreated) provisions a K8s
     // namespace — that side effect can't run locally. We recreate only the row.
+    //
+    // `githubRepositoryId` + `prNumber` are the lookup key: DeploymentsService
+    // .previewSummaryByPr resolves the branch by prInfo.prNumber, then matches
+    // previewkitEnvironment on { organizationId, githubRepositoryId, prNumber }.
+    // Both must equal what the recipe put on the Application and the
+    // FeatureBranchInfo, or the PR's Preview tab renders "No preview environment
+    // for this pull request". They are therefore honored verbatim, per the
+    // verbatim-identifier rule at the top of this file. `namespace` and
+    // (repoFullName, prNumber) are globally unique, but neither the namespace nor
+    // repoFullName is part of the lookup - so a scenario buys cross-run
+    // uniqueness by templating those two with {testRunId}, never by mangling
+    // prNumber here.
     create: async (data) => {
         const suffix = randomBytes(3).toString("hex");
-        // Uniqueness is (repoFullName, prNumber). Suffix both so repeated up
-        // cycles from the same recipe never collide on a stale row that a
-        // previous DOWN failed to clean up.
         const row = await db.previewkitEnvironment.create({
             data: {
-                namespace: data.namespace ? `${data.namespace}-${suffix}` : `preview-autonoma-test-${suffix}`,
-                repoFullName: `${data.repoFullName ?? "autonoma-ai/test-repo"}-${suffix}`,
-                prNumber: (data.prNumber ?? 0) + Math.floor(Math.random() * 1_000_000),
+                namespace: data.namespace ?? `preview-autonoma-test-${suffix}`,
+                repoFullName: data.repoFullName ?? `autonoma-ai/test-repo-${suffix}`,
+                prNumber: data.prNumber ?? 0,
+                githubRepositoryId: data.githubRepositoryId ?? undefined,
                 headSha: data.headSha ?? randomBytes(20).toString("hex"),
                 headRef: data.headRef ?? `pr-${randomBytes(3).toString("hex")}`,
-                status: PreviewkitEnvironmentStatus.safeParse(data.status).data ?? "ready",
+                status: PreviewkitStatusSchema.safeParse(data.status).data ?? "ready",
+                phase: data.phase ?? undefined,
+                urls: data.urls ?? {},
+                resolvedConfig: data.resolvedConfig ?? undefined,
+                deployedAt: (data.deployed ?? true) ? new Date() : undefined,
                 organizationId: data.organizationId,
                 branchId: data.branchId ?? undefined,
+            },
+        });
+        return { id: row.id };
+    },
+});
+
+// No organizationId: PreviewkitConfig hangs off Application only, and cascades
+// through it when the seeded org goes.
+const PreviewkitConfigInput = loose({
+    applicationId: z.string(),
+    document: JsonDocument.optional(),
+});
+
+const PreviewkitConfigFactory = defineFactory({
+    inputSchema: PreviewkitConfigInput,
+    refSchema: emptyRef,
+    // The preview-config workspace reads this row (loadSavedConfigAppIndexes in
+    // onboarding/preview-readiness.ts). With no row the page renders
+    // "We couldn't load this." - there is no empty state for a missing config.
+    create: async (data) => {
+        const row = await db.previewkitConfig.create({
+            data: {
+                applicationId: data.applicationId,
+                document: data.document ?? { apps: [] },
+            },
+        });
+        return { id: row.id };
+    },
+});
+
+const PreviewkitAppInstanceInput = loose({
+    environmentId: z.string(),
+    appName: z.string().optional(),
+    status: z.string().optional(),
+    imageTag: z.string().optional(),
+    url: z.string().optional(),
+    port: z.number().optional(),
+    error: z.string().optional(),
+});
+
+const PreviewkitAppInstanceFactory = defineFactory({
+    inputSchema: PreviewkitAppInstanceInput,
+    refSchema: emptyRef,
+    // One row per service in the preview. These are what the environment
+    // explorer's services rail lists (PREVIEWKIT_SUMMARY_ENV_SELECT.appInstances).
+    create: async (data) => {
+        const suffix = randomBytes(3).toString("hex");
+        const row = await db.previewkitAppInstance.create({
+            data: {
+                environmentId: data.environmentId,
+                appName: data.appName ?? `app-${suffix}`,
+                status: PreviewkitAppStatus.safeParse(data.status).data ?? "ready",
+                imageTag: data.imageTag ?? undefined,
+                url: data.url ?? undefined,
+                port: data.port ?? DEFAULT_PREVIEW_APP_PORT,
+                error: data.error ?? undefined,
+            },
+        });
+        return { id: row.id };
+    },
+});
+
+const PreviewkitBuildInput = loose({
+    environmentId: z.string(),
+    headSha: z.string().optional(),
+    status: z.string().optional(),
+});
+
+const PreviewkitBuildFactory = defineFactory({
+    inputSchema: PreviewkitBuildInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const row = await db.previewkitBuild.create({
+            data: {
+                environmentId: data.environmentId,
+                headSha: data.headSha ?? randomBytes(20).toString("hex"),
+                status: PreviewkitStatusSchema.safeParse(data.status).data ?? "ready",
             },
         });
         return { id: row.id };
@@ -796,6 +1145,227 @@ const TestGenerationFactory = defineFactory({
     },
 });
 
+// ─────────────────────────────────────────────────────────────────────────
+// Analysis pipeline: what a PR's report, findings and evidence are read from.
+// Seed order matters and mirrors the FKs:
+//   AnalysisJob (keyed by snapshot) -> AnalysisFinding -> AnalysisClassification
+// with AnalysisReport keyed by the same snapshot and AnalysisIssue keyed by the
+// branch. A finding's FK points at AnalysisJob.snapshotId, NOT AnalysisReport -
+// seeding only a report leaves every finding unattachable.
+// ─────────────────────────────────────────────────────────────────────────
+
+const AnalysisJobInput = loose({
+    snapshotId: z.string(),
+    organizationId: z.string(),
+    status: z.string().optional(),
+    failureReason: z.string().optional(),
+});
+
+const AnalysisJobFactory = defineFactory({
+    inputSchema: AnalysisJobInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const now = new Date();
+        const row = await db.analysisJob.create({
+            data: {
+                snapshotId: data.snapshotId,
+                organizationId: data.organizationId,
+                status: AnalysisJobStatusSchema.safeParse(data.status).data ?? "completed",
+                failureReason: data.failureReason ?? undefined,
+                startedAt: now,
+                completedAt: now,
+            },
+        });
+        // snapshotId is the primary key - return it so `_ref`s resolve.
+        return { id: row.snapshotId };
+    },
+});
+
+// `title` and `headline` are what the Reporter authors; `headline` is the column still named
+// `summary`. Both are NOT NULL with no default on purpose - a writer that forgets `title` must fail
+// rather than persist '', which every reader takes to mean "a report from before the Reporter
+// existed". A seeded report is standing in for an authored one, so it supplies both.
+const AnalysisReportInput = loose({
+    snapshotId: z.string(),
+    organizationId: z.string(),
+    verdict: z.string().optional(),
+    testCount: z.number().optional(),
+    clientBugCount: z.number().optional(),
+    title: z.string().optional(),
+    headline: z.string().optional(),
+    reportMarkdown: z.string().optional(),
+    impactReasoning: z.string().optional(),
+    coverage: AnalysisCoverage.optional(),
+    flows: AnalysisFlows.optional(),
+    evidenceManifest: EvidenceManifest.optional(),
+});
+
+const AnalysisReportFactory = defineFactory({
+    inputSchema: AnalysisReportInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const row = await db.analysisReport.create({
+            data: {
+                snapshotId: data.snapshotId,
+                organizationId: data.organizationId,
+                verdict: data.verdict ?? "passed",
+                testCount: data.testCount ?? 0,
+                clientBugCount: data.clientBugCount ?? 0,
+                title: data.title ?? "Seeded report for a test tenant",
+                headline: data.headline ?? "Seeded by the Autonoma SDK test-data endpoint.",
+                reportMarkdown: data.reportMarkdown ?? "## Seeded report\n\nNo real analysis ran for this tenant.",
+                impactReasoning: data.impactReasoning ?? undefined,
+                coverage: data.coverage ?? undefined,
+                flows: data.flows ?? undefined,
+                evidenceManifest: data.evidenceManifest ?? undefined,
+            },
+        });
+        return { id: row.snapshotId };
+    },
+});
+
+const AnalysisIssueInput = loose({
+    // Honored verbatim: an analysis issue is deep-linked by primary id from the
+    // PR comment ("What to fix" links straight to /issues/:id).
+    id: z.string().optional(),
+    branchId: z.string(),
+    organizationId: z.string(),
+    title: z.string().optional(),
+    kind: z.string().optional(),
+    severity: z.string().optional(),
+    status: z.string().optional(),
+    expectedBehavior: z.string().optional(),
+    actualBehavior: z.string().optional(),
+    narrativeMarkdown: z.string().optional(),
+    primaryTestCaseId: z.string().optional(),
+    evidenceManifest: EvidenceManifest.optional(),
+    primaryScreenshot: primaryScreenshotSchema.optional(),
+    suspectedCause: suspectedCauseSchema.optional(),
+});
+
+const AnalysisIssueFactory = defineFactory({
+    inputSchema: AnalysisIssueInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const row = await db.analysisIssue.create({
+            data: {
+                id: data.id ?? undefined,
+                branchId: data.branchId,
+                organizationId: data.organizationId,
+                title: data.title ?? "Autonoma test analysis issue",
+                kind: analysisIssueKindSchema.safeParse(data.kind).data ?? "bug",
+                severity: analysisIssueSeveritySchema.safeParse(data.severity).data ?? "medium",
+                status: data.status ?? "open",
+                expectedBehavior: data.expectedBehavior ?? undefined,
+                actualBehavior: data.actualBehavior ?? "seeded by the Autonoma SDK test-data endpoint",
+                narrativeMarkdown: data.narrativeMarkdown ?? "Seeded by the Autonoma SDK test-data endpoint.",
+                primaryTestCaseId: data.primaryTestCaseId ?? undefined,
+                evidenceManifest: data.evidenceManifest ?? undefined,
+                primaryScreenshot: data.primaryScreenshot ?? undefined,
+                suspectedCause: data.suspectedCause ?? undefined,
+            },
+        });
+        return { id: row.id };
+    },
+});
+
+const AnalysisFindingInput = loose({
+    // The FK target is AnalysisJob.snapshotId, so this must reference a seeded
+    // AnalysisJob - not an AnalysisReport that happens to share the snapshot.
+    reportSnapshotId: z.string(),
+    testCaseId: z.string(),
+    organizationId: z.string(),
+    origin: z.string().optional(),
+    selectionReason: z.string().optional(),
+    issueId: z.string().optional(),
+});
+
+const AnalysisFindingFactory = defineFactory({
+    inputSchema: AnalysisFindingInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const row = await db.analysisFinding.create({
+            data: {
+                reportSnapshotId: data.reportSnapshotId,
+                testCaseId: data.testCaseId,
+                organizationId: data.organizationId,
+                origin: data.origin ?? "pre_existing",
+                selectionReason: data.selectionReason ?? undefined,
+                issueId: data.issueId ?? undefined,
+            },
+        });
+        return { id: row.id };
+    },
+});
+
+const AnalysisClassificationInput = loose({
+    findingId: z.string(),
+    generationId: z.string(),
+    organizationId: z.string(),
+    number: z.number().optional(),
+    category: z.string().optional(),
+    confidence: z.string().optional(),
+    headline: z.string().optional(),
+    whatHappened: z.string().optional(),
+    runSuccess: z.boolean().optional(),
+    stepCount: z.number().optional(),
+    current: z.boolean().optional(),
+});
+
+const AnalysisClassificationFactory = defineFactory({
+    inputSchema: AnalysisClassificationInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const row = await db.analysisClassification.create({
+            data: {
+                findingId: data.findingId,
+                generationId: data.generationId,
+                organizationId: data.organizationId,
+                number: data.number ?? 1,
+                category: data.category ?? "passed",
+                confidence: data.confidence ?? "high",
+                headline: data.headline ?? "Seeded by the Autonoma SDK test-data endpoint",
+                whatHappened: data.whatHappened ?? undefined,
+                runSuccess: data.runSuccess ?? true,
+                stepCount: data.stepCount ?? 0,
+            },
+        });
+        // AnalysisFinding.currentClassificationId is the pointer every read goes
+        // through - a finding whose pointer is null renders as having no verdict.
+        // Circular with the row above, so it is wired post-insert.
+        if (data.current ?? true) {
+            await db.analysisFinding.update({
+                where: { id: data.findingId },
+                data: { currentClassificationId: row.id },
+            });
+        }
+        return { id: row.id };
+    },
+});
+
+const TestCaseAssignmentInput = loose({
+    snapshotId: z.string(),
+    testCaseId: z.string(),
+    planId: z.string().optional(),
+});
+
+const TestCaseAssignmentFactory = defineFactory({
+    inputSchema: TestCaseAssignmentInput,
+    refSchema: emptyRef,
+    // Without this the PR overview reports "No tests have run for this PR yet",
+    // whatever else is seeded: it is the join that puts a test case ON a snapshot.
+    create: async (data) => {
+        const row = await db.testCaseAssignment.create({
+            data: {
+                snapshotId: data.snapshotId,
+                testCaseId: data.testCaseId,
+                planId: data.planId ?? undefined,
+            },
+        });
+        return { id: row.id };
+    },
+});
+
 const RefinementLoopInput = loose({
     snapshotId: z.string(),
     organizationId: z.string(),
@@ -914,13 +1484,28 @@ export const autonomaFactories = {
     Folder: FolderFactory,
     Invitation: InvitationFactory,
     ApiKey: ApiKeyFactory,
+    BillingCustomer: BillingCustomerFactory,
+    CreditTransaction: CreditTransactionFactory,
+    VercelInstallation: VercelInstallationFactory,
+    VercelProject: VercelProjectFactory,
+    VercelProjectConnection: VercelProjectConnectionFactory,
+    VercelDeployment: VercelDeploymentFactory,
     PreviewkitEnvironment: PreviewkitEnvironmentFactory,
+    PreviewkitConfig: PreviewkitConfigFactory,
+    PreviewkitAppInstance: PreviewkitAppInstanceFactory,
+    PreviewkitBuild: PreviewkitBuildFactory,
     Scenario: ScenarioFactory,
     ScenarioInstance: ScenarioInstanceFactory,
     TestCase: TestCaseFactory,
     TestPlan: TestPlanFactory,
     BranchSnapshot: BranchSnapshotFactory,
     TestGeneration: TestGenerationFactory,
+    TestCaseAssignment: TestCaseAssignmentFactory,
+    AnalysisJob: AnalysisJobFactory,
+    AnalysisReport: AnalysisReportFactory,
+    AnalysisIssue: AnalysisIssueFactory,
+    AnalysisFinding: AnalysisFindingFactory,
+    AnalysisClassification: AnalysisClassificationFactory,
     RefinementLoop: RefinementLoopFactory,
     ScenarioRecipeVersion: ScenarioRecipeVersionFactory,
 };

@@ -424,6 +424,35 @@ The `organization()` better-auth plugin's own membership endpoints (`invite-memb
 bypass the invitation checks, the leave guards and the session re-pointing above. Its read endpoints
 (`list`, `set-active`) stay open - the org switcher uses them.
 
+### Environment Factory endpoint (`/api/autonoma`)
+
+This app is its own customer: `src/autonoma-sdk/` implements the Autonoma SDK test-data endpoint that
+Autonoma calls to seed a tenant into an alpha preview before running the dogfood E2E suite against
+it. `factories.ts` holds one factory per model; `autonoma-sdk-http.router.ts` wires them into
+`createHonoHandler` and owns auth (a real Better Auth session cookie for the seeded user) and the
+org-cascade teardown.
+
+The endpoint is inert unless `AUTONOMA_SHARED_SECRET` and `AUTONOMA_SIGNING_SECRET` are set, which
+is only true on alphas.
+
+The scenarios themselves live in Autonoma, not here - `discover` returns the *schema*
+(`DiscoverResponse` is `{ schema }`), and the recipes are uploaded separately to
+`POST /v1/setup/setups/:id/scenario-recipe-versions`. **Deleting a factory whose model a live recipe
+still seeds breaks provisioning outright**: the handler rejects the entire `up` with
+`no factory registered for model "X"`, and nothing in CI notices. Check the app's current recipe
+before removing one.
+
+Two constraints in `factories.ts` are load-bearing and easy to undo by accident:
+
+- **Identifiers a recipe supplies are honored verbatim.** The router resolves `/app/:slug`,
+  `/snapshots/:id` and `/onboarding?appId=` by exact match, so a factory-appended suffix makes every
+  deep-link in a test unresolvable. Cross-run uniqueness is the recipe's job, via a
+  `{testRunId}`-templated value on the globally-unique columns.
+- **`PreviewkitEnvironment.githubRepositoryId` + `prNumber` are a lookup key**, not free-form data.
+  `DeploymentsService.previewSummaryByPr` finds the branch by `prInfo.prNumber` then matches
+  `{ organizationId, githubRepositoryId, prNumber }`; if any of the three disagree with the
+  Application and the FeatureBranchInfo, the PR's Preview tab renders its empty state.
+
 ### tRPC Routers
 
 Each router is thin wiring - business logic lives in the corresponding service class. Routers are defined in `src/routes/` and composed in `src/routes/router.ts`.
