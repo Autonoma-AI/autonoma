@@ -19,13 +19,13 @@ export interface ResolvedOrganization {
 
 export interface SignupOrganization {
     /**
-     * The value `Organization.domain` is keyed on: a company's email domain, or a whole email address
-     * for a consumer mailbox provider, where the next signup at the same domain is a stranger.
+     * The value `Organization.domain` is keyed on: a company's email domain when its provider vouched
+     * for it, or a whole email address when nobody did and the next signup at the same domain could be
+     * a stranger. See `resolveSignupOrganizationKey`.
      *
      * Case is normalized here rather than at the call site, because getting it wrong in either
      * direction is a defect: two spellings of one company domain split colleagues into separate
-     * organizations, and the consumer-provider predicate that decides which key to use already
-     * lowercases, so a caller matching one and not the other would disagree with itself.
+     * organizations, and a caller that lowercased only one of the two keys would disagree with itself.
      */
     domain: string;
     name: string;
@@ -100,10 +100,7 @@ export async function upsertOrganizationForSignup(
  * legacy `Acme.com` row would not be found by `acme.com`, and the next colleague to sign in would get a
  * second organization rather than joining the one their team is already in.
  */
-export async function findOrganizationByDomain(
-    conn: PrismaClient,
-    domain: string,
-): Promise<ResolvedOrganization | undefined> {
+async function findOrganizationByDomain(conn: PrismaClient, domain: string): Promise<ResolvedOrganization | undefined> {
     const select = { id: true, name: true, slug: true };
     const exact = await conn.organization.findUnique({ where: { domain }, select });
     if (exact != null) return exact;

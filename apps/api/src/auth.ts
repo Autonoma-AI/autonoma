@@ -268,7 +268,7 @@ interface OrgMembershipResult {
  *
  * Exported for the integration tests: which organization a signup lands in is the difference between
  * colleagues sharing a workspace and strangers sharing one, and that went wrong unnoticed for months
- * (see `isConsumerEmailDomain`). It is called only from the better-auth database hooks below.
+ * (see `resolveSignupOrganizationKey`). It is called only from the better-auth database hooks below.
  */
 export async function ensureOrgMembership(
     conn: PrismaClient,
@@ -277,7 +277,7 @@ export async function ensureOrgMembership(
     displayName?: string,
     /**
      * What the identity provider asserted about this address's domain, when it asserted anything.
-     * Overrides the consumer-provider guess - see {@link assertedCompanyDomain}.
+     * Its absence is what makes a signup's organization its own - see {@link assertedCompanyDomain}.
      */
     assertion?: SignupDomainAssertion,
 ): Promise<OrgMembershipResult> {
@@ -379,7 +379,7 @@ export async function ensureOrgMembership(
         // What the organization is keyed on decides whether anyone else at this domain is later
         // dropped into it - see `resolveSignupOrganizationKey`, which mints a new auto-join key only
         // on a provider's assertion of the domain.
-        const { key, autoJoin } = await resolveSignupOrganizationKey(conn, {
+        const { key, autoJoin } = resolveSignupOrganizationKey({
             email,
             domain,
             assertedCompany: assertedCompanyDomain(assertion, domain),

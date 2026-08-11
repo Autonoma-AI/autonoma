@@ -34,14 +34,15 @@ function domainOf(address: string | undefined): string | undefined {
 }
 
 /**
- * What Microsoft's id token settles about the signing-in account's email domain, or undefined to fall
- * back to the consumer-provider list.
+ * What Microsoft's id token settles about the signing-in account's email domain, or undefined when it
+ * settles nothing - in which case the signup gets its own organization.
  *
  * Three cases, and the conservative ones are deliberate - a wrong "company" here auto-joins a stranger
  * into somebody's organization, while a wrong "personal" only gives them their own:
  *
  * - **`tid` is the consumer tenant** -> a personal account, whatever its domain looks like. This is the
- *   case no list can catch, because a personal Microsoft account can wear a custom domain. Reachable
+ *   case the domain cannot answer alone, because a personal Microsoft account can wear a custom
+ *   domain and so looks exactly like a company's. Reachable
  *   only where `MICROSOFT_TENANT_ID` is `common`; the default `organizations` rejects MSAs outright.
  * - **A native member of a real tenant** (`tid` set, no `idp`) whose UPN and email agree -> a company
  *   domain. Entra only issues a UPN on a domain the tenant has verified, so this is the same

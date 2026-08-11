@@ -11,8 +11,9 @@ const KEY_PREFIX = "signup-domain-assertion";
  * What an identity provider told us about the email domain of the account signing in.
  *
  * `managed` is a *positive assertion of domain ownership*, not a guess: the provider is stating that
- * this domain is administered as an organization on its platform. That is the fact
- * `isConsumerEmailDomain` can only approximate with a hand-maintained list.
+ * this domain is administered as an organization on its platform. It is the only thing that makes a
+ * domain an auto-join key, so its absence costs colleagues an invitation rather than costing strangers
+ * a shared organization.
  */
 export interface SignupDomainAssertion {
     /** The provider that made the assertion. Only providers that actually assert are recorded. */
@@ -40,9 +41,9 @@ function assertionKey(email: string): string {
  * Vercel sign-in path already passes a hint between the same two points this way
  * (`vercelPreferredOrgKey`).
  *
- * Best-effort by design: a failure here loses the assertion, and losing it falls back to the
- * consumer-domain list, which is what happens for every provider that asserts nothing anyway. It
- * must never fail a sign-in.
+ * Best-effort by design: a failure here loses the assertion, and a lost assertion means this signup
+ * gets its own organization - the same outcome as every provider that asserts nothing. Costing someone
+ * an invitation is always cheaper than failing their sign-in.
  */
 export async function rememberSignupDomainAssertion(
     redis: Redis,
@@ -56,7 +57,7 @@ export async function rememberSignupDomainAssertion(
             extra: { provider: assertion.provider, hasManagedDomain: assertion.managedDomain != null },
         });
     } catch (err) {
-        logger.warn("Could not record the signup domain assertion; falling back to the provider list", {
+        logger.warn("Could not record the signup domain assertion; this signup gets its own organization", {
             extra: { provider: assertion.provider },
             err,
         });
@@ -80,7 +81,7 @@ export async function takeSignupDomainAssertion(
         if (raw == null) return undefined;
         return parseAssertion(raw);
     } catch (err) {
-        logger.warn("Could not read the signup domain assertion; falling back to the provider list", { err });
+        logger.warn("Could not read the signup domain assertion; this signup gets its own organization", { err });
         return undefined;
     }
 }
@@ -106,17 +107,17 @@ function parseAssertion(raw: string): SignupDomainAssertion | undefined {
 /**
  * Whether the provider's assertion settles that `domain` belongs to one organization.
  *
- * Returns undefined when no provider asserted anything, which is the caller's signal to fall back to
- * the consumer-provider list.
+ * Returns undefined when no provider asserted anything, which the caller treats the same as a denial:
+ * only a positive assertion keys an organization on a bare domain.
  *
  * For Google this is a complete answer rather than a hint, and that is the point: signing in with
  * Google as `someone@acme.com` is only possible when `acme.com` is a Workspace domain, and Workspace
  * always sends `hd`. So `hd` present and matching means a company domain, and `hd` absent means a
- * consumer account - no list involved either way.
+ * personal account - the provider settles it, and nothing has to be guessed from the domain itself.
  *
  * Microsoft answers the same question from the tenant its id token names, but only in the cases where
  * tenant membership actually proves who owns the address - see `microsoftDomainAssertion`. Where it
- * does not, no assertion is recorded and the list decides.
+ * does not, no assertion is recorded and the signup gets its own organization.
  */
 export function assertedCompanyDomain(
     assertion: SignupDomainAssertion | undefined,

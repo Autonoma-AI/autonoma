@@ -16,7 +16,7 @@ function uniqueLocalPart(): string {
  * Google's `hd` claim is a positive statement that a domain is Workspace-administered. For that
  * provider it is the complete answer, not a hint: signing in as `someone@acme.com` requires acme.com
  * to be a Workspace domain, so `hd` present means a company and `hd` absent means a consumer account.
- * Every other provider asserts nothing and still falls back to the list.
+ * A provider that asserts nothing - GitHub - gets the signup its own organization.
  */
 apiTestSuite({
     name: "signup-domain-assertion",

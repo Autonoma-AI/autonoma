@@ -357,6 +357,12 @@ Three things put a membership on an account:
   `@acme.com` address lands in the same org; a full email address (`tom@gmail.com`) means the org is
   that one person's. `orgHasAutoJoinDomain` (`@autonoma/types`) is the single encoding of that
   distinction - do not re-derive it by string-matching a domain.
+  **A bare-domain key is only minted when the identity provider vouches for the domain** - Google's
+  `hd` claim, or a Microsoft tenant that proves the address (`resolveSignupOrganizationKey`). A
+  provider that asserts nothing, GitHub included, always gets an address-keyed organization, even when
+  another organization already holds that bare domain. Nothing is inferred from the domain string
+  itself: guessing "company" pools strangers into one org as its owners, which an invitation cannot
+  undo, whereas guessing "personal" costs colleagues one invitation.
 - **Invitations** (`organization.invite` / `acceptInvitation`). Accepting **adds** a membership and
   points the session at it; nothing the user already belonged to is touched. Inviting an address that
   would auto-join by domain anyway is refused server-side, with an error saying so - but the Members

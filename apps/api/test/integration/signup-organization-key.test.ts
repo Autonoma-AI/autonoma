@@ -16,12 +16,13 @@ async function signUp(db: PrismaClient, email: string, name: string, assertion?:
 }
 
 /**
- * A new auto-join key is only minted on a provider's assertion.
+ * An organization is keyed on a bare domain only when the provider vouched for that domain.
  *
- * Before this, "not on our list of consumer providers" was enough to make a domain an auto-join key,
- * so a provider nobody had added pooled strangers into one organization as its owners. The list cannot
- * be completed, so the default is inverted: without proof, colleagues get separate organizations and
- * invite each other. Splitting colleagues is recoverable; pooling strangers is not.
+ * Two weaker rules used to stand in for that proof: "not on our list of consumer providers", and
+ * "some organization already holds this domain". Both pooled strangers into one organization as its
+ * owners - the first because the list cannot be completed, the second because it kept honouring keys
+ * the first had minted. Without proof, colleagues now get separate organizations and invite each
+ * other. Splitting colleagues is recoverable; pooling strangers is not.
  */
 apiTestSuite({
     name: "signup-organization-key",
@@ -38,30 +39,33 @@ apiTestSuite({
             expect(keyed).toBeNull();
         });
 
-        test("a vouched domain does become an auto-join key, and the next signup joins it", async ({ harness }) => {
+        test("a vouched domain does become an auto-join key, and the next vouched signup joins it", async ({
+            harness,
+        }) => {
             const domain = `vouched-${randomBytes(4).toString("hex")}.example`;
             const vouched: SignupDomainAssertion = { provider: "google", managedDomain: domain };
 
             const first = await signUp(harness.db, `${uniqueLocalPart()}@${domain}`, "First", vouched);
-            // The second arrives with no assertion at all - e.g. signs in with GitHub. The key already
-            // exists, so they still land with their colleague.
-            const second = await signUp(harness.db, `${uniqueLocalPart()}@${domain}`, "Second", undefined);
+            const second = await signUp(harness.db, `${uniqueLocalPart()}@${domain}`, "Second", vouched);
 
             expect(second.organizationId).toBe(first.organizationId);
             expect(await harness.db.member.count({ where: { organizationId: first.organizationId } })).toBe(2);
         });
 
-        test("an organization that already holds the domain is still joined - grandfathering", async ({ harness }) => {
-            // 516 organizations were keyed on a bare domain before this rule existed. Breaking their
-            // teams to close a hole they are not part of would be a poor trade.
+        test("an organization holding the domain is NOT joined by a signup nobody vouched for", async ({ harness }) => {
+            // The rule this replaces: holding the key was itself treated as proof, so a key minted
+            // before assertions existed kept pooling whoever arrived at that domain. An existing team
+            // is not broken by this - their own provider still vouches for them, and anyone it does not
+            // vouch for gets an invitation instead of somebody else's organization.
             const domain = `legacy-${randomBytes(4).toString("hex")}.example`;
             const legacy = await harness.db.organization.create({
                 data: { name: "Legacy", slug: `legacy-${randomBytes(4).toString("hex")}`, domain },
             });
 
-            const joiner = await signUp(harness.db, `${uniqueLocalPart()}@${domain}`, "Joiner", undefined);
+            const stranger = await signUp(harness.db, `${uniqueLocalPart()}@${domain}`, "Stranger", undefined);
 
-            expect(joiner.organizationId).toBe(legacy.id);
+            expect(stranger.organizationId).not.toBe(legacy.id);
+            expect(await harness.db.member.count({ where: { organizationId: legacy.id } })).toBe(0);
         });
 
         test("a vouched organization is treated as already named; an unvouched one is asked", async ({ harness }) => {
@@ -103,27 +107,31 @@ apiTestSuite({
             expect(second.organizationId).not.toBe(first.organizationId);
         });
 
-        test("the key resolver reports what it chose and why", async ({ harness }) => {
+        test("the key resolver keys on the domain only when vouched for", async ({ harness }) => {
             const domain = `resolver-${randomBytes(4).toString("hex")}.example`;
             const email = `${uniqueLocalPart()}@${domain}`;
 
-            expect(await resolveSignupOrganizationKey(harness.db, { email, domain, assertedCompany: true })).toEqual({
+            expect(resolveSignupOrganizationKey({ email, domain, assertedCompany: true })).toEqual({
                 key: domain,
                 autoJoin: true,
             });
-            expect(await resolveSignupOrganizationKey(harness.db, { email, domain, assertedCompany: false })).toEqual({
+            // Denied and "asserted nothing" are the same answer: neither is proof.
+            expect(resolveSignupOrganizationKey({ email, domain, assertedCompany: false })).toEqual({
                 key: email,
                 autoJoin: false,
             });
-            // No assertion, nothing holds the domain -> the address.
-            expect(await resolveSignupOrganizationKey(harness.db, { email, domain })).toEqual({
-                key: email,
+            expect(resolveSignupOrganizationKey({ email, domain })).toEqual({ key: email, autoJoin: false });
+
+            // Deciding this needs no database at all - which is the point. An organization holding the
+            // domain cannot influence the key, so there is nothing to read.
+            const held = `held-${randomBytes(4).toString("hex")}.example`;
+            await harness.db.organization.create({
+                data: { name: "Held", slug: `held-${randomBytes(4).toString("hex")}`, domain: held },
+            });
+            expect(resolveSignupOrganizationKey({ email: `someone@${held}`, domain: held })).toEqual({
+                key: `someone@${held}`,
                 autoJoin: false,
             });
-            // A known provider short-circuits before the lookup.
-            expect(
-                await resolveSignupOrganizationKey(harness.db, { email: "a@gmail.com", domain: "gmail.com" }),
-            ).toEqual({ key: "a@gmail.com", autoJoin: false });
         });
     },
 });

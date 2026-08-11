@@ -7,7 +7,6 @@ export * from "./parse-url";
 export * from "./preview-url";
 export * from "./sdk-endpoint";
 export * from "./org-domain";
-export * from "./consumer-email-domains";
 export * from "./app-links";
 export * from "./agent-handoff-links";
 export * from "./sdk-error-signals";
