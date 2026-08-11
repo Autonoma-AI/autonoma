@@ -1,5 +1,29 @@
 # Changelog
 
+## [1.260811.1](https://github.com/Autonoma-AI/agent/compare/v1.260810.1...v1.260811.1) (2026-08-11)
+
+
+### Features
+
+* **onboarding:** make Autonoma-hosted previews the default the agent cannot talk itself out of ([#2397](https://github.com/Autonoma-AI/agent/issues/2397)) ([cd6fca4](https://github.com/Autonoma-AI/agent/commit/cd6fca45bd75365f4115442d71902ca6d2f3f5f3))
+* **onboarding:** set previews up on an integration branch instead of asking which branch to use ([#2399](https://github.com/Autonoma-AI/agent/issues/2399)) ([2995a55](https://github.com/Autonoma-AI/agent/commit/2995a557019cd47b923a58bc68d1574cdaa09ea6))
+* **previewkit:** split the base preview's deploy ref from the app's trunk ([#2395](https://github.com/Autonoma-AI/agent/issues/2395)) ([e01158f](https://github.com/Autonoma-AI/agent/commit/e01158f1346bbe131d292969578cbb29dba956cf))
+* **terraform:** import EKS cluster, node, and Karpenter node IAM roles ([#2414](https://github.com/Autonoma-AI/agent/issues/2414)) ([1608f80](https://github.com/Autonoma-AI/agent/commit/1608f8013696511228f5ce167fdbb0251eb18df4))
+
+
+### Bug Fixes
+
+* **onboarding:** "preview taking shape" follows the agent's config edits ([#2407](https://github.com/Autonoma-AI/agent/issues/2407)) ([234c7bc](https://github.com/Autonoma-AI/agent/commit/234c7bcd1663fe92ef2b3d656acc3254ade3c017))
+* **onboarding:** find and repair applications whose trunk drifted off the repo default ([#2401](https://github.com/Autonoma-AI/agent/issues/2401)) ([e464847](https://github.com/Autonoma-AI/agent/commit/e46484796b077eeb4fe50347d45a3b8f24ba908e))
+* **onboarding:** only show the log panel while a deploy is running ([#2411](https://github.com/Autonoma-AI/agent/issues/2411)) ([6a9d556](https://github.com/Autonoma-AI/agent/commit/6a9d5565a0134829b7f7273ac9c5319672f9563b))
+* **onboarding:** reconcile the existing-deploys tests with the signal guard ([#2417](https://github.com/Autonoma-AI/agent/issues/2417)) ([430cd5f](https://github.com/Autonoma-AI/agent/commit/430cd5fe16139a3063c4bb088b993ae77f208767))
+* **onboarding:** stop grading the agent's tool calls with ticks and crosses ([#2406](https://github.com/Autonoma-AI/agent/issues/2406)) ([4c15b44](https://github.com/Autonoma-AI/agent/commit/4c15b44a91c5818603a3b3f4b06ea8306d2f1d73))
+* **platform:** put npm's global bin on PATH, not just make it writable ([#2412](https://github.com/Autonoma-AI/agent/issues/2412)) ([57a8be1](https://github.com/Autonoma-AI/agent/commit/57a8be1ecd9aa64d3cefd3d7c29d8991743536d8))
+* **previewkit:** build logs follow the current deploy instead of freezing on the last failure ([#2409](https://github.com/Autonoma-AI/agent/issues/2409)) ([291c22b](https://github.com/Autonoma-AI/agent/commit/291c22b1e024bf2d6d7fdc01160c67c87592375b))
+* **previewkit:** hand the base preview back to the trunk when its deploy branch is deleted ([#2403](https://github.com/Autonoma-AI/agent/issues/2403)) ([53bf699](https://github.com/Autonoma-AI/agent/commit/53bf6997f54fd49b050d333f0a5ff9a9d4d91646))
+* **previewkit:** managed services report the deploy's real state, not "unknown" ([#2405](https://github.com/Autonoma-AI/agent/issues/2405)) ([61c4417](https://github.com/Autonoma-AI/agent/commit/61c44178c1fbe06d529dc2fe78f845af08c0a51b))
+* **previewkit:** stop assuming a repository's default branch is called "main" ([#2402](https://github.com/Autonoma-AI/agent/issues/2402)) ([22dacf9](https://github.com/Autonoma-AI/agent/commit/22dacf9dbfcc1549a8efaf8f3b44131d53e3d6cb))
+
 ## [1.260810.1](https://github.com/Autonoma-AI/agent/compare/v1.260808.2...v1.260810.1) (2026-08-10)
 
 
