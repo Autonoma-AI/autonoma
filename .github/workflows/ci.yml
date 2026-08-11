@@ -201,7 +201,10 @@ jobs:
       #
       # Docker is already on the runner; each suite brings its own containers up and down.
       # @autonoma/k8s is excluded because it needs a kind cluster and has its own job above.
-      # Serialized: the suites contend for Docker, and each already disables file parallelism.
+      #
+      # One PACKAGE at a time (`--concurrency=1`), because they contend for Docker. Within a
+      # package, test files now run in parallel wherever each suite owns its own database - so this
+      # job's wall-clock is bounded by the runner's vCPUs rather than by the file count.
       - name: Integration test
         run: pnpm turbo run test:integration --continue --concurrency=1 --filter='!@autonoma/k8s'
 

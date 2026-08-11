@@ -2,9 +2,9 @@ import { randomBytes } from "node:crypto";
 import { ensureBillingProvisioning } from "@autonoma/billing";
 import { type Organization, type PrismaClient, type Session, type User, createQueryCountingClient } from "@autonoma/db";
 import { FakeGitHubApp } from "@autonoma/github";
-import type { IntegrationHarness } from "@autonoma/integration-test";
+import { type IntegrationHarness, createTestDatabase } from "@autonoma/integration-test";
 import { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
-import { LocalStorageProvider, S3Storage, type StorageProvider } from "@autonoma/storage";
+import { S3Storage, type StorageProvider } from "@autonoma/storage";
 import { FakeGenerationProvider } from "@autonoma/test-updates";
 import Redis from "ioredis";
 import { vi } from "vitest";
@@ -82,15 +82,18 @@ export class APITestHarness implements IntegrationHarness {
     }
 
     static async create(): Promise<APITestHarness> {
-        const dbUrl = process.env.TEST_DATABASE_URL;
+        // This suite's own database, forked from the migrated template - so a suite can create an
+        // organization, delete rows or leave state behind without any other suite observing it, and
+        // suites can therefore run in parallel.
+        const dbUrl = await createTestDatabase();
         const redisUrl = process.env.TEST_REDIS_URL;
         const s3Endpoint = process.env.TEST_S3_ENDPOINT;
-        const s3Bucket = process.env.TEST_S3_BUCKET!;
-        const s3Region = process.env.TEST_S3_REGION!;
+        const s3Bucket = process.env.TEST_S3_BUCKET;
+        const s3Region = process.env.TEST_S3_REGION;
 
-        if (dbUrl == null || redisUrl == null) {
+        if (redisUrl == null || s3Endpoint == null || s3Bucket == null || s3Region == null) {
             throw new Error(
-                "TEST_DATABASE_URL and TEST_REDIS_URL must be set. " +
+                "TEST_REDIS_URL and TEST_S3_* must be set. " +
                     "Run via vitest.integration.config.ts which uses globalSetup to start containers.",
             );
         }
@@ -107,17 +110,13 @@ export class APITestHarness implements IntegrationHarness {
         const startAnalysisRun = vi.fn().mockResolvedValue(undefined);
         const generationProvider = new FakeGenerationProvider();
 
-        const storageDir = process.env.TEST_STORAGE_DIR;
-        const storage: StorageProvider =
-            storageDir != null
-                ? new LocalStorageProvider(storageDir)
-                : new S3Storage({
-                      bucket: s3Bucket,
-                      region: s3Region,
-                      accessKeyId: "test",
-                      secretAccessKey: "test",
-                      endpoint: s3Endpoint!,
-                  });
+        const storage: StorageProvider = new S3Storage({
+            bucket: s3Bucket,
+            region: s3Region,
+            accessKeyId: "test",
+            secretAccessKey: "test",
+            endpoint: s3Endpoint,
+        });
 
         const githubApp = new FakeGitHubApp();
         const emailSender = new RecordingEmailSender();
@@ -179,6 +178,11 @@ export class APITestHarness implements IntegrationHarness {
 
     async afterAll() {
         await this.redisClient?.quit();
+        // Hand the pool back rather than leaving it to the container teardown. A worker runs several
+        // suites in sequence, so an undisconnected client per suite accumulates idle connections in
+        // one process - and with suites now running in parallel, the server's max_connections is a
+        // shared ceiling every worker draws on.
+        await this.db.$disconnect();
     }
 
     async beforeEach() {}

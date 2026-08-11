@@ -1,8 +1,5 @@
 import { type PrismaClient, SnapshotStatus, createClient } from "@autonoma/db";
-import type { IntegrationHarness } from "@autonoma/integration-test";
-
-/** Advisory-lock key that serializes seeded-preview number allocation across workers. */
-const SEED_ALLOCATION_LOCK_KEY = 728413;
+import { type IntegrationHarness, createTestDatabase } from "@autonoma/integration-test";
 
 /** Seeded GitHub repository ids start above this, so they read as harness-made. */
 const SEEDED_GITHUB_REPOSITORY_ID_FLOOR = 900000;
@@ -11,19 +8,15 @@ export class OnboardingTestHarness implements IntegrationHarness {
     constructor(public readonly db: PrismaClient) {}
 
     static async create(): Promise<OnboardingTestHarness> {
-        const dbUrl = process.env.TEST_DATABASE_URL;
-        if (dbUrl == null) {
-            throw new Error(
-                "TEST_DATABASE_URL must be set. Run via vitest.integration.config.ts which uses globalSetup to start containers.",
-            );
-        }
-        const db = createClient(dbUrl);
+        const db = createClient(await createTestDatabase());
         return new OnboardingTestHarness(db);
     }
 
     async beforeAll() {}
 
-    async afterAll() {}
+    async afterAll() {
+        await this.db.$disconnect();
+    }
 
     async beforeEach() {}
 
@@ -157,13 +150,8 @@ export class OnboardingTestHarness implements IntegrationHarness {
      * that saves one calls this first.
      *
      * Both numbers are allocated from the database rather than from a
-     * per-process counter, because vitest gives each test file its own worker
-     * while every worker shares ONE database: two files seeding the same repo
-     * name would each claim PR 1 and the second would trip the unique
-     * `namespace` and `(repoFullName, prNumber)` constraints - a failure that
-     * only shows up in the full suite. The advisory lock, held until the
-     * transaction commits, serializes the read-then-insert against the other
-     * workers so concurrent seeds cannot pick the same numbers.
+     * per-process counter, so repeated seeds within a suite cannot collide on
+     * the unique `namespace` or `(repoFullName, prNumber)` constraints.
      *
      * The repository id is allocated above BOTH tables' high-water mark, not
      * just the applications': an environment has no foreign key to an
@@ -173,9 +161,6 @@ export class OnboardingTestHarness implements IntegrationHarness {
      */
     async linkPreviewRepo(applicationId: string, organizationId: string, repoFullName: string): Promise<void> {
         await this.db.$transaction(async (tx) => {
-            // Wrapped in a subquery because Prisma cannot deserialize the lock function's `void` column.
-            await tx.$queryRaw`SELECT true AS locked FROM (SELECT pg_advisory_xact_lock(${SEED_ALLOCATION_LOCK_KEY})) AS lock_acquired`;
-
             const [environments, applications, seededEnvironments] = await Promise.all([
                 tx.previewkitEnvironment.aggregate({ where: { repoFullName }, _max: { prNumber: true } }),
                 tx.application.aggregate({ _max: { githubRepositoryId: true } }),

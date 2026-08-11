@@ -1,58 +1,34 @@
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { POSTGRES_IMAGE } from "@autonoma/integration-test";
+import { startSharedPostgres } from "@autonoma/integration-test";
 import { CreateBucketCommand, S3Client } from "@aws-sdk/client-s3";
 import { LocalstackContainer } from "@testcontainers/localstack";
-import { PostgreSqlContainer } from "@testcontainers/postgresql";
 import { RedisContainer } from "@testcontainers/redis";
 
 const MINISTACK_IMAGE = "ministackorg/ministack:1.4.7";
 const REDIS_IMAGE = "redis:7-alpine";
 const TEST_BUCKET = "test-bucket";
 const TEST_REGION = "us-east-1";
+const CONTAINER_STARTUP_TIMEOUT_MS = 120_000;
 
 let teardownFns: (() => Promise<void>)[] = [];
 
+/**
+ * One Postgres, one Redis and one S3 emulator for the whole run. Each suite forks its own
+ * database from the migrated template (see `APITestHarness.create`), so suites can run in
+ * parallel without seeing each other's rows.
+ */
 export async function setup(): Promise<void> {
     // Set TESTING before any @autonoma/* imports so createEnv skips validation
     process.env.TESTING = "true";
-
-    const useCI = process.env.CI_DATABASE_URL != null && process.env.CI_REDIS_URL != null;
-
-    if (useCI) {
-        await setupCI();
-    } else {
-        await setupTestcontainers();
-    }
-}
-
-/** CI: use GitHub Actions service containers + local filesystem for storage. */
-async function setupCI(): Promise<void> {
-    const pgUrl = process.env.CI_DATABASE_URL!;
     const { applyMigrations } = await import("@autonoma/db");
-    applyMigrations(pgUrl);
 
-    process.env.TEST_DATABASE_URL = pgUrl;
-    process.env.TEST_REDIS_URL = process.env.CI_REDIS_URL!;
-    // Signal harness to use LocalStorageProvider instead of S3
-    process.env.TEST_STORAGE_DIR = mkdtempSync(join(tmpdir(), "api-test-"));
-}
-
-/** Local: spin up Testcontainers for PostgreSQL, Redis, and Ministack (LocalStack-compatible S3 emulator). */
-async function setupTestcontainers(): Promise<void> {
-    const [pgContainer, msContainer, redisContainer] = await Promise.all([
-        new PostgreSqlContainer(POSTGRES_IMAGE).withStartupTimeout(120_000).start(),
+    const [shared, msContainer, redisContainer] = await Promise.all([
+        startSharedPostgres({ migrate: applyMigrations }),
         new LocalstackContainer(MINISTACK_IMAGE)
             .withEnvironment({ SERVICES: "s3" })
-            .withStartupTimeout(120_000)
+            .withStartupTimeout(CONTAINER_STARTUP_TIMEOUT_MS)
             .start(),
-        new RedisContainer(REDIS_IMAGE).withStartupTimeout(120_000).start(),
+        new RedisContainer(REDIS_IMAGE).withStartupTimeout(CONTAINER_STARTUP_TIMEOUT_MS).start(),
     ]);
-
-    const pgUrl = pgContainer.getConnectionUri();
-    const { applyMigrations } = await import("@autonoma/db");
-    applyMigrations(pgUrl);
 
     const msEndpoint = msContainer.getConnectionUri();
     const s3Client = new S3Client({
@@ -63,7 +39,6 @@ async function setupTestcontainers(): Promise<void> {
     });
     await s3Client.send(new CreateBucketCommand({ Bucket: TEST_BUCKET }));
 
-    process.env.TEST_DATABASE_URL = pgUrl;
     process.env.TEST_REDIS_URL = redisContainer.getConnectionUrl();
     process.env.TEST_S3_ENDPOINT = msEndpoint;
     process.env.TEST_S3_BUCKET = TEST_BUCKET;
@@ -73,9 +48,7 @@ async function setupTestcontainers(): Promise<void> {
         async () => {
             await redisContainer.stop();
         },
-        async () => {
-            await pgContainer.stop();
-        },
+        shared.stop,
         async () => {
             await msContainer.stop();
         },

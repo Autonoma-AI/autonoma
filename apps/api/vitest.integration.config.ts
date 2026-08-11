@@ -4,8 +4,10 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
     test: {
-        include: ["test/**/*.test.ts"],
-        fileParallelism: false,
+        // Only the suites that need containers. `test/unit/**` is vitest.config.ts's include, so
+        // globbing all of test/ here ran every unit file a second time - in the slowest place to
+        // run it, behind this config's globalSetup.
+        include: ["test/integration/**/*.test.ts", "test/onboarding/**/*.test.ts"],
         globalSetup: ["./test/global-setup.ts"],
         testTimeout: 15000,
         env: {
