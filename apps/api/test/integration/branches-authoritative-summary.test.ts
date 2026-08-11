@@ -8,7 +8,7 @@ import { seedAnalysisFindings } from "../seed-analysis-findings";
 /**
  * The checkpoint-history rail (branches.snapshotHistory) must read an authoritative snapshot's badge from the
  * AnalysisReport verdict + finding categories, not the legacy health/Bug model the merged pipeline never
- * populates. A legacy diffs snapshot must be untouched.
+ * populates. A snapshot with no analysis job carries no analysis summary at all.
  */
 
 async function createBranch(harness: APITestHarness): Promise<{ branchId: string }> {
@@ -159,12 +159,9 @@ apiTestSuite({
             expect(row?.health).toBe("unknown");
         });
 
-        test("a legacy diffs snapshot carries no authoritative analysis on its summary", async ({ harness }) => {
+        test("a snapshot with no AnalysisJob carries no analysis on its summary", async ({ harness }) => {
             const { branchId } = await createBranch(harness);
-            const snapshotId = await createSnapshot(harness, branchId, "head-legacy");
-            await harness.db.diffsJob.create({
-                data: { snapshotId, status: "completed", organizationId: harness.organizationId },
-            });
+            const snapshotId = await createSnapshot(harness, branchId, "head-no-job");
 
             const history = await harness.request().branches.snapshotHistory({ branchId });
             const row = history.find((s) => s.id === snapshotId);

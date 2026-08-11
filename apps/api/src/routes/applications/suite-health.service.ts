@@ -179,8 +179,8 @@ export class SuiteHealthService extends Service {
      * clock (`ageDays`) and `hasEverRun`, which is what separates "waiting for your first PR" from "calibrating".
      *
      * Keyed to the oldest trigger-created snapshot rather than to a job row, so it spans the diffs -> analysis
-     * cutover: keying it to `AnalysisJob` would reset every pre-cutover customer's clock, and `DiffsJob` is being
-     * dropped. `MANUAL` is excluded because those snapshots are not runs - one is minted at application setup and
+     * cutover: keying it to `AnalysisJob` would reset every pre-cutover customer's clock, since only post-cutover
+     * runs have one. `MANUAL` is excluded because those snapshots are not runs - one is minted at application setup and
      * one per suite edit in the UI, so including them would start the age clock at signup and make `hasEverRun`
      * true for every application that exists.
      */

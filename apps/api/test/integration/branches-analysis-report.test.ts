@@ -115,7 +115,7 @@ apiTestSuite({
     },
 });
 
-/** An active snapshot with an AnalysisJob and NO DiffsJob - the authoritative-mode shape. */
+/** An active snapshot with an AnalysisJob - the shape an analysis run leaves behind. */
 async function createAuthoritativeSnapshot(harness: APITestHarness): Promise<{ snapshotId: string }> {
     const application = await harness.services.applications.createApplication({
         name: `Analysis Report ${crypto.randomUUID()}`,

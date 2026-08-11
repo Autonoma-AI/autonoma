@@ -1366,30 +1366,6 @@ const TestCaseAssignmentFactory = defineFactory({
     },
 });
 
-const RefinementLoopInput = loose({
-    snapshotId: z.string(),
-    organizationId: z.string(),
-    triggeredBy: z.enum(["onboarding", "diffs"]).optional(),
-    status: z.enum(["running", "converged", "max_iterations", "error"]).optional(),
-});
-
-const RefinementLoopFactory = defineFactory({
-    inputSchema: RefinementLoopInput,
-    refSchema: emptyRef,
-    create: async (data) => {
-        const row = await db.refinementLoop.create({
-            data: {
-                snapshotId: data.snapshotId,
-                organizationId: data.organizationId,
-                triggeredBy: data.triggeredBy ?? "diffs",
-                status: data.status ?? "converged",
-                finishedAt: new Date(),
-            },
-        });
-        return { id: row.id };
-    },
-});
-
 const ScenarioRecipeVersionInput = loose({
     scenarioId: z.string(),
     snapshotId: z.string(),
@@ -1506,6 +1482,5 @@ export const autonomaFactories = {
     AnalysisIssue: AnalysisIssueFactory,
     AnalysisFinding: AnalysisFindingFactory,
     AnalysisClassification: AnalysisClassificationFactory,
-    RefinementLoop: RefinementLoopFactory,
     ScenarioRecipeVersion: ScenarioRecipeVersionFactory,
 };
