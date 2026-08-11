@@ -76,6 +76,7 @@ export async function resolvePreviewTarget(input: ResolvePreviewTargetInput): Pr
     return {
         organizationId,
         hasRecordedPreview,
+        onboardingComplete,
         target: {
             repoFullName,
             prNumber,
