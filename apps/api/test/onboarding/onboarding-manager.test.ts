@@ -950,7 +950,10 @@ integrationTestSuite({
             expect(state.previewUrl).toBe("https://byo-preview.example.com");
         });
 
-        test("existing-deploys flow advances configuring -> waiting -> preview_verified on signal", async ({
+        // The signal is what advances this path - confirming does not, and is refused
+        // outright until one has landed ("confirming existing-deploys setup is refused
+        // until a signal has landed" covers that).
+        test("existing-deploys flow advances configuring -> preview_verified on signal", async ({
             harness,
             seedResult: { orgId, manager, createApp },
         }) => {
@@ -964,13 +967,6 @@ integrationTestSuite({
 
             await manager.selectPreviewEnvironmentMode(appId, orgId, "existing_deploys");
             expect((await manager.getState(appId)).step).toBe("existing_deploys_configuring");
-
-            await manager.confirmExistingDeploysSetup(appId, orgId);
-            expect((await manager.getState(appId)).step).toBe("existing_deploys_waiting");
-
-            // Idempotent from the waiting state.
-            await manager.confirmExistingDeploysSetup(appId, orgId);
-            expect((await manager.getState(appId)).step).toBe("existing_deploys_waiting");
 
             const bodyText = deploymentSignalBody(appId, "https://byo-preview.example.com");
             await manager.acceptDeploymentSignal({
@@ -1189,7 +1185,7 @@ integrationTestSuite({
             seedResult: { createApp },
         }) => {
             const appId = await createApp();
-            await linkRepository(harness, appId, 91_031);
+            await linkRepository(harness, appId, 91_131);
             await harness.db.onboardingState.upsert({
                 where: { applicationId: appId },
                 create: { applicationId: appId, step: "completed", previewEnvironmentMode: "existing_deploys" },
@@ -1215,7 +1211,7 @@ integrationTestSuite({
             expect(result.ignored).toBe(false);
             expect(diffsTrigger.triggerPrDiffs).toHaveBeenCalledWith({
                 organizationId: expect.any(String),
-                repoId: 91_031,
+                repoId: 91_131,
                 prNumber: 42,
                 url: "https://pr-42.example.com",
                 webhookUrl: "https://pr-42.example.com/api/autonoma",
@@ -1232,7 +1228,7 @@ integrationTestSuite({
             seedResult: { createApp },
         }) => {
             const appId = await createApp();
-            await linkRepository(harness, appId, 91_032);
+            await linkRepository(harness, appId, 91_132);
             await harness.db.onboardingState.upsert({
                 where: { applicationId: appId },
                 create: { applicationId: appId, step: "completed", previewEnvironmentMode: "existing_deploys" },
@@ -1252,7 +1248,7 @@ integrationTestSuite({
 
             expect(diffsTrigger.triggerMainDiffs).toHaveBeenCalledWith({
                 organizationId: expect.any(String),
-                repoId: 91_032,
+                repoId: 91_132,
                 url: "https://main-preview.example.com",
                 webhookUrl: "https://main-preview.example.com/api/autonoma",
             });
@@ -1266,7 +1262,7 @@ integrationTestSuite({
             seedResult: { createApp },
         }) => {
             const appId = await createApp();
-            await linkRepository(harness, appId, 91_033);
+            await linkRepository(harness, appId, 91_133);
             await harness.db.onboardingState.upsert({
                 where: { applicationId: appId },
                 create: {
