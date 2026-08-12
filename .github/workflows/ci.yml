@@ -3,31 +3,20 @@ name: CI Checks
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review, edited]
+    # No `edited`: a title/body/base tweak has nothing for this suite to re-run,
+    # and a run that skips all of its jobs would still publish a "skipped"
+    # conclusion over the real one for every required check. Title validation
+    # lives in pr-title.yml, which is the workflow that does want `edited`.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
   group: ci-${{ github.event.pull_request.number }}
-  # A plain title/body/base edit shouldn't cancel an in-progress full suite run
-  # from a real push - only a new commit (or reopen/ready-for-review) should.
-  cancel-in-progress: ${{ github.event.action != 'edited' }}
+  cancel-in-progress: true
 
 jobs:
-  validate-pr-title:
-    name: Validate Pull Request title
-    runs-on: ubuntu-latest
-    if: github.event.pull_request.draft == false
-    steps:
-      - name: Conventional Commit Validation
-        uses: ytanikin/pr-conventional-commits@1.5.2
-        with:
-          task_types: '["feat","fix","docs","test","ci","refactor","perf","chore","revert", "style"]'
-          add_label: "false"
-
   changes:
     name: Detect changes
-    # "edited" (title/body/base tweaks, no new commit) only needs to re-run
-    # validate-pr-title, not the whole lint/test/build/typecheck suite.
-    if: github.event.pull_request.draft == false && github.event.action != 'edited'
+    if: github.event.pull_request.draft == false
     runs-on: [self-hosted, autonoma-2vcpu]
     timeout-minutes: 15
     outputs:
@@ -125,7 +114,7 @@ jobs:
     name: Lint
     runs-on: [self-hosted, autonoma-4vcpu]
     timeout-minutes: 20
-    if: github.event.pull_request.draft == false && github.event.action != 'edited'
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -152,7 +141,7 @@ jobs:
     name: Test
     runs-on: [self-hosted, autonoma-8vcpu]
     timeout-minutes: 30
-    if: github.event.pull_request.draft == false && github.event.action != 'edited'
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -188,7 +177,7 @@ jobs:
     name: Integration tests
     runs-on: [self-hosted, autonoma-4vcpu]
     timeout-minutes: 30
-    if: github.event.pull_request.draft == false && github.event.action != 'edited'
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -212,7 +201,7 @@ jobs:
     name: Build
     runs-on: [self-hosted, autonoma-8vcpu]
     timeout-minutes: 30
-    if: github.event.pull_request.draft == false && github.event.action != 'edited'
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -235,7 +224,7 @@ jobs:
     name: Typecheck
     runs-on: [self-hosted, autonoma-8vcpu]
     timeout-minutes: 30
-    if: github.event.pull_request.draft == false && github.event.action != 'edited'
+    if: github.event.pull_request.draft == false
     steps:
       - name: Checkout
         uses: actions/checkout@v7
