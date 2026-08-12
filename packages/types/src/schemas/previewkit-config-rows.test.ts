@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { type PreviewConfig, trustedPreviewConfigSchema } from "./previewkit-config";
 import {
     documentFromPreviewkitConfigRows,
@@ -40,6 +41,7 @@ function store(values: PreviewkitConfigRowValues): PreviewkitConfigRows {
             healthCheck: app.healthCheck ?? null,
             primary: app.primary ?? null,
             sdkImplemented: app.sdkImplemented ?? null,
+            sdkPath: app.sdkPath ?? null,
             resourcesCpu: app.resourcesCpu,
             resourcesMemoryRequest: app.resourcesMemoryRequest,
             resourcesMemoryLimit: app.resourcesMemoryLimit,
@@ -95,6 +97,57 @@ const MINIMAL = {
     version: 2,
     apps: [{ name: "web", repository: "acme/web", port: 3000 }],
 };
+
+/**
+ * Every field the config schema carries, and which of them the codec is
+ * responsible for. A fixture round trip cannot catch a field nobody thought to
+ * put in a fixture - `sdk_path` was stored, dropped on the way to rows, and only
+ * found by a parity sweep over real data - so these lists are asserted against
+ * the schema itself. Adding a field to the schema fails this test until the codec
+ * carries it and the field is listed here.
+ */
+const SCHEMA_FIELDS = {
+    top: ["version", "domain", "registry", "repositories", "branch_convention", "apps", "services", "hooks"],
+    app: [
+        "name",
+        "repository",
+        "path",
+        "build_context",
+        "dockerfile",
+        "build",
+        "blueprint",
+        "build_secrets",
+        "port",
+        "connections",
+        "command",
+        "health_check",
+        "primary",
+        "sdk_implemented",
+        "sdk_path",
+        "resources",
+        "depends_on",
+    ],
+    service: ["name", "recipe", "version", "options", "setup_tasks", "resources", "s3", "sqs", "sns"],
+};
+
+const objectNode = z.object({ properties: z.record(z.string(), z.unknown()) });
+const arrayNode = z.object({ items: z.unknown() });
+
+/** The output-side property names at one level of the schema, via Zod's own reflection. */
+function schemaFields(level: "top" | "app" | "service"): string[] {
+    const json = z.toJSONSchema(trustedPreviewConfigSchema, { io: "output", unrepresentable: "any" });
+    const top = objectNode.parse(json).properties;
+    if (level === "top") return Object.keys(top);
+
+    const collection = level === "app" ? top.apps : top.services;
+    return Object.keys(objectNode.parse(arrayNode.parse(collection).items).properties);
+}
+
+describe("preview config field coverage", () => {
+    it.each(["top", "app", "service"] as const)("carries every %s-level field the schema defines", (level) => {
+        expect(schemaFields(level).sort()).toEqual([...SCHEMA_FIELDS[level]].sort());
+    });
+});
 
 describe("preview config rows round trip", () => {
     it("preserves a minimal document", () => {
@@ -232,6 +285,19 @@ describe("preview config rows round trip", () => {
 
         expect(config.apps[0]?.primary).toBe(false);
         expect(config.apps[0]?.sdk_implemented).toBe(false);
+    });
+
+    it("preserves a declared sdk_path, which absent does not stand in for", () => {
+        const config = expectRoundTrip({
+            version: 2,
+            apps: [
+                { name: "web", repository: "acme/web", port: 3000, sdk_implemented: true, sdk_path: "/autonoma" },
+                { name: "api", repository: "acme/web", port: 4000 },
+            ],
+        });
+
+        expect(config.apps[0]?.sdk_path).toBe("/autonoma");
+        expect(config.apps[1]?.sdk_path).toBeUndefined();
     });
 
     it("composes an empty depends_on away, so absent and empty both read as empty", () => {

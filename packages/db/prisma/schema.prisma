@@ -2670,6 +2670,11 @@ model PreviewkitConfigApp {
   primary        Boolean?
   sdkImplemented Boolean? @map("sdk_implemented")
 
+  // Where this app mounts the SDK handler, when it is not the conventional
+  // path. Absent is NOT the same as the convention: it means the config has no
+  // opinion, which is what keeps a hand-registered endpoint from being rewritten.
+  sdkPath String? @map("sdk_path")
+
   resourcesCpu           String @map("resources_cpu")
   resourcesMemoryRequest String @map("resources_memory_request")
   resourcesMemoryLimit   String @map("resources_memory_limit")
