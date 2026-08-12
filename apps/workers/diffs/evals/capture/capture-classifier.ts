@@ -238,12 +238,12 @@ interface FrozenPreviewFacts {
  * The preview facts a case carries: which live-infra tools production had, approximated at capture time, the
  * env-var names a replay serves `get_preview_env` from, and the namespace its log window is read out of.
  *
- * Production gated all three tools on the one fact read here - whether previewkit deployed this PR. The log tool
- * additionally needs a Loki endpoint, but on the WORKER that classifies, which has one; THIS machine's
- * `LOKI_URL` says only whether capture can freeze the window, never whether production had the tool, so it is
- * deliberately not read. The capabilities are an approximation only because the row is read NOW rather than at
- * classification time; they are recorded so a case says plainly what its replay cannot serve, not to reconstruct
- * the toolset.
+ * Production gated all three live-infra tools on the one fact read here - whether previewkit deployed this PR -
+ * so the case records that single fact. The log tool additionally needs a Loki endpoint, but on the WORKER that
+ * classifies, which has one; THIS machine's `LOKI_URL` says only whether capture can freeze the window, never
+ * whether production had the tool, so it is deliberately not read. The fact is an approximation only because the
+ * row is read NOW rather than at classification time; it is recorded so a case says plainly what its replay
+ * cannot serve, not to reconstruct the toolset.
  */
 async function freezePreviewFacts(
     repoFullName: string,
@@ -257,12 +257,7 @@ async function freezePreviewFacts(
         select: { namespace: true, resolvedConfig: true },
     });
 
-    const previewIntegrated = previewEnvironment != null;
-    const capabilities: ProductionCapabilities = {
-        previewEnv: previewIntegrated,
-        previewScript: previewIntegrated,
-        appLogs: previewIntegrated,
-    };
+    const capabilities: ProductionCapabilities = { previewkitManaged: previewEnvironment != null };
     if (previewEnvironment == null) return { capabilities };
 
     const previewEnvNames = await freezeEnvVarNames({

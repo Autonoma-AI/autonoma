@@ -57,7 +57,7 @@ const SOURCE: ClassifierCaseSource = {
         lines: [{ timestampNs: "1770000060000000000", line: "ERROR checkout failed: ECONNREFUSED" }],
         windowTruncated: false,
     },
-    productionCapabilities: { previewEnv: true, previewScript: true, appLogs: true },
+    productionCapabilities: { previewkitManaged: true },
 };
 
 /** A window that filled its own capture cap, so replay must warn about older matches it never froze. */

@@ -314,17 +314,20 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
 /**
  * The tools production had and this replay cannot serve, named for a result file.
  *
- * `get_preview_env` and `get_app_logs` count as missing only when the case carries no frozen name list / no
- * frozen window: a case captured with one offers the same tool over the same data, so listing it here would
- * report a gap that is not there.
+ * All of them existed only when previewkit deployed the PR - the one fact `previewkitManaged` records - so a case
+ * from a PR without a preview has no gap to report. When it did, `run_script` is always gone (a query against a
+ * live backend has no frozen form), while `get_preview_env` and `get_app_logs` are gone only when their frozen
+ * data is absent: a case carrying the name list / the log window offers the same tool over the same data, so
+ * listing it would report a gap that is not there.
  */
 function describeMissingTools(input: ClassifierCaseInput): string {
-    const capabilities = input.productionCapabilities;
+    if (!input.productionCapabilities.previewkitManaged) return "none";
+
     const missing: string[] = [];
-    if (capabilities.previewEnv && input.previewEnvNames == null) missing.push("get_preview_env");
-    if (capabilities.previewScript) missing.push("run_script");
-    if (capabilities.appLogs && input.appLogs == null) missing.push("get_app_logs");
-    return missing.length > 0 ? missing.join(", ") : "none";
+    if (input.previewEnvNames == null) missing.push("get_preview_env");
+    missing.push("run_script");
+    if (input.appLogs == null) missing.push("get_app_logs");
+    return missing.join(", ");
 }
 
 /** How much log evidence the replay is serving, so a verdict resting on logs can be read against it. */

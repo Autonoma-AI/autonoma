@@ -6,27 +6,20 @@ import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
 import { frozenPreviewEnv } from "./frozen-preview-env";
 
 /**
- * Which of the classifier's live-infra capabilities production actually had, recorded at capture.
+ * The one fact production's live-infra tools all hung on: whether previewkit deployed this PR.
  *
- * A case frozen from a preview-integrated run may be graded against a classifier that can see less than the one
- * whose verdict is quoted in `capturedCategory`. That gap is a real property of the case, so it is written down
- * rather than left for a reader to infer from an absent field. Whether the replay closes it is a separate
- * question, answered by what the case carries - `previewEnvNames` for env listing, `appLogs` for the log stream,
- * nothing for `run_script`.
+ * A case frozen from a preview-integrated run may be graded against a classifier that could see more than this
+ * replay can - `run_script` has no frozen form, and a case may carry neither the env-var list nor the log window.
+ * That gap is a real property of the case, so it is written down rather than left for a reader to infer from an
+ * absent field. Whether the replay closes it is a separate, PER-TOOL question, answered by what the case carries
+ * - `previewEnvNames` for env listing, `appLogs` for the log stream, nothing for `run_script`. This single
+ * boolean only records what production HAD.
  *
- * All three currently hold the SAME value: production gates every one of them on whether previewkit deployed
- * the PR. Read them as one fact per case, not three independent ones - the split survives only because the
- * REPLAY side does differ per tool, and collapsing the record to `previewkitManaged` would migrate every case in
- * the corpus. Tracked in #2233.
+ * It is ONE boolean and not one per tool: production gated every live-infra tool on this single fact, so a
+ * per-tool record would carry three values that can never disagree. The per-tool differences are all on the
+ * replay side, and live on the frozen data present - not here.
  */
-const productionCapabilitiesSchema = z.object({
-    /** `get_preview_env` - the preview's configured env-var names. Replayable from `previewEnvNames`. */
-    previewEnv: z.boolean(),
-    /** `run_script` - a read-only script against the preview's live backend. Never replayable. */
-    previewScript: z.boolean(),
-    /** `get_app_logs` - the preview's Loki stream over the run window. */
-    appLogs: z.boolean(),
-});
+const productionCapabilitiesSchema = z.object({ previewkitManaged: z.boolean() });
 
 export type ProductionCapabilities = z.infer<typeof productionCapabilitiesSchema>;
 

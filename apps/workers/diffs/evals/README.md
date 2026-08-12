@@ -128,9 +128,12 @@ verdict moves between two runs of an unchanged classifier - which is what `runs:
 **What a replay cannot serve.** One of the classifier's live-infra capabilities has no
 frozen form: the preview's live backend (`run_script`). A replay passes it as absent, and
 the classifier is told so through its own evidence-limits note, so it caps unprovable
-claims instead of guessing. Every case records in `productionCapabilities` what production
-actually had, so a case captured from a preview-integrated run says outright when it is
-graded against a classifier that could see more than this replay does.
+claims instead of guessing. Every case records in `productionCapabilities` the one fact all
+those tools hung on - `previewkitManaged`, whether previewkit deployed the PR - so a case
+captured from a preview-integrated run says outright when it is graded against a classifier
+that could see more than this replay does. What the replay actually closes stays a per-tool
+question, answered by which frozen data the case carries (`previewEnvNames`, `appLogs`), not
+by that one fact.
 
 `get_preview_env` and `get_app_logs` are the exceptions, and both ARE served in replay -
 they are the capabilities that reduce to data. Listing the preview's
