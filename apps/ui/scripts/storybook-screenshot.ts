@@ -47,6 +47,8 @@ interface CliOptions {
     waitUntil: WaitUntil;
     /** CSS selector to hover before capturing, for states that only exist under a pointer. */
     hover?: string;
+    /** CSS selector to click before capturing, for menus and popovers that only exist once opened. */
+    click?: string;
     allowUnmocked: boolean;
 }
 
@@ -115,6 +117,13 @@ async function shootStory(
         if (options.hover != null) {
             await page.hover(options.hover);
         }
+        // Opens whatever the click reveals - a menu, a popover - so a state that exists
+        // only while open can be photographed. Portalled content renders outside the
+        // story root, which is why this is a real click rather than a story that renders
+        // the open state directly.
+        if (options.click != null) {
+            await page.click(options.click);
+        }
         await page.waitForTimeout(options.settleMs);
 
         const file = path.join(options.outDir, `${storyId}.png`);
@@ -137,6 +146,7 @@ function parseCliOptions(): CliOptions {
             "settle-ms": { type: "string" },
             "wait-until": { type: "string" },
             hover: { type: "string" },
+            click: { type: "string" },
             "allow-unmocked": { type: "boolean" },
         },
     });
@@ -157,6 +167,7 @@ function parseCliOptions(): CliOptions {
         settleMs: values["settle-ms"] != null ? Number(values["settle-ms"]) : DEFAULT_SETTLE_MS,
         waitUntil: parseWaitUntil(values["wait-until"]),
         hover: values.hover,
+        click: values.click,
         allowUnmocked: values["allow-unmocked"] ?? false,
     };
 }

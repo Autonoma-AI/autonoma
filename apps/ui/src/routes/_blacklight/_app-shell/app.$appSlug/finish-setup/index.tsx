@@ -37,6 +37,7 @@ import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { type PreviewLogSource, PreviewLogsTabs } from "components/build-logs/preview-logs-tabs";
 import { AGENT_DIALOG_DESCRIPTION, ConnectAgentDialog } from "components/connect-agent-dialog";
+import { CopyCommandMenu } from "components/copy-command-menu";
 import { NameTheMcpNote } from "components/name-the-mcp-note";
 import { NoVercelDeploymentsNotice } from "components/no-vercel-deployments-notice";
 import { getApiOrigin } from "lib/api-origin";
@@ -60,8 +61,9 @@ import {
   useVercelDeployments,
   useVercelDeploymentStatus,
 } from "lib/onboarding/onboarding-api";
-import { buildPlannerCommand } from "lib/onboarding/planner-command";
+import { buildPlannerCommand, type CommandShell } from "lib/onboarding/planner-command";
 import { ENVIRONMENT_FACTORY_GUIDE_URL, FRAMEWORK_EXAMPLE_URL } from "lib/onboarding/sdk-docs-links";
+import { useCommandShell } from "lib/onboarding/use-command-shell";
 import { ensureAPIQueryData } from "lib/query/api-queries";
 import {
   useArtifactStatus,
@@ -1672,6 +1674,9 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
   const { user, isAdmin } = useAuth();
   const { data: sharedSecretData } = useApplicationSharedSecret(applicationId);
   const setup = useCliSetup(applicationId);
+  // One shell for both blocks on this screen: whoever is on Windows is on Windows for
+  // the re-upload command too.
+  const [shell, setShell] = useCommandShell();
 
   const sharedSecret = sharedSecretData?.sharedSecret;
   // AUTONOMA_API_TOKEN authenticates the CLI against our managed LLM proxy, so it
@@ -1692,8 +1697,15 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
         }
       : undefined;
 
-  const npxCommand = commandEnv != null ? buildPlannerCommand(commandEnv) : undefined;
-  const uploadCommand = commandEnv != null ? `${buildPlannerCommand(commandEnv)} upload` : undefined;
+  // Passed as builders rather than strings: the shell is chosen by the same click that
+  // copies, so the block has to be able to render a form it is not currently showing.
+  const buildRunCommand = (forShell: CommandShell) =>
+    commandEnv != null ? buildPlannerCommand(commandEnv, { shell: forShell }) : undefined;
+  // `upload` has to reach the planner invocation itself. On the Windows shells the
+  // variables are separate lines, so appending it to the whole command would hand it
+  // to `set` instead.
+  const buildUploadCommand = (forShell: CommandShell) =>
+    commandEnv != null ? buildPlannerCommand(commandEnv, { shell: forShell, subcommand: "upload" }) : undefined;
 
   // One derived list feeds the chips, the count and the heading, so none of them can
   // disagree and no artifact total is hardcoded.
@@ -1720,7 +1732,7 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1.5">
         <Label>Run in your terminal</Label>
-        <CommandBlock command={npxCommand} />
+        <CommandBlock buildCommand={buildRunCommand} shell={shell} onShellChange={setShell} />
       </div>
 
       {setup.status === "loading" && (
@@ -1769,7 +1781,7 @@ function ArtifactsStepBody({ applicationId, artifacts }: { applicationId: string
               </p>
             </div>
           </div>
-          <CommandBlock command={uploadCommand} />
+          <CommandBlock buildCommand={buildUploadCommand} shell={shell} onShellChange={setShell} />
         </div>
       )}
 
@@ -1834,8 +1846,23 @@ function ArtifactChip({ label, description, received }: { label: string; descrip
  * action, and the toast is where the "now paste it" instruction lives so the
  * step body does not have to spend a paragraph on it.
  */
-function CommandBlock({ command }: { command?: string }) {
+interface CommandBlockProps {
+  /** Renders the command for a shell; undefined until the setup's token exists. */
+  buildCommand: (shell: CommandShell) => string | undefined;
+  shell: CommandShell;
+  onShellChange: (shell: CommandShell) => void;
+}
+
+function CommandBlock({ buildCommand, shell, onShellChange }: CommandBlockProps) {
   const [copied, setCopied] = useState(false);
+  // Owned here rather than inside the menu so the command text can raise it while the
+  // popup stays anchored to the copy button.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const command = buildCommand(shell);
+  // A `$` prompt in front of a one-liner reads as "this is a shell command". In front
+  // of the Windows forms, which set each variable on its own line, it would mark only
+  // the first of several - and sit next to PowerShell's own `$env:`.
+  const isSingleLine = command != null && !command.includes("\n");
 
   // Drop the confirmation again so the block reads as copyable a second time
   // instead of being stuck on "Copied".
@@ -1845,8 +1872,12 @@ function CommandBlock({ command }: { command?: string }) {
     return () => clearTimeout(timer);
   }, [copied]);
 
-  function handleCopy() {
-    if (command == null) return;
+  function handleCopy(picked: CommandShell) {
+    onShellChange(picked);
+    // The command on screen is still written for the previous shell for one render, so
+    // rebuild it here rather than copying what is displayed.
+    const pickedCommand = buildCommand(picked);
+    if (pickedCommand == null) return;
     // `navigator.clipboard` is undefined in insecure contexts, and the write can
     // reject (permissions, unfocused document) - handle both so the failure logs
     // instead of surfacing as an unhandled rejection.
@@ -1855,7 +1886,7 @@ function CommandBlock({ command }: { command?: string }) {
       return;
     }
     navigator.clipboard
-      .writeText(command)
+      .writeText(pickedCommand)
       .then(() => {
         setCopied(true);
         toastManager.add({
@@ -1881,21 +1912,30 @@ function CommandBlock({ command }: { command?: string }) {
     <div className="flex flex-col gap-2.5">
       <button
         type="button"
-        onClick={handleCopy}
+        onClick={() => setMenuOpen(true)}
         aria-label="Copy command to clipboard"
         className="block w-full cursor-pointer border border-border-dim bg-surface-raised p-3 text-left transition-colors hover:border-primary-ink/40"
       >
         <code className="block select-text whitespace-pre-wrap break-all font-mono text-2xs leading-relaxed text-text-secondary">
-          <span aria-hidden className="select-none">
-            ${" "}
-          </span>
+          {isSingleLine && (
+            <span aria-hidden className="select-none">
+              ${" "}
+            </span>
+          )}
           {command}
         </code>
       </button>
-      <Button variant="cta" size="sm" className="w-fit gap-1.5" onClick={handleCopy}>
-        {copied ? <CheckIcon size={12} weight="bold" /> : <CopyIcon size={12} />}
-        {copied ? "Copied" : "Copy command"}
-      </Button>
+      <CopyCommandMenu
+        onCopy={handleCopy}
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
+        trigger={
+          <Button variant="cta" size="sm" className="w-fit gap-1.5">
+            {copied ? <CheckIcon size={12} weight="bold" /> : <CopyIcon size={12} />}
+            {copied ? "Copied" : "Copy command"}
+          </Button>
+        }
+      />
     </div>
   );
 }

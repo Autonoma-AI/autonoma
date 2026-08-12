@@ -2,14 +2,17 @@ import { Button, Skeleton } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
+import { CopyCommandMenu } from "components/copy-command-menu";
 import { getApiOrigin } from "lib/api-origin";
 import { useAuth } from "lib/auth";
 import {
   buildPlannerCommand,
   buildPlannerCommandForCopy,
+  type CommandShell,
   PLANNER_DOCS_URL,
   type PlannerCommandEnv,
 } from "lib/onboarding/planner-command";
+import { useCommandShell } from "lib/onboarding/use-command-shell";
 import { useCliSetupId, useMintCliToken } from "lib/query/app-generations.queries";
 import { useApplicationSharedSecret } from "lib/query/applications.queries";
 import { toastManager } from "lib/toast-manager";
@@ -78,6 +81,10 @@ interface CopyableCommandProps {
 
 function CopyableCommand({ applicationId, generationId, sharedSecret, distinctId }: CopyableCommandProps) {
   const [copied, setCopied] = useState(false);
+  const [shell, setShell] = useCommandShell();
+  // Owned here rather than inside the menu so the command text can raise it while the
+  // popup stays anchored to the copy button.
+  const [menuOpen, setMenuOpen] = useState(false);
   const mintToken = useMintCliToken();
   const mintAsync = mintToken.mutateAsync;
   // Holds the PROMISE, not the resolved key. Caching the key would only dedupe copies
@@ -95,14 +102,19 @@ function CopyableCommand({ applicationId, generationId, sharedSecret, distinctId
   // on screen the token does not exist yet. It is minted by `copy` below.
   const shown = buildPlannerCommand(
     { apiUrl: getApiOrigin(), apiToken: "", generationId, applicationId, sharedSecret, distinctId },
-    { masked: true },
+    { masked: true, shell },
   );
 
-  function copy() {
+  // Takes the shell rather than reading state, because the click that picks one is the
+  // same click that copies: the state set beside this call has not landed yet.
+  function copy(picked: CommandShell) {
     if (navigator.clipboard == null) {
       console.warn("Clipboard API unavailable; cannot copy the planner command");
       return;
     }
+    // Leave the block showing what was taken, so the next reader of this screen sees
+    // the form that is now on their clipboard.
+    setShell(picked);
     minting.current ??= mintAsync({ applicationId })
       .then((minted) => minted.apiKey)
       // A failed mint must not poison the ref, or every later copy replays a failure
@@ -122,7 +134,7 @@ function CopyableCommand({ applicationId, generationId, sharedSecret, distinctId
           sharedSecret,
           distinctId,
         };
-        return navigator.clipboard.writeText(buildPlannerCommandForCopy(env));
+        return navigator.clipboard.writeText(buildPlannerCommandForCopy(env, picked));
       })
       .then(() => {
         setCopied(true);
@@ -142,10 +154,12 @@ function CopyableCommand({ applicationId, generationId, sharedSecret, distinctId
     <div className="flex flex-col gap-3">
       <CommandFrame>
         {/* The whole block is a copy target, not just the icon - people click the text
-            they are trying to take. The icon is what makes that discoverable. */}
+            they are trying to take. The icon is what makes that discoverable. Both open
+            the same menu, so the shell is chosen on the way out however you reach for
+            the command. */}
         <button
           type="button"
-          onClick={copy}
+          onClick={() => setMenuOpen(true)}
           className="block w-full cursor-pointer text-left"
           aria-label="Copy command"
         >
@@ -153,16 +167,22 @@ function CopyableCommand({ applicationId, generationId, sharedSecret, distinctId
             {shown}
           </pre>
         </button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="absolute right-2 top-2 bg-surface-void"
-          onClick={copy}
-          disabled={mintToken.isPending}
-          aria-label="Copy command"
-        >
-          {copied ? <CheckIcon className="text-status-success" /> : <CopyIcon />}
-        </Button>
+        <CopyCommandMenu
+          onCopy={copy}
+          open={menuOpen}
+          onOpenChange={setMenuOpen}
+          trigger={
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              className="absolute right-2 top-2 bg-surface-void"
+              disabled={mintToken.isPending}
+              aria-label="Copy command"
+            >
+              {copied ? <CheckIcon className="text-status-success" /> : <CopyIcon />}
+            </Button>
+          }
+        />
       </CommandFrame>
 
       <a

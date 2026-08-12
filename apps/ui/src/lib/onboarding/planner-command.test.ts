@@ -1,5 +1,10 @@
 import { describe, expect, test } from "vitest";
-import { buildPlannerCommand, buildPlannerCommandForCopy, PLANNER_DOCS_URL } from "./planner-command";
+import {
+    buildPlannerCommand,
+    buildPlannerCommandForCopy,
+    defaultShellForUserAgent,
+    PLANNER_DOCS_URL,
+} from "./planner-command";
 
 const ENV = {
     apiUrl: "https://api.autonoma.app",
@@ -119,5 +124,95 @@ describe("buildPlannerCommand", () => {
     test("keeps the guidance out of what the screen shows", () => {
         expect(buildPlannerCommand(ENV)).not.toContain("--non-interactive");
         expect(buildPlannerCommand(ENV)).not.toContain("Agent reading this");
+    });
+});
+
+// Neither Windows shell has the POSIX `NAME=value cmd` prefix form. Pasted there, the
+// POSIX command does not degrade - PowerShell reads `AUTONOMA_API_URL=...` as the name
+// of a program and stops on CommandNotFoundException with nothing run, which is what a
+// real user hit.
+describe("buildPlannerCommand across shells", () => {
+    test("sets each variable on its own line for PowerShell, not as a prefix", () => {
+        const command = buildPlannerCommand(ENV, { shell: "powershell" });
+
+        expect(command.split("\n")).toEqual([
+            '$env:AUTONOMA_API_URL="https://api.autonoma.app"',
+            '$env:AUTONOMA_SHARED_SECRET="shh_live_secret"',
+            '$env:AUTONOMA_DISTINCT_ID="user_1"',
+            '$env:AUTONOMA_API_TOKEN="ask_live_token"',
+            '$env:AUTONOMA_GENERATION_ID="setup_1"',
+            '$env:AUTONOMA_APPLICATION_ID="app_1"',
+            'npx "@autonoma-ai/planner@latest"',
+        ]);
+    });
+
+    test("uses set for cmd", () => {
+        const command = buildPlannerCommand(ENV, { shell: "cmd" });
+
+        expect(command.split("\n")).toEqual([
+            'set "AUTONOMA_API_URL=https://api.autonoma.app"',
+            'set "AUTONOMA_SHARED_SECRET=shh_live_secret"',
+            'set "AUTONOMA_DISTINCT_ID=user_1"',
+            'set "AUTONOMA_API_TOKEN=ask_live_token"',
+            'set "AUTONOMA_GENERATION_ID=setup_1"',
+            'set "AUTONOMA_APPLICATION_ID=app_1"',
+            "npx @autonoma-ai/planner@latest",
+        ]);
+    });
+
+    // The whole failure this fixes is a line the shell reads as a command name, so no
+    // shell may be handed a bare `NAME=value` at the start of a line.
+    test("never leaves a bare assignment where a shell would read a command name", () => {
+        for (const shell of ["powershell", "cmd"] as const) {
+            const lines = buildPlannerCommandForCopy(ENV, shell).split("\n");
+
+            expect(lines.filter((line) => /^AUTONOMA_/.test(line))).toEqual([]);
+        }
+    });
+
+    test("comments the guidance in a form each shell ignores", () => {
+        expect(buildPlannerCommandForCopy(ENV, "powershell")).toContain("# Agent reading this");
+        expect(buildPlannerCommandForCopy(ENV, "cmd")).toContain("REM Agent reading this");
+    });
+
+    // The setopt line is a zsh fix; in PowerShell it is a command that does not exist
+    // and in cmd it is a syntax error, so it must not follow the command onto Windows.
+    test("keeps the zsh preamble out of the Windows shells", () => {
+        expect(buildPlannerCommandForCopy(ENV, "powershell")).not.toContain("setopt");
+        expect(buildPlannerCommandForCopy(ENV, "cmd")).not.toContain("setopt");
+        expect(buildPlannerCommandForCopy(ENV, "posix")).toContain("setopt");
+    });
+
+    // Finish setup appends `upload` to re-send artifacts. On one line that is just a
+    // trailing word; on Windows it has to land on the npx line, not after the last
+    // variable, where it would be a stray argument to `set`.
+    test("attaches a subcommand to the invocation, not to the last variable", () => {
+        for (const shell of ["posix", "powershell", "cmd"] as const) {
+            const lines = buildPlannerCommand(ENV, { shell, subcommand: "upload" }).split("\n");
+
+            expect(lines.at(-1)).toContain("upload");
+            expect(lines.at(-1)).toContain("npx");
+        }
+    });
+
+    test("masks credentials in every shell", () => {
+        for (const shell of ["posix", "powershell", "cmd"] as const) {
+            const shown = buildPlannerCommand(ENV, { shell, masked: true });
+
+            expect(shown).not.toContain("ask_live_token");
+            expect(shown).not.toContain("shh_live_secret");
+            expect(shown).toContain("app_1");
+        }
+    });
+});
+
+describe("defaultShellForUserAgent", () => {
+    // Guessing wrong on Windows is the whole bug; guessing wrong elsewhere is
+    // impossible, since PowerShell and cmd only exist there.
+    test("defaults Windows to PowerShell and everyone else to POSIX", () => {
+        expect(defaultShellForUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe("powershell");
+        expect(defaultShellForUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)")).toBe("posix");
+        expect(defaultShellForUserAgent("Mozilla/5.0 (X11; Linux x86_64)")).toBe("posix");
+        expect(defaultShellForUserAgent("")).toBe("posix");
     });
 });

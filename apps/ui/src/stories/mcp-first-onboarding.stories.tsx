@@ -95,6 +95,31 @@ export const Waiting: Story = {
 };
 
 /**
+ * The same screen as a Windows visitor gets it.
+ *
+ * The POSIX form of this command cannot run in PowerShell at all - it reads the first
+ * `NAME=value` as a program name and stops - so the shell the block is written for is
+ * detected rather than defaulted, and this is the state that detection produces.
+ */
+export const WaitingOnWindows: Story = {
+  args: { path: `/onboarding?step=previewkit-config&appId=${baseApplication.id}` },
+  parameters: { msw: { handlers: appShellHandlers(waitingFixtures) } },
+  decorators: [
+    (Story) => {
+      // Detection reads the user agent once, as the command block first renders, so
+      // the pretence has to be in place before the story mounts. It is not restored
+      // afterwards: nothing else in this Storybook reads the user agent, and a
+      // screenshot run loads one story per page.
+      Object.defineProperty(navigator, "userAgent", {
+        value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        configurable: true,
+      });
+      return <Story />;
+    },
+  ],
+};
+
+/**
  * The same step reached from `preview-environment` - the route a first-time user
  * actually lands on. It renders the identical view but, unlike `previewkit-config`,
  * has no Suspense boundary of its own, which is why the command block carries one.
