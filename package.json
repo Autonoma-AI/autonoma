@@ -29,19 +29,11 @@
         "lint-staged": "^16.2.7",
         "oxfmt": "0.42.0",
         "oxlint": "1.57.0",
+        "prisma": "catalog:",
         "tsx": "catalog:",
         "turbo": "^2.9.18",
         "typescript": "catalog:",
         "zod": "catalog:"
-    },
-    "lint-staged": {
-        "*.{ts,tsx,js,jsx}": [
-            "oxlint --fix",
-            "oxfmt --write"
-        ],
-        "*.{json,jsonc}": [
-            "oxfmt --write"
-        ]
     },
     "engines": {
         "node": ">=24"

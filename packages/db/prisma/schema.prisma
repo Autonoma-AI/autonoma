@@ -126,7 +126,7 @@ model Organization {
   nameConfirmedAt DateTime? @map("name_confirmed_at")
 
   members                 Member[]
-  lastChosenByUsers       User[]                @relation("lastOrganization")
+  lastChosenByUsers       User[]                   @relation("lastOrganization")
   invitations             Invitation[]
   apiKeys                 ApiKey[]
   applications            Application[]
@@ -1495,10 +1495,10 @@ model TestTag {
 // ─── AI Cost Tracking ─────────────────────────────────────────────
 
 model AiCostRecord {
-  id                      String   @id @default(cuid())
-  generationId            String?  @map("generation_id")
-  runId                   String?  @map("run_id")
-  investigationSnapshotId String?  @map("investigation_snapshot_id")
+  id                      String  @id @default(cuid())
+  generationId            String? @map("generation_id")
+  runId                   String? @map("run_id")
+  investigationSnapshotId String? @map("investigation_snapshot_id")
 
   // Denormalized from whichever of generation/run/investigationSnapshot the row is
   // tied to (itself resolved through branch -> application) - deliberately, so
@@ -1507,14 +1507,14 @@ model AiCostRecord {
   // record, and never changes after.
   organizationId String @map("organization_id")
 
-  model                   String
-  tag                     String
-  inputTokens             Int      @map("input_tokens")
-  outputTokens            Int      @map("output_tokens")
-  reasoningTokens         Int      @default(0) @map("reasoning_tokens")
-  cacheReadTokens         Int      @default(0) @map("cache_read_tokens")
-  costMicrodollars        Int      @map("cost_microdollars")
-  createdAt               DateTime @default(now()) @map("created_at")
+  model            String
+  tag              String
+  inputTokens      Int      @map("input_tokens")
+  outputTokens     Int      @map("output_tokens")
+  reasoningTokens  Int      @default(0) @map("reasoning_tokens")
+  cacheReadTokens  Int      @default(0) @map("cache_read_tokens")
+  costMicrodollars Int      @map("cost_microdollars")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   generation TestGeneration? @relation(fields: [generationId], references: [id], onDelete: Cascade)
   run        Run?            @relation(fields: [runId], references: [id], onDelete: Cascade)
@@ -2437,8 +2437,8 @@ model PreviewkitUsageWindow {
 model PreviewkitAppBuildUsage {
   id String @id @default(cuid())
 
-  appBuildId String              @unique @map("app_build_id")
-  appBuild   PreviewkitAppBuild  @relation(fields: [appBuildId], references: [id], onDelete: Cascade)
+  appBuildId String             @unique @map("app_build_id")
+  appBuild   PreviewkitAppBuild @relation(fields: [appBuildId], references: [id], onDelete: Cascade)
 
   // Denormalized from the owning environment's organizationId, same rationale as
   // PreviewkitUsageWindow.organizationId.
@@ -2654,7 +2654,7 @@ model PreviewkitConfigApp {
   name         String
   repository   String
   path         String
-  buildContext String? @map("build_context")
+  buildContext String?  @map("build_context")
   dockerfile   String?
   /// ![PreviewkitStoredBuild]
   build        Json?
@@ -3088,7 +3088,7 @@ model AnalysisReport {
   /// the only thing it means; they are deliberately not backfilled, since a derived title stored here would be
   /// indistinguishable from an authored one. `analysisPrTitle` is the single reader of ''; delete that branch when
   /// no live surface can reach a pre-Reporter report.
-  title String @db.Text
+  title    String @db.Text
   /// The Reporter's headline for the PR as a whole: 1-3 sentences of plain prose (no headings, no evidence/issue/
   /// finding tokens), stating the CUMULATIVE state of the branch rather than the latest snapshot's counts. The
   /// column is still named `summary` - it held the per-run paragraph before the Reporter took over the headline,
@@ -3098,7 +3098,7 @@ model AnalysisReport {
   /// reader recognizes, with every status and owner derived in code from the verdicts each flow cites. A derived
   /// VIEW with no cross-snapshot identity - re-clustered every run, never reconciled against the last one.
   /// [AnalysisFlows]
-  flows Json?
+  flows    Json?
 
   /// The Reporter agent's holistic, PR-cumulative report prose (Markdown), written at report birth. Its
   /// `evidence:<assetId>` image tokens resolve against `evidenceManifest`.
