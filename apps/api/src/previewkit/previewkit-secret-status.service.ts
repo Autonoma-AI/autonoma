@@ -1,7 +1,7 @@
-import type { PrismaClient } from "@autonoma/db";
+import { type PrismaClient, previewkitConfigRowsInclude } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import { type SecretSummary, trustedPreviewConfigSchema } from "@autonoma/types";
+import { documentFromPreviewkitConfigRows, type SecretSummary, trustedPreviewConfigSchema } from "@autonoma/types";
 import type { PreviewkitSecretsService } from "./previewkit-secrets.service";
 
 /** Health of one secret key for one app: present in the bundle and/or declared as a build secret. */
@@ -100,7 +100,7 @@ export class PreviewkitSecretStatusService {
 
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
-            select: { previewkitConfig: { select: { document: true } } },
+            select: { previewkitConfig: { include: previewkitConfigRowsInclude } },
         });
         if (application == null) throw new NotFoundError("Application not found");
 
@@ -109,7 +109,7 @@ export class PreviewkitSecretStatusService {
             return { applicationId, configured: false, apps: [] };
         }
 
-        const parsed = trustedPreviewConfigSchema.safeParse(stored.document);
+        const parsed = trustedPreviewConfigSchema.safeParse(documentFromPreviewkitConfigRows(stored));
         if (!parsed.success) {
             return { applicationId, configured: false, apps: [] };
         }

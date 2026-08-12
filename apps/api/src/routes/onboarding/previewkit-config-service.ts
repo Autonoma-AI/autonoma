@@ -1,8 +1,9 @@
-import type { PrismaClient } from "@autonoma/db";
+import { type PrismaClient, previewkitConfigRowsInclude } from "@autonoma/db";
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
 import {
     authoringPreviewConfigSchema,
+    documentFromPreviewkitConfigRows,
     isSameRepository,
     previewConfigSchema,
     topologyRepositories,
@@ -123,7 +124,7 @@ export class PreviewkitConfigService {
                 githubRepositoryId: true,
                 previewDeployRef: true,
                 mainBranch: { select: { name: true } },
-                previewkitConfig: { select: { document: true } },
+                previewkitConfig: { include: previewkitConfigRowsInclude },
             },
         });
         if (application == null) throw new NotFoundError("Application not found");
@@ -148,7 +149,7 @@ export class PreviewkitConfigService {
             };
         }
 
-        const validation = previewConfigSchema.safeParse(stored.document);
+        const validation = previewConfigSchema.safeParse(documentFromPreviewkitConfigRows(stored));
         if (!validation.success) {
             throw new ConflictError(`Saved PreviewKit config is invalid: ${z.prettifyError(validation.error)}`);
         }

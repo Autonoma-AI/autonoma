@@ -624,17 +624,20 @@ async function resolveFailureAppIndexes(
     return loadSavedConfigAppIndexes(db, applicationId);
 }
 
+/**
+ * Read straight off the app rows rather than composing a document to parse: an
+ * app's `position` IS the index the document would have given it, and the only
+ * thing wanted here is the name-to-index mapping behind the editor's deep links.
+ * No config (or no apps) yields an empty map, same as an unreadable one did.
+ */
 async function loadSavedConfigAppIndexes(db: PrismaClient, applicationId: string): Promise<Map<string, number>> {
-    const stored = await db.previewkitConfig.findUnique({
-        where: { applicationId },
-        select: { document: true },
+    const apps = await db.previewkitConfigApp.findMany({
+        where: { config: { applicationId } },
+        select: { name: true, position: true },
+        orderBy: { position: "asc" },
     });
-    if (stored == null) return new Map();
 
-    const parsed = previewConfigSchema.safeParse(stored.document);
-    if (!parsed.success) return new Map();
-
-    return new Map(parsed.data.apps.map((app, index) => [app.name, index]));
+    return new Map(apps.map((app) => [app.name, app.position]));
 }
 
 /**

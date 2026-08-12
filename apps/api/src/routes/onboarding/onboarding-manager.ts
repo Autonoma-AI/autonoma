@@ -1,10 +1,16 @@
-import { type OnboardingPreviewEnvironmentMode, type OnboardingStep, type PrismaClient } from "@autonoma/db";
+import {
+    type OnboardingPreviewEnvironmentMode,
+    type OnboardingStep,
+    previewkitConfigRowsInclude,
+    type PrismaClient,
+} from "@autonoma/db";
 import { BadRequestError, ConflictError, NotFoundError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
 import type { EncryptionHelper, ScenarioManager } from "@autonoma/scenario";
 import { SnapshotNotFoundError, SnapshotNotOpenError, TestSuiteStore } from "@autonoma/test-suite";
 import {
     buildSdkUrl,
+    documentFromPreviewkitConfigRows,
     previewConfigSchema,
     validatePreviewConfigSemantics,
     type PreviewConfig,
@@ -1276,7 +1282,7 @@ export class OnboardingManager {
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
             select: {
-                previewkitConfig: { select: { document: true } },
+                previewkitConfig: { include: previewkitConfigRowsInclude },
             },
         });
         if (application == null) throw new NotFoundError("Application not found");
@@ -1284,7 +1290,9 @@ export class OnboardingManager {
             throw new ConflictError("Save a valid PreviewKit config before starting a deploy");
         }
 
-        const validation = previewConfigSchema.safeParse(application.previewkitConfig.document);
+        const validation = previewConfigSchema.safeParse(
+            documentFromPreviewkitConfigRows(application.previewkitConfig),
+        );
         if (!validation.success) {
             throw new ConflictError(`Saved PreviewKit config is invalid: ${z.prettifyError(validation.error)}`);
         }
@@ -1299,7 +1307,7 @@ export class OnboardingManager {
         const application = await this.db.application.findFirst({
             where: { id: applicationId, organizationId },
             select: {
-                previewkitConfig: { select: { document: true } },
+                previewkitConfig: { include: previewkitConfigRowsInclude },
             },
         });
         if (application == null) throw new NotFoundError("Application not found");
@@ -1308,7 +1316,7 @@ export class OnboardingManager {
             throw new ConflictError("Save a valid PreviewKit config before managing secrets");
         }
 
-        const parsed = previewConfigSchema.safeParse(stored.document);
+        const parsed = previewConfigSchema.safeParse(documentFromPreviewkitConfigRows(stored));
         if (!parsed.success) {
             throw new ConflictError(`Saved PreviewKit config is invalid: ${z.prettifyError(parsed.error)}`);
         }

@@ -91,6 +91,36 @@ integrationTestSuite({
             );
         });
 
+        /**
+         * The document column is still written, so a reader that quietly kept using
+         * it would pass every other test in here. Doctoring the column to disagree
+         * with the rows is the only way to say which one the reader is actually
+         * serving - and while both are written, it is the rows.
+         */
+        test("getConfig serves the rows, not the document column", async ({
+            harness,
+            seedResult: { orgId, config },
+        }) => {
+            const appId = await harness.createApp(orgId);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, document());
+
+            await harness.db.previewkitConfig.update({
+                where: { applicationId: appId },
+                data: {
+                    document: {
+                        version: 2,
+                        apps: [{ name: "stale-from-document", repository: REPO_FULL_NAME, port: 9999, primary: true }],
+                    },
+                },
+            });
+
+            const served = await config.getConfig(appId, orgId);
+
+            expect(served.document.apps.map((app) => app.name)).toEqual(["web", "api"]);
+            expect(served.document.apps[0]?.port).toBe(3000);
+        });
+
         test("deleting the application takes the topology rows with it", async ({
             harness,
             seedResult: { orgId, config },

@@ -1,5 +1,7 @@
+import { previewkitConfigCreateChildren } from "@autonoma/db";
 import { integrationTestSuite } from "@autonoma/integration-test";
 import { EncryptionHelper, type ScenarioManager } from "@autonoma/scenario";
+import { previewkitConfigRowValues, trustedPreviewConfigSchema } from "@autonoma/types";
 import { expect, vi } from "vitest";
 import { OnboardingManager } from "../../src/routes/onboarding/onboarding-manager";
 import { OnboardingTestHarness } from "./onboarding-harness";
@@ -391,23 +393,27 @@ integrationTestSuite({
             await setStep(harness, appId, "previewkit_configuring");
 
             // Written directly (bypassing the save validation) to simulate a
-            // config saved before semantic checks existed.
+            // config saved before semantic checks existed. Decomposed the same way
+            // the save path does it, so the rows the reader loads are the real thing:
+            // this shape is schema-valid and only fails the semantic pass.
+            const stored = trustedPreviewConfigSchema.parse({
+                version: 2,
+                apps: [
+                    {
+                        name: "web",
+                        repository: "acme/web",
+                        path: ".",
+                        port: 3000,
+                        primary: true,
+                        depends_on: ["ghost"],
+                    },
+                ],
+            });
             await harness.db.previewkitConfig.create({
                 data: {
                     applicationId: appId,
-                    document: {
-                        version: 2,
-                        apps: [
-                            {
-                                name: "web",
-                                repository: "acme/web",
-                                path: ".",
-                                port: 3000,
-                                primary: true,
-                                depends_on: ["ghost"],
-                            },
-                        ],
-                    },
+                    document: JSON.parse(JSON.stringify(stored)),
+                    ...previewkitConfigCreateChildren(previewkitConfigRowValues(stored)),
                 },
             });
 
