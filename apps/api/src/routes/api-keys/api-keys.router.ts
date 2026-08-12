@@ -1,8 +1,14 @@
-import { CreateApiKeyInputSchema, DeleteApiKeyInputSchema } from "@autonoma/types";
+import { CreateApiKeyInputSchema, DeleteApiKeyInputSchema, MemberApiKeysInputSchema } from "@autonoma/types";
 import { protectedProcedure, writeProcedure, router } from "../../trpc";
 
 export const apiKeysRouter = router({
     list: protectedProcedure.query(({ ctx: { services, organizationId } }) => services.apiKeys.list(organizationId)),
+
+    listForMember: protectedProcedure
+        .input(MemberApiKeysInputSchema)
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.apiKeys.listForMember(organizationId, input.userId),
+        ),
 
     create: writeProcedure
         .input(CreateApiKeyInputSchema)

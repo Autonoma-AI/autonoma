@@ -419,6 +419,16 @@ revoked outright when none is left), sessions working in an unrelated org are un
 `lastOrganizationId` pointing at it is cleared. Getting this right for `leave` but not `removeMember`
 was a real hole - a removed user kept access.
 
+**An API key is the one credential membership loss does not revoke.** `verifyApiKey` resolves a key to
+`{ userId, organizationId }` and every key-authenticated surface (`/v1/setup`, previewkit, diffs, the
+LLM proxy) then authorizes on the organization alone - so a key outlives its creator's membership by
+design, because it is routinely the credential in the organization's own CI. `removeMember` therefore
+takes an explicit `apiKeyIds` list and deletes only those, in the same transaction as the membership
+(the remover picks from `apiKeys.listForMember`, shown with each key's `lastRequest`). `organizationId`
+and `userId` in that `deleteMany`'s WHERE are the authorization - the ids are caller-supplied. Anything
+left behind is surfaced by `apiKeys.list` as `ownerLeft`, which is what stops a credential held by
+somebody outside the organization sitting on that screen indistinguishable from a colleague's.
+
 The `organization()` better-auth plugin's own membership endpoints (`invite-member`,
 `accept-invitation`, `add-member`, `leave`, `set-active`, ...) are refused in the `hooks.before` middleware: they
 bypass the invitation checks, the leave guards and the session re-pointing above. Its read endpoints
@@ -452,6 +462,12 @@ Two constraints in `factories.ts` are load-bearing and easy to undo by accident:
   `DeploymentsService.previewSummaryByPr` finds the branch by `prInfo.prNumber` then matches
   `{ organizationId, githubRepositoryId, prNumber }`; if any of the three disagree with the
   Application and the FeatureBranchInfo, the PR's Preview tab renders its empty state.
+- **`Member` decides who exists besides the agent.** The auth callback upserts a membership for
+  whoever signs in, so a recipe that seeds no `Member` rows produces an organization of exactly one
+  person - and nothing needing a second (removing a member, a colleague's key, an organization
+  somebody can leave) can be tested at all. The factory upserts for that reason: it races the auth
+  callback on `(userId, organizationId)`. A key whose owner is deliberately given no `Member` row is
+  how a recipe seeds the orphaned-key state.
 
 ### tRPC Routers
 

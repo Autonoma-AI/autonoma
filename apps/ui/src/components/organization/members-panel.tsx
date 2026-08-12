@@ -1,5 +1,6 @@
 import {
   Button,
+  Checkbox,
   Dialog,
   DialogBackdrop,
   DialogBody,
@@ -21,6 +22,9 @@ import { ClipboardTextIcon } from "@phosphor-icons/react/ClipboardText";
 import { EnvelopeIcon } from "@phosphor-icons/react/Envelope";
 import { UserMinusIcon } from "@phosphor-icons/react/UserMinus";
 import { UserPlusIcon } from "@phosphor-icons/react/UserPlus";
+import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
+import { describeLastUse } from "components/api-keys/describe-last-use";
+import { useMemberApiKeys } from "lib/query/api-keys.queries";
 import {
   useInviteMember,
   useOrganizationInvitations,
@@ -140,6 +144,17 @@ function MemberRow({ member, canRemove }: MemberRowProps) {
   );
 }
 
+/**
+ * Removing a member, plus the one decision that removal cannot make on the member's behalf: which
+ * of their API keys to delete with them.
+ *
+ * Nothing is selected by default. A key authorizes on its organization rather than on its
+ * creator's membership, so it is routinely the credential in the organization's own CI - deleting
+ * it silently would break a pipeline that has nothing to do with the person leaving. Each row
+ * carries when it was last used, which is what separates a live key from a forgotten one, and
+ * anything left behind is flagged as orphaned on the API keys screen rather than disappearing
+ * from view.
+ */
 function RemoveMemberDialog({
   open,
   onOpenChange,
@@ -152,9 +167,16 @@ function RemoveMemberDialog({
   displayName: string;
 }) {
   const removeMember = useRemoveMember();
+  const [selectedKeyIds, setSelectedKeyIds] = useState<string[]>([]);
+
+  function handleOpenChange(next: boolean) {
+    // Reopening the dialog starts from nothing selected, matching the default.
+    if (!next) setSelectedKeyIds([]);
+    onOpenChange(next);
+  }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogBackdrop />
       <DialogContent>
         <DialogHeader>
@@ -164,18 +186,110 @@ function RemoveMemberDialog({
             Autonoma account and can be invited back.
           </DialogDescription>
         </DialogHeader>
+        {/* Mounted only while open: the members list renders one of these per row, and the key
+            list suspends. */}
+        {open && (
+          <DialogBody>
+            <Suspense fallback={<MemberApiKeysSkeleton />}>
+              <MemberApiKeysChoice
+                userId={userId}
+                displayName={displayName}
+                selectedKeyIds={selectedKeyIds}
+                onSelectionChange={setSelectedKeyIds}
+              />
+            </Suspense>
+          </DialogBody>
+        )}
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
           <Button
             variant="destructive"
             disabled={removeMember.isPending}
-            onClick={() => removeMember.mutate({ userId }, { onSuccess: () => onOpenChange(false) })}
+            onClick={() =>
+              removeMember.mutate({ userId, apiKeyIds: selectedKeyIds }, { onSuccess: () => handleOpenChange(false) })
+            }
           >
-            {removeMember.isPending ? "Removing..." : "Remove"}
+            {removeMember.isPending ? "Removing..." : describeRemoveAction(selectedKeyIds.length)}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Names what the button is about to do, so deleting credentials is never an unlabelled side effect. */
+function describeRemoveAction(selectedCount: number): string {
+  if (selectedCount === 0) return "Remove";
+  if (selectedCount === 1) return "Remove and delete 1 key";
+  return `Remove and delete ${selectedCount} keys`;
+}
+
+function MemberApiKeysChoice({
+  userId,
+  displayName,
+  selectedKeyIds,
+  onSelectionChange,
+}: {
+  userId: string;
+  displayName: string;
+  selectedKeyIds: string[];
+  onSelectionChange: (keyIds: string[]) => void;
+}) {
+  const { data: keys } = useMemberApiKeys(userId);
+
+  if (keys.length === 0) return null;
+
+  const allSelected = selectedKeyIds.length === keys.length;
+
+  function toggle(keyId: string, checked: boolean) {
+    onSelectionChange(checked ? [...selectedKeyIds, keyId] : selectedKeyIds.filter((id) => id !== keyId));
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-start gap-2.5 border-l-2 border-status-warn bg-status-warn/10 px-3 py-2.5">
+        <WarningCircleIcon size={15} className="mt-0.5 shrink-0 text-status-warn" />
+        <p className="text-xs text-text-primary">
+          <strong>{displayName}</strong> created {keys.length === 1 ? "an API key" : `${keys.length} API keys`} in this
+          organization. Keys keep working after removal, so anything still using one - your CI, for instance - keeps
+          running. Delete the ones {displayName} alone was using.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <span className="font-mono text-2xs uppercase tracking-widest text-text-secondary">Delete keys</span>
+        <Button variant="ghost" size="sm" onClick={() => onSelectionChange(allSelected ? [] : keys.map((k) => k.id))}>
+          {allSelected ? "Clear all" : "Select all"}
+        </Button>
+      </div>
+
+      <div className="divide-y divide-border-dim border border-border-dim">
+        {keys.map((key) => (
+          <Label key={key.id} className="flex cursor-pointer items-center gap-3 px-3 py-2.5">
+            <Checkbox
+              checked={selectedKeyIds.includes(key.id)}
+              onCheckedChange={(checked) => toggle(key.id, checked)}
+            />
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="truncate text-sm font-medium text-text-primary">{key.name ?? "Unnamed key"}</span>
+              <span className="flex items-center gap-3 font-mono text-3xs text-text-secondary">
+                <span>{key.start}...</span>
+                <span>{describeLastUse(key.lastRequest)}</span>
+              </span>
+            </span>
+          </Label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MemberApiKeysSkeleton() {
+  return (
+    <div className="flex flex-col gap-3">
+      <Skeleton className="h-14 w-full" />
+      <Skeleton className="h-20 w-full" />
+    </div>
   );
 }
 

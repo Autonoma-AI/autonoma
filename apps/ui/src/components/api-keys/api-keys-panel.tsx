@@ -1,4 +1,5 @@
 import {
+  Badge,
   Button,
   Dialog,
   DialogBackdrop,
@@ -23,10 +24,7 @@ import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useAuth } from "lib/auth";
 import { useApiKeys, useCreateApiKey, useDeleteApiKey } from "lib/query/api-keys.queries";
 import { Suspense, useState } from "react";
-
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-/** Past this, an exact date reads better than a day count. */
-const DAYS_CONSIDERED_RECENT = 30;
+import { describeLastUse } from "./describe-last-use";
 
 /**
  * Self-contained API keys management panel: create, list, copy-once, and delete.
@@ -175,6 +173,7 @@ function DeleteKeyDialog({
   keyId,
   keyName,
   createdBy,
+  ownerLeft,
   lastRequest,
 }: {
   open: boolean;
@@ -183,6 +182,8 @@ function DeleteKeyDialog({
   keyName: string;
   /** The creator's name, only when the key belongs to someone other than the caller. */
   createdBy?: string;
+  /** Whether the creator has since left the organization, which inverts the warning's advice. */
+  ownerLeft: boolean;
   lastRequest: Date | null;
 }) {
   const deleteApiKey = useDeleteApiKey();
@@ -215,7 +216,16 @@ function DeleteKeyDialog({
               <WarningCircleIcon size={15} className="mt-0.5 shrink-0 text-status-warn" />
               <div className="flex flex-col gap-1">
                 <p className="text-xs text-text-primary">
-                  This key was created by <strong>{createdBy}</strong>, and may still be in use.
+                  {ownerLeft ? (
+                    <>
+                      This key was created by <strong>{createdBy}</strong>, who is no longer in this organization. It
+                      still works until you delete it.
+                    </>
+                  ) : (
+                    <>
+                      This key was created by <strong>{createdBy}</strong>, and may still be in use.
+                    </>
+                  )}
                 </p>
                 <p className="font-mono text-3xs text-text-secondary">{describeLastUse(lastRequest)}</p>
               </div>
@@ -233,21 +243,6 @@ function DeleteKeyDialog({
   );
 }
 
-/**
- * How recently the key was actually used, which is the signal for whether deleting it
- * will break something right now. "Never used" is the safe case and says so plainly
- * rather than leaving the line blank.
- */
-function describeLastUse(lastRequest: Date | null): string {
-  if (lastRequest == null) return "Never used";
-
-  const days = Math.floor((Date.now() - new Date(lastRequest).getTime()) / MS_PER_DAY);
-  if (days <= 0) return "Last used today";
-  if (days === 1) return "Last used yesterday";
-  if (days < DAYS_CONSIDERED_RECENT) return `Last used ${days} days ago`;
-  return `Last used ${new Date(lastRequest).toLocaleDateString()}`;
-}
-
 function ApiKeyRow({
   apiKey,
 }: {
@@ -257,6 +252,7 @@ function ApiKeyRow({
     start: string | null;
     createdAt: Date;
     lastRequest: Date | null;
+    ownerLeft: boolean;
     user: { id: string; name: string | null; email: string } | null;
   };
 }) {
@@ -271,7 +267,13 @@ function ApiKeyRow({
   return (
     <div className="flex items-center justify-between px-1 py-3">
       <div className="flex flex-col gap-0.5">
-        <span className="text-sm font-medium text-text-primary">{displayName}</span>
+        <span className="flex items-center gap-2 text-sm font-medium text-text-primary">
+          {displayName}
+          {/* The key still works: it authorizes on the organization, not on its creator's
+              membership. Saying so is the point - a credential nobody in the organization holds
+              any more is one somebody outside it does. */}
+          {apiKey.ownerLeft && <Badge variant="warn">Owner left</Badge>}
+        </span>
         <div className="flex items-center gap-3 font-mono text-3xs text-text-secondary">
           <span>{apiKey.start}...</span>
           <span>Created {new Date(apiKey.createdAt).toLocaleDateString()}</span>
@@ -293,6 +295,7 @@ function ApiKeyRow({
         keyId={apiKey.id}
         keyName={displayName}
         createdBy={isSomeoneElses ? owner : undefined}
+        ownerLeft={apiKey.ownerLeft}
         lastRequest={apiKey.lastRequest}
       />
     </div>

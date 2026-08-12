@@ -24,8 +24,21 @@ export type RevokeInvitationInput = z.infer<typeof RevokeInvitationInputSchema>;
 
 export const RemoveMemberInputSchema = z.object({
     userId: z.string().min(1),
+    /**
+     * Which of the member's API keys to delete along with them. Empty by default: a key
+     * authorizes on its organization and is routinely wired into the organization's own CI, so
+     * removing the person who minted it does not, on its own, mean the credential should stop
+     * working mid-pipeline. The remover chooses per key, having been shown when each was last
+     * used; whatever they leave behind is flagged as orphaned on the API keys screen.
+     */
+    apiKeyIds: z.array(z.string().min(1)).default([]),
 });
 export type RemoveMemberInput = z.infer<typeof RemoveMemberInputSchema>;
+
+export const MemberApiKeysInputSchema = z.object({
+    userId: z.string().min(1),
+});
+export type MemberApiKeysInput = z.infer<typeof MemberApiKeysInputSchema>;
 
 export const InvitationIdInputSchema = z.object({
     invitationId: z.string().min(1),

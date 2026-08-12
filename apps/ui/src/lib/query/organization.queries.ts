@@ -173,7 +173,12 @@ export function useRemoveMember() {
     const queryClient = useQueryClient();
     return useAPIMutation({
         ...trpc.organization.removeMember.mutationOptions({
-            onSettled: () => invalidateOrganization(queryClient),
+            onSettled: () => {
+                invalidateOrganization(queryClient);
+                // Removal can delete API keys, and always changes whether the remaining ones show
+                // as orphaned - both read off `apiKeys.list`.
+                void queryClient.invalidateQueries({ queryKey: trpc.apiKeys.list.queryKey() });
+            },
         }),
         successToast: { title: "Member removed" },
     });

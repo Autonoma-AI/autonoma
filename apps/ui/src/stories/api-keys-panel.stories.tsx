@@ -3,6 +3,7 @@ import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { userEvent, within } from "storybook/test";
+import { dashboardFixtures } from "./app-home.stories";
 
 /** The signed-in user in the app-shell session fixture (Ada Lovelace), so one key reads as "mine". */
 const SIGNED_IN_USER_ID = "user_fixture_01";
@@ -13,6 +14,9 @@ const USED_TODAY = new Date(Date.now() - 2 * 60 * 60 * 1000);
 const USED_LAST_WEEK = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000);
 
 const apiKeyFixtures: TrpcFixtures = {
+  // The settings rail sits inside the app shell, which reads the dashboard's procedures on the way
+  // in - without them the page renders its error boundary rather than this panel.
+  ...dashboardFixtures,
   apiKeys: {
     list: [
       {
@@ -21,6 +25,7 @@ const apiKeyFixtures: TrpcFixtures = {
         start: "ask_9f2",
         createdAt: new Date("2026-01-04T09:00:00.000Z"),
         lastRequest: USED_LAST_WEEK,
+        ownerLeft: false,
         user: { id: "user_fixture_02", name: "Paula Ferreyra", email: "paula@acme.com" },
       },
       {
@@ -29,6 +34,7 @@ const apiKeyFixtures: TrpcFixtures = {
         start: "ask_41c",
         createdAt: new Date("2026-01-06T14:30:00.000Z"),
         lastRequest: USED_TODAY,
+        ownerLeft: false,
         user: { id: SIGNED_IN_USER_ID, name: "Ada Lovelace", email: "ada@acme.com" },
       },
       {
@@ -37,7 +43,19 @@ const apiKeyFixtures: TrpcFixtures = {
         start: "ask_7b0",
         createdAt: new Date("2026-01-02T11:15:00.000Z"),
         lastRequest: null,
+        ownerLeft: false,
         user: { id: "user_fixture_03", name: "Diego Marino", email: "diego@acme.com" },
+      },
+      // Its creator was removed from the organization and their key was left behind - the case
+      // the badge exists for, since nothing else on this screen would distinguish it.
+      {
+        id: "key_fixture_04",
+        name: "Nightly export",
+        start: "ask_2d8",
+        createdAt: new Date("2025-11-18T08:00:00.000Z"),
+        lastRequest: USED_TODAY,
+        ownerLeft: true,
+        user: { id: "user_fixture_04", name: "Mika Toivonen", email: "mika@acme.com" },
       },
     ],
   },
@@ -88,5 +106,17 @@ export const DeleteOwnKey: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole("button", { name: /delete api key local development/i }));
+  },
+};
+
+/**
+ * A key whose creator was removed from the organization and whose key was kept. It still works,
+ * which is exactly why the dialog says so rather than repeating the "may still be in use" copy.
+ */
+export const DeleteOrphanedKey: Story = {
+  args: { path: `/app/${baseApplication.slug}/settings/api-keys` },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("button", { name: /delete api key nightly export/i }));
   },
 };

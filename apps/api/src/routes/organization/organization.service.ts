@@ -283,8 +283,11 @@ export class OrganizationService extends Service {
         this.logger.info("Invitation revoked", { organizationId, extra: { invitationId } });
     }
 
-    async removeMember(organizationId: string, actor: ActorUser, userId: string): Promise<void> {
-        this.logger.info("Removing member", { organizationId, extra: { targetUserId: userId } });
+    async removeMember(organizationId: string, actor: ActorUser, userId: string, apiKeyIds: string[]): Promise<void> {
+        this.logger.info("Removing member", {
+            organizationId,
+            extra: { targetUserId: userId, apiKeyCount: apiKeyIds.length },
+        });
 
         if (userId === actor.id) {
             throw new BadRequestError("You can't remove yourself from the organization.");
@@ -303,7 +306,27 @@ export class OrganizationService extends Service {
         // unrecoverable - nothing can ever grant access to it again - so it stays guarded.
         if (memberCount <= 1) throw new BadRequestError("An organization must keep at least one member.");
 
-        await this.db.member.delete({ where: { id: member.id } });
+        // The membership and the chosen keys go together: the remover was shown one list and made
+        // one decision, so a partial commit would leave them believing a credential is gone when it
+        // is not. `organizationId` and `userId` in the WHERE are the authorization - the ids are
+        // caller-supplied, so they select among that member's keys rather than naming any row.
+        const deletedKeys = await this.db.$transaction(async (tx) => {
+            await tx.member.delete({ where: { id: member.id } });
+            if (apiKeyIds.length === 0) return 0;
+            const deleted = await tx.apiKey.deleteMany({
+                where: { id: { in: apiKeyIds }, organizationId, userId },
+            });
+            return deleted.count;
+        });
+
+        if (deletedKeys !== apiKeyIds.length) {
+            // Not fatal - the member is out either way - but it means the screen was stale, so the
+            // remover may believe they revoked a key that another tab had already deleted or moved.
+            this.logger.warn("Removed a member with fewer API keys deleted than requested", {
+                organizationId,
+                extra: { targetUserId: userId, requested: apiKeyIds.length, deleted: deletedKeys },
+            });
+        }
 
         // Deleting the row is not enough to end their access. `protectedProcedure` authorizes on
         // `session.activeOrganizationId` alone and never re-checks membership, so a session already
@@ -314,11 +337,14 @@ export class OrganizationService extends Service {
         this.analytics.capture(
             actor.id,
             "organization.member_removed",
-            { extra: { removedUserId: userId } },
+            { extra: { removedUserId: userId, apiKeysDeleted: deletedKeys } },
             { organization: organizationId },
         );
 
-        this.logger.info("Member removed", { organizationId, extra: { targetUserId: userId } });
+        this.logger.info("Member removed", {
+            organizationId,
+            extra: { targetUserId: userId, apiKeysDeleted: deletedKeys },
+        });
     }
 
     /**

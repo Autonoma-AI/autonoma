@@ -602,6 +602,45 @@ const FolderFactory = defineFactory({
     },
 });
 
+const MemberInput = loose({
+    organizationId: z.string(),
+    userId: z.string(),
+    role: z.string().optional(),
+});
+
+/**
+ * Who belongs to the seeded organization.
+ *
+ * Without this, the only membership an app ever had was the one the SDK's auth callback
+ * upserts for whoever signs in - so every seeded organization had exactly one member, the
+ * agent itself, and no test could reach anything that needs a second person: removing a
+ * member, a colleague's API key, an organization somebody can leave.
+ *
+ * Upserted rather than created because that same auth callback races this: it makes the
+ * signing-in user a member too, and a recipe naming that user would otherwise collide on
+ * `(userId, organizationId)`.
+ */
+const MemberFactory = defineFactory({
+    inputSchema: MemberInput,
+    refSchema: emptyRef,
+    create: async (data) => {
+        const row = await db.member.upsert({
+            where: { userId_organizationId: { userId: data.userId, organizationId: data.organizationId } },
+            update: {},
+            create: {
+                userId: data.userId,
+                organizationId: data.organizationId,
+                role: data.role ?? "member",
+            },
+        });
+        logger.info("Created member", {
+            organizationId: data.organizationId,
+            extra: { memberId: row.id, userId: data.userId, role: row.role },
+        });
+        return { id: row.id };
+    },
+});
+
 const InvitationInput = loose({
     organizationId: z.string(),
     inviterId: z.string(),
@@ -1458,6 +1497,7 @@ export const autonomaFactories = {
     WebDeployment: WebDeploymentFactory,
     MobileDeployment: MobileDeploymentFactory,
     Folder: FolderFactory,
+    Member: MemberFactory,
     Invitation: InvitationFactory,
     ApiKey: ApiKeyFactory,
     BillingCustomer: BillingCustomerFactory,

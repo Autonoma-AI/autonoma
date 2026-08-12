@@ -74,7 +74,7 @@ export const organizationRouter = router({
     removeMember: writeProcedure
         .input(RemoveMemberInputSchema)
         .mutation(({ ctx: { services, organizationId, user }, input }) =>
-            services.organization.removeMember(organizationId, user, input.userId),
+            services.organization.removeMember(organizationId, user, input.userId, input.apiKeyIds),
         ),
 
     // The three invitee-facing procedures below are keyed by the invitation, not by the

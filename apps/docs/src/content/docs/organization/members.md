@@ -70,3 +70,19 @@ To hand an organization over, invite the new owner, wait for them to accept, the
 On the *Members* panel, choose the remove icon on their row. They lose access to every application in this organization but keep their Autonoma account and any other organizations they belong to, and can be invited back.
 
 You cannot remove yourself - use **Leave** instead, which enforces the two guards above.
+
+### Their API keys
+
+An API key authenticates against the organization, not against the person who created it, so removing
+someone does **not** stop their keys working. That is deliberate: a key created by a teammate is often
+the credential in your CI, and revoking it the moment they leave would break a pipeline that has
+nothing to do with them.
+
+The remove dialog therefore lists every API key that member created here, with when each was last
+used, and lets you choose which to delete. Nothing is selected by default; **Select all** takes the
+lot. A key last used minutes ago is almost certainly wired into something that is still running, so
+mint a replacement and swap it in before deleting.
+
+Whatever you keep stays visible on *Settings -> API keys*, badged **Owner left**, and anyone in the
+organization can delete it there later. Treat that badge as a rotation reminder: the person who holds
+that key's secret is no longer in your organization.

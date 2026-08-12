@@ -73,6 +73,30 @@ async function inviteTo(harness: APITestHarness, email: string) {
     return await harness.request().organization.invite({ email });
 }
 
+/** Someone who accepted an invitation and is now a second member of the harness organization. */
+async function joinedMember(harness: APITestHarness) {
+    const invitee = await createUserWithOwnOrg(harness.db);
+    const invitation = await inviteTo(harness, invitee.user.email);
+    await harness.request(invitee.session, invitee.user).organization.acceptInvitation({ invitationId: invitation.id });
+    return invitee;
+}
+
+/**
+ * A key in the harness organization, written directly: `apiKeys.create` mints it for whoever the
+ * request is authenticated as, and these tests need keys owned by the member about to be removed.
+ */
+async function createApiKey(harness: APITestHarness, userId: string, name: string) {
+    return await harness.db.apiKey.create({
+        data: {
+            name,
+            userId,
+            organizationId: harness.organizationId,
+            key: `hashed-${randomBytes(8).toString("hex")}`,
+            start: "ask_000",
+        },
+    });
+}
+
 apiTestSuite({
     name: "organization-invites",
     seed: async ({ harness }) => {
@@ -571,6 +595,63 @@ apiTestSuite({
             const members = await harness.request().organization.members();
             expect(members.map((member) => member.userId)).not.toContain(invitee.user.id);
             expect(members.map((member) => member.userId)).toContain(harness.userId);
+        });
+
+        test("removal deletes the API keys it was given, and leaves the rest working", async ({ harness }) => {
+            const member = await joinedMember(harness);
+            const doomed = await createApiKey(harness, member.user.id, "laptop");
+            const spared = await createApiKey(harness, member.user.id, "ci-pipeline");
+
+            await harness.request().organization.removeMember({ userId: member.user.id, apiKeyIds: [doomed.id] });
+
+            // Scoped to the two ids under test: every case in this file shares one organization, so
+            // the org's full key list carries whatever earlier cases left behind.
+            expect(await harness.db.apiKey.findUnique({ where: { id: doomed.id } })).toBeNull();
+            expect(await harness.db.apiKey.findUnique({ where: { id: spared.id } })).not.toBeNull();
+        });
+
+        test("removal with no keys named leaves every key working", async ({ harness }) => {
+            const member = await joinedMember(harness);
+            const key = await createApiKey(harness, member.user.id, "ci-pipeline");
+
+            await harness.request().organization.removeMember({ userId: member.user.id });
+
+            expect(await harness.db.apiKey.findUnique({ where: { id: key.id } })).not.toBeNull();
+        });
+
+        test("a key belonging to somebody else cannot be deleted through the removal", async ({ harness }) => {
+            const member = await joinedMember(harness);
+            // The remover's own key, named in the input for the member being removed.
+            const someoneElses = await createApiKey(harness, harness.userId, "removers-key");
+
+            await harness.request().organization.removeMember({ userId: member.user.id, apiKeyIds: [someoneElses.id] });
+
+            const survivor = await harness.db.apiKey.findUnique({ where: { id: someoneElses.id } });
+            expect(survivor).not.toBeNull();
+        });
+
+        test("a key left behind is flagged as orphaned once its owner is gone", async ({ harness }) => {
+            const member = await joinedMember(harness);
+            const key = await createApiKey(harness, member.user.id, "ci-pipeline");
+
+            const before = await harness.request().apiKeys.list();
+            expect(before.find((entry) => entry.id === key.id)?.ownerLeft).toBe(false);
+
+            await harness.request().organization.removeMember({ userId: member.user.id });
+
+            const after = await harness.request().apiKeys.list();
+            expect(after.find((entry) => entry.id === key.id)?.ownerLeft).toBe(true);
+        });
+
+        test("the removal dialog reads only the keys that member holds here", async ({ harness }) => {
+            const member = await joinedMember(harness);
+            const theirs = await createApiKey(harness, member.user.id, "laptop");
+            const removers = await createApiKey(harness, harness.userId, "removers-key");
+
+            const keys = await harness.request().apiKeys.listForMember({ userId: member.user.id });
+
+            expect(keys.map((key) => key.id)).toEqual([theirs.id]);
+            expect(keys.map((key) => key.id)).not.toContain(removers.id);
         });
     },
 });
