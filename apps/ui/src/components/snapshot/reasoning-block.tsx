@@ -41,7 +41,7 @@ export function ReasoningMarkdown({
   const evidenceById = new Map((evidence ?? []).map((asset) => [asset.assetId, asset]));
 
   return (
-    <article className="prose prose-sm prose-invert max-w-none">
+    <article className="prose prose-sm prose-invert max-w-none [&>*:first-child]:mt-0">
       <Markdown
         // Preserve our custom token schemes (evidence:/issue:/finding:); react-markdown strips unknown
         // protocols by default. Everything else still goes through the safe transform.

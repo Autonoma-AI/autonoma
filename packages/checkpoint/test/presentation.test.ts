@@ -150,32 +150,31 @@ describe("buildAuthoritativeCheckpointSummary", () => {
         expect(summary.label).toBe("1 bug");
     });
 
-    it("reads a coverage-only checkpoint as 'Not confirmed' - not green, and not red either", () => {
+    it("states a coverage-only checkpoint as a zero ratio rather than as an alarm", () => {
         const summary = buildAuthoritativeCheckpointSummary({
             jobStatus: "completed",
             findingBuckets: { bug: 0, passed: 0, coverage: 3 },
         });
 
-        // Three tests were selected and not one of them confirmed anything about the app. Warning rather than
-        // critical: the PR is not proven broken, our harness failed to exercise it.
-        expect(summary.tone).toBe("warning");
-        expect(summary.label).toBe("Not confirmed");
-        expect(summary.reason).toBe("3 blocked");
+        // Three tests were selected and not one confirmed anything. Neutral rather than amber: the PR is not proven
+        // broken, our harness failed to exercise it, and only a bug is raised as a problem here.
+        expect(summary.tone).toBe("neutral");
+        expect(summary.label).toBe("0/3 verified");
+        expect(summary.reason).toBe("3 couldn't complete");
         expect(summary.executionState).toBe("not_started");
     });
 
-    it("reads a partially-confirmed checkpoint as 'Not confirmed' (amber) - a coverage gap is not verified", () => {
+    it("distinguishes a mostly-confirmed checkpoint from one that confirmed nothing", () => {
         const summary = buildAuthoritativeCheckpointSummary({
             jobStatus: "completed",
             findingBuckets: { bug: 0, passed: 4, coverage: 2 },
         });
 
-        // A coverage gap of any kind means the change was not fully confirmed, so this is NOT green even though most
-        // of the suite passed - "no bug" is not "verified". Amber (warning), with the unconfirmed count as a reason,
-        // and `not_started` so the derived health reads `unknown`, never `healthy`.
-        expect(summary.tone).toBe("warning");
-        expect(summary.label).toBe("Not confirmed");
-        expect(summary.reason).toBe("2 couldn't confirm");
+        // The whole point of the ratio: 4 of 6 confirmed cannot read the same as 0 of 3 above. Still `not_started`,
+        // so the derived health stays `unknown` rather than `healthy` - a gap is a gap, whatever the numerator.
+        expect(summary.tone).toBe("neutral");
+        expect(summary.label).toBe("4/6 verified");
+        expect(summary.reason).toBe("2 couldn't complete");
         expect(summary.executionState).toBe("not_started");
     });
 

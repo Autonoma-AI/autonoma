@@ -9,10 +9,12 @@ import { type PRTab, PRTabs } from "./pr-tabs";
 
 type PullRequest = RouterOutputs["github"]["getPullRequest"];
 
-// The row below the top bar: the Overview/Preview tab switcher on the left (only rendered when a
-// previewkit environment exists) and the PR's author/branch/details on the right - always visible
-// regardless of whether tabs are present, pushed to the far edge via ml-auto rather than
-// justify-between so it doesn't jump to the left when there are no tabs to share the row with.
+// The row below the top bar: the Overview/Preview tab switcher (only rendered when a previewkit environment exists)
+// and the PR's author and branch, then Details at the far edge.
+//
+// Author and branch sit on the LEFT, directly under the title they belong to. They used to be pushed right with the
+// rest, which left this row empty on its left whenever there were no tabs - a PR without a preview environment, which
+// is most of them - and separated the PR's identity from its own metadata by half a screen.
 export function PRMetaRow({
   applicationId,
   prNumber,
@@ -35,16 +37,14 @@ export function PRMetaRow({
       <Suspense fallback={<div className="h-8" />}>
         <PRTabs applicationId={applicationId} prNumber={prNumber} active={active} />
       </Suspense>
-      <div className="ml-auto">
-        <MetaDetails
-          applicationId={applicationId}
-          prNumber={prNumber}
-          branchName={branchName}
-          targetBranchName={targetBranchName}
-          pr={pr}
-          prPending={prPending}
-        />
-      </div>
+      <MetaDetails
+        applicationId={applicationId}
+        prNumber={prNumber}
+        branchName={branchName}
+        targetBranchName={targetBranchName}
+        pr={pr}
+        prPending={prPending}
+      />
     </div>
   );
 }
@@ -75,7 +75,7 @@ function MetaDetails({
   const headSha = pr?.headSha;
 
   return (
-    <div className="flex items-center gap-3 text-sm text-text-secondary">
+    <div className="flex flex-1 items-center gap-3 text-sm text-text-secondary">
       {author != null && (
         <div className="flex items-center gap-2">
           <PRAuthorStack applicationId={applicationId} prNumber={prNumber} primaryAuthor={author} />
@@ -88,7 +88,11 @@ function MetaDetails({
       <Popover>
         <PopoverTrigger
           render={
-            <Button variant="outline" size="xs" className="group gap-1 font-mono text-3xs uppercase tracking-wider" />
+            <Button
+              variant="outline"
+              size="xs"
+              className="group ml-auto gap-1 font-mono text-3xs uppercase tracking-wider"
+            />
           }
         >
           Details

@@ -447,7 +447,7 @@ export const Running: Story = {
 };
 
 // A run with NO client bug but open coverage gaps: the app held up on what the run reached, but the change was not
-// fully confirmed. The verdict headline must read amber "Not confirmed", never green - "no bug" is not "verified".
+// fully confirmed. The verdict headline must state the ratio, never green - "no bug" is not "verified".
 const NOT_CONFIRMED_SUMMARY =
   "No client bugs, but Autonoma couldn't fully confirm this change: the coupon scenario wasn't seeded and the " +
   "payment iframe never loaded in the harness, so the reworked checkout submit path went partly unverified.";
@@ -534,22 +534,23 @@ const notConfirmedReport: NonNullable<TrpcFixtures["branches"]> = {
   },
 };
 
-// The latest checkpoint, amber: no bug, but coverage gaps left the change unconfirmed. Health is `unknown`, never
-// green, so the rail and header agree with the verdict headline.
+// The latest checkpoint: no bug, but coverage gaps left the change unconfirmed. Stated as the ratio the buckets
+// carry rather than as an alarm - only a bug is raised as a problem - while health stays `unknown`, never green, so
+// the rail and the header agree with the verdict headline.
 const notConfirmedLatest: (typeof snapshotHistory)[number] = {
   ...snapshotHistory[0]!,
   health: "unknown",
   summary: {
     ...snapshotHistory[0]!.summary!,
-    tone: "warning",
-    label: "Not confirmed",
-    reason: "2 couldn't confirm",
+    tone: "neutral",
+    label: "3/5 verified",
+    reason: "2 couldn't complete",
     executionState: "not_started",
     analysis: { jobStatus: "completed", bugCount: 0, passedCount: 3, coverageCount: 2 },
   },
 };
 
-/** No client bug, but coverage gaps: the verdict headline reads amber "Not confirmed", not green. */
+/** No client bug, but coverage gaps: the verdict headline states how much was verified, and is not green. */
 export const NotConfirmed: Story = {
   args: { path: OVERVIEW_PATH },
   parameters: {

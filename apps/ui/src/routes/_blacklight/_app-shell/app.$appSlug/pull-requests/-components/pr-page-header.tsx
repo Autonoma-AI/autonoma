@@ -86,8 +86,9 @@ function PRTopBar({
       {showTitleSkeleton ? (
         <Skeleton className="h-5 w-96" />
       ) : (
-        <h1 className="min-w-0 flex-1 truncate text-sm font-medium text-text-primary" title={title}>
-          {title}
+        <h1 className="flex min-w-0 flex-1 items-baseline gap-2 text-sm font-medium" title={`#${prNumber} ${title}`}>
+          <span className="shrink-0 font-mono text-text-secondary">#{prNumber}</span>
+          <span className="truncate text-text-primary">{title}</span>
         </h1>
       )}
 

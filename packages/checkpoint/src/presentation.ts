@@ -154,12 +154,19 @@ function deriveAuthoritativePresentation(
         return { tone: "success", label: "No tests needed", executionState: "passed" };
     }
 
-    // A coverage gap means the change was not fully confirmed - whether nothing ran (blocked) or some tests passed
-    // but others could not be assessed. `warning`, not `critical` (the PR is not proven broken), and `not_started`
-    // so the derived health reads `unknown`, never `healthy` - the app was not fully checked this run.
+    // A coverage gap means the change was not fully confirmed. Stated as a RATIO rather than as "Not confirmed",
+    // because six checks confirmed out of seven is not the same reading as none out of seven, and one amber word
+    // collapses them into the same alarm. `neutral`, not `warning`: only a bug is raised as a problem here, matching
+    // the PR comment and the PR page. `not_started` still, so the derived health reads `unknown` rather than
+    // `healthy` - the app was not fully checked this run, whatever the ratio says.
     if (state === "not_confirmed") {
-        const reason = buckets.passed === 0 ? `${buckets.coverage} blocked` : `${buckets.coverage} couldn't confirm`;
-        return { tone: "warning", label: "Not confirmed", reason, executionState: "not_started" };
+        const checked = buckets.passed + buckets.coverage;
+        return {
+            tone: "neutral",
+            label: `${buckets.passed}/${checked} verified`,
+            reason: `${buckets.coverage} couldn't complete`,
+            executionState: "not_started",
+        };
     }
 
     return { tone: "success", label: "Passing", executionState: "passed" };

@@ -203,7 +203,6 @@ function AuthoritativeReportColumn({
         testCount={report.testCount}
         coverageGapCount={countAnalysisFindingBuckets(report.findings.map((f) => f.category)).coverage}
       />
-      <AnalysisFlowList flows={report.flows} />
       {report.reportMarkdown != null && (
         <AnalysisReportProse
           markdown={report.reportMarkdown}
@@ -214,6 +213,7 @@ function AuthoritativeReportColumn({
           issueIds={issueIds}
         />
       )}
+      <AnalysisFlowList flows={report.flows} />
       <AnalysisOpenIssuesList issues={openIssues} prNumber={prNumber} />
       <LatestSnapshotLink prNumber={prNumber} snapshotId={snapshotId} />
     </>
