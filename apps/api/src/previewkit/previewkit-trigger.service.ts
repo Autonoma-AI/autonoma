@@ -1,8 +1,19 @@
 import type { BillingService } from "@autonoma/billing";
-import type { Prisma, PreviewkitStatus, PrismaClient } from "@autonoma/db";
+import type {
+    OnboardingPreviewEnvironmentMode,
+    OnboardingStep,
+    Prisma,
+    PreviewkitStatus,
+    PrismaClient,
+} from "@autonoma/db";
 import { ConflictError, InsufficientPreviewCreditsError, NotFoundError } from "@autonoma/errors";
 import { autonomaHostsPreviews } from "@autonoma/scenario";
-import type { PreviewRedeployAppMode, PreviewTeardownTarget, TriggerPreviewRedeployAppParams } from "@autonoma/types";
+import {
+    hasGoneLive,
+    type PreviewRedeployAppMode,
+    type PreviewTeardownTarget,
+    type TriggerPreviewRedeployAppParams,
+} from "@autonoma/types";
 import type { AnalysisRunWorkflowInput, PreviewBuildWorkflowInput } from "@autonoma/workflow";
 import { z } from "zod";
 import { env } from "../env";
@@ -228,12 +239,30 @@ export class PreviewkitTriggerService extends Service {
 
         const { pull_request: pr, repository: repo } = parsed.data;
 
-        if (await this.usesExternalDeploys(organizationId, repo.id)) {
+        const application = await this.readApplicationForRepo(organizationId, repo.id);
+
+        if (application != null && !autonomaHostsPreviews(application.previewEnvironmentMode)) {
             this.logger.info("Skipping the preview run: the customer deploys this app's previews", {
                 action,
                 organizationId,
                 repo: repo.full_name,
                 pr: pr.number,
+            });
+            return;
+        }
+
+        // Nothing is owed to a pull request on an application that has not gone live. Autonoma has
+        // no verdict to reach on it (there is no test suite yet) and nothing to say on the thread,
+        // which is what both onboarding playbooks already promise the agent. The preview the SETUP
+        // needs is environment 0, and it is reached through `push` and explicit deploys rather than
+        // here, so gating this leaves the iterate-and-redeploy loop untouched.
+        if (application != null && !hasGoneLive(application.step)) {
+            this.logger.info("Skipping the preview run: the application has not gone live yet", {
+                action,
+                organizationId,
+                repo: repo.full_name,
+                pr: pr.number,
+                extra: { step: application.step },
             });
             return;
         }
@@ -380,21 +409,28 @@ export class PreviewkitTriggerService extends Service {
     }
 
     /**
-     * Whether the customer deploys this repo's previews themselves (Vercel and the like). Only the webhook entries
-     * need to ask - every other path is reached through an environment Autonoma already hosts.
+     * The onboarding facts both webhook gates need, in one read.
      *
-     * An Application that has made no choice yet counts as customer-deployed, matching the run's own
-     * `resolvePreviewTarget`: a webhook cannot know a preview URL, so opening a run here would test a preview
-     * nobody recorded. No Application at all is different - there is no onboarding choice to disagree with, and
-     * `startRun` already falls back to an unlinked best-effort build for that case via `startBuildWithoutRun`.
+     * Undefined when no Application is linked to the repository. That is NOT the same as an
+     * unfinished one: there is no onboarding choice to disagree with and no customer to hold back
+     * from, so `startRun` falls back to an unlinked best-effort build via `startBuildWithoutRun`.
+     * An Application that has made no preview choice yet counts as customer-deployed, matching the
+     * run's own `resolvePreviewTarget` - a webhook cannot know a preview URL, so opening a run
+     * there would test a preview nobody recorded.
      */
-    private async usesExternalDeploys(organizationId: string, githubRepositoryId: number): Promise<boolean> {
+    private async readApplicationForRepo(
+        organizationId: string,
+        githubRepositoryId: number,
+    ): Promise<{ step?: OnboardingStep; previewEnvironmentMode?: OnboardingPreviewEnvironmentMode } | undefined> {
         const application = await this.db.application.findUnique({
             where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
-            select: { onboardingState: { select: { previewEnvironmentMode: true } } },
+            select: { onboardingState: { select: { step: true, previewEnvironmentMode: true } } },
         });
-        if (application == null) return false;
-        return !autonomaHostsPreviews(application.onboardingState?.previewEnvironmentMode);
+        if (application == null) return undefined;
+        return {
+            step: application.onboardingState?.step,
+            previewEnvironmentMode: application.onboardingState?.previewEnvironmentMode ?? undefined,
+        };
     }
 
     /** Teardown entry point for `pull_request.closed` webhooks. */
@@ -410,7 +446,8 @@ export class PreviewkitTriggerService extends Service {
 
         const { pull_request: pr, repository: repo } = parsed.data;
 
-        if (await this.usesExternalDeploys(organizationId, repo.id)) {
+        const application = await this.readApplicationForRepo(organizationId, repo.id);
+        if (application != null && !autonomaHostsPreviews(application.previewEnvironmentMode)) {
             this.logger.info("Skipping the preview teardown: the customer deploys this app's previews", {
                 organizationId,
                 repo: repo.full_name,

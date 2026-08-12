@@ -69,6 +69,23 @@ async function withExternalDeploys(
     }
 }
 
+/** Parks the application mid-onboarding for the duration of `fn`, restoring its live step afterward. */
+async function withOnboardingInProgress(
+    harness: APITestHarness,
+    applicationId: string,
+    fn: () => Promise<void>,
+): Promise<void> {
+    await harness.db.onboardingState.update({
+        where: { applicationId },
+        data: { step: "previewkit_configuring" },
+    });
+    try {
+        await fn();
+    } finally {
+        await harness.db.onboardingState.update({ where: { applicationId }, data: { step: "completed" } });
+    }
+}
+
 /** Flips the main-branch (PR-0) build kill switch off for the duration of `fn`, restoring it afterward. */
 async function withMainBranchBuildsDisabled(fn: () => Promise<void>): Promise<void> {
     const previous = env.PREVIEWKIT_MAIN_BRANCH_BUILDS_ENABLED;
@@ -204,10 +221,12 @@ apiTestSuite({
         });
         // This suite exercises the previewkit-hosted flow throughout, so the seeded app has made that onboarding
         // choice - an unmade choice (NULL) now means customer-deployed and would skip every run before it starts.
+        // It is also LIVE: a pull request on an application still being set up is skipped before it starts, which
+        // is what `withOnboardingInProgress` below exercises deliberately.
         await harness.db.onboardingState.upsert({
             where: { applicationId: app.id },
-            create: { applicationId: app.id, previewEnvironmentMode: "previewkit" },
-            update: { previewEnvironmentMode: "previewkit" },
+            create: { applicationId: app.id, previewEnvironmentMode: "previewkit", step: "completed" },
+            update: { previewEnvironmentMode: "previewkit", step: "completed" },
         });
 
         await harness.services.github.handleInstallation(54321, harness.organizationId, {
@@ -244,6 +263,55 @@ apiTestSuite({
                 headSha: "head-7",
                 baseSha: "main-sha-2",
             });
+        });
+
+        // Home lists branches that carry a FeatureBranchInfo, so a row created here is a pull request the customer
+        // sees on their dashboard the moment they go live - for a PR Autonoma never reviewed and has nothing to say
+        // about. No row, no build, no comment until the app is live.
+        test("startRunFromPullRequestWebhook does nothing while the application is still being set up", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+            harness.startAnalysisRun.mockClear();
+
+            await withOnboardingInProgress(harness, app.id, async () => {
+                await service.startRunFromPullRequestWebhook(
+                    "opened",
+                    harness.organizationId,
+                    pullRequestPayload(4242),
+                );
+            });
+
+            const branch = await harness.db.branch.findFirst({
+                where: { applicationId: app.id, prInfo: { prNumber: 4242 } },
+                select: { id: true },
+            });
+            expect(branch).toBeNull();
+            expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+            expect(harness.startAnalysisRun).not.toHaveBeenCalled();
+        });
+
+        // The gate is on `pull_request` only. Onboarding's own preview is environment 0, which follows the branch
+        // the app chose and is redeployed by `push` - so the iterate-and-redeploy loop the agent runs during setup
+        // must keep working while the gate above is closed.
+        test("a push to the chosen deploy branch still redeploys environment 0 mid-onboarding", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.startAnalysisRun.mockClear();
+            await setMainBranchEnvironment(harness, "autonoma-integration", "ready");
+
+            await withOnboardingInProgress(harness, app.id, async () => {
+                await service.startMainBranchRunFromPushWebhook(
+                    harness.organizationId,
+                    pushPayload("autonoma-integration", "integration-sha-1"),
+                );
+            });
+
+            expect(harness.startAnalysisRun).toHaveBeenCalledWith(
+                expect.objectContaining({ headSha: "integration-sha-1" }),
+            );
         });
 
         test("startRunFromPullRequestWebhook reuses the same branch across pushes to the same PR", async ({
