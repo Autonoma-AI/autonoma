@@ -1,6 +1,6 @@
 import { ApplicationArchitecture } from "@autonoma/db";
 import type { ClassifierInput, RunFacts } from "@autonoma/diffs/analysis";
-import { overlayPointSchema } from "@autonoma/types";
+import { investigationEvidenceSchema, overlayPointSchema } from "@autonoma/types";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
 import { frozenPreviewEnv } from "./frozen-preview-env";
@@ -122,7 +122,17 @@ export const classifierCaseInputSchema = z.object({
     provision: z.object({ status: z.string(), detail: z.string(), seeded: z.string().optional() }),
     prTitle: z.string().optional(),
     prBody: z.string().optional(),
-    priorPass: z.object({ category: z.string(), headline: z.string(), rootCause: z.string().optional() }).optional(),
+    /** Mirrors `ClassifierInput["priorPass"]`: a self-heal re-run is judged against the whole first pass. */
+    priorPass: z
+        .object({
+            category: z.string(),
+            headline: z.string(),
+            rootCause: z.string().optional(),
+            plan: z.string(),
+            planMismatchNote: z.string().optional(),
+            evidence: z.array(investigationEvidenceSchema),
+        })
+        .optional(),
     run: frozenRunSchema,
     /** The prior-runs prose, frozen as of the classification so no later run can leak into it. */
     baseline: z.string(),

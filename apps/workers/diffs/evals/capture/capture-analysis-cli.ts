@@ -33,7 +33,9 @@ async function main(): Promise<void> {
     const caseDir = await captureAnalysis(params);
 
     logger.info("Capture complete", { extra: { caseDir } });
-    process.stdout.write(`Captured analysis case to ${caseDir}\nEdit expected.md and set skip: false to enable it.\n`);
+    process.stdout.write(
+        `Captured analysis case to ${caseDir}\nA new case needs its expected.md filled in and skip: false.\n`,
+    );
 }
 
 try {

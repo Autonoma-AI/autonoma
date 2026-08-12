@@ -45,7 +45,7 @@ async function main(): Promise<void> {
 
     logger.info("Capture complete", { extra: { caseDir } });
     process.stdout.write(
-        `Captured classifier case to ${caseDir}\nEdit expected.md and set skip: false to enable it.\n`,
+        `Captured classifier case to ${caseDir}\nA new case needs its expected.md filled in and skip: false.\n`,
     );
 }
 

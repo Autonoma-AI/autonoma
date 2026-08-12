@@ -262,6 +262,10 @@ pnpm --filter @autonoma/worker-diffs capture:classifier            <classificati
 After capture, fill in the frontmatter checks and the rubric
 in `expected.md`, then flip `skip: false`.
 
+`--force` **re-freezes an existing case's `input.json`** - use it to pull a case forward when the
+frozen shape gains a field. It never touches `expected.md`: the expectation is hand-authored, so
+only a case that does not have one yet gets the blank template.
+
 **Classifier - what capture recomputes.** Everything the classifier reasons from is
 reassembled through the **same helpers the production activity uses** (the generation
 select, `buildRunFacts`, `describeProvision`, the PR metadata), so a

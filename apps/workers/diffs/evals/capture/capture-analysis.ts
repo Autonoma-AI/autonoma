@@ -24,7 +24,7 @@ export interface CaptureAnalysisParams {
  * (refusing to write a case otherwise), runs the shared Analysis side-input
  * loaders against a real codebase clone, freezes the assembled `DiffsAgentInput`
  * to `input.json` (codebase as coords, `FlowIndex` as an array), and scaffolds a
- * blank `expected.md` (`skip: true`) for the author to fill in.
+ * blank `expected.md` (`skip: true`) for the author to fill in. Re-capturing keeps an existing one.
  *
  * The test suite is loaded from the *previous* snapshot (`testSuiteSource:
  * "previous"`): by capture time the pipeline has rewritten this snapshot's own
@@ -40,7 +40,7 @@ export async function captureAnalysis(params: CaptureAnalysisParams): Promise<st
     logger.info("Capturing analysis case", { extra: { snapshotId, name, caseDir } });
 
     if (existsSync(caseDir) && params.force !== true) {
-        throw new Error(`Case folder already exists: ${caseDir} (pass --force to overwrite)`);
+        throw new Error(`Case folder already exists: ${caseDir} (pass --force to re-freeze its inputs)`);
     }
 
     const githubApp = createGithubApp();
@@ -58,13 +58,18 @@ export async function captureAnalysis(params: CaptureAnalysisParams): Promise<st
     const { agentInput } = await assembleDiffsAgentInput({ snapshotId });
     const frozenInput = serializeAnalysisInput(coords, agentInput);
 
+    const expectedPath = path.join(caseDir, "expected.md");
+    // A re-capture refreshes the frozen inputs. The expectation is hand-authored, so it is never one of them.
+    const expectationExists = existsSync(expectedPath);
+
     await mkdir(caseDir, { recursive: true });
     await writeFile(path.join(caseDir, "input.json"), `${JSON.stringify(frozenInput, null, 2)}\n`, "utf-8");
-    await writeFile(path.join(caseDir, "expected.md"), blankExpected(snapshotId), "utf-8");
+    if (!expectationExists) await writeFile(expectedPath, blankExpected(snapshotId), "utf-8");
 
     logger.info("Captured analysis case", {
         extra: {
             caseDir,
+            keptExpectation: expectationExists,
             existingTests: frozenInput.existingTests.length,
             flows: frozenInput.flowIndex.length,
         },

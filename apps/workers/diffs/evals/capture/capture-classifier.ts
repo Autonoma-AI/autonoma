@@ -2,7 +2,12 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { db } from "@autonoma/db";
-import { PreviewEnvironment, PriorRuns, readPreviewConnectionKeys } from "@autonoma/diffs/analysis";
+import {
+    type ClassifierInput,
+    PreviewEnvironment,
+    PriorRuns,
+    readPreviewConnectionKeys,
+} from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { SELF_HEAL_RERUN_REASON } from "@autonoma/types";
 import { buildRunFacts, describeProvision, loadGenerationRow } from "../../src/activities/classify-run";
@@ -56,7 +61,7 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
     logger.info("Capturing classifier case", { extra: { classificationId, name, caseDir } });
 
     if (existsSync(caseDir) && params.force !== true) {
-        throw new Error(`Case folder already exists: ${caseDir} (pass --force to overwrite)`);
+        throw new Error(`Case folder already exists: ${caseDir} (pass --force to re-freeze its inputs)`);
     }
 
     const classification = await loadClassification(classificationId);
@@ -136,9 +141,13 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
         productionCapabilities: preview.capabilities,
     });
 
+    const expectedPath = path.join(caseDir, "expected.md");
+    // A re-capture refreshes the frozen inputs. The expectation is hand-authored, so it is never one of them.
+    const expectationExists = existsSync(expectedPath);
+
     await mkdir(caseDir, { recursive: true });
     await writeFile(path.join(caseDir, "input.json"), `${JSON.stringify(frozenInput, null, 2)}\n`, "utf-8");
-    await writeFile(path.join(caseDir, "expected.md"), blankExpected(classification, slug), "utf-8");
+    if (!expectationExists) await writeFile(expectedPath, blankExpected(classification, slug), "utf-8");
 
     logger.info("Captured classifier case", {
         extra: {
@@ -149,6 +158,7 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
             hasRecording: frozenInput.run.recording != null,
             previewEnvNames: preview.previewEnvNames?.length,
             appLogLines: frozenInput.appLogs?.lines.length,
+            keptExpectation: expectationExists,
         },
     });
 
@@ -211,18 +221,40 @@ function resolveAffectedReason(classification: LoadedClassification): string {
  * The preceding iteration's verdict, which a self-heal re-run is judged against. Read from the classification
  * one slot earlier on the same finding - the row the loop's own `priorPass` was built from.
  */
-async function loadPriorPass(
-    classification: LoadedClassification,
-): Promise<{ category: string; headline: string; rootCause?: string } | undefined> {
+async function loadPriorPass(classification: LoadedClassification): Promise<ClassifierInput["priorPass"]> {
     if (classification.number <= 1) return undefined;
 
     const prior = await db.analysisClassification.findFirst({
         where: { findingId: classification.findingId, number: classification.number - 1 },
-        select: { category: true, headline: true, rootCause: true },
+        select: {
+            category: true,
+            headline: true,
+            rootCause: true,
+            plan: true,
+            planMismatchNote: true,
+            evidence: true,
+        },
     });
     if (prior == null) return undefined;
 
-    return { category: prior.category, headline: prior.headline, rootCause: prior.rootCause ?? undefined };
+    // The plan the prior pass judged is what a self-heal re-run is graded against, so a row without one cannot
+    // be frozen into a case that means anything. Refuse rather than write a case with an empty prior plan.
+    if (prior.plan == null) {
+        throw new Error(
+            `The prior classification of finding ${classification.findingId} (iteration ${classification.number - 1}) ` +
+                "has no plan, so its self-heal context cannot be frozen. Pick a run whose prior pass recorded one.",
+        );
+    }
+
+    return {
+        category: prior.category,
+        headline: prior.headline,
+        rootCause: prior.rootCause ?? undefined,
+        plan: prior.plan,
+        planMismatchNote: prior.planMismatchNote ?? undefined,
+        // An absent list is a prior pass that cited nothing, which is what an empty one says.
+        evidence: prior.evidence ?? [],
+    };
 }
 
 /** What a case records about the PR's preview: which live tools production had, and what a replay can serve. */
