@@ -130,11 +130,14 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
   `build` block: the `runtime` escape hatch, or a retired framework preset a pre-retirement document
   still carries (`node`/`next`/`vite`/`bun`).
 - `config/` - preview config: `schema.ts` (`previewConfigSchema`), `resolver.ts` (shared upgrade +
-  validate), `load-config.ts` (`loadConfig` reads the Application's single `PreviewkitConfig` row -
-  latest-only, no revision history; the one document is the whole topology, every app tagged with
+  validate), `load-config.ts` (`loadConfig` reads the Application's single `PreviewkitConfig` row and
+  its topology rows - latest-only, no revision history - and composes the config document from them
+  with `documentFromPreviewkitConfigRows`; the config is the whole topology, every app tagged with
   its `repository` full name), `index.ts` (`createPreviewkitDefaults`).
   The pipeline deploys from that DB config only; an Application with no config row is skipped, and
-  every deploy/redeploy resolves the current document (there is no pinning to an older config).
+  every deploy/redeploy resolves the current config (there is no pinning to an older one).
+  The document is composed, not read: the `document` column still exists and is still written by the
+  authoring API, but nothing here reads it, so a deploy plans from the rows alone.
 - `deployer/` - turns config into K8s objects: `deployer.ts`, `resource-factory.ts`
   (app Deployments/Services + hostnames; routing itself is the central Gatekeeper's, see below),
   `env-injector.ts` (`{{name.host}}` template resolution), `hook-job-runner.ts`, `pod-exec.ts`.
@@ -352,9 +355,16 @@ app lines in a recent window.
 - `PreviewkitConfig` - the Application's DB-stored preview config (latest-only; one row per
   Application, overwritten in place on save). This is what the deploy pipeline reads. There is no
   revision history: saving overwrites the row, and every deploy/redeploy resolves the current
-  document. The `document` (v2) carries the whole topology - every app names its `repository`
+  config. The topology is RELATIONAL: `PreviewkitConfigApp` (with `PreviewkitConfigConnection`),
+  `PreviewkitConfigService` (with `PreviewkitConfigSetupTask`), `PreviewkitConfigRepository` and
+  `PreviewkitConfigHook` children, each ordered by a `position` column, plus the parent's own
+  `domain` / `registry` / `branch_convention*` columns. Only the polymorphic build leaves stay JSON
+  on their row (`build`, `blueprint`, a service's `options`, a setup task's `location`) - the format
+  there churns and nothing queries inside it. Readers compose a v2 document from those rows via
+  `documentFromPreviewkitConfigRows` (`@autonoma/types`) and validate it at their own boundary; the
+  `document` column is still written but no longer read. Every app names its `repository`
   (`owner/repo` full name), multirepo dependency apps included. There is no dependency sidecar: a
-  multirepo dependency's apps live in this one document, tagged by `repository`.
+  multirepo dependency's apps are rows of this one config, tagged by `repository`.
 - `PreviewkitSecret` - one row per secret: an env-var name and its sealed
   value, keyed `(applicationId, appName, key)`. There is NO bundle
   row - a "bundle" is just the set of rows sharing a scope. So a bundle exists exactly as long as it
