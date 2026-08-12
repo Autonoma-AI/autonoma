@@ -21,6 +21,17 @@ export class OnboardingService extends Service {
         return this.manager.getState(applicationId);
     }
 
+    /**
+     * Whether Finish setup is still outstanding, for an app the caller's organization owns.
+     *
+     * Org-scoped before the read for the same reason `getState` is: whether an application exists
+     * at all is not something a caller outside the organization gets to learn.
+     */
+    async getNavState(applicationId: string, organizationId: string) {
+        await this.manager.assertApplicationInOrg(applicationId, organizationId);
+        return this.manager.getNavState(applicationId);
+    }
+
     /** The agent activity stream for an app the caller's organization owns. */
     async getLogs(applicationId: string, organizationId: string) {
         await this.manager.assertApplicationInOrg(applicationId, organizationId);

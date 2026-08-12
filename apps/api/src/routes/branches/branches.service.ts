@@ -86,6 +86,13 @@ const INVESTIGATION_MEDIA_TTL_SECONDS = 60 * 60;
 const BRANCH_PAGE_SIZE = 25;
 
 /**
+ * Ceiling on a branch's checkpoint history. The legacy pull-request overview asks for one
+ * `snapshotDetail` per snapshot in this list, so without a bound a pull request that keeps receiving
+ * commits fans that read out indefinitely. High enough that no real pull request reaches it.
+ */
+const MAX_SNAPSHOTS_LISTED = 100;
+
+/**
  * How the pull-request list is ordered: most recently updated first, which is what GitHub's own list does and so
  * what a reader arriving from it expects. `createdAt` breaks the tie so the order is TOTAL - without a tiebreaker
  * rows with equal timestamps order arbitrarily per query, and a row can appear on two pages or on none.
@@ -1471,6 +1478,10 @@ export class BranchesService extends Service {
                 _count: { select: { testCaseAssignments: true } },
             },
             orderBy: { createdAt: "desc" },
+            // Bounded because the legacy pull-request overview issues one `snapshotDetail` per
+            // snapshot returned here, so an unbounded list fans out without a ceiling on a
+            // long-lived pull request. Newest-first, so the cut falls on history nobody scrolls to.
+            take: MAX_SNAPSHOTS_LISTED,
         });
 
         const snapshotIds = snapshots.map((s) => s.id);

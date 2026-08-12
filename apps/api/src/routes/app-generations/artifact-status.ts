@@ -1,5 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import { type ArtifactStatus, type ArtifactStatusItem, FileDataSchema } from "@autonoma/types";
+import { artifactEventWhere } from "./artifact-file-events";
+import { areArtifactsComplete } from "./artifacts-complete";
 
 /**
  * Per-artifact upload progress plus the canonical `complete` flag, shared by the
@@ -17,26 +19,25 @@ export async function computeArtifactStatus(
     applicationId: string,
     organizationId?: string,
 ): Promise<ArtifactStatus> {
-    // Push every filter into the DB (scoped to the app's setups via the relation, and
-    // to specific file paths via a JSON filter) instead of pulling all setups + their
-    // events into memory. Each probe is an existence check or a targeted fetch; the
-    // recipe is a plain count of active scenario recipe versions.
-    const fileEventWhere = { setup: { applicationId, organizationId }, type: "file.created" as const };
+    // Push every filter into the DB instead of pulling all setups + their events into memory. Each
+    // probe is an existence check or a targeted fetch; the recipe is a plain count of active scenario
+    // recipe versions. Which events carry which artifact comes from `artifactEventWhere`, shared with
+    // the Finish setup gate so the two cannot look in different places.
     const [completedSetup, kbEvent, scenariosEvent, testEvents, scenarioCount] = await Promise.all([
         db.applicationSetup.findFirst({
             where: { applicationId, organizationId, status: "completed" },
             select: { id: true },
         }),
         db.applicationSetupEvent.findFirst({
-            where: { ...fileEventWhere, data: { path: ["filePath"], equals: "AUTONOMA.md" } },
+            where: artifactEventWhere(applicationId, "kb", organizationId),
             select: { id: true },
         }),
         db.applicationSetupEvent.findFirst({
-            where: { ...fileEventWhere, data: { path: ["filePath"], equals: "scenarios.md" } },
+            where: artifactEventWhere(applicationId, "scenarios", organizationId),
             select: { id: true },
         }),
         db.applicationSetupEvent.findMany({
-            where: { ...fileEventWhere, data: { path: ["filePath"], string_starts_with: "autonoma/qa-tests/" } },
+            where: artifactEventWhere(applicationId, "tests", organizationId),
             select: { data: true },
         }),
         db.scenario.count({
@@ -71,9 +72,13 @@ export async function computeArtifactStatus(
         { key: "scenarios", received: hasScenarios },
     ];
 
-    // The step is only done when the run completed AND every artifact landed - a run
-    // can finish (setup completed) with the recipe (or any artifact) still missing.
-    const stepComplete = complete && artifacts.every((artifact) => artifact.received);
+    const stepComplete = areArtifactsComplete({
+        setupCompleted: complete,
+        hasRecipe: scenarioCount > 0,
+        hasTests: testCount > 0,
+        hasKb,
+        hasScenarios,
+    });
 
     return { complete, stepComplete, artifacts };
 }

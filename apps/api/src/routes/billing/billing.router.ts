@@ -8,6 +8,15 @@ const billingRouterImpl = router({
         services.billing.getBillingStatus(organizationId),
     ),
     /**
+     * Just the subscription enum, read by the app shell's upgrade button on every page.
+     *
+     * Separate from `status` so the shell does not pull a credit balance, a lifetime aggregate and
+     * the last 20 transactions to decide whether to render one button.
+     */
+    subscriptionStatus: protectedProcedure.query(({ ctx: { services, organizationId } }) =>
+        services.billing.getSubscriptionStatus(organizationId),
+    ),
+    /**
      * Whether this account would receive the free starting credits in a new organization, and which
      * organizations spent that entitlement if not.
      *

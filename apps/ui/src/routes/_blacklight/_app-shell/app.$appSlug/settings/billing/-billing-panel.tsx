@@ -26,6 +26,7 @@ import {
   formatSubscriptionStatus,
   formatTransactionType,
 } from "lib/billing/formatters";
+import { isSubscribed } from "lib/billing/is-subscribed";
 import { formatDate } from "lib/format";
 import {
   useBillingStatus,
@@ -37,8 +38,6 @@ import {
 import { toastManager } from "lib/toast-manager";
 import { useEffect, useState } from "react";
 import { VercelOveragePanel } from "./-vercel-overage-panel";
-
-const SUBSCRIBED_STATUSES = new Set(["active", "trialing"]);
 
 export function BillingPanel() {
   const { data } = useBillingStatus();
@@ -56,7 +55,7 @@ export function BillingPanel() {
     setAutoTopUpThreshold(String(data.autoTopUpThreshold));
   }, [data.autoTopUpEnabled, data.autoTopUpThreshold]);
 
-  const isSubscribed = data.subscriptionStatus != null && SUBSCRIBED_STATUSES.has(data.subscriptionStatus);
+  const subscribed = isSubscribed(data.subscriptionStatus);
   // Vercel-provisioned orgs pay through Vercel's own billing, never Stripe - Upgrade,
   // Open billing portal, and Buy top-up all create Stripe checkout/portal sessions,
   // which is the wrong destination (and would fail: these orgs have no
@@ -206,14 +205,14 @@ export function BillingPanel() {
                   <TooltipTrigger render={<span />}>
                     <Button
                       onClick={() => handleCreateCheckout(CHECKOUT_TYPE_SUBSCRIPTION)}
-                      disabled={isSubscribed || createCheckout.isPending}
+                      disabled={subscribed || createCheckout.isPending}
                       aria-label="billing-start-subscription"
                     >
                       <CrownSimpleIcon size={14} />
                       Upgrade
                     </Button>
                   </TooltipTrigger>
-                  {isSubscribed && <TooltipContent>You are already on the Pro plan</TooltipContent>}
+                  {subscribed && <TooltipContent>You are already on the Pro plan</TooltipContent>}
                 </Tooltip>
                 <Button
                   variant="outline"

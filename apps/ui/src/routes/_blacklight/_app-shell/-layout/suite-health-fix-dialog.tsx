@@ -4,7 +4,7 @@ import { suiteHealthFixKindSchema } from "@autonoma/types";
 import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { ConnectAgentDialog, MCP_SERVER_NAME } from "components/connect-agent-dialog";
-import { useSuiteHealthFixPlan } from "lib/query/suite-health.queries";
+import { useShellSuiteHealthFixPlan } from "lib/query/app-shell.queries";
 import { Suspense, useState } from "react";
 import { SUITE_HEALTH_PRESENTATION } from "./suite-health-copy";
 
@@ -78,7 +78,7 @@ function FixDialogShell({ health, open, onOpenChange, children }: FixDialogProps
 }
 
 function CopyPromptStep() {
-  const { data: plan } = useSuiteHealthFixPlan();
+  const { data: plan } = useShellSuiteHealthFixPlan();
   return <CopyPrompt plan={plan} />;
 }
 

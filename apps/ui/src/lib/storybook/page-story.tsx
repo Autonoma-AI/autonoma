@@ -1,9 +1,8 @@
 import { QueryClient, QueryClientProvider, QueryErrorResetBoundary } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
-import { RouteErrorState } from "components/route-error-state";
-import { RoutePendingSkeleton } from "components/route-pending-skeleton";
 import { authClient } from "lib/auth";
-import { trpc } from "lib/trpc";
+import { DEFAULT_ROUTER_OPTIONS } from "lib/router-defaults";
+import { DEFAULT_QUERY_OPTIONS, trpc } from "lib/trpc";
 import { useState } from "react";
 import { routeTree } from "../../routeTree.gen";
 
@@ -17,18 +16,23 @@ interface PageStoryProps {
  * loaders, beforeLoad guards, layouts and all. Every piece of data the page
  * needs must be answered by the story's MSW handlers (see `baseHandlers` for
  * the app-shell baseline), so no backend or onboarding is required.
+ *
+ * Both the query and router defaults come from the app's own, layering only what a story genuinely
+ * needs on top. A story that restates them measures request behaviour the app does not have.
  */
 export function PageStory({ path }: PageStoryProps) {
-  const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: false } } }));
-  // Mirrors `main.tsx`'s router options. The pending and error components in particular are what give every
-  // route a boundary, so a story that omits them shows a blank screen where the app shows a skeleton.
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        // A failed fixture should surface as an error boundary immediately, not three retries later.
+        defaultOptions: { queries: { ...DEFAULT_QUERY_OPTIONS, retry: false } },
+      }),
+  );
   const [router] = useState(() =>
     createRouter({
+      ...DEFAULT_ROUTER_OPTIONS,
       routeTree,
       history: createMemoryHistory({ initialEntries: [path] }),
-      defaultPendingMs: 200,
-      defaultPendingComponent: RoutePendingSkeleton,
-      defaultErrorComponent: RouteErrorState,
       context: { auth: authClient, queryClient, trpc },
     }),
   );

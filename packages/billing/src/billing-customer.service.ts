@@ -8,6 +8,7 @@ import { env } from "./env";
 import { Service } from "./service";
 import { getStripe } from "./stripe-client";
 import { syncStripeDataToDb } from "./stripe-sync";
+import type { SubscriptionStatusResult } from "./types";
 
 export class BillingCustomerService extends Service {
     constructor(private readonly db: PrismaClient) {
@@ -163,25 +164,54 @@ export class BillingCustomerService extends Service {
         return { url: session.url };
     }
 
-    async getBillingStatus(organizationId: string) {
+    /**
+     * The organization's subscription status on its own, for the app shell's upgrade button.
+     *
+     * Separate from {@link getBillingStatus} because the shell renders on every page and needs one
+     * enum, not a balance, a lifetime aggregate and the last 20 transactions. Answers with an
+     * object rather than a bare value so a missing billing row is still valid React Query data.
+     */
+    async getSubscriptionStatus(organizationId: string): Promise<SubscriptionStatusResult> {
+        this.logger.info("Reading subscription status", { organization: { organizationId } });
+
         const customer = await this.db.billingCustomer.findUnique({
             where: { organizationId },
-            select: {
-                creditBalance: true,
-                subscriptionCreditBalance: true,
-                provider: true,
-                subscriptionStatus: true,
-                currentPeriodEnd: true,
-                cancelAtPeriodEnd: true,
-                gracePeriodEndsAt: true,
-                autoTopUpEnabled: true,
-                autoTopUpThreshold: true,
-                transactions: {
-                    orderBy: { createdAt: "desc" },
-                    take: 20,
-                },
-            },
+            select: { subscriptionStatus: true },
         });
+
+        return { subscriptionStatus: customer?.subscriptionStatus ?? undefined };
+    }
+
+    async getBillingStatus(organizationId: string) {
+        // The aggregate is keyed only on `organizationId`, so it never waits on the customer read.
+        // The cost of running them together is one cheap aggregate for an organization with no
+        // billing row, which the early return below used to skip.
+        const [customer, llmProxyAggregate] = await Promise.all([
+            this.db.billingCustomer.findUnique({
+                where: { organizationId },
+                select: {
+                    creditBalance: true,
+                    subscriptionCreditBalance: true,
+                    provider: true,
+                    subscriptionStatus: true,
+                    currentPeriodEnd: true,
+                    cancelAtPeriodEnd: true,
+                    gracePeriodEndsAt: true,
+                    autoTopUpEnabled: true,
+                    autoTopUpThreshold: true,
+                    transactions: {
+                        orderBy: { createdAt: "desc" },
+                        take: 20,
+                    },
+                },
+            }),
+            // All-time spend through the managed LLM proxy (planner CLI). The transactions list is
+            // capped at 20, so we aggregate separately to surface the lifetime total in the UI.
+            this.db.creditTransaction.aggregate({
+                where: { organizationId, type: CreditTransactionType.LLM_PROXY_CONSUMPTION },
+                _sum: { amount: true },
+            }),
+        ]);
 
         if (customer == null) {
             return {
@@ -200,13 +230,6 @@ export class BillingCustomerService extends Service {
             };
         }
 
-        // All-time spend through the managed LLM proxy (planner CLI). The
-        // transactions list above is capped at 20, so we aggregate separately to
-        // surface the lifetime total in the billing UI.
-        const llmProxyAggregate = await this.db.creditTransaction.aggregate({
-            where: { organizationId, type: CreditTransactionType.LLM_PROXY_CONSUMPTION },
-            _sum: { amount: true },
-        });
         const cliCreditsSpent = Math.abs(llmProxyAggregate._sum.amount ?? 0);
 
         return {

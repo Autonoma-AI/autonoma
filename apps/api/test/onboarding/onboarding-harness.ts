@@ -138,6 +138,11 @@ export class OnboardingTestHarness implements IntegrationHarness {
             data: { mainBranchId: branch.id },
         });
 
+        // Both production creation paths insert this row, and onboarding reads are queries that no
+        // longer create it. A harness that skipped it would exercise a state real applications are
+        // not in. The one test that wants a row-less application deletes it explicitly.
+        await this.db.onboardingState.create({ data: { applicationId: app.id } });
+
         return app.id;
     }
 

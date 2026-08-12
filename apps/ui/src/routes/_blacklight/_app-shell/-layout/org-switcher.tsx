@@ -8,7 +8,7 @@ import {
 } from "@autonoma/blacklight";
 import { CaretUpDownIcon } from "@phosphor-icons/react/CaretUpDown";
 import { CheckIcon } from "@phosphor-icons/react/Check";
-import { useMyOrganizations, useSwitchOrganization } from "lib/query/organization.queries";
+import { useShellOrganizations, useSwitchOrganization } from "lib/query/app-shell.queries";
 
 /**
  * Switches which organization this session is acting as. Renders as plain text for the common case
@@ -19,7 +19,7 @@ import { useMyOrganizations, useSwitchOrganization } from "lib/query/organizatio
  * separate change.
  */
 export function OrgSwitcher({ activeOrganizationName }: { activeOrganizationName: string }) {
-  const { data: organizations } = useMyOrganizations();
+  const { data: organizations } = useShellOrganizations();
   const switchOrganization = useSwitchOrganization();
 
   if (organizations.length <= 1) {

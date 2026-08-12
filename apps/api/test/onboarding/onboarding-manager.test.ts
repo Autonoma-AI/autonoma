@@ -74,35 +74,49 @@ integrationTestSuite({
         return { orgId, manager, createApp: () => harness.createApp(orgId) };
     },
     cases: (test) => {
-        test("getState upserts if no record exists", async ({ seedResult: { manager, createApp } }) => {
-            const appId = await createApp();
-            const state = await manager.getState(appId);
-            expect(state.step).toBe("github");
-            expect(state.agentConnectedAt).toBeNull();
-            expect(state.completedAt).toBeNull();
-        });
-
-        test("getState clears a stale in-flight discover capability", async ({
+        test("getState answers with the initial state when no record exists, and writes nothing", async ({
             seedResult: { manager, createApp },
             harness,
         }) => {
             const appId = await createApp();
-            await harness.db.onboardingState.create({
-                data: {
-                    applicationId: appId,
-                    step: "github",
-                    discoveringStartedAt: new Date(Date.now() - 3 * 60 * 1000),
-                },
+            // Applications created today get this row at creation. Only rows predating that are
+            // missing, which is what this drops back to.
+            await harness.db.onboardingState.delete({ where: { applicationId: appId } });
+
+            const state = await manager.getState(appId);
+
+            expect(state.step).toBe("github");
+            expect(state.agentConnectedAt).toBeNull();
+            expect(state.completedAt).toBeNull();
+            // A query must not write, so the read leaves the application without a row rather than
+            // giving it one.
+            expect(await harness.db.onboardingState.findUnique({ where: { applicationId: appId } })).toBeNull();
+        });
+
+        test("getState reports a stale in-flight discover capability as stopped, without writing", async ({
+            seedResult: { manager, createApp },
+            harness,
+        }) => {
+            const appId = await createApp();
+            const startedAt = new Date(Date.now() - 3 * 60 * 1000);
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: { discoveringStartedAt: startedAt },
             });
 
             const state = await manager.getState(appId);
 
             // Discover is a capability, not a step: the step is untouched, only the
-            // stuck in-flight flag is cleared.
+            // stuck in-flight flag is reported as cleared.
             expect(state.step).toBe("github");
             expect(state.discoveringStartedAt).toBeNull();
             expect(state.discoveryInProgress).toBe(false);
             expect(state.lastDiscoveryError).toBe("Discovery timed out or crashed. Please retry.");
+
+            // Derived in the response, not repaired in the row - the retry mutation is what writes.
+            const row = await harness.db.onboardingState.findUniqueOrThrow({ where: { applicationId: appId } });
+            expect(row.discoveringStartedAt).toEqual(startedAt);
+            expect(row.lastDiscoveryError).toBeNull();
         });
 
         test("getState keeps a recent in-flight discover capability in progress", async ({
@@ -110,12 +124,9 @@ integrationTestSuite({
             harness,
         }) => {
             const appId = await createApp();
-            await harness.db.onboardingState.create({
-                data: {
-                    applicationId: appId,
-                    step: "github",
-                    discoveringStartedAt: new Date(Date.now() - 30 * 1000),
-                },
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: { discoveringStartedAt: new Date(Date.now() - 30 * 1000) },
             });
 
             const state = await manager.getState(appId);
@@ -1591,12 +1602,9 @@ integrationTestSuite({
             const appId = await createApp();
             const repoId = 778_901;
             await linkRepository(harness, appId, repoId);
-            await harness.db.onboardingState.create({
-                data: {
-                    applicationId: appId,
-                    step: "github",
-                    lastDiscoveryError: "stale error from a previous attempt",
-                },
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: { lastDiscoveryError: "stale error from a previous attempt" },
             });
             await harness.db.previewkitEnvironment.create({
                 data: {
@@ -1680,12 +1688,9 @@ integrationTestSuite({
             const appId = await createApp();
             const repoId = 778_910;
             await linkRepository(harness, appId, repoId);
-            await harness.db.onboardingState.create({
-                data: {
-                    applicationId: appId,
-                    step: "github",
-                    lastDiscoveryError: "stale error from a previous attempt",
-                },
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: { lastDiscoveryError: "stale error from a previous attempt" },
             });
             const environment = await harness.db.previewkitEnvironment.create({
                 data: {
@@ -1763,7 +1768,6 @@ integrationTestSuite({
             const appId = await createApp();
             const repoId = 778_911;
             await linkRepository(harness, appId, repoId);
-            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
             const environment = await harness.db.previewkitEnvironment.create({
                 data: {
                     namespace: `preview-managed-${appId}-pr-22`,
@@ -1839,7 +1843,6 @@ integrationTestSuite({
             const appId = await createApp();
             const repoId = 778_913;
             await linkRepository(harness, appId, repoId);
-            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
             const environment = await harness.db.previewkitEnvironment.create({
                 data: {
                     namespace: `preview-managed-${appId}-pr-24`,
@@ -1911,7 +1914,6 @@ integrationTestSuite({
             const appId = await createApp();
             const repoId = 778_914;
             await linkRepository(harness, appId, repoId);
-            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
             await harness.db.previewkitEnvironment.create({
                 data: {
                     namespace: `preview-managed-${appId}-pr-25`,
@@ -1978,7 +1980,6 @@ integrationTestSuite({
             const appId = await createApp();
             const repoId = 778_912;
             await linkRepository(harness, appId, repoId);
-            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
             // Ready, but no deployedAt was ever recorded (legacy/edge): we cannot
             // prove the pod booted after the secret landed.
             await harness.db.previewkitEnvironment.create({
@@ -2031,7 +2032,6 @@ integrationTestSuite({
             const appId = await createApp();
             const repoId = 778_904;
             await linkRepository(harness, appId, repoId);
-            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
             await harness.db.previewkitEnvironment.create({
                 data: {
                     namespace: `preview-managed-${appId}-pr-31`,
@@ -2098,7 +2098,6 @@ integrationTestSuite({
             const appId = await createApp();
             const repoId = 778_905;
             await linkRepository(harness, appId, repoId);
-            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
             await harness.db.previewkitEnvironment.create({
                 data: {
                     namespace: `preview-managed-${appId}-pr-32`,
@@ -2157,7 +2156,6 @@ integrationTestSuite({
             const appId = await createApp();
             const repoId = 778_906;
             await linkRepository(harness, appId, repoId);
-            await harness.db.onboardingState.create({ data: { applicationId: appId, step: "github" } });
             // Deployed an hour ago...
             const deployedAt = new Date(Date.now() - 60 * 60 * 1000);
             await harness.db.previewkitEnvironment.create({
@@ -2407,6 +2405,95 @@ integrationTestSuite({
             await seedReceivedArtifacts(harness, appId, orgId, { status: "running" });
 
             expect((await manager.getState(appId)).artifactsUploaded).toBe(false);
+        });
+
+        // The sidebar reads getNavState and the finish-setup screens read getState. Two reads of the
+        // same gate is exactly how they drift, so pin that they agree at every step of the flow.
+        test("getNavState agrees with getState as an application works through setup", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+
+            const expectAgreement = async (expected: boolean) => {
+                const [state, navState] = await Promise.all([manager.getState(appId), manager.getNavState(appId)]);
+                expect(navState.setupComplete).toBe(expected);
+                expect(state.setupComplete).toBe(expected);
+            };
+
+            await expectAgreement(false);
+
+            // SDK discovered and every provisionable scenario torn down cleanly, but the run has not
+            // finished uploading - still incomplete, and both reads must say so.
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: { lastDiscoveredAt: new Date() },
+            });
+            await seedReceivedArtifacts(harness, appId, orgId, { status: "running" });
+            const scenario = await harness.db.scenario.findFirstOrThrow({ where: { applicationId: appId } });
+            await harness.db.scenarioInstance.create({
+                data: { applicationId: appId, organizationId: orgId, scenarioId: scenario.id, status: "DOWN_SUCCESS" },
+            });
+            await expectAgreement(false);
+
+            await harness.db.applicationSetup.updateMany({
+                where: { applicationId: appId },
+                data: { status: "completed" },
+            });
+            await expectAgreement(true);
+        });
+
+        test("getNavState agrees with getState on the content-without-a-completed-run route", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await harness.db.scenario.create({
+                data: { applicationId: appId, organizationId: orgId, name: "Nav checkout flow" },
+            });
+            const folder = await harness.db.folder.create({
+                data: { applicationId: appId, organizationId: orgId, name: "Nav default" },
+            });
+            await harness.db.testCase.create({
+                data: {
+                    applicationId: appId,
+                    organizationId: orgId,
+                    folderId: folder.id,
+                    name: "Nav homepage",
+                    slug: "nav-homepage",
+                },
+            });
+
+            expect((await manager.getNavState(appId)).setupComplete).toBe(true);
+            expect((await manager.getState(appId)).setupComplete).toBe(true);
+        });
+
+        test("getNavState reports incomplete for an application with no onboarding row", async ({
+            harness,
+            seedResult: { manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await harness.db.onboardingState.delete({ where: { applicationId: appId } });
+
+            expect((await manager.getNavState(appId)).setupComplete).toBe(false);
+            expect(await harness.db.onboardingState.findUnique({ where: { applicationId: appId } })).toBeNull();
+        });
+
+        // Both reads render on paths the user is not waiting on a write for, and getNavState runs on
+        // every page. `updatedAt` is the tell: any write to the row bumps it.
+        test("neither onboarding read writes to the row", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await seedReceivedArtifacts(harness, appId, orgId, { status: "completed" });
+            const before = await harness.db.onboardingState.findUniqueOrThrow({ where: { applicationId: appId } });
+
+            await manager.getState(appId);
+            await manager.getNavState(appId);
+
+            const after = await harness.db.onboardingState.findUniqueOrThrow({ where: { applicationId: appId } });
+            expect(after.updatedAt).toEqual(before.updatedAt);
         });
 
         test("artifactsUploaded is true once the setup is marked completed", async ({

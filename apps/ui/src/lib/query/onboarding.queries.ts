@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { type QueryClient, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useAPIMutation } from "lib/query/api-queries";
 import { trpc } from "lib/trpc";
@@ -62,6 +62,24 @@ export function useOnboardingState(applicationId: string) {
 
 export function useOnboardingStateOptional(applicationId: string) {
     return useQuery(trpc.onboarding.getState.queryOptions({ applicationId }, { enabled: applicationId.length > 0 }));
+}
+
+// `onboarding.navState` - the one boolean the shell's nav needs, rather than this module's full
+// state - is a shell read and lives in `lib/query/app-shell.queries.ts`.
+
+/**
+ * Both onboarding reads, invalidated together.
+ *
+ * `navState` and `getState` are separate cache keys over the same rows, so a mutation that moves one
+ * moves the other. Invalidating only the detailed one leaves "Finish setup" in the nav after it is
+ * finished, which is exactly the bug the narrow read would otherwise introduce.
+ */
+export async function invalidateOnboardingState(queryClient: QueryClient, applicationId?: string): Promise<void> {
+    const input = applicationId != null ? { applicationId } : undefined;
+    await Promise.all([
+        queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey(input) }),
+        queryClient.invalidateQueries({ queryKey: trpc.onboarding.navState.queryKey(input) }),
+    ]);
 }
 
 /** Polls the agentic-onboarding session (control state, pending request, activity stream). */
@@ -129,7 +147,7 @@ export function useConfigureAndDiscoverScenarios() {
     return useAPIMutation({
         ...trpc.onboarding.configureAndDiscoverScenarios.mutationOptions({
             onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void invalidateOnboardingState(queryClient);
                 void queryClient.invalidateQueries({ queryKey: trpc.onboarding.listSdkDryRunTargets.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.scenarios.list.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
@@ -156,7 +174,7 @@ export function useLinkVercelProject() {
     return useAPIMutation({
         ...trpc.onboarding.linkVercelProject.mutationOptions({
             onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void invalidateOnboardingState(queryClient);
                 void queryClient.invalidateQueries({
                     queryKey: trpc.onboarding.listAvailableVercelProjects.queryKey(),
                 });
@@ -227,7 +245,7 @@ export function useSelectVercelDeployment() {
     return useAPIMutation({
         ...trpc.onboarding.selectVercelDeployment.mutationOptions({
             onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void invalidateOnboardingState(queryClient);
                 void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getDeploymentSignalStatus.queryKey() });
             },
             onError: (error) => onStepMismatch(error),
@@ -249,7 +267,7 @@ export function useDiscoverVercelDeploymentTarget() {
     return useAPIMutation({
         ...trpc.onboarding.discoverVercelDeploymentTarget.mutationOptions({
             onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void invalidateOnboardingState(queryClient);
                 void queryClient.invalidateQueries({ queryKey: trpc.onboarding.listSdkDryRunTargets.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.scenarios.list.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
@@ -271,7 +289,7 @@ export function usePrepareSdkTarget() {
         ...trpc.onboarding.prepareSdkTarget.mutationOptions({
             onSettled: () => {
                 void queryClient.invalidateQueries({ queryKey: trpc.onboarding.listSdkDryRunTargets.queryKey() });
-                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void invalidateOnboardingState(queryClient);
             },
         }),
         errorToast: { title: "Failed to prepare preview environment" },
@@ -301,7 +319,7 @@ export function useConfigureAndDiscoverSdkTarget() {
     return useAPIMutation({
         ...trpc.onboarding.configureAndDiscoverSdkTarget.mutationOptions({
             onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void invalidateOnboardingState(queryClient);
                 void queryClient.invalidateQueries({ queryKey: trpc.onboarding.listSdkDryRunTargets.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.scenarios.list.queryKey() });
                 void queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
@@ -321,7 +339,7 @@ export function useRunScenarioDryRun() {
     return useAPIMutation({
         ...trpc.onboarding.runScenarioDryRun.mutationOptions({
             onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void invalidateOnboardingState(queryClient);
             },
         }),
         errorToast: { title: "Scenario dry run failed" },
@@ -353,7 +371,7 @@ export function useCompleteGithub() {
     const queryClient = useQueryClient();
     return useAPIMutation({
         ...trpc.onboarding.completeGithub.mutationOptions({
-            onSettled: () => void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() }),
+            onSettled: () => void invalidateOnboardingState(queryClient),
         }),
         errorToast: { title: "Failed to complete Github onboarding" },
     });
@@ -365,7 +383,7 @@ export function useSelectPreviewEnvironmentMode() {
     return useAPIMutation({
         ...trpc.onboarding.selectPreviewEnvironmentMode.mutationOptions({
             onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void invalidateOnboardingState(queryClient);
                 void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getPreviewReadiness.queryKey() });
             },
             onError: (error) => onStepMismatch(error),
@@ -380,7 +398,7 @@ export function useConfirmExistingDeploysSetup() {
     return useAPIMutation({
         ...trpc.onboarding.confirmExistingDeploysSetup.mutationOptions({
             onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void invalidateOnboardingState(queryClient);
             },
             onError: (error) => onStepMismatch(error),
         }),
@@ -394,7 +412,7 @@ export function useTriggerPreviewkitMainDeploy() {
     return useAPIMutation({
         ...trpc.onboarding.triggerPreviewkitMainDeploy.mutationOptions({
             onSettled: () => {
-                void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                void invalidateOnboardingState(queryClient);
                 void queryClient.invalidateQueries({ queryKey: trpc.onboarding.getPreviewReadiness.queryKey() });
             },
             onError: (error) => onStepMismatch(error),
@@ -562,7 +580,7 @@ export function useCompletePreviewOnboarding() {
     return useAPIMutation({
         ...trpc.onboarding.completePreviewOnboarding.mutationOptions({
             onSettled: async () => {
-                await queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                await invalidateOnboardingState(queryClient);
                 await queryClient.invalidateQueries({ queryKey: trpc.onboarding.getPreviewReadiness.queryKey() });
                 await queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
                 await router.invalidate();
@@ -580,7 +598,7 @@ export function useGoLive() {
     return useAPIMutation({
         ...trpc.onboarding.goLive.mutationOptions({
             onSettled: async () => {
-                await queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                await invalidateOnboardingState(queryClient);
                 await queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
                 await router.invalidate();
             },

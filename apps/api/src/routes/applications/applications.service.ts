@@ -296,7 +296,8 @@ export class ApplicationsService extends Service {
 
                 // Every application needs one. Without it `hasGoneLive` reads the app as
                 // not live - correct as a default, but permanent, because nothing else creates the
-                // row and no screen can advance a step that does not exist.
+                // row and no screen can advance a step that does not exist. Onboarding reads are
+                // queries and must not write, so this is the only thing that materialises it.
                 await tx.onboardingState.create({
                     data: { applicationId: app.id, step: "github" },
                 });

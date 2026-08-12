@@ -1,5 +1,6 @@
 import {
     type OnboardingPreviewEnvironmentMode,
+    type OnboardingState as OnboardingStateRow,
     type OnboardingStep,
     previewkitConfigRowsInclude,
     type PrismaClient,
@@ -21,7 +22,6 @@ import { hasGoneLive } from "@autonoma/types";
 import { z } from "zod";
 import { applicationBranchRefs } from "../../github/application-branch-refs";
 import { isGithubNotFound, normalizeBranchName } from "../../github/git-ref";
-import { computeArtifactStatus } from "../app-generations/artifact-status";
 import { assertApplicationInOrg } from "./assert-application-in-org";
 import {
     type DeploymentSignalInput,
@@ -59,6 +59,7 @@ import {
     type OnboardingPreviewkitConfig,
     type PreviewkitConfigValidationResult,
 } from "./previewkit-config-service";
+import { computeSetupState } from "./setup-state";
 import { CompletedState } from "./states/completed-state";
 import { DiffTriggerState } from "./states/diff-trigger-state";
 import { ExistingDeploysConfiguringState } from "./states/existing-deploys-configuring-state";
@@ -75,6 +76,16 @@ import { PreviewkitDeployingState } from "./states/previewkit-deploying-state";
  * CLI work moved out into the Finish setup tab.
  */
 const INITIAL_STEP: OnboardingState["step"] = "github";
+
+/** Reported for a discovery whose worker died mid-run, in place of the stored error. */
+const DISCOVERY_TIMED_OUT_ERROR = "Discovery timed out or crashed. Please retry.";
+
+/**
+ * Identity of the synthesised state returned for an application with no onboarding row. No row means
+ * no id and no timestamps; these stand in for them, and are stable so a poll does not see them move.
+ */
+const BLANK_STATE_ID = "";
+const BLANK_STATE_TIMESTAMP = new Date(0);
 
 /**
  * Result of validating a Vercel deployment SDK target: discovered + persisted,
@@ -189,78 +200,93 @@ export class OnboardingManager {
         );
     }
 
+    /**
+     * Whether the Finish setup nav entry should be offered, and nothing else.
+     *
+     * The app shell renders on every page, and `getState` answers with this app's preview and
+     * production URLs, its discovery error and its live pairing code to decide one boolean. This
+     * reads the gate on its own.
+     */
+    async getNavState(applicationId: string): Promise<{ setupComplete: boolean }> {
+        this.logger.info("Getting onboarding nav state", { application: { applicationId } });
+
+        const { setupComplete } = await computeSetupState(this.db, applicationId, this.logger);
+        return { setupComplete };
+    }
+
     async getState(applicationId: string) {
-        this.logger.info("Getting onboarding state", { applicationId });
+        this.logger.info("Getting onboarding state", { application: { applicationId } });
 
-        const row = await this.db.$transaction(async (tx) => {
-            // Read-first: getState is polled, so avoid a write on every call.
-            // Only create the row the first time, and only update when recovering
-            // a stuck discovery.
-            let current = await tx.onboardingState.findUnique({ where: { applicationId } });
-            if (current == null) {
-                current = await tx.onboardingState.create({
-                    data: { applicationId, step: INITIAL_STEP },
-                });
-            }
-
-            if (OnboardingSdkCapabilityService.isDiscoveryStuck(current.discoveringStartedAt)) {
-                this.logger.warn("Recovering stuck discover capability", {
-                    applicationId,
-                    discoveringStartedAt: current.discoveringStartedAt,
-                });
-                current = await tx.onboardingState.update({
-                    where: { applicationId },
-                    data: {
-                        discoveringStartedAt: null,
-                        lastDiscoveryError: "Discovery timed out or crashed. Please retry.",
-                    },
-                });
-            }
-
-            return current;
-        });
-
-        const sdkConfigured = row.lastDiscoveredAt != null;
-        const discoveryInProgress = row.discoveringStartedAt != null;
-
-        // `stepComplete` (computed once, server-side) is the gate: the run completed
-        // AND every artifact - recipe included - landed. A run can finish uploading
-        // tests/kb/scenarios while the recipe submit silently fails (missing factory,
-        // rejected upload); without this the user advances to the SDK step and lands
-        // on a dry-run with no scenarios to run.
-        const [artifactStatus, scenario, testCase, provisionable, validatedInstances] = await Promise.all([
-            computeArtifactStatus(this.db, applicationId),
-            this.db.scenario.findFirst({ where: { applicationId }, select: { id: true } }),
-            // Ignore investigation shadow cases - they are validation probes, not real onboarding content.
-            this.db.testCase.findFirst({ where: { applicationId, shadow: false }, select: { id: true } }),
-            this.db.scenario.findMany({
-                where: { applicationId, isDisabled: false, activeRecipeVersionId: { not: null } },
-                select: { id: true },
-            }),
-            this.db.scenarioInstance.findMany({
-                where: { applicationId, status: "DOWN_SUCCESS" },
-                select: { scenarioId: true },
-                distinct: ["scenarioId"],
-            }),
+        const [row, setupState] = await Promise.all([
+            this.db.onboardingState.findUnique({ where: { applicationId } }),
+            computeSetupState(this.db, applicationId, this.logger),
         ]);
-        const artifactsUploaded = artifactStatus.stepComplete;
-        const hasContent = scenario != null && testCase != null;
 
-        const validatedScenarioIds = new Set(validatedInstances.map((instance) => instance.scenarioId));
-        const dryRunPassed =
-            provisionable.length > 0 && provisionable.every((candidate) => validatedScenarioIds.has(candidate.id));
+        // A query must not write, so an application whose row predates eager creation answers with
+        // the state a new one would have rather than being given a row here. Every onboarding
+        // mutation upserts, so it materialises on the first write instead.
+        const state = row ?? this.blankState(applicationId);
 
-        const setupComplete =
-            (sdkConfigured && dryRunPassed && artifactsUploaded) || (hasContent && !artifactsUploaded);
+        // Derived, not repaired: a discovery whose worker died leaves `discoveringStartedAt` set
+        // forever, and the screen has to stop claiming it is still running. The retry mutation is
+        // what actually overwrites the timestamp and clears the error.
+        const discoveryStuck = OnboardingSdkCapabilityService.isDiscoveryStuck(state.discoveringStartedAt);
+        if (discoveryStuck) {
+            this.logger.warn("Discovery timed out, reporting it as stopped", {
+                application: { applicationId },
+                extra: { discoveringStartedAt: state.discoveringStartedAt },
+            });
+        }
 
         return {
-            ...row,
-            sdkConfigured,
-            dryRunPassed,
-            discoveryInProgress,
-            artifactsUploaded,
-            hasContent,
-            setupComplete,
+            ...state,
+            discoveringStartedAt: discoveryStuck ? null : state.discoveringStartedAt,
+            lastDiscoveryError: discoveryStuck ? DISCOVERY_TIMED_OUT_ERROR : state.lastDiscoveryError,
+            discoveryInProgress: !discoveryStuck && state.discoveringStartedAt != null,
+            sdkConfigured: setupState.sdkConfigured,
+            dryRunPassed: setupState.dryRunPassed,
+            artifactsUploaded: setupState.artifactsUploaded,
+            hasContent: setupState.hasContent,
+            setupComplete: setupState.setupComplete,
+        };
+    }
+
+    /**
+     * The state an application has before anything has been recorded against it, mirroring the
+     * schema's own column defaults. For rows that predate eager creation at application creation;
+     * never persisted - see {@link getState}.
+     *
+     * The identity and timestamp fields are stable placeholders rather than `new Date()` because
+     * `getState` is polled: a moving `updatedAt` would hand React Query a changed object on every
+     * tick and re-render the screen for an application nothing has happened to.
+     */
+    private blankState(applicationId: string): OnboardingStateRow {
+        return {
+            id: BLANK_STATE_ID,
+            applicationId,
+            step: INITIAL_STEP,
+            agentConnectedAt: null,
+            agentLogs: [],
+            productionUrl: null,
+            previewEnvironmentMode: null,
+            previewUrl: null,
+            previewVerificationStatus: "idle",
+            previewDeployRequestedAt: null,
+            completedAt: null,
+            lastDiscoveryError: null,
+            lastDiscoveredAt: null,
+            lastDiscoveredModels: null,
+            discoveringStartedAt: null,
+            dryRunPassedAt: null,
+            diffTriggerConfirmedAt: null,
+            agentHolder: "human",
+            agentLastActivityAt: null,
+            agentPendingRequest: null,
+            agentPairingCode: null,
+            agentPairingExpiresAt: null,
+            agentClient: null,
+            createdAt: BLANK_STATE_TIMESTAMP,
+            updatedAt: BLANK_STATE_TIMESTAMP,
         };
     }
 

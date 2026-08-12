@@ -1,6 +1,6 @@
 import { EyeIcon } from "@phosphor-icons/react/Eye";
 import { DemoReturnButton } from "components/demo-return-button";
-import { useActiveOrg } from "lib/query/auth.queries";
+import { useShellActiveOrg } from "lib/query/app-shell.queries";
 import { DemoSignupButton } from "./demo-signup-button";
 import { DemoVercelInstallButton } from "./demo-vercel-install-button";
 
@@ -10,7 +10,7 @@ import { DemoVercelInstallButton } from "./demo-vercel-install-button";
  * computed server-side on `auth.activeOrg` (the client never learns the demo org id).
  */
 export function DemoBanner() {
-  const { data: activeOrg } = useActiveOrg();
+  const { data: activeOrg } = useShellActiveOrg();
   if (activeOrg?.isDemo !== true) return null;
 
   return (

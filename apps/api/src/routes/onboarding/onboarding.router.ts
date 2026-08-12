@@ -18,6 +18,16 @@ export const onboardingRouter = router({
         .input(applicationIdInput)
         .query(({ ctx, input }) => ctx.services.onboarding.getState(input.applicationId, ctx.organizationId)),
 
+    /**
+     * The one boolean the app shell's Finish setup nav entry needs, read on every page.
+     *
+     * Separate from `getState` so the sidebar does not pull this app's preview and production URLs,
+     * agent session and discovery errors to decide whether to render a link.
+     */
+    navState: protectedProcedure
+        .input(applicationIdInput)
+        .query(({ ctx, input }) => ctx.services.onboarding.getNavState(input.applicationId, ctx.organizationId)),
+
     getLogs: protectedProcedure
         .input(applicationIdInput)
         .query(({ ctx, input }) => ctx.services.onboarding.getLogs(input.applicationId, ctx.organizationId)),

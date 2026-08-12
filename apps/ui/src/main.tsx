@@ -3,9 +3,8 @@ import * as Sentry from "@sentry/react";
 import { QueryClientProvider, QueryErrorResetBoundary } from "@tanstack/react-query";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { isTRPCClientError } from "@trpc/client";
-import { RouteErrorState } from "components/route-error-state";
-import { RoutePendingSkeleton } from "components/route-pending-skeleton";
 import posthog from "lib/posthog";
+import { DEFAULT_ROUTER_OPTIONS } from "lib/router-defaults";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { env } from "./env";
@@ -98,20 +97,11 @@ function reportUncaughtRouteError(error: Error) {
   Sentry.captureException(error);
 }
 
-/**
- * `defaultPendingComponent` and `defaultErrorComponent` are not just fallbacks - they are what CREATES the
- * per-route boundaries. TanStack only wraps a match in Suspense (and in a catch boundary) when the route
- * has a pending (or error) component; without these, 63 of 70 routes had none, so every wait and every
- * throw escaped to the root Outlet's `<Suspense fallback={null}>` and blanked the whole app, sidebar
- * included. With them, a wait or a failure is contained at the deepest route that owns it.
- *
- * `lib/storybook/page-story.tsx` mirrors these options; a story shows none of this if they drift.
- */
+// `DEFAULT_ROUTER_OPTIONS` carries the per-route boundaries, shared with `lib/storybook/page-story.tsx`
+// so a story cannot drift from the app. Error reporting and scroll restoration are app-only.
 const router = createRouter({
+  ...DEFAULT_ROUTER_OPTIONS,
   routeTree,
-  defaultPendingMs: 200,
-  defaultPendingComponent: RoutePendingSkeleton,
-  defaultErrorComponent: RouteErrorState,
   defaultOnCatch: reportUncaughtRouteError,
   scrollRestoration: true,
   context: { auth: authClient, queryClient, trpc },

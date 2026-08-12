@@ -3,6 +3,7 @@ import { authClient } from "lib/auth";
 import { currentPathForRedirect } from "lib/auth-redirect";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { ensureAPIQueryData } from "lib/query/api-queries";
+import { prefetchShellOrganizations } from "lib/query/app-shell.queries";
 import { ensureOrgStatusData, ensureSessionData } from "lib/query/auth.queries";
 import type { RouteContext } from "../../__root";
 import { AppShellLayout } from "./-layout/app-shell-layout";
@@ -39,6 +40,12 @@ async function getAppShellContext({ queryClient, trpc }: RouteContext, pathname:
   // The session read above deliberately stays serial. Firing org-scoped reads before we know a
   // session exists would turn every signed-out visit to an app URL into a pair of reported 401s.
   void queryClient.prefetchQuery(trpc.applications.list.queryOptions());
+
+  // The org switcher suspends on this, and nothing else prefetched it - so it used to start when the
+  // sidebar mounted, mid-page, joining whatever batch the page had already formed. Started here it
+  // overlaps the org reads below instead. It is routed out of the batch by procedure
+  // (`lib/trpc-batching.ts`), so it cannot be held up by a slow neighbour either.
+  prefetchShellOrganizations(queryClient);
 
   // `auth.activeOrg` is the single description of the organization this session acts as. It used to
   // be read alongside better-auth's `organization.list()`, whose matching entry won - and that is what

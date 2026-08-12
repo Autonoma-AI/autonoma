@@ -1,7 +1,6 @@
 import { Outlet, createFileRoute, notFound } from "@tanstack/react-router";
+import { prefetchShellNavState, prefetchShellSuiteHealth } from "lib/query/app-shell.queries";
 import { ensureBranchData } from "lib/query/branches.queries";
-import { prefetchSuiteHealth } from "lib/query/suite-health.queries";
-import { trpc } from "lib/trpc";
 import { setLastAppId } from "../-last-app";
 import { AppNotFound } from "./-app-not-found";
 
@@ -15,8 +14,8 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug")({
     // app-scoped reads would otherwise fire a round trip of their own after the page has painted -
     // the health meter on a skeleton and "Finish setup" popping into the nav a beat late. Started,
     // not awaited: neither gates the page.
-    prefetchSuiteHealth(queryClient, app.id);
-    void queryClient.prefetchQuery(trpc.onboarding.getState.queryOptions({ applicationId: app.id }));
+    prefetchShellSuiteHealth(queryClient, app.id);
+    prefetchShellNavState(queryClient, app.id);
 
     return ensureBranchData(queryClient, app.id, app.mainBranch.name);
   },

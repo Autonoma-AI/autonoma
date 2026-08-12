@@ -13,16 +13,14 @@ import type { Icon } from "@phosphor-icons/react/lib";
 import { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
 import { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
-import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useParams, useRouteContext } from "@tanstack/react-router";
-import { OrgSwitcher } from "components/org-switcher";
 import { useAuth, useAuthClient } from "lib/auth";
 import { CHECKOUT_TYPE_SUBSCRIPTION } from "lib/billing/formatters";
-import { useOnboardingStateOptional } from "lib/onboarding/onboarding-api";
-import { useCreateCheckoutSession } from "lib/query/billing.queries";
-import { trpc } from "lib/trpc";
+import { isSubscribed } from "lib/billing/is-subscribed";
+import { useCreateCheckoutSession, useShellNavState, useShellSubscriptionStatus } from "lib/query/app-shell.queries";
 import { Suspense, useEffect, useState } from "react";
 import { SidebarAppSelector } from "./app-selector";
+import { OrgSwitcher } from "./org-switcher";
 import { SidebarSuiteHealth } from "./sidebar-suite-health";
 
 const SIDEBAR_STORAGE_KEY = "autonoma:sidebar-collapsed";
@@ -59,7 +57,7 @@ function useAppNav() {
   const params = useParams({ strict: false }) as { appSlug?: string };
   const { isAdmin } = useAuth();
   const app = params.appSlug != null ? applications.find((a) => a.slug === params.appSlug) : undefined;
-  const { data: onboardingState } = useOnboardingStateOptional(app?.id ?? "");
+  const { data: navState } = useShellNavState(app?.id ?? "");
 
   if (params.appSlug == null || app == null) return { items: [] as NavItem[], tools: [] as NavItem[] };
 
@@ -74,7 +72,7 @@ function useAppNav() {
 
   const tools: NavItem[] = [];
   // Show "Finish setup" until all three deepening steps are complete.
-  if (onboardingState != null && !onboardingState.setupComplete) {
+  if (navState != null && !navState.setupComplete) {
     tools.push({ icon: SlidersHorizontalIcon, label: "Finish setup", href: `${base}/finish-setup` });
   }
   tools.push({ icon: GearSixIcon, label: "Settings", href: `${base}/settings` });
@@ -141,18 +139,18 @@ function SidebarNavItem({
   return inner;
 }
 
-const SUBSCRIBED_STATUSES = new Set(["active", "trialing"]);
-
 function SidebarUpgradeButton({ collapsed }: { collapsed: boolean }) {
-  const { data } = useQuery(trpc.billing.status.queryOptions());
+  const { data } = useShellSubscriptionStatus();
   const createCheckout = useCreateCheckoutSession();
   // Billing is organization state but it is reached through an application's settings, so the link only
   // exists where there is an application to hang it off. The Upgrade button itself goes straight to Stripe
   // and works either way.
   const { appSlug } = useParams({ strict: false }) as { appSlug?: string };
 
-  const isSubscribed = data?.subscriptionStatus != null && SUBSCRIBED_STATUSES.has(data.subscriptionStatus);
-  if (data == null || isSubscribed) return null;
+  // `data == null` is the query not having answered yet, not an unsubscribed organization - an org with
+  // no billing row still resolves to an object. Rendering nothing until then keeps the button from
+  // flashing in for someone who already pays.
+  if (data == null || isSubscribed(data.subscriptionStatus)) return null;
 
   function handleUpgrade() {
     const returnPath = `${window.location.pathname}${window.location.search}`;

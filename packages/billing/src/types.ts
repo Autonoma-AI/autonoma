@@ -84,6 +84,14 @@ export type BillingStatusResult = {
     transactions: CreditTransaction[];
 };
 
+/**
+ * Just the subscription enum, for the app shell's upgrade button. An object rather than a bare
+ * value so an organization with no billing row is still valid React Query data.
+ */
+export type SubscriptionStatusResult = {
+    subscriptionStatus?: string;
+};
+
 export interface BillingService {
     getOrCreateCustomer(organizationId: string, orgName: string): Promise<BillingCustomer>;
     grantSubscriptionCredits(organizationId: string, invoiceId: string, customerEmail?: string): Promise<void>;
@@ -95,6 +103,7 @@ export interface BillingService {
     ): Promise<BillingSessionResult>;
     createPortalSession(organizationId: string, returnPath?: string): Promise<BillingSessionResult>;
     getBillingStatus(organizationId: string): Promise<BillingStatusResult>;
+    getSubscriptionStatus(organizationId: string): Promise<SubscriptionStatusResult>;
     updateAutoTopUp(organizationId: string, enabled: boolean, threshold: number): Promise<void>;
     checkCreditsGate(organizationId: string, runCount: number, architecture: ApplicationArchitecture): Promise<void>;
     deductCreditsForGeneration(generationId: string, context?: DeductGenerationContext): Promise<boolean>;

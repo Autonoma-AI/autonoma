@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useAPIMutation } from "lib/query/api-queries";
+import { invalidateOnboardingState } from "lib/query/onboarding.queries";
 import { trpc } from "lib/trpc";
 
 export function useApplications() {
@@ -86,7 +87,7 @@ export function useDeleteApplication() {
         trpc.applications.delete.mutationOptions({
             onSuccess: async () => {
                 await queryClient.invalidateQueries({ queryKey: trpc.applications.list.queryKey() });
-                await queryClient.invalidateQueries({ queryKey: trpc.onboarding.getState.queryKey() });
+                await invalidateOnboardingState(queryClient);
                 await queryClient.invalidateQueries({ queryKey: trpc.github.listRepositories.queryKey() });
                 await queryClient.invalidateQueries({ queryKey: trpc.github.getInstallation.queryKey() });
                 await router.invalidate();

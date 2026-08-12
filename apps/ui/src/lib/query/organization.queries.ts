@@ -19,6 +19,9 @@ export function ensureMyOrganizationsData(queryClient: QueryClient) {
     return ensureAPIQueryData(queryClient, myOrganizationsQueryOptions());
 }
 
+// The shell reads `organization.mine` too, through `lib/query/app-shell.queries.ts` - same query key,
+// so by construction the same batching decision. The hook below is for pages.
+
 export function useMyOrganizations() {
     return useSuspenseQuery(myOrganizationsQueryOptions());
 }

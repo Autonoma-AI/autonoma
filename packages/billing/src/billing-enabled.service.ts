@@ -47,6 +47,10 @@ export class EnabledBillingService implements BillingService, StripeBillingServi
         return this.billingCustomerService.getBillingStatus(organizationId);
     }
 
+    getSubscriptionStatus(organizationId: string) {
+        return this.billingCustomerService.getSubscriptionStatus(organizationId);
+    }
+
     updateAutoTopUp(organizationId: string, enabled: boolean, threshold: number) {
         return this.billingCustomerService.updateAutoTopUp(organizationId, enabled, threshold);
     }

@@ -2,7 +2,7 @@ import { Skeleton, Tooltip, TooltipContent, TooltipTrigger, cn } from "@autonoma
 import type { SuiteHealth, SuiteHealthLevel } from "@autonoma/types";
 import { SUITE_HEALTH_LEVELS, suiteHealthRank } from "@autonoma/types";
 import { WrenchIcon } from "@phosphor-icons/react/Wrench";
-import { useSuiteHealth } from "lib/query/suite-health.queries";
+import { useShellSuiteHealth } from "lib/query/app-shell.queries";
 import { Component, Suspense, useState, type ReactNode } from "react";
 import {
   SUITE_HEALTH_LOWERS,
@@ -132,7 +132,7 @@ function SuiteHealthFactorList({
 }
 
 function SidebarSuiteHealthContent({ collapsed }: { collapsed: boolean }) {
-  const { data: health } = useSuiteHealth();
+  const { data: health } = useShellSuiteHealth();
   const [fixOpen, setFixOpen] = useState(false);
   // The tooltip is controlled so opening the modal can dismiss it. Left uncontrolled it stays open behind the
   // backdrop until the pointer happens to move, which reads as two overlapping panels.

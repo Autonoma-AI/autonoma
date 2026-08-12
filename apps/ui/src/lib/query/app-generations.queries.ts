@@ -1,5 +1,6 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useAPIMutation } from "lib/query/api-queries";
+import { invalidateOnboardingState } from "lib/query/onboarding.queries";
 import { trpc } from "lib/trpc";
 
 export function usePollApplicationSetup(applicationId: string) {
@@ -66,9 +67,7 @@ export function useUpdateSetup(applicationId: string) {
                 void queryClient.invalidateQueries({
                     queryKey: trpc.applicationSetups.artifactStatus.queryKey({ applicationId }),
                 });
-                void queryClient.invalidateQueries({
-                    queryKey: trpc.onboarding.getState.queryKey({ applicationId }),
-                });
+                void invalidateOnboardingState(queryClient, applicationId);
             },
         }),
     );

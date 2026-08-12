@@ -29,7 +29,7 @@ import { useNavigate, useParams, useRouteContext } from "@tanstack/react-router"
 import { isMidOnboarding } from "lib/onboarding/app-onboarding";
 import { navigateToOnboarding } from "lib/onboarding/navigate-to-onboarding";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
-import { useDeleteApplication } from "lib/query/applications.queries";
+import { useDeleteApplication } from "lib/query/app-shell.queries";
 import { useState } from "react";
 
 function DiscardConfirmDialog({

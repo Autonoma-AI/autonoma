@@ -9,6 +9,7 @@ import { env } from "env";
 import { demoModalStore } from "lib/demo-modal-store";
 import { isDemoReadOnlyError } from "lib/demo-read-only-error";
 import posthog from "lib/posthog";
+import { shouldSkipBatch } from "lib/trpc-batching";
 import superjson from "superjson";
 
 export type RouterOutputs = inferRouterOutputs<AppRouter>;
@@ -20,13 +21,22 @@ function getEventPath(key: unknown): string | undefined {
     return first.join(".");
 }
 
+/**
+ * The query behaviour the app runs with, exported so Storybook's QueryClient can layer its own
+ * options over it rather than replace it. `lib/storybook/page-story.tsx` set only `retry: false`,
+ * which left `staleTime` at react-query's default of 0 - so every observer mount refetched and the
+ * stories issued requests no real screen issues. The instrument used to measure request behaviour
+ * has to agree with the app about it.
+ */
+export const DEFAULT_QUERY_OPTIONS = {
+    // 30 s stale time prevents loaders from re-blocking on cache hits
+    // and eliminates the "blank screen flash" during navigation
+    staleTime: 30_000,
+} as const;
+
 export const queryClient = new QueryClient({
     defaultOptions: {
-        queries: {
-            // 30 s stale time prevents loaders from re-blocking on cache hits
-            // and eliminates the "blank screen flash" during navigation
-            staleTime: 30_000,
-        },
+        queries: DEFAULT_QUERY_OPTIONS,
     },
     mutationCache: new MutationCache({
         onMutate: (variables, mutation) => {
@@ -70,7 +80,11 @@ export const queryClient = new QueryClient({
     }),
 });
 
-const isPreviewEnvironment = isPreviewHostname(window.location.hostname, env.VITE_INTERNAL_DOMAIN);
+// `typeof window` guarded because this runs at module scope: an unguarded read makes this module,
+// and everything downstream of it, impossible to import outside a browser - which is why the query
+// layer had no tests. Always true in the app itself; false only under a test runner.
+const isPreviewEnvironment =
+    typeof window !== "undefined" && isPreviewHostname(window.location.hostname, env.VITE_INTERNAL_DOMAIN);
 
 /**
  * Sends the browser's PostHog session id so events the API captures while
@@ -95,17 +109,6 @@ const linkOptions = {
     }),
 } as const;
 
-/** Operation-context key that routes a query around `httpBatchLink`. Read by the `splitLink` below. */
-const SKIP_BATCH = "skipBatch";
-
-/**
- * Query options that keep a query out of the shared HTTP batch. A batch resolves only when its SLOWEST member
- * does, so anything that renders outside the page it happens to share a tick with paints at that page's speed:
- * the sidebar's suite-health meter is a ~50ms query, and batched behind a 300-pull-request `branches.list` it
- * sits on a skeleton for seconds. Pass as the second argument to `queryOptions`.
- */
-export const UNBATCHED = { trpc: { context: { [SKIP_BATCH]: true } } };
-
 /**
  * Split a batch rather than let its URL grow unbounded. A batched query is a GET with every member's input in the
  * query string, and our edge answers 414 past ~8-12KB of it - which fails the WHOLE batch, including procedures
@@ -117,7 +120,7 @@ const MAX_BATCH_URL_LENGTH = 8_000;
 export const trpcClient = createTRPCClient<AppRouter>({
     links: [
         splitLink({
-            condition: (op) => op.input instanceof FormData || op.context[SKIP_BATCH] === true,
+            condition: shouldSkipBatch,
             true: httpLink(linkOptions),
             false: httpBatchLink({ ...linkOptions, maxURLLength: MAX_BATCH_URL_LENGTH }),
         }),

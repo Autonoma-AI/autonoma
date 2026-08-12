@@ -6,6 +6,10 @@ export function useBillingStatus() {
     return useSuspenseQuery(trpc.billing.status.queryOptions());
 }
 
+// `billing.subscriptionStatus` - one enum for the shell's upgrade button, instead of this module's
+// balance, lifetime aggregate and last 20 transactions - is a shell read and lives in
+// `lib/query/app-shell.queries.ts`.
+
 /**
  * Whether this account would get free starting credits in a new organization, and which organizations
  * spent that entitlement if not. Keyed on the person, not the active organization.
