@@ -7,7 +7,7 @@ import { Link } from "@tanstack/react-router";
 import { CONFIG_SUB_STEPS, type ConfigStepId } from "lib/onboarding/config-steps";
 import { ONBOARDING_PHASES } from "lib/onboarding/onboarding-phases";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
-import type { OnboardingStep } from "lib/onboarding/onboarding-steps";
+import type { OnboardingViewStep } from "lib/onboarding/onboarding-steps";
 import type { ComponentType } from "react";
 
 const ALL_STEP_IDS = ONBOARDING_PHASES.flatMap((step) => step.activeSteps);
@@ -164,7 +164,7 @@ function StepLabel({ label, isActive }: StepLabelProps) {
   );
 }
 
-function resolveStepId(stepId: string): OnboardingStep {
+function resolveStepId(stepId: string): OnboardingViewStep {
   const matchingStep = ALL_STEP_IDS.find((knownStep) => knownStep === stepId);
   return matchingStep ?? "add-app";
 }

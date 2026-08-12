@@ -16,7 +16,7 @@ import {
   badgeVariants,
   cn,
 } from "@autonoma/blacklight";
-import { type UploadArtifactsBody, UploadScenarioRecipeVersionsBodySchema } from "@autonoma/types";
+import { hasGoneLive, type UploadArtifactsBody, UploadScenarioRecipeVersionsBodySchema } from "@autonoma/types";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { ArrowsClockwiseIcon } from "@phosphor-icons/react/ArrowsClockwise";
@@ -296,7 +296,7 @@ function FinishSetupSteps({ applicationId, appSlug }: { applicationId: string; a
   // workflow, no signal arrives and `diffTriggerConfirmedAt` stays null. Surface
   // that so a live-but-silent app does not look healthy.
   const awaitingFirstDiffSignal =
-    state.step === "completed" &&
+    hasGoneLive(state.step) &&
     state.previewEnvironmentMode === "existing_deploys" &&
     state.diffTriggerConfirmedAt == null;
 

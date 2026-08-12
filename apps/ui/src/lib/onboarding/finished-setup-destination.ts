@@ -1,3 +1,5 @@
+import { hasGoneLive } from "@autonoma/types";
+
 /** Where the finish-setup screen sends the user, or `undefined` to stay put. */
 export type FinishedSetupDestination = "home" | "resume-onboarding";
 
@@ -19,5 +21,5 @@ interface FinishedSetupInput {
  */
 export function finishedSetupDestination(state: FinishedSetupInput): FinishedSetupDestination | undefined {
     if (!state.setupComplete) return undefined;
-    return state.step === "completed" ? "home" : "resume-onboarding";
+    return hasGoneLive(state.step) ? "home" : "resume-onboarding";
 }

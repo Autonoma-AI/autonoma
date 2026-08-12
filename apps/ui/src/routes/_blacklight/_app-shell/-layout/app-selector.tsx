@@ -26,6 +26,7 @@ import { PlusIcon } from "@phosphor-icons/react/Plus";
 import { TrashIcon } from "@phosphor-icons/react/Trash";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useNavigate, useParams, useRouteContext } from "@tanstack/react-router";
+import { isMidOnboarding } from "lib/onboarding/app-onboarding";
 import { navigateToOnboarding } from "lib/onboarding/navigate-to-onboarding";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { useDeleteApplication } from "lib/query/applications.queries";
@@ -77,12 +78,8 @@ function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; na
   const deleteApp = useDeleteApplication();
   const [discardTarget, setDiscardTarget] = useState<{ id: string; name: string }>();
 
-  const incompleteApps = applications.filter(
-    (app) => app.onboardingState != null && app.onboardingState.step !== "completed",
-  );
-  const completedApps = applications.filter(
-    (app) => app.onboardingState == null || app.onboardingState.step === "completed",
-  );
+  const incompleteApps = applications.filter(isMidOnboarding);
+  const completedApps = applications.filter((app) => !isMidOnboarding(app));
 
   const trigger = collapsed ? (
     <Tooltip>

@@ -1,5 +1,5 @@
 import type { ConfigStepId } from "./config-steps";
-import type { OnboardingStep } from "./onboarding-steps";
+import type { OnboardingViewStep } from "./onboarding-steps";
 
 type FocusSection = "config" | "secrets" | "logs";
 
@@ -45,7 +45,7 @@ interface OnboardingSearchOverrides {
  * persisted backend step instead of pinning the view to a requested one.
  */
 export function buildOnboardingSearch(
-    step: OnboardingStep | undefined,
+    step: OnboardingViewStep | undefined,
     appId?: string,
     overrides: OnboardingSearchOverrides = {},
 ) {

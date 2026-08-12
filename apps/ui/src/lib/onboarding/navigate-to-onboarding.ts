@@ -1,8 +1,8 @@
 import type { NavigateFn } from "@tanstack/react-router";
 import { buildOnboardingSearch } from "./onboarding-search";
-import type { OnboardingStep } from "./onboarding-steps";
+import type { OnboardingViewStep } from "./onboarding-steps";
 
-const STEP_ROUTES: Record<string, OnboardingStep> = {
+const STEP_ROUTES: Record<string, OnboardingViewStep> = {
     // "Add app" merges repo connect + app naming, and is the first required step.
     github: "add-app",
     preview_environment: "preview-environment",
@@ -25,7 +25,7 @@ const STEP_ROUTES: Record<string, OnboardingStep> = {
 };
 
 /** Maps a backend onboarding step to the UI step it resumes at, defaulting to the first step. */
-export function resolveStep(step: string | undefined): OnboardingStep {
+export function resolveStep(step: string | undefined): OnboardingViewStep {
     return step != null ? (STEP_ROUTES[step] ?? "add-app") : "add-app";
 }
 

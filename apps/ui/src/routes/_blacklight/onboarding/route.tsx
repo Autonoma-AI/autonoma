@@ -11,7 +11,7 @@ import { useAuth, useAuthClient } from "lib/auth";
 import { manageUrlSchema } from "lib/github-install-errors";
 import { isConfigStepId } from "lib/onboarding/config-steps";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
-import { isOnboardingStep, type OnboardingStep } from "lib/onboarding/onboarding-steps";
+import { isOnboardingViewStep, type OnboardingViewStep } from "lib/onboarding/onboarding-steps";
 import { useDeleteApplication } from "lib/query/applications.queries";
 import { ensureSessionData } from "lib/query/auth.queries";
 import { useAgentSession } from "lib/query/onboarding.queries";
@@ -27,7 +27,7 @@ import { PreviewDeployVerifyPage } from "./preview-deploy-verify";
 import { PreviewEnvironmentPage } from "./preview-environment";
 import { PreviewkitConfigPage } from "./previewkit-config";
 
-function mapBackendStepToViewStep(step: string | undefined): OnboardingStep {
+function mapBackendStepToViewStep(step: string | undefined): OnboardingViewStep {
   if (step === "preview_environment") return "preview-environment";
   if (step === "previewkit_configuring") return "previewkit-config";
   if (step === "existing_deploys_configuring" || step === "existing_deploys_waiting") return "existing-deploys";
@@ -41,7 +41,7 @@ function mapBackendStepToViewStep(step: string | undefined): OnboardingStep {
 export const Route = createFileRoute("/_blacklight/onboarding")({
   component: OnboardingLayout,
   validateSearch: (search: Record<string, unknown>) => {
-    const step = typeof search.step === "string" && isOnboardingStep(search.step) ? search.step : undefined;
+    const step = typeof search.step === "string" && isOnboardingViewStep(search.step) ? search.step : undefined;
     const appId = typeof search.appId === "string" ? search.appId : undefined;
     // A GitHub OAuth/App-install callback can redirect back here with an error. An install
     // conflict also names both GitHub accounts, so the message can say which is which.
@@ -113,10 +113,10 @@ function readFocusSection(value: unknown): "config" | "secrets" | "logs" | undef
 }
 
 function resolveViewStep(
-  requestedStep: OnboardingStep | undefined,
+  requestedStep: OnboardingViewStep | undefined,
   backendStep: string | undefined,
   hasApplication: boolean,
-): OnboardingStep {
+): OnboardingViewStep {
   const backendViewStep = mapBackendStepToViewStep(backendStep);
   if (backendStep === "completed" && hasApplication) return backendViewStep;
   if (requestedStep == null) return backendViewStep;

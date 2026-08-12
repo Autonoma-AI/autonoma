@@ -10,6 +10,7 @@ import { Link, createFileRoute, redirect, useRouteContext } from "@tanstack/reac
 import { SUPPORT_URL } from "components/talk-to-support";
 import { env } from "env";
 import { useAuth } from "lib/auth";
+import { isMidOnboarding } from "lib/onboarding/app-onboarding";
 import { buildResumeSearch } from "lib/onboarding/navigate-to-onboarding";
 import { getOnboardingProgress } from "lib/onboarding/onboarding-progress";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
@@ -35,18 +36,14 @@ interface AppCardData {
   onboardingState?: { step: string } | null;
 }
 
-function isOnboardingComplete(app: { onboardingState?: { step: string } | null }): boolean {
-  return app.onboardingState == null || app.onboardingState.step === "completed";
-}
-
 function appTypeLabel(architecture: string): string {
   return APP_TYPE_LABELS[architecture] ?? "Application";
 }
 
 export const Route = createFileRoute("/_blacklight/_app-shell/")({
   beforeLoad: ({ context }) => {
-    const onboardedApps = context.applications.filter(isOnboardingComplete);
-    const incompleteApps = context.applications.filter((app) => !isOnboardingComplete(app));
+    const onboardedApps = context.applications.filter((app) => !isMidOnboarding(app));
+    const incompleteApps = context.applications.filter(isMidOnboarding);
 
     // Only land on the hub when the user has nothing usable yet but does have a setup
     // in flight - so they can resume it. As soon as a single app is fully configured we
@@ -75,8 +72,8 @@ export const Route = createFileRoute("/_blacklight/_app-shell/")({
 function AppSelector() {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
   const { user } = useAuth();
-  const incompleteApps = applications.filter((app) => !isOnboardingComplete(app));
-  const completedApps = applications.filter(isOnboardingComplete);
+  const incompleteApps = applications.filter(isMidOnboarding);
+  const completedApps = applications.filter((app) => !isMidOnboarding(app));
   const hasCompleted = completedApps.length > 0;
   const isInternal = user?.email?.endsWith(`@${env.VITE_INTERNAL_DOMAIN}`) ?? false;
   // Drive each section's collapsed CTA (open/continue the top app of that section).

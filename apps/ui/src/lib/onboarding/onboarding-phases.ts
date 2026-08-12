@@ -1,9 +1,9 @@
-import type { OnboardingStep } from "./onboarding-steps";
+import type { OnboardingViewStep } from "./onboarding-steps";
 
 export interface OnboardingPhase {
     id: string;
     label: string;
-    activeSteps: OnboardingStep[];
+    activeSteps: OnboardingViewStep[];
 }
 
 /**

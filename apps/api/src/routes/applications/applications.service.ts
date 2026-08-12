@@ -5,6 +5,7 @@ import { ConflictError, NotFoundError } from "@autonoma/errors";
 import type { EncryptionHelper } from "@autonoma/scenario";
 import { APPLICATION_INSTRUCTIONS_MAX_LENGTH } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
+import { FIRST_ONBOARDING_STEP, OnboardingStepSchema } from "../onboarding/onboarding-step-order";
 import { Service } from "../service";
 import { ApplicationInstructionsConflictError } from "./application-instructions-conflict-error";
 
@@ -145,7 +146,26 @@ export class ApplicationsService extends Service {
                       `.catch(() => [])
                 : [];
 
-        const stateByAppId = new Map(onboardingStates.map((s) => [s.application_id, { step: s.step }]));
+        // Parsed rather than passed through as a string: this is what carries the step to the
+        // frontend, and an untyped one there is an unchecked comparison against a literal. The
+        // column is a Postgres enum, so a parse failure means the two have drifted.
+        //
+        // An unreadable step falls back to the FIRST step, never to an absent row. A row that is
+        // not there means "legacy app, predates onboarding, perfectly usable" to the app hub, so
+        // dropping it would present an application we cannot read as ready to use. Falling back to
+        // the start of the flow keeps the safe direction: the app is offered as setup to resume.
+        const stateByAppId = new Map(
+            onboardingStates.map((row) => {
+                const parsed = OnboardingStepSchema.safeParse(row.step);
+                if (!parsed.success) {
+                    this.logger.error("Onboarding step is not a known step; treating the app as unfinished", {
+                        applicationId: row.application_id,
+                        extra: { step: row.step },
+                    });
+                }
+                return [row.application_id, { step: parsed.data ?? FIRST_ONBOARDING_STEP }] as const;
+            }),
+        );
 
         type AppWithMainBranch = (typeof apps)[number] & {
             mainBranch: NonNullable<(typeof apps)[number]["mainBranch"]>;
