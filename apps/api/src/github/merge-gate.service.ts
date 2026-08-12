@@ -25,7 +25,7 @@ import {
 } from "@autonoma/github/check";
 import { payloadBuilder, renderMarkdown } from "@autonoma/github/comment";
 import { type Logger, logger } from "@autonoma/logger";
-import { ANALYSIS_VERDICT } from "@autonoma/types";
+import { ANALYSIS_VERDICT, hasGoneLive } from "@autonoma/types";
 import { z } from "zod";
 import type { DiffsTriggerService } from "../diffs/diffs-trigger.service";
 import { readActivationTriggerConfig } from "./activation-trigger-config";
@@ -241,6 +241,18 @@ export class MergeGateService {
         if (!enabled) {
             this.logger.info("Merge gate: postPending skipped (gate not enabled for org)", {
                 organizationId: params.organizationId,
+            });
+            return;
+        }
+
+        // The two activities that finish this check - `open-merge-gate` and
+        // `apply-merge-gate-verdict` - both refuse to act on an application that is not live. Without
+        // the same check here, a check run could be opened that nothing will ever close, on a
+        // repository Autonoma has no verdict to offer yet.
+        if (!(await this.isApplicationLive(params.organizationId, params.githubRepositoryId))) {
+            this.logger.info("Merge gate: postPending skipped (the application has not gone live yet)", {
+                organizationId: params.organizationId,
+                extra: { repoFullName: params.repoFullName, prNumber: params.prNumber },
             });
             return;
         }
@@ -1107,6 +1119,19 @@ export class MergeGateService {
             select: { mergeGateEnabled: true },
         });
         return settings?.mergeGateEnabled === true;
+    }
+
+    /**
+     * Whether the application behind this repository has gone live. A repository with no linked
+     * application, or one with no onboarding row, reads as not live - the shared predicate failing
+     * closed, which is what a check run on someone else's repository calls for.
+     */
+    private async isApplicationLive(organizationId: string, githubRepositoryId: number): Promise<boolean> {
+        const application = await this.db.application.findUnique({
+            where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
+            select: { onboardingState: { select: { step: true } } },
+        });
+        return hasGoneLive(application?.onboardingState?.step);
     }
 
     /**
