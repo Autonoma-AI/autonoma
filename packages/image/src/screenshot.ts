@@ -12,6 +12,7 @@ import {
     getImageMetadata,
     markPointOnSharpImage,
 } from "./geometry";
+import { type ImageFormat, detectImageFormat } from "./image-format";
 import { boundingBoxToImageCoordinates } from "./screen-resolution";
 
 /**
@@ -43,10 +44,27 @@ function scalePoint(point: { x: number; y: number }, targetResolution: ScreenRes
 }
 
 export class Screenshot {
+    private cachedFormat?: ImageFormat;
+
     constructor(
         public readonly buffer: Buffer,
         public readonly base64: string,
     ) {}
+
+    /** Sniffed from the bytes. Throws `UnknownImageFormatError` if they are not a recognised image. */
+    public get mediaType(): string {
+        return this.format.mediaType;
+    }
+
+    /** The extension matching {@link mediaType}, without the dot. */
+    public get extension(): string {
+        return this.format.extension;
+    }
+
+    private get format(): ImageFormat {
+        this.cachedFormat ??= detectImageFormat(this.buffer);
+        return this.cachedFormat;
+    }
 
     private static sharpOpSync<T>(fn: () => T): T {
         return externalSync(fn, {

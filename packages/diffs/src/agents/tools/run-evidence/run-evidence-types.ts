@@ -1,3 +1,4 @@
+import type { Screenshot } from "@autonoma/image";
 import type { OverlayPoint } from "@autonoma/types";
 
 /**
@@ -5,7 +6,7 @@ import type { OverlayPoint } from "@autonoma/types";
  * the bytes for an S3 key (or another addressing scheme).
  */
 export interface ScreenshotLoader {
-    loadScreenshot(key: string): Promise<Buffer>;
+    loadScreenshot(key: string): Promise<Screenshot>;
 }
 
 /**

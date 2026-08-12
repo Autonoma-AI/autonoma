@@ -35,8 +35,25 @@ const cropped = await screenshot.cropAroundPoint({ x: 100, y: 200 }, 50);
 // Access underlying data
 screenshot.buffer; // Buffer
 screenshot.base64; // string
+screenshot.mediaType; // "image/jpeg" - sniffed from the bytes
+screenshot.extension; // "jpeg" - the matching extension, for naming a storage key
 screenshot.getSharpImage(); // Sharp instance
 ```
+
+### `detectImageFormat` / `imageFormatFromKey`
+
+A screenshot's format depends on how it was captured (the web driver takes JPEG, Appium's fallback is PNG), so
+read it off the `Screenshot` rather than naming a media type or extension at a call site.
+
+```ts
+import { detectImageFormat, imageFormatFromKey, UnknownImageFormatError } from "@autonoma/image";
+
+detectImageFormat(buffer); // { mediaType: "image/png", extension: "png" }, throws UnknownImageFormatError
+imageFormatFromKey("run/step-1.jpeg"); // { mediaType: "image/jpeg", ... }, undefined if unrecognised
+```
+
+`imageFormatFromKey` reads the extension only - a last resort for callers that cannot hold the bytes (signing a
+URL for an external renderer). Our own keys said `.png` for JPEG bytes for years.
 
 ### Geometry types and functions
 
@@ -92,6 +109,7 @@ When `screenResolution` is set, all `Screenshot` annotation methods automaticall
 ## Architecture notes
 
 - **Immutable screenshots** - every annotation method returns a new `Screenshot`. The original is never mutated.
+- **Self-describing bytes** - a `Screenshot` sniffs its own `mediaType` and `extension`, so AI content parts, storage keys and Content-Type headers cannot disagree with the image or each other. Annotation preserves the encoding.
 - **Architecture-aware sizing** - cursor sizes, label radii, and circle indicators scale based on `"web"` vs `"mobile"` architecture setting.
 - **SVG compositing** - all annotations (bounding boxes, cursors, circles, text, drag lines) are rendered as SVG overlays and composited onto images via sharp.
 - **Label collision resolution** - when drawing labelled bounding boxes, the package adjusts box positions and resolves overlapping labels automatically.

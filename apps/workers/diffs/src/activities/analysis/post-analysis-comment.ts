@@ -5,6 +5,7 @@ import {
     postOrUpdateCommentOnGithub,
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
+import { imageFormatFromKey } from "@autonoma/image";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { S3Storage } from "@autonoma/storage";
 import { ANALYSIS_VERDICT, type AnalysisRunOutcome } from "@autonoma/types";
@@ -17,6 +18,8 @@ import { isMergeGateEnabledForOrg } from "./merge-gate-enabled";
 
 /** Screenshots are signed for the comment's lifetime; re-runs re-sign, so a week is plenty. */
 const SCREENSHOT_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+const DEFAULT_SCREENSHOT_CONTENT_TYPE = "image/png";
 
 /** The verdict that blocks the PR; drives whether the merge-gate skip callout is added to the comment. */
 const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
@@ -137,15 +140,15 @@ export async function postAnalysisComment({
 }
 
 /**
- * The media signer the payload builder is handed: turns an `s3://` key into a short-lived signed URL. It tags GIF
- * clips as image/gif so GitHub's image proxy animates them instead of mislabeling them as PNG; static screenshots
- * stay image/png. A signing failure is contained (logged + undefined) so a broken screenshot never sinks the
- * comment. Kept injectable so the builder stays hermetically testable (no S3 dependency).
+ * The media signer the payload builder is handed: turns an `s3://` key into a short-lived signed URL, tagged so
+ * GitHub's image proxy renders it right (a GIF clip animates rather than being served as a PNG). Typed off the
+ * extension because the bytes are never downloaded here. A signing failure is contained (logged + undefined) so
+ * a broken screenshot never sinks the comment. Kept injectable so the builder stays hermetically testable.
  */
 function makeScreenshotSigner(storage: S3Storage, snapshotId: string): (s3Key: string) => Promise<string | undefined> {
     const logger = rootLogger.child({ name: "makeScreenshotSigner", snapshotId });
     return async (s3Key) => {
-        const contentType = s3Key.endsWith(".gif") ? "image/gif" : "image/png";
+        const contentType = imageFormatFromKey(s3Key)?.mediaType ?? DEFAULT_SCREENSHOT_CONTENT_TYPE;
         try {
             return await storage.getSignedUrl(s3Key, SCREENSHOT_TTL_SECONDS, contentType);
         } catch (err) {

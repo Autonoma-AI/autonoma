@@ -1,3 +1,4 @@
+import { Screenshot } from "@autonoma/image";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import type { ScreenshotLoader } from "./run-evidence-types";
@@ -28,9 +29,9 @@ export class StorageEvidenceLoader implements EvidenceLoader {
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
-    async loadScreenshot(key: string): Promise<Buffer> {
+    async loadScreenshot(key: string): Promise<Screenshot> {
         this.logger.debug("Loading screenshot", { extra: { key } });
-        return this.storage.download(key);
+        return Screenshot.fromBuffer(await this.storage.download(key));
     }
 
     async downloadVideo(key: string): Promise<Buffer> {

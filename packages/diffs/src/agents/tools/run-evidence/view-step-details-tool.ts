@@ -1,5 +1,11 @@
-import { AgentTool, type AgentToolModelOutput, type AgentToolModelOutputOptions } from "@autonoma/ai";
-import { Screenshot } from "@autonoma/image";
+import {
+    AgentTool,
+    type AgentToolModelOutput,
+    type AgentToolModelOutputOptions,
+    type ToolContentItem,
+    imageToolContent,
+} from "@autonoma/ai";
+import type { Screenshot } from "@autonoma/image";
 import type { OverlayPoint } from "@autonoma/types";
 import { z } from "zod";
 import type { InspectableStep } from "./run-evidence-types";
@@ -24,11 +30,9 @@ type ViewStepDetailsInput = z.infer<typeof viewStepDetailsInputSchema>;
 interface StepFrame {
     timing: "before" | "after";
     base64: string;
+    mediaType: string;
     annotated: boolean;
 }
-
-/** One item of a `content` tool result: the model reads interleaved captions and images. */
-type ModelContentItem = { type: "text"; text: string } | { type: "file-data"; data: string; mediaType: string };
 
 type ViewStepDetailsOutput =
     | { found: false; stepOrder: number; availableSteps: number[] }
@@ -79,22 +83,39 @@ export class ViewStepDetailsTool extends AgentTool<ViewStepDetailsInput, ViewSte
 
     /** Both captured frames, in the order they happened, annotated where the marker is meaningful. */
     private async loadFrames(step: InspectableStep, loop: StepInspectionLoop): Promise<StepFrame[]> {
+        // Both fetches start together: only the before-frame's annotation depends on a load, and this runs
+        // inside an agent step, so a serialized second download sits on the model's critical path.
+        const [loadedBefore, after] = await Promise.all([
+            step.screenshotBeforeKey != null
+                ? loop.screenshotLoader.loadScreenshot(step.screenshotBeforeKey)
+                : undefined,
+            step.screenshotAfterKey != null ? loop.screenshotLoader.loadScreenshot(step.screenshotAfterKey) : undefined,
+        ]);
+
         const frames: StepFrame[] = [];
 
-        if (step.screenshotBeforeKey != null) {
-            const buffer = await loop.screenshotLoader.loadScreenshot(step.screenshotBeforeKey);
+        if (loadedBefore != null) {
             const points = step.overlayPoints ?? [];
             // WEB only: web points are already in image space so they draw as-is, whereas mobile points are in
             // device space and would be mis-placed without `screenResolution` scaling that isn't threaded here -
             // the seam to extend for mobile is `drawResolvedPoints` below.
             const annotate = loop.architecture === "WEB" && points.length > 0;
-            const bytes = annotate ? await drawResolvedPoints(buffer, points) : buffer;
-            frames.push({ timing: "before", base64: bytes.toString("base64"), annotated: annotate });
+            const screenshot = annotate ? await drawResolvedPoints(loadedBefore, points) : loadedBefore;
+            frames.push({
+                timing: "before",
+                base64: screenshot.base64,
+                mediaType: screenshot.mediaType,
+                annotated: annotate,
+            });
         }
 
-        if (step.screenshotAfterKey != null) {
-            const buffer = await loop.screenshotLoader.loadScreenshot(step.screenshotAfterKey);
-            frames.push({ timing: "after", base64: buffer.toString("base64"), annotated: false });
+        if (after != null) {
+            frames.push({
+                timing: "after",
+                base64: after.base64,
+                mediaType: after.mediaType,
+                annotated: false,
+            });
         }
 
         return frames;
@@ -113,13 +134,13 @@ export class ViewStepDetailsTool extends AgentTool<ViewStepDetailsInput, ViewSte
             return { type: "text", value: describeMiss(out.stepOrder, out.availableSteps) };
         }
 
-        const value: ModelContentItem[] = [{ type: "text", text: `Step ${out.stepOrder}:\n${out.summary}` }];
+        const value: ToolContentItem[] = [{ type: "text", text: `Step ${out.stepOrder}:\n${out.summary}` }];
         for (const frame of out.frames) {
             const caption = frame.annotated
                 ? `Screenshot ${frame.timing} step ${out.stepOrder}. ${ANNOTATION_LABEL}`
                 : `Screenshot ${frame.timing} step ${out.stepOrder}:`;
             value.push({ type: "text", text: caption });
-            value.push({ type: "file-data", data: frame.base64, mediaType: "image/png" });
+            value.push(imageToolContent(frame));
         }
         if (out.frames.length === 0) {
             value.push({ type: "text", text: "No screenshot was captured either side of this step." });
@@ -150,15 +171,15 @@ function describeMiss(stepOrder: number, availableSteps: number[]): string {
 }
 
 /** Draw a click circle for a click/type target, or a start/end/line annotation for a drag. */
-async function drawResolvedPoints(buffer: Buffer, points: OverlayPoint[]): Promise<Buffer> {
+async function drawResolvedPoints(screenshot: Screenshot, points: OverlayPoint[]): Promise<Screenshot> {
     const click = points.find((p) => p.role === "click");
     const start = points.find((p) => p.role === "drag-start");
     const end = points.find((p) => p.role === "drag-end");
 
-    let screenshot = Screenshot.fromBuffer(buffer);
-    if (click != null) screenshot = await screenshot.drawClickCircle(click);
-    if (start != null && end != null) screenshot = await screenshot.drawDragAnnotation(start, end);
-    return screenshot.buffer;
+    let annotated = screenshot;
+    if (click != null) annotated = await annotated.drawClickCircle(click);
+    if (start != null && end != null) annotated = await annotated.drawDragAnnotation(start, end);
+    return annotated;
 }
 
 function toErrorJson(output: { error: string; fixSuggestion?: string }) {

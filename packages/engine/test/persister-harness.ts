@@ -9,9 +9,11 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testconta
  */
 export class FakeStorageProvider implements StorageProvider {
     public readonly uploads = new Map<string, Buffer>();
+    public readonly contentTypes = new Map<string, string | undefined>();
 
-    async upload(key: string, data: Buffer): Promise<string> {
+    async upload(key: string, data: Buffer, contentType?: string): Promise<string> {
         this.uploads.set(key, data);
+        this.contentTypes.set(key, contentType);
         return `s3://fake/${key}`;
     }
 

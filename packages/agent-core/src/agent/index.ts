@@ -23,6 +23,7 @@ export {
     type AgentToolSdkTool,
 } from "./tools/agent-tool";
 export { ReportResultTool, FinishTool, type FinishToolParameters } from "./tools/agent-result";
+export { type ToolContentItem, type InlineImage, imageToolContent } from "./tools/image-tool-content";
 export { FixableToolError, FatalToolError } from "./tools/tool-errors";
 export { declinable } from "./declinable";
 export { logStepContent } from "./log-step";

@@ -12,7 +12,7 @@
     },
     "scripts": {
         "build": "tsc --noCheck",
-        "typecheck": "tsc --noEmit",
+        "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.eval.json",
         "lint": "oxlint --fix src/",
         "fmt": "oxfmt --write src/",
         "test": "vitest run --passWithNoTests",

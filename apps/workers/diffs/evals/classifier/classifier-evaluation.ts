@@ -284,7 +284,7 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
         evidenceLoader: EvidenceLoader,
     ): Promise<Uint8Array | undefined> {
         if (media.finalScreenshotKey == null) return undefined;
-        return new Uint8Array(await evidenceLoader.loadScreenshot(media.finalScreenshotKey));
+        return new Uint8Array((await evidenceLoader.loadScreenshot(media.finalScreenshotKey)).buffer);
     }
 
     /**

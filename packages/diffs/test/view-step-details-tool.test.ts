@@ -1,21 +1,16 @@
+import { Screenshot } from "@autonoma/image";
 import type { OverlayPoint } from "@autonoma/types";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { ViewStepDetailsTool } from "../src/agents/tools/run-evidence/view-step-details-tool";
 import { executeTool, type ToolEnvelope } from "./execute-tool";
+import { whiteScreenshot } from "./screenshot-fixture";
 import { makeStepInspectionLoop } from "./test-loops";
 
-const WIDTH = 100;
-const HEIGHT = 100;
-
-/** A solid-white PNG so any annotation pixel is trivially distinguishable. */
-async function whiteScreenshot(): Promise<Buffer> {
-    return sharp({
-        create: { width: WIDTH, height: HEIGHT, channels: 3, background: { r: 255, g: 255, b: 255 } },
-    })
-        .png()
-        .toBuffer();
+async function whiteJpegScreenshot(): Promise<Screenshot> {
+    const png = await whiteScreenshot();
+    return Screenshot.fromBuffer(await sharp(png.buffer).jpeg().toBuffer());
 }
 
 /** Whether the pixel at (x, y) of a PNG buffer is no longer pure white. */
@@ -32,7 +27,14 @@ const foundSchema = z.object({
     found: z.literal(true),
     stepOrder: z.number(),
     summary: z.string(),
-    frames: z.array(z.object({ timing: z.enum(["before", "after"]), base64: z.string(), annotated: z.boolean() })),
+    frames: z.array(
+        z.object({
+            timing: z.enum(["before", "after"]),
+            base64: z.string(),
+            mediaType: z.string(),
+            annotated: z.boolean(),
+        }),
+    ),
 });
 
 type FoundResult = z.infer<typeof foundSchema>;
@@ -135,6 +137,27 @@ describe("ViewStepDetailsTool", () => {
         });
 
         expect(frame(await viewStep(loop), "before").annotated).toBe(false);
+    });
+
+    it("reports each frame's own media type rather than assuming one", async () => {
+        const loop = makeStepInspectionLoop({
+            steps: [{ order: 0, screenshotBeforeKey: "before.jpeg" }],
+            screenshotLoader: { loadScreenshot: () => whiteJpegScreenshot() },
+        });
+
+        expect(frame(await viewStep(loop), "before").mediaType).toBe("image/jpeg");
+    });
+
+    it("keeps the media type of a frame it annotates", async () => {
+        const loop = makeStepInspectionLoop({
+            architecture: "WEB",
+            steps: [{ order: 0, screenshotBeforeKey: "before.jpeg", overlayPoints: [clickPoint] }],
+            screenshotLoader: { loadScreenshot: () => whiteJpegScreenshot() },
+        });
+
+        const out = frame(await viewStep(loop), "before");
+        expect(out.annotated).toBe(true);
+        expect(out.mediaType).toBe("image/jpeg");
     });
 
     it("discloses the engine's step record whole, however long", async () => {

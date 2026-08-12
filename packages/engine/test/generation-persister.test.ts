@@ -7,8 +7,12 @@ import { integrationTestSuite } from "@autonoma/integration-test";
 import { expect } from "vitest";
 import { FakeStorageProvider, PersisterTestHarness } from "./persister-harness";
 
-function fakeScreenshot(label: string): Screenshot {
-    return Screenshot.fromBuffer(Buffer.from(label));
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const JPEG_SIGNATURE = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+
+/** A real format signature (the persister names the object from it) plus a label to keep uploads distinct. */
+function fakeScreenshot(label: string, signature: Buffer = PNG_SIGNATURE): Screenshot {
+    return Screenshot.fromBuffer(Buffer.concat([signature, Buffer.from(label)]));
 }
 
 interface CompletionResultOptions {
@@ -44,6 +48,7 @@ function successAttempt(
     instruction: string,
     beforeLabel: string,
     afterLabel: string,
+    signature?: Buffer,
 ): GeneratedStep<AssertCommandSpec> {
     return {
         status: "success",
@@ -54,8 +59,8 @@ function successAttempt(
                 results: [{ assertion: instruction, metCondition: true, reason: "looks right" }],
             },
         },
-        beforeMetadata: { screenshot: fakeScreenshot(beforeLabel) },
-        afterMetadata: { screenshot: fakeScreenshot(afterLabel) },
+        beforeMetadata: { screenshot: fakeScreenshot(beforeLabel, signature) },
+        afterMetadata: { screenshot: fakeScreenshot(afterLabel, signature) },
     };
 }
 
@@ -124,6 +129,31 @@ integrationTestSuite({
                 `test-generation/${seed.generationId}/step-1-after.png`,
                 `test-generation/${seed.generationId}/step-1-before.png`,
             ]);
+        });
+
+        test("names each screenshot object, and its Content-Type, from the image's own format", async ({ harness }) => {
+            const seed = await harness.seedGeneration();
+            const storage = new FakeStorageProvider();
+            const persister = new GenerationPersister<AssertCommandSpec>({
+                db: harness.db,
+                storageProvider: storage,
+                testGenerationId: seed.generationId,
+                videoExtension: "webm",
+            });
+            await persister.markRunning();
+
+            await persister.recordAttempt({
+                attempt: successAttempt("the dashboard is visible", "before-1", "after-1", JPEG_SIGNATURE),
+                order: 1,
+                successfulOrder: 1,
+            });
+
+            const beforeKey = `test-generation/${seed.generationId}/step-1-before.jpeg`;
+            expect([...storage.uploads.keys()].sort()).toEqual([
+                `test-generation/${seed.generationId}/step-1-after.jpeg`,
+                beforeKey,
+            ]);
+            expect(storage.contentTypes.get(beforeKey)).toBe("image/jpeg");
         });
 
         test("a failed attempt writes only StepAttempt(failed) under the attempt namespace", async ({ harness }) => {
@@ -259,6 +289,34 @@ integrationTestSuite({
     name: "GenerationPersister.markCompleted",
     createHarness: () => PersisterTestHarness.create(),
     cases: (test) => {
+        test("completes even when the final screenshot cannot be uploaded", async ({ harness }) => {
+            const seed = await harness.seedGeneration();
+            const persister = new GenerationPersister<AssertCommandSpec>({
+                db: harness.db,
+                storageProvider: new FakeStorageProvider(),
+                testGenerationId: seed.generationId,
+                videoExtension: "webm",
+            });
+            await persister.markRunning();
+
+            await withVideoFile((videoPath) =>
+                persister.markCompleted({
+                    result: {
+                        ...completionResult({ success: true, finishReason: "success" }),
+                        finalScreenshot: Screenshot.fromBuffer(Buffer.from("not a readable image")),
+                    },
+                    videoPath,
+                }),
+            );
+
+            const generation = await harness.db.testGeneration.findUniqueOrThrow({
+                where: { id: seed.generationId },
+                select: { status: true, finalScreenshot: true },
+            });
+            expect(generation.status).toBe("success");
+            expect(generation.finalScreenshot).toBeNull();
+        });
+
         test("a max_steps failure records status failed + failure {max_steps} and keeps the reasoning prose", async ({
             harness,
         }) => {

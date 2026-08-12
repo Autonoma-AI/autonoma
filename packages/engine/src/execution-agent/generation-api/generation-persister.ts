@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import type { CostRecord } from "@autonoma/ai";
 import type { PrismaClient } from "@autonoma/db";
+import type { Screenshot } from "@autonoma/image";
 import { type Logger, logger } from "@autonoma/logger";
 import type { StorageProvider } from "@autonoma/storage";
 import type { ModelMessage } from "ai";
@@ -201,14 +202,8 @@ export class GenerationPersister<TSpec extends CommandSpec> {
         let screenshotAfterUrl: string | undefined = undefined;
         try {
             [screenshotBeforeUrl, screenshotAfterUrl] = await Promise.all([
-                this.config.storageProvider.upload(
-                    this.screenshotKey(this.id, successfulOrder, "before"),
-                    step.beforeMetadata.screenshot.buffer,
-                ),
-                this.config.storageProvider.upload(
-                    this.screenshotKey(this.id, successfulOrder, "after"),
-                    step.afterMetadata.screenshot.buffer,
-                ),
+                this.uploadScreenshot(`step-${successfulOrder}-before`, step.beforeMetadata.screenshot),
+                this.uploadScreenshot(`step-${successfulOrder}-after`, step.afterMetadata.screenshot),
             ]);
         } catch (error) {
             this.logger.fatal("Failed to upload screenshots", error);
@@ -279,16 +274,12 @@ export class GenerationPersister<TSpec extends CommandSpec> {
         let screenshotBeforeUrl: string | undefined = undefined;
         let screenshotAfterUrl: string | undefined = undefined;
         try {
-            screenshotBeforeUrl = await this.config.storageProvider.upload(
-                this.attemptScreenshotKey(this.id, order, "before"),
-                attempt.beforeMetadata.screenshot.buffer,
-            );
-            if (attempt.afterMetadata != null) {
-                screenshotAfterUrl = await this.config.storageProvider.upload(
-                    this.attemptScreenshotKey(this.id, order, "after"),
-                    attempt.afterMetadata.screenshot.buffer,
-                );
-            }
+            [screenshotBeforeUrl, screenshotAfterUrl] = await Promise.all([
+                this.uploadScreenshot(`attempt-${order}-before`, attempt.beforeMetadata.screenshot),
+                attempt.afterMetadata != null
+                    ? this.uploadScreenshot(`attempt-${order}-after`, attempt.afterMetadata.screenshot)
+                    : undefined,
+            ]);
         } catch (error) {
             this.logger.fatal("Failed to upload failed-attempt screenshots", error);
             throw error;
@@ -321,12 +312,17 @@ export class GenerationPersister<TSpec extends CommandSpec> {
             status: result.success ? "success" : "failed",
         });
 
+        // Contained rather than fatal like the step/attempt uploads: a generation with no final screenshot is
+        // already a supported state (the column is optional), whereas losing the terminal status write is not.
         let finalScreenshotUrl: string | undefined = undefined;
         if (result.finalScreenshot != null) {
-            finalScreenshotUrl = await this.config.storageProvider.upload(
-                this.finalScreenshotKey(this.id),
-                result.finalScreenshot.buffer,
-            );
+            try {
+                finalScreenshotUrl = await this.uploadScreenshot("final-screenshot", result.finalScreenshot);
+            } catch (error) {
+                this.logger.warn("Failed to upload the final screenshot; completing without it", {
+                    extra: { error },
+                });
+            }
         }
 
         // The agent ran to completion but did not pass. Classify the verdict via
@@ -404,16 +400,12 @@ export class GenerationPersister<TSpec extends CommandSpec> {
         this.logger.info("AI cost records saved");
     }
 
-    private screenshotKey(testGenerationId: string, order: number, phase: "before" | "after") {
-        return `test-generation/${testGenerationId}/step-${order}-${phase}.png`;
-    }
-
-    private attemptScreenshotKey(testGenerationId: string, order: number, phase: "before" | "after") {
-        return `test-generation/${testGenerationId}/attempt-${order}-${phase}.png`;
-    }
-
-    private finalScreenshotKey(testGenerationId: string) {
-        return `test-generation/${testGenerationId}/final-screenshot.png`;
+    private async uploadScreenshot(name: string, screenshot: Screenshot): Promise<string> {
+        return this.config.storageProvider.upload(
+            `test-generation/${this.id}/${name}.${screenshot.extension}`,
+            screenshot.buffer,
+            screenshot.mediaType,
+        );
     }
 
     private conversationKey(testGenerationId: string) {

@@ -12,6 +12,7 @@ import {
 } from "../src/agent/agent-loop";
 import { FinishTool, ReportResultTool } from "../src/agent/tools/agent-result";
 import { AgentTool, type AgentToolModelOutputOptions } from "../src/agent/tools/agent-tool";
+import { imageToolContent } from "../src/agent/tools/image-tool-content";
 import { FatalToolError } from "../src/agent/tools/tool-errors";
 import { type Logger, noopLogger, setDefaultLogger } from "../src/logger";
 
@@ -375,19 +376,18 @@ describe("buildTranscript shapes both outcomes", () => {
 });
 
 /** A frame-viewing tool: hands the model inline image bytes, the way the screenshot tools do. */
-class ScreenshotTool extends AgentTool<{ note: string }, { base64: string }> {
+class ScreenshotTool extends AgentTool<{ note: string }, { base64: string; mediaType: string }> {
     constructor() {
         super({ name: "noop", description: "Views a frame.", inputSchema: z.object({ note: z.string() }) });
     }
-    protected async execute(): Promise<{ base64: string }> {
-        return { base64: "AAAABBBBCCCC" };
+    protected async execute(): Promise<{ base64: string; mediaType: string }> {
+        return { base64: "AAAABBBBCCCC", mediaType: "image/png" };
     }
-    protected override toModelOutput({ output }: AgentToolModelOutputOptions<{ note: string }, { base64: string }>) {
+    protected override toModelOutput({
+        output,
+    }: AgentToolModelOutputOptions<{ note: string }, { base64: string; mediaType: string }>) {
         if (!output.success) return { type: "error-json" as const, value: { error: output.error } };
-        return {
-            type: "content" as const,
-            value: [{ type: "file-data" as const, data: output.result.base64, mediaType: "image/png" }],
-        };
+        return { type: "content" as const, value: [imageToolContent(output.result)] };
     }
 }
 

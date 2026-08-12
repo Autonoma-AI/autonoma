@@ -4,6 +4,9 @@ export { setScreenshotConfig, getScreenshotConfig, type ScreenResolution, type S
 // Screenshot
 export { Screenshot } from "./screenshot";
 
+// Image format
+export { type ImageFormat, UnknownImageFormatError, detectImageFormat, imageFormatFromKey } from "./image-format";
+
 // Screen Resolution
 export { updateScreenshotConfigWithResolution } from "./screen-resolution";
 

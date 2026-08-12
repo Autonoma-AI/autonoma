@@ -13,6 +13,7 @@ import type {
     ReporterIssueResult,
 } from "../../../src/analysis/report/types";
 import { Codebase } from "../../../src/codebase";
+import { whiteScreenshot } from "../../screenshot-fixture";
 
 const FAKE_USAGE = {
     inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
@@ -93,7 +94,7 @@ function asResolve(issue: ReporterIssueResult | undefined): Extract<ReporterIssu
 }
 
 let root: string;
-const screenshotLoader = { loadScreenshot: async (key: string) => Buffer.from(`png-${key}`) };
+const screenshotLoader = { loadScreenshot: () => whiteScreenshot() };
 
 function makeInput(overrides: Partial<ReporterInput>): ReporterInput {
     const findings = overrides.findings ?? [];

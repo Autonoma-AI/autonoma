@@ -1,4 +1,4 @@
-import { type AgentConfig, AgentLoop, FixableToolError } from "@autonoma/ai";
+import { type AgentConfig, AgentLoop, FixableToolError, type InlineImage } from "@autonoma/ai";
 import {
     analysisFindingBucket,
     type EvidenceManifestEntry,
@@ -145,7 +145,7 @@ export class ReporterAgentLoop extends AgentLoop<ReporterResult> implements Code
      * only way in is through here. Throws a fixable error for an unknown id or bytes that will not load - both
      * are errors the model must handle (proceed without that screenshot), never a "successful" empty fetch.
      */
-    public async fetchEvidence(assetId: string): Promise<{ label: string; base64: string }> {
+    public async fetchEvidence(assetId: string): Promise<{ label: string; base64: string; mediaType: string }> {
         const asset = this.assetsById.get(assetId);
         if (asset == null) {
             throw new FixableToolError(
@@ -153,8 +153,8 @@ export class ReporterAgentLoop extends AgentLoop<ReporterResult> implements Code
             );
         }
 
-        const base64 = await this.loadBytes(asset);
-        if (base64 == null) {
+        const image = await this.loadImage(asset);
+        if (image == null) {
             throw new FixableToolError(
                 `The screenshot "${assetId}" (${asset.label}) could not be loaded, so it cannot be embedded. Proceed without it.`,
             );
@@ -166,15 +166,21 @@ export class ReporterAgentLoop extends AgentLoop<ReporterResult> implements Code
                 ? { assetId, s3Key: asset.s3Key, kind: "screenshot", pin: asset.pin }
                 : { assetId, s3Key: asset.s3Key, kind: "screenshot" },
         );
-        return { label: asset.label, base64 };
+        return { label: asset.label, base64: image.base64, mediaType: image.mediaType };
     }
 
-    /** Load and base64 a screenshot's bytes; a failed load (or absent loader) returns undefined, never throws. */
-    private async loadBytes(asset: ReporterEvidenceAsset): Promise<string | undefined> {
+    /**
+     * Load a screenshot as inline image parts; a failed load (or absent loader) returns undefined, never throws.
+     *
+     * The media type is resolved here rather than by the caller so that bytes which download but are not a
+     * recognised image fail the same contained way a failed download does, instead of escaping as an
+     * `UnknownImageFormatError` past the fixable-error contract above.
+     */
+    private async loadImage(asset: ReporterEvidenceAsset): Promise<InlineImage | undefined> {
         if (this.screenshotLoader == null) return undefined;
         try {
-            const buffer = await this.screenshotLoader.loadScreenshot(asset.s3Key);
-            return buffer.toString("base64");
+            const screenshot = await this.screenshotLoader.loadScreenshot(asset.s3Key);
+            return { base64: screenshot.base64, mediaType: screenshot.mediaType };
         } catch (err) {
             this.logger.warn("Failed to load screenshot; it cannot be embedded", {
                 extra: { s3Key: asset.s3Key, err },

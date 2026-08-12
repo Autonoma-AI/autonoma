@@ -12,7 +12,8 @@
         "clean": "rm -rf dist",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix src/",
-        "fmt": "oxfmt --write src/"
+        "fmt": "oxfmt --write src/",
+        "test": "vitest run --passWithNoTests"
     },
     "dependencies": {
         "@autonoma/errors": "workspace:*",
@@ -21,6 +22,7 @@
     },
     "devDependencies": {
         "@types/node": "catalog:",
-        "typescript": "catalog:"
+        "typescript": "catalog:",
+        "vitest": "catalog:"
     }
 }

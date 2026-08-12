@@ -10,6 +10,7 @@ import type { ExistingTestInfo } from "../src/diffs-agent";
 import { FlowIndex } from "../src/flow-index";
 import { ScenarioIndex } from "../src/scenario-index";
 import type { ScenarioRecipeData } from "../src/scenario-recipe";
+import { whiteScreenshot } from "./screenshot-fixture";
 
 /**
  * Tests bypass the LanguageModel + system-prompt plumbing entirely: they
@@ -91,7 +92,7 @@ export function makeStepInspectionLoop(overrides: StepInspectionLoopOverrides = 
         systemPrompt: "",
         tools: [],
         reportTool: FAKE_RESULT_TOOL as never,
-        screenshotLoader: overrides.screenshotLoader ?? { loadScreenshot: async () => Buffer.alloc(0) },
+        screenshotLoader: overrides.screenshotLoader ?? { loadScreenshot: () => whiteScreenshot() },
         steps: overrides.steps ?? [],
         architecture: overrides.architecture,
     });
