@@ -9,6 +9,7 @@ import * as Sentry from "@sentry/node";
 import type { ActivityInterceptorsFactory } from "@temporalio/worker";
 import { loadGenerationObservabilityContext } from "../observability/load-generation-context";
 import { loadSnapshotObservabilityContext } from "../observability/load-snapshot-context";
+import { extractEntityIds } from "./extract-entity-ids";
 
 /**
  * Creates an activity interceptor that:
@@ -131,27 +132,6 @@ async function maybeBootstrapEntityContext(args: readonly unknown[]): Promise<vo
             extra: { error: String(error), ids },
         });
     }
-}
-
-interface EntityIds {
-    snapshotId?: string;
-    testGenerationId?: string;
-}
-
-function extractEntityIds(args: readonly unknown[]): EntityIds {
-    const out: EntityIds = {};
-    for (const arg of args) {
-        if (typeof arg !== "object" || arg == null) continue;
-        if (out.snapshotId == null && "snapshotId" in arg) {
-            const value: unknown = arg.snapshotId;
-            if (typeof value === "string" && value.length > 0) out.snapshotId = value;
-        }
-        if (out.testGenerationId == null && "testGenerationId" in arg) {
-            const value: unknown = arg.testGenerationId;
-            if (typeof value === "string" && value.length > 0) out.testGenerationId = value;
-        }
-    }
-    return out;
 }
 
 /**

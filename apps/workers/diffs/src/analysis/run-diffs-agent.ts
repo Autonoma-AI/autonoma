@@ -1,4 +1,5 @@
 import type { AgentRunResult } from "@autonoma/ai";
+import { persistAiCosts } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import {
     type Codebase,
@@ -7,7 +8,7 @@ import {
     type DiffsAgentResult,
     summarizeSessionCost,
 } from "@autonoma/diffs";
-import { type ModelSession, persistInvestigationCosts } from "@autonoma/diffs/analysis";
+import type { ModelSession } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { ModelMessage } from "ai";
 import { createModelSession, getStorage } from "../services";
@@ -74,8 +75,8 @@ async function recordRunArtifacts({
 }): Promise<string | undefined> {
     const [conversationUrl] = await Promise.all([
         uploadAnalysisConversation({ snapshotId, conversation, logger }),
-        persistInvestigationCosts(db, snapshotId, session.costCollector, logger).catch((error) =>
-            logger.warn("Failed to persist the analysis costs", { err: error }),
+        persistAiCosts(db, session.costCollector.getRecords(), { investigationSnapshotId: snapshotId }, logger).catch(
+            (error) => logger.warn("Failed to persist the analysis costs", { err: error }),
         ),
     ]);
     return conversationUrl;

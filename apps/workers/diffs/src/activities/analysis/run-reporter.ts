@@ -1,3 +1,4 @@
+import { persistAiCosts } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { StorageEvidenceLoader, resolveScenarioRecipesForSnapshot, summarizeScenarioRecipes } from "@autonoma/diffs";
 import {
@@ -12,7 +13,6 @@ import {
     type ReporterResult,
     type ReporterScenarioLoader,
     type ReporterScenarioSummary,
-    persistInvestigationCosts,
     reporterIssueKindSchema,
     reporterIssueSeveritySchema,
     reporterIssueStatusSchema,
@@ -108,9 +108,12 @@ async function produceReporterResult(input: RunReporterInput): Promise<ReporterR
                 conversation,
                 logger: logger.child({ name: "uploadConversation" }),
             }).catch((error) => logger.warn("Failed to upload reporter conversation", { err: error })),
-            persistInvestigationCosts(db, snapshotId, session.costCollector, logger).catch((error) =>
-                logger.warn("Failed to persist reporter costs", { err: error }),
-            ),
+            persistAiCosts(
+                db,
+                session.costCollector.getRecords(),
+                { investigationSnapshotId: snapshotId },
+                logger,
+            ).catch((error) => logger.warn("Failed to persist reporter costs", { err: error })),
         ]);
         return result;
     });

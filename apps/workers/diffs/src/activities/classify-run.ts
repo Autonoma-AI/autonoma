@@ -1,4 +1,5 @@
 import { InlineMp4VideoUploader, type UploadedVideo, type VideoUploader } from "@autonoma/ai";
+import { persistAiCosts } from "@autonoma/billing";
 import { type ApplicationArchitecture, db } from "@autonoma/db";
 import { readPrDiffStat, type InspectableStep, StorageEvidenceLoader } from "@autonoma/diffs";
 import {
@@ -8,7 +9,6 @@ import {
     type RunArtifacts,
     type RunFacts,
     loadPreviewAppLogs,
-    persistInvestigationCosts,
     readPreviewConnectionKeys,
 } from "@autonoma/diffs/analysis";
 import { lokiQuerier } from "@autonoma/diffs/analysis/logs/loki";
@@ -230,7 +230,12 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
                 conversation,
                 logger: logger.child({ name: "uploadConversation" }),
             }),
-            persistInvestigationCosts(db, snapshotId, session.costCollector, logger),
+            persistAiCosts(
+                db,
+                session.costCollector.getRecords(),
+                { investigationSnapshotId: snapshotId },
+                logger,
+            ).catch((error) => logger.warn("Failed to persist classification costs", { err: error })),
         ]);
 
         // The report features the frame the classifier judged most descriptive (verdict.keyStepIndex), not

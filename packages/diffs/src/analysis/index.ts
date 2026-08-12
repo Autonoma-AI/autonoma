@@ -7,7 +7,6 @@ export { filterEnvVarNames } from "./preview/filter-env-var-names";
 export { readPreviewConnectionKeys } from "./preview/preview-connection-keys";
 export { openModelSession } from "./ai/model-session";
 export type { ModelSession, InvestigationModelName, InvestigationModelConfig } from "./ai/model-session";
-export { persistInvestigationCosts } from "./ai/persist-costs";
 export { APP_LOGS_LIMIT, loadPreviewAppLogs } from "./logs/preview-app-logs";
 export type { LogQuerier, PreviewAppLogsInput } from "./logs/preview-app-logs";
 export { VerdictForModel } from "./classify/verdict-schema";

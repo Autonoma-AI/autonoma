@@ -26,3 +26,5 @@ export { PrometheusClient } from "./preview-usage-meter/prometheus-client";
 export { PreviewUsageMeterSweepService } from "./preview-usage-meter/preview-usage-meter-sweep.service";
 export type { PreviewUsageMeterSweepResult } from "./preview-usage-meter/preview-usage-meter-sweep.service";
 export type { VercelOverageStatus } from "./vercel-overage.service";
+export { persistAiCosts } from "./ai-cost-persister.service";
+export type { AiCostAnchor } from "./ai-cost-persister.service";
