@@ -21,12 +21,17 @@ import type { APITestHarness } from "../harness";
 const DETAIL_BY_PR_BUDGET = 2;
 
 // A single lean snapshotDetail (the payload the PR overview card fans out across every snapshot).
-// Measured constant cost is 11 SQL statements (the nested-include reads expand to several
+// Measured constant cost is 13 SQL statements (the nested-include reads expand to several
 // statements each under the pg driver adapter); the value does NOT grow with the number of tests in
 // the snapshot. Budget is current + headroom: a coarse net. The slope assertion below is the
 // precise N+1 guard. This cost is constant per call, but the PR overview card multiplies it by the
 // snapshot count.
-const SNAPSHOT_DETAIL_LEAN_BUDGET = 13;
+//
+// It rose by 2 when the run's counts stopped being denormalized onto `analysis_report` and became a
+// read of the findings they were counted from. That is the price of the columns not being able to
+// disagree with the rows; if it needs winning back, win it in the shape of the read, not by caching
+// the counts again.
+const SNAPSHOT_DETAIL_LEAN_BUDGET = 15;
 
 // Marginal DB cost snapshotHistory is allowed to spend per additional snapshot in the branch. This
 // is the N+1 guard: the assertion measures the slope (queries for many snapshots minus queries for

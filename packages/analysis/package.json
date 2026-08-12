@@ -1,5 +1,5 @@
 {
-    "name": "@autonoma/checkpoint",
+    "name": "@autonoma/analysis",
     "version": "0.0.1",
     "private": true,
     "type": "module",
@@ -19,7 +19,9 @@
         "@autonoma/types": "workspace:*"
     },
     "devDependencies": {
+        "@autonoma/integration-test": "workspace:*",
         "@types/node": "catalog:",
+        "dotenv": "catalog:",
         "typescript": "catalog:",
         "vitest": "catalog:"
     }

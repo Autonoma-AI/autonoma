@@ -1,17 +1,11 @@
-import {
-    aggregateSnapshotHealth,
-    authoritativeSnapshotHealth,
-    buildAuthoritativeCheckpointSummary,
-    buildCheckpointSummary,
-    computeSnapshotHealth,
-    listExecutedTestsForSnapshot,
-    loadAuthoritativeCheckpointInputs,
-} from "@autonoma/checkpoint";
+import { AnalysisStore } from "@autonoma/analysis";
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
 import type { Logger } from "@autonoma/logger";
+import { aggregateSnapshotHealth, computeSnapshotHealth, listExecutedTestsForSnapshot } from "@autonoma/test-suite";
 import type { SnapshotReport } from "@autonoma/types";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
+import { presentCheckpoint } from "./checkpoint-presentation";
 import { buildResultsBlock } from "./snapshot-report-results";
 import { buildTriggerBlock } from "./snapshot-report-trigger";
 
@@ -63,29 +57,17 @@ export async function loadSnapshotReport({
         notAffected: 0,
         totalTests: 0,
     };
-    const [trigger, executedTests, authoritativeBySnapshot] = await Promise.all([
+    const [trigger, executedTests, lifecycles] = await Promise.all([
         buildTriggerBlock({ snapshot, github, organizationId, logger }),
         listExecutedTestsForSnapshot(db, snapshotId),
-        loadAuthoritativeCheckpointInputs(db, organizationId, [snapshotId], logger),
+        new AnalysisStore(db).lifecycles([snapshotId], { organizationId }),
     ]);
     const results = buildResultsBlock(executedTests, logger);
-    const authoritative = authoritativeBySnapshot.get(snapshotId);
-    // An authoritative snapshot's header badge derives from the AnalysisReport verdict, not the legacy health
-    // model the merged pipeline never populates.
-    const health =
-        authoritative != null
-            ? authoritativeSnapshotHealth(authoritative)
-            : (healthEntry?.health ?? computeSnapshotHealth(snapshot.status, healthCounts));
-
-    const summary =
-        authoritative != null
-            ? buildAuthoritativeCheckpointSummary({
-                  jobStatus: authoritative.jobStatus,
-                  findingBuckets: authoritative.findingBuckets,
-                  bugCount: authoritative.bugCount,
-                  totalTests: healthCounts.totalTests,
-              })
-            : buildCheckpointSummary({ snapshotStatus: snapshot.status, counts: healthCounts });
+    const healthResult = healthEntry ?? {
+        health: computeSnapshotHealth(snapshot.status, healthCounts),
+        counts: healthCounts,
+    };
+    const checkpoint = presentCheckpoint({ lifecycle: lifecycles.get(snapshotId), healthResult });
 
     logger.info("Snapshot report assembled", { snapshotId, filesChanged: trigger.filesChanged.length });
 
@@ -105,8 +87,8 @@ export async function loadSnapshotReport({
         },
         trigger,
         results,
-        health,
+        health: checkpoint?.health ?? healthResult.health,
         healthCounts,
-        summary,
+        summary: checkpoint?.summary,
     };
 }

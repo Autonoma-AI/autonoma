@@ -16,6 +16,7 @@
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",
+        "@autonoma/analysis": "workspace:*",
         "@autonoma/analytics": "workspace:*",
         "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",

@@ -1,3 +1,5 @@
+import { AnalysisStore } from "@autonoma/analysis";
+import { db } from "@autonoma/db";
 import { type ModelSession, openModelSession } from "@autonoma/diffs/analysis";
 import { S3Storage } from "@autonoma/storage";
 import { env } from "./env";
@@ -32,4 +34,17 @@ export function getStorage(): S3Storage {
         storageSingleton = S3Storage.createFromEnv();
     }
     return storageSingleton;
+}
+
+let analysisStoreSingleton: AnalysisStore | undefined;
+
+/**
+ * The analysis module's store over this worker's database client, constructed once. An activity parameterized
+ * on a database (for its tests) constructs its own from that client instead.
+ */
+export function getAnalysisStore(): AnalysisStore {
+    if (analysisStoreSingleton == null) {
+        analysisStoreSingleton = new AnalysisStore(db);
+    }
+    return analysisStoreSingleton;
 }

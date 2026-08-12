@@ -2,7 +2,7 @@ import { Panel, PanelBody, PanelHeader, PanelTitle } from "@autonoma/blacklight"
 import { Outlet, createFileRoute } from "@tanstack/react-router";
 import { SnapshotChangesList } from "components/snapshot/snapshot-changes-list";
 import { useSnapshotSections } from "components/snapshot/use-snapshot-sections";
-import { useAnalysisJob, useAnalysisReport } from "lib/query/branches.queries";
+import { useAnalysisJob, useSnapshotAnalysisState } from "lib/query/branches.queries";
 
 export const Route = createFileRoute(
   "/_blacklight/_app-shell/app/$appSlug/pull-requests/$prNumber/snapshots/$snapshotId/changes",
@@ -15,9 +15,10 @@ function ChangesLayout() {
   const sections = useSnapshotSections(snapshotId);
   // A report-less authoritative run has no suite changes to show yet: the sections are empty and the raw plan diff
   // is deliberately withheld (a failed run's changes are discarded), so render the run's status instead.
+  const { analyzed, settled } = useSnapshotAnalysisState(snapshotId);
+  // The lifecycle is read for its status, to say whether the run failed or is still going.
   const { data: analysisJob } = useAnalysisJob(snapshotId);
-  const { data: analysisReport } = useAnalysisReport(snapshotId, { jobStatus: analysisJob?.status });
-  const awaitingReport = analysisJob != null && analysisReport == null;
+  const awaitingReport = analyzed && !settled;
 
   const total = sections.reduce((sum, s) => sum + s.entries.length, 0);
 
@@ -31,7 +32,7 @@ function ChangesLayout() {
       </PanelHeader>
       <PanelBody className="p-0 lg:min-h-0 lg:overflow-hidden">
         {awaitingReport ? (
-          <ChangesRunStatus failed={analysisJob.status === "failed"} />
+          <ChangesRunStatus failed={analysisJob?.status === "failed"} />
         ) : total === 0 ? (
           <div className="px-5 py-8">
             <p className="text-xs text-text-tertiary">No test suite changes recorded for this checkpoint.</p>

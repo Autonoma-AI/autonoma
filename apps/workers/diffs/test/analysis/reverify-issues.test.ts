@@ -6,6 +6,9 @@ import { expect } from "vitest";
 import { type ReverifiedTest, reverifyOpenIssues } from "../../src/analysis/reverify-issues";
 import { findOrCreateTestCase } from "./seed-generation";
 
+/** When a seeded issue was resolved. Written with `status`, which is how the store reads the two as one fact. */
+const RESOLVED_AT = new Date("2026-07-01T00:00:00Z");
+
 /** Monotonic counter for unique org/app slugs across the suite (one shared container, no per-test truncation). */
 let seq = 0;
 const next = () => seq++;
@@ -104,6 +107,7 @@ class ReverifyHarness implements IntegrationHarness {
                 kind: params.kind ?? "bug",
                 severity: "high",
                 status: params.status ?? "open",
+                resolvedAt: params.status === "resolved" ? RESOLVED_AT : null,
                 actualBehavior: `${params.title} misbehaves`,
                 narrativeMarkdown: `${params.title} narrative`,
             },

@@ -1,4 +1,4 @@
-import { type AnalysisVerdictState, deriveAnalysisVerdict } from "@autonoma/types";
+import type { AnalysisVerdictState } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication, branchPage, completedOnboardingState } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
@@ -245,8 +245,22 @@ export const AnalyzedMain: Story = {
         branches: {
           ...mainBranchPageFixtures.branches,
           snapshotHistory: [
-            mainCheckpoint({ id: LATEST_SNAPSHOT_ID, createdAt: LATEST_RUN_AT, bugCount: 1, passed: 3, coverage: 1 }),
-            mainCheckpoint({ id: PREV_SNAPSHOT_ID, createdAt: PREV_RUN_AT, bugCount: 0, passed: 4, coverage: 0 }),
+            mainCheckpoint({
+              id: LATEST_SNAPSHOT_ID,
+              createdAt: LATEST_RUN_AT,
+              state: "bug_found",
+              bugCount: 1,
+              passed: 3,
+              coverage: 1,
+            }),
+            mainCheckpoint({
+              id: PREV_SNAPSHOT_ID,
+              createdAt: PREV_RUN_AT,
+              state: "healthy",
+              bugCount: 0,
+              passed: 4,
+              coverage: 0,
+            }),
           ],
           snapshotDetail: mainSnapshotDetail(),
           mainOpenProblems: [
@@ -290,7 +304,14 @@ export const BugsOnlyOnMain: Story = {
         branches: {
           ...mainBranchPageFixtures.branches,
           snapshotHistory: [
-            mainCheckpoint({ id: LATEST_SNAPSHOT_ID, createdAt: LATEST_RUN_AT, bugCount: 2, passed: 2, coverage: 0 }),
+            mainCheckpoint({
+              id: LATEST_SNAPSHOT_ID,
+              createdAt: LATEST_RUN_AT,
+              state: "bug_found",
+              bugCount: 2,
+              passed: 2,
+              coverage: 0,
+            }),
           ],
           snapshotDetail: mainSnapshotDetail(),
           mainOpenProblems: [
@@ -323,19 +344,15 @@ export const BugsOnlyOnMain: Story = {
 function mainCheckpoint(overrides: {
   id: string;
   createdAt: Date;
+  /** The verdict this checkpoint depicts. Stated, not derived: a story says which case it is showing. */
+  state: AnalysisVerdictState;
   bugCount: number;
   passed: number;
   coverage: number;
 }) {
   const totalTests = overrides.bugCount + overrides.passed + overrides.coverage;
-  // The badge copy is a pure function of the counts, so the fixture routes through the shared verdict predicate
-  // instead of restating the mapping - a story cannot then claim a combination the API never produces.
-  const state = deriveAnalysisVerdict({
-    bugCount: overrides.bugCount,
-    coverageGapCount: overrides.coverage,
-    investigatedCount: totalTests,
-  });
-  const verdict = CHECKPOINT_VERDICT[state](overrides);
+  // The badge copy still routes through the shared per-state mapping, so a story cannot invent copy the API never renders.
+  const verdict = CHECKPOINT_VERDICT[overrides.state](overrides);
 
   return {
     id: overrides.id,
@@ -345,6 +362,9 @@ function mainCheckpoint(overrides: {
     baseSha: BASE_SHA,
     createdAt: overrides.createdAt,
     prevSnapshotId: null,
+    // These stories fixture the authoritative pipeline, which is what the overview gates on.
+    analyzed: true,
+    settled: true,
     _count: { testCaseAssignments: totalTests },
     changeSummary: { added: 0, removed: 0, updated: 1 },
     health: verdict.health,
@@ -406,6 +426,8 @@ function mainSnapshotDetail(): NonNullable<TrpcFixtures["branches"]>["snapshotDe
       suiteChangeCount: 1,
       analysis: { jobStatus: "completed", bugCount: 1, passedCount: 3, coverageCount: 1 },
     },
+    analyzed: true,
+    settled: true,
     executedTests: [],
   };
 }

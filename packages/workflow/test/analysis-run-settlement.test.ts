@@ -44,7 +44,14 @@ const activities: Pick<
         return { targets: [], reasoning: "No affected tests" };
     },
     async runReporter() {
-        return { issuesOpened: 0, issuesCarried: 0, issuesResolved: 0, verdict: "passed", clientBugCount: 0 };
+        return {
+            persisted: true,
+            issuesOpened: 0,
+            issuesCarried: 0,
+            issuesResolved: 0,
+            verdict: "passed",
+            clientBugCount: 0,
+        };
     },
     async settleAnalysisRun(input) {
         settlements.push(input.outcome);

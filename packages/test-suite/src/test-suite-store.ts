@@ -1,4 +1,4 @@
-import { type Prisma, type PrismaClient, TriggerSource } from "@autonoma/db";
+import { type Prisma, type PrismaClient, type SnapshotStatus, TriggerSource } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import {
     BranchAlreadyOpenError,
@@ -34,6 +34,15 @@ export interface OpenEditSnapshotInput {
     branchId: string;
     /** When provided, verifies the branch belongs to this organization. */
     organizationId?: string;
+}
+
+/** A branch's newest run. Distinct from {@link SuiteRun}, which is one test's newest run within a snapshot. */
+export interface LatestRun {
+    snapshotId: string;
+    status: SnapshotStatus;
+    /** Absent on snapshots opened without git coordinates. */
+    headSha?: string;
+    createdAt: Date;
 }
 
 export interface OpenSnapshotInput {
@@ -289,6 +298,37 @@ export class TestSuiteStore {
         comparisons: readonly SnapshotComparison[],
     ): Promise<Map<string, SuiteChangeSummary>> {
         return summarizeSuiteChanges(this.db, comparisons);
+    }
+
+    /**
+     * The newest non-cancelled, non-twin snapshot per branch, keyed by branch id - "the branch's latest run".
+     * Reached by branch id rather than through `activeSnapshotId`/`pendingSnapshotId` because a failed run sits
+     * on neither pointer (settlement clears it so the branch is not left blocked).
+     */
+    public async latestRuns(branchIds: string[]): Promise<Map<string, LatestRun>> {
+        if (branchIds.length === 0) return new Map();
+
+        const snapshots = await this.db.branchSnapshot.findMany({
+            where: {
+                branchId: { in: branchIds },
+                status: { not: "cancelled" },
+                investigationParent: { is: null },
+            },
+            orderBy: { createdAt: "desc" },
+            distinct: ["branchId"],
+            select: { id: true, branchId: true, status: true, headSha: true, createdAt: true },
+        });
+        return new Map(
+            snapshots.map((snapshot) => [
+                snapshot.branchId,
+                {
+                    snapshotId: snapshot.id,
+                    status: snapshot.status,
+                    headSha: snapshot.headSha ?? undefined,
+                    createdAt: snapshot.createdAt,
+                },
+            ]),
+        );
     }
 
     /**

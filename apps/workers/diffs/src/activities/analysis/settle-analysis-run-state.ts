@@ -1,4 +1,5 @@
-import type { AnalysisJobStatus, PrismaClient, SnapshotStatus } from "@autonoma/db";
+import { AnalysisStore } from "@autonoma/analysis";
+import type { PrismaClient, SnapshotStatus } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { type OpenSnapshot, SnapshotNotFoundError, SnapshotNotOpenError, TestSuiteStore } from "@autonoma/test-suite";
 import type { AnalysisRunOutcome } from "@autonoma/types";
@@ -53,7 +54,14 @@ export async function settleAnalysisRunState({
     }
 
     const discardedChangeCount = outcome.kind === "succeeded" ? 0 : (await store.changesSince(snapshotId)).length;
-    await settleJob(db, snapshotId, outcome, discardedChangeCount);
+    const closed = await new AnalysisStore(db)
+        .forAnalysis(snapshotId)
+        .close(withDiscardedChanges(outcome, discardedChangeCount));
+    if (!closed) {
+        logger.warn("Analysis job was already closed; the snapshot terminal still won", {
+            snapshot: { snapshotId },
+        });
+    }
 
     const result: SettleAnalysisRunStateResult = {
         settled: true,
@@ -86,33 +94,14 @@ function terminalStatus(outcome: AnalysisRunOutcome): SnapshotStatus {
 }
 
 /**
- * The job half of the settlement: mark the run's `AnalysisJob` terminal with the outcome's reason. Written here
- * because the suite module never touches an `analysis_*` table.
+ * A failed outcome explains itself with what the run discarded - a suite fact, composed here because the analysis
+ * module never reads suite changes. A superseded run keeps its plain reason: its changes live on in the run that
+ * displaced it.
  */
-async function settleJob(
-    db: PrismaClient,
-    snapshotId: string,
-    outcome: AnalysisRunOutcome,
-    discardedChangeCount: number,
-): Promise<void> {
-    await db.analysisJob.updateMany({
-        where: { snapshotId, status: "running" },
-        data: terminalJobFields(outcome, discardedChangeCount),
-    });
-}
-
-/** How the job records each outcome. Only a failure explains itself with what the run discarded. */
-function terminalJobFields(
-    outcome: AnalysisRunOutcome,
-    discardedChangeCount: number,
-): { status: AnalysisJobStatus; failureReason?: string; completedAt: Date } {
-    const completedAt = new Date();
-    if (outcome.kind === "succeeded") return { status: "completed", completedAt };
-    if (outcome.kind === "superseded") return { status: "failed", failureReason: outcome.reason, completedAt };
-    return { status: "failed", failureReason: failureReason(outcome.reason, discardedChangeCount), completedAt };
-}
-
-function failureReason(reason: string, discardedChangeCount: number): string {
-    if (discardedChangeCount === 0) return reason;
-    return `${reason} (${discardedChangeCount} suite changes discarded; they will be recomputed on the next push)`;
+function withDiscardedChanges(outcome: AnalysisRunOutcome, discardedChangeCount: number): AnalysisRunOutcome {
+    if (outcome.kind !== "failed" || discardedChangeCount === 0) return outcome;
+    return {
+        kind: "failed",
+        reason: `${outcome.reason} (${discardedChangeCount} suite changes discarded; they will be recomputed on the next push)`,
+    };
 }

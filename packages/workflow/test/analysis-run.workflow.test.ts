@@ -206,7 +206,14 @@ const analysisActivities: Pick<
     async runReporter() {
         harness.reporterRuns += 1;
         harness.events.push("reporter");
-        return { issuesOpened: 0, issuesCarried: 0, issuesResolved: 0, verdict: "passed", clientBugCount: 0 };
+        return {
+            persisted: true,
+            issuesOpened: 0,
+            issuesCarried: 0,
+            issuesResolved: 0,
+            verdict: "passed",
+            clientBugCount: 0,
+        };
     },
     async settleAnalysisRun(input) {
         harness.settlements.push(input.outcome);

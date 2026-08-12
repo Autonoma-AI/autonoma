@@ -12,17 +12,16 @@ export function useSnapshotSections(snapshotId: string): Section[] {
     const { data } = useFullSnapshotDetail(snapshotId);
     const { data: analysisJob } = useAnalysisJob(snapshotId);
     const { data: analysisReport } = useAnalysisReport(snapshotId, { jobStatus: analysisJob?.status });
-    const { changes, createdTests } = data;
+    const { changes, createdTests, analyzed } = data;
     const findings = analysisReport?.findings;
-    const isAuthoritative = analysisJob != null;
 
     return useMemo(() => {
         // An authoritative run's suite changes are its findings. Until the report lands (running) or when the run
         // failed, there are no authoritative sections - and the raw plan diff must NOT be shown, since a failed
         // run's changes are discarded. The changes page renders a run-status empty state in that case.
-        if (isAuthoritative) return findings != null ? buildAnalysisSections({ findings, changes }) : [];
+        if (analyzed) return findings != null ? buildAnalysisSections({ findings, changes }) : [];
         return buildSections({ changes, createdTests });
-    }, [isAuthoritative, findings, changes, createdTests]);
+    }, [analyzed, findings, changes, createdTests]);
 }
 
 // Resolves the single test entry addressed by `testId` (its `urlId`) within the snapshot.

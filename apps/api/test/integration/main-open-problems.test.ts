@@ -58,6 +58,8 @@ async function createIssue(
             kind: issue.kind,
             severity: issue.severity,
             status: issue.status ?? "open",
+            // Written with `status`, which is how the store reads the two as one fact.
+            resolvedAt: issue.status === "resolved" ? new Date() : null,
             actualBehavior: issue.actualBehavior ?? `${issue.title} - what happened.`,
             narrativeMarkdown: `## ${issue.title}`,
             organizationId: harness.organizationId,

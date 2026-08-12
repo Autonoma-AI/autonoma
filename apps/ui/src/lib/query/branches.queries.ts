@@ -29,10 +29,13 @@ export function useAnalysisReport(snapshotId: string, opts?: { jobStatus?: Analy
     });
 }
 
-/** True when the snapshot has an authoritative analysis report (drives the authoritative changes-detail layout). */
-export function useIsAuthoritativeSnapshot(snapshotId: string): boolean {
-    const { data } = useAnalysisReport(snapshotId);
-    return data != null;
+/**
+ * Whether the merged analysis pipeline ran on this snapshot (`analyzed`) and whether its Reporter settled
+ * (`settled`), as the server resolved them.
+ */
+export function useSnapshotAnalysisState(snapshotId: string): { analyzed: boolean; settled: boolean } {
+    const { data } = useSnapshotDetail(snapshotId);
+    return { analyzed: data.analyzed, settled: data.settled };
 }
 
 /** Returns the report so a loader can chain the branch-scoped reads that need its `branchId`. */
@@ -183,18 +186,6 @@ export function useSnapshotHistory(branchId: string) {
 
 export async function ensureSnapshotHistoryData(queryClient: QueryClient, branchId: string) {
     return await ensureAPIQueryData(queryClient, trpc.branches.snapshotHistory.queryOptions({ branchId }));
-}
-
-type SnapshotHistoryEntry = RouterOutputs["branches"]["snapshotHistory"][number];
-
-/** A branch's snapshot history sorted newest-first (the list is not guaranteed ordered by the server). */
-export function sortSnapshotsNewestFirst(snapshots: SnapshotHistoryEntry[]): SnapshotHistoryEntry[] {
-    return [...snapshots].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-}
-
-/** The newest snapshot in a branch's history, or undefined for a PR with no snapshots yet. */
-export function latestSnapshotOf(snapshots: SnapshotHistoryEntry[]): SnapshotHistoryEntry | undefined {
-    return sortSnapshotsNewestFirst(snapshots)[0];
 }
 
 // A snapshot's liveness is polled by the analysis-report/job queries, not these - there is nothing on

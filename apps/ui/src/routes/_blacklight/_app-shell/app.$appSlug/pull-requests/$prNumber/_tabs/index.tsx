@@ -1,5 +1,4 @@
 import { Badge, Panel, PanelBody, Skeleton, StatusDot } from "@autonoma/blacklight";
-import { countAnalysisFindingBuckets } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
@@ -19,8 +18,6 @@ import {
   ensureAnalysisReportData,
   ensureBranchByPrData,
   ensureSnapshotHistoryData,
-  latestSnapshotOf,
-  sortSnapshotsNewestFirst,
   useAnalysisIssues,
   useAnalysisJob,
   useAnalysisReport,
@@ -58,7 +55,8 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/pull-
       ensureSnapshotHistoryData(context.queryClient, branch.id),
       ensureAnalysisIssuesData(context.queryClient, branch.id),
     ]);
-    const latest = latestSnapshotOf(snapshots);
+    // The history is contractually newest-first, so its first element is the branch's latest run.
+    const latest = snapshots[0];
     if (latest != null) {
       await Promise.all([
         ensureAnalysisJobData(context.queryClient, latest.id),
@@ -84,8 +82,7 @@ function OverviewContent({ prNumber }: { prNumber: number }) {
   const app = useCurrentApplication();
   const { data: branch } = useBranchByPr(app.id, prNumber);
   const { data: snapshots } = useSnapshotHistory(branch.id);
-  const orderedSnapshots = sortSnapshotsNewestFirst(snapshots);
-  const latestSnapshot = orderedSnapshots[0];
+  const latestSnapshot = snapshots[0];
 
   if (latestSnapshot == null) {
     return (
@@ -95,9 +92,7 @@ function OverviewContent({ prNumber }: { prNumber: number }) {
     );
   }
 
-  return (
-    <PrOverview branchId={branch.id} prNumber={prNumber} snapshots={orderedSnapshots} latestSnapshot={latestSnapshot} />
-  );
+  return <PrOverview branchId={branch.id} prNumber={prNumber} snapshots={snapshots} latestSnapshot={latestSnapshot} />;
 }
 
 // The overview gate. An authoritative snapshot (the merged pipeline ran on it, so it has an `AnalysisJob`) gets
@@ -115,9 +110,11 @@ function PrOverview({
   snapshots: Snapshot[];
   latestSnapshot: Snapshot;
 }) {
+  // `analyzed` is the same fork the badge and health beside it came from, so the overview cannot pick a
+  // different pipeline than the summary it renders. A payload stale enough to lack the lifecycle falls back.
   const { data: analysisJob } = useAnalysisJob(latestSnapshot.id);
 
-  if (analysisJob == null) {
+  if (!latestSnapshot.analyzed || analysisJob == null) {
     return <CheckpointsSection prNumber={prNumber} snapshots={snapshots} latestSnapshot={latestSnapshot} />;
   }
 
@@ -196,12 +193,10 @@ function AuthoritativeReportColumn({
   return (
     <>
       <AnalysisPrIssuesHeadline
-        issues={openIssues}
+        verdict={report.verdict}
         title={report.title}
         headline={report.headline}
         flows={report.flows}
-        testCount={report.testCount}
-        coverageGapCount={countAnalysisFindingBuckets(report.findings.map((f) => f.category)).coverage}
       />
       {report.reportMarkdown != null && (
         <AnalysisReportProse

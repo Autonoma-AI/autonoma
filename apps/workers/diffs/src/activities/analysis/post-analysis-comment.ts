@@ -8,7 +8,7 @@ import {
 import { imageFormatFromKey } from "@autonoma/image";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { S3Storage } from "@autonoma/storage";
-import { ANALYSIS_VERDICT, type AnalysisRunOutcome } from "@autonoma/types";
+import type { AnalysisRunOutcome } from "@autonoma/types";
 import { resolveRunTarget } from "../../codebase/run-target";
 import type { GitHubAccess, SnapshotMeta } from "../../codebase/snapshot-context";
 import { env } from "../../env";
@@ -20,9 +20,6 @@ import { isMergeGateEnabledForOrg } from "./merge-gate-enabled";
 const SCREENSHOT_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 const DEFAULT_SCREENSHOT_CONTENT_TYPE = "image/png";
-
-/** The verdict that blocks the PR; drives whether the merge-gate skip callout is added to the comment. */
-const CLIENT_BUG = ANALYSIS_VERDICT.client_bug;
 
 /**
  * Post (or update in place) the authoritative analysis run's PR comment, through the shared comment system - the
@@ -90,19 +87,11 @@ export async function postAnalysisComment({
         return { status: "skipped" };
     }
 
-    const mergeGateBlocking = report.verdict === CLIENT_BUG && (await isMergeGateEnabledForOrg(meta.organizationId));
+    const mergeGateBlocking =
+        report.verdict.state === "bug_found" && (await isMergeGateEnabledForOrg(meta.organizationId));
 
     const payload = await buildAnalysisCommentPayload(
-        {
-            testCount: report.testCount,
-            bugIssues: report.bugIssues,
-            coverage: report.coverage,
-            coverageIssues: report.coverageIssues,
-            mergeGateBlocking,
-            title: report.title,
-            headline: report.headline,
-            flows: report.flows,
-        },
+        { ...report, mergeGateBlocking },
         {
             prNumber: target.prNumber,
             repoFullName: github.repoFullName,

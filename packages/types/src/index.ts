@@ -12,6 +12,7 @@ export * from "./agent-handoff-links";
 export * from "./sdk-error-signals";
 export * from "./sdk-failure";
 export * from "./designated-run";
+export * from "./verdict-planes";
 export * from "./deployment-signal-template";
 export * from "./constants/index";
 export * from "./types/architecture";

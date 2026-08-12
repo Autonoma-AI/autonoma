@@ -22,7 +22,14 @@ function budgetWithFlows(ids: string[]): BudgetPlan {
 function budgetWith(flows: { id: string; allowance: number }[], unclaimedAllowance = 5): BudgetPlan {
     const byFlow = new Map<string, FlowBudget>();
     for (const f of flows) {
-        byFlow.set(f.id, { flowId: f.id, name: f.id, tier: 3, allowance: f.allowance, riskDrivers: [], invariants: [] });
+        byFlow.set(f.id, {
+            flowId: f.id,
+            name: f.id,
+            tier: 3,
+            allowance: f.allowance,
+            riskDrivers: [],
+            invariants: [],
+        });
     }
     return { total: 100, smokeFloor: 1, unclaimedAllowance, byFlow, flowByRoute: new Map() };
 }
@@ -133,7 +140,12 @@ describe("TestRegistry flow-id enforcement", () => {
         acceptAll();
         const registry = new TestRegistry("model", budgetWithFlows(["funds-management", "account-settings"]));
 
-        const [verdict] = await registry.propose("node-a", ["Sending money debits checking"], undefined, "Funds Management");
+        const [verdict] = await registry.propose(
+            "node-a",
+            ["Sending money debits checking"],
+            undefined,
+            "Funds Management",
+        );
 
         expect(verdict?.accepted).toBe(false);
         expect(verdict?.reason).toContain("funds-management");
@@ -170,7 +182,12 @@ describe("TestRegistry flow-id enforcement", () => {
         acceptAll();
         const registry = new TestRegistry("model");
 
-        const [verdict] = await registry.propose("node-a", ["Sending money debits checking"], undefined, "Anything At All");
+        const [verdict] = await registry.propose(
+            "node-a",
+            ["Sending money debits checking"],
+            undefined,
+            "Anything At All",
+        );
 
         expect(verdict?.accepted).toBe(true);
     });
@@ -183,8 +200,18 @@ describe("TestRegistry smoke floor", () => {
         // starved settings pages to zero coverage before the floor was enforced.
         const registry = new TestRegistry("model", budgetWith([{ id: "settings", allowance: 0 }]));
 
-        const [floor] = await registry.propose("settings-page", ["the settings page loads and a toggle persists"], "settings", "settings");
-        const [second] = await registry.propose("settings-page", ["a second, deeper settings behaviour is verified"], "settings", "settings");
+        const [floor] = await registry.propose(
+            "settings-page",
+            ["the settings page loads and a toggle persists"],
+            "settings",
+            "settings",
+        );
+        const [second] = await registry.propose(
+            "settings-page",
+            ["a second, deeper settings behaviour is verified"],
+            "settings",
+            "settings",
+        );
 
         expect(floor?.accepted).toBe(true);
         expect(second?.accepted).toBe(false);
@@ -208,9 +235,24 @@ describe("TestRegistry smoke floor", () => {
 
         // Floor (free) + one discretionary (allowance 1) both land; the third has
         // nothing left to draw on.
-        const [floor] = await registry.propose("core-page", ["the page loads and its primary action works"], "core", "core");
-        const [discretionary] = await registry.propose("core-page", ["a second, distinct core behaviour"], "core", "core");
-        const [third] = await registry.propose("core-page", ["a third core behaviour with no budget left"], "core", "core");
+        const [floor] = await registry.propose(
+            "core-page",
+            ["the page loads and its primary action works"],
+            "core",
+            "core",
+        );
+        const [discretionary] = await registry.propose(
+            "core-page",
+            ["a second, distinct core behaviour"],
+            "core",
+            "core",
+        );
+        const [third] = await registry.propose(
+            "core-page",
+            ["a third core behaviour with no budget left"],
+            "core",
+            "core",
+        );
 
         expect(floor?.accepted).toBe(true);
         expect(discretionary?.accepted).toBe(true);
@@ -224,8 +266,18 @@ describe("TestRegistry smoke floor", () => {
         const pageForNode = () => "settings-page";
         const registry = new TestRegistry("model", budgetWith([{ id: "settings", allowance: 0 }]), pageForNode);
 
-        const [pageTest] = await registry.propose("settings-page", ["the settings page renders and a field saves"], "settings", "settings");
-        const [featureTest] = await registry.propose("settings-notifications", ["the notifications sub-feature toggles"], "settings", "settings");
+        const [pageTest] = await registry.propose(
+            "settings-page",
+            ["the settings page renders and a field saves"],
+            "settings",
+            "settings",
+        );
+        const [featureTest] = await registry.propose(
+            "settings-notifications",
+            ["the notifications sub-feature toggles"],
+            "settings",
+            "settings",
+        );
 
         expect(pageTest?.accepted).toBe(true);
         expect(featureTest?.accepted).toBe(false);

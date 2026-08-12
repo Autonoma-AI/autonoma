@@ -1,5 +1,5 @@
 import { expect } from "vitest";
-import { PriorRuns } from "../../src/analysis/db/prior-runs";
+import { AnalysisStore } from "../src/analysis-store";
 import { priorRunsSuite } from "./prior-runs-harness";
 
 const DAY_ONE = new Date("2026-01-01T10:00:00Z");
@@ -7,7 +7,7 @@ const DAY_TWO = new Date("2026-01-02T10:00:00Z");
 const DAY_THREE = new Date("2026-01-03T10:00:00Z");
 
 priorRunsSuite({
-    name: "PriorRuns.getHistory",
+    name: "AnalysisStore.priorRuns",
     cases: (test) => {
         test("builds the baseline from the verdicts earlier analyses reached", async ({ harness }) => {
             const seeded = await harness.seedTest();
@@ -15,7 +15,7 @@ priorRunsSuite({
             await harness.recordAnalyzedRun({ test: seeded, iterations: ["client_bug"], at: DAY_TWO });
             const now = await harness.recordAnalyzedRun({ test: seeded, iterations: ["passed"], at: DAY_THREE });
 
-            const history = await new PriorRuns(harness.db).getHistory({
+            const history = await new AnalysisStore(harness.db).priorRuns({
                 applicationId: seeded.applicationId,
                 testSlug: seeded.slug,
                 currentSnapshotId: now,
@@ -29,7 +29,6 @@ priorRunsSuite({
                 { day: "2026-01-02", category: "client_bug" },
                 { day: "2026-01-01", category: "passed" },
             ]);
-            expect(PriorRuns.formatBaseline(history)).not.toContain("NEVER been executed");
         });
 
         test("does not read a finished engine run as evidence the app behaved", async ({ harness }) => {
@@ -40,7 +39,7 @@ priorRunsSuite({
             await harness.recordAnalyzedRun({ test: seeded, iterations: ["engine_artifact"], at: DAY_TWO });
             const now = await harness.recordAnalyzedRun({ test: seeded, iterations: ["client_bug"], at: DAY_THREE });
 
-            const history = await new PriorRuns(harness.db).getHistory({
+            const history = await new AnalysisStore(harness.db).priorRuns({
                 applicationId: seeded.applicationId,
                 testSlug: seeded.slug,
                 currentSnapshotId: now,
@@ -63,7 +62,7 @@ priorRunsSuite({
             });
             const now = await harness.recordAnalyzedRun({ test: seeded, iterations: ["client_bug"], at: DAY_TWO });
 
-            const history = await new PriorRuns(harness.db).getHistory({
+            const history = await new AnalysisStore(harness.db).priorRuns({
                 applicationId: seeded.applicationId,
                 testSlug: seeded.slug,
                 currentSnapshotId: now,
@@ -81,14 +80,13 @@ priorRunsSuite({
             // A self-heal re-run: iteration 1 already filed a verdict against the snapshot being analyzed now.
             const now = await harness.recordAnalyzedRun({ test: seeded, iterations: ["plan_mismatch"], at: DAY_TWO });
 
-            const history = await new PriorRuns(harness.db).getHistory({
+            const history = await new AnalysisStore(harness.db).priorRuns({
                 applicationId: seeded.applicationId,
                 testSlug: seeded.slug,
                 currentSnapshotId: now,
             });
 
             expect(history.totalRecent).toBe(0);
-            expect(PriorRuns.formatBaseline(history)).toContain("NEVER been executed");
         });
 
         test("ignores a run that never reached a verdict", async ({ harness }) => {
@@ -96,7 +94,7 @@ priorRunsSuite({
             await harness.recordUnjudgedRun(seeded, DAY_ONE);
             const now = await harness.recordAnalyzedRun({ test: seeded, iterations: ["client_bug"], at: DAY_TWO });
 
-            const history = await new PriorRuns(harness.db).getHistory({
+            const history = await new AnalysisStore(harness.db).priorRuns({
                 applicationId: seeded.applicationId,
                 testSlug: seeded.slug,
                 currentSnapshotId: now,
@@ -112,7 +110,7 @@ priorRunsSuite({
             const now = await harness.recordAnalyzedRun({ test: seeded, iterations: ["client_bug"], at: DAY_TWO });
 
             // Replaying the DAY_TWO classification must not see the pass that only happened on DAY_THREE.
-            const history = await new PriorRuns(harness.db).getHistory({
+            const history = await new AnalysisStore(harness.db).priorRuns({
                 applicationId: seeded.applicationId,
                 testSlug: seeded.slug,
                 currentSnapshotId: now,
@@ -130,7 +128,7 @@ priorRunsSuite({
             await harness.recordAnalyzedRun({ test: mine, iterations: ["client_bug"], at: DAY_TWO });
             const now = await harness.recordAnalyzedRun({ test: mine, iterations: ["client_bug"], at: DAY_THREE });
 
-            const history = await new PriorRuns(harness.db).getHistory({
+            const history = await new AnalysisStore(harness.db).priorRuns({
                 applicationId: mine.applicationId,
                 testSlug: mine.slug,
                 currentSnapshotId: now,

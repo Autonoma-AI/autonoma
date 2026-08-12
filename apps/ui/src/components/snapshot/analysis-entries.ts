@@ -16,12 +16,7 @@ function categoryOf(finding: AnalysisFindingView): EntryCategory {
     // `plan_mismatch` restores the plan its self-heal replaced, so the run left the test as it found it - checked, not
     // modified, even though it self-healed. Only a rewrite the run KEPT (a passed re-run) is a real modification.
     if (finding.category === ANALYSIS_VERDICT.plan_mismatch) return "checked";
-    return wasSelfHealed(finding) ? "modified" : "checked";
-}
-
-/** The run rewrote this test's plan exactly when it classified it more than once. */
-function wasSelfHealed(finding: AnalysisFindingView): boolean {
-    return finding.classifications.length > 1;
+    return finding.selfHealed ? "modified" : "checked";
 }
 
 /**
@@ -75,7 +70,7 @@ function toEntry(finding: AnalysisFindingView, category: EntryCategory, change: 
             headline: finding.headline,
             findingId: finding.id,
             generationId: finding.generationId,
-            selfHealed: wasSelfHealed(finding),
+            selfHealed: finding.selfHealed,
         },
     };
 }

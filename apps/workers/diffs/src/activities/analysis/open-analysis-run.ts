@@ -1,3 +1,4 @@
+import { SUPERSEDED_RUN_REASON } from "@autonoma/analysis";
 import { ApplicationArchitecture, TriggerSource, db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { BranchAlreadyOpenError, type OpenSnapshot, SourceMovedError, TestSuiteStore } from "@autonoma/test-suite";
@@ -6,9 +7,9 @@ import type {
     OpenAnalysisRunOutput,
     OpenAnalysisSkipReason,
 } from "@autonoma/workflow/activities";
+import { getAnalysisStore } from "../../services";
 import { settleAnalysisRunState } from "./settle-analysis-run-state";
 
-const SUPERSEDE_REASON = "Superseded by a newer analysis request";
 /** How many times an open re-resolves after losing to a concurrent settlement or promotion. */
 const MAX_OPEN_ATTEMPTS = 3;
 
@@ -82,19 +83,13 @@ async function openSuperseding(
             headSha,
             source,
             trigger: TriggerSource.WEBHOOK,
-            // The job is created with the snapshot, not after it: a run whose snapshot exists but whose job does
-            // not would settle against nothing, since the settlement matches on a `running` job.
+            // The analysis is opened with the snapshot, not after it: a run whose snapshot exists but whose job
+            // does not would settle against nothing, since the settlement matches on a `running` job.
             onOpened: async (tx, identity) => {
-                await tx.analysisJob.create({
-                    data: {
-                        snapshotId: identity.snapshotId,
-                        // The branch owns the organization, so the job is scoped to whoever owns the snapshot
-                        // rather than to whatever the trigger believed.
-                        organizationId: identity.organizationId,
-                        status: "running",
-                        startedAt: new Date(),
-                    },
-                });
+                await getAnalysisStore().open(
+                    { snapshotId: identity.snapshotId, organizationId: identity.organizationId },
+                    tx,
+                );
             },
         });
     };
@@ -111,7 +106,7 @@ async function openSuperseding(
                 await settleAnalysisRunState({
                     db,
                     snapshotId: error.pendingSnapshotId,
-                    outcome: { kind: "superseded", reason: SUPERSEDE_REASON },
+                    outcome: { kind: "superseded", reason: SUPERSEDED_RUN_REASON },
                 });
                 continue;
             }

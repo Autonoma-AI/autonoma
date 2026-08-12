@@ -1,5 +1,5 @@
-import { tallyExecutedTests, type SnapshotExecutedTest } from "@autonoma/checkpoint";
 import type { Logger } from "@autonoma/logger";
+import { tallyExecutedTests, type SnapshotExecutedTest } from "@autonoma/test-suite";
 import type { ReportTestStatus, SnapshotReportResults, SnapshotReportTestResult } from "@autonoma/types";
 
 // The checkpoint report header ("X tests run, Y passed, Z failed"), the executed-tests list

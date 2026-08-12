@@ -3032,6 +3032,12 @@ model AnalysisJob {
 
   failureReason String? @map("failure_reason") @db.Text
 
+  /// A newer analysis request displaced this run before it finished. Recorded rather than inferred: the outcome
+  /// that closes the job already discriminates it (`AnalysisRunOutcome.kind`), and reading it back out of
+  /// `failureReason`'s prose was a prefix guess that health metrics then counted on. `status` stays `failed` -
+  /// the run did not complete - so every status reader keeps its meaning.
+  superseded Boolean @default(false)
+
   startedAt   DateTime? @map("started_at")
   completedAt DateTime? @map("completed_at")
 
@@ -3139,8 +3145,11 @@ model AnalysisFinding {
   testCaseId String   @map("test_case_id")
   testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
 
-  /// The verdict this run stands behind: the newest classification. Null only between the finding's creation and
-  /// its first classification, inside the one transaction that writes both.
+  /// The verdict this run stands behind: the newest classification. Null in two cases: between the finding's
+  /// creation and its first classification (inside the one transaction that writes both), and permanently on a
+  /// contained finding - an investigation that crashed before any run could be judged records its `failure` here
+  /// and never gets a classification. Readers asking "was this test judged" must treat both a classification and a
+  /// `failure` as covering the test.
   currentClassificationId String?                 @unique @map("current_classification_id")
   currentClassification   AnalysisClassification? @relation("CurrentClassification", fields: [currentClassificationId], references: [id], onDelete: SetNull)
 
@@ -3151,6 +3160,14 @@ model AnalysisFinding {
   /// Whether the test pre-existed (`pre_existing`) or was authored this run (`proposed`) - the data tag that
   /// tells an obsolete-test `delete` apart from an un-establishable proposal.
   origin String?
+
+  /// Why this investigation crashed without judging a run (mirrors `TestGeneration.failure`). Set by the fan-out
+  /// parent when the Investigator child died; a finding with a `failure` and no classifications is a contained
+  /// investigation, derived from that emptiness rather than stored as a fake classification. A finding can hold
+  /// both a `failure` and classifications when the child crashed mid-loop after filing an iteration - the filed
+  /// verdict stands and the `failure` records that the loop never finished.
+  /// [AnalysisFindingFailure]
+  failure Json?
 
   /// Why Impact Analysis selected this test to investigate (the affected reason, or the new-test rationale). Ridden
   /// onto the finding at persist so the Reporter has the selection provenance per test, not just the run summary.
@@ -3163,6 +3180,9 @@ model AnalysisFinding {
   /// orphans its findings rather than cascading them away.
   issueId String?        @map("issue_id")
   issue   AnalysisIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+
+  /// Back-relation of `AnalysisIssue.resolvedByFinding`; never queried from this side.
+  resolvedIssues AnalysisIssue[] @relation("IssueResolvedByFinding")
 
   createdAt      DateTime     @default(now()) @map("created_at")
   organizationId String       @map("organization_id")
@@ -3192,8 +3212,9 @@ model AnalysisClassification {
   finding   AnalysisFinding @relation("FindingClassifications", fields: [findingId], references: [id], onDelete: Cascade)
 
   /// Which slot of the self-heal loop this is, 1-based, assigned from the Investigator's own iteration counter
-  /// rather than by counting rows - which is what makes filing one idempotent. A crashed child's containment fault
-  /// takes the slot past every real iteration, so a gap means either that or a record predating this table.
+  /// rather than by counting rows - which is what makes filing one idempotent. Contiguous for rows written since a
+  /// crashed child's containment moved to `AnalysisFinding.failure`; older rows can hold a containment fault in the
+  /// slot past every real iteration.
   number Int
 
   /// The generation whose run this classification judged. Each iteration runs a fresh generation, so this is what
@@ -3288,7 +3309,8 @@ model AnalysisIssue {
   kind     String
   /// The Reporter's severity call: "critical" | "high" | "medium" | "low".
   severity String
-  /// Lifecycle: "open" | "resolved".
+  /// Retired: the lifecycle IS `resolvedAt`'s presence, which is what the store reads. Still written so a rollback
+  /// to the previous image meets a populated column; its DROP rides #2036 one deploy later.
   status   String @default("open")
 
   expectedBehavior  String? @map("expected_behavior") @db.Text
@@ -3319,6 +3341,15 @@ model AnalysisIssue {
 
   resolvedAt DateTime? @map("resolved_at")
 
+  /// The passing finding whose run justified resolving this issue - the Reporter names the covering test that
+  /// re-ran and passed, resolved to that test's finding on the resolving snapshot. SetNull so deleting the finding
+  /// keeps the resolution; null on issues resolved before this was recorded (or by hand).
+  resolvedByFindingId String?          @map("resolved_by_finding_id")
+  resolvedByFinding   AnalysisFinding? @relation("IssueResolvedByFinding", fields: [resolvedByFindingId], references: [id], onDelete: SetNull)
+
+  /// The Reporter's stated justification for the resolve - why the passing run proves the problem is gone.
+  resolutionNote String? @map("resolution_note") @db.Text
+
   findings AnalysisFinding[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
@@ -3326,10 +3357,13 @@ model AnalysisIssue {
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@index([branchId, status])
+  /// The ledger's hot read is "this branch's open issues", which is `resolvedAt IS NULL`.
+  @@index([branchId, resolvedAt])
   @@index([organizationId])
   /// Indexes the FK's referencing side: without it, every TestCase delete seq-scans this table to SetNull.
   @@index([primaryTestCaseId])
+  /// Indexes the FK's referencing side: without it, every AnalysisFinding delete seq-scans this table to SetNull.
+  @@index([resolvedByFindingId])
   @@map("analysis_issue")
 }
 

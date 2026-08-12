@@ -1,3 +1,4 @@
+import { AnalysisStore } from "@autonoma/analysis";
 import type { PostHogAnalytics } from "@autonoma/analytics";
 import type { Prisma } from "@autonoma/db";
 import { BugFixOutcomeKind, type PrismaClient, withAdvisoryLock } from "@autonoma/db";
@@ -66,6 +67,8 @@ interface PlannedEvent {
  * NO PostHog event, so a bypass is never double-counted against a per-bug fixed/open signal.
  */
 export class BugFixOutcomeService extends Service {
+    private readonly analysisStore: AnalysisStore;
+
     constructor(
         private readonly db: PrismaClient,
         private readonly analytics: PostHogAnalytics,
@@ -74,6 +77,7 @@ export class BugFixOutcomeService extends Service {
         private readonly branchContributor?: BranchContributorService,
     ) {
         super();
+        this.analysisStore = new AnalysisStore(db);
     }
 
     /** Webhook entry for `pull_request.closed`: parse then record the per-bug merge outcomes. */
@@ -348,15 +352,12 @@ export class BugFixOutcomeService extends Service {
 
     /** The branch's flagged client bugs - the only issue kind this job counts (environment/scenario are ignored). */
     private async loadBugIssues(branchId: string): Promise<BugIssue[]> {
-        const issues = await this.db.analysisIssue.findMany({
-            where: { branchId, kind: BUG_KIND },
-            select: { id: true, status: true, severity: true, resolvedAt: true },
-        });
+        const issues = await this.analysisStore.forBranch(branchId).issues({ kind: BUG_KIND });
         return issues.map((issue) => ({
             id: issue.id,
             status: issue.status,
             severity: issue.severity,
-            resolvedAt: issue.resolvedAt ?? undefined,
+            resolvedAt: issue.resolvedAt,
         }));
     }
 
@@ -370,9 +371,10 @@ export class BugFixOutcomeService extends Service {
         const latest = await this.db.branchSnapshot.findFirst({
             where: { branchId, investigationParent: { is: null }, createdAt: createdBeforeMerge },
             orderBy: { createdAt: "desc" },
-            select: { analysisReport: { select: { snapshotId: true } } },
+            select: { id: true },
         });
-        return latest?.analysisReport != null;
+        if (latest == null) return false;
+        return this.analysisStore.forAnalysis(latest.id).isSettled();
     }
 
     /** Resolve the merged PR's application + tracked branch; absent when the repo/PR is not one we track. */

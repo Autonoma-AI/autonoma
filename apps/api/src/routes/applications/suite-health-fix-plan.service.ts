@@ -1,3 +1,4 @@
+import { AnalysisStore } from "@autonoma/analysis";
 import type { PrismaClient } from "@autonoma/db";
 import type {
     SuiteHealthFixBranch,
@@ -6,13 +7,10 @@ import type {
     SuiteHealthFixIssue,
     SuiteHealthFixKind,
     SuiteHealthFixPlan,
+    SuiteHealthFixSeverity,
     SuiteHealthLevel,
 } from "@autonoma/types";
-import {
-    suiteHealthFixBranchStateSchema,
-    suiteHealthFixKindSchema,
-    suiteHealthFixSeveritySchema,
-} from "@autonoma/types";
+import { suiteHealthFixBranchStateSchema } from "@autonoma/types";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
 import { Service } from "../service";
 import { suiteHealthFixPrompt } from "./suite-health-fix-prompt";
@@ -56,8 +54,9 @@ const MAX_SCANNED_ISSUES = 200;
 
 interface IssueRow {
     id: string;
-    kind: string;
-    severity: string;
+    // The store validated both enums at its read boundary; the two producers below only ever put a valid value here.
+    kind: SuiteHealthFixKind;
+    severity: SuiteHealthFixSeverity;
     title: string;
     createdAt: Date;
     branchId: string;
@@ -77,12 +76,15 @@ interface IssueRow {
  * config change, a scenario issue is a recipe change - which is why the plan carries `kind` all the way through.
  */
 export class SuiteHealthFixPlanService extends Service {
+    private readonly analysisStore: AnalysisStore;
+
     constructor(
         private readonly db: PrismaClient,
         private readonly github: GitHubInstallationService,
         private readonly suiteHealth: SuiteHealthService,
     ) {
         super();
+        this.analysisStore = new AnalysisStore(db);
     }
 
     async getForApplication(applicationId: string, organizationId: string): Promise<SuiteHealthFixPlan> {
@@ -160,43 +162,51 @@ export class SuiteHealthFixPlanService extends Service {
 
     /**
      * Every open finding on the app: on a live pull request, on main, or on a pull request that merged or closed
-     * inside the recent window without anyone clearing it.
+     * inside the recent window without anyone clearing it. The issue facts come from the analysis store; the
+     * branch presentation (names, PR titles) is joined here, where it belongs.
      */
     private async openIssues(applicationId: string, organizationId: string): Promise<IssueRow[]> {
         const since = new Date(Date.now() - RECENT_WINDOW_DAYS * MS_PER_DAY);
 
-        return await this.db.analysisIssue.findMany({
-            where: {
-                organizationId,
-                status: "open",
-                branch: { applicationId },
-                OR: [
-                    // A live pull request, or main - both are still in front of somebody.
-                    { branch: { prInfo: { prState: "open" } } },
-                    { branch: { prInfo: { is: null } } },
-                    // A pull request that moved on with findings still open. Bounded, or an app's whole history
-                    // of closed branches would land in the modal.
-                    { createdAt: { gte: since } },
-                ],
-            },
+        const issues = await this.analysisStore
+            .forApplication(applicationId, organizationId)
+            .openIssuesOnLiveSurfaces({ recentSince: since, limit: MAX_SCANNED_ISSUES });
+        const branches = await this.loadBranchDisplay(issues.map((issue) => issue.branchId));
+
+        return issues.flatMap((issue) => {
+            const branch = branches.get(issue.branchId);
+            if (branch == null) return [];
+            return [
+                {
+                    id: issue.id,
+                    kind: issue.kind,
+                    severity: issue.severity,
+                    title: issue.title,
+                    createdAt: issue.createdAt,
+                    branchId: issue.branchId,
+                    branch,
+                },
+            ];
+        });
+    }
+
+    private async loadBranchDisplay(branchIds: string[]): Promise<Map<string, IssueRow["branch"]>> {
+        if (branchIds.length === 0) return new Map();
+        const branches = await this.db.branch.findMany({
+            where: { id: { in: [...new Set(branchIds)] } },
             select: {
                 id: true,
-                kind: true,
-                severity: true,
-                title: true,
-                createdAt: true,
-                branchId: true,
-                branch: {
-                    select: {
-                        name: true,
-                        prInfo: { select: { prNumber: true, prTitle: true, prState: true } },
-                        mainOfApplication: { select: { id: true } },
-                    },
-                },
+                name: true,
+                prInfo: { select: { prNumber: true, prTitle: true, prState: true } },
+                mainOfApplication: { select: { id: true } },
             },
-            orderBy: { createdAt: "asc" },
-            take: MAX_SCANNED_ISSUES,
         });
+        return new Map(
+            branches.map((branch) => [
+                branch.id,
+                { name: branch.name, prInfo: branch.prInfo, mainOfApplication: branch.mainOfApplication },
+            ]),
+        );
     }
 
     /**
@@ -207,53 +217,32 @@ export class SuiteHealthFixPlanService extends Service {
     private async failingFindings(applicationId: string, organizationId: string): Promise<IssueRow[]> {
         const since = new Date(Date.now() - RECENT_WINDOW_DAYS * MS_PER_DAY);
 
-        const findings = await this.db.analysisFinding.findMany({
-            where: {
-                organizationId,
-                createdAt: { gte: since },
-                job: { snapshot: { branch: { applicationId } } },
-                currentClassification: { category: { in: [...ACTIONABLE_VERDICTS] } },
-            },
-            select: {
-                id: true,
-                createdAt: true,
-                currentClassification: { select: { category: true, headline: true } },
-                job: {
-                    select: {
-                        snapshot: {
-                            select: {
-                                branchId: true,
-                                branch: {
-                                    select: {
-                                        name: true,
-                                        prInfo: { select: { prNumber: true, prTitle: true, prState: true } },
-                                        mainOfApplication: { select: { id: true } },
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-            orderBy: { createdAt: "asc" },
-            take: MAX_SCANNED_ISSUES,
-        });
+        const findings = await this.analysisStore
+            .forApplication(applicationId, organizationId)
+            .recentFindings({ since, categories: ACTIONABLE_VERDICTS, limit: MAX_SCANNED_ISSUES });
+        const branches = await this.loadBranchDisplay(findings.map((finding) => finding.branchId));
 
         this.logger.info("No reported issues; falling back to failing findings", {
             application: { applicationId },
             extra: { findings: findings.length },
         });
 
-        return findings.map((finding) => ({
-            id: finding.id,
-            kind: VERDICT_TO_KIND[finding.currentClassification?.category ?? ""] ?? "bug",
-            // Findings carry no severity of their own; they all read as one failing run needing a look.
-            severity: "medium",
-            title: finding.currentClassification?.headline ?? "Run did not reach a verdict",
-            createdAt: finding.createdAt,
-            branchId: finding.job.snapshot.branchId,
-            branch: finding.job.snapshot.branch,
-        }));
+        return findings.flatMap((finding) => {
+            const branch = branches.get(finding.branchId);
+            if (branch == null) return [];
+            return [
+                {
+                    id: finding.findingId,
+                    kind: VERDICT_TO_KIND[finding.category ?? ""] ?? "bug",
+                    // Findings carry no severity of their own; they all read as one failing run needing a look.
+                    severity: "medium",
+                    title: finding.headline ?? "Run did not reach a verdict",
+                    createdAt: finding.createdAt,
+                    branchId: finding.branchId,
+                    branch,
+                },
+            ];
+        });
     }
 
     /**
@@ -338,15 +327,10 @@ function branchState(row: IssueRow): SuiteHealthFixBranchState {
 }
 
 function toIssue(row: IssueRow, now: Date): SuiteHealthFixIssue {
-    const kind = suiteHealthFixKindSchema.safeParse(row.kind);
-    const severity = suiteHealthFixSeveritySchema.safeParse(row.severity);
-
     return {
         id: row.id,
-        // Both columns are plain strings on-DB, validated at this boundary. An unknown kind reads as `bug`, the
-        // only one whose fix is "go read the code" - the safe answer when we cannot say where the fix lives.
-        kind: kind.success ? kind.data : "bug",
-        severity: severity.success ? severity.data : "medium",
+        kind: row.kind,
+        severity: row.severity,
         title: row.title,
         ageDays: wholeDaysBetween(row.createdAt, now),
     };
@@ -360,10 +344,7 @@ function bySeverityThenAge(a: IssueRow, b: IssueRow): number {
 
 function tallyKinds(issues: IssueRow[]): Record<SuiteHealthFixKind, number> {
     const byKind: Record<SuiteHealthFixKind, number> = { bug: 0, environment: 0, scenario: 0 };
-    for (const issue of issues) {
-        const parsed = suiteHealthFixKindSchema.safeParse(issue.kind);
-        byKind[parsed.success ? parsed.data : "bug"] += 1;
-    }
+    for (const issue of issues) byKind[issue.kind] += 1;
     return byKind;
 }
 
@@ -394,10 +375,9 @@ function clusterByTitle(issues: IssueRow[]): SuiteHealthFixCluster[] {
         const first = rows[0];
         if (first == null) continue;
 
-        const kind = suiteHealthFixKindSchema.safeParse(first.kind);
         clusters.push({
             title: first.title,
-            kind: kind.success ? kind.data : "bug",
+            kind: first.kind,
             branches: branches.size,
             openBranches: openBranchIds.size,
             findings: rows.length,

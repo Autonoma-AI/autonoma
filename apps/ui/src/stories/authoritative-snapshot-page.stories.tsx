@@ -106,9 +106,20 @@ const analysisReportData: AnalysisReportFixture = {
     "Checkout is broken on this PR: the Place order button never enables even with a valid card and address, so " +
     "no customer can complete a purchase.",
   reportEvidence: [{ assetId: "asset_report_1", url: MOCK_SCREENSHOT, kind: "screenshot" }],
-  verdict: "client_bug",
-  clientBugCount: 1,
-  testCount: 5,
+  run: {
+    state: "bug_found",
+    coverage: {
+      byCategory: [
+        { category: "engine_artifact", count: 1 },
+        { category: "scenario_issue", count: 1 },
+      ],
+      total: 2,
+    },
+    bugCount: 1,
+    passedCount: 2,
+    testCount: 5,
+  },
+  verdict: { state: "bug_found", bugCount: 1, coverageGapCount: 2, investigatedCount: 5 },
   branchId: BRANCH_ID,
   findings: [
     withRunSignals({
@@ -189,6 +200,7 @@ const KEPT_PLAN_MISMATCH: AnalysisFindingView = {
   id: "cart-drawer-subtotal",
   slug: "cart-drawer-subtotal",
   category: "plan_mismatch",
+  selfHealed: true,
   confidence: "high",
   planFidelity: "exact",
   headline: "Cart drawer test asserts a subtotal row the PR moved behind a disclosure",
@@ -243,6 +255,7 @@ const INVALID_TEST_FINDING: AnalysisFindingView = {
   id: "export-report-pdf",
   slug: "export-report-pdf",
   category: "invalid_test",
+  selfHealed: false,
   confidence: "high",
   planFidelity: "diverged",
   headline: "Test drives a Reports export the app has never had",
@@ -428,6 +441,9 @@ const snapshotDetail: NonNullable<TrpcFixtures["branches"]> = {
       testCounts: { assigned: 5, run: 5, passed: 2, failed: 3, setupFailed: 0, running: 0, notRun: 0 },
       suiteChangeCount: 0,
     },
+    // This story fixtures the authoritative pipeline, which is what the page gates on.
+    analyzed: true,
+    settled: true,
     executedTests: [],
   },
 };

@@ -223,6 +223,13 @@ declare global {
          */
         export type GenerationFailure = SystemFailure | { kind: "agent_failed" } | { kind: "max_steps" };
         /**
+         * Why an `AnalysisFinding`'s investigation crashed without judging a run
+         * (`AnalysisFinding.failure`). Filed by the fan-out parent containing a
+         * dead Investigator child; a finding with a failure and no
+         * classifications is a contained investigation.
+         */
+        export type AnalysisFindingFailure = { kind: "investigator_crashed"; message: string };
+        /**
          * Why a `Run` ended in `status == failed`. System variants carry a
          * message; `replay_failed` is the agent-reported replay outcome.
          */

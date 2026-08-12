@@ -14,8 +14,8 @@ import type {
 import {
     ANALYSIS_VERDICT,
     type AnalysisVerdict,
-    type AnalysisVerdictCounts,
     type AnalysisVerdictState,
+    type AnalysisVerdictSummary,
     type CoverageSummary,
     type SuspectedCause,
     type AnalysisFlow,
@@ -26,7 +26,6 @@ import {
     buildAnalysisIssueUrl,
     buildPreviewFrontDoorUrl,
     buildPrPageUrl,
-    derivePrVerdict,
 } from "@autonoma/types";
 
 /**
@@ -154,8 +153,7 @@ export interface AnalysisCommentCoverageIssue {
 
 /** The finalized run the comment summarizes - read from the persisted `AnalysisReport` + open bug `AnalysisIssue`s. */
 export interface AnalysisCommentInput {
-    /** Tests that produced a terminal verdict this run; zero means nothing was exercised. */
-    testCount: number;
+    verdict: AnalysisVerdictSummary;
     /** The branch's open bug issues, each a rich card deep-linking to its issue-detail page. */
     bugIssues: AnalysisCommentIssue[];
     /** The coverage-confidence plane summary, partitioned by owner into the body blocks. Absent when malformed. */
@@ -190,21 +188,10 @@ export async function buildAnalysisCommentPayload(
     context: AnalysisCommentContext,
     signScreenshot: (s3Key: string) => Promise<string | undefined>,
 ): Promise<AutonomaCommentPayload> {
-    // The verdict every surface shares, derived from the flow itemization when the run has one and from its raw
-    // counts when it does not - never from the Reporter's prose, which cannot be allowed to talk an unconfirmed run
+    // Resolved by the ledger, never from the Reporter's prose, which cannot be allowed to talk an unconfirmed run
     // into reading green.
+    const verdictState = input.verdict.state;
     const flows = input.flows ?? [];
-    const verdictCounts: AnalysisVerdictCounts = {
-        bugCount: input.bugIssues.length,
-        coverageGapCount: input.coverage?.total ?? 0,
-        investigatedCount: input.testCount,
-    };
-    const verdictState = derivePrVerdict({
-        flows,
-        openBugCount: verdictCounts.bugCount,
-        investigatedCount: verdictCounts.investigatedCount,
-        coverageGapCount: verdictCounts.coverageGapCount,
-    });
     const state: AutonomaCommentState = COMMENT_STATE[verdictState];
 
     // The visible preview links (the top CTA and each bug's "Open preview") point at
@@ -231,7 +218,7 @@ export async function buildAnalysisCommentPayload(
         kind: "analysis",
         prNumber: context.prNumber,
         title: analysisPrTitle(input.title ?? "", verdictState, input.bugIssues.length),
-        headline: input.headline ?? analysisVerdictHeadline(verdictCounts),
+        headline: input.headline ?? analysisVerdictHeadline(input.verdict),
         summary: input.mergeGateBlocking === true ? MERGE_GATE_SKIP_CALLOUT : undefined,
         flowGroups: buildFlowGroups(input, context, flows),
         handoff: input.bugIssues.length > 0 ? buildHandoff(input.bugIssues, context) : undefined,

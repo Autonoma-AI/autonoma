@@ -186,39 +186,31 @@ export function analysisFindingBucket(category: string): AnalysisFindingBucket {
 }
 
 /**
- * The PR-level verdict a completed analysis run resolves to - the ONE deterministic classification every surface
- * (the GitHub comment, the merge-gate check-run, and the UI checkpoint badge) renders, so they can never disagree.
- * Computed purely from counts, never by a model.
- *
- * - `bug_found`: at least one open bug issue - the only class that counts against the PR.
- * - `not_confirmed`: no bug, but at least one coverage-plane gap. "No bug" is not "verified": a gap is a gap
- *   regardless of fault (a scenario the client must fix, or a harness flake that is on us), so it downgrades the
- *   headline either way - ownership is a body concern, not a colour one.
- * - `no_tests_needed`: nothing produced a verdict, which means Impact Analysis marked no existing test affected and
- *   authored no new one - a judgement from the stage that owns both impact analysis and gap detection, not a missing
- *   result. That reading depends on the Reporter refusing to write a report when the run queued more tests than
- *   reached a verdict; without that guard an empty run would be an absence, and this would be a false green.
- * - `healthy`: tests ran and every one confirmed the app, with zero coverage gaps.
+ * The PR-level verdict a completed analysis resolves to - the wire type every surface renders. Resolved by
+ * `BranchLedger.verdict()` in `@autonoma/analysis`, which owns the counts it is a function of.
  */
-export type AnalysisVerdictState = "bug_found" | "not_confirmed" | "no_tests_needed" | "healthy";
+export const analysisVerdictStateSchema = z.enum(["bug_found", "not_confirmed", "no_tests_needed", "healthy"]);
+export type AnalysisVerdictState = z.infer<typeof analysisVerdictStateSchema>;
 
-/** The counts the PR verdict is a pure function of. */
-export interface AnalysisVerdictCounts {
+/** The counts the PR verdict is a pure function of, and which travel beside it. */
+export const analysisVerdictCountsSchema = z.object({
     /** Open bug-kind issues on the branch - the app-health signal that blocks the PR. */
-    bugCount: number;
+    bugCount: z.number().int().nonnegative(),
     /** Coverage-plane findings, `invalid_test` included. */
-    coverageGapCount: number;
-    /** Tests that produced a terminal verdict this run; zero means the run decided none were needed. */
-    investigatedCount: number;
-}
+    coverageGapCount: z.number().int().nonnegative(),
+    /** Tests that produced a terminal verdict; zero means the run decided none were needed. */
+    investigatedCount: z.number().int().nonnegative(),
+});
+export type AnalysisVerdictCounts = z.infer<typeof analysisVerdictCountsSchema>;
 
-/** Classify a completed run's counts into the single PR verdict every surface renders. */
-export function deriveAnalysisVerdict(counts: AnalysisVerdictCounts): AnalysisVerdictState {
-    if (counts.bugCount > 0) return "bug_found";
-    if (counts.investigatedCount === 0) return "no_tests_needed";
-    if (counts.coverageGapCount > 0) return "not_confirmed";
-    return "healthy";
-}
+/**
+ * A resolved verdict travelling with the counts it was resolved from. Carrying both is what stops a renderer
+ * re-deriving the state from counts it assembled itself.
+ */
+export const analysisVerdictSummarySchema = analysisVerdictCountsSchema.extend({
+    state: analysisVerdictStateSchema,
+});
+export type AnalysisVerdictSummary = z.infer<typeof analysisVerdictSummarySchema>;
 
 /** The short badge word for a verdict: the GitHub comment's state label and the check-run/UI badge copy. */
 export function analysisVerdictLabel(state: AnalysisVerdictState): string {
@@ -243,12 +235,12 @@ export function analysisVerdictLabel(state: AnalysisVerdictState): string {
  * cover is regularly a user-facing one we judged already covered elsewhere, so this may never claim the change does
  * not touch the UI. Why we decided it is the Reporter's paragraph to write, not a count's to guess.
  */
-export function analysisVerdictHeadline(counts: AnalysisVerdictCounts): string {
-    switch (deriveAnalysisVerdict(counts)) {
+export function analysisVerdictHeadline(verdict: AnalysisVerdictSummary): string {
+    switch (verdict.state) {
         case "bug_found":
-            return `Autonoma found ${counts.bugCount} ${counts.bugCount === 1 ? "bug" : "bugs"} in this PR.`;
+            return `Autonoma found ${verdict.bugCount} ${verdict.bugCount === 1 ? "bug" : "bugs"} in this PR.`;
         case "not_confirmed":
-            return `Autonoma couldn't confirm this change - ${counts.coverageGapCount} ${counts.coverageGapCount === 1 ? "check" : "checks"} didn't complete.`;
+            return `Autonoma couldn't confirm this change - ${verdict.coverageGapCount} ${verdict.coverageGapCount === 1 ? "check" : "checks"} didn't complete.`;
         case "no_tests_needed":
             return "No tests needed for this change.";
         case "healthy":
@@ -433,32 +425,6 @@ export interface AnalysisPrVerdictInput {
     coverageGapCount: number;
 }
 
-/**
- * The PR-level verdict. Every PR-level surface reads the same persisted flows and the same open-bug count, so they
- * agree by construction - that is the fix for the surfaces drifting apart, where the PR page and the GitHub comment
- * fed the verdict from different things and landed on different states for the same run.
- *
- * An ABSENT itemization is not an empty one. Every report written before this feature has `flows = NULL`, which both
- * read boundaries turn into `[]`; deriving "nothing needed testing" from that would render a green no-tests verdict
- * over a run that investigated a dozen tests and left half of them unconfirmed. So an absent itemization falls back
- * to the counts every surface used before it, which are still on the row.
- */
-export function derivePrVerdict(input: AnalysisPrVerdictInput): AnalysisVerdictState {
-    if (input.flows.length === 0) {
-        return deriveAnalysisVerdict({
-            bugCount: input.openBugCount,
-            coverageGapCount: input.coverageGapCount,
-            investigatedCount: input.investigatedCount,
-        });
-    }
-    const tally = tallyAnalysisFlows(input.flows);
-    return deriveAnalysisVerdict({
-        bugCount: input.openBugCount,
-        coverageGapCount: tally.total - tally.verified,
-        investigatedCount: tally.total,
-    });
-}
-
 /** The title each verdict falls back to when the Reporter authored none - the copy every surface used before it. */
 const DERIVED_TITLE: Record<AnalysisVerdictState, string> = {
     bug_found: "Autonoma found bugs in this PR",
@@ -583,6 +549,21 @@ export const coverageSummarySchema = z.object({
 export type CoverageSummary = z.infer<typeof coverageSummarySchema>;
 
 /**
+ * One run's own account of itself, counted from the findings it judged. Run-scoped throughout: `bugCount` counts
+ * findings THIS run judged a bug, never the branch's open bug issues, which outlive a run.
+ */
+export const runPlaneSummarySchema = z.object({
+    /** How this run alone reads, resolved from its own counts - the snapshot page's headline and the rail's badge. */
+    state: analysisVerdictStateSchema,
+    coverage: coverageSummarySchema,
+    bugCount: z.number().int().nonnegative(),
+    passedCount: z.number().int().nonnegative(),
+    /** Tests this run reached a terminal verdict on; zero means it decided none were needed. */
+    testCount: z.number().int().nonnegative(),
+});
+export type RunPlaneSummary = z.infer<typeof runPlaneSummarySchema>;
+
+/**
  * The rich evidence one classification carries - the classifier's full output (`classifyInvestigationRun`) for the
  * generation it judged. It rides on every candidate classification (optional: a contained scenario/classify fault
  * has no classifier output at all) so the Investigator can persist it onto an `AnalysisClassification` row. Media
@@ -677,10 +658,15 @@ export const analysisFindingViewSchema = investigationFindingSchema.omit({ cover
     selectionReason: z.string().optional(),
     /**
      * Every classification of this test in this run, oldest first, INCLUDING the current one (always the last).
-     * More than one means the Investigator self-healed: each earlier entry is the verdict that authored the
-     * rewrite which followed it, with its own reasoning still reachable.
+     * Each earlier entry is the verdict that authored the rewrite which followed it, with its own reasoning
+     * still reachable.
      */
     classifications: z.array(analysisClassificationSummarySchema),
+    /**
+     * The Investigator re-planned this test and ran it again before settling on the current verdict. Resolved by
+     * the analysis store, so every surface answers it the same way rather than counting `classifications`.
+     */
+    selfHealed: z.boolean(),
 });
 export type AnalysisFindingView = z.infer<typeof analysisFindingViewSchema>;
 
@@ -723,11 +709,10 @@ export const analysisReportDataSchema = z.object({
     flows: z.array(analysisFlowSchema),
     /** The signed assets `reportMarkdown` may embed inline by `evidence:<assetId>` token (referenced ones only). */
     reportEvidence: z.array(resolvedEvidenceAssetSchema),
-    /** The persisted app-health verdict for the run (issue-derived at finalize): `client_bug` or `passed`. */
-    verdict: analysisVerdictSchema,
-    /** The run's open-bug count (issue-derived) and total investigated tests, for the per-job header. */
-    clientBugCount: z.number().int().nonnegative(),
-    testCount: z.number().int().nonnegative(),
+    /** What THIS run found. */
+    run: runPlaneSummarySchema,
+    /** What the PR as a whole reads as, cumulative across the branch. The page renders both. */
+    verdict: analysisVerdictSummarySchema,
     findings: z.array(analysisFindingViewSchema),
 });
 export type AnalysisReportData = z.infer<typeof analysisReportDataSchema>;
@@ -912,8 +897,8 @@ export const analysisForPrSchema = z.discriminatedUnion("status", [
     z.object({ status: z.literal("failed"), failureReason: z.string().optional() }),
     z.object({
         status: z.literal("complete"),
-        /** The app-health verdict: `client_bug` when the branch has an open bug issue, else `passed`. */
-        verdict: analysisVerdictSchema,
+        /** Cumulative, so a bug found two commits ago and still open keeps the PR red. Resolved by the store. */
+        verdict: analysisVerdictSummarySchema,
         /** The Reporter's title for the PR as a whole. Empty on a report written before the Reporter authored one. */
         title: z.string(),
         /** The Reporter's headline: the cumulative state of the branch in 1-3 plain sentences. */
@@ -928,11 +913,9 @@ export const analysisForPrSchema = z.discriminatedUnion("status", [
          * its `issue:` tokens against the `issues` below. */
         reportMarkdown: z.string().optional(),
         reportEvidence: z.array(resolvedEvidenceAssetSchema),
-        /** Per-category counts of the run's non-app-health findings. These never block the PR, and a category here
-         * without a matching issue below is one the run could not turn into something actionable. */
+        /** Per-category counts of the newest run's non-app-health findings. These never block the PR, and a category
+         * here without a matching issue below is one the run could not turn into something actionable. */
         coverage: coverageSummarySchema.optional(),
-        testCount: z.number().int().nonnegative(),
-        clientBugCount: z.number().int().nonnegative(),
         /** Impact Analysis's account of why the run selected the tests it did. */
         impactReasoning: z.string().optional(),
         /** The PR overview page (login required). */

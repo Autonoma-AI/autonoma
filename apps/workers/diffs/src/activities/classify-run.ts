@@ -5,7 +5,7 @@ import { readPrDiffStat, type InspectableStep, StorageEvidenceLoader } from "@au
 import {
     ClassifierAgent,
     PreviewEnvironment,
-    PriorRuns,
+    formatPriorRunsBaseline,
     type RunArtifacts,
     type RunFacts,
     loadPreviewAppLogs,
@@ -27,7 +27,7 @@ import { withSnapshotContext } from "../codebase/snapshot-context";
 import { env } from "../env";
 import { webmToGif } from "../media/webm-to-gif";
 import { previewSecrets } from "../preview-secrets";
-import { createModelSession, getStorage } from "../services";
+import { createModelSession, getAnalysisStore, getStorage } from "../services";
 import { uploadConversation } from "../upload-conversation";
 import { buildStepTrace } from "./step-trace";
 
@@ -145,7 +145,6 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
         const target = await resolveRunTarget(context);
         const resolvedPreview = await resolvePreviewEnvironment(context.repoFullName, target, logger);
         const session = createModelSession();
-        const priorRuns = new PriorRuns(db);
 
         // getVideoModel rather than getModel: acquiring it IS the video-capability check, so a model whose entry
         // declares no uploader fails here rather than at the provider. The uploader itself is built with THIS
@@ -209,8 +208,8 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             previewEnv: preview,
             previewScript: preview,
             loadBaseline: async () =>
-                PriorRuns.formatBaseline(
-                    await priorRuns.getHistory({
+                formatPriorRunsBaseline(
+                    await getAnalysisStore().priorRuns({
                         applicationId: context.applicationId,
                         testSlug: slug,
                         currentSnapshotId: snapshotId,
@@ -301,9 +300,8 @@ function resolveKeyScreenshot(attempts: AttemptRow[], keyStepIndex: number | und
 
 /**
  * Describe what the scenario "up" ACTUALLY did - the seeded refs, whether valid auth was returned, the
- * up-time, and any provisioning error - so the classifier reasons from the real result instead of guessing.
- * Previously this returned only the status, so `seeded` was always absent and the prompt rendered it as
- * "nothing provisioned" - causing the classifier to convict provisioning when auth+data were in fact present.
+ * up-time, and any provisioning error. Without `seeded` the prompt reads as "nothing provisioned" and the
+ * classifier convicts provisioning on a run where auth and data were in fact present.
  */
 export function describeProvision(generation: GenerationRow): { status: string; detail: string; seeded?: string } {
     const instance = generation.scenarioInstance;

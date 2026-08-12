@@ -1,13 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-    type AnalysisFlow,
-    type AnalysisFlowMember,
-    analysisFlowPillLabel,
-    analysisPrTitle,
-    derivePrVerdict,
-    summarizeAnalysisFlow,
-    tallyAnalysisFlows,
-} from "../src/schemas/analysis";
+import { type AnalysisFlow, type AnalysisFlowMember, summarizeAnalysisFlow } from "../src/schemas/analysis";
 
 function member(slug: string, category: string, overrides?: Partial<AnalysisFlowMember>): AnalysisFlowMember {
     return {
@@ -95,56 +87,9 @@ describe("flow ownership", () => {
  * Every PR-level surface counts from this tally, which is what makes them agree by construction - the PR page and the
  * GitHub comment previously fed the verdict from different things and landed on different states for the same run.
  */
-describe("PR-level reads over the tally", () => {
-    const verified = flow([member("a", "passed")]);
-    const blocked = flow([member("b", "engine_artifact")]);
-    const both = [verified, blocked];
-
-    it("compresses to a ratio pill, and only an open bug reads as an alarm", () => {
-        expect(analysisFlowPillLabel("not_confirmed", tallyAnalysisFlows(both), 0)).toBe("1/2 verified");
-        expect(analysisFlowPillLabel("healthy", tallyAnalysisFlows([verified]), 0)).toBe("1/1 verified");
-        expect(analysisFlowPillLabel("bug_found", tallyAnalysisFlows(both), 2)).toBe("2 bugs");
-    });
-
-    it("derives the same verdict state every surface renders", () => {
-        const counts = { investigatedCount: 2, coverageGapCount: 1 };
-        expect(derivePrVerdict({ flows: both, openBugCount: 0, ...counts })).toBe("not_confirmed");
-        expect(derivePrVerdict({ flows: [verified], openBugCount: 0, ...counts })).toBe("healthy");
-        expect(derivePrVerdict({ flows: both, openBugCount: 1, ...counts })).toBe("bug_found");
-    });
-
-    it("titles a run by its verdict, and only states our decision when no test was needed", () => {
-        expect(analysisPrTitle("Checkout verified", "healthy", 0)).toBe("Checkout verified");
-        expect(analysisPrTitle("Checkout verified", "bug_found", 2)).toBe("Autonoma found 2 bugs in this PR");
-        expect(analysisPrTitle("anything", "no_tests_needed", 0)).toBe("No tests needed for this change");
-        // A run whose authored title did not survive still owes the reader the shape of the outcome.
-        expect(analysisPrTitle("", "not_confirmed", 0)).toBe("Autonoma couldn't confirm this change");
-    });
-});
 
 /**
  * An ABSENT itemization is not an empty one. Every report written before this feature stores `flows = NULL`, which
  * both read boundaries turn into `[]` - so deriving from the flow count alone would stamp a green "no tests needed"
  * over every currently-open PR, including runs that investigated a dozen tests and left half unconfirmed.
  */
-describe("a report with no flow itemization", () => {
-    const noFlows = { flows: [], openBugCount: 0 };
-
-    it("falls back to the run's own counts rather than claiming nothing needed testing", () => {
-        expect(derivePrVerdict({ ...noFlows, investigatedCount: 12, coverageGapCount: 6 })).toBe("not_confirmed");
-        expect(derivePrVerdict({ ...noFlows, investigatedCount: 12, coverageGapCount: 0 })).toBe("healthy");
-        expect(derivePrVerdict({ ...noFlows, openBugCount: 1, investigatedCount: 12, coverageGapCount: 0 })).toBe(
-            "bug_found",
-        );
-    });
-
-    it("still reads no_tests_needed when the run genuinely investigated nothing", () => {
-        expect(derivePrVerdict({ ...noFlows, investigatedCount: 0, coverageGapCount: 0 })).toBe("no_tests_needed");
-    });
-
-    it("gives the pill and the title copy the verdict earns, not the empty-flow copy", () => {
-        expect(analysisFlowPillLabel("not_confirmed", tallyAnalysisFlows([]), 0)).toBe("Not confirmed");
-        expect(analysisFlowPillLabel("healthy", tallyAnalysisFlows([]), 0)).toBe("Passing");
-        expect(analysisPrTitle("", "not_confirmed", 0)).toBe("Autonoma couldn't confirm this change");
-    });
-});

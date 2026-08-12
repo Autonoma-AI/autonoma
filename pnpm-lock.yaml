@@ -226,6 +226,9 @@ importers:
       '@autonoma/agent-guidance':
         specifier: workspace:*
         version: link:../../packages/agent-guidance
+      '@autonoma/analysis':
+        specifier: workspace:*
+        version: link:../../packages/analysis
       '@autonoma/analytics':
         specifier: workspace:*
         version: link:../../packages/analytics
@@ -235,9 +238,6 @@ importers:
       '@autonoma/billing':
         specifier: workspace:*
         version: link:../../packages/billing
-      '@autonoma/checkpoint':
-        specifier: workspace:*
-        version: link:../../packages/checkpoint
       '@autonoma/db':
         specifier: workspace:*
         version: link:../../packages/db
@@ -878,6 +878,9 @@ importers:
       '@autonoma/ai':
         specifier: workspace:*
         version: link:../../../packages/ai
+      '@autonoma/analysis':
+        specifier: workspace:*
+        version: link:../../../packages/analysis
       '@autonoma/analytics':
         specifier: workspace:*
         version: link:../../../packages/analytics
@@ -1203,6 +1206,34 @@ importers:
         specifier: 'catalog:'
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(jsdom@29.1.1(@noble/hashes@2.3.0))(msw@2.15.0(@types/node@26.2.0)(typescript@7.0.2))(vite@8.0.16(@types/node@26.2.0)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.49.0)(tsx@4.21.0)(yaml@2.8.3))
 
+  packages/analysis:
+    dependencies:
+      '@autonoma/db':
+        specifier: workspace:*
+        version: link:../db
+      '@autonoma/logger':
+        specifier: workspace:*
+        version: link:../logger
+      '@autonoma/types':
+        specifier: workspace:*
+        version: link:../types
+    devDependencies:
+      '@autonoma/integration-test':
+        specifier: workspace:*
+        version: link:../integration-test
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.2.3
+      dotenv:
+        specifier: 'catalog:'
+        version: 17.3.1
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(jsdom@29.1.1(@noble/hashes@2.3.0))(msw@2.15.0(@types/node@25.2.3)(typescript@7.0.2))(vite@8.0.16(@types/node@25.2.3)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.49.0)(tsx@4.21.0)(yaml@2.8.3))
+
   packages/analytics:
     dependencies:
       '@autonoma/logger':
@@ -1366,28 +1397,6 @@ importers:
         specifier: 'catalog:'
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@24.10.13)(jsdom@29.1.1(@noble/hashes@2.3.0))(msw@2.15.0(@types/node@24.10.13)(typescript@7.0.2))(vite@8.0.16(@types/node@24.10.13)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.49.0)(tsx@4.21.0)(yaml@2.8.3))
 
-  packages/checkpoint:
-    dependencies:
-      '@autonoma/db':
-        specifier: workspace:*
-        version: link:../db
-      '@autonoma/logger':
-        specifier: workspace:*
-        version: link:../logger
-      '@autonoma/types':
-        specifier: workspace:*
-        version: link:../types
-    devDependencies:
-      '@types/node':
-        specifier: 'catalog:'
-        version: 25.2.3
-      typescript:
-        specifier: 'catalog:'
-        version: 7.0.2
-      vitest:
-        specifier: 'catalog:'
-        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@25.2.3)(@vitest/coverage-v8@4.1.6)(jsdom@29.1.1(@noble/hashes@2.3.0))(msw@2.15.0(@types/node@25.2.3)(typescript@7.0.2))(vite@8.0.16(@types/node@25.2.3)(esbuild@0.28.1)(jiti@2.6.1)(terser@5.49.0)(tsx@4.21.0)(yaml@2.8.3))
-
   packages/db:
     dependencies:
       '@autonoma/types':
@@ -1482,6 +1491,9 @@ importers:
       '@autonoma/ai':
         specifier: workspace:*
         version: link:../ai
+      '@autonoma/analysis':
+        specifier: workspace:*
+        version: link:../analysis
       '@autonoma/db':
         specifier: workspace:*
         version: link:../db
@@ -15890,7 +15902,7 @@ snapshots:
 
   '@slack/logger@4.0.1':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@slack/types@2.20.1': {}
 
@@ -16754,7 +16766,7 @@ snapshots:
 
   '@types/connect@3.4.38':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/cross-spawn@6.0.6':
     dependencies:
@@ -16798,13 +16810,13 @@ snapshots:
 
   '@types/docker-modem@3.0.6':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       '@types/ssh2': 1.15.5
 
   '@types/dockerode@4.0.1':
     dependencies:
       '@types/docker-modem': 3.0.6
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       '@types/ssh2': 1.15.5
 
   '@types/doctrine@0.0.9': {}
@@ -16859,7 +16871,7 @@ snapshots:
 
   '@types/mysql@2.15.27':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/nlcst@2.0.3':
     dependencies:
@@ -16867,7 +16879,7 @@ snapshots:
 
   '@types/node-fetch@2.6.13':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       form-data: 4.0.6
 
   '@types/node@18.19.130':
@@ -16897,13 +16909,13 @@ snapshots:
 
   '@types/pg@8.15.6':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       pg-protocol: 1.15.0
       pg-types: 2.2.0
 
   '@types/pg@8.20.0':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       pg-protocol: 1.15.0
       pg-types: 2.2.0
 
@@ -16944,11 +16956,11 @@ snapshots:
 
   '@types/ssh2-streams@0.1.13':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/ssh2@0.5.52':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       '@types/ssh2-streams': 0.1.13
 
   '@types/ssh2@1.15.5':
@@ -16959,7 +16971,7 @@ snapshots:
 
   '@types/stream-buffers@3.0.8':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/tar-fs@2.0.4':
     dependencies:
@@ -16968,11 +16980,11 @@ snapshots:
 
   '@types/tar-stream@3.1.4':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/tedious@4.0.14':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/tough-cookie@4.0.5': {}
 
@@ -16991,11 +17003,11 @@ snapshots:
 
   '@types/ws@8.18.1':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
 
   '@types/yauzl@2.10.3':
     dependencies:
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
     optional: true
 
   '@typescript/typescript-aix-ppc64@7.0.2':
@@ -21344,7 +21356,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.1
-      '@types/node': 25.2.3
+      '@types/node': 24.10.13
       long: 5.3.2
 
   proxy-addr@2.0.7:

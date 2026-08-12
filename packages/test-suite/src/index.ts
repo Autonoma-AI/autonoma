@@ -1,6 +1,7 @@
 export {
     TestSuiteStore,
     EDIT_SNAPSHOT_TRIGGER,
+    type LatestRun,
     type OpenSnapshotInput,
     type OpenEditSnapshotInput,
 } from "./test-suite-store";
@@ -28,3 +29,18 @@ export type { SuiteChange } from "./queries/suite-changes";
 export type { SnapshotComparison, SuiteChangeSummary } from "./queries/summarize-changes";
 export type { ResolveSourceInput, ResolvedSnapshotSource, SnapshotSource } from "./queries/resolve-source";
 export { deriveForkPointSnapshotId, type BranchForkPoint } from "./queries/fork-point";
+export { countTestsBySnapshot } from "./queries/assigned-tests";
+export {
+    listExecutedTestsForSnapshot,
+    type SnapshotExecutedTest,
+    type SnapshotExecutedTestFinalOutcome,
+} from "./queries/executed-tests";
+export {
+    aggregateSnapshotHealth,
+    computeSnapshotHealth,
+    tallyExecutedTests,
+    type ExecutedTestTally,
+    type SnapshotHealth,
+    type SnapshotHealthCounts,
+    type SnapshotHealthResult,
+} from "./queries/snapshot-health";

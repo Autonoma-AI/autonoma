@@ -1,6 +1,7 @@
 import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
 import type { ReporterIssueContent, ReporterIssueResult, ReporterResult } from "@autonoma/diffs/analysis";
 import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
+import type { ReporterPersisted, RunReporterOutput } from "@autonoma/workflow/activities";
 import { expect } from "vitest";
 import { runReporter } from "../../src/activities/analysis/run-reporter";
 import { seedGenerationForSlug } from "./seed-generation";
@@ -19,6 +20,12 @@ const fixedResult = (result: ReporterResult) => async () => result;
 const failingResult = () => async () => {
     throw new Error("reporter blew up");
 };
+
+/** Narrow to the persisted arm - the discarded arm is a test failure wherever this is used. */
+function expectPersisted(result: RunReporterOutput): ReporterPersisted {
+    if (!result.persisted) throw new Error(`expected a persisted reporter output, got: ${result.reason}`);
+    return result;
+}
 
 function issueContent(title: string, findingSlugs: string[]): ReporterIssueContent {
     return {
@@ -222,6 +229,7 @@ integrationTestSuite({
             );
 
             expect(result).toEqual({
+                persisted: true,
                 issuesOpened: 1,
                 issuesCarried: 0,
                 issuesResolved: 0,
@@ -272,7 +280,7 @@ integrationTestSuite({
                 },
             );
 
-            expect(result.issuesResolved).toBe(1);
+            expect(expectPersisted(result).issuesResolved).toBe(1);
             const issue = await harness.db.analysisIssue.findUnique({ where: { id: existingId } });
             expect(issue?.status).toBe("resolved");
             expect(issue?.resolvedAt).not.toBeNull();
@@ -312,7 +320,7 @@ integrationTestSuite({
                 },
             );
 
-            expect(result.issuesCarried).toBe(1);
+            expect(expectPersisted(result).issuesCarried).toBe(1);
             const issue = await harness.db.analysisIssue.findUnique({ where: { id: existingId } });
             expect(issue?.status).toBe("open");
             expect(issue?.resolvedAt).toBeNull();
@@ -414,7 +422,7 @@ integrationTestSuite({
                 },
             );
 
-            expect(result.verdict).toBe("passed");
+            expect(expectPersisted(result).verdict).toBe("passed");
             const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
             expect(report?.testCount).toBe(0);
         });
@@ -449,6 +457,107 @@ integrationTestSuite({
 
             const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
             expect(report).toBeNull();
+        });
+
+        // The exit guard: a Reporter that finishes after a newer push superseded its run must not mutate
+        // branch-scoped issues on evidence from a head the PR no longer contains. The producer settles the
+        // snapshot WHILE the Reporter works - after its findings landed, before its persist - which is the race
+        // the in-transaction liveness assertion closes.
+        test("a Reporter whose snapshot is settled while it works discards its result", async ({ harness }) => {
+            const run = await harness.seedRun([{ slug: "login", category: "passed" }]);
+            const existingId = await harness.seedOpenIssue(run, ["login"]);
+
+            const result = await runReporter(
+                { snapshotId: run.snapshotId },
+                {
+                    produceResult: async () => {
+                        await harness.db.branchSnapshot.update({
+                            where: { id: run.snapshotId },
+                            data: { status: "cancelled" },
+                        });
+                        return {
+                            reportMarkdown: "## Report\nStale evidence.",
+                            reportEvidenceManifest: [],
+                            title: "The run",
+                            headline: "Stale.",
+                            flows: [],
+                            flowCorrections: { sweptSlugs: [], duplicateSlugs: [], unknownSlugs: [] },
+                            issues: [
+                                {
+                                    kind: "resolve",
+                                    existingIssueId: existingId,
+                                    resolvingFindingSlug: "login",
+                                    note: "passes on a head the branch has left",
+                                },
+                                { kind: "open", content: issueContent("Stale bug", ["login"]) },
+                            ],
+                        };
+                    },
+                },
+            );
+
+            expect(result).toEqual({ persisted: false, reason: "superseded" });
+            expect(await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } })).toBeNull();
+            const existing = await harness.db.analysisIssue.findUniqueOrThrow({ where: { id: existingId } });
+            expect(existing.status).toBe("open");
+            expect(await harness.db.analysisIssue.count({ where: { branchId: run.branchId } })).toBe(1);
+            const finding = await harness.findingFor(run, "login");
+            expect(finding.issueId).toBeNull();
+        });
+
+        // Re-invoking the Reporter on one analysis must not duplicate every opened issue: the settlement is born
+        // exactly once, and a second invocation reports the discard instead of re-applying its reconciliations.
+        test("re-invoking the Reporter does not duplicate its issues", async ({ harness }) => {
+            const run = await harness.seedRun([{ slug: "checkout", category: "client_bug" }]);
+            const produceResult = fixedResult({
+                reportMarkdown: "## Report",
+                reportEvidenceManifest: [],
+                title: "The run",
+                headline: "One bug.",
+                flows: [],
+                flowCorrections: { sweptSlugs: [], duplicateSlugs: [], unknownSlugs: [] },
+                issues: [{ kind: "open", content: issueContent("Checkout broken", ["checkout"]) }],
+            });
+
+            const first = await runReporter({ snapshotId: run.snapshotId }, { produceResult });
+            const second = await runReporter({ snapshotId: run.snapshotId }, { produceResult });
+
+            expect(first.persisted).toBe(true);
+            expect(second).toEqual({ persisted: false, reason: "already_settled" });
+            expect(await harness.db.analysisIssue.count({ where: { branchId: run.branchId } })).toBe(1);
+        });
+
+        // A resolve's justification survives to the row: which passing finding closed the issue, and why.
+        test("a resolve records the resolving finding and the Reporter's note", async ({ harness }) => {
+            const run = await harness.seedRun([{ slug: "login", category: "passed" }]);
+            const existingId = await harness.seedOpenIssue(run, ["login"]);
+
+            await runReporter(
+                { snapshotId: run.snapshotId },
+                {
+                    produceResult: fixedResult({
+                        reportMarkdown: "## Report",
+                        reportEvidenceManifest: [],
+                        title: "The run",
+                        headline: "Fixed.",
+                        flows: [],
+                        flowCorrections: { sweptSlugs: [], duplicateSlugs: [], unknownSlugs: [] },
+                        issues: [
+                            {
+                                kind: "resolve",
+                                existingIssueId: existingId,
+                                resolvingFindingSlug: "login",
+                                note: "The covering login test passed on this head.",
+                            },
+                        ],
+                    }),
+                },
+            );
+
+            const issue = await harness.db.analysisIssue.findUniqueOrThrow({ where: { id: existingId } });
+            const resolving = await harness.findingFor(run, "login");
+            expect(issue.resolvedByFindingId).toBe(resolving.id);
+            expect(issue.resolutionNote).toBe("The covering login test passed on this head.");
         });
 
         test("refuses to write a report when a queued test produced no verdict", async ({ harness }) => {

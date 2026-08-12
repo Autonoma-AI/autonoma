@@ -24,7 +24,7 @@ export function AnalysisReportBody({
 }) {
   return (
     <div className="flex flex-col gap-6">
-      <PrVerdictHeadline findings={report.findings} testCount={report.testCount} />
+      <PrVerdictHeadline run={report.run} />
       {report.reportMarkdown != null && (
         <Suspense fallback={<Skeleton className="h-48 w-full" />}>
           <SnapshotReportProse

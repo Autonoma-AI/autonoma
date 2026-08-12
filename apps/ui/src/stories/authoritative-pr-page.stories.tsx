@@ -128,9 +128,20 @@ const analysisReport: NonNullable<TrpcFixtures["branches"]> = {
     ],
 
     reportEvidence: [{ assetId: "asset_report_1", url: MOCK_SCREENSHOT, kind: "screenshot" }],
-    verdict: "client_bug",
-    clientBugCount: 1,
-    testCount: 5,
+    run: {
+      state: "bug_found",
+      coverage: {
+        byCategory: [
+          { category: "engine_artifact", count: 1 },
+          { category: "scenario_issue", count: 1 },
+        ],
+        total: 2,
+      },
+      bugCount: 1,
+      passedCount: 2,
+      testCount: 5,
+    },
+    verdict: { state: "bug_found", bugCount: 1, coverageGapCount: 2, investigatedCount: 5 },
     branchId: BRANCH_ID,
     findings: [
       withRunSignals({
@@ -208,6 +219,9 @@ function snapshotHistoryItem(overrides: {
     baseSha: BASE_SHA,
     createdAt: overrides.createdAt,
     prevSnapshotId: overrides.prevSnapshotId,
+    // These stories fixture the authoritative pipeline, which is what the overview gates on.
+    analyzed: true,
+    settled: true,
     _count: { testCaseAssignments: totalTests },
     changeSummary: { added: 1, removed: 0, updated: 2 },
     health: overrides.tone === "critical" ? ("critical" as const) : ("healthy" as const),
@@ -525,9 +539,14 @@ const notConfirmedReport: NonNullable<TrpcFixtures["branches"]> = {
     ],
 
     reportEvidence: [],
-    verdict: "passed",
-    clientBugCount: 0,
-    testCount: 5,
+    run: {
+      state: "healthy",
+      coverage: { byCategory: [], total: 0 },
+      bugCount: 0,
+      passedCount: 5,
+      testCount: 5,
+    },
+    verdict: { state: "healthy", bugCount: 0, coverageGapCount: 0, investigatedCount: 5 },
     branchId: BRANCH_ID,
     // The PR overview renders the prose + open-issues list, not the per-snapshot findings, so this stays empty.
     findings: [],
@@ -616,9 +635,14 @@ const noTestsNeededReport: NonNullable<TrpcFixtures["branches"]> = {
     flows: [],
 
     reportEvidence: [],
-    verdict: "passed",
-    clientBugCount: 0,
-    testCount: 0,
+    run: {
+      state: "no_tests_needed",
+      coverage: { byCategory: [], total: 0 },
+      bugCount: 0,
+      passedCount: 0,
+      testCount: 0,
+    },
+    verdict: { state: "no_tests_needed", bugCount: 0, coverageGapCount: 0, investigatedCount: 0 },
     branchId: BRANCH_ID,
     findings: [],
   },

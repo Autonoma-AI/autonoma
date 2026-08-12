@@ -1,3 +1,4 @@
+import { AnalysisStore } from "@autonoma/analysis";
 import { type PrismaClient, TriggerSource } from "@autonoma/db";
 import { ANALYSIS_VERDICT, type SuiteHealth, type SuiteHealthBreakdown } from "@autonoma/types";
 import { Service } from "../service";
@@ -9,13 +10,6 @@ import {
 } from "./suite-health";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-/**
- * `AnalysisJob.failure_reason` prefix that means "a newer push replaced this run", not "this run failed". It is
- * 252 of the 254 failed jobs in production, so counting it as a failure turns the pipeline-health modifier into a
- * penalty for shipping frequently.
- */
-const SUPERSEDED_FAILURE_PREFIX = "Superseded";
 
 /** PR states whose branch is finished, so an issue left open on it is not a live, untriaged failure. */
 const CLOSED_PR_STATES = ["merged", "closed"] as const;
@@ -42,8 +36,11 @@ function emptyBreakdown(): SuiteHealthBreakdown {
  * entirely, because it is neither good nor bad.
  */
 export class SuiteHealthService extends Service {
+    private readonly analysisStore: AnalysisStore;
+
     constructor(private readonly db: PrismaClient) {
         super();
+        this.analysisStore = new AnalysisStore(db);
     }
 
     async getForApplication(applicationId: string, organizationId: string): Promise<SuiteHealth> {
@@ -52,8 +49,12 @@ export class SuiteHealthService extends Service {
             organization: { organizationId },
         });
 
+        const facts = this.analysisStore.forApplication(applicationId, organizationId);
         const [runs, firstRunAt] = await Promise.all([
-            this.recentRuns(applicationId, organizationId),
+            facts.recentRuns({
+                since: new Date(Date.now() - SUITE_HEALTH_WINDOW_DAYS * MS_PER_DAY),
+                limit: SUITE_HEALTH_WINDOW_RUNS,
+            }),
             this.firstRunAt(applicationId, organizationId),
         ]);
 
@@ -80,30 +81,28 @@ export class SuiteHealthService extends Service {
         // `recentRuns` returns newest first, so the window opens at the oldest run it kept.
         const windowStart = runs[runs.length - 1]?.createdAt ?? now;
         const lastRunAt = runs[0]?.createdAt ?? now;
-        const snapshotIds = runs.map((run) => run.id);
+        const snapshotIds = runs.map((run) => run.snapshotId);
 
-        const [findings, jobs, failedJobs, staleIssues, resolvedIssues] = await Promise.all([
-            this.findings(snapshotIds, organizationId),
-            this.countJobs(applicationId, organizationId, windowStart),
-            this.countGenuineJobFailures(applicationId, organizationId, windowStart),
-            this.countStaleIssues(applicationId, organizationId, now),
-            this.countResolvedIssues(applicationId, organizationId, windowStart),
+        const [tallies, jobCounts, staleIssues, resolvedIssues] = await Promise.all([
+            facts.verdictTallies(snapshotIds),
+            facts.jobCounts({ since: windowStart }),
+            facts.staleOpenIssueCount({
+                olderThan: new Date(now.getTime() - SUITE_HEALTH_STALE_ISSUE_DAYS * MS_PER_DAY),
+                closedPrStates: CLOSED_PR_STATES,
+            }),
+            facts.resolvedIssueCount({ since: windowStart }),
         ]);
 
         const breakdown = emptyBreakdown();
         let selfHeals = 0;
         let selfHealAttempts = 0;
 
-        for (const finding of findings) {
-            const classification = finding.currentClassification;
-            if (classification == null) continue;
+        for (const verdict of tallies) {
+            tally(breakdown, verdict.category);
 
-            tally(breakdown, classification.category);
-
-            // A classification past the first means the Investigator re-planned the test and ran it again.
-            if (classification.number > 1) {
+            if (verdict.selfHealed) {
                 selfHealAttempts += 1;
-                if (classification.category === ANALYSIS_VERDICT.passed) selfHeals += 1;
+                if (verdict.category === ANALYSIS_VERDICT.passed) selfHeals += 1;
             }
         }
 
@@ -115,8 +114,8 @@ export class SuiteHealthService extends Service {
             selfHealAttempts,
             ageDays: wholeDaysBetween(firstRunAt, now),
             daysSinceLastRun: wholeDaysBetween(lastRunAt, now),
-            failedJobs,
-            totalJobs: jobs,
+            failedJobs: jobCounts.genuineFailures,
+            totalJobs: jobCounts.total,
             staleIssues,
             resolvedIssues,
             hasEverRun: true,
@@ -138,43 +137,6 @@ export class SuiteHealthService extends Service {
     }
 
     /**
-     * The window's runs, newest first: snapshots with at least one finding, capped to the run and day limits. The
-     * grouping is what enforces "a run that selected no tests is not a run".
-     */
-    private async recentRuns(applicationId: string, organizationId: string) {
-        const since = new Date(Date.now() - SUITE_HEALTH_WINDOW_DAYS * MS_PER_DAY);
-
-        const groups = await this.db.analysisFinding.groupBy({
-            by: ["reportSnapshotId"],
-            where: {
-                organizationId,
-                createdAt: { gte: since },
-                job: { snapshot: { branch: { applicationId } } },
-            },
-            _max: { createdAt: true },
-            orderBy: { _max: { createdAt: "desc" } },
-            take: SUITE_HEALTH_WINDOW_RUNS,
-        });
-
-        if (groups.length === 0) return [];
-
-        const snapshots = await this.db.branchSnapshot.findMany({
-            where: { id: { in: groups.map((group) => group.reportSnapshotId) } },
-            select: { id: true, branchId: true, createdAt: true },
-            orderBy: { createdAt: "desc" },
-        });
-
-        return snapshots;
-    }
-
-    private async findings(snapshotIds: string[], organizationId: string) {
-        return await this.db.analysisFinding.findMany({
-            where: { organizationId, reportSnapshotId: { in: snapshotIds } },
-            select: { currentClassification: { select: { category: true, number: true } } },
-        });
-    }
-
-    /**
      * When the application's first run started, or undefined if it has never run. Two things key off it: the age
      * clock (`ageDays`) and `hasEverRun`, which is what separates "waiting for your first PR" from "calibrating".
      *
@@ -191,50 +153,6 @@ export class SuiteHealthService extends Service {
             orderBy: { createdAt: "asc" },
         });
         return oldest?.createdAt;
-    }
-
-    private async countJobs(applicationId: string, organizationId: string, since: Date): Promise<number> {
-        return await this.db.analysisJob.count({
-            where: { organizationId, createdAt: { gte: since }, snapshot: { branch: { applicationId } } },
-        });
-    }
-
-    private async countGenuineJobFailures(applicationId: string, organizationId: string, since: Date): Promise<number> {
-        return await this.db.analysisJob.count({
-            where: {
-                organizationId,
-                createdAt: { gte: since },
-                status: "failed",
-                snapshot: { branch: { applicationId } },
-                NOT: { failureReason: { startsWith: SUPERSEDED_FAILURE_PREFIX } },
-            },
-        });
-    }
-
-    /** Open issues older than a week, on a branch that is still live - a merged or closed PR is not neglect. */
-    private async countStaleIssues(applicationId: string, organizationId: string, now: Date): Promise<number> {
-        const cutoff = new Date(now.getTime() - SUITE_HEALTH_STALE_ISSUE_DAYS * MS_PER_DAY);
-
-        return await this.db.analysisIssue.count({
-            where: {
-                organizationId,
-                status: "open",
-                createdAt: { lt: cutoff },
-                branch: { applicationId },
-                NOT: { branch: { prInfo: { prState: { in: [...CLOSED_PR_STATES] } } } },
-            },
-        });
-    }
-
-    private async countResolvedIssues(applicationId: string, organizationId: string, since: Date): Promise<number> {
-        return await this.db.analysisIssue.count({
-            where: {
-                organizationId,
-                status: "resolved",
-                resolvedAt: { gte: since },
-                branch: { applicationId },
-            },
-        });
     }
 }
 

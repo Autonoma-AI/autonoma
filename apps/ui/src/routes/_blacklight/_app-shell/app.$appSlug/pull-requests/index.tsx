@@ -232,7 +232,7 @@ function MainBranchChip() {
   const app = useCurrentApplication();
   const { data: branch } = useBranchDetail(app.id, app.mainBranch.name);
   const { data: snapshots } = useSnapshotHistory(branch.id);
-  const latest = [...snapshots].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
+  const latest = snapshots[0];
   const health = latest?.health ?? "unknown";
 
   return (

@@ -1,27 +1,7 @@
-import type { Prisma, PrismaClient } from "@autonoma/db";
+import { AnalysisStore, type Issue } from "@autonoma/analysis";
+import type { PrismaClient } from "@autonoma/db";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
-import {
-    analysisIssueKindSchema,
-    analysisIssueSeveritySchema,
-    compareAnalysisIssues,
-    type MainOpenProblem,
-} from "@autonoma/types";
-
-/**
- * The columns an open `AnalysisIssue` contributes. The covered findings carry the recurrence pair: how many
- * distinct runs attributed the issue, and when the newest of them ran.
- */
-const openIssueSelect = {
-    id: true,
-    title: true,
-    kind: true,
-    severity: true,
-    actualBehavior: true,
-    createdAt: true,
-    findings: { select: { reportSnapshotId: true, createdAt: true } },
-} satisfies Prisma.AnalysisIssueSelect;
-
-type OpenIssueRow = Prisma.AnalysisIssueGetPayload<{ select: typeof openIssueSelect }>;
+import { compareAnalysisIssues, type MainOpenProblem } from "@autonoma/types";
 
 /**
  * Everything still unresolved on an application's main branch: the open `AnalysisIssue` rows its Reporter left.
@@ -54,7 +34,8 @@ export async function loadMainOpenProblems(
         return [];
     }
 
-    const problems = await analysisProblems(db, mainBranch.id, organizationId, logger);
+    const issues = await new AnalysisStore(db).forBranch(mainBranch.id).openIssues();
+    const problems = issues.map(toProblem);
     problems.sort(compareProblems);
 
     logger.info("Loaded main-branch open problems", {
@@ -66,35 +47,10 @@ export async function loadMainOpenProblems(
     return problems;
 }
 
-/** The open issues on main, as the merged pipeline's Reporter left them. */
-async function analysisProblems(
-    db: PrismaClient,
-    branchId: string,
-    organizationId: string,
-    logger: Logger,
-): Promise<MainOpenProblem[]> {
-    const issues = await db.analysisIssue.findMany({
-        where: { branchId, organizationId, status: "open" },
-        select: openIssueSelect,
-    });
-
-    return issues.map((issue) => toAnalysisProblem(issue, logger)).filter((problem) => problem != null);
-}
-
-/** One issue row, or nothing when its enum-shaped columns do not parse (never surfaced malformed). */
-function toAnalysisProblem(issue: OpenIssueRow, logger: Logger): MainOpenProblem | undefined {
-    const kind = analysisIssueKindSchema.safeParse(issue.kind);
-    const severity = analysisIssueSeveritySchema.safeParse(issue.severity);
-    if (!kind.success || !severity.success) {
-        logger.warn("Skipping malformed analysis issue in main's open problems", {
-            extra: { issueId: issue.id, kind: issue.kind, severity: issue.severity },
-        });
-        return undefined;
-    }
-
+function toProblem(issue: Issue): MainOpenProblem {
     // Distinct snapshots, not finding rows: one run can attribute several findings to the same issue.
-    const runs = new Set(issue.findings.map((finding) => finding.reportSnapshotId));
-    const newestFinding = issue.findings.reduce<Date | undefined>(
+    const runs = new Set(issue.coveredFindings.map((finding) => finding.snapshotId));
+    const newestFinding = issue.coveredFindings.reduce<Date | undefined>(
         (newest, finding) => (newest == null || finding.createdAt > newest ? finding.createdAt : newest),
         undefined,
     );
@@ -102,8 +58,8 @@ function toAnalysisProblem(issue: OpenIssueRow, logger: Logger): MainOpenProblem
     return {
         id: issue.id,
         title: issue.title,
-        kind: kind.data,
-        severity: severity.data,
+        kind: issue.kind,
+        severity: issue.severity,
         detail: blankToUndefined(issue.actualBehavior),
         occurrences: runs.size,
         // An issue with no surviving findings still has to date from somewhere; its own birth is the honest floor.

@@ -48,7 +48,10 @@ const RUN_SIGNALS: Record<
  * two for the self-healed test). Keeps the stories to their prose.
  */
 export function withRunSignals(
-    finding: Omit<AnalysisFindingView, "generationId" | "testCase" | "origin" | "selectionReason" | "classifications">,
+    finding: Omit<
+        AnalysisFindingView,
+        "generationId" | "testCase" | "origin" | "selectionReason" | "classifications" | "selfHealed"
+    >,
 ): AnalysisFindingView {
     const signals = RUN_SIGNALS[finding.slug];
     return {
@@ -57,6 +60,7 @@ export function withRunSignals(
         testCase: { id: `tc_${finding.slug}`, name: `${finding.slug}.md`, slug: finding.slug },
         origin: signals?.origin,
         selectionReason: signals?.selectionReason,
+        selfHealed: signals?.supersededBy != null,
         classifications: buildClassifications(finding.slug, finding.category, finding.headline, signals?.supersededBy),
     };
 }

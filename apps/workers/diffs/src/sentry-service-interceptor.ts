@@ -10,6 +10,7 @@ export const sentryServiceInterceptor = createSentryServiceInterceptor(
         revertSelfHealPlan: "analysis",
         deleteAnalysisTest: "analysis",
         persistAnalysisClassification: "analysis",
+        recordAnalysisContainment: "analysis",
         classifyInvestigationRun: "investigation",
     },
     "worker-diffs",

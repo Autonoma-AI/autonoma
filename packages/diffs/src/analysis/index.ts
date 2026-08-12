@@ -1,6 +1,5 @@
 export { Category, Confidence, Evidence, EvidenceSource, PlanFidelity, RunVerdict } from "./schema";
-export { PriorRuns } from "./db/prior-runs";
-export type { PriorRun, PriorRunsHistory } from "./db/prior-runs";
+export { formatPriorRunsBaseline } from "./prior-runs-baseline";
 export { assertSnapshotPending } from "./db/assert-snapshot-pending";
 export { PreviewEnvironment } from "./preview/preview-environment";
 export { filterEnvVarNames } from "./preview/filter-env-var-names";
@@ -13,8 +12,8 @@ export { VerdictForModel } from "./classify/verdict-schema";
 export { ClassifierAgent } from "./classify/classifier-agent";
 export type { ClassifierAgentConfig } from "./classify/classifier-agent";
 export type { ClassifierInput, PreviewEnvAccess, PreviewScriptAccess, RunArtifacts, RunFacts } from "./classify/types";
-export { summarizeVerdictPlanes } from "./verdict-planes";
-export type { AppHealthVerdict, CoverageCategoryCount, CoverageSummary, TwoPlaneSummary } from "./verdict-planes";
+export { summarizeVerdictPlanes } from "@autonoma/types";
+export type { CoverageCategoryCount, CoverageSummary } from "@autonoma/types";
 
 export { ReporterAgent } from "./report";
 export type { ReporterAgentConfig } from "./report";

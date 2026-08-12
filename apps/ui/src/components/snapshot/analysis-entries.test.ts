@@ -18,6 +18,7 @@ function finding(overrides: Partial<AnalysisFindingView> = {}): AnalysisFindingV
         origin: "pre_existing",
         selectionReason: "The diff rewrites the submit handler this test drives.",
         evidence: [],
+        selfHealed: false,
         classifications: [classification(1)],
         ...overrides,
     };
@@ -66,7 +67,7 @@ describe("buildAnalysisSections - categorization from the run's own record", () 
 
     it("categorizes a self-healed test as modified and carries the previous plan from the diff", () => {
         const sections = buildAnalysisSections({
-            findings: [finding({ classifications: [classification(1), classification(2)] })],
+            findings: [finding({ selfHealed: true, classifications: [classification(1), classification(2)] })],
             changes: [updatedChange()],
         });
 
@@ -87,7 +88,13 @@ describe("buildAnalysisSections - categorization from the run's own record", () 
 
     it("categorizes a kept plan_mismatch as checked even though it self-healed (the rewrite was reverted)", () => {
         const sections = buildAnalysisSections({
-            findings: [finding({ category: "plan_mismatch", classifications: [classification(1), classification(2)] })],
+            findings: [
+                finding({
+                    category: "plan_mismatch",
+                    selfHealed: true,
+                    classifications: [classification(1), classification(2)],
+                }),
+            ],
             changes: [],
         });
 

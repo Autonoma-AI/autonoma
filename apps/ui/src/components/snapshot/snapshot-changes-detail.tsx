@@ -2,7 +2,7 @@ import { Badge, Diff, cn } from "@autonoma/blacklight";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
 import { Link } from "@tanstack/react-router";
 import { analysisVerdictMeta } from "components/analysis/verdict-meta";
-import { useIsAuthoritativeSnapshot } from "lib/query/branches.queries";
+import { useSnapshotAnalysisState } from "lib/query/branches.queries";
 import { useEffect, useRef, useState } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
@@ -23,7 +23,7 @@ const GENERATION_STATUS_BADGE: Record<string, "status-pending" | "status-running
 export function SnapshotChangesDetail() {
   const { snapshotId, testId } = useChangesDetailParams();
   const entry = useSnapshotEntry(snapshotId, testId);
-  const isAuthoritative = useIsAuthoritativeSnapshot(snapshotId);
+  const { settled: isAuthoritative } = useSnapshotAnalysisState(snapshotId);
 
   if (entry == null) {
     return (

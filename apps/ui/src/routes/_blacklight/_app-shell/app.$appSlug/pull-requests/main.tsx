@@ -112,8 +112,7 @@ function MainBranchContent() {
   const { data: snapshots } = useSnapshotHistory(branch.id);
   const { data: prStatus } = usePrPipelineStatus(app.id, branch.id);
 
-  const ordered = [...snapshots].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-  const latest = ordered[0];
+  const latest = snapshots[0];
 
   if (latest == null) {
     return (
@@ -134,7 +133,7 @@ function MainBranchContent() {
         <PrStatusBadge status={prStatus} />
         <ShaRange baseSha={latest.baseSha} headSha={latest.headSha} />
         <span className="ml-auto font-mono text-2xs text-text-secondary">
-          {ordered.length} {ordered.length === 1 ? "checkpoint" : "checkpoints"} ·{" "}
+          {snapshots.length} {snapshots.length === 1 ? "checkpoint" : "checkpoints"} ·{" "}
           {formatRelativeTime(latest.createdAt)}
         </span>
       </div>
@@ -146,7 +145,7 @@ function MainBranchContent() {
           </Suspense>
           <LatestCheckpointTests snapshotId={latest.id} totalTests={latest.healthCounts.totalTests} />
         </div>
-        <MainCheckpointRail snapshots={ordered} />
+        <MainCheckpointRail snapshots={snapshots} />
       </div>
     </div>
   );

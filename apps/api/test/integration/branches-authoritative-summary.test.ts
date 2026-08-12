@@ -123,20 +123,17 @@ apiTestSuite({
         }) => {
             const { branchId } = await createBranch(harness);
             const snapshotId = await createSnapshot(harness, branchId, "head-blocked");
-            // The report outlives its findings' classifications (discarding a generation cascades its
-            // classification away), so the badge must read 7 tests / 7 coverage off the report - not the empty
-            // finding tally, which would read as a clean, passing run.
+            // Seven tests blocked before the app was exercised. "No bug" is not "verified", so this must not read
+            // green just because nothing was judged a bug.
             await harness.db.analysisJob.create({
                 data: { snapshotId, status: "completed", organizationId: harness.organizationId },
             });
+            await seedCoverageFindings(harness, snapshotId, 7);
             await harness.db.analysisReport.create({
                 data: {
                     snapshotId,
                     verdict: "passed",
                     title: "Autonoma checked this PR",
-                    clientBugCount: 0,
-                    testCount: 7,
-                    coverage: { total: 7, byCategory: [{ category: "engine_artifact", count: 7 }] },
                     headline: "All seven checks were blocked before the app was exercised.",
                     reportMarkdown: "## Run\n\nBlocked.",
                     organizationId: harness.organizationId,
@@ -169,3 +166,12 @@ apiTestSuite({
         });
     },
 });
+
+/** N tests this run could not exercise: the coverage plane, one engine artifact per test. */
+async function seedCoverageFindings(harness: APITestHarness, snapshotId: string, count: number): Promise<void> {
+    await seedAnalysisFindings(
+        harness.db,
+        snapshotId,
+        Array.from({ length: count }, (_, index) => ({ slug: `blocked-${index}`, category: "engine_artifact" })),
+    );
+}

@@ -1,5 +1,5 @@
+import { AnalysisStore, type CoveredIssue } from "@autonoma/analysis";
 import type { PrismaClient } from "@autonoma/db";
-import { reporterIssueKindSchema, reporterIssueStatusSchema } from "@autonoma/diffs/analysis";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { OpenSnapshot } from "@autonoma/test-suite";
 
@@ -31,9 +31,10 @@ export interface ReverifiedTest {
  * untouched forever: the bug stays `open` and the branch's headline verdict stays pinned to `client_bug` long after
  * the fix landed. Re-running the covering tests is what closes that loop.
  *
- * An issue's covered set is taken **atomically**: a covering test the run's suite no longer assigns (or assigns
- * without a plan) has nothing to run, and disqualifies its whole issue. Only `finish`-time coverage (see
- * `computeCoverageViolations`) decides anything, so a set that runs in part costs coverage, never correctness.
+ * An issue's covered set - the ledger's `coveredTestsForOpenBugs` - is taken **atomically**: a covering test the
+ * run's suite no longer assigns (or assigns without a plan) has nothing to run, and disqualifies its whole issue.
+ * Only `finish`-time coverage (see `computeCoverageViolations`) decides anything, so a set that runs in part costs
+ * coverage, never correctness.
  *
  * The extra work is deliberately uncapped: it is bounded by the branch's open-issue count, and a branch carrying
  * enough open issues for that to hurt is itself the signal worth seeing.
@@ -42,23 +43,7 @@ export interface ReverifiedTest {
  * target assembly.
  */
 export async function reverifyOpenIssues({ db, snapshot }: ReverifyOpenIssuesParams): Promise<ReverifiedTest[]> {
-    const issues = await db.analysisIssue.findMany({
-        where: {
-            branchId: snapshot.branchId,
-            status: reporterIssueStatusSchema.enum.open,
-            // Only a bug is something a re-run can settle: an environment or scenario problem is not a claim about
-            // the application, so passing the covering test says nothing about it.
-            kind: reporterIssueKindSchema.enum.bug,
-        },
-        // The covered set, derived rather than stored: the tests of the findings attributed to this issue. A
-        // carried-forward issue attributes one finding per (snapshot, test), so the read is per test - the row set is
-        // the covered set rather than the branch's history of it.
-        select: {
-            id: true,
-            title: true,
-            findings: { select: { testCase: { select: { slug: true } } }, distinct: ["testCaseId"] },
-        },
-    });
+    const issues = await new AnalysisStore(db).forBranch(snapshot.branchId).coveredTestsForOpenBugs();
     if (issues.length === 0) {
         logger.info("Re-verification found no open bug issues on the branch");
         return [];
@@ -70,14 +55,14 @@ export async function reverifyOpenIssues({ db, snapshot }: ReverifyOpenIssuesPar
     let skippedIssues = 0;
 
     for (const issue of issues) {
-        const covered = resolveCoveredSet(issue.findings, reverifiable);
+        const covered = resolveCoveredSet(issue, reverifiable);
         if (covered.tests.length === 0 || covered.missingSlugs.length > 0) {
             skippedIssues += 1;
             // An operator's problem, not a passing detail: while a covering test is missing, this issue can only ever
             // be closed by hand, and until it is the branch's verdict stays red.
             logger.warn("Cannot re-verify an open issue: the run's suite does not cover it in full", {
                 extra: {
-                    issueId: issue.id,
+                    issueId: issue.issueId,
                     covering: covered.tests.length + covered.missingSlugs.length,
                     missingSlugs: covered.missingSlugs,
                 },
@@ -124,15 +109,12 @@ interface CoveredSet {
 }
 
 /** Resolve an issue's covering tests against what this run can re-verify, keeping the two outcomes apart. */
-function resolveCoveredSet(
-    findings: { testCase: { slug: string } }[],
-    reverifiable: ReadonlyMap<string, string>,
-): CoveredSet {
+function resolveCoveredSet(issue: CoveredIssue, reverifiable: ReadonlyMap<string, string>): CoveredSet {
     const covered: CoveredSet = { tests: [], missingSlugs: [] };
-    for (const slug of new Set(findings.map((finding) => finding.testCase.slug))) {
-        const testCaseId = reverifiable.get(slug);
-        if (testCaseId == null) covered.missingSlugs.push(slug);
-        else covered.tests.push({ slug, testCaseId });
+    for (const test of issue.coveredTests) {
+        const testCaseId = reverifiable.get(test.slug);
+        if (testCaseId == null) covered.missingSlugs.push(test.slug);
+        else covered.tests.push({ slug: test.slug, testCaseId });
     }
     return covered;
 }

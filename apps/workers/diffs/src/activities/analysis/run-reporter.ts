@@ -1,30 +1,24 @@
+import type { Finding, Issue, IssueReconciliation } from "@autonoma/analysis";
 import { persistAiCosts } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { StorageEvidenceLoader, resolveScenarioRecipesForSnapshot, summarizeScenarioRecipes } from "@autonoma/diffs";
 import {
-    type CoverageSummary,
     ReporterAgent,
     type ReporterEvidenceAsset,
     type ReporterExistingIssue,
     type ReporterFinding,
     type ReporterInput,
-    type ReporterIssueResult,
-    type ReporterPriorReport,
     type ReporterResult,
     type ReporterScenarioLoader,
     type ReporterScenarioSummary,
-    reporterIssueKindSchema,
-    reporterIssueSeveritySchema,
-    reporterIssueStatusSchema,
-    summarizeVerdictPlanes,
 } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { TestSuiteStore } from "@autonoma/test-suite";
-import { ANALYSIS_VERDICT, analysisFindingSortKey, analysisVerdictSchema } from "@autonoma/types";
+import { analysisFindingSortKey, analysisVerdictSchema } from "@autonoma/types";
 import type { RunReporterInput, RunReporterOutput } from "@autonoma/workflow/activities";
 import { resolveRunTarget } from "../../codebase/run-target";
 import { type SnapshotContext, withSnapshotContext } from "../../codebase/snapshot-context";
-import { createModelSession, getStorage } from "../../services";
+import { createModelSession, getAnalysisStore, getStorage } from "../../services";
 import { uploadConversation } from "../../upload-conversation";
 import { loadBranchTests } from "./branch-tests";
 
@@ -34,9 +28,6 @@ const PRIOR_REPORTS_LIMIT = 3;
 const NARRATIVE_SUMMARY_CHARS = 240;
 /** Cap on how many run-trace step frames a finding offers as fetchable evidence (the key frame is always offered). */
 const MAX_TRACE_SCREENSHOTS = 20;
-
-/** The interactive-transaction client - also satisfied by the full `db`, so report writes share one helper. */
-type PrismaWriteClient = Parameters<Parameters<typeof db.$transaction>[0]>[0];
 
 /**
  * How the Reporter's result is produced. Injected so tests exercise the persistence + failure paths with a canned
@@ -51,8 +42,9 @@ export interface RunReporterDeps {
 /**
  * Reporter stage - reconciles the findings the Investigators persisted this run (plus the branch's evolving issues +
  * prior reports) into branch-scoped AnalysisIssues (open / carry-forward / resolve), backfills each finding's
- * `issueId`, derives the run's verdict + counts, and creates the AnalysisReport - all in one transaction. The
- * report is born here and nowhere else, so its existence means the Reporter ran; a failure here fails the run.
+ * `issueId`, derives the run's verdict + counts, and creates the AnalysisReport - all through the analysis store's
+ * one settlement transaction. The report is born there and nowhere else, so its existence means the Reporter ran; a
+ * failure here fails the run, while a run superseded mid-Reporter reports the discard instead.
  */
 export async function runReporter(input: RunReporterInput, deps: RunReporterDeps = {}): Promise<RunReporterOutput> {
     const { snapshotId, impactReasoning } = input;
@@ -63,10 +55,60 @@ export async function runReporter(input: RunReporterInput, deps: RunReporterDeps
 
     const produce = deps.produceResult ?? produceReporterResult;
     const result = await produce(input);
-    const output = await persistReporterResult(snapshotId, result, impactReasoning, logger);
+
+    const settled = await getAnalysisStore()
+        .forAnalysis(snapshotId)
+        .settleReport({
+            impactReasoning,
+            content: {
+                title: result.title,
+                headline: result.headline,
+                flows: result.flows,
+                reportMarkdown: result.reportMarkdown,
+                evidenceManifest: result.reportEvidenceManifest,
+            },
+            issues: result.issues.map(toReconciliation),
+        });
+
+    const output: RunReporterOutput = settled.settled
+        ? {
+              persisted: true,
+              verdict: settled.verdict,
+              clientBugCount: settled.clientBugCount,
+              issuesOpened: settled.issuesOpened,
+              issuesCarried: settled.issuesCarried,
+              issuesResolved: settled.issuesResolved,
+          }
+        : { persisted: false, reason: settled.reason };
     logFlowQuality(result, logger);
     logger.info("Reporter stage finished", { extra: output });
     return output;
+}
+
+function toReconciliation(issue: ReporterResult["issues"][number]): IssueReconciliation {
+    if (issue.kind === "resolve") {
+        return {
+            kind: "resolve",
+            existingIssueId: issue.existingIssueId,
+            resolvingTestSlug: issue.resolvingFindingSlug,
+            note: issue.note,
+        };
+    }
+    const content = {
+        title: issue.content.title,
+        kind: issue.content.kind,
+        severity: issue.content.severity,
+        expectedBehavior: issue.content.expectedBehavior,
+        actualBehavior: issue.content.actualBehavior,
+        narrativeMarkdown: issue.content.narrativeMarkdown,
+        evidenceManifest: issue.content.evidenceManifest,
+        suspectedCause: issue.content.suspectedCause,
+        primaryScreenshot: issue.content.primaryScreenshot,
+        coveredTestSlugs: issue.content.findingSlugs,
+        primaryTestSlug: issue.content.primaryFindingSlug,
+    };
+    if (issue.kind === "open") return { kind: "open", content };
+    return { kind: "carry_forward", existingIssueId: issue.existingIssueId, content };
 }
 
 /**
@@ -93,7 +135,7 @@ async function produceReporterResult(input: RunReporterInput): Promise<ReporterR
     const { snapshotId } = input;
     return withSnapshotContext(snapshotId, `reporter-${snapshotId}`, async (context) => {
         const logger = rootLogger.child({ name: "produceReporterResult" });
-        const reporterInput = await buildReporterInput(input, context, logger);
+        const reporterInput = await buildReporterInput(input, context);
 
         const session = createModelSession();
         const agent = new ReporterAgent({ model: session.getModel({ model: "reporter", tag: "analysis-reporter" }) });
@@ -120,19 +162,18 @@ async function produceReporterResult(input: RunReporterInput): Promise<ReporterR
 }
 
 /** Assemble the Reporter's input from the run's persisted findings + the branch's issue/report history + deps. */
-async function buildReporterInput(
-    input: RunReporterInput,
-    context: SnapshotContext,
-    logger: Logger,
-): Promise<ReporterInput> {
+async function buildReporterInput(input: RunReporterInput, context: SnapshotContext): Promise<ReporterInput> {
     const { snapshotId, impactReasoning } = input;
+    const logger = rootLogger.child({ name: "buildReporterInput" });
+    const store = getAnalysisStore();
+    const ledger = store.forBranch(context.branchId);
     const [target, findings, branchTests, existingIssues, priorReports, scenario] = await Promise.all([
         resolveRunTarget(context),
-        loadReporterFindings(snapshotId),
+        store.forAnalysis(snapshotId).findings(),
         loadBranchTests(context.branchId, snapshotId, logger),
-        loadExistingIssues(context.branchId, logger),
-        loadPriorReports(snapshotId, context.branchId),
-        loadScenarioContext(snapshotId, logger),
+        ledger.issues(),
+        ledger.priorReports({ excludeSnapshotId: snapshotId, limit: PRIOR_REPORTS_LIMIT }),
+        loadScenarioContext(snapshotId),
     ]);
 
     return {
@@ -140,9 +181,9 @@ async function buildReporterInput(
         target,
         range: { baseSha: context.baseSha, headSha: context.headSha },
         impactReasoning,
-        findings,
+        findings: toReporterFindings(findings),
         branchTests,
-        existingIssues,
+        existingIssues: existingIssues.map(toReporterExistingIssue),
         priorReports,
         scenarioIndex: scenario.index,
         codebase: context.codebase,
@@ -152,70 +193,54 @@ async function buildReporterInput(
 }
 
 /**
- * Load this run's findings and shape each into what the Reporter reasons over (incl. fetchable frames). Only the
- * CURRENT classification is offered: a superseded self-heal iteration is an audit record, and reporting on a
- * verdict this run has already replaced would have the agent narrate a conclusion we no longer hold. That the test
- * was self-healed at all is `selfHealed` - true when more than one iteration ran.
+ * Shape the store's findings into what the Reporter reasons over (incl. fetchable frames). Only the CURRENT
+ * classification is offered: a superseded self-heal iteration is an audit record, and reporting on a verdict this
+ * run has already replaced would have the agent narrate a conclusion we no longer hold. A contained investigation
+ * - a `failure` and no verdict - is offered as an engine artifact so the coverage gap it leaves is reported, never
+ * silently dropped.
  *
- * Ordered by slug so the bucket sort below - which ranks a whole bucket equally - lands on a stable list: the
- * agent's prompt must not depend on the order Postgres happened to return the rows in.
+ * Sorted by the shared category order, stable over the store's slug order, so the agent's prompt does not depend
+ * on the order Postgres happened to return the rows in.
  */
-async function loadReporterFindings(snapshotId: string): Promise<ReporterFinding[]> {
-    const rows = await db.analysisFinding.findMany({
-        where: { reportSnapshotId: snapshotId, currentClassificationId: { not: null } },
-        orderBy: { testCase: { slug: "asc" } },
-        select: {
-            testCase: { select: { slug: true } },
-            _count: { select: { classifications: true } },
-            currentClassification: {
-                select: {
-                    category: true,
-                    headline: true,
-                    expectedBehavior: true,
-                    actualBehavior: true,
-                    whatHappened: true,
-                    plan: true,
-                    observedAppIssues: true,
-                    falsePositiveRisk: true,
-                    evidence: true,
-                    screenshotKey: true,
-                    runTrace: true,
-                },
-            },
-        },
-    });
-
-    const findings: ReporterFinding[] = [];
-    for (const row of rows) {
-        const current = row.currentClassification;
-        if (current == null) continue;
-        const slug = row.testCase.slug;
-        findings.push({
-            slug,
+function toReporterFindings(findings: Finding[]): ReporterFinding[] {
+    const shaped: ReporterFinding[] = [];
+    for (const finding of findings) {
+        const current = finding.current;
+        if (current == null) {
+            if (finding.failure == null) continue;
+            shaped.push({
+                slug: finding.testCase.slug,
+                category: "engine_artifact",
+                headline: `The Investigator crashed or timed out: ${finding.failure.message}`,
+                selfHealed: false,
+                screenshots: [],
+            });
+            continue;
+        }
+        shaped.push({
+            slug: finding.testCase.slug,
             category: analysisVerdict(current.category),
             headline: current.headline,
-            expectedBehavior: current.expectedBehavior ?? undefined,
-            actualBehavior: current.actualBehavior ?? undefined,
-            whatHappened: current.whatHappened ?? undefined,
-            selfHealed: row._count.classifications > 1,
-            plan: current.plan ?? undefined,
-            observedAppIssues: current.observedAppIssues ?? undefined,
-            falsePositiveRisk: current.falsePositiveRisk ?? undefined,
-            codeEvidence: current.evidence ?? undefined,
-            screenshots: buildScreenshots(slug, current.screenshotKey, current.runTrace),
+            expectedBehavior: current.expectedBehavior,
+            actualBehavior: current.actualBehavior,
+            whatHappened: current.whatHappened,
+            selfHealed: finding.selfHealed,
+            plan: current.plan,
+            observedAppIssues: current.observedAppIssues,
+            falsePositiveRisk: current.falsePositiveRisk,
+            codeEvidence: current.evidence,
+            screenshots: buildScreenshots(finding.testCase.slug, current.screenshotKey, current.runTrace),
         });
     }
     // Stable sort, so findings stay slug-ordered within their bucket.
-    return findings.sort(
-        (left, right) => analysisFindingSortKey(left.category) - analysisFindingSortKey(right.category),
-    );
+    return shaped.sort((left, right) => analysisFindingSortKey(left.category) - analysisFindingSortKey(right.category));
 }
 
 /** The fetchable screenshots for one finding: its classifier key frame plus a bounded slice of trace frames. */
 function buildScreenshots(
     slug: string,
-    screenshotKey: string | null,
-    runTrace: PrismaJson.InvestigationRunTrace | null,
+    screenshotKey: string | undefined,
+    runTrace: PrismaJson.InvestigationRunTrace | undefined,
 ): ReporterEvidenceAsset[] {
     const assets: ReporterEvidenceAsset[] = [];
     if (screenshotKey != null) assets.push({ assetId: `${slug}::key`, s3Key: screenshotKey, label: "key frame" });
@@ -236,61 +261,18 @@ function buildScreenshots(
     return assets;
 }
 
-/** Load the branch's issues (open + resolved) the Reporter reconciles against, skipping any malformed row. */
-async function loadExistingIssues(branchId: string, logger: Logger): Promise<ReporterExistingIssue[]> {
-    const rows = await db.analysisIssue.findMany({
-        where: { branchId },
-        orderBy: { updatedAt: "desc" },
-        select: {
-            id: true,
-            title: true,
-            kind: true,
-            severity: true,
-            status: true,
-            expectedBehavior: true,
-            actualBehavior: true,
-            narrativeMarkdown: true,
-            // The covered set, derived rather than stored: the tests of the findings actually attributed to this
-            // issue, across every snapshot of the branch.
-            findings: { select: { testCase: { select: { slug: true } } } },
-        },
-    });
-
-    const issues: ReporterExistingIssue[] = [];
-    for (const row of rows) {
-        const kind = reporterIssueKindSchema.safeParse(row.kind);
-        const severity = reporterIssueSeveritySchema.safeParse(row.severity);
-        const status = reporterIssueStatusSchema.safeParse(row.status);
-        if (!kind.success || !severity.success || !status.success) {
-            logger.warn("Skipping malformed AnalysisIssue while building reporter input", { extra: { id: row.id } });
-            continue;
-        }
-        issues.push({
-            id: row.id,
-            title: row.title,
-            kind: kind.data,
-            severity: severity.data,
-            status: status.data,
-            expectedBehavior: row.expectedBehavior ?? undefined,
-            actualBehavior: row.actualBehavior,
-            narrativeSummary: truncate(row.narrativeMarkdown, NARRATIVE_SUMMARY_CHARS),
-            findingSlugs: [...new Set(row.findings.map((finding) => finding.testCase.slug))],
-        });
-    }
-    return issues;
-}
-
-/** The branch's most recent prior reports (excluding this snapshot) so the Reporter writes a cumulative narrative. */
-async function loadPriorReports(snapshotId: string, branchId: string): Promise<ReporterPriorReport[]> {
-    const rows = await db.analysisReport.findMany({
-        // Every Reporter-written row has prose; the empty ones are pre-Reporter rows with no narration to backfill
-        // from, and they are worth nothing as prior context.
-        where: { snapshot: { branchId }, reportMarkdown: { not: "" }, NOT: { snapshotId } },
-        orderBy: { createdAt: "desc" },
-        take: PRIOR_REPORTS_LIMIT,
-        select: { snapshotId: true, reportMarkdown: true },
-    });
-    return rows.map((row) => ({ snapshotId: row.snapshotId, reportMarkdown: row.reportMarkdown }));
+function toReporterExistingIssue(issue: Issue): ReporterExistingIssue {
+    return {
+        id: issue.id,
+        title: issue.title,
+        kind: issue.kind,
+        severity: issue.severity,
+        status: issue.status,
+        expectedBehavior: issue.expectedBehavior,
+        actualBehavior: issue.actualBehavior,
+        narrativeSummary: truncate(issue.narrativeMarkdown, NARRATIVE_SUMMARY_CHARS),
+        findingSlugs: [...new Set(issue.coveredFindings.map((finding) => finding.slug))],
+    };
 }
 
 interface ScenarioContext {
@@ -302,7 +284,8 @@ interface ScenarioContext {
  * Build the light scenario index + on-demand recipe loader for the run's suite. Best-effort: a scenario-load
  * failure degrades to an empty index (the Reporter's read_scenario tool is simply not offered), never sinks it.
  */
-async function loadScenarioContext(snapshotId: string, logger: Logger): Promise<ScenarioContext> {
+async function loadScenarioContext(snapshotId: string): Promise<ScenarioContext> {
+    const logger = rootLogger.child({ name: "loadScenarioContext" });
     try {
         const suiteInfo = await new TestSuiteStore(db).read(snapshotId);
         const scenarioIds = collectScenarioIds(suiteInfo);
@@ -344,227 +327,6 @@ function collectScenarioIds(suiteInfo: Awaited<ReturnType<TestSuiteStore["read"]
         if (scenarioId != null) ids.add(scenarioId);
     }
     return [...ids];
-}
-
-/**
- * Persist the Reporter's result: apply each issue reconciliation (open / carry-forward / resolve), backfill the
- * covered findings' `issueId`, derive the run's verdict + counts, and create the report (prose + header) - all in
- * one transaction so the report, its verdict, and its issues are always consistent. The open-bug-issue count is
- * read inside the transaction, after the reconciliations, so the verdict reflects this run's issue writes.
- */
-async function persistReporterResult(
-    snapshotId: string,
-    result: ReporterResult,
-    impactReasoning: string | undefined,
-    logger: Logger,
-): Promise<RunReporterOutput> {
-    const [snapshot, findingCategories, queuedTestCount] = await Promise.all([
-        db.branchSnapshot.findUnique({
-            where: { id: snapshotId },
-            select: { branchId: true, branch: { select: { organizationId: true } } },
-        }),
-        loadFindingCategories(snapshotId),
-        countQueuedTests(snapshotId),
-    ]);
-    if (snapshot == null) throw new Error(`Snapshot ${snapshotId} not found; cannot persist the reporter result`);
-    // Every queued test is guaranteed a verdict - a crashed Investigator is contained as an `engine_artifact` finding
-    // by its parent, and that persist is per-target and swallowed on failure. Fewer verdicts than queued tests
-    // therefore means containment lost one, and the report would read as a clean verdict over a test that never ran.
-    // One-directional: a finding can outlive the generation that produced it (an earlier iteration's, or a test the
-    // run removed), so MORE verdicts than queued tests is normal.
-    if (queuedTestCount > findingCategories.length) {
-        throw new Error(
-            `Snapshot ${snapshotId} queued ${queuedTestCount} test(s) but only ${findingCategories.length} produced a verdict; refusing to write a report`,
-        );
-    }
-    const { branchId } = snapshot;
-    const organizationId = snapshot.branch.organizationId;
-
-    const output = await db.$transaction(async (tx) => {
-        const counts = { issuesOpened: 0, issuesCarried: 0, issuesResolved: 0 };
-        for (const issue of result.issues) {
-            if (issue.kind === "open") {
-                counts.issuesOpened += 1;
-            } else if (issue.kind === "carry_forward") {
-                counts.issuesCarried += 1;
-            } else {
-                counts.issuesResolved += 1;
-            }
-            await applyIssue(tx, issue, { snapshotId, branchId, organizationId });
-        }
-
-        const header = deriveReportHeader(findingCategories, await countOpenBugIssues(tx, branchId));
-        await writeReport(tx, { snapshotId, organizationId, impactReasoning, header, result });
-        return { ...counts, verdict: header.verdict, clientBugCount: header.clientBugCount };
-    });
-
-    logger.info("Persisted reporter result", { extra: output });
-    return output;
-}
-
-interface ReportHeader {
-    verdict: string;
-    clientBugCount: number;
-    testCount: number;
-    coverage: CoverageSummary;
-}
-
-/**
- * Derive the run's verdict + counts. Coverage summary and test count come from the run's findings; the bug count is
- * the branch's open bug-kind issues (so a bug carried across snapshots keeps the PR red even when no test re-ran
- * it, and resolving flips it green). The verdict is `client_bug` iff the bug count is positive.
- */
-function deriveReportHeader(categories: string[], openBugCount: number): ReportHeader {
-    const coverage = summarizeVerdictPlanes(categories).coverage;
-    const verdict = openBugCount > 0 ? ANALYSIS_VERDICT.client_bug : ANALYSIS_VERDICT.passed;
-    return { verdict, clientBugCount: openBugCount, testCount: categories.length, coverage };
-}
-
-interface WriteReportInput {
-    snapshotId: string;
-    organizationId: string;
-    impactReasoning: string | undefined;
-    header: ReportHeader;
-    result: ReporterResult;
-}
-
-/**
- * Create the AnalysisReport. `upsert` keeps the Reporter idempotent - a retry after a committed run updates the row
- * rather than throwing on its `snapshotId` PK.
- */
-async function writeReport(tx: PrismaWriteClient, input: WriteReportInput): Promise<void> {
-    const reasoning = input.impactReasoning != null && input.impactReasoning !== "" ? input.impactReasoning : undefined;
-    const data = {
-        organizationId: input.organizationId,
-        verdict: input.header.verdict,
-        clientBugCount: input.header.clientBugCount,
-        testCount: input.header.testCount,
-        coverage: input.header.coverage,
-        impactReasoning: reasoning,
-        reportMarkdown: input.result.reportMarkdown,
-        title: input.result.title,
-        headline: input.result.headline,
-        flows: input.result.flows,
-        evidenceManifest: input.result.reportEvidenceManifest,
-    };
-    await tx.analysisReport.upsert({
-        where: { snapshotId: input.snapshotId },
-        create: { snapshotId: input.snapshotId, ...data },
-        update: data,
-    });
-}
-
-/**
- * This run's terminal verdicts, one per TEST rather than per classification - the counts taken from these become the
- * report's `testCount` and coverage tallies.
- */
-async function loadFindingCategories(snapshotId: string): Promise<string[]> {
-    const rows = await db.analysisFinding.findMany({
-        where: { reportSnapshotId: snapshotId, currentClassificationId: { not: null } },
-        select: { currentClassification: { select: { category: true } } },
-    });
-    return rows.flatMap((row) => (row.currentClassification == null ? [] : [row.currentClassification.category]));
-}
-
-/**
- * How many distinct tests this run queued work for. Counted by test case rather than by generation because the
- * self-heal loop runs a fresh generation per iteration, so one test can hold several.
- */
-async function countQueuedTests(snapshotId: string): Promise<number> {
-    const generations = await db.testGeneration.findMany({
-        where: { snapshotId },
-        select: { testPlan: { select: { testCaseId: true } } },
-    });
-    return new Set(generations.map((generation) => generation.testPlan.testCaseId)).size;
-}
-
-/** The branch's open bug-kind issues - the count that drives the verdict. */
-async function countOpenBugIssues(tx: PrismaWriteClient, branchId: string): Promise<number> {
-    return await tx.analysisIssue.count({
-        where: {
-            branchId,
-            status: reporterIssueStatusSchema.enum.open,
-            kind: reporterIssueKindSchema.enum.bug,
-        },
-    });
-}
-
-interface ApplyIssueIds {
-    snapshotId: string;
-    branchId: string;
-    organizationId: string;
-}
-
-/** Apply one reconciliation to the AnalysisIssue store and backfill the covered findings' `issueId`. */
-async function applyIssue(tx: PrismaWriteClient, issue: ReporterIssueResult, ids: ApplyIssueIds): Promise<void> {
-    if (issue.kind === "resolve") {
-        await tx.analysisIssue.update({
-            where: { id: issue.existingIssueId },
-            data: { status: "resolved", resolvedAt: new Date() },
-        });
-        return;
-    }
-
-    // The agent names TESTS by slug; the store references them by id. Resolving here is what keeps the issue's
-    // coverage a real relation - the set it covers is the findings attributed to it, not a list of strings that
-    // can name a test no finding exists for.
-    const content = issue.content;
-    const coveredTestCaseIds = await resolveTestCaseIds(tx, ids.snapshotId, content.findingSlugs);
-    const data = {
-        branchId: ids.branchId,
-        organizationId: ids.organizationId,
-        title: content.title,
-        kind: content.kind,
-        severity: content.severity,
-        status: "open",
-        resolvedAt: null,
-        expectedBehavior: content.expectedBehavior,
-        actualBehavior: content.actualBehavior,
-        narrativeMarkdown: content.narrativeMarkdown,
-        evidenceManifest: content.evidenceManifest,
-        primaryScreenshot: content.primaryScreenshot,
-        primaryTestCaseId: coveredTestCaseIds.get(content.primaryFindingSlug),
-        suspectedCause: content.suspectedCause,
-    };
-
-    if (issue.kind === "open") {
-        const created = await tx.analysisIssue.create({ data });
-        await backfillIssueId(tx, ids.snapshotId, [...coveredTestCaseIds.values()], created.id);
-        return;
-    }
-
-    // carry_forward: re-state the issue's content and reopen it if it had been resolved. The covered set unions
-    // itself: attributing this run's findings adds to the ones earlier snapshots already attributed.
-    await tx.analysisIssue.update({ where: { id: issue.existingIssueId }, data });
-    await backfillIssueId(tx, ids.snapshotId, [...coveredTestCaseIds.values()], issue.existingIssueId);
-}
-
-/** Resolve the slugs the agent named to the tests this run actually investigated; an unknown slug drops out. */
-async function resolveTestCaseIds(
-    tx: PrismaWriteClient,
-    snapshotId: string,
-    slugs: string[],
-): Promise<Map<string, string>> {
-    if (slugs.length === 0) return new Map();
-    const rows = await tx.analysisFinding.findMany({
-        where: { reportSnapshotId: snapshotId, testCase: { slug: { in: slugs } } },
-        select: { testCaseId: true, testCase: { select: { slug: true } } },
-    });
-    return new Map(rows.map((row) => [row.testCase.slug, row.testCaseId]));
-}
-
-/** Attribute this run's covered findings to their issue (only rows on this snapshot; other snapshots keep theirs). */
-async function backfillIssueId(
-    tx: PrismaWriteClient,
-    snapshotId: string,
-    testCaseIds: string[],
-    issueId: string,
-): Promise<void> {
-    if (testCaseIds.length === 0) return;
-    await tx.analysisFinding.updateMany({
-        where: { reportSnapshotId: snapshotId, testCaseId: { in: testCaseIds } },
-        data: { issueId },
-    });
 }
 
 /** The stored `category` is a plain string; keep the finding's terminal verdict as-is for the Reporter to reason. */

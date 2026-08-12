@@ -1,6 +1,7 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import type { SettleAnalysisRunInput, SettleAnalysisRunOutput } from "@autonoma/workflow/activities";
+import { getAnalysisStore } from "../../services";
 import { LiveAnalysisGitHub } from "./live-analysis-github";
 import { settleAnalysisGitHub } from "./settle-analysis-github";
 import { settleAnalysisRunState } from "./settle-analysis-run-state";
@@ -44,7 +45,7 @@ export async function settleAnalysisRun(input: SettleAnalysisRunInput): Promise<
 }
 
 async function resolveDurationMs(snapshotId: string): Promise<number | undefined> {
-    const job = await db.analysisJob.findUnique({ where: { snapshotId }, select: { startedAt: true } });
-    if (job?.startedAt == null) return undefined;
-    return Date.now() - job.startedAt.getTime();
+    const lifecycle = await getAnalysisStore().forAnalysis(snapshotId).lifecycle();
+    if (lifecycle?.startedAt == null) return undefined;
+    return Date.now() - lifecycle.startedAt.getTime();
 }

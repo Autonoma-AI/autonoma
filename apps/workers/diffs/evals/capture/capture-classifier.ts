@@ -1,11 +1,12 @@
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { AnalysisStore } from "@autonoma/analysis";
 import { db } from "@autonoma/db";
 import {
     type ClassifierInput,
     PreviewEnvironment,
-    PriorRuns,
+    formatPriorRunsBaseline,
     readPreviewConnectionKeys,
 } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
@@ -100,9 +101,9 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
     const run = buildRunFacts(generation);
 
     // The two mutable sources, reconstructed as of the same instant and read together - neither needs the other.
-    const priorRuns = new PriorRuns(db);
+    const store = new AnalysisStore(db);
     const [history, preview] = await Promise.all([
-        priorRuns.getHistory({
+        store.priorRuns({
             applicationId: meta.applicationId,
             testSlug: slug,
             currentSnapshotId: snapshotId,
@@ -110,7 +111,7 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
         }),
         freezePreviewFacts(github.repoFullName, target.prNumber, meta.applicationId, classification.createdAt, logger),
     ]);
-    const baseline = PriorRuns.formatBaseline(history);
+    const baseline = formatPriorRunsBaseline(history);
     // Waits on the namespace the lookup above resolved, so it cannot join that batch.
     const appLogWindow = await freezeAppLogWindow({
         namespace: preview.namespace,

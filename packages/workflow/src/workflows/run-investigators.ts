@@ -3,7 +3,6 @@ import type { AnalysisActivities, AnalysisCandidateFinding, AnalysisInvestigatio
 import { rootFailureMessage } from "../root-failure-message";
 import { TaskQueue } from "../task-queues";
 import { WORKFLOW_TYPE } from "../workflow-types";
-import { CONTAINMENT_CLASSIFICATION_NUMBER } from "./investigator.workflow";
 
 /**
  * How many Investigators run at once. Bounds concurrent browser sessions + scenario provisions against the
@@ -11,8 +10,8 @@ import { CONTAINMENT_CLASSIFICATION_NUMBER } from "./investigator.workflow";
  */
 const INVESTIGATOR_CONCURRENCY = 10;
 
-// The parent files a classification only to contain a child that crashed before it could file its own.
-const investigator = proxyActivities<Pick<AnalysisActivities, "persistAnalysisClassification">>({
+// The parent records a containment failure only for a child that crashed before it could file its own verdict.
+const investigator = proxyActivities<Pick<AnalysisActivities, "recordAnalysisContainment">>({
     startToCloseTimeout: "20m",
     heartbeatTimeout: "2m",
     retry: { maximumAttempts: 1 },
@@ -76,26 +75,20 @@ async function runInvestigator(
             ...ids,
             extra: { slug: target.slug, message },
         });
-        const headline = `The Investigator crashed or timed out: ${message}`;
         try {
-            // Appended, never overwritten: whatever the child managed to classify stays on the finding as its own
-            // history, and this fault becomes the verdict the run stands behind for the test. It takes a slot past
-            // every iteration the child could have reached, so it can neither restate nor be restated by one.
-            // The child starts its own runs, so the parent does not know which one it died on - `generationId` is
-            // left absent and the activity resolves the test's newest run on the snapshot.
-            await investigator.persistAnalysisClassification({
+            // Recorded as the finding's structured `failure`, never as a classification: a containment is not a
+            // judgement about an execution, and an iteration the child DID file before dying keeps being the
+            // verdict the run stands behind. A finding the child never created is created here, with no
+            // classification - "contained" is derived from that emptiness.
+            await investigator.recordAnalysisContainment({
                 snapshotId,
                 testCaseId: target.testCaseId,
                 origin: target.origin,
                 selectionReason: target.reason,
-                number: CONTAINMENT_CLASSIFICATION_NUMBER,
-                classification: {
-                    category: "engine_artifact",
-                    headline,
-                },
+                message,
             });
         } catch (persistError) {
-            log.warn("Failed to persist the containment finding for a crashed Investigator", {
+            log.warn("Failed to record the containment failure for a crashed Investigator", {
                 ...ids,
                 extra: { slug: target.slug, message: rootFailureMessage(persistError) },
             });
@@ -104,7 +97,7 @@ async function runInvestigator(
             slug: target.slug,
             testCaseId: target.testCaseId,
             category: "engine_artifact",
-            headline,
+            headline: message,
             origin: target.origin,
         };
     }

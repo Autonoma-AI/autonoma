@@ -1,10 +1,24 @@
 import { renderMarkdown } from "@autonoma/github/comment";
+import type { AnalysisVerdictCounts, AnalysisVerdictState, AnalysisVerdictSummary } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
 import {
     type AnalysisCommentContext,
     type AnalysisCommentInput,
     buildAnalysisCommentPayload,
 } from "../../src/activities/analysis/analysis-comment-payload";
+
+/** Stated, not derived: a test that recomputed the verdict would pass even if the builder disagreed with it. */
+function verdict(state: AnalysisVerdictState, counts: Partial<AnalysisVerdictCounts> = {}): AnalysisVerdictSummary {
+    return {
+        state,
+        bugCount: counts.bugCount ?? 0,
+        coverageGapCount: counts.coverageGapCount ?? 0,
+        investigatedCount: counts.investigatedCount ?? 0,
+    };
+}
+
+const oneBug = (): AnalysisVerdictSummary => verdict("bug_found", { bugCount: 1, investigatedCount: 3 });
+const allPassed = (): AnalysisVerdictSummary => verdict("healthy", { investigatedCount: 3 });
 
 const context: AnalysisCommentContext = {
     prNumber: 42,
@@ -57,7 +71,7 @@ describe("buildAnalysisCommentPayload", () => {
         const signed: string[] = [];
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 6,
+                verdict: verdict("bug_found", { bugCount: 1, coverageGapCount: 3, investigatedCount: 6 }),
                 bugIssues: [bugIssue()],
                 coverage: {
                     byCategory: [
@@ -106,7 +120,7 @@ describe("buildAnalysisCommentPayload", () => {
 
     it("falls back to the issue's hero frame and drops the replay button when the designated run has no clip", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { testCount: 3, bugIssues: [bugIssue({ clipKey: undefined })] },
+            { verdict: oneBug(), bugIssues: [bugIssue({ clipKey: undefined })] },
             context,
             sign,
         );
@@ -117,7 +131,7 @@ describe("buildAnalysisCommentPayload", () => {
 
     it("drops the replay link when no reproduction run was resolved, even with a clip", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { testCount: 3, bugIssues: [bugIssue({ replay: undefined })] },
+            { verdict: oneBug(), bugIssues: [bugIssue({ replay: undefined })] },
             context,
             sign,
         );
@@ -129,7 +143,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("hands off to a coding agent: a grounded brief plus prefilled agent deep-links", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 3,
+                verdict: oneBug(),
                 bugIssues: [bugIssue({ expectedBehavior: "The export should download a CSV." })],
             },
             context,
@@ -171,14 +185,14 @@ describe("buildAnalysisCommentPayload", () => {
     });
 
     it("offers no handoff on a clean pass - there is nothing to hand off", async () => {
-        const payload = await buildAnalysisCommentPayload({ testCount: 3, bugIssues: [] }, context, sign);
+        const payload = await buildAnalysisCommentPayload({ verdict: allPassed(), bugIssues: [] }, context, sign);
 
         expect(payload.handoff).toBeUndefined();
     });
 
     it("carries no suspected cause or evidence when the issue grounded none", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { testCount: 3, bugIssues: [bugIssue({ suspectedCause: undefined })] },
+            { verdict: oneBug(), bugIssues: [bugIssue({ suspectedCause: undefined })] },
             context,
             sign,
         );
@@ -190,7 +204,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("itemizes the flows into wins, the reader's gaps, and ours", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 9,
+                verdict: verdict("not_confirmed", { coverageGapCount: 5, investigatedCount: 9 }),
                 bugIssues: [],
                 flows: [
                     flow("Guest checkout"),
@@ -246,7 +260,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("caps a group and links the rest, rather than burying the comment under a long branch", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 8,
+                verdict: verdict("not_confirmed", { coverageGapCount: 2, investigatedCount: 8 }),
                 bugIssues: [],
                 flows: Array.from({ length: 8 }, (_, index) => flow(`Flow ${index}`)),
             },
@@ -263,7 +277,7 @@ describe("buildAnalysisCommentPayload", () => {
 
     it("marks a flow nothing re-ran at this commit as carried, so a cumulative list is not read as all-fresh", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { testCount: 0, bugIssues: [], flows: [flow("Billing", { checkedThisRunCount: 0 })] },
+            { verdict: verdict("healthy"), bugIssues: [], flows: [flow("Billing", { checkedThisRunCount: 0 })] },
             context,
             sign,
         );
@@ -276,7 +290,7 @@ describe("buildAnalysisCommentPayload", () => {
         // keying the block on the flow list alone would drop the one actionable thing in the comment.
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 2,
+                verdict: verdict("not_confirmed", { coverageGapCount: 1, investigatedCount: 2 }),
                 bugIssues: [bugIssue()],
                 flows: [flow("Checkout", { status: "broken", owner: "client", bugCount: 1, passedCount: 0 })],
                 coverageIssues: [{ id: "issue_coupon_scenario", title: "Checkout scenario seeds no coupon codes" }],
@@ -297,7 +311,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("leaves a broken flow out of the itemization, since its bug already has a card", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 2,
+                verdict: verdict("not_confirmed", { coverageGapCount: 1, investigatedCount: 2 }),
                 bugIssues: [bugIssue()],
                 flows: [flow("Checkout", { status: "broken", bugCount: 1, passedCount: 0 }), flow("Search")],
             },
@@ -311,7 +325,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("reports removed invalid tests as one quiet line, in neither owner's block", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 4,
+                verdict: verdict("not_confirmed", { coverageGapCount: 2, investigatedCount: 4 }),
                 bugIssues: [],
                 coverage: { byCategory: [{ category: "invalid_test", count: 2 }], total: 2 },
             },
@@ -333,7 +347,7 @@ describe("buildAnalysisCommentPayload", () => {
     });
 
     it("is HEALTHY with no cards, summary, or body blocks on a clean pass", async () => {
-        const payload = await buildAnalysisCommentPayload({ testCount: 3, bugIssues: [] }, context, sign);
+        const payload = await buildAnalysisCommentPayload({ verdict: allPassed(), bugIssues: [] }, context, sign);
 
         expect(payload.state).toBe("healthy");
         // Nothing was authored and there is no itemization, so the title falls back to the copy this run's own COUNTS
@@ -350,7 +364,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("is NOT CONFIRMED when the app passed but a coverage gap left the change unverified", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 4,
+                verdict: verdict("not_confirmed", { coverageGapCount: 1, investigatedCount: 4 }),
                 bugIssues: [],
                 coverage: {
                     byCategory: [{ category: "scenario_issue", count: 1 }],
@@ -372,7 +386,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("is a green NO TESTS NEEDED when the run decided the change needed no test", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 0,
+                verdict: verdict("no_tests_needed"),
                 bugIssues: [],
                 headline:
                     "The change is a parser refactor already covered by unit tests, so no browser test was added.",
@@ -399,7 +413,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("omits the card media entirely when the issue has neither a clip nor a hero frame", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 3,
+                verdict: oneBug(),
                 bugIssues: [bugIssue({ screenshotKey: undefined, clipKey: undefined })],
             },
             context,
@@ -412,7 +426,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("appends the /autonoma-skip callout under the summary when the gate is blocking", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 3,
+                verdict: oneBug(),
                 bugIssues: [bugIssue()],
                 headline: "The app misbehaved.",
                 mergeGateBlocking: true,
@@ -430,7 +444,7 @@ describe("buildAnalysisCommentPayload", () => {
 
     it("shows the skip callout as the whole summary when the gate blocks but there is no summary", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { testCount: 3, bugIssues: [bugIssue()], mergeGateBlocking: true },
+            { verdict: oneBug(), bugIssues: [bugIssue()], mergeGateBlocking: true },
             context,
             sign,
         );
@@ -440,7 +454,7 @@ describe("buildAnalysisCommentPayload", () => {
 
     it("omits the skip callout when the gate is not blocking (default)", async () => {
         const payload = await buildAnalysisCommentPayload(
-            { testCount: 3, bugIssues: [bugIssue()], headline: "The app misbehaved." },
+            { verdict: oneBug(), bugIssues: [bugIssue()], headline: "The app misbehaved." },
             context,
             sign,
         );
@@ -451,7 +465,7 @@ describe("buildAnalysisCommentPayload", () => {
     it("renders the itemization into the shared markdown, quieting only what is ours", async () => {
         const payload = await buildAnalysisCommentPayload(
             {
-                testCount: 5,
+                verdict: verdict("not_confirmed", { coverageGapCount: 4, investigatedCount: 5 }),
                 bugIssues: [],
                 title: "Orders verified; invoices couldn't be seeded",
                 headline: "One flow never ran for want of seeded data; three tests could not be stabilized.",
@@ -487,7 +501,11 @@ describe("buildAnalysisCommentPayload", () => {
     });
 
     it("points the visible preview CTA at the front door and keeps the raw URL for machines", async () => {
-        const payload = await buildAnalysisCommentPayload({ testCount: 3, bugIssues: [bugIssue()] }, context, sign);
+        const payload = await buildAnalysisCommentPayload(
+            { verdict: oneBug(), bugIssues: [bugIssue()] },
+            context,
+            sign,
+        );
 
         const seePreview = payload.ctas.find((cta) => cta.label === "See preview");
         expect(seePreview?.href).toBe(

@@ -3,6 +3,7 @@ import { createTestDatabase, type IntegrationHarness, integrationTestSuite } fro
 import type { AnalysisCandidateClassification } from "@autonoma/workflow/activities";
 import { expect } from "vitest";
 import { persistAnalysisClassification } from "../../src/activities/analysis/persist-classification";
+import { recordAnalysisContainment } from "../../src/activities/analysis/record-analysis-containment";
 
 // persistAnalysisClassification reads the `@autonoma/db` singleton (the global `db` proxy resolves to
 // globalThis.prisma).
@@ -157,9 +158,8 @@ integrationTestSuite({
             expect(finding.currentClassification?.conversationUrl).toBe("s3://conversations/classify-gen-1.json");
         });
 
-        // The regression this store exists for: a self-heal classifies the same test twice, and the FIRST verdict -
-        // the one that authored the plan rewrite - used to be overwritten by the re-run, taking its conversation
-        // with it. Both must survive, each pinned to the generation it judged.
+        // A self-heal classifies the same test twice. The FIRST verdict is the one that authored the plan rewrite,
+        // so it must survive the re-run with its conversation, each pinned to the generation it judged.
         test("appends a second iteration instead of overwriting the verdict that motivated the self-heal", async ({
             harness,
         }) => {
@@ -257,39 +257,9 @@ integrationTestSuite({
             expect(finding.currentClassification?.evidence).toBeNull();
         });
 
-        // The fan-out parent contains a crashed child without knowing which run it died on - the child starts its
-        // own runs - so a containment classification names no run and the activity resolves the test's newest one.
-        test("a containment without a run resolves to the test's newest run on the snapshot", async ({ harness }) => {
-            const { snapshotId, testCaseId, generationIds } = await harness.seedRun();
-            // The seeded pair can share a createdAt millisecond; make the newest unambiguous.
-            const newest = { id: generationIds[1] };
-            await harness.db.testGeneration.update({
-                where: { id: newest.id },
-                data: { createdAt: new Date(Date.now() + 60_000) },
-            });
-
-            await persistAnalysisClassification({
-                snapshotId,
-                testCaseId,
-                origin: "pre_existing",
-                number: 3,
-                classification: {
-                    category: "engine_artifact",
-                    headline: "The Investigator crashed or timed out",
-                },
-            });
-
-            const finding = await harness.db.analysisFinding.findUniqueOrThrow({
-                where: { reportSnapshotId_testCaseId: { reportSnapshotId: snapshotId, testCaseId } },
-                include: { currentClassification: true },
-            });
-            expect(finding.currentClassification?.generationId).toBe(newest.id);
-        });
-
-        // A child can crash before its startInvestigationRun landed, leaving the test with no run at all. The
-        // containment then records one - started and immediately marked failed - purely so the classification has a
-        // run to hang off.
-        test("a containment for a test with no run records a failed run to hang off", async ({ harness }) => {
+        // The fan-out parent contains a crashed child as a structured failure on the finding - never a fake
+        // classification - so a child that crashed before filing anything leaves zero classifications and no run.
+        test("a containment for a test with no run records a failure and no classification", async ({ harness }) => {
             const { snapshotId, organizationId } = await harness.seedRun();
             const folder = await harness.db.folder.findFirstOrThrow({
                 where: { organizationId },
@@ -304,33 +274,60 @@ integrationTestSuite({
                     organizationId,
                 },
             });
-            const plan = await harness.db.testPlan.create({
-                data: { testCaseId: untouched.id, prompt: "plan", organizationId },
-            });
-            await harness.db.testCaseAssignment.create({
-                data: { snapshotId, testCaseId: untouched.id, planId: plan.id },
-            });
+            const runCountBefore = await harness.db.testGeneration.count({ where: { snapshotId } });
 
-            await persistAnalysisClassification({
+            await recordAnalysisContainment({
                 snapshotId,
                 testCaseId: untouched.id,
                 origin: "pre_existing",
-                number: 3,
-                classification: {
-                    category: "engine_artifact",
-                    headline: "The Investigator crashed before starting",
-                },
+                selectionReason: "The diff touches it.",
+                message: "The Investigator crashed before starting",
             });
 
             const finding = await harness.db.analysisFinding.findUniqueOrThrow({
                 where: { reportSnapshotId_testCaseId: { reportSnapshotId: snapshotId, testCaseId: untouched.id } },
-                include: { currentClassification: true },
+                include: { classifications: true },
             });
-            const run = await harness.db.testGeneration.findUniqueOrThrow({
-                where: { id: finding.currentClassification?.generationId },
+            expect(finding.failure).toEqual({
+                kind: "investigator_crashed",
+                message: "The Investigator crashed before starting",
             });
-            expect(run.status).toBe("failed");
-            expect(run.testPlanId).toBe(plan.id);
+            expect(finding.classifications).toHaveLength(0);
+            expect(finding.currentClassificationId).toBeNull();
+            expect(finding.selectionReason).toBe("The diff touches it.");
+            // No run is started to anchor the containment.
+            expect(await harness.db.testGeneration.count({ where: { snapshotId } })).toBe(runCountBefore);
+        });
+
+        // A child that crashed mid-loop already filed an iteration; the containment records the crash without
+        // displacing the verdict the child reached.
+        test("a containment after a filed iteration keeps that verdict current", async ({ harness }) => {
+            const { snapshotId, testCaseId, generationIds } = await harness.seedRun();
+            await persistAnalysisClassification({
+                snapshotId,
+                testCaseId,
+                origin: "pre_existing",
+                number: 1,
+                classification: classification("plan_mismatch", generationIds[0]),
+            });
+
+            await recordAnalysisContainment({
+                snapshotId,
+                testCaseId,
+                origin: "pre_existing",
+                message: "died during the self-heal re-run",
+            });
+
+            const finding = await harness.db.analysisFinding.findUniqueOrThrow({
+                where: { reportSnapshotId_testCaseId: { reportSnapshotId: snapshotId, testCaseId } },
+                include: { currentClassification: true, classifications: true },
+            });
+            expect(finding.currentClassification?.category).toBe("plan_mismatch");
+            expect(finding.classifications).toHaveLength(1);
+            expect(finding.failure).toEqual({
+                kind: "investigator_crashed",
+                message: "died during the self-heal re-run",
+            });
         });
     },
 });

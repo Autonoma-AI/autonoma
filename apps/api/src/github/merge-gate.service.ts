@@ -1,3 +1,4 @@
+import { AnalysisStore } from "@autonoma/analysis";
 import type { PostHogAnalytics } from "@autonoma/analytics";
 import type { PrismaClient } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
@@ -1076,8 +1077,8 @@ export class MergeGateService {
 
     /**
      * Enable the gate for an org: flips `mergeGateEnabled` and registers `Autonoma` as a required status check on
-     * each linked repo's default branch. Every org runs the analysis pipeline, so there is no longer a
-     * pipeline precondition to check - the authoritative verdict the gate reads always exists.
+     * each linked repo's default branch. Every org runs the analysis pipeline, so the verdict the
+     * gate reads always exists and there is no precondition to check.
      */
     async enableForOrg(organizationId: string): Promise<MergeGateEnableResult> {
         this.logger.info("Merge gate: enableForOrg", { organizationId });
@@ -1263,21 +1264,18 @@ export class MergeGateService {
             });
             return { findingIds: [], findingSlugs: [] };
         }
-        // Findings are keyed to the AnalysisJob; read them directly by the snapshot's PK. The bug set is the one
-        // the run STANDS BEHIND - a self-heal iteration it superseded is history, and gating a merge on a verdict
-        // we already replaced would block a PR over a test we ourselves rewrote.
-        const bugFindings = await this.db.analysisFinding.findMany({
-            where: { reportSnapshotId: snapshot.id, organizationId, currentClassification: { category: CLIENT_BUG } },
-            orderBy: { testCase: { slug: "asc" } },
-            select: { id: true, testCase: { select: { slug: true } } },
-        });
+        // Filtered on the current classification, so a self-heal iteration the run superseded cannot block a
+        // merge.
+        const bugFindings = await new AnalysisStore(this.db)
+            .forAnalysis(snapshot.id)
+            .findingIds({ categories: [CLIENT_BUG], organizationId });
         // Two identity spaces, each matching the store that consumes it: `SkipRecord.openFindingIds` records the
         // findings themselves, while a FindingFalsePositiveCandidate is keyed by the test slug the MCP channel
         // also reports - the two sources have to name the same thing for the FP store to be readable.
         return {
             snapshotId: snapshot.id,
-            findingIds: bugFindings.map((finding) => finding.id),
-            findingSlugs: bugFindings.map((finding) => finding.testCase.slug),
+            findingIds: bugFindings.map((finding) => finding.findingId),
+            findingSlugs: bugFindings.map((finding) => finding.slug),
         };
     }
 

@@ -1,33 +1,30 @@
 import {
-    aggregateSnapshotHealth,
-    authoritativeSnapshotHealth,
-    buildAuthoritativeCheckpointSummary,
-    buildCheckpointSummary,
-    computeSnapshotHealth,
-    countTestsBySnapshot,
-    listExecutedTestsForSnapshot,
-    loadAuthoritativeCheckpointInputs,
-    type LoadedAuthoritativeInputs,
-    type SnapshotExecutedTest,
-    type SnapshotHealthCounts,
-    type SnapshotHealthResult,
-    type SnapshotHealth,
-    tallyExecutedTests,
-} from "@autonoma/checkpoint";
+    type AnalysisLifecycleSummary,
+    AnalysisStore,
+    type CoveredFinding,
+    type Finding,
+    type Issue,
+} from "@autonoma/analysis";
 import type { AnalysisJobStatus, Prisma } from "@autonoma/db";
 import type { PrismaClient } from "@autonoma/db";
 import { InternalError, NotFoundError } from "@autonoma/errors";
 import type { StorageProvider } from "@autonoma/storage";
-import { deriveForkPointSnapshotId, type SuiteChangeSummary, TestSuiteStore } from "@autonoma/test-suite";
 import {
-    type AnalysisFlow,
-    analysisFlowSchema,
+    aggregateSnapshotHealth,
+    computeSnapshotHealth,
+    countTestsBySnapshot,
+    deriveForkPointSnapshotId,
+    listExecutedTestsForSnapshot,
+    type SnapshotExecutedTest,
+    type SnapshotHealthCounts,
+    type SuiteChangeSummary,
+    tallyExecutedTests,
+    TestSuiteStore,
+} from "@autonoma/test-suite";
+import {
     type AnalysisForPr,
     type AnalysisIssueDetail,
     type AnalysisIssueFindingInstance,
-    analysisIssueKindSchema,
-    analysisIssueSeveritySchema,
-    analysisIssueStatusSchema,
     type AnalysisIssueSummary,
     analysisFindingSortKey,
     type AnalysisFindingView,
@@ -37,36 +34,28 @@ import {
     type AnalysisReportData,
     type AnalysisTestOrigin,
     analysisTestOriginSchema,
-    type AnalysisVerdict,
-    analysisVerdictSchema,
     type AnalysisSnapshotIssueChanges,
     buildAnalysisFindingUrl,
     buildAnalysisIssueUrl,
     buildPrPageUrl,
-    type CheckpointPresentationSummary,
-    compareAnalysisIssues,
-    coverageSummarySchema,
-    pickDesignatedRun,
     type EvidenceManifestEntry,
-    evidenceManifestEntrySchema,
     extractEvidenceAssetIds,
     type InvestigationFinding,
     type InvestigationRunStep,
     type MainOpenProblem,
     type OverlayPoint,
     type PrimaryScreenshot,
-    primaryScreenshotSchema,
     type PrPipelineStatus,
     type ResolvedEvidenceAsset,
     type ResolvedPrimaryScreenshot,
     type SnapshotReport,
-    suspectedCauseSchema,
 } from "@autonoma/types";
 import { z } from "zod";
 import { env } from "../../env";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
 import type { PullRequestCacheService } from "../../github/pull-request-cache.service";
 import { Service } from "../service";
+import { presentCheckpoint } from "./checkpoint-presentation";
 import { loadCreatedTests, type SnapshotCreatedTest } from "./created-tests";
 import { loadMainOpenProblems } from "./main-open-problems";
 import { computePrPipelineStatus } from "./pr-pipeline-status";
@@ -105,17 +94,6 @@ const PR_LIST_ORDER: Prisma.BranchOrderByWithRelationInput[] = [
     { createdAt: "desc" },
 ];
 
-/**
- * The stored flow itemization, validated at the read boundary. A row written before the Reporter authored flows has
- * none, and a malformed blob is dropped whole rather than surfaced half-rendered - a partial list would understate
- * what the PR covers, which is exactly the misread the itemization exists to fix.
- */
-function parseAnalysisFlows(flows: unknown): AnalysisFlow[] {
-    if (flows == null) return [];
-    const parsed = analysisFlowSchema.array().safeParse(flows);
-    return parsed.success ? parsed.data : [];
-}
-
 /** Fallback suite-change counts for a snapshot the batched summary has no entry for. */
 const NO_SUITE_CHANGES: SuiteChangeSummary = { added: 0, removed: 0, updated: 0 };
 
@@ -132,117 +110,60 @@ export interface AnalysisJobStatusView {
     completedAt?: Date;
 }
 
-/** The verdict columns one classification contributes to the finding's display shape. */
-const analysisClassificationSelect = {
-    generationId: true,
-    category: true,
-    confidence: true,
-    falsePositiveRisk: true,
-    headline: true,
-    expectedBehavior: true,
-    actualBehavior: true,
-    whatHappened: true,
-    planMismatchNote: true,
-    invalidTestNote: true,
-    observedAppIssues: true,
-    remediation: true,
-    rootCause: true,
-    plan: true,
-    runSuccess: true,
-    stepCount: true,
-    runSteps: true,
-    runTrace: true,
-    evidence: true,
-    videoKey: true,
-    optimizedVideoKey: true,
-    screenshotKey: true,
-    error: true,
-} satisfies Prisma.AnalysisClassificationSelect;
-
-/** What the self-heal history shows per iteration: the conclusion, and the two artifacts behind it. */
-const analysisClassificationSummarySelect = {
-    id: true,
-    number: true,
-    generationId: true,
-    category: true,
-    headline: true,
-    createdAt: true,
-    conversationUrl: true,
-} satisfies Prisma.AnalysisClassificationSelect;
-
-const analysisFindingSelect = {
-    id: true,
-    // The test the finding is about. The suite-changes surfaces list findings by test name, and the slug is what
-    // the report's `finding:<slug>` prose tokens resolve through.
-    testCase: { select: { id: true, name: true, slug: true } },
-    origin: true,
-    selectionReason: true,
-    // The verdict the run stands behind. Every display field lives here, one row away, so a superseded self-heal
-    // iteration cannot be mistaken for the finding's own verdict.
-    currentClassification: { select: analysisClassificationSelect },
-    // The self-heal history: every iteration oldest-first, the current one included. More than one entry means the
-    // Investigator rewrote the plan and re-ran, and each entry keeps the reasoning that produced it.
-    classifications: { orderBy: { number: "asc" }, select: analysisClassificationSummarySelect },
-    // The branch-scoped issue this finding was clustered into (backfilled by the Reporter), so the finding-detail
-    // page can link UP to its stable, cross-snapshot issue. Null for a passing/coverage finding with no issue.
-    issueId: true,
-    issue: { select: { title: true } },
-} satisfies Prisma.AnalysisFindingSelect;
-
-type AnalysisFindingRow = Prisma.AnalysisFindingGetPayload<{ select: typeof analysisFindingSelect }>;
-
 /**
- * Reconstruct the UI finding shape from an AnalysisFinding row and its current classification (media keys are
- * signed separately, on read). Returns undefined for a finding with no classification yet - one exists only
- * between its creation and its first verdict, inside a single transaction, so a reader seeing one is looking at a
- * row that has nothing to say.
+ * Reconstruct the UI finding shape from the store's detailed finding (media keys are signed separately, on
+ * read). Returns undefined for a finding with no classification: either a row between its creation and its
+ * first verdict (a single-transaction window), or - permanently - a contained investigation, whose Investigator
+ * crashed before judging any run and which carries a `failure` instead. The report's coverage counts include
+ * contained findings; this view does not yet render them (they have no run to link).
  */
-function rowToAnalysisFinding(row: AnalysisFindingRow): AnalysisFindingView | undefined {
-    const current = row.currentClassification;
+function detailedToAnalysisFinding(finding: Finding): AnalysisFindingView | undefined {
+    const current = finding.current;
     if (current == null) return undefined;
     return {
-        id: row.id,
-        slug: row.testCase.slug,
+        id: finding.findingId,
+        slug: finding.testCase.slug,
         generationId: current.generationId,
-        testCase: row.testCase,
-        origin: parseAnalysisTestOrigin(row.origin),
-        selectionReason: row.selectionReason ?? undefined,
+        testCase: finding.testCase,
+        origin: parseAnalysisTestOrigin(finding.origin),
+        selectionReason: finding.selectionReason,
+        selfHealed: finding.selfHealed,
         category: current.category,
-        confidence: current.confidence ?? undefined,
-        falsePositiveRisk: current.falsePositiveRisk ?? undefined,
+        confidence: current.confidence,
+        falsePositiveRisk: current.falsePositiveRisk,
         headline: current.headline,
-        expectedBehavior: current.expectedBehavior ?? undefined,
-        actualBehavior: current.actualBehavior ?? undefined,
-        whatHappened: current.whatHappened ?? undefined,
-        planMismatchNote: current.planMismatchNote ?? undefined,
-        invalidTestNote: current.invalidTestNote ?? undefined,
-        observedAppIssues: current.observedAppIssues ?? undefined,
-        remediation: current.remediation ?? undefined,
-        rootCause: current.rootCause ?? undefined,
+        expectedBehavior: current.expectedBehavior,
+        actualBehavior: current.actualBehavior,
+        whatHappened: current.whatHappened,
+        planMismatchNote: current.planMismatchNote,
+        invalidTestNote: current.invalidTestNote,
+        observedAppIssues: current.observedAppIssues,
+        remediation: current.remediation,
+        rootCause: current.rootCause,
         evidence: current.evidence ?? [],
-        plan: current.plan ?? undefined,
-        runSuccess: current.runSuccess ?? undefined,
-        stepCount: current.stepCount ?? undefined,
-        runSteps: current.runSteps ?? undefined,
+        plan: current.plan,
+        runSuccess: current.runSuccess,
+        stepCount: current.stepCount,
+        runSteps: current.runSteps,
         // Each step's screenshotUrl is still a raw s3:// key here; signFindingMedia signs them on read.
-        runTrace: current.runTrace ?? undefined,
+        runTrace: current.runTrace,
         // Stored s3:// keys; signFindingMedia turns these into browser-openable URLs.
-        videoUrl: current.videoKey ?? undefined,
-        optimizedVideoUrl: current.optimizedVideoKey ?? undefined,
-        keyScreenshotUrl: current.screenshotKey ?? undefined,
-        error: current.error ?? undefined,
-        classifications: row.classifications.map((classification) => ({
+        videoUrl: current.videoKey,
+        optimizedVideoUrl: current.optimizedVideoKey,
+        keyScreenshotUrl: current.screenshotKey,
+        error: current.error,
+        classifications: finding.classifications.map((classification) => ({
             id: classification.id,
             number: classification.number,
             generationId: classification.generationId,
             category: classification.category,
             headline: classification.headline,
             createdAt: classification.createdAt,
-            // Still the raw s3:// key here; signFindingMedia signs it alongside the finding's media.
-            conversationUrl: classification.conversationUrl ?? undefined,
+            // Still the raw s3:// key here; signAnalysisFinding signs it alongside the finding's media.
+            conversationUrl: classification.conversationUrl,
         })),
-        issueId: row.issueId ?? undefined,
-        issueTitle: row.issue?.title ?? undefined,
+        issueId: finding.issue?.id,
+        issueTitle: finding.issue?.title,
     };
 }
 
@@ -251,82 +172,31 @@ function rowToAnalysisFinding(row: AnalysisFindingRow): AnalysisFindingView | un
  * boundary. An unrecognized value reads as absent - the surfaces that branch on origin fall back rather than
  * mis-bucketing the test.
  */
-function parseAnalysisTestOrigin(origin: string | null): AnalysisTestOrigin | undefined {
+function parseAnalysisTestOrigin(origin: string | undefined): AnalysisTestOrigin | undefined {
     if (origin == null) return undefined;
     const parsed = analysisTestOriginSchema.safeParse(origin);
     return parsed.success ? parsed.data : undefined;
 }
-
-/** Columns read from an AnalysisIssue row to build a list/change summary (header + primary screenshot + runs). */
-const analysisIssueSummarySelect = {
-    id: true,
-    title: true,
-    kind: true,
-    severity: true,
-    status: true,
-    createdAt: true,
-    primaryScreenshot: true,
-    // The covered findings' snapshot ids - counted DISTINCT into the recurrence "runs" figure (one run can
-    // attribute several findings to the same issue, so a raw finding count would overstate recurrence).
-    findings: { select: { reportSnapshotId: true } },
-} satisfies Prisma.AnalysisIssueSelect;
-
-type AnalysisIssueSummaryRow = Prisma.AnalysisIssueGetPayload<{ select: typeof analysisIssueSummarySelect }>;
-
-/**
- * Columns one open issue contributes to the by-PR analysis payload. Richer than the list summary, since a reader here
- * is fixing the issue rather than browsing to it; `analysisPrIssueSchema` documents what it leaves out and why.
- */
-const analysisPrIssueSelect = {
-    id: true,
-    title: true,
-    kind: true,
-    severity: true,
-    expectedBehavior: true,
-    actualBehavior: true,
-    primaryScreenshot: true,
-    suspectedCause: true,
-    primaryTestCaseId: true,
-    // Every finding attributed to this issue: the covered-test list, and the pool the designated reproduction is
-    // picked from. Matched in code because the test to match on lives on the parent row, which a nested Prisma
-    // filter cannot reference.
-    findings: {
-        select: {
-            id: true,
-            testCaseId: true,
-            reportSnapshotId: true,
-            origin: true,
-            selectionReason: true,
-            testCase: { select: { slug: true } },
-            currentClassification: { select: { category: true, clipKey: true } },
-            // Findings key to the AnalysisJob, so the run's timestamp comes via the job's snapshot.
-            job: { select: { snapshot: { select: { createdAt: true } } } },
-        },
-    },
-} satisfies Prisma.AnalysisIssueSelect;
-
-type AnalysisPrIssueRow = Prisma.AnalysisIssueGetPayload<{ select: typeof analysisPrIssueSelect }>;
-type AnalysisPrIssueFindingRow = AnalysisPrIssueRow["findings"][number];
 
 /**
  * The distinct tests an issue covers, each carrying the verdict and Impact Analysis reasoning from the most recent
  * run that attributed it - one finding exists per (run, test), so the newest run's row is the current story for that
  * test. Slug-ordered so the list is stable across requests.
  */
-function coveredTestsForIssue(row: AnalysisPrIssueRow): AnalysisPrCoveredTest[] {
-    const newestByTest = new Map<string, AnalysisPrIssueFindingRow>();
-    for (const finding of row.findings) {
+function coveredTestsForIssue(issue: Issue): AnalysisPrCoveredTest[] {
+    const newestByTest = new Map<string, CoveredFinding>();
+    for (const finding of issue.coveredFindings) {
         const seen = newestByTest.get(finding.testCaseId);
-        if (seen == null || finding.job.snapshot.createdAt > seen.job.snapshot.createdAt) {
+        if (seen == null || finding.snapshotCreatedAt > seen.snapshotCreatedAt) {
             newestByTest.set(finding.testCaseId, finding);
         }
     }
     return [...newestByTest.values()]
         .map((finding) => ({
-            slug: finding.testCase.slug,
+            slug: finding.slug,
             origin: parseAnalysisTestOrigin(finding.origin),
-            selectionReason: finding.selectionReason ?? undefined,
-            category: finding.currentClassification?.category ?? "",
+            selectionReason: finding.selectionReason,
+            category: finding.category ?? "",
         }))
         .sort((left, right) => left.slug.localeCompare(right.slug));
 }
@@ -341,39 +211,19 @@ function coveredTestsForIssue(row: AnalysisPrIssueRow): AnalysisPrCoveredTest[] 
  * as a newer run.
  */
 function newerRunFrom(
-    latestJob: { status: AnalysisJobStatus; failureReason: string | null; snapshot: { createdAt: Date } },
+    latest: { status: AnalysisJobStatus; failureReason?: string; snapshotCreatedAt: Date },
     reportedRunAt: Date,
 ): AnalysisPrNewerRun | undefined {
-    if (latestJob.snapshot.createdAt <= reportedRunAt) return undefined;
-    if (latestJob.status === "running") return { status: "running" };
-    if (latestJob.status === "failed") {
-        return { status: "failed", failureReason: latestJob.failureReason ?? undefined };
+    if (latest.snapshotCreatedAt <= reportedRunAt) return undefined;
+    if (latest.status === "running") return { status: "running" };
+    if (latest.status === "failed") {
+        return { status: "failed", failureReason: latest.failureReason };
     }
     return undefined;
 }
 
-/** Parse a stored evidence-manifest JSON blob at the read boundary; a malformed blob degrades to no evidence. */
-function parseEvidenceManifest(json: Prisma.JsonValue | null): EvidenceManifestEntry[] {
-    if (json == null) return [];
-    const parsed = z.array(evidenceManifestEntrySchema).safeParse(json);
-    return parsed.success ? parsed.data : [];
-}
-
-/** Parse a stored primary-screenshot JSON blob; a malformed blob degrades to no designated hero. */
-function parsePrimaryScreenshot(json: Prisma.JsonValue | null): PrimaryScreenshot | undefined {
-    if (json == null) return undefined;
-    const parsed = primaryScreenshotSchema.safeParse(json);
-    return parsed.success ? parsed.data : undefined;
-}
-
-/** Parse a stored suspected-cause JSON blob; a malformed blob degrades to no suspected cause. */
-function parseSuspectedCause(json: Prisma.JsonValue | null): AnalysisIssueDetail["suspectedCause"] {
-    if (json == null) return undefined;
-    const parsed = suspectedCauseSchema.safeParse(json);
-    return parsed.success ? parsed.data : undefined;
-}
-
 export class BranchesService extends Service {
+    private readonly analysisStore: AnalysisStore;
     private readonly suite: TestSuiteStore;
 
     constructor(
@@ -383,6 +233,7 @@ export class BranchesService extends Service {
         private readonly prCache: PullRequestCacheService,
     ) {
         super();
+        this.analysisStore = new AnalysisStore(db);
         this.suite = new TestSuiteStore(db);
     }
 
@@ -400,62 +251,48 @@ export class BranchesService extends Service {
     async getAnalysisReportData(snapshotId: string, organizationId: string): Promise<AnalysisReportData | null> {
         this.logger.info("Getting analysis report data", { extra: { snapshotId } });
         try {
-            // The AnalysisReport exists only once the Reporter has authored it, so its presence means the run has
-            // landed; absence => still running or failed, and the page polls the AnalysisJob-status fallback.
-            // Checked first so a still-running poll never fetches findings it would discard.
-            const report = await this.db.analysisReport.findFirst({
-                where: { snapshotId, organizationId },
-                select: {
-                    reportMarkdown: true,
-                    title: true,
-                    headline: true,
-                    flows: true,
-                    evidenceManifest: true,
-                    verdict: true,
-                    clientBugCount: true,
-                    testCount: true,
-                    impactReasoning: true,
-                    snapshot: { select: { branchId: true } },
-                },
-            });
+            // The lifecycle is the org-scoped gate: a snapshot outside the organization (or never analyzed) is
+            // absent from the map, so the unscoped per-snapshot reads below are only reached for one we own.
+            const lifecycle = (await this.analysisStore.lifecycles([snapshotId], { organizationId })).get(snapshotId);
+            if (lifecycle == null) return null;
+
+            const analysis = this.analysisStore.forAnalysis(snapshotId);
+            // The report exists only once the Reporter settled; absence => still running or failed, and the page
+            // polls the lifecycle-status fallback. Checked first so a still-running poll never fetches findings.
+            const report = await analysis.report();
+
             if (report == null) return null;
 
-            // Findings are keyed to the job (no finding -> report FK); load them separately by the snapshot PK. The
-            // slug orders the query so the list is stable: the bucket sort below ranks a whole bucket equally, so
-            // without it Postgres row order would decide who comes first and the list could reshuffle per request.
-            const findingRows = await this.db.analysisFinding.findMany({
-                where: { reportSnapshotId: snapshotId, organizationId },
-                orderBy: { testCase: { slug: "asc" } },
-                select: analysisFindingSelect,
-            });
-            const views = findingRows.flatMap((row) => {
-                const view = rowToAnalysisFinding(row);
+            const detailed = await analysis.findings();
+            const views = detailed.flatMap((finding) => {
+                const view = detailedToAnalysisFinding(finding);
                 return view != null ? [view] : [];
             });
-            // Stable sort, so findings stay slug-ordered within their bucket.
+            // Stable sort over the store's slug order, so findings stay slug-ordered within their bucket.
             const sorted = views.sort(
                 (left, right) => analysisFindingSortKey(left.category) - analysisFindingSortKey(right.category),
             );
-            const [findings, reportEvidence] = await Promise.all([
+            const [findings, reportEvidence, run, verdict] = await Promise.all([
                 Promise.all(sorted.map((finding) => this.signAnalysisFinding(finding))),
-                this.signEvidenceManifest(report.reportMarkdown, parseEvidenceManifest(report.evidenceManifest)),
+                this.signEvidenceManifest(report.reportMarkdown, report.evidenceManifest),
+                analysis.planeSummary(),
+                this.analysisStore.forBranch(report.branchId).verdict(),
             ]);
             this.logger.info("Analysis report data assembled", {
                 extra: { snapshotId, findingCount: findings.length, reportEvidenceCount: reportEvidence.length },
             });
             return {
-                branchId: report.snapshot.branchId,
-                impactReasoning: report.impactReasoning ?? undefined,
-                reportMarkdown: report.reportMarkdown,
-                // `title` defaults to "" on a report written before the Reporter authored one. `analysisPrTitle` is
-                // the single place that reads that as unauthored, so nothing is translated on the way out.
-                title: report.title,
-                headline: report.headline,
-                flows: parseAnalysisFlows(report.flows),
+                branchId: report.branchId,
+                impactReasoning: report.impactReasoning,
+                reportMarkdown: report.reportMarkdown ?? "",
+                // Unauthored title is absent from the store; the wire keeps the "" the UI's `analysisPrTitle`
+                // already reads as unauthored.
+                title: report.title ?? "",
+                headline: report.headline ?? "",
+                flows: report.flows,
                 reportEvidence,
-                verdict: this.toAppHealthVerdict(report.verdict, snapshotId),
-                clientBugCount: report.clientBugCount,
-                testCount: report.testCount,
+                run,
+                verdict,
                 findings,
             };
         } catch (error) {
@@ -479,21 +316,18 @@ export class BranchesService extends Service {
     async getAnalysisJobStatus(snapshotId: string, organizationId: string): Promise<AnalysisJobStatusView | null> {
         this.logger.info("Getting analysis job status", { extra: { snapshotId } });
         try {
-            const job = await this.db.analysisJob.findFirst({
-                where: { snapshotId, organizationId },
-                select: { status: true, failureReason: true, startedAt: true, completedAt: true },
-            });
-            if (job == null) {
+            const lifecycle = (await this.analysisStore.lifecycles([snapshotId], { organizationId })).get(snapshotId);
+            if (lifecycle == null) {
                 this.logger.info("No analysis job for snapshot; treating as a diffs snapshot", {
                     extra: { snapshotId },
                 });
                 return null;
             }
             return {
-                status: job.status,
-                failureReason: job.failureReason ?? undefined,
-                startedAt: job.startedAt ?? undefined,
-                completedAt: job.completedAt ?? undefined,
+                status: lifecycle.status,
+                failureReason: lifecycle.failureReason,
+                startedAt: lifecycle.startedAt,
+                completedAt: lifecycle.completedAt,
             };
         } catch (error) {
             this.logger.warn("Could not load analysis job status; treating as absent", {
@@ -510,16 +344,18 @@ export class BranchesService extends Service {
      * resolved issue (e.g. "resolved [X](issue:...) this checkpoint") instead of treating it as fabricated - the
      * issue-detail page renders resolved issues fully. Issues are branch-scoped (they evolve across snapshots), so
      * this reads by branch, not snapshot. Malformed rows (a kind/severity/status that fails to parse) are skipped.
-     * Ordered bugs-first then by descending severity via the shared `compareAnalysisIssues` SSOT. Degrades to an
-     * empty list on any failure (never crashes the PR overview).
+     * Ordered by the ledger, bugs-first then by descending severity. Degrades to an empty list on any failure
+     * (never crashes the PR overview).
      */
     async getAnalysisIssues(branchId: string, organizationId: string): Promise<AnalysisIssueSummary[]> {
         this.logger.info("Getting analysis issues", { extra: { branchId } });
         try {
-            const issues = await this.db.analysisIssue.findMany({
-                where: { branchId, organizationId },
-                select: analysisIssueSummarySelect,
+            const branch = await this.db.branch.findFirst({
+                where: { id: branchId, organizationId },
+                select: { id: true },
             });
+            if (branch == null) return [];
+            const issues = await this.analysisStore.forBranch(branchId).issues();
             const summaries = await this.toIssueSummaries(issues);
             this.logger.info("Analysis issues assembled", { extra: { branchId, count: summaries.length } });
             return summaries;
@@ -549,68 +385,33 @@ export class BranchesService extends Service {
     async getAnalysisIssueDetail(issueId: string, organizationId: string): Promise<AnalysisIssueDetail | null> {
         this.logger.info("Getting analysis issue detail", { extra: { issueId } });
         try {
-            const issue = await this.db.analysisIssue.findFirst({
-                where: { id: issueId, organizationId },
-                select: {
-                    id: true,
-                    title: true,
-                    kind: true,
-                    severity: true,
-                    status: true,
-                    expectedBehavior: true,
-                    actualBehavior: true,
-                    narrativeMarkdown: true,
-                    evidenceManifest: true,
-                    primaryScreenshot: true,
-                    suspectedCause: true,
-                    resolvedAt: true,
-                    findings: {
-                        select: {
-                            id: true,
-                            testCase: { select: { slug: true } },
-                            currentClassification: { select: { category: true, headline: true } },
-                            reportSnapshotId: true,
-                            // Findings key to the AnalysisJob (no report FK); reach the snapshot via the job.
-                            job: { select: { snapshot: { select: { createdAt: true, headSha: true } } } },
-                        },
-                    },
-                },
-            });
+            const issue = await this.analysisStore.issue(issueId, { organizationId });
             if (issue == null) return null;
 
-            const kind = analysisIssueKindSchema.safeParse(issue.kind);
-            const severity = analysisIssueSeveritySchema.safeParse(issue.severity);
-            const status = analysisIssueStatusSchema.safeParse(issue.status);
-            if (!kind.success || !severity.success || !status.success) {
-                this.logger.warn("Analysis issue has a malformed enum column; treating as absent", {
-                    extra: { issueId, kind: issue.kind, severity: issue.severity, status: issue.status },
-                });
-                return null;
-            }
-
-            const primary = parsePrimaryScreenshot(issue.primaryScreenshot);
             const [evidence, primaryScreenshot] = await Promise.all([
-                this.signEvidenceManifest(issue.narrativeMarkdown, parseEvidenceManifest(issue.evidenceManifest)),
-                primary != null ? this.signPrimaryScreenshot(primary) : Promise.resolve(undefined),
+                this.signEvidenceManifest(issue.narrativeMarkdown, issue.evidenceManifest),
+                issue.primaryScreenshot != null
+                    ? this.signPrimaryScreenshot(issue.primaryScreenshot)
+                    : Promise.resolve(undefined),
             ]);
 
-            const findingInstances = this.toIssueFindingInstances(issue.findings);
+            const findingInstances = this.toIssueFindingInstances(issue.coveredFindings);
             this.logger.info("Analysis issue detail assembled", {
                 extra: { issueId, instanceCount: findingInstances.length, evidenceCount: evidence.length },
             });
             return {
                 id: issue.id,
                 title: issue.title,
-                kind: kind.data,
-                severity: severity.data,
-                status: status.data,
-                expectedBehavior: issue.expectedBehavior ?? undefined,
+                kind: issue.kind,
+                severity: issue.severity,
+                status: issue.status,
+                expectedBehavior: issue.expectedBehavior,
                 actualBehavior: issue.actualBehavior,
                 narrativeMarkdown: issue.narrativeMarkdown,
                 evidence,
-                suspectedCause: parseSuspectedCause(issue.suspectedCause),
+                suspectedCause: issue.suspectedCause,
                 primaryScreenshot,
-                resolvedAt: issue.resolvedAt ?? undefined,
+                resolvedAt: issue.resolvedAt,
                 findingInstances,
             };
         } catch (error) {
@@ -636,40 +437,14 @@ export class BranchesService extends Service {
         this.logger.info("Getting analysis snapshot issue changes", { extra: { snapshotId } });
         const empty: AnalysisSnapshotIssueChanges = { opened: [], carriedForward: [], resolved: [] };
         try {
-            const job = await this.db.analysisJob.findFirst({
-                where: { snapshotId, organizationId },
-                select: {
-                    startedAt: true,
-                    completedAt: true,
-                    snapshot: { select: { branchId: true, createdAt: true } },
-                },
-            });
-            if (job == null) return empty;
-            const windowStart = job.startedAt ?? job.snapshot.createdAt;
-            const windowEnd = job.completedAt ?? new Date();
+            const lifecycle = (await this.analysisStore.lifecycles([snapshotId], { organizationId })).get(snapshotId);
+            if (lifecycle == null) return empty;
 
-            const [touched, resolvedRows] = await Promise.all([
-                this.db.analysisIssue.findMany({
-                    where: { organizationId, findings: { some: { reportSnapshotId: snapshotId } } },
-                    select: analysisIssueSummarySelect,
-                }),
-                this.db.analysisIssue.findMany({
-                    where: {
-                        branchId: job.snapshot.branchId,
-                        organizationId,
-                        status: "resolved",
-                        resolvedAt: { gte: windowStart, lte: windowEnd },
-                    },
-                    select: analysisIssueSummarySelect,
-                }),
-            ]);
-
-            const openedRows = touched.filter((issue) => issue.createdAt >= windowStart);
-            const carriedRows = touched.filter((issue) => issue.createdAt < windowStart);
+            const changes = await this.analysisStore.forAnalysis(snapshotId).issueChanges();
             const [opened, carriedForward, resolved] = await Promise.all([
-                this.toIssueSummaries(openedRows),
-                this.toIssueSummaries(carriedRows),
-                this.toIssueSummaries(resolvedRows),
+                this.toIssueSummaries(changes.opened),
+                this.toIssueSummaries(changes.carriedForward),
+                this.toIssueSummaries(changes.resolved),
             ]);
             this.logger.info("Analysis snapshot issue changes assembled", {
                 extra: {
@@ -715,63 +490,37 @@ export class BranchesService extends Service {
                 return { status: "no_analysis" };
             }
 
-            // The newest report, the newest job, and the branch's open issues are independent reads: the job answers
-            // "is a run going" even when a report exists, and the issues are branch-scoped, so none feeds another.
-            const [report, latestJob, issueRows] = await Promise.all([
-                this.db.analysisReport.findFirst({
-                    where: { organizationId, snapshot: { branchId: branch.id } },
-                    orderBy: { snapshot: { createdAt: "desc" } },
-                    select: {
-                        snapshotId: true,
-                        verdict: true,
-                        title: true,
-                        headline: true,
-                        flows: true,
-                        reportMarkdown: true,
-                        evidenceManifest: true,
-                        coverage: true,
-                        testCount: true,
-                        clientBugCount: true,
-                        impactReasoning: true,
-                        snapshot: { select: { createdAt: true } },
-                    },
-                }),
-                this.db.analysisJob.findFirst({
-                    where: { organizationId, snapshot: { branchId: branch.id } },
-                    orderBy: { snapshot: { createdAt: "desc" } },
-                    select: { status: true, failureReason: true, snapshot: { select: { createdAt: true } } },
-                }),
-                this.db.analysisIssue.findMany({
-                    where: { branchId: branch.id, organizationId, status: "open" },
-                    // The comparator below ranks only kind then severity, and the sort is stable - so without a
-                    // deterministic tiebreaker two equally-severe bugs would come back in whatever order Postgres
-                    // produced and could reshuffle between identical calls.
-                    orderBy: { id: "asc" },
-                    select: analysisPrIssueSelect,
-                }),
+            const ledger = this.analysisStore.forBranch(branch.id);
+            // The lifecycle answers "is a run going" even when a report exists, so it is read alongside rather
+            // than derived from one.
+            const [verdict, report, latestLifecycle, issueRows] = await Promise.all([
+                ledger.verdict(),
+                ledger.latestReport(),
+                ledger.latestLifecycle(),
+                ledger.openIssues(),
             ]);
 
-            // No job at all means this PR was never analyzed by this pipeline - distinct from a run that produced
-            // nothing, so the caller can point the reader somewhere else instead of claiming the PR is clean.
-            if (latestJob == null) {
+            // No lifecycle at all means this PR was never analyzed by this pipeline - distinct from a run that
+            // produced nothing, so the caller can point the reader somewhere else instead of claiming a clean PR.
+            if (latestLifecycle == null) {
                 this.logger.info("No analysis job for PR", { applicationId, prNumber });
                 return { status: "no_analysis" };
             }
             if (report == null) {
-                if (latestJob.status === "failed") {
+                if (latestLifecycle.status === "failed") {
                     this.logger.info("Analysis run failed before producing a report", { applicationId, prNumber });
-                    return { status: "failed", failureReason: latestJob.failureReason ?? undefined };
+                    return { status: "failed", failureReason: latestLifecycle.failureReason };
                 }
                 this.logger.info("Analysis run has not produced a report yet", { applicationId, prNumber });
                 return { status: "in_progress" };
             }
 
             const appSlug = branch.application.slug;
-            const [issues, reportEvidence] = await Promise.all([
+            const [issues, reportEvidence, latestRun] = await Promise.all([
                 this.toPrIssues(issueRows, appSlug, prNumber),
-                this.signEvidenceManifest(report.reportMarkdown, parseEvidenceManifest(report.evidenceManifest)),
+                this.signEvidenceManifest(report.reportMarkdown, report.evidenceManifest),
+                this.analysisStore.forAnalysis(report.snapshotId).planeSummary(),
             ]);
-            const coverage = coverageSummarySchema.safeParse(report.coverage);
 
             this.logger.info("Analysis for PR assembled", {
                 applicationId,
@@ -780,20 +529,17 @@ export class BranchesService extends Service {
             });
             return {
                 status: "complete",
-                verdict: this.toAppHealthVerdict(report.verdict, report.snapshotId),
-                // Both prose columns are NOT NULL, but a row predating the Reporter carries "" - treat empty as absent.
-                title: report.title,
-                headline: report.headline,
-                flows: parseAnalysisFlows(report.flows),
+                verdict,
+                title: report.title ?? "",
+                headline: report.headline ?? "",
+                flows: report.flows,
                 reportMarkdown: report.reportMarkdown,
                 reportEvidence,
-                coverage: coverage.success ? coverage.data : undefined,
-                testCount: report.testCount,
-                clientBugCount: report.clientBugCount,
-                impactReasoning: report.impactReasoning ?? undefined,
+                coverage: latestRun.coverage,
+                impactReasoning: report.impactReasoning,
                 prUrl: buildPrPageUrl(env.APP_URL, appSlug, prNumber),
                 issues,
-                newerRun: newerRunFrom(latestJob, report.snapshot.createdAt),
+                newerRun: newerRunFrom(latestLifecycle, report.snapshotCreatedAt),
             };
         } catch (error) {
             this.logger.warn("Could not load analysis for PR", { applicationId, prNumber, err: error });
@@ -801,58 +547,51 @@ export class BranchesService extends Service {
         }
     }
 
-    /** Validate + order the open issues (most actionable first, via the shared comparator), mapping each for the API. */
-    private async toPrIssues(
-        rows: AnalysisPrIssueRow[],
-        appSlug: string,
-        prNumber: number,
-    ): Promise<AnalysisPrIssue[]> {
-        const mapped = await Promise.all(rows.map((row) => this.toPrIssue(row, appSlug, prNumber)));
-        return mapped
-            .filter((issue): issue is AnalysisPrIssue => issue != null)
-            .sort((left, right) => compareAnalysisIssues(left, right));
+    /** Degrades to an empty map: the rail must still render when the analysis tables are unreachable. */
+    private async loadLifecycles(
+        snapshotIds: string[],
+        organizationId: string,
+    ): Promise<Map<string, AnalysisLifecycleSummary>> {
+        try {
+            return await this.analysisStore.lifecycles(snapshotIds, { organizationId });
+        } catch (error) {
+            this.logger.warn("Could not load analysis lifecycles; presenting the snapshots as unanalyzed", {
+                extra: { count: snapshotIds.length },
+                err: error,
+            });
+            return new Map();
+        }
+    }
+
+    private async toPrIssues(issues: Issue[], appSlug: string, prNumber: number): Promise<AnalysisPrIssue[]> {
+        return Promise.all(issues.map((issue) => this.toPrIssue(issue, appSlug, prNumber)));
     }
 
     /**
      * One open issue as an API consumer reads it: the behavior claim, the grounded cause, signed media, and the two
      * links that mean different things - the branch-scoped ISSUE (the cross-snapshot case) and the specific RUN that
-     * reproduces it. A malformed enum column skips the row rather than surfacing it half-parsed.
+     * reproduces it. The ledger already validated the row.
      */
-    private async toPrIssue(
-        row: AnalysisPrIssueRow,
-        appSlug: string,
-        prNumber: number,
-    ): Promise<AnalysisPrIssue | undefined> {
-        const kind = analysisIssueKindSchema.safeParse(row.kind);
-        const severity = analysisIssueSeveritySchema.safeParse(row.severity);
-        if (!kind.success || !severity.success) {
-            this.logger.warn("Skipping analysis issue with a malformed enum column", {
-                extra: { issueId: row.id, kind: row.kind, severity: row.severity },
-            });
-            return undefined;
-        }
-
-        const designated = pickDesignatedRun(row.primaryTestCaseId ?? undefined, row.findings);
-        const primary = parsePrimaryScreenshot(row.primaryScreenshot);
-        const clipKey = designated?.currentClassification?.clipKey ?? undefined;
+    private async toPrIssue(issue: Issue, appSlug: string, prNumber: number): Promise<AnalysisPrIssue> {
+        const designated = issue.designatedRun;
         const [screenshotUrl, clipUrl] = await Promise.all([
-            primary != null ? this.signMediaUrl(primary.s3Key) : undefined,
-            clipKey != null ? this.signMediaUrl(clipKey) : undefined,
+            issue.primaryScreenshot != null ? this.signMediaUrl(issue.primaryScreenshot.s3Key) : undefined,
+            designated?.clipKey != null ? this.signMediaUrl(designated.clipKey) : undefined,
         ]);
 
         return {
-            id: row.id,
-            title: row.title,
-            kind: kind.data,
-            severity: severity.data,
-            expectedBehavior: row.expectedBehavior ?? undefined,
-            actualBehavior: row.actualBehavior,
-            suspectedCause: parseSuspectedCause(row.suspectedCause),
+            id: issue.id,
+            title: issue.title,
+            kind: issue.kind,
+            severity: issue.severity,
+            expectedBehavior: issue.expectedBehavior,
+            actualBehavior: issue.actualBehavior,
+            suspectedCause: issue.suspectedCause,
             screenshotUrl,
             clipUrl,
             // Distinct snapshots, not finding rows: one run can attribute several findings to the same issue.
-            runCount: new Set(row.findings.map((finding) => finding.reportSnapshotId)).size,
-            issueUrl: buildAnalysisIssueUrl(env.APP_URL, appSlug, prNumber, row.id),
+            runCount: new Set(issue.coveredFindings.map((finding) => finding.snapshotId)).size,
+            issueUrl: buildAnalysisIssueUrl(env.APP_URL, appSlug, prNumber, issue.id),
             // Unlike the PR comment (which only offers a replay when there is a clip to watch), the run link is worth
             // returning whenever a reproduction was designated - a reader here can inspect the run itself.
             replayUrl:
@@ -861,11 +600,11 @@ export class BranchesService extends Service {
                           env.APP_URL,
                           appSlug,
                           prNumber,
-                          designated.reportSnapshotId,
-                          designated.id,
+                          designated.snapshotId,
+                          designated.findingId,
                       )
                     : undefined,
-            coveredTests: coveredTestsForIssue(row),
+            coveredTests: coveredTestsForIssue(issue),
         };
     }
 
@@ -924,48 +663,21 @@ export class BranchesService extends Service {
         return { ...step, screenshotUrl };
     }
 
-    /**
-     * The run's stored verdict as the typed enum. The column is a plain string (matching the analysis island), and
-     * the Reporter only ever writes `client_bug` or `passed`. An unrecognized value degrades to `client_bug`: the
-     * verdict gates whether the PR reads as healthy, so an unreadable one must not be reported as a clean pass.
-     */
-    private toAppHealthVerdict(stored: string, snapshotId: string): AnalysisVerdict {
-        const parsed = analysisVerdictSchema.safeParse(stored);
-        if (parsed.success) return parsed.data;
-        this.logger.warn("Analysis report has an unrecognized verdict; reporting it as a bug rather than a pass", {
-            extra: { snapshotId, verdict: stored },
-        });
-        return analysisVerdictSchema.enum.client_bug;
+    private async toIssueSummaries(issues: Issue[]): Promise<AnalysisIssueSummary[]> {
+        const summaries = await Promise.all(issues.map((issue) => this.toIssueSummary(issue)));
+        return summaries;
     }
 
-    /** Map + validate a batch of issue rows into summaries, dropping malformed ones, ordered bugs-first/severity. */
-    private async toIssueSummaries(rows: AnalysisIssueSummaryRow[]): Promise<AnalysisIssueSummary[]> {
-        const summaries = await Promise.all(rows.map((row) => this.toIssueSummary(row)));
-        return summaries
-            .filter((summary): summary is AnalysisIssueSummary => summary != null)
-            .sort(compareAnalysisIssues);
-    }
-
-    /** One issue row → its list/change summary: validated header + signed thumbnail + distinct-run recurrence. */
-    private async toIssueSummary(row: AnalysisIssueSummaryRow): Promise<AnalysisIssueSummary | undefined> {
-        const kind = analysisIssueKindSchema.safeParse(row.kind);
-        const severity = analysisIssueSeveritySchema.safeParse(row.severity);
-        const status = analysisIssueStatusSchema.safeParse(row.status);
-        if (!kind.success || !severity.success || !status.success) {
-            this.logger.warn("Skipping malformed analysis issue in list", {
-                extra: { issueId: row.id, kind: row.kind, severity: row.severity, status: row.status },
-            });
-            return undefined;
-        }
-        const thumbnailUrl = await this.signIssueThumbnail(parsePrimaryScreenshot(row.primaryScreenshot));
+    private async toIssueSummary(issue: Issue): Promise<AnalysisIssueSummary> {
+        const thumbnailUrl = await this.signIssueThumbnail(issue.primaryScreenshot);
         // Distinct snapshots, not finding rows: one run can attribute several findings to the same issue.
-        const runCount = new Set(row.findings.map((finding) => finding.reportSnapshotId)).size;
+        const runCount = new Set(issue.coveredFindings.map((finding) => finding.snapshotId)).size;
         return {
-            id: row.id,
-            title: row.title,
-            kind: kind.data,
-            severity: severity.data,
-            status: status.data,
+            id: issue.id,
+            title: issue.title,
+            kind: issue.kind,
+            severity: issue.severity,
+            status: issue.status,
             thumbnailUrl,
             runCount,
         };
@@ -976,27 +688,19 @@ export class BranchesService extends Service {
      * shows the verdict its run stands behind, so a finding still mid-run (no classification yet) is skipped
      * rather than listed with nothing to say.
      */
-    private toIssueFindingInstances(
-        findings: {
-            id: string;
-            testCase: { slug: string };
-            currentClassification: { category: string; headline: string } | null;
-            reportSnapshotId: string;
-            job: { snapshot: { createdAt: Date; headSha: string | null } };
-        }[],
-    ): AnalysisIssueFindingInstance[] {
+    private toIssueFindingInstances(findings: CoveredFinding[]): AnalysisIssueFindingInstance[] {
         return findings
             .flatMap((finding) => {
-                if (finding.currentClassification == null) return [];
+                if (finding.category == null || finding.headline == null) return [];
                 return [
                     {
-                        snapshotId: finding.reportSnapshotId,
-                        snapshotCreatedAt: finding.job.snapshot.createdAt,
-                        headSha: finding.job.snapshot.headSha ?? undefined,
-                        findingId: finding.id,
-                        slug: finding.testCase.slug,
-                        category: finding.currentClassification.category,
-                        headline: finding.currentClassification.headline,
+                        snapshotId: finding.snapshotId,
+                        snapshotCreatedAt: finding.snapshotCreatedAt,
+                        headSha: finding.headSha,
+                        findingId: finding.findingId,
+                        slug: finding.slug,
+                        category: finding.category,
+                        headline: finding.headline,
                     },
                 ];
             })
@@ -1010,9 +714,10 @@ export class BranchesService extends Service {
      * broken image. Mirrors the bug-detail evidence resolution.
      */
     private async signEvidenceManifest(
-        narrativeMarkdown: string,
+        narrativeMarkdown: string | undefined,
         manifest: EvidenceManifestEntry[],
     ): Promise<ResolvedEvidenceAsset[]> {
+        if (narrativeMarkdown == null) return [];
         const referencedIds = new Set(extractEvidenceAssetIds(narrativeMarkdown));
         const referenced = manifest.filter((asset) => referencedIds.has(asset.assetId));
         const resolved = await Promise.all(
@@ -1133,14 +838,12 @@ export class BranchesService extends Service {
             .filter((s): s is NonNullable<typeof s> => s != null)
             .map((s) => ({ id: s.id, status: s.status }));
 
-        const [healthBySnapshot, authoritativeBySnapshot, previewUrlByPr, previewStateByPr, latestRunByBranch] =
+        const [healthBySnapshot, lifecycleBySnapshot, previewUrlByPr, previewStateByPr, latestRunByBranch] =
             await Promise.all([
                 aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
-                loadAuthoritativeCheckpointInputs(
-                    this.db,
-                    organizationId,
+                this.loadLifecycles(
                     activeSnapshots.map((s) => s.id),
-                    this.logger,
+                    organizationId,
                 ),
                 this.loadPreviewUrlsByPr(
                     applicationId,
@@ -1160,16 +863,15 @@ export class BranchesService extends Service {
         this.prCache.kickOff(applicationId, organizationId);
 
         const items = branches.map(({ prInfo, activeSnapshot, ...branch }) => {
-            // No active snapshot: nothing to present. A snapshot that exists always goes through `presentCheckpoint`,
-            // the one place the legacy-vs-authoritative fork lives.
-            const { summary, health } =
+            const checkpoint =
                 activeSnapshot != null
                     ? presentCheckpoint({
-                          snapshotStatus: activeSnapshot.status,
+                          lifecycle: lifecycleBySnapshot.get(activeSnapshot.id),
                           healthResult: healthBySnapshot.get(activeSnapshot.id),
-                          authoritative: authoritativeBySnapshot.get(activeSnapshot.id),
                       })
-                    : { summary: undefined, health: "unknown" as const };
+                    : undefined;
+            const summary = checkpoint?.summary;
+            const health = checkpoint?.health ?? "unknown";
 
             const prStatus = computePrPipelineStatus({
                 activeSnapshot:
@@ -1341,13 +1043,11 @@ export class BranchesService extends Service {
                 ? [{ id: branch.activeSnapshot.id, status: branch.activeSnapshot.status }]
                 : [];
 
-        const [healthBySnapshot, authoritativeBySnapshot, previewStateByPr, latestRunByBranch] = await Promise.all([
+        const [healthBySnapshot, lifecycleBySnapshot, previewStateByPr, latestRunByBranch] = await Promise.all([
             aggregateSnapshotHealth(this.db, activeSnapshots, this.logger),
-            loadAuthoritativeCheckpointInputs(
-                this.db,
-                organizationId,
+            this.loadLifecycles(
                 activeSnapshots.map((s) => s.id),
-                this.logger,
+                organizationId,
             ),
             this.loadPreviewStateByPr(applicationId, organizationId, [prNumber]),
             this.loadLatestRunByBranch([branchId]),
@@ -1357,10 +1057,9 @@ export class BranchesService extends Service {
         const summary =
             active != null
                 ? presentCheckpoint({
-                      snapshotStatus: active.status,
+                      lifecycle: lifecycleBySnapshot.get(active.id),
                       healthResult: healthBySnapshot.get(active.id),
-                      authoritative: authoritativeBySnapshot.get(active.id),
-                  }).summary
+                  })?.summary
                 : undefined;
 
         return computePrPipelineStatus({
@@ -1379,22 +1078,7 @@ export class BranchesService extends Service {
     private async loadLatestRunByBranch(
         branchIds: string[],
     ): Promise<Map<string, { status: string; headSha?: string }>> {
-        if (branchIds.length === 0) return new Map();
-
-        const snapshots = await this.db.branchSnapshot.findMany({
-            where: {
-                branchId: { in: branchIds },
-                status: { not: "cancelled" },
-                investigationParent: { is: null },
-            },
-            orderBy: { createdAt: "desc" },
-            distinct: ["branchId"],
-            select: { branchId: true, status: true, headSha: true },
-        });
-
-        return new Map(
-            snapshots.map((s) => [s.branchId, { status: s.status, headSha: s.headSha ?? undefined }] as const),
-        );
+        return this.suite.latestRuns(branchIds);
     }
 
     async getBranchByName(applicationId: string, branchName: string, organizationId: string) {
@@ -1453,6 +1137,11 @@ export class BranchesService extends Service {
         return { ...branch, activeSnapshot: branch.activeSnapshot };
     }
 
+    /**
+     * The branch's snapshot history, newest first. The ordering and the filter (non-cancelled, non-twin) are
+     * part of the contract and match {@link TestSuiteStore.latestRuns}, so the first element is the branch's
+     * latest run and a client never re-sorts to find it.
+     */
     async listSnapshots(branchId: string, organizationId: string) {
         this.logger.info("Listing snapshots", { branchId });
 
@@ -1485,7 +1174,7 @@ export class BranchesService extends Service {
         });
 
         const snapshotIds = snapshots.map((s) => s.id);
-        const [changeSummaryBySnapshot, healthBySnapshot, authoritativeBySnapshot] = await Promise.all([
+        const [changeSummaryBySnapshot, healthBySnapshot, lifecycleBySnapshot] = await Promise.all([
             this.suite.summarizeChanges(
                 snapshots.map((s) => ({ snapshotId: s.id, prevSnapshotId: s.prevSnapshotId ?? undefined })),
             ),
@@ -1494,21 +1183,20 @@ export class BranchesService extends Service {
                 snapshots.map((s) => ({ id: s.id, status: s.status })),
                 this.logger,
             ),
-            loadAuthoritativeCheckpointInputs(this.db, organizationId, snapshotIds, this.logger),
+            this.loadLifecycles(snapshotIds, organizationId),
         ]);
 
         return snapshots.map((snapshot) => {
             const changeSummary = changeSummaryBySnapshot.get(snapshot.id) ?? NO_SUITE_CHANGES;
-            const { summary, health } = presentCheckpoint({
-                snapshotStatus: snapshot.status,
+            const checkpoint = presentCheckpoint({
+                lifecycle: lifecycleBySnapshot.get(snapshot.id),
                 healthResult: healthBySnapshot.get(snapshot.id),
-                authoritative: authoritativeBySnapshot.get(snapshot.id),
                 suiteChangeCount: changeSummary.added + changeSummary.removed + changeSummary.updated,
             });
             return {
                 ...snapshot,
                 changeSummary,
-                health,
+                health: checkpoint?.health ?? "unknown",
                 healthCounts: healthBySnapshot.get(snapshot.id)?.counts ?? {
                     failing: 0,
                     passing: 0,
@@ -1517,7 +1205,9 @@ export class BranchesService extends Service {
                     notAffected: snapshot._count.testCaseAssignments,
                     totalTests: snapshot._count.testCaseAssignments,
                 },
-                summary,
+                summary: checkpoint?.summary,
+                analyzed: checkpoint != null,
+                settled: checkpoint?.settled ?? false,
             };
         });
     }
@@ -1603,29 +1293,33 @@ export class BranchesService extends Service {
             ? loadCreatedTests(this.db, snapshotId, createdTestCaseIds, this.logger)
             : Promise.resolve([]);
 
-        const [executedTests, assignmentCount, createdTests] = await Promise.all([
+        const [executedTests, assignmentCount, createdTests, lifecycleBySnapshot] = await Promise.all([
             listExecutedTestsForSnapshot(this.db, snapshotId),
             this.db.testCaseAssignment.count({ where: { snapshotId } }),
             createdTestsPromise,
+            this.loadLifecycles([snapshotId], organizationId),
         ]);
         const counts = this.computeHealthCounts(assignmentCount, executedTests);
-        const health = computeSnapshotHealth(snapshot.status, counts);
 
         const suiteChangeCount = changes.filter(
             (c) => c.type === "added" || c.type === "updated" || c.type === "removed",
         ).length;
-        // NOTE: no authoritative branch here. `snapshotDetail.summary` is fanned out per snapshot by the legacy PR
-        // overview card and is never rendered on an authoritative surface (the authoritative report page reads its
-        // verdict from the AnalysisReport / loadSnapshotReport header), so it stays on the cheap legacy path.
-        const summary = buildCheckpointSummary({ snapshotStatus: snapshot.status, counts, suiteChangeCount });
+        const health = computeSnapshotHealth(snapshot.status, counts);
+        const checkpoint = presentCheckpoint({
+            lifecycle: lifecycleBySnapshot.get(snapshotId),
+            healthResult: { health, counts },
+            suiteChangeCount,
+        });
 
         return {
             snapshot: flatSnapshot,
             changes,
             createdTests,
-            health,
+            health: checkpoint?.health ?? health,
             healthCounts: counts,
-            summary,
+            summary: checkpoint?.summary,
+            analyzed: checkpoint != null,
+            settled: checkpoint?.settled ?? false,
             executedTests,
         };
     }
@@ -1818,50 +1512,6 @@ function prInfoStateFilter(state: PullRequestStateFilter): Prisma.FeatureBranchI
 
 /** A snapshot's checkpoint presentation: the badge summary and the raw health signal - the two fields the PR list,
  * the checkpoint rail and the PR pipeline status each render off one snapshot. */
-interface CheckpointPresentation {
-    summary: CheckpointPresentationSummary | undefined;
-    health: SnapshotHealth;
-}
-
-/**
- * The ONE place the legacy-vs-authoritative choice is made. An authoritative snapshot (the merged analysis pipeline
- * ran, so `authoritative` is set) derives both fields from the AnalysisReport verdict + finding categories; a legacy
- * snapshot derives them from the health model the analysis pipeline does not populate. Every surface that renders a
- * checkpoint calls this rather than re-deriving the fork per field, so the badge and the raw `health` beside it can
- * never disagree about which pipeline ran. The bug count itself lives on `summary.analysis`, authored once.
- */
-function presentCheckpoint(input: {
-    snapshotStatus: string;
-    healthResult: SnapshotHealthResult | undefined;
-    authoritative: LoadedAuthoritativeInputs | undefined;
-    suiteChangeCount?: number;
-}): CheckpointPresentation {
-    const { snapshotStatus, healthResult, authoritative } = input;
-    if (authoritative != null) {
-        return {
-            summary: buildAuthoritativeCheckpointSummary({
-                jobStatus: authoritative.jobStatus,
-                findingBuckets: authoritative.findingBuckets,
-                bugCount: authoritative.bugCount,
-                totalTests: healthResult?.counts.totalTests,
-                suiteChangeCount: input.suiteChangeCount,
-            }),
-            health: authoritativeSnapshotHealth(authoritative),
-        };
-    }
-    return {
-        summary:
-            healthResult != null
-                ? buildCheckpointSummary({
-                      snapshotStatus,
-                      counts: healthResult.counts,
-                      suiteChangeCount: input.suiteChangeCount,
-                  })
-                : undefined,
-        health: healthResult?.health ?? "unknown",
-    };
-}
-
 const PreviewUrlsSchema = z.record(z.string(), z.string());
 
 function firstPreviewUrl(urls: unknown): string | undefined {

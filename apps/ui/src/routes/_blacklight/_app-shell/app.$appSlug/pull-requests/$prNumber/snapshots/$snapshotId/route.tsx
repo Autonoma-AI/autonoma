@@ -57,10 +57,10 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
   const { appSlug } = Route.useParams();
   const { data: report } = useSnapshotReport(snapshotId);
   const { data: detail } = useFullSnapshotDetail(snapshotId);
-  // The `AnalysisJob` (null for a diffs snapshot) is the page-level gate: its presence means the merged pipeline
-  // ran, so render the authoritative layout even before a report exists. The report supplies the content once it
-  // lands and polls until then (driven by the job's status); while it is still null the run's lifecycle status
-  // stands in. Both are prefetched in the loader, so neither flashes.
+  // `detail.analyzed` is the page-level gate, so this page cannot choose a different pipeline than the header
+  // badge above it. The report supplies the content once it lands and polls until then (driven by the job's
+  // status); while it is still null the run's lifecycle status stands in.
+  const { analyzed } = detail;
   const { data: analysisJob } = useAnalysisJob(snapshotId);
   const { data: analysisReport } = useAnalysisReport(snapshotId, { jobStatus: analysisJob?.status });
   const location = useLocation();
@@ -80,7 +80,7 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
         <div className="flex flex-col lg:min-h-0 lg:flex-1">
           <Outlet />
         </div>
-      ) : analysisJob != null ? (
+      ) : analyzed ? (
         analysisReport != null ? (
           <div className="flex flex-col gap-6">
             <AnalysisReportBody report={analysisReport} prNumber={prNumber} snapshotId={snapshotId} />
@@ -92,9 +92,9 @@ function SnapshotReportContent({ prNumber, snapshotId }: { prNumber: number; sna
               />
             )}
           </div>
-        ) : (
+        ) : analysisJob != null ? (
           <AnalysisJobStatus job={analysisJob} />
-        )
+        ) : undefined
       ) : (
         <SnapshotReportBody detail={detail} prNumber={prNumber} />
       )}

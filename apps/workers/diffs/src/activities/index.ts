@@ -9,6 +9,7 @@ import { deleteAnalysisTest as deleteAnalysisTestImpl } from "./analysis/delete-
 import { openAnalysisRun } from "./analysis/open-analysis-run";
 import { openMergeGate as openMergeGateImpl } from "./analysis/open-merge-gate";
 import { persistAnalysisClassification as persistAnalysisClassificationImpl } from "./analysis/persist-classification";
+import { recordAnalysisContainment as recordAnalysisContainmentImpl } from "./analysis/record-analysis-containment";
 import { revertSelfHealPlan as revertSelfHealPlanImpl } from "./analysis/revert-self-heal-plan";
 import { runImpactAnalysis as runImpactAnalysisImpl } from "./analysis/run-impact-analysis";
 import { runReporter as runReporterImpl } from "./analysis/run-reporter";
@@ -61,6 +62,7 @@ export const selfHealAnalysisTest = withHeartbeat(selfHealAnalysisTestImpl);
 export const revertSelfHealPlan = withHeartbeat(revertSelfHealPlanImpl);
 export const deleteAnalysisTest = withHeartbeat(deleteAnalysisTestImpl);
 export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassificationImpl);
+export const recordAnalysisContainment = withHeartbeat(recordAnalysisContainmentImpl);
 
 // Compile-time check: this worker implements the whole DIFFS-queue contract - the run's stages, the per-test
 // classify, and the Investigator's row-local writes.
@@ -74,6 +76,7 @@ export const persistAnalysisClassification = withHeartbeat(persistAnalysisClassi
     revertSelfHealPlan,
     deleteAnalysisTest,
     persistAnalysisClassification,
+    recordAnalysisContainment,
     runReporter,
     settleAnalysisRun,
 }) satisfies AnalysisActivities;

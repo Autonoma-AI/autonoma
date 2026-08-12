@@ -32,13 +32,6 @@ import { TaskQueue } from "../task-queues";
  */
 const MAX_INVESTIGATOR_ITERATIONS = 2;
 
-/**
- * The classification slot the PARENT files a crashed child's containment fault under. Past every slot the child
- * could have used, so containing a crash never restates an iteration the child did reach - and re-containing the
- * same child restates its own row rather than appending a second fault.
- */
-export const CONTAINMENT_CLASSIFICATION_NUMBER = MAX_INVESTIGATOR_ITERATIONS + 1;
-
 /** How much of a fault's underlying error message to carry into the finding headline (the rest is only logged). */
 const FAULT_DETAIL_CAP = 200;
 

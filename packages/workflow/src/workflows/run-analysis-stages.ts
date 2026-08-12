@@ -24,6 +24,12 @@ export async function runAnalysisStages(
     log.info("Investigators complete", { ...ids, extra: { candidateCount: candidates.length } });
 
     const reporter = await analysis.runReporter({ snapshotId, impactReasoning: impact.reasoning });
+    if (!reporter.persisted) {
+        // Not a failure. The caller's settlement wrapper still runs, and its compare-and-swap makes the
+        // external effects no-ops for a superseded run.
+        log.warn("Reporter result discarded", { ...ids, extra: { reason: reporter.reason } });
+        return;
+    }
     log.info("Reporter complete", {
         ...ids,
         extra: {

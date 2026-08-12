@@ -8,13 +8,13 @@
  */
 
 /**
- * The shape this rule needs from a finding: which test it is about, and when its run happened (findings key to the
- * `AnalysisJob`, so the timestamp comes via the job's snapshot). Structural, so each caller keeps its own row type
- * and gets it back unchanged.
+ * The shape this rule needs from a finding: which test it is about, and when its run happened. Structural and
+ * flat, so each caller keeps its own row type - projecting the timestamp on when its rows nest it (findings key
+ * to the `AnalysisJob`, so a Prisma row carries it as `job.snapshot.createdAt`) - and gets it back unchanged.
  */
 export interface DesignatableFinding {
     testCaseId: string;
-    job: { snapshot: { createdAt: Date } };
+    snapshotCreatedAt: Date;
 }
 
 /**
@@ -33,6 +33,6 @@ export function pickDesignatedRun<T extends DesignatableFinding>(
     const matching = findings.filter((finding) => finding.testCaseId === primaryTestCaseId);
     return matching.reduce<T | undefined>((newest, finding) => {
         if (newest == null) return finding;
-        return finding.job.snapshot.createdAt > newest.job.snapshot.createdAt ? finding : newest;
+        return finding.snapshotCreatedAt > newest.snapshotCreatedAt ? finding : newest;
     }, undefined);
 }

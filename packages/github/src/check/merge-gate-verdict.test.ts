@@ -1,13 +1,21 @@
+import type { AnalysisVerdictSummary } from "@autonoma/types";
 import { describe, expect, it } from "vitest";
 import { buildMergeGateCheckResult, MERGE_GATE_SKIP_COMMAND, parseSkipCommand } from "./merge-gate-verdict";
 
+function verdict(summary: Partial<AnalysisVerdictSummary> & Pick<AnalysisVerdictSummary, "state">) {
+    return {
+        state: summary.state,
+        bugCount: summary.bugCount ?? 0,
+        coverageGapCount: summary.coverageGapCount ?? 0,
+        investigatedCount: summary.investigatedCount ?? 0,
+    };
+}
+
 describe("buildMergeGateCheckResult", () => {
-    it("maps a client_bug verdict to a blocking failure that tells the dev how to skip via comment", () => {
+    it("maps a bug verdict to a blocking failure that tells the dev how to skip via comment", () => {
         const result = buildMergeGateCheckResult({
-            verdict: "client_bug",
             errored: false,
-            coverageGapCount: 0,
-            investigatedCount: 2,
+            verdict: verdict({ state: "bug_found", bugCount: 2, investigatedCount: 2 }),
             clientBugTitles: ["Login button does nothing", "Checkout throws 500"],
         });
 
@@ -19,10 +27,8 @@ describe("buildMergeGateCheckResult", () => {
 
     it("maps a clean pass to success", () => {
         const result = buildMergeGateCheckResult({
-            verdict: "passed",
             errored: false,
-            coverageGapCount: 0,
-            investigatedCount: 4,
+            verdict: verdict({ state: "healthy", investigatedCount: 4 }),
             clientBugTitles: [],
         });
 
@@ -31,22 +37,18 @@ describe("buildMergeGateCheckResult", () => {
 
     it("maps a pass with coverage gaps to a non-blocking neutral warning", () => {
         const result = buildMergeGateCheckResult({
-            verdict: "passed",
             errored: false,
-            coverageGapCount: 3,
-            investigatedCount: 5,
+            verdict: verdict({ state: "not_confirmed", coverageGapCount: 3, investigatedCount: 5 }),
             clientBugTitles: [],
         });
 
         expect(result.conclusion).toBe("neutral");
     });
 
-    it("still blocks, and never titles itself '0 client bugs', when the bug list came back empty", () => {
+    it("blocks under the ledger's own count, and points at the comment when no title came with it", () => {
         const result = buildMergeGateCheckResult({
-            verdict: "client_bug",
             errored: false,
-            coverageGapCount: 0,
-            investigatedCount: 2,
+            verdict: verdict({ state: "bug_found", bugCount: 1, investigatedCount: 2 }),
             clientBugTitles: [],
         });
 
@@ -59,17 +61,13 @@ describe("buildMergeGateCheckResult", () => {
 
     it("passes a run that decided no test was needed, under a title that is not a verified run's", () => {
         const decided = buildMergeGateCheckResult({
-            verdict: "passed",
             errored: false,
-            coverageGapCount: 0,
-            investigatedCount: 0,
+            verdict: verdict({ state: "no_tests_needed" }),
             clientBugTitles: [],
         });
         const verified = buildMergeGateCheckResult({
-            verdict: "passed",
             errored: false,
-            coverageGapCount: 0,
-            investigatedCount: 4,
+            verdict: verdict({ state: "healthy", investigatedCount: 4 }),
             clientBugTitles: [],
         });
 
@@ -81,12 +79,10 @@ describe("buildMergeGateCheckResult", () => {
         expect(decided.summary).not.toContain("was not verified");
     });
 
-    it("fails open to neutral when the analysis job errored, regardless of the stale verdict", () => {
+    it("fails open to neutral when the analysis job errored, regardless of the verdict it carries", () => {
         const result = buildMergeGateCheckResult({
-            verdict: "client_bug",
             errored: true,
-            coverageGapCount: 0,
-            investigatedCount: 2,
+            verdict: verdict({ state: "bug_found", bugCount: 1, investigatedCount: 2 }),
             clientBugTitles: ["ignored while errored"],
         });
 
@@ -96,10 +92,8 @@ describe("buildMergeGateCheckResult", () => {
     it("collapses a long bug list into a '+N more' line", () => {
         const headlines = Array.from({ length: 13 }, (_, index) => `bug ${index + 1}`);
         const result = buildMergeGateCheckResult({
-            verdict: "client_bug",
             errored: false,
-            coverageGapCount: 0,
-            investigatedCount: 13,
+            verdict: verdict({ state: "bug_found", bugCount: 13, investigatedCount: 13 }),
             clientBugTitles: headlines,
         });
 

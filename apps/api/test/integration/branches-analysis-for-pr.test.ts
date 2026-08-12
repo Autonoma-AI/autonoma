@@ -1,5 +1,7 @@
+import { AnalysisStore } from "@autonoma/analysis";
 import { ApplicationArchitecture, type Application } from "@autonoma/db";
 import { expect } from "vitest";
+import { presentCheckpoint } from "../../src/routes/branches/checkpoint-presentation";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
 import { seedAnalysisFindings } from "../seed-analysis-findings";
@@ -81,7 +83,12 @@ apiTestSuite({
         test("reports a clean PR as complete with no issues", async ({ harness, seedResult: { application } }) => {
             const { branchId, prNumber } = await createPrBranch(harness, application.id, 7004);
             const { snapshotId } = await createRun(harness, branchId, { headSha: "sha-clean" });
-            await createReport(harness, snapshotId, { verdict: "passed", testCount: 3, clientBugCount: 0 });
+            await seedAnalysisFindings(harness.db, snapshotId, [
+                { slug: "clean-checkout", category: "passed" },
+                { slug: "clean-cart", category: "passed" },
+                { slug: "clean-login", category: "passed" },
+            ]);
+            await createReport(harness, snapshotId, { verdict: "passed" });
 
             const analysis = await harness.services.branches.getAnalysisForPr(
                 application.id,
@@ -90,9 +97,10 @@ apiTestSuite({
             );
 
             if (analysis.status !== "complete") throw new Error(`Expected complete, got ${analysis.status}`);
-            expect(analysis.verdict).toBe("passed");
+            expect(analysis.verdict.state).toBe("healthy");
+            expect(analysis.verdict.bugCount).toBe(0);
             expect(analysis.issues).toEqual([]);
-            expect(analysis.testCount).toBe(3);
+            expect(analysis.verdict.investigatedCount).toBe(3);
         });
 
         test("returns every open issue kind, most actionable first, with its evidence and links", async ({
@@ -103,10 +111,7 @@ apiTestSuite({
             const { snapshotId } = await createRun(harness, branchId, { headSha: "sha-issues" });
             await createReport(harness, snapshotId, {
                 verdict: "client_bug",
-                testCount: 3,
-                clientBugCount: 1,
                 impactReasoning: "Selected the checkout tests because the PR touches the cart.",
-                coverage: { byCategory: [{ category: "environment_failure", count: 1 }], total: 1 },
             });
             const findingFor = await seedAnalysisFindings(harness.db, snapshotId, [
                 {
@@ -168,7 +173,7 @@ apiTestSuite({
             // Bugs first, then the coverage-plane kinds by descending severity - the shared ordering.
             expect(analysis.issues.map((issue) => issue.kind)).toEqual(["bug", "environment", "scenario"]);
             expect(analysis.impactReasoning).toContain("checkout");
-            expect(analysis.coverage?.total).toBe(1);
+            expect(analysis.coverage?.total).toBe(2);
 
             const bug = analysis.issues[0];
             expect(bug?.expectedBehavior).toContain("places the order");
@@ -207,7 +212,7 @@ apiTestSuite({
         }) => {
             const { branchId, prNumber } = await createPrBranch(harness, application.id, 7006);
             const first = await createRun(harness, branchId, { headSha: "sha-first" });
-            await createReport(harness, first.snapshotId, { verdict: "client_bug", clientBugCount: 1 });
+            await createReport(harness, first.snapshotId, { verdict: "client_bug" });
             await createIssue(harness, branchId, {
                 title: "Still open from the last run",
                 kind: "bug",
@@ -240,7 +245,7 @@ apiTestSuite({
         }) => {
             const { branchId, prNumber } = await createPrBranch(harness, application.id, 7010);
             const first = await createRun(harness, branchId, { headSha: "sha-reported" });
-            await createReport(harness, first.snapshotId, { verdict: "client_bug", clientBugCount: 1 });
+            await createReport(harness, first.snapshotId, { verdict: "client_bug" });
             await createIssue(harness, branchId, {
                 title: "Open from the reported run",
                 kind: "bug",
@@ -270,13 +275,15 @@ apiTestSuite({
             });
         });
 
-        test("skips an issue whose severity is malformed, keeping its siblings", async ({
+        // The row still counts toward the verdict, so hiding it would leave the PR red over an issue the reader
+        // cannot see. The ledger degrades the severity to `low` instead - listed, sorted last.
+        test("lists an issue whose severity is malformed, degraded to low and sorted last", async ({
             harness,
             seedResult: { application },
         }) => {
             const { branchId, prNumber } = await createPrBranch(harness, application.id, 7007);
             const { snapshotId } = await createRun(harness, branchId, { headSha: "sha-malformed" });
-            await createReport(harness, snapshotId, { verdict: "client_bug", clientBugCount: 1 });
+            await createReport(harness, snapshotId, { verdict: "client_bug" });
             await createIssue(harness, branchId, {
                 title: "Unreadable severity",
                 kind: "bug",
@@ -297,13 +304,14 @@ apiTestSuite({
             );
 
             if (analysis.status !== "complete") throw new Error(`Expected complete, got ${analysis.status}`);
-            expect(analysis.issues.map((issue) => issue.title)).toEqual(["Readable"]);
+            expect(analysis.issues.map((issue) => issue.title)).toEqual(["Readable", "Unreadable severity"]);
+            expect(analysis.issues[1]?.severity).toBe("low");
         });
 
         test("does not serve a PR to another organization", async ({ harness, seedResult: { application } }) => {
             const { branchId, prNumber } = await createPrBranch(harness, application.id, 7008);
             const { snapshotId } = await createRun(harness, branchId, { headSha: "sha-scoped" });
-            await createReport(harness, snapshotId, { verdict: "client_bug", clientBugCount: 1 });
+            await createReport(harness, snapshotId, { verdict: "client_bug" });
 
             const analysis = await harness.services.branches.getAnalysisForPr(
                 application.id,
@@ -324,7 +332,7 @@ apiTestSuite({
                 headSha: "sha-newer",
                 createdAt: new Date(Date.now() + 60_000),
             });
-            await createReport(harness, newer.snapshotId, { verdict: "client_bug", clientBugCount: 1 });
+            await createReport(harness, newer.snapshotId, { verdict: "client_bug" });
             await seedAnalysisFindings(harness.db, older.snapshotId, [{ slug: "recurring", category: "client_bug" }]);
             const findingFor = await seedAnalysisFindings(harness.db, newer.snapshotId, [
                 { slug: "recurring", category: "client_bug" },
@@ -350,6 +358,45 @@ apiTestSuite({
             // Recurrence counts distinct runs, and the replay tracks the latest one with no re-designation.
             expect(issue?.runCount).toBe(2);
             expect(issue?.replayUrl).toContain(`/snapshots/${newer.snapshotId}/findings/${findingFor("recurring")}`);
+        });
+        // The #2285 pin: the snapshot page, the PR payload and the checkpoint badge all read the same settled
+        // report through the store, so one snapshot's verdict and bug count cannot disagree across surfaces.
+        test("the snapshot page, the PR payload and the badge cannot disagree about one snapshot", async ({
+            harness,
+            seedResult: { application },
+        }) => {
+            const { branchId, prNumber } = await createPrBranch(harness, application.id, 7042);
+            const { snapshotId } = await createRun(harness, branchId, { headSha: "sha-agree" });
+            await seedAnalysisFindings(harness.db, snapshotId, [
+                { slug: "agree-bug", category: "client_bug" },
+                { slug: "agree-passed", category: "passed" },
+                { slug: "agree-gap", category: "engine_artifact" },
+            ]);
+            await createReport(harness, snapshotId, { verdict: "client_bug" });
+            await createIssue(harness, branchId, {
+                title: "Order total regression",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "The total is wrong.",
+                slugs: ["agree-bug"],
+            });
+
+            const [forPr, reportData, lifecycles] = await Promise.all([
+                harness.services.branches.getAnalysisForPr(application.id, prNumber, harness.organizationId),
+                harness.services.branches.getAnalysisReportData(snapshotId, harness.organizationId),
+                new AnalysisStore(harness.db).lifecycles([snapshotId], { organizationId: harness.organizationId }),
+            ]);
+            const badge = presentCheckpoint({ lifecycle: lifecycles.get(snapshotId), healthResult: undefined });
+
+            if (forPr.status !== "complete") throw new Error(`Expected complete, got ${forPr.status}`);
+            // The PR payload and the snapshot page render ONE resolved verdict, so they cannot word it differently.
+            expect(forPr.verdict).toEqual(reportData?.verdict);
+            expect(forPr.verdict.state).toBe("bug_found");
+            expect(forPr.verdict.bugCount).toBe(1);
+            // The badge is per-run, and its counts come from the same findings the page reports.
+            expect(badge?.summary.analysis).toMatchObject({ bugCount: 1, passedCount: 1, coverageCount: 1 });
+            expect(reportData?.run).toMatchObject({ bugCount: 1, passedCount: 1, testCount: 3 });
+            expect(reportData?.run.coverage.total).toBe(1);
         });
     },
 });
@@ -409,28 +456,13 @@ async function createRun(
 async function createReport(
     harness: APITestHarness,
     snapshotId: string,
-    {
-        verdict,
-        testCount = 1,
-        clientBugCount = 0,
-        impactReasoning,
-        coverage,
-    }: {
-        verdict: string;
-        testCount?: number;
-        clientBugCount?: number;
-        impactReasoning?: string;
-        coverage?: { byCategory: { category: string; count: number }[]; total: number };
-    },
+    { verdict, impactReasoning }: { verdict: string; impactReasoning?: string },
 ): Promise<void> {
     await harness.db.analysisReport.create({
         data: {
             snapshotId,
             verdict,
-            testCount,
-            clientBugCount,
             impactReasoning,
-            coverage,
             title: "Autonoma checked this PR",
             headline: "One paragraph about the run.",
             reportMarkdown: "## The run\n\nWhat it found.",

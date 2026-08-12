@@ -1,60 +1,39 @@
-import { deriveAnalysisVerdict } from "@autonoma/types";
+import type { AnalysisVerdictSummary } from "@autonoma/types";
 import type { CheckRunConclusion } from "../github-installation-client";
 
-/**
- * The stable check name branch protection matches by.
- */
+/** Branch protection matches on this string, so it cannot change without breaking every configured ruleset. */
 export const MERGE_GATE_CHECK_NAME = "Autonoma";
 
-/**
- * The `Autonoma` check state while an analysis run is in flight, before the worker posts the real verdict. Shared
- * so the API's on-demand triggers and the worker's auto-run-on-ready `openMergeGate` render the identical state.
- */
+/** Shared, so the API's on-demand triggers and the worker's auto-run render the identical in-flight state. */
 export const MERGE_GATE_IN_PROGRESS_TITLE = "Analyzing this PR";
 export const MERGE_GATE_IN_PROGRESS_SUMMARY = "Autonoma is analyzing this PR for client bugs.";
 /** Sentinel conclusion stored while a run is in flight - non-`failure`, so skip/bypass treat it as not-yet-blocking. */
 export const MERGE_GATE_IN_PROGRESS_CONCLUSION = "in_progress";
 
-/**
- * The PR comment announcing that a requested analysis run started, so the trigger's effect is visible in the
- * conversation.`actorLogin` attributes it to whoever asked (absent for the automatic auto-run-on-ready trigger).
- */
+/** `actorLogin` attributes the run to whoever asked; absent for the automatic auto-run-on-ready trigger. */
 export function buildAnalyzingCommentBody(actorLogin?: string): string {
     const requester = actorLogin != null ? ` (requested by @${actorLogin})` : "";
     return `🔍 Autonoma is analyzing this PR${requester}. This can take a few minutes.`;
 }
 
-/**
- * The slash command a developer comments on the PR to skip a blocking check.
- */
 export const MERGE_GATE_SKIP_COMMAND = "/autonoma-skip";
 
-/**
- * Name of the repository ruleset we create to require the `Autonoma` check on ALL branches, so every PR the client
- * opens is gated regardless of its base branch.
- */
+/** Requires the check on ALL branches, so a PR is gated regardless of its base branch. */
 export const MERGE_GATE_RULESET_NAME = "Autonoma merge gate";
 
-/**
- * Hidden marker on the standalone skip-attribution comment.
- */
 export const MERGE_GATE_SKIP_COMMENT_MARKER = "autonoma:merge-gate-skip:v1";
 
 /** How many bug titles to list in the check summary before collapsing the rest into a "+N more" line. */
 const MAX_LISTED_BUGS = 10;
 
 export interface MergeGateVerdictInput {
-    /** The authoritative app-health verdict from `AnalysisReport.verdict`. */
-    verdict: "client_bug" | "passed";
-    /** True when the analysis job errored (no trustworthy verdict). */
+    /** True when the analysis job errored or never reached a verdict, so there is nothing trustworthy to gate on. */
     errored: boolean;
-    /** Count of coverage-plane findings (gaps). On a `passed` verdict, >0 downgrades success to a neutral warning. */
-    coverageGapCount: number;
-    /** Tests that produced a terminal verdict this run; zero means nothing was exercised. */
-    investigatedCount: number;
+    /** The PR's resolved verdict and the counts behind it, from `BranchLedger.verdict()`. */
+    verdict: AnalysisVerdictSummary;
     /**
-     * Titles of the branch's OPEN bug issues - the same rows the verdict counts and the PR comment cards - listed in
-     * the failure summary, most severe first.
+     * Titles of the branch's OPEN bug issues - the same rows `verdict.bugCount` counts and the PR comment cards -
+     * listed in the failure summary, most severe first.
      */
     clientBugTitles: string[];
 }
@@ -66,9 +45,6 @@ export interface MergeGateCheckResult {
     summary: string;
 }
 
-/**
- * Map the authoritative verdict to the `Autonoma` check-run result.
- */
 export function buildMergeGateCheckResult(input: MergeGateVerdictInput): MergeGateCheckResult {
     if (input.errored) {
         return {
@@ -80,15 +56,7 @@ export function buildMergeGateCheckResult(input: MergeGateVerdictInput): MergeGa
         };
     }
 
-    // The headlines are the branch's open bug issues, the same rows the verdict counts, so they normally agree. Floor
-    // the count at one anyway: a bug resolved between the report being written and this check running would otherwise
-    // block under a "0 client bugs" title.
-    const bugCount = input.verdict === "client_bug" ? Math.max(input.clientBugTitles.length, 1) : 0;
-    const state = deriveAnalysisVerdict({
-        bugCount,
-        coverageGapCount: input.coverageGapCount,
-        investigatedCount: input.investigatedCount,
-    });
+    const { state, bugCount, coverageGapCount } = input.verdict;
 
     if (state === "bug_found") {
         return {
@@ -98,8 +66,7 @@ export function buildMergeGateCheckResult(input: MergeGateVerdictInput): MergeGa
         };
     }
 
-    // A decision, so it passes the check rather than sitting in the neutral bucket the reader reads as unresolved.
-    // `success` does not gate the merge, so the title is what tells this apart from a run that verified the change.
+    // A decision, not an unresolved run - so `success`, and the title is what tells it apart from a verified one.
     if (state === "no_tests_needed") {
         return {
             conclusion: "success",
@@ -115,7 +82,7 @@ export function buildMergeGateCheckResult(input: MergeGateVerdictInput): MergeGa
             conclusion: "neutral",
             title: "Could not confirm this change",
             summary:
-                `Autonoma found no client bugs, but ${input.coverageGapCount} check(s) did not complete, so the ` +
+                `Autonoma found no client bugs, but ${coverageGapCount} check(s) did not complete, so the ` +
                 "change was not fully verified. These fall on the coverage plane and do not block the merge.",
         };
     }
@@ -135,8 +102,7 @@ function buildBugSummary(headlines: string[]): string {
     const intro =
         `Autonoma found client bugs that block this merge. Fix them, or comment \`${MERGE_GATE_SKIP_COMMAND} <reason>\` ` +
         "on the PR to merge anyway.";
-    // Nothing to list means the open bugs moved between the report and this check; point at the comment rather than
-    // blocking under a summary that names nothing.
+    // A blocking check that names no bug reads as a mistake, so point at where they are listed.
     if (headlines.length === 0) {
         return [intro, "", "See the Autonoma PR comment for the bugs that block this merge."].join("\n");
     }

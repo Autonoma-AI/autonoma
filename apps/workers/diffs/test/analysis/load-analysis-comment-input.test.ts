@@ -4,6 +4,9 @@ import { expect } from "vitest";
 import { loadAnalysisCommentInput } from "../../src/activities/analysis/load-analysis-comment-input";
 import { seedGenerationForSlug } from "./seed-generation";
 
+/** When a seeded issue was resolved. Written with `status`, which is how the store reads the two as one fact. */
+const RESOLVED_AT = new Date("2026-07-01T00:00:00Z");
+
 declare global {
     // eslint-disable-next-line no-var
     var prisma: PrismaClient | undefined;
@@ -175,6 +178,7 @@ class CommentInputHarness implements IntegrationHarness {
                               kind: options.issueKind,
                               severity: options.issueSeverity ?? "high",
                               status: options.issueStatus ?? "open",
+                              resolvedAt: options.issueStatus === "resolved" ? RESOLVED_AT : null,
                               actualBehavior: "The flow never ran.",
                               narrativeMarkdown: "narrative",
                           },
@@ -209,6 +213,7 @@ class CommentInputHarness implements IntegrationHarness {
                 kind: "bug",
                 severity: options.severity ?? "critical",
                 status: options.status ?? "open",
+                resolvedAt: options.status === "resolved" ? RESOLVED_AT : null,
                 actualBehavior: "The button stayed disabled.",
                 narrativeMarkdown: "narrative",
                 primaryTestCase: {
@@ -293,15 +298,15 @@ integrationTestSuite({
             expect(loaded?.title).toBe("Checkout broken on this PR");
         });
 
-        test("skips an issue whose severity cannot be parsed rather than surfacing it malformed", async ({
-            harness,
-        }) => {
+        // The row still counts toward the verdict, so dropping its card would have the comment block on a bug it
+        // never names. The ledger degrades the severity to `low` instead - listed, sorted last.
+        test("cards an issue whose severity cannot be parsed, sorted as low", async ({ harness }) => {
             const branch = await harness.seedBranch();
-            await harness.seedIssue(branch, { severity: "catastrophic" });
+            const issueId = await harness.seedIssue(branch, { severity: "catastrophic" });
 
             const loaded = await loadAnalysisCommentInput(branch.snapshotId);
 
-            expect(loaded?.bugIssues).toEqual([]);
+            expect(loaded?.bugIssues.map((issue) => issue.id)).toEqual([issueId]);
         });
 
         test("cards only OPEN bug issues, so a resolved one leaves the comment", async ({ harness }) => {

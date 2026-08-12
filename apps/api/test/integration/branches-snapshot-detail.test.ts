@@ -2,6 +2,7 @@ import { ApplicationArchitecture } from "@autonoma/db";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
+import { seedAnalysisFindings } from "../seed-analysis-findings";
 
 apiTestSuite({
     name: "branches.snapshotDetail",
@@ -167,18 +168,65 @@ apiTestSuite({
             expect(detail.executedTests[0]).toMatchObject({ finalOutcome: "setup_failed" });
         });
 
-        test("summary reads 'No runs' (neutral), not unhealthy, with no runs", async ({ harness }) => {
-            // Assigned tests, zero runs. Must not present as "unhealthy".
+        test("an analyzed snapshot reports its analysis verdict, never the legacy 'awaiting review'", async ({
+            harness,
+        }) => {
+            // An in-flight generation on a non-processing snapshot is what used to drag a settled run to `stale`,
+            // which every surface renders as "awaiting review".
+            const fixture = await createSnapshotDetailFixture(harness);
+            const runningPlan = await createPlanFor(harness, fixture.assignments.running);
+            await createRunningGeneration(harness, fixture.snapshotId, runningPlan.id, new Date());
+            await seedSettledAnalysis(harness, fixture.snapshotId);
+
+            const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
+
+            expect(detail.analyzed).toBe(true);
+            expect(detail.settled).toBe(true);
+            expect(detail.summary?.executionState).not.toBe("stale");
+            // And it reports what the analysis concluded, not a run tally.
+            expect(detail.summary?.analysis).toMatchObject({ bugCount: 1 });
+        });
+
+        test("a snapshot the pipeline never analyzed has no summary to render", async ({ harness }) => {
+            // Assigned tests, zero runs, no analysis. Inventing a summary here is what put a fabricated verdict
+            // on a run that never happened; its health still reports, because that is a suite fact.
             const fixture = await createSnapshotDetailFixture(harness);
 
             const detail = await harness.request().branches.snapshotDetail({ snapshotId: fixture.snapshotId });
 
-            expect(detail.summary.executionState).toBe("not_started");
-            expect(detail.summary.tone).toBe("neutral");
-            expect(detail.summary.label).toBe("No runs");
+            expect(detail.analyzed).toBe(false);
+            expect(detail.settled).toBe(false);
+            expect(detail.summary).toBeUndefined();
+            // Health is a suite fact and still reports; only the analysis summary is absent.
+            expect(detail.health).toBe("healthy");
         });
     },
 });
+
+/** A completed analysis job plus the report its Reporter settled - what makes a snapshot authoritative. */
+async function seedSettledAnalysis(harness: APITestHarness, snapshotId: string) {
+    const at = new Date();
+    await harness.db.analysisJob.create({
+        data: {
+            snapshotId,
+            organizationId: harness.organizationId,
+            status: "completed",
+            startedAt: at,
+            completedAt: at,
+        },
+    });
+    await seedAnalysisFindings(harness.db, snapshotId, [{ slug: "checkout", category: "client_bug" }]);
+    await harness.db.analysisReport.create({
+        data: {
+            snapshotId,
+            organizationId: harness.organizationId,
+            verdict: "client_bug",
+            title: "Autonoma found a bug",
+            headline: "One bug.",
+            reportMarkdown: "## Report",
+        },
+    });
+}
 
 async function attachPlan(harness: APITestHarness, assignment: { id: string; testCaseId: string }) {
     const plan = await harness.db.testPlan.create({

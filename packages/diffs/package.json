@@ -20,6 +20,7 @@
     "dependencies": {
         "@ai-sdk/openai": "catalog:",
         "@autonoma/ai": "workspace:*",
+        "@autonoma/analysis": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/errors": "workspace:*",
         "@autonoma/github": "workspace:*",

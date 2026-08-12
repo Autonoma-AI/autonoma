@@ -71,16 +71,11 @@ export interface RunImpactAnalysisOutput {
 /**
  * One iteration's outcome, as the Investigator hands it to `persistAnalysisClassification`. Every run+classify
  * iteration produces one - including the ones a self-heal supersedes, which is what keeps the verdict that authored
- * a rewrite auditable after the rewrite replaces it. The parent produces one too, to contain a crashed child.
+ * a rewrite auditable after the rewrite replaces it.
  */
 export interface AnalysisCandidateClassification {
-    /**
-     * The run this iteration executed and judged. Absent only when the fan-out parent contains a
-     * child that crashed before it reliably started a run - the persist activity then resolves the
-     * test's newest run on the snapshot, or starts one (marked failed) purely so the containment
-     * has a run to hang off, and reports which run it landed on in its output.
-     */
-    generationId?: string;
+    /** The run this iteration executed and judged. */
+    generationId: string;
     /**
      * The verdict this iteration reached. A self-heal iteration and the terminal it settles on both carry
      * `plan_mismatch`, so every stored category is a valid `AnalysisVerdict`.
@@ -126,7 +121,6 @@ export interface PersistAnalysisClassificationInput {
      * Which slot of the self-heal loop this outcome occupies, 1-based - the caller's own iteration counter, never
      * derived from what is already stored. It is the write's idempotency key: filing the same slot twice restates
      * that row instead of appending a second one, so a re-execution can never invent a self-heal that never ran.
-     * A crashed child's containment lands on `CONTAINMENT_CLASSIFICATION_NUMBER`, past every real iteration.
      */
     number: number;
     /** The iteration's outcome. */
@@ -140,6 +134,24 @@ export interface PersistAnalysisClassificationOutput {
     number: number;
 }
 
+export interface RecordAnalysisContainmentInput {
+    /** The snapshot the run operates on. */
+    snapshotId: string;
+    /** The test whose investigation crashed - the finding the failure lands on is keyed on it. */
+    testCaseId: string;
+    /** Whether the test pre-existed or was authored this run. Set on the finding at its birth. */
+    origin: AnalysisTestOrigin;
+    /** Why Impact Analysis selected this test. */
+    selectionReason?: string;
+    /** The contained fault, carried onto the finding's structured `failure`. */
+    message: string;
+}
+
+export interface RecordAnalysisContainmentOutput {
+    /** The finding the failure was recorded on (created when the child never filed anything). */
+    findingId: string;
+}
+
 export interface RunReporterInput {
     snapshotId: string;
     /** The Impact Analysis stage's selection reasoning, persisted onto the AnalysisReport. Optional: absent when
@@ -147,7 +159,9 @@ export interface RunReporterInput {
     impactReasoning?: string;
 }
 
-export interface RunReporterOutput {
+/** The Reporter's result was settled: the report row, its verdict and its issue reconciliations all committed. */
+export interface ReporterPersisted {
+    persisted: true;
     /** New branch-scoped issues the Reporter opened this run. */
     issuesOpened: number;
     /** Existing issues the Reporter carried forward (re-confirmed / reopened) this run. */
@@ -159,6 +173,19 @@ export interface RunReporterOutput {
     /** The branch's open bug-kind issue count, authored onto the report as `clientBugCount`. */
     clientBugCount: number;
 }
+
+/**
+ * The Reporter's result was discarded, writing nothing: the run was superseded while the Reporter worked (its
+ * snapshot is no longer live, so its evidence describes a head the branch has moved past), or the analysis was
+ * already settled by a previous invocation. Not a Reporter failure - the workflow logs it and settles as usual,
+ * where the settlement's own compare-and-swap makes the external effects no-ops.
+ */
+export interface ReporterDiscarded {
+    persisted: false;
+    reason: "superseded" | "already_settled";
+}
+
+export type RunReporterOutput = ReporterPersisted | ReporterDiscarded;
 
 export interface SettleAnalysisRunInput {
     snapshotId: string;
@@ -391,14 +418,16 @@ export interface AnalysisActivities {
     selfHealAnalysisTest(input: SelfHealAnalysisTestInput): Promise<SelfHealAnalysisTestOutput>;
     revertSelfHealPlan(input: RevertSelfHealPlanInput): Promise<RevertSelfHealPlanOutput>;
     deleteAnalysisTest(input: DeleteAnalysisTestInput): Promise<DeleteAnalysisTestOutput>;
-    /**
-     * File one iteration's outcome as it happens. Proxied by the Investigator for its own iterations AND by the
-     * fan-out parent, which uses it to contain a child that crashed before filing - appending a fault
-     * classification rather than overwriting what the child wrote.
-     */
+    /** File one iteration's outcome as it happens - the Investigator's own per-iteration write. */
     persistAnalysisClassification(
         input: PersistAnalysisClassificationInput,
     ): Promise<PersistAnalysisClassificationOutput>;
+    /**
+     * Record a crashed Investigator child onto its test's finding as a structured `failure` - never a fake
+     * classification, so an iteration the child DID file before dying keeps being the verdict the run stands
+     * behind. Called by the fan-out parent, the only place a child's death is observed.
+     */
+    recordAnalysisContainment(input: RecordAnalysisContainmentInput): Promise<RecordAnalysisContainmentOutput>;
     runReporter(input: RunReporterInput): Promise<RunReporterOutput>;
     settleAnalysisRun(input: SettleAnalysisRunInput): Promise<SettleAnalysisRunOutput>;
 }
