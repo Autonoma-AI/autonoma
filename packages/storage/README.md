@@ -36,6 +36,9 @@ import { S3Storage } from "@autonoma/storage";
 // From environment variables (S3_BUCKET, S3_REGION, and optionally static credentials)
 const storage = S3Storage.createFromEnv();
 
+// Reuse the region and credential chain for a distinct private bucket.
+const evalArtifacts = S3Storage.createFromEnv("autonoma-dev");
+
 // Or with explicit config
 const storage = new S3Storage({
     bucket: "my-bucket",

@@ -16,11 +16,13 @@ import {
 } from "../framework";
 import { type ClassifierFrontmatter, checkClassifierVerdict } from "./classifier-frontmatter";
 import {
+    type FrozenAppLogArtifact,
     type ClassifierCaseInput,
     type FrozenAppLogWindow,
     type FrozenRunMedia,
     rehydrateClassifierInput,
 } from "./classifier-input";
+import { FrozenAppLogArtifactError, FrozenAppLogArtifactStore } from "./frozen-app-log-artifact";
 import { createFrozenAppLogsLoader } from "./frozen-app-logs";
 
 /** A loaded Classifier eval case: frozen classification input + authored expectations. */
@@ -36,9 +38,9 @@ const TIMEOUT_PER_RUN_MS = 900_000;
  * Scored eval for the Investigator's classifier.
  *
  * Each case rehydrates the codebase from frozen coords, checks every storage key it references is still
- * downloadable, fetches the run's media, and runs {@link ClassifierAgent} directly - no workflow, no DB, no
- * writes. The prior-runs baseline is served from the frozen prose and `get_app_logs` from the frozen log window;
- * the recording and the PR's diff stat are read live, so a replay grades the vision probes alongside the
+ * downloadable, fetches the run's media and private app-log artifact, and runs {@link ClassifierAgent} directly -
+ * no workflow or DB writes. The prior-runs baseline is served from frozen prose and `get_app_logs` from the frozen
+ * log window; the recording and the PR's diff stat are read live, so a replay grades the vision probes alongside the
  * reasoning and touches nothing but git, S3 and the models.
  *
  * `get_preview_env` and `get_app_logs` ARE served, from the name list and the log window frozen at capture - the
@@ -115,6 +117,7 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
         const evidenceLoader = new StorageEvidenceLoader(S3Storage.createFromEnv());
         await this.probeReferencedEvidence(media, evidenceLoader, helpers, testCase.name);
         const finalScreenshot = await this.loadFinalScreenshot(media, evidenceLoader);
+        const appLogWindow = await this.loadAppLogWindow(appLogs, helpers, testCase.name);
 
         // Imported here rather than at module scope: `services` pulls the worker's env, which demands the
         // GitHub App and OpenAI credentials at import time and would break the credential-free zero-case no-op.
@@ -146,7 +149,7 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
                 loadBaseline: async () => baseline,
                 // `previewEnv` rides in on `input` when the case froze one. `run_script` has no frozen form.
                 previewScript: undefined,
-                loadAppLogs: this.appLogsFor(appLogs, input.run),
+                loadAppLogs: this.appLogsFor(appLogWindow, input.run),
             });
             verdicts.push(verdict);
             costs.push(summarizeSessionCost(session.costCollector));
@@ -208,6 +211,29 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
             endEpoch: run.endEpoch,
             logger: this.logger,
         });
+    }
+
+    private async loadAppLogWindow(
+        artifact: FrozenAppLogArtifact | undefined,
+        helpers: RunCaseHelpers,
+        caseName: string,
+    ): Promise<FrozenAppLogWindow | undefined> {
+        if (artifact == null) return undefined;
+
+        try {
+            return await new FrozenAppLogArtifactStore(
+                S3Storage.createFromEnv(FrozenAppLogArtifactStore.bucket),
+                this.logger,
+            ).read(artifact);
+        } catch (err) {
+            if (err instanceof FrozenAppLogArtifactError) {
+                this.logger.warn("Skipping case: frozen app logs unavailable", {
+                    extra: { case: caseName, key: err.key, reason: err.message },
+                });
+                helpers.skip(`frozen app logs unavailable: ${err.message}`);
+            }
+            throw err;
+        }
     }
 
     /**
@@ -331,8 +357,8 @@ function describeMissingTools(input: ClassifierCaseInput): string {
 }
 
 /** How much log evidence the replay is serving, so a verdict resting on logs can be read against it. */
-function describeAppLogWindow(appLogs: FrozenAppLogWindow | undefined): string {
+function describeAppLogWindow(appLogs: FrozenAppLogArtifact | undefined): string {
     if (appLogs == null) return "not frozen";
     const truncation = appLogs.windowTruncated ? " (window hit its cap; older lines were not frozen)" : "";
-    return `${appLogs.lines.length} lines${truncation}`;
+    return `${appLogs.lineCount} lines${truncation}`;
 }

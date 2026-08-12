@@ -155,10 +155,11 @@ The log stream is the other one that reduces to data, and it is described below.
 
 ### The frozen app-log window
 
-`get_app_logs` **is** served on replay, from a log window frozen at capture into
-`input.json` as `appLogs`. The window is stored **unfiltered**: production interpolated
-the model's own regex into a LogQL line filter and had Loki evaluate it server-side, so
-the filter is not knowable at capture time - only the stream it would have run against.
+`get_app_logs` **is** served on replay, from an unfiltered log window frozen at capture into a private
+`autonoma-dev` object under `classifier-app-logs/`. `input.json` carries only the `s3://` reference, namespace,
+line count, truncation flag, and SHA-256 checksum; it never carries raw log lines. Production interpolated the
+model's own regex into a LogQL line filter and had Loki evaluate it server-side, so the filter is not knowable at
+capture time - only the stream it would have run against.
 
 - **Capture** freezes the whole padded run window over the same stream selector, through
   the same `queryLokiLogs`, and records `windowTruncated` when that query filled its own
@@ -248,11 +249,11 @@ eval runs never touch it.
 Capture writes the case to `evals/cases/<step>/<name>/`, alongside the ones already
 committed.
 
-`capture:classifier` additionally needs `LOKI_URL` for a previewkit-managed PR, whose
-app-log window it freezes (see [The frozen app-log
-window](#the-frozen-app-log-window)); Loki is reachable over Tailscale. A run whose logs
-have aged out, or a machine that cannot reach Loki, needs `--skip-app-logs` to capture at
-all - the default is to refuse rather than freeze a window nobody could read.
+`capture:classifier` additionally needs `LOKI_URL` for a previewkit-managed PR, whose app-log window it freezes
+(see [The frozen app-log window](#the-frozen-app-log-window)); Loki is reachable over Tailscale. It also needs
+`s3:PutObject` on `autonoma-dev/classifier-app-logs/*`; eval replay needs `s3:GetObject` on the same prefix. A run
+whose logs have aged out, or a machine that cannot reach Loki, needs `--skip-app-logs` to capture at all - the
+default is to refuse rather than freeze a window nobody could read.
 
 ```bash
 pnpm --filter @autonoma/worker-diffs capture:analysis               <snapshotId>   [--name <case-name>] [--force]

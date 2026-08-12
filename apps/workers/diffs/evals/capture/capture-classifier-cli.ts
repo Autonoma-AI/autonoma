@@ -7,9 +7,10 @@
  *
  * Run via the `capture:classifier` package script so env is loaded from the repo `.env`. Required env:
  * DATABASE_URL, the GITHUB_APP_* credentials, and LOKI_URL for a previewkit-managed PR, whose app-log window is
- * frozen rather than left to a replay that cannot read it. Neither S3 nor a model key: a case addresses its media
- * by storage key and capture calls no model, so both are the evaluation's business. `--skip-app-logs` gives up the
- * log window deliberately, for a run whose logs have aged out of Loki or a machine that cannot reach it.
+ * frozen rather than left to a replay that cannot read it. It also needs S3 access to write the raw window to the
+ * private eval-artifacts bucket; `input.json` carries only its address and integrity metadata. Capture calls no
+ * model. `--skip-app-logs` gives up the log window deliberately, for a run whose logs have aged out of Loki or a
+ * machine that cannot reach it.
  */
 
 import { parseArgs } from "node:util";

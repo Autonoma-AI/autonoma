@@ -2,6 +2,7 @@ import type { RunFacts } from "@autonoma/diffs/analysis";
 import { describe, expect, it } from "vitest";
 import {
     type ClassifierCaseSource,
+    type FrozenAppLogArtifact,
     classifierCaseInputSchema,
     rehydrateClassifierInput,
     serializeClassifierInput,
@@ -59,23 +60,25 @@ const SOURCE: ClassifierCaseSource = {
     finalScreenshotKey: "gen/abc/final.png",
     baseline: "Prior runs (most recent 3):\n- ever passed: YES",
     previewEnvNames: ["DATABASE_URL", "NEXT_PUBLIC_APP_URL", "STRIPE_SECRET_KEY"],
-    appLogs: {
-        namespace: "preview-acme-storefront-pr-1234",
-        lines: [{ timestampNs: "1770000060000000000", line: "ERROR checkout failed: ECONNREFUSED" }],
-        windowTruncated: false,
-    },
+    appLogs: artifact({ lineCount: 1 }),
     productionCapabilities: { previewkitManaged: true },
 };
 
-/** A window that filled its own capture cap, so replay must warn about older matches it never froze. */
-const TRUNCATED_WINDOW = {
-    namespace: "preview-acme-storefront-pr-1234",
-    lines: [
-        { timestampNs: "1770000060000000000", line: "ERROR checkout failed: ECONNREFUSED" },
-        { timestampNs: "1770000061000000000", line: "WARN retrying in 500ms" },
-    ],
-    windowTruncated: true,
-};
+function artifact({
+    lineCount,
+    windowTruncated = false,
+}: {
+    lineCount: number;
+    windowTruncated?: boolean;
+}): FrozenAppLogArtifact {
+    return {
+        key: "s3://autonoma-dev/classifier-app-logs/cmsqf9dyy000c0nymzl1cq85y.json",
+        namespace: "preview-acme-storefront-pr-1234",
+        lineCount,
+        windowTruncated,
+        sha256: "b".repeat(64),
+    };
+}
 
 /** Freeze, serialize to JSON and back, then reparse - exactly what the loader does with an on-disk case. */
 function throughDisk(source: ClassifierCaseSource) {
@@ -155,35 +158,35 @@ describe("classifier eval case round-trip", () => {
     });
 
     /**
-     * The app-log window is the one frozen source whose EMPTY form carries meaning: the loader states it to the
-     * model as the fact "the app emitted no matching error". So an empty window and an absent one must survive as
-     * different cases - one replays that fact, the other omits `get_app_logs` entirely.
+     * The app-log artifact is the one frozen source whose EMPTY form carries meaning: its replay states the
+     * absence of errors as fact. A zero-line artifact and an absent artifact must survive as different cases -
+     * one replays that fact, the other omits `get_app_logs` entirely.
      */
-    it("distinguishes a window that was queried and empty from one that was never captured", () => {
+    it("distinguishes a queried empty artifact from an app-log stream that was never captured", () => {
         const emptyWindow = throughDisk({
             ...SOURCE,
-            appLogs: { namespace: "preview-acme-storefront-pr-1234", lines: [], windowTruncated: false },
+            appLogs: artifact({ lineCount: 0 }),
         });
         const noWindow = throughDisk({ ...SOURCE, appLogs: undefined });
 
-        expect(rehydrateClassifierInput(emptyWindow).appLogs?.lines).toEqual([]);
+        expect(rehydrateClassifierInput(emptyWindow).appLogs?.lineCount).toBe(0);
         expect(rehydrateClassifierInput(noWindow).appLogs).toBeUndefined();
     });
 
-    it("preserves the frozen log window's lines and its own truncation flag", () => {
-        const { appLogs } = rehydrateClassifierInput(throughDisk({ ...SOURCE, appLogs: TRUNCATED_WINDOW }));
+    it("preserves the frozen log artifact metadata", () => {
+        const truncatedArtifact = artifact({ lineCount: 2, windowTruncated: true });
+        const { appLogs } = rehydrateClassifierInput(throughDisk({ ...SOURCE, appLogs: truncatedArtifact }));
 
-        expect(appLogs).toEqual(TRUNCATED_WINDOW);
+        expect(appLogs).toEqual(truncatedArtifact);
     });
 
-    it("rejects a log line whose timestamp is not a nanosecond epoch, which the offset stamp would parse", () => {
+    it("rejects an artifact outside the private app-log prefix", () => {
         expect(() =>
             serializeClassifierInput({
                 ...SOURCE,
                 appLogs: {
-                    namespace: "preview-acme-storefront-pr-1234",
-                    lines: [{ timestampNs: "2026-08-05T12:00:00Z", line: "ERROR" }],
-                    windowTruncated: false,
+                    ...artifact({ lineCount: 1 }),
+                    key: "s3://autonoma-assets/diffs-job/classify.json",
                 },
             }),
         ).toThrow();

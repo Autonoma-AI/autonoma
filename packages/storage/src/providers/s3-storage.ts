@@ -67,9 +67,9 @@ export class S3Storage implements StorageProvider {
         this.s3 = new S3Client(clientConfig);
     }
 
-    public static createFromEnv(): S3Storage {
+    public static createFromEnv(bucket = env.S3_BUCKET): S3Storage {
         return new S3Storage({
-            bucket: env.S3_BUCKET,
+            bucket,
             region: env.S3_REGION,
             accessKeyId: env.S3_ACCESS_KEY_ID,
             secretAccessKey: env.S3_SECRET_ACCESS_KEY,

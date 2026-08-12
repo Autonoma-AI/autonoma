@@ -3,6 +3,7 @@ import type { ClassifierInput, RunFacts } from "@autonoma/diffs/analysis";
 import { investigationEvidenceSchema, overlayPointSchema } from "@autonoma/types";
 import { z } from "zod";
 import { type CodebaseCoords, codebaseCoordsSchema } from "../framework";
+import { appLogArtifactLocation } from "./app-log-artifact-location";
 import { frozenPreviewEnv } from "./frozen-preview-env";
 
 /**
@@ -37,7 +38,7 @@ export type ProductionCapabilities = z.infer<typeof productionCapabilitiesSchema
  * and is distinct from an ABSENT window, which means the stream was never captured. Capture refuses to write a
  * window it could not query, so an empty one here was genuinely queried and genuinely empty.
  */
-const frozenAppLogWindowSchema = z.object({
+export const frozenAppLogWindowSchema = z.object({
     /** The previewkit namespace, which the loader renders into its own prose. */
     namespace: z.string().min(1),
     /** Every line over the padded window, oldest first, with the nanosecond timestamps the offsets come from. */
@@ -58,6 +59,22 @@ const frozenAppLogWindowSchema = z.object({
 });
 
 export type FrozenAppLogWindow = z.infer<typeof frozenAppLogWindowSchema>;
+
+/**
+ * The durable address of a raw app-log window. The bytes remain private in the eval-artifacts bucket: the
+ * committed case records only enough metadata to inspect the replay's evidence limits and reject tampering.
+ */
+const frozenAppLogArtifactSchema = z.object({
+    key: z
+        .string()
+        .regex(new RegExp(`^s3://${appLogArtifactLocation.bucket}/${appLogArtifactLocation.prefix}/[^/]+\\.json$`)),
+    namespace: z.string().min(1),
+    lineCount: z.number().int().nonnegative(),
+    windowTruncated: z.boolean(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+
+export type FrozenAppLogArtifact = z.infer<typeof frozenAppLogArtifactSchema>;
 
 /**
  * One traced step as `view_step_details` discloses it. Already key-addressed in production, so it freezes
@@ -103,8 +120,8 @@ const frozenRunSchema = z.object({
  * Mirrors {@link ClassifierInput} with every live handle replaced by something addressable: the `Codebase`
  * becomes {@link CodebaseCoords}, the run's recording and final frame become storage keys, `loadBaseline`
  * becomes the prose it would have returned, the preview's env-var listing becomes the name list it would have
- * filtered, and `loadAppLogs` becomes the unfiltered log window it read from. The one capability a replay cannot
- * serve at all - `run_script`, a query against a live backend - is absent by construction and recorded in
+ * filtered, and `loadAppLogs` becomes a private reference to the unfiltered log window it read from. The one
+ * capability a replay cannot serve at all - `run_script`, a query against a live backend - is absent by construction and recorded in
  * `productionCapabilities`.
  *
  * `baseSha` / `headSha` are deliberately NOT stored twice: the classifier renders them into its prompt and the
@@ -144,11 +161,11 @@ export const classifierCaseInputSchema = z.object({
      */
     previewEnvNames: z.array(z.string().min(1)).optional(),
     /**
-     * The app-log window `get_app_logs` is replayed from. Absent for a case whose preview had no log stream, and
-     * for one captured before the window could be frozen (an aged-out run, or a capture that deliberately skipped
-     * it). Replay then omits the tool, which `describeEvidenceLimits` tells the model about.
+     * The private artifact `get_app_logs` is replayed from. Absent for a case whose preview had no log stream,
+     * and for one captured before the window could be frozen (an aged-out run, or a capture that deliberately
+     * skipped it). Replay then omits the tool, which `describeEvidenceLimits` tells the model about.
      */
-    appLogs: frozenAppLogWindowSchema.optional(),
+    appLogs: frozenAppLogArtifactSchema.optional(),
     productionCapabilities: productionCapabilitiesSchema,
 });
 
@@ -172,7 +189,7 @@ export interface RehydratedClassifierInput {
     input: FrozenClassifierInput;
     media: FrozenRunMedia;
     baseline: string;
-    appLogs?: FrozenAppLogWindow;
+    appLogs?: FrozenAppLogArtifact;
 }
 
 /**
@@ -229,8 +246,8 @@ export interface ClassifierCaseSource {
     baseline: string;
     /** The preview's full env-var name list, or undefined when it could not be frozen in full. */
     previewEnvNames?: string[];
-    /** The unfiltered log window, when the preview had a stream capture could still reach. */
-    appLogs?: FrozenAppLogWindow;
+    /** The private artifact holding the unfiltered log window, when the preview had a stream capture could still reach. */
+    appLogs?: FrozenAppLogArtifact;
     productionCapabilities: ProductionCapabilities;
 }
 

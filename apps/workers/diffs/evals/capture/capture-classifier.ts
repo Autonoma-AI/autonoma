@@ -9,6 +9,7 @@ import {
     readPreviewConnectionKeys,
 } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { S3Storage } from "@autonoma/storage";
 import { SELF_HEAL_RERUN_REASON } from "@autonoma/types";
 import { buildRunFacts, describeProvision, loadGenerationRow } from "../../src/activities/classify-run";
 import { resolveRunTarget } from "../../src/codebase/run-target";
@@ -16,6 +17,7 @@ import { loadSnapshotMeta, resolveGitHubAccess } from "../../src/codebase/snapsh
 import { createGithubApp } from "../../src/create-services";
 import { previewSecrets } from "../../src/preview-secrets";
 import { type ProductionCapabilities, serializeClassifierInput } from "../classifier/classifier-input";
+import { FrozenAppLogArtifactStore } from "../classifier/frozen-app-log-artifact";
 import { casesDir } from "../framework/cases-dir";
 import { ensureCachedCheckout } from "../framework/codebase-cache";
 import { freezeAppLogWindow } from "./freeze-app-log-window";
@@ -110,13 +112,20 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
     ]);
     const baseline = PriorRuns.formatBaseline(history);
     // Waits on the namespace the lookup above resolved, so it cannot join that batch.
-    const appLogs = await freezeAppLogWindow({
+    const appLogWindow = await freezeAppLogWindow({
         namespace: preview.namespace,
         startEpoch: run.startEpoch,
         endEpoch: run.endEpoch,
         skip: params.skipAppLogs === true,
         logger,
     });
+    const appLogs =
+        appLogWindow != null
+            ? await new FrozenAppLogArtifactStore(
+                  S3Storage.createFromEnv(FrozenAppLogArtifactStore.bucket),
+                  logger,
+              ).write(classificationId, appLogWindow)
+            : undefined;
 
     const frozenInput = serializeClassifierInput({
         coords,
@@ -157,7 +166,7 @@ export async function captureClassifier(params: CaptureClassifierParams): Promis
             steps: frozenInput.run.inspectableSteps.length,
             hasRecording: frozenInput.run.recording != null,
             previewEnvNames: preview.previewEnvNames?.length,
-            appLogLines: frozenInput.appLogs?.lines.length,
+            appLogLines: frozenInput.appLogs?.lineCount,
             keptExpectation: expectationExists,
         },
     });
