@@ -1,5 +1,6 @@
 import { PostHogAnalytics } from "@autonoma/analytics";
 import { ApplicationArchitecture } from "@autonoma/db";
+import { LIVE_STEP } from "@autonoma/types";
 import { expect } from "vitest";
 import type { TriggerDiffsResult, TriggerPrDiffsParams } from "../../src/diffs/diffs-trigger.service";
 import { MergeGateService } from "../../src/github/merge-gate.service";
@@ -103,6 +104,30 @@ apiTestSuite({
                 where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
             });
             expect(row?.prNumber).toBe(42);
+        });
+
+        test("postPending posts nothing for an application that has not gone live", async ({ harness }) => {
+            const analytics = new RecordingAnalytics();
+            await setGate(harness, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+            );
+            const fixture = await createRepoApp(harness, "gate-not-live", { live: false });
+
+            await service.postPending({ ...fixture.postParams });
+
+            // Both activities that would close this check refuse a pre-live application, so opening one
+            // here would hang a check on the customer's PR that nothing can ever resolve.
+            expect(checkRunsFor(fixture)).toHaveLength(0);
+            expect(
+                await harness.db.gitHubCheckRun.findUnique({
+                    where: { repoFullName_headSha: { repoFullName: fixture.repoFullName, headSha: "head-1" } },
+                }),
+            ).toBeNull();
         });
 
         test("an activation-migrated org gets a completed neutral 'no analysis requested' check and no run", async ({
@@ -1037,8 +1062,18 @@ interface RepoAppFixture {
     };
 }
 
-/** Create a fresh repo + linked application per test so rows never collide on the shared integration DB. */
-async function createRepoApp(harness: APITestHarness, seed: string): Promise<RepoAppFixture> {
+/**
+ * Create a fresh repo + linked application per test so rows never collide on the shared integration DB.
+ *
+ * The application is live unless the caller says otherwise. `postPending` refuses to open a check on an
+ * application that has not gone live - matching the two analysis activities that would have to close it -
+ * and `createApplication` seeds the onboarding row at the first step, so being live is opt-in.
+ */
+async function createRepoApp(
+    harness: APITestHarness,
+    seed: string,
+    options: { live?: boolean } = {},
+): Promise<RepoAppFixture> {
     const fakeClient = harness.githubApp.defaultClient;
     const repoId = Math.floor(Math.random() * 1_000_000) + 500_000;
     const repoFullName = `org/${seed}-${repoId}`;
@@ -1058,6 +1093,13 @@ async function createRepoApp(harness: APITestHarness, seed: string): Promise<Rep
         file: "s3://bucket/file.png",
     });
     await harness.db.application.update({ where: { id: app.id }, data: { githubRepositoryId: repoId } });
+
+    if (options.live ?? true) {
+        await harness.db.onboardingState.update({
+            where: { applicationId: app.id },
+            data: { step: LIVE_STEP },
+        });
+    }
 
     return {
         appId: app.id,
