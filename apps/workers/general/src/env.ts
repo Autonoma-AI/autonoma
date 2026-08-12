@@ -18,6 +18,9 @@ export const env = createEnv({
     },
     runtimeEnv: process.env,
     emptyStringAsUndefined: true,
+    // Every other worker and package does this. Without it, any test whose import graph
+    // reaches this file dies at module load on secrets CI has no reason to hold.
+    skipValidation: process.env.TESTING === "true",
 });
 
 export function getScenarioEncryptionKey(): string {
