@@ -24,7 +24,6 @@ async function seedPreviousRun(): Promise<void> {
         [".pipeline-state.json", "{}"],
         [".bfs-state.json", "{}"],
         [".journey-state.json", "{}"],
-        [".project-context.json", "{}"],
         ["recipe.json", "{}"],
         ["AUTONOMA.md", "# kb"],
         ["entity-audit.md", "# entities"],

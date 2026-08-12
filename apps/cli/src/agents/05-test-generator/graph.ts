@@ -25,6 +25,26 @@ export function estimateExpectedTests(written: number, processed: number, totalN
     return Math.max(written, Math.round(rate * totalNodes));
 }
 
+/** The id the single sequential generator explores under. */
+export const DEFAULT_WORKER_ID = "main";
+
+/**
+ * The slice of the graph one generator agent may take.
+ *
+ * Parallel generation partitions by PAGE, not by node: sibling features of one
+ * page are the ones most likely to overlap - two tabs of the same modal, a form
+ * and the dialog around it - so keeping them with one agent preserves exactly the
+ * locality a single sequential agent had. Across pages, overlap is rare and the
+ * claim registry catches what is left.
+ */
+export interface WorkerScope {
+    id: string;
+    owns(nodeId: string): boolean;
+}
+
+/** The whole graph, which is what a sequential run walks. */
+export const ALL_NODES: WorkerScope = { id: DEFAULT_WORKER_ID, owns: () => true };
+
 export interface FeatureNode {
     id: string;
     name: string;
@@ -73,7 +93,30 @@ export class CoverageState {
     nodes: Map<string, FeatureNode> = new Map();
     queue: string[] = [];
     testsWritten: Map<string, string[]> = new Map();
-    currentNode?: string;
+    /** The node each worker is exploring, keyed by worker id. */
+    private readonly currentNodes = new Map<string, string>();
+
+    /** Nodes still queued for a worker - what it has left, not what the run has left. */
+    remainingFor(worker: WorkerScope = ALL_NODES): number {
+        return this.queue.filter((id) => worker.owns(id)).length;
+    }
+
+    /** The node a given worker is exploring, if any. Undefined once its queue drains. */
+    exploring(worker: WorkerScope = ALL_NODES): string | undefined {
+        return this.currentNodes.get(worker.id);
+    }
+
+    /**
+     * Whether a worker has finished its slice: nothing left in its queue and
+     * nothing mid-exploration. This is scoped to the worker on purpose - other
+     * workers' queued nodes are theirs to drain, not a reason to hold this one
+     * open - and it is the condition the generator's finish tool gates on, so a
+     * worker terminates the moment its own slice is done instead of spinning
+     * next_node against the whole run's queue.
+     */
+    hasDrained(worker: WorkerScope = ALL_NODES): boolean {
+        return this.remainingFor(worker) === 0 && this.exploring(worker) == null;
+    }
 
     readonly stateFile: string;
     private readonly reportsProgress: boolean;
@@ -92,26 +135,40 @@ export class CoverageState {
         return true;
     }
 
-    nextNode(): { node: FeatureNode; remaining: number } | undefined {
-        if (this.currentNode) {
-            const current = this.nodes.get(this.currentNode);
+    /**
+     * Hand out the next node, closing off whatever the same worker was exploring.
+     *
+     * `worker` scopes both the queue and the "what am I on" bookkeeping, so
+     * several agents can walk the graph at once without stealing each other's
+     * nodes or marking each other's work skipped. The default worker is the whole
+     * graph, which is the sequential run.
+     */
+    nextNode(worker: WorkerScope = ALL_NODES): { node: FeatureNode; remaining: number } | undefined {
+        const previous = this.currentNodes.get(worker.id);
+        if (previous != null) {
+            const current = this.nodes.get(previous);
             if (current && current.status !== "tested") {
                 current.status = "skipped";
                 this.reportProgress();
             }
+            this.currentNodes.delete(worker.id);
         }
 
-        while (this.queue.length > 0) {
-            const id = this.queue.shift()!;
+        // Scan rather than shift: another worker's nodes stay in the queue for it
+        // to take, so this one steps past them instead of consuming them.
+        const mine = this.queue.filter((id) => worker.owns(id));
+        for (const id of mine) {
             const node = this.nodes.get(id);
             if (!node || node.status === "tested" || node.status === "skipped") continue;
+            if (node.status === "exploring") continue;
 
+            this.queue = this.queue.filter((queued) => queued !== id);
             node.status = "exploring";
-            this.currentNode = id;
-            return { node, remaining: this.queue.length };
+            this.currentNodes.set(worker.id, id);
+            return { node, remaining: this.queue.filter((queued) => worker.owns(queued)).length };
         }
 
-        this.currentNode = undefined;
+        this.currentNodes.delete(worker.id);
         return undefined;
     }
 
@@ -139,7 +196,12 @@ export class CoverageState {
         const owner = this.nodeOwningTest(testPath);
         if (owner != null) return owner;
 
-        if (this.currentNode != null && this.nodes.has(this.currentNode)) return this.currentNode;
+        // Any worker's in-progress node will do: a write that names no known node
+        // and matches no written test still belongs to something being explored,
+        // and with one worker this is exactly the old behaviour.
+        for (const nodeId of this.currentNodes.values()) {
+            if (this.nodes.has(nodeId)) return nodeId;
+        }
         return undefined;
     }
 
@@ -261,7 +323,7 @@ export class CoverageState {
         return {
             nodes: Object.fromEntries(this.nodes),
             queue: [...this.queue],
-            currentNode: this.currentNode,
+            currentNode: [...this.currentNodes.values()][0],
             testsWritten: Object.fromEntries(this.testsWritten),
         };
     }
@@ -270,15 +332,30 @@ export class CoverageState {
         const state = new CoverageState(options);
         state.nodes = new Map(Object.entries(data.nodes));
         state.queue = data.queue;
-        state.currentNode = data.currentNode ?? undefined;
+        if (data.currentNode != null) state.currentNodes.set(DEFAULT_WORKER_ID, data.currentNode);
         state.testsWritten = new Map(Object.entries(data.testsWritten));
         return state;
     }
 }
 
+/**
+ * Persist the graph, one write at a time.
+ *
+ * Every write_test saves the state, so with several generator agents running the
+ * writes overlap - and two `writeFile` calls to the same path can interleave into
+ * a file that parses as neither. Chained per path so a save always reflects a
+ * whole snapshot, and so the last one to start is the last one to land.
+ */
+const saveQueues = new Map<string, Promise<unknown>>();
+
 export async function saveBfsState(outputDir: string, state: CoverageState): Promise<void> {
     const path = join(outputDir, state.stateFile);
-    await writeFile(path, JSON.stringify(state.serialize(), null, 2), "utf-8");
+    const previous = saveQueues.get(path) ?? Promise.resolve();
+    const write = previous
+        .catch(() => undefined)
+        .then(() => writeFile(path, JSON.stringify(state.serialize(), null, 2), "utf-8"));
+    saveQueues.set(path, write);
+    await write;
 }
 
 export async function loadBfsState(outputDir: string): Promise<CoverageState | undefined> {

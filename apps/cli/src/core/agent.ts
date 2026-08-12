@@ -48,6 +48,15 @@ export interface AgentConfig {
      * caller already handles.
      */
     maxRetries?: number;
+    /**
+     * Extra stop for the tool loop, checked after each step alongside the step cap
+     * and the finish call. The generation workers set it to "my slice of the graph
+     * is drained", so a worker ends the moment its own nodes are done instead of
+     * spinning next_node (which keeps returning done) up to the step cap - a stop
+     * the model cannot be relied on to reach itself, because a weak model routinely
+     * keeps calling next_node without ever calling finish.
+     */
+    shouldStop?: () => boolean | Promise<boolean>;
     onStepFinish?: (info: StepInfo) => void;
 }
 
@@ -165,7 +174,11 @@ export async function runAgent<T>(
             // as text, which then surfaces as an empty "provider error"/no-result instead of finishing.
             // "required" keeps the model emitting real tool calls until it calls `finish`.
             toolChoice: "required",
-            stopWhen: [stepCountIs(config.maxSteps), hasToolCall("finish")],
+            stopWhen: [
+                stepCountIs(config.maxSteps),
+                hasToolCall("finish"),
+                ...(config.shouldStop != null ? [config.shouldStop] : []),
+            ],
             onStepFinish: buildStepHandler(config),
         });
 

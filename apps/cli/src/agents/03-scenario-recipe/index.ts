@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { AppConfig } from "../../config";
 import { runAgent, buildDefaultStepLogger, formatRetryGuidance, type AgentResult } from "../../core/agent";
 import { debugLog } from "../../core/debug";
-import { getModel } from "../../core/model";
+import { resolveModel } from "../../core/model";
 import { parseEntityNames } from "../../core/parse-entity-audit";
 import { buildCodebaseTools } from "../../tools";
 import { buildAskUserTool } from "../../tools/ask-user";
@@ -82,7 +82,7 @@ export function buildFinishTool(
 }
 
 export async function runScenarioRecipe(input: ScenarioRecipeInput): Promise<AgentResult> {
-    const model = getModel(input.modelId);
+    const model = resolveModel(input);
 
     let result: AgentResult | undefined;
 
@@ -158,7 +158,7 @@ When done, call finish.`;
 }
 
 export async function feedbackToScenario(input: ScenarioRecipeInput, feedback: string): Promise<AgentResult> {
-    const model = getModel(input.modelId);
+    const model = resolveModel(input);
     let result: AgentResult | undefined;
 
     const { logger, onStepFinish } = buildDefaultStepLogger("scenario-feedback", 30);

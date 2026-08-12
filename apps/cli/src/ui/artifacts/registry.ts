@@ -14,6 +14,7 @@ const KNOWN_FILES: Record<string, { title: string; description?: string }> = {
     "AUTONOMA.md": { title: "Knowledge Base", description: "What your app does" },
     "entity-audit.md": { title: "Database Entity Analysis", description: "What your app stores" },
     "scenarios.md": { title: "Test Data Scenarios", description: "The data your tests run against" },
+    "test-plan.md": { title: "Test Plan", description: "Why the suite is shaped this way" },
     "recipe.json": { title: "Test Data Recipe", description: "How test data is created" },
     "IMPLEMENTATION.md": { title: "SDK Integration Checklist", description: "SDK integration progress notes" },
     [TEST_INDEX_FILE]: { title: "Test Suite Index", description: "Every test in the suite" },

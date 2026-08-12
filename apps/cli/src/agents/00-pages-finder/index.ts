@@ -1,12 +1,18 @@
 import { existsSync } from "fs";
 import * as path from "node:path";
-import { tool } from "ai";
+import { type LanguageModel, tool } from "ai";
 import { z } from "zod";
 import { buildDefaultStepLogger, runAgent } from "../../core/agent";
-import { getModel } from "../../core/model";
+import { resolveModel } from "../../core/model";
 import { buildCodebaseTools } from "../../tools";
 
 export interface PageFinderGeneratorInput {
+    /**
+     * An already-built model, used in place of `modelId`. The product never passes
+     * this; the evals do, so the pipeline can be driven against a provider directly
+     * rather than through the authenticated proxy `getModel` requires.
+     */
+    model?: LanguageModel;
     projectRoot: string;
     modelId?: string;
     nonInteractive?: boolean;
@@ -58,7 +64,7 @@ class PageCollector {
 }
 
 export async function runPageFinder(input: PageFinderGeneratorInput): Promise<Map<string, Page>> {
-    const model = getModel(input.modelId);
+    const model = resolveModel(input);
 
     const pageCollector = new PageCollector();
     const projectRoot = input.projectRoot;

@@ -1,4 +1,5 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import type { LanguageModel } from "ai";
 import { readEnv } from "../env";
 import { resolveApiUrl } from "./api-url";
 
@@ -33,4 +34,14 @@ function getProvider() {
 
 export function getModel(modelId?: string) {
     return getProvider().languageModel(modelId ?? readEnv().OPENROUTER_MODEL ?? DEFAULT_MODEL);
+}
+
+/**
+ * The model a step runs on. An explicitly injected model wins - the evals build
+ * and meter their own against a provider directly - otherwise one is built from
+ * the id (or the default). Folds the `input.model ?? getModel(input.modelId)`
+ * that every agent entry point used to repeat, so the fallback lives in one place.
+ */
+export function resolveModel(input: { model?: LanguageModel; modelId?: string }): LanguageModel {
+    return input.model ?? getModel(input.modelId);
 }

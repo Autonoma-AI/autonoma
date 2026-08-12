@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { renderTestMarkdown, type TestSpec, testSpecSchema } from "../../src/agents/05-test-generator/test-spec";
+import {
+    buildTestSpecSchema,
+    renderTestMarkdown,
+    type TestSpec,
+    testSpecSchema,
+} from "../../src/agents/05-test-generator/test-spec";
 import { validateTestContent } from "../../src/agents/05-test-generator/validation";
 
 const VALID: TestSpec = {
@@ -112,12 +117,22 @@ describe("testSpecSchema", () => {
         expect(result.success).toBe(false);
     });
 
-    it("rejects a visibility-only test", () => {
-        const result = testSpecSchema.safeParse(
-            withSteps([{ verb: "assert", description: 'text "Dashboard"', location: "as a page heading" }]),
+    it("accepts a single-interaction test (the interaction count is not a schema gate)", () => {
+        // The old schema rejected anything under two interactions, which killed the
+        // canonical single-drag test (drag, refresh, assert persisted) and the
+        // filter-done-right test (one type, assert the list narrowed) while letting
+        // shallow two-click toggles through. Depth is judged by the review rubric,
+        // not counted here: a single real action verified at a source of truth is a
+        // valid test the schema must accept.
+        const singleDrag = testSpecSchema.safeParse(
+            withSteps([
+                { verb: "assert", description: 'the "Ship it" card', location: "in the To Do column" },
+                { verb: "drag", description: 'the "Ship it" card to the Done column', location: "on the board" },
+                { verb: "refresh", description: "the page" },
+                { verb: "assert", description: 'the "Ship it" card', location: "in the Done column" },
+            ]),
         );
-
-        expect(result.success).toBe(false);
+        expect(singleDrag.success).toBe(true);
     });
 
     it("accepts any setup that says where the user is, including a login page", () => {
@@ -167,5 +182,50 @@ describe("renderTestMarkdown", () => {
 
     it("omits the Verification section when there are no verification steps", () => {
         expect(renderTestMarkdown({ ...VALID, verificationSteps: [] })).not.toContain("**Verification**");
+    });
+});
+
+describe("validateTestContent", () => {
+    // Regression for the steps-marker slice: when "**Steps**" is absent, indexOf
+    // returns -1, and the old `|| 0` sliced the body to its last character and
+    // scanned nothing - so a "Dynamic:" placeholder slipped through unflagged.
+    it('flags a "Dynamic:" placeholder even when the "**Steps**" header is absent', () => {
+        const content = [
+            "---",
+            "verification: On the Overview tab, assert the balance changed at the source of truth",
+            "---",
+            "**Intent**: The balance should update.",
+            "1. type: Dynamic: a generated id into the Name field",
+        ].join("\n");
+
+        expect(validateTestContent(content).errors).toContain('Contains "Dynamic:" placeholder in steps');
+    });
+});
+
+describe("buildTestSpecSchema flow enforcement", () => {
+    const IDS: ReadonlySet<string> = new Set(["funds-management", "account-settings"]);
+
+    it("accepts a flow id that is in the closed set", () => {
+        const schema = buildTestSpecSchema(IDS);
+
+        expect(schema.safeParse({ ...VALID, flow: "funds-management" }).success).toBe(true);
+    });
+
+    it("rejects a flow id outside the set and surfaces the valid ids", () => {
+        const schema = buildTestSpecSchema(IDS);
+
+        // The exact paraphrase the bug produced: a real flow's human name, not its id.
+        const result = schema.safeParse({ ...VALID, flow: "Funds Management" });
+
+        expect(result.success).toBe(false);
+        const issues = JSON.stringify(result.error?.issues);
+        expect(issues).toContain("funds-management");
+        expect(issues).toContain("account-settings");
+    });
+
+    it("falls back to permissive when the set is empty or absent", () => {
+        for (const schema of [buildTestSpecSchema(), buildTestSpecSchema(new Set())]) {
+            expect(schema.safeParse({ ...VALID, flow: "Any Free Text At All" }).success).toBe(true);
+        }
     });
 });

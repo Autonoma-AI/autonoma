@@ -6,7 +6,7 @@ import { z } from "zod";
 import { runAgent, buildDefaultStepLogger, formatRetryGuidance, type AgentResult } from "../../core/agent";
 import { debugLog } from "../../core/debug";
 import { formatException } from "../../core/errors";
-import { getModel } from "../../core/model";
+import { resolveModel } from "../../core/model";
 import { reportSubProgress } from "../../core/progress";
 import { buildCodebaseTools } from "../../tools";
 import { buildAskUserTool } from "../../tools/ask-user";
@@ -343,7 +343,7 @@ async function detectFrameworkAndModels(projectRoot: string): Promise<FrameworkD
 }
 
 export async function runEntityAudit(input: EntityAuditInput): Promise<AgentResult> {
-    const model = getModel(input.modelId);
+    const model = resolveModel(input);
 
     let result: AgentResult | undefined;
     const tracker = new ModelTracker();

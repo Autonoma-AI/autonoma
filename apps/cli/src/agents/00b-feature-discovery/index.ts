@@ -1,9 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { tool } from "ai";
+import { type LanguageModel, tool } from "ai";
 import { z } from "zod";
 import { type AgentResult, buildDefaultStepLogger, runAgent } from "../../core/agent";
-import { getModel } from "../../core/model";
+import { resolveModel } from "../../core/model";
 import { buildCodebaseTools } from "../../tools";
 
 const FEATURES_FILE = "features.json";
@@ -57,6 +57,12 @@ class FeatureCollector {
 }
 
 export interface FeatureDiscoveryInput {
+    /**
+     * An already-built model, used in place of `modelId`. The product never passes
+     * this; the evals do, so the pipeline can be driven against a provider directly
+     * rather than through the authenticated proxy `getModel` requires.
+     */
+    model?: LanguageModel;
     projectRoot: string;
     outputDir: string;
     modelId?: string;
@@ -129,7 +135,7 @@ Use kebab-case IDs that indicate the parent page and feature type:
 - Use spawn_researcher or subagent for pages with many files to avoid context bloat.`;
 
 export async function runFeatureDiscovery(input: FeatureDiscoveryInput): Promise<Map<string, DiscoveredFeature>> {
-    const model = getModel(input.modelId);
+    const model = resolveModel(input);
     const collector = new FeatureCollector();
 
     let result: AgentResult | undefined;

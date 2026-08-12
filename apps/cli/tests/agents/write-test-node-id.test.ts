@@ -78,7 +78,7 @@ describe("write_test nodeId resolution", () => {
         // Generation ends: the queue drains and nextNode clears currentNode. The
         // review-fix pass runs from here, and its prompt never names a nodeId.
         state.nextNode();
-        expect(state.currentNode).toBeUndefined();
+        expect(state.exploring()).toBeUndefined();
 
         const result = await write(state, "admin/create-user.md", "create-user.md", "Create a user, fixed");
 

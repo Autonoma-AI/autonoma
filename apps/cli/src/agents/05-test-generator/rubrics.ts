@@ -78,13 +78,16 @@ When done reviewing, call finish with your structured evaluation.`,
 export const flowCompletenessRubric: ReviewRubric = {
     name: "flow-completeness",
     maxSteps: 12,
-    dimensions: ["actionCompletion", "mutationVerification"],
+    dimensions: ["actionCompletion", "mutationVerification", "effectVerification"],
     resultSchema: reviewResultSchema({
         actionCompletion: dimensionResultSchema.describe(
             "Does the test complete a core action and reach an OUTCOME? Not just opening a modal or clicking a tab.",
         ),
         mutationVerification: dimensionResultSchema.describe(
             "Does the test verify its mutation at the source of truth - not just a toast or inline indicator?",
+        ),
+        effectVerification: dimensionResultSchema.describe(
+            "Does the verification confirm the EFFECT of what the steps changed, at a source of truth DISTINCT from the control the step touched - not by re-asserting that control's own cosmetic state? And is the verification consistent with the test's stated intent/mission?",
         ),
     }),
     systemPrompt: `You are a flow completeness reviewer for E2E test plans. Each test will be executed by a VISUAL agent that sees the screen like a human user.
@@ -108,6 +111,25 @@ PASS if the test navigates to where the mutation's effect should be visible and 
 For example: after creating a record, does the test navigate back to the list and verify the record appears? After toggling a setting, does it refresh and verify the toggle persists?
 
 Read the source code to understand where the "source of truth" view is for each mutation.
+
+### 3. Effect verification
+This is the deepest question: does the verification prove the feature WORKED, or only that a control LOOKS a certain way? A test can name a "verification" and still validate nothing. Judge two things.
+
+(a) The verification must confirm the EFFECT of what the steps changed, observed at a source of truth DISTINCT from the control the step touched. A control's own visual state after you act on it is not proof - it is cosmetic. Judge by MEANING, reading the source to learn what the real effect is and where it becomes visible.
+- FAIL: after clicking a filter, asserting the filter chip/pill is visible or "Active" - the chip is the control; it says nothing about whether the list filtered.
+- FAIL: after toggling a setting, asserting only that the toggle now shows ON - re-reading the control you flipped, with no reload and no downstream consequence.
+- FAIL: asserting the text you just typed is still in the input, with nothing that depends on it having been saved.
+- FAIL: pure visibility-only - the steps mutate nothing and the verification asserts pre-existing elements are on screen.
+- PASS: after a drag, refreshing and asserting the item persisted in its new place.
+- PASS: after typing a filter query, asserting the list actually changed - non-matching rows are GONE and matching ones remain.
+- PASS: after create/edit/delete, navigating to the list or reloading and asserting the record's presence, absence, or new value.
+The distinct source of truth can be a reload of the same surface, a different surface, or the same list demonstrably changing its contents - what matters is that it reflects the EFFECT, not the control.
+
+(b) The verification and steps must be consistent with the test's stated intent/mission (read the intent in the frontmatter and the mission the flow implies). If the intent claims a behavior ("filtering narrows the results", "the preference persists") but the steps/verification only exercise or observe a control's surface, the test is inconsistent with its own intent.
+- FAIL: intent says "the filter returns only matching items" but the verification only checks that the filter chip appears.
+- PASS: intent and verification target the same real outcome.
+
+Read the source before judging (a) and (b) - the point is what the feature actually does, not the wording of the test.
 
 When done reviewing, call finish with your structured evaluation.`,
 };

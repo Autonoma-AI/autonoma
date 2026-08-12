@@ -16,9 +16,6 @@ export type StepVerb = (typeof STEP_VERBS)[number];
 /** Membership view over `STEP_VERBS`, for checking a verb parsed out of markdown. */
 export const VALID_VERBS: ReadonlySet<string> = new Set(STEP_VERBS);
 
-/** Verbs that change something, as opposed to observing it. */
-const INTERACTION_VERBS: ReadonlySet<string> = new Set<StepVerb>(["click", "type", "drag"]);
-
 /**
  * Verbs whose step must say WHERE on screen its target is.
  *
@@ -38,26 +35,13 @@ export function isValidVerb(verb: string): boolean {
     return VALID_VERBS.has(verb);
 }
 
-/** Whether this verb does something to the app, rather than observing it. */
-export function isInteractionVerb(verb: string): boolean {
-    return INTERACTION_VERBS.has(verb);
-}
-
 /** Whether a step with this verb must say where on screen it looks. */
 export function requiresLocation(verb: string): boolean {
     return LOCATED_VERBS.has(verb);
 }
 
-/** The interaction verbs, for error messages that have to name them. */
-export function describeInteractionVerbs(): string {
-    return [...INTERACTION_VERBS].join("/");
-}
-
 /** Matches a numbered step line and captures its verb, for any verb (valid or not). */
 export const STEP_LINE_PATTERN = /^\d+\.\s+(\w+):/gm;
-
-/** Every generated test must perform at least this many real interactions. */
-export const MIN_INTERACTIONS = 2;
 
 /** The verbs in a test's step list, in order. Invalid verbs are included so callers can reject them. */
 export function parseStepVerbs(content: string): string[] {
@@ -101,18 +85,16 @@ export function validateTestContent(content: string): ValidationResult {
 
     const verbs = parseStepVerbs(content);
 
-    const interactions = verbs.filter(isInteractionVerb);
-    if (interactions.length < MIN_INTERACTIONS) {
-        errors.push(`Only ${interactions.length} interaction(s) (minimum ${MIN_INTERACTIONS})`);
-    }
-
     for (const verb of verbs) {
         if (!isValidVerb(verb)) errors.push(`Invalid verb: "${verb}"`);
     }
 
     const bodyStart = content.indexOf("---", 3);
     const body = bodyStart > -1 ? content.slice(bodyStart + 3) : content;
-    const stepsSection = body.slice(body.indexOf("**Steps**") || 0);
+    // indexOf returns -1 when the marker is absent; -1 is truthy, so `|| 0` would
+    // slice off the last character instead of scanning the whole body.
+    const stepsAt = body.indexOf("**Steps**");
+    const stepsSection = body.slice(stepsAt > -1 ? stepsAt : 0);
     if (/Dynamic:\s/i.test(stepsSection)) {
         errors.push('Contains "Dynamic:" placeholder in steps');
     }

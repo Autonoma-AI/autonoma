@@ -1,7 +1,40 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { createStore, type RunStore } from "../../src/ui/store";
+import { createStore, PLAN_ARTIFACT_ID, type RunStore } from "../../src/ui/store";
+import type { RunPlan } from "../../src/ui/types";
 
 const META = { title: "Generating your test suite", project: "acme", version: "0.0.0" };
+
+function samplePlan(): RunPlan {
+    return {
+        pitch: "An AI legal assistant for managing matters and documents",
+        total: 60,
+        smokeFloor: 30,
+        tierTotals: { 1: 18, 2: 9, 3: 3 },
+        signalsPersisted: false,
+        flows: [
+            {
+                flowId: "intake",
+                feature: "Request Intake",
+                tier: 1,
+                tierReason: "It is the flow the product is sold on and the highest-defect surface.",
+                riskDrivers: ["unconstrained_input", "interruptible_state"],
+                entryPoints: ["/triage", "/issues/[id]"],
+                invariants: ["A submitted request always reaches a queue"],
+                allowance: 18,
+            },
+            {
+                flowId: "settings",
+                feature: "Workspace Settings",
+                tier: 3,
+                tierReason: "Configuration and account management, not the primary user value.",
+                riskDrivers: ["permissions"],
+                entryPoints: ["/settings"],
+                invariants: ["Only admins can change billing"],
+                allowance: 3,
+            },
+        ],
+    };
+}
 
 function makeStore(reader?: Parameters<typeof createStore>[0]["reader"]): RunStore {
     return createStore({ outputDir: "/out", meta: META, reader });
@@ -350,6 +383,52 @@ describe("run store", () => {
         store.noteWrite("AUTONOMA.md");
         await vi.waitFor(() => {
             expect(store.getState().live.text).toBe("content of /out/AUTONOMA.md");
+        });
+    });
+
+    describe("setPlan", () => {
+        test("registers the Test Plan file, stores the slice, and opens it in the hero", () => {
+            const store = makeStore();
+            store.startStep("testGenerator");
+            const plan = samplePlan();
+            store.setPlan(plan);
+            const s = store.getState();
+
+            expect(s.plan).toEqual(plan);
+            expect(s.artifacts[PLAN_ARTIFACT_ID]?.status).toBe("DONE");
+            expect(s.artifacts[PLAN_ARTIFACT_ID]?.title).toBe("Test Plan");
+            // Following by default: the plan opens in the hero the moment it's set.
+            expect(s.live.artifactId).toBe(PLAN_ARTIFACT_ID);
+            // The slice is the source of truth; the live text is its JSON projection,
+            // which render-content parses back into the structured card.
+            expect(JSON.parse(s.live.text)).toEqual(plan);
+        });
+
+        test("does not steal the hero from a document the user has pinned", () => {
+            const store = makeStore();
+            store.noteWrite("AUTONOMA.md");
+            store.dispatchNav({ type: "toggleFollow" }); // stop following
+            store.setPlan(samplePlan());
+            expect(store.getState().live.artifactId).toBe("AUTONOMA.md");
+        });
+
+        test("re-renders from the slice when the user navigates back to it", () => {
+            // No reader: the plan has no file on disk, so navigating back must
+            // rebuild it from the stored slice rather than read an empty disk.
+            const store = makeStore();
+            store.startStep("testGenerator");
+            store.setPlan(samplePlan());
+            store.noteWrite("AUTONOMA.md"); // hero follows the newer write
+            expect(store.getState().live.artifactId).toBe("AUTONOMA.md");
+
+            // Order is [AUTONOMA.md, test-plan.md]; move the cursor onto the plan
+            // and open it. Opening triggers the refresh that serves it from memory.
+            store.dispatchNav({ type: "moveDown" });
+            store.dispatchNav({ type: "enter" });
+
+            const s = store.getState();
+            expect(s.live.artifactId).toBe(PLAN_ARTIFACT_ID);
+            expect(s.live.text).toContain(samplePlan().pitch);
         });
     });
 });

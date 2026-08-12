@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CRITICALITY_LEVELS, isInteractionVerb, MIN_INTERACTIONS, requiresLocation, STEP_VERBS } from "./validation";
+import { CRITICALITY_LEVELS, requiresLocation, STEP_VERBS } from "./validation";
 
 /**
  * The shape of a generated test, and the one place it becomes markdown.
@@ -41,6 +41,37 @@ function hasPlaceholder(text: string | undefined): boolean {
     return PLACEHOLDER_PATTERNS.some(({ pattern }) => pattern.test(text));
 }
 
+/**
+ * The `flow` field, closed over the run's valid flow ids when there are any.
+ *
+ * A flow id from flows.json, not free text. Left open it collapsed into the page
+ * name - real runs produced `flow: "Companies list view."` and `flow: "Team
+ * Settings"` - and ~13% of tests carried an id no flow ever declared, so the field
+ * that exists to tie a test to a user journey could not be machine-joined to its
+ * tier at all. The valid ids are a closed, machine-generated, kebab-case set, so
+ * membership is structurally decidable and safe to enforce here - unlike anything
+ * about what a sentence MEANS, which stays in the review rubrics. When the set is
+ * empty (a degraded run with no ranking) the field stays permissive, so those runs
+ * are unaffected.
+ */
+function flowField(validFlowIds?: ReadonlySet<string>) {
+    const ids = validFlowIds != null && validFlowIds.size > 0 ? validFlowIds : undefined;
+    const idList = ids != null ? [...ids].join(", ") : "";
+    const description =
+        ids != null
+            ? `The flow id this test belongs to. Must be one of, copied verbatim: ${idList}.`
+            : "The flow id this test belongs to, exactly as listed in the flows you were given.";
+    // The refine is always attached so the field keeps one static type; it is a
+    // no-op when there is no ranking, which is what makes degraded runs permissive.
+    return z
+        .string()
+        .min(1)
+        .describe(description)
+        .refine((flow) => ids == null || ids.has(flow), {
+            message: `Not one of this run's flow ids. Use exactly one of these, copied verbatim: ${idList}.`,
+        });
+}
+
 const stepSchema = z
     .object({
         verb: z.enum(STEP_VERBS).describe("The action. Only these verbs exist."),
@@ -73,8 +104,14 @@ const stepSchema = z
 
 export type TestStep = z.infer<typeof stepSchema>;
 
-export const testSpecSchema = z
-    .object({
+/**
+ * The test-spec schema, optionally closed over the run's valid flow ids so the
+ * `flow` field rejects anything outside the closed set. Called with no argument -
+ * or with an empty set - it is the permissive schema the journey pass and the
+ * degraded (no-ranking) runs use unchanged.
+ */
+export function buildTestSpecSchema(validFlowIds?: ReadonlySet<string>) {
+    return z.object({
         title: z.string().min(1).describe("Short, descriptive test name."),
         description: z.string().min(1).describe("One sentence explaining what the test verifies."),
         intent: z
@@ -85,7 +122,7 @@ export const testSpecSchema = z
             ),
         criticality: z.enum(CRITICALITY_LEVELS),
         scenario: z.string().min(1).describe('Which scenario this test uses (usually "standard").'),
-        flow: z.string().min(1).describe("Which feature/flow this belongs to (must match a flow from AUTONOMA.md)."),
+        flow: flowField(validFlowIds),
         verification: z
             .string()
             .min(20)
@@ -111,11 +148,11 @@ export const testSpecSchema = z
             .describe(
                 "Optional free text for anything you could not resolve or want to flag - an ambiguous default state, a element you could not find in the source, an assumption you had to make. Recorded for humans and NEVER written into the test file, so it will not affect execution. Use it instead of guessing silently.",
             ),
-    })
-    .refine((spec) => spec.steps.filter((step) => isInteractionVerb(step.verb)).length >= MIN_INTERACTIONS, {
-        message: `A test needs at least ${MIN_INTERACTIONS} real interactions (click/type/drag) - a visibility-only test verifies nothing`,
-        path: ["steps"],
     });
+}
+
+/** The permissive schema: the journey pass and no-ranking runs write against this. */
+export const testSpecSchema = buildTestSpecSchema();
 
 export type TestSpec = z.infer<typeof testSpecSchema>;
 

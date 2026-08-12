@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { buildDefaultStepLogger, runAgent } from "../../core/agent";
-import { getModel } from "../../core/model";
+import { resolveModel } from "../../core/model";
 import { type ProjectMap, ProjectMapSchema } from "../../core/project-map";
 import { buildCodebaseTools } from "../../tools";
 import { findUncoveredDirs } from "./coverage";
@@ -66,7 +66,7 @@ const SYSTEM_PROMPT =
  * never produced one. Persistence and user/Claude confirmation happen in the caller.
  */
 export async function runProjectMapper(input: ProjectMapperInput): Promise<ProjectMap | undefined> {
-    const model = getModel(input.modelId);
+    const model = resolveModel(input);
     const { logger, onStepFinish } = buildDefaultStepLogger("project-map", MAX_STEPS);
 
     let captured: ProjectMap | undefined;

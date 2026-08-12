@@ -2,7 +2,7 @@ import matter from "@11ty/gray-matter";
 import { z } from "zod";
 import { debugLog } from "../../core/debug";
 import { theme } from "../theme";
-import type { ContentKind } from "../types";
+import { type ContentKind, type FlowPlan, type RunPlan, RunPlanSchema } from "../types";
 
 export interface Span {
     text: string;
@@ -137,6 +137,12 @@ function renderUncached(text: string, kind: ContentKind, name?: string): StyledL
     if (name === "entity-audit.md") {
         const audit = renderEntityAudit(text);
         if (audit != null) return audit;
+    }
+    if (name === "test-plan.md") {
+        // The store projects the plan slice to JSON as the live text; render it
+        // as a structured card rather than raw JSON. See renderTestPlan.
+        const plan = renderTestPlan(text);
+        if (plan != null) return plan;
     }
     switch (kind) {
         case "json":
@@ -394,6 +400,128 @@ function auditNote(m: AuditModel): Span | undefined {
     }
     if (parts.length === 0) return undefined;
     return { text: parts.join(" · "), color: theme.tertiary };
+}
+
+/* ------------------------------------------------------------- test-plan.md -- */
+
+/** Longest feature name shown in full before truncating - titles, not table keys. */
+const PLAN_NAME_MAX = 44;
+/** Column reserved for the risk/entry/holds labels, so their values align. */
+const PLAN_LABEL_W = 6;
+
+/** Per-tier accent + the one-line "what this tier is" shown next to the heading. */
+const PLAN_TIER: Readonly<Record<1 | 2 | 3, { color: string; label: string }>> = {
+    1: { color: theme.accent, label: "what the product is for" },
+    2: { color: theme.violet, label: "supports the core" },
+    3: { color: theme.tertiary, label: "administration & configuration" },
+};
+
+/**
+ * The Test Plan renders as a structured card, matching the frontmatter/features
+ * card and the entity-audit table rather than prose: a pitch + budget header,
+ * then per tier a section heading and one aligned block per flow (feature ·
+ * budget, its argument, and risk/entry/holds as labeled secondary fields).
+ */
+function renderTestPlan(text: string): StyledLine[] | undefined {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(text);
+    } catch (err) {
+        debugLog("test-plan.md JSON parse failed, falling back", { err });
+        return undefined;
+    }
+    const result = RunPlanSchema.safeParse(parsed);
+    if (!result.success) {
+        debugLog("test-plan.md did not match the plan shape, falling back", { issues: result.error.issues });
+        return undefined;
+    }
+    return planLines(result.data);
+}
+
+function planLines(plan: RunPlan): StyledLine[] {
+    const out: StyledLine[] = [];
+    const discretionary = Math.max(0, plan.total - plan.smokeFloor);
+
+    out.push([{ text: plan.pitch, color: theme.secondary }]);
+    out.push([{ text: "" }]);
+    out.push([
+        { text: `${plan.total} tests`, color: theme.accent, bold: true },
+        { text: `  ${plan.smokeFloor} smoke + ${discretionary} by importance`, color: theme.tertiary },
+        { text: "    " },
+        { text: `● ${plan.tierTotals[1]}`, color: PLAN_TIER[1].color },
+        { text: " t1", color: theme.tertiary },
+        { text: "   " },
+        { text: `● ${plan.tierTotals[2]}`, color: PLAN_TIER[2].color },
+        { text: " t2", color: theme.tertiary },
+        { text: "   " },
+        { text: `● ${plan.tierTotals[3]}`, color: PLAN_TIER[3].color },
+        { text: " t3", color: theme.tertiary },
+    ]);
+    if (!plan.signalsPersisted) {
+        out.push([
+            {
+                text: "risk drivers distilled from git history; raw churn/retouch counts not persisted yet",
+                color: theme.faint,
+            },
+        ]);
+    }
+    out.push([{ text: "" }]);
+    out.push([{ text: "─".repeat(40), color: theme.border }]);
+
+    const nameW = Math.min(PLAN_NAME_MAX, Math.max(...plan.flows.map((f) => f.feature.length), 4));
+    for (const tier of [1, 2, 3] as const) {
+        const flows = plan.flows.filter((f) => f.tier === tier);
+        if (flows.length === 0) continue;
+        out.push([{ text: "" }]);
+        out.push([
+            { text: `Tier ${tier}`, color: PLAN_TIER[tier].color, bold: true },
+            { text: `  ${PLAN_TIER[tier].label}`, color: theme.tertiary },
+            {
+                text: `   ${plan.tierTotals[tier]} ${plan.tierTotals[tier] === 1 ? "test" : "tests"} · ${flows.length} ${flows.length === 1 ? "flow" : "flows"}`,
+                color: theme.faint,
+            },
+        ]);
+        for (const flow of flows) out.push(...planFlowRows(flow, tier, nameW));
+    }
+    return out;
+}
+
+function planFlowRows(flow: FlowPlan, tier: 1 | 2 | 3, nameW: number): StyledLine[] {
+    const risk = flow.riskDrivers.length > 0 ? flow.riskDrivers.map(readableDriver).join(" · ") : "none flagged";
+    const rows: StyledLine[] = [
+        [{ text: "" }],
+        [
+            { text: "  " },
+            { text: "● ", color: PLAN_TIER[tier].color },
+            { text: pad(flow.feature, nameW), color: theme.sky },
+            { text: "   " },
+            { text: `${flow.allowance} ${flow.allowance === 1 ? "test" : "tests"}`, color: theme.accent },
+        ],
+        [{ text: "     " }, { text: flow.tierReason, color: theme.secondary }],
+        [
+            { text: "     " },
+            { text: pad("risk", PLAN_LABEL_W), color: theme.tertiary },
+            { text: risk, color: theme.text },
+        ],
+        [
+            { text: "     " },
+            { text: pad("entry", PLAN_LABEL_W), color: theme.tertiary },
+            { text: flow.entryPoints.join(" · "), color: theme.tertiary },
+        ],
+    ];
+    if (flow.invariants.length > 0) {
+        rows.push([
+            { text: "     " },
+            { text: pad("holds", PLAN_LABEL_W), color: theme.tertiary },
+            { text: flow.invariants.join(" · "), color: theme.tertiary },
+        ]);
+    }
+    return rows;
+}
+
+/** Rubric driver names are snake_case identifiers; read them as words. */
+function readableDriver(driver: string): string {
+    return driver.replace(/_/g, " ");
 }
 
 /* --------------------------------------------------------------- pages.json -- */

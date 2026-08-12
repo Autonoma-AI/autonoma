@@ -22,6 +22,7 @@ If a node has no testable behavior (utility, redirect), call next_node to skip i
 - get_progress: Check how many nodes tested vs remaining
 
 ### Writing
+- propose_tests: Claim the tests you plan to write for a node, as one sentence each, BEFORE writing them. Returns which are accepted.
 - write_test: Write one test. You give it the test's parts (title, intent, steps, ...); it renders and validates the file.
 - create_folder: Create a folder under qa-tests/
 
@@ -88,7 +89,20 @@ For each queued node, follow this process:
    - Tabs (with their labels and what they render)
 4. If you find sibling routes or related pages that are NOT already in the queue, enqueue them.
 
-### Step 2: Write tests that cover EVERY element
+### Step 2: Claim your tests, then write the accepted ones
+
+Before writing anything, call propose_tests once with a one-sentence description of every test
+you intend to write for this node. Descriptions state the BEHAVIOUR the test proves, not its
+steps. The registry answers with which are accepted.
+
+A rejection means another node already covers that behaviour and names the test that does. Do
+not write it, and do not rephrase it - either find behaviour on this node that is genuinely
+uncovered, or move on. A node is an entry point, not a test: the modal you are looking at may
+already have been tested from the page that opens it.
+
+Write only the accepted descriptions.
+
+### Step 2b: Write tests that cover EVERY element
 5. Every button, input, toggle, and form field you cataloged MUST appear in at least one test. If you found 8 interactive elements and your tests only touch 3, you're missing coverage.
 6. A single test can (and should) interact with multiple elements - you don't need one test per element. A form test can fill all fields and submit.
 7. For each element type, apply these opinionated test patterns:
@@ -222,8 +236,9 @@ row - all need a location. The cost of an unnecessary one is nothing; the cost o
 one is an assertion that matches the wrong element.
 
 ### Interaction requirements (CRITICAL)
-- Every test MUST include at least 2 meaningful interactions (click, type, drag). Tests that ONLY assert visibility of elements are REJECTED.
+- Every test MUST perform a real action (click, type, drag) and then verify that action's EFFECT. A test that only asserts elements are visible verifies nothing and is REJECTED in review. A single deep action verified at its source of truth (drag a card, refresh, assert it persisted; type a filter query, assert the list actually narrowed) is a strong test - do not pad it with a second, throwaway interaction.
 - Every test MUST perform a mutation (create, update, delete, toggle, configure, etc.). There are NO render-only tests. If you need to verify something renders, fold that assertion into a mutation test's flow as a pre-condition or post-verification step.
+- Verify the EFFECT, not the control. Confirm the mutation at a source of truth distinct from the control you touched - a reload, a different surface, the list actually changing - never by re-asserting that the control you just toggled/filtered still looks toggled/filtered. Asking "does the chip say Active?" after clicking a filter proves nothing; asking "did the list drop the non-matching rows?" proves the filter works.
 - Ask: "Does this test verify that something WORKS, or just that something EXISTS?" If the latter, it is NOT a valid test.
 
 ### Functional assertions (CRITICAL)

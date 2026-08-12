@@ -8,11 +8,22 @@ import { captureLog } from "../../core/logs";
 import { AI_MAX_RETRIES } from "../../core/model";
 import { TEST_FILE_EXT, TESTS_DIR, normalizeTestFilename } from "../../core/test-files";
 import { buildBashTool, buildGlobTool, buildGrepTool, buildReadFileTool } from "../../tools";
-import { type CoverageState, saveBfsState } from "./graph";
+import { ALL_NODES, type CoverageState, saveBfsState, type WorkerScope } from "./graph";
 import type { WrittenTest } from "./review";
-import { renderTestMarkdown, testSpecSchema } from "./test-spec";
+import { buildTestSpecSchema, renderTestMarkdown } from "./test-spec";
 
-export function buildWriteTestTool(state: CoverageState, outputDir: string, onWritten?: (test: WrittenTest) => void) {
+/**
+ * @param validFlowIds The closed set of flow ids a test's `flow` field may use.
+ * Empty/absent leaves the field permissive - the journey pass and no-ranking runs
+ * pass nothing, so their behaviour is unchanged; a ranked run injects the set so a
+ * paraphrased flow id is rejected by the schema before the file is ever written.
+ */
+export function buildWriteTestTool(
+    state: CoverageState,
+    outputDir: string,
+    onWritten?: (test: WrittenTest) => void,
+    validFlowIds?: ReadonlySet<string>,
+) {
     return tool({
         description:
             "Write one test to qa-tests/{folder}/{filename}.md. " +
@@ -27,7 +38,7 @@ export function buildWriteTestTool(state: CoverageState, outputDir: string, onWr
                 .describe(
                     "The id next_node returned for this feature, copied verbatim. Not a re-slugged version of it, not a folder path, not the test filename.",
                 ),
-            test: testSpecSchema,
+            test: buildTestSpecSchema(validFlowIds),
         }),
         execute: async (input) => {
             const content = renderTestMarkdown(input.test);
@@ -140,7 +151,7 @@ export function buildCreateFolderTool(outputDir: string) {
     });
 }
 
-export function buildNextNodeTool(state: CoverageState, outputDir: string) {
+export function buildNextNodeTool(state: CoverageState, outputDir: string, worker: WorkerScope = ALL_NODES) {
     return tool({
         description:
             "Get the next node to write tests for. If you called next_node before " +
@@ -148,7 +159,7 @@ export function buildNextNodeTool(state: CoverageState, outputDir: string) {
             "Returns done:true when all nodes are processed.",
         inputSchema: z.object({}),
         execute: async () => {
-            const next = state.nextNode();
+            const next = state.nextNode(worker);
             await saveBfsState(outputDir, state);
             if (!next) {
                 const stats = state.summary();

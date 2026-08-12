@@ -1,22 +1,56 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { tool } from "ai";
+import { type LanguageModel, tool } from "ai";
 import { z } from "zod";
 import { type AgentResult, buildDefaultStepLogger, formatRetryGuidance, runAgent } from "../../core/agent";
 import { debugLog } from "../../core/debug";
-import { getModel } from "../../core/model";
+import { resolveModel } from "../../core/model";
 import { pickString } from "../../core/pick-string";
 import { reportSubProgress } from "../../core/progress";
 import type { buildReadFileTool } from "../../tools";
 import { buildCodebaseTools } from "../../tools";
+import { CoreFlowsSpec } from "./flow-spec";
 import { SYSTEM_PROMPT } from "./prompt";
+import { collectRepoSignals, renderRepoSignals } from "./repo-signals";
+import { stabilizeFlowIds } from "./stabilize-flow-ids";
+
+const FLOWS_FILE = "flows.json";
+
+/**
+ * The flow ranking from a previous KB run, or nothing when the step has not run
+ * or wrote something malformed. Callers fall back to unranked behaviour rather
+ * than failing: a missing ranking should cost budget precision, not the run.
+ */
+export async function loadFlows(outputDir: string): Promise<CoreFlowsSpec | undefined> {
+    try {
+        const raw = await readFile(join(outputDir, FLOWS_FILE), "utf-8");
+        const parsed = CoreFlowsSpec.safeParse(JSON.parse(raw));
+        if (!parsed.success) {
+            console.warn(`  ${FLOWS_FILE} does not match the expected shape; ignoring the flow ranking`);
+            debugLog("flows.json failed validation", { issues: parsed.error.issues });
+            return undefined;
+        }
+        return parsed.data;
+    } catch (err) {
+        debugLog("No flows.json to load", { outputDir, err });
+        return undefined;
+    }
+}
 
 export interface KBGeneratorInput {
     projectRoot: string;
     outputDir: string;
     modelId?: string;
+    /**
+     * An already-built model, used in place of `modelId`. The product never passes
+     * this; the evals do, so the step can be driven against a provider directly
+     * rather than through the authenticated proxy `getModel` requires.
+     */
+    model?: LanguageModel;
     nonInteractive?: boolean;
     retryGuidance?: string;
+    /** Evals only: drop the git-history evidence, to measure what it changes. */
+    skipRepoSignals?: boolean;
 }
 
 class PageTracker {
@@ -100,6 +134,29 @@ function requiredReads(total: number): number {
     return Math.ceil(total * LARGE_APP_COVERAGE_FLOOR);
 }
 
+/**
+ * Take the flow ranking as a validated payload rather than as YAML the agent
+ * hand-writes into frontmatter. The prose version parsed back defensively -
+ * coercing every field and silently yielding an empty list when it did not match
+ * - so a malformed ranking looked identical to a product with no flows.
+ */
+function buildSubmitCoreFlowsTool(onFlows: (spec: CoreFlowsSpec) => void) {
+    return tool({
+        description:
+            "Submit the product pitch and the complete ranked flow list. Call once, before finish. " +
+            "Every page you registered must be reachable through some flow's entryPoints.",
+        inputSchema: CoreFlowsSpec,
+        execute: (spec: CoreFlowsSpec) => {
+            onFlows(spec);
+            const byTier = spec.flows.reduce<Record<number, number>>((acc, f) => {
+                acc[f.tier] = (acc[f.tier] ?? 0) + 1;
+                return acc;
+            }, {});
+            return `Recorded ${spec.flows.length} flows (tier 1: ${byTier[1] ?? 0}, tier 2: ${byTier[2] ?? 0}, tier 3: ${byTier[3] ?? 0}).`;
+        },
+    });
+}
+
 function buildFinishTool(tracker: PageTracker, onFinish: (result: AgentResult) => void) {
     return tool({
         description:
@@ -151,10 +208,11 @@ function buildTrackedReadTool(tracker: PageTracker, baseTool: ReturnType<typeof 
  */
 function buildKbAgentConfig(
     tracker: PageTracker,
-    model: ReturnType<typeof getModel>,
+    model: LanguageModel,
     input: KBGeneratorInput,
     onStepFinish: ReturnType<typeof buildDefaultStepLogger>["onStepFinish"],
     setResult: (r: AgentResult) => void,
+    setFlows: (spec: CoreFlowsSpec) => void,
 ) {
     return {
         id: "kb-generator",
@@ -169,6 +227,7 @@ function buildKbAgentConfig(
                 read_file: buildTrackedReadTool(tracker, tools.read_file),
                 register_pages: buildRegisterPagesTool(tracker),
                 page_coverage: buildPageCoverageTool(tracker),
+                submit_core_flows: buildSubmitCoreFlowsTool(setFlows),
                 finish: buildFinishTool(tracker, setResult),
             };
         },
@@ -177,11 +236,19 @@ function buildKbAgentConfig(
 }
 
 export async function runKBGenerator(input: KBGeneratorInput): Promise<AgentResult> {
-    const model = getModel(input.modelId);
+    const model = resolveModel(input);
 
     let result: AgentResult | undefined;
     const setResult = (r: AgentResult) => {
         result = r;
+    };
+
+    let flows: CoreFlowsSpec | undefined;
+    // Canonicalise the model-invented flow ids to stable, route-derived ones before
+    // anything downstream reads them: flows.json, the budget ledger and the closed-set
+    // enforcement all key on this id, and the model reinvents it every run.
+    const setFlows = (spec: CoreFlowsSpec) => {
+        flows = stabilizeFlowIds(spec);
     };
 
     const { logger, onStepFinish } = buildDefaultStepLogger("kb", 150);
@@ -190,11 +257,11 @@ export async function runKBGenerator(input: KBGeneratorInput): Promise<AgentResu
 
     const tracker = new PageTracker(input.projectRoot);
 
-    const prompt = `Analyze the codebase at the working directory and generate a complete knowledge base.
+    const basePrompt = `Analyze the codebase at the working directory and generate a complete knowledge base.
 ${contextBlock}
 MANDATORY PROCESS:
 1. Use list_directory at root to understand the project structure
-2. Use glob to find ALL page/route files (e.g. '**/page.tsx', '**/page.ts')
+2. Use glob to find ALL page/route files, however this project's framework names them (discover the convention from the structure - do not assume one)
 3. Call register_pages with the FULL list of page files from glob
 4. Read EVERY registered page file with read_file - the system tracks this
 5. Write AUTONOMA.md progressively as you go (update it after each major area)
@@ -204,9 +271,27 @@ MANDATORY PROCESS:
 Output files:
 1. AUTONOMA.md - with YAML frontmatter (app_name, app_description, core_flows, feature_count)`;
 
-    const agentConfig = buildKbAgentConfig(tracker, model, input, onStepFinish, setResult);
+    // History is evidence for riskDrivers, never for tier: where a team spends its
+    // time says how hard a surface is to get right, not whether the product is
+    // sold on it. Absent (shallow clone, no git) the step runs unchanged.
+    const signals = input.skipRepoSignals === true ? undefined : await collectRepoSignals(input.projectRoot);
+    const prompt = signals != null ? `${basePrompt}\n${renderRepoSignals(signals)}` : basePrompt;
+    if (signals != null) {
+        console.log(`  Read ${signals.totalCommits} commits of history for risk signals`);
+    }
+
+    const agentConfig = buildKbAgentConfig(tracker, model, input, onStepFinish, setResult, setFlows);
     await runAgent(agentConfig, prompt, () => result);
     logger.summary();
+
+    // Written separately from AUTONOMA.md so the ranking survives as data. The
+    // markdown is for a human to read; every later step budgets against this.
+    if (flows != null) {
+        await writeFile(join(input.outputDir, FLOWS_FILE), JSON.stringify(flows, null, 2), "utf-8");
+        console.log(`  Pitch: ${flows.pitch}`);
+    } else {
+        console.warn("  No flow ranking submitted; later steps fall back to per-page budget");
+    }
 
     // The finish tool can be blocked (e.g. by the page-coverage gate) even though
     // the agent already wrote AUTONOMA.md - which would leave `result` undefined
@@ -221,10 +306,24 @@ Output files:
             return false;
         });
     if (!result?.success && autonomaExists) {
+        // Say how much of the app this KB was actually built from. The fallback
+        // exists so a blocked finish does not throw away real work, but a run that
+        // read a fraction of the routes produces a knowledge base - and a flow
+        // ranking - describing an app nobody looked at, and every later step
+        // budgets against it. Reporting that as a plain success hides the one fact
+        // that explains a bad suite.
+        const cov = tracker.coverage();
+        const pct = cov.total > 0 ? Math.round((cov.read / cov.total) * 100) : 100;
+        if (cov.read < requiredReads(cov.total)) {
+            console.warn(
+                `  Knowledge base built from ${cov.read}/${cov.total} routes (${pct}%) - below the coverage gate. ` +
+                    `Flow tiers derived from it are unreliable.`,
+            );
+        }
         result = {
             success: true,
             artifacts: ["AUTONOMA.md"],
-            summary: "Knowledge base generated.",
+            summary: `Knowledge base generated from ${cov.read}/${cov.total} routes (${pct}%).`,
         };
     }
 

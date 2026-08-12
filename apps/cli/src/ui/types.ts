@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { StepName, StepStatus } from "../core/state";
 
 export type { StepName, StepStatus };
@@ -132,6 +133,64 @@ export interface NavState {
 export interface ProjectSizes {
     pages?: number;
 }
+
+/* -------------------------------------------------------------------- plan -- */
+
+/**
+ * One flow's slice of the reasoning behind the suite: why it landed in its tier,
+ * how it can break, where a user reaches it, and how much test budget that
+ * bought it. This is data the pipeline already computes (from `flows.json` and
+ * the budget ledger) and then discarded - the display surfaces it so a human can
+ * judge whether the tiering is right without opening a single test file.
+ */
+export const FlowPlanSchema = z.object({
+    flowId: z.string(),
+    feature: z.string(),
+    tier: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+    /** The argued case for the tier - specific enough that someone could disagree. */
+    tierReason: z.string(),
+    /** How this flow can break, from the "prone to error" rubric. */
+    riskDrivers: z.array(z.string()).readonly(),
+    /** Routes a user reaches this flow through. */
+    entryPoints: z.array(z.string()).readonly(),
+    /** Promises the flow makes, each phrased so a test could falsify it. */
+    invariants: z.array(z.string()).readonly(),
+    /** Discretionary tests reserved for this flow, above the per-page smoke floor. */
+    allowance: z.number(),
+});
+
+export type FlowPlan = z.infer<typeof FlowPlanSchema>;
+
+/**
+ * The whole "why the suite is shaped this way" story: the product pitch the
+ * tiering was argued from, the budget split, and every ranked flow. Held in the
+ * store as a durable slice (not React state); the hero renders it and headless
+ * runs print it.
+ *
+ * This schema is the single source of truth. The store projects it to JSON as the
+ * "Test Plan" live text; `render-content` parses that JSON back with this exact
+ * schema, so there is no second shape to keep in sync.
+ */
+export const RunPlanSchema = z.object({
+    /** What the product IS, as its own team would pitch it - the nouns are tier 1. */
+    pitch: z.string(),
+    /** Suite size target: the smoke floor plus all discretionary allowances. */
+    total: z.number(),
+    /** One smoke test per page, charged to no flow. */
+    smokeFloor: z.number(),
+    /** Discretionary tests reserved per tier, for the headline summary. */
+    tierTotals: z.object({ 1: z.number(), 2: z.number(), 3: z.number() }),
+    /** Flows, tier ascending then allowance descending. */
+    flows: z.array(FlowPlanSchema),
+    /**
+     * Whether the raw churn/retouch git signals are persisted anywhere. They are
+     * not yet - the `riskDrivers` above are the signal's distilled output - so the
+     * view can be honest about what it is and is not showing.
+     */
+    signalsPersisted: z.boolean(),
+});
+
+export type RunPlan = z.infer<typeof RunPlanSchema>;
 
 export interface MetaInfo {
     /** Brand-bar title, e.g. "Generating your test suite". */
@@ -282,4 +341,10 @@ export interface RunState {
     waitedMs: number;
     /** Size signals for the ETA model (sized step budgets). */
     sizes: ProjectSizes;
+    /**
+     * Why the suite came out the way it did: the pitch, the per-flow tiering and
+     * risk, and the budget split. Set once at the start of test generation, then
+     * readable in the hero (the "Test Plan" file) for the rest of the run.
+     */
+    plan?: RunPlan;
 }

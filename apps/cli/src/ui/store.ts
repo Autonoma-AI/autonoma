@@ -20,6 +20,7 @@ import type {
     PromptRequest,
     ReviewArtifactStatus,
     RunOutcome,
+    RunPlan,
     RunState,
     StepName,
     StepNode,
@@ -54,6 +55,14 @@ export interface RunStore {
     setMeta(patch: Partial<MetaInfo>): void;
     /** Record a learned project-size signal (drives sized ETA budgets). */
     setSizes(patch: ProjectSizes): void;
+
+    /**
+     * Push the reasoning behind the suite - pitch, tiering, risk, budget split -
+     * as a durable slice. Registers a "Test Plan" file in the list and, unless
+     * the user has pinned another document, opens it in the hero so it is the
+     * first thing seen when test generation begins.
+     */
+    setPlan(plan: RunPlan): void;
 
     // activity + logs
     setActivity(text: string): void;
@@ -140,6 +149,13 @@ export interface RunStore {
 
 const LOG_CAP = 500;
 const ACTIVITY_CAP = 200;
+/**
+ * The synthetic "Test Plan" artifact id. It has no file on disk: its content is
+ * rendered from the `plan` slice, so `refresh` serves it from the store rather
+ * than the disk reader. The `.md` suffix makes the hero render it as markdown and
+ * keeps it clear of the extension-less internal-path filter.
+ */
+export const PLAN_ARTIFACT_ID = "test-plan.md";
 /** Coalesce listener notifications so bursts of events repaint once per frame. */
 const EMIT_COALESCE_MS = 16;
 /** How long after the last write a file keeps its "writing live" indicator. */
@@ -315,6 +331,15 @@ export function createStore(opts: StoreOptions): RunStore {
     }
 
     async function refresh(relPath: string) {
+        // The plan has no file on disk - it is rendered from the store slice, so
+        // navigating back to it (which triggers a refresh) must re-render from
+        // memory rather than hit the disk reader and find nothing.
+        if (relPath === PLAN_ARTIFACT_ID) {
+            if (state.plan != null && state.live.artifactId === relPath) {
+                setLiveText(relPath, JSON.stringify(state.plan), "markdown");
+            }
+            return;
+        }
         if (opts.reader == null) return;
         const content = await opts.reader(absOf(relPath));
         if (content == null) return;
@@ -420,6 +445,26 @@ export function createStore(opts: StoreOptions): RunStore {
 
         setSizes(patch) {
             set({ ...state, sizes: { ...state.sizes, ...patch } });
+        },
+
+        setPlan(plan) {
+            // Register the plan as a file in the list (so it can be returned to
+            // any time) and store the slice. DONE, not WRITING: it is decided in
+            // one shot, not streamed. The slice IS the source of truth; the live
+            // text is a JSON projection of it that render-content parses back into
+            // the structured "Test Plan" card (dispatched by the test-plan.md name).
+            let next = ensureArtifact(PLAN_ARTIFACT_ID, "DONE");
+            next = { ...next, plan };
+            set(next);
+            // Open it in the hero now - the moment the budget is decided - unless
+            // the user has pinned another document. As tests start streaming,
+            // follow-the-newest moves the hero onto them and the plan stays in
+            // the list. The plan is decided in one shot, so it is never "writing
+            // live" - clear the flag a prior streaming write may have left set.
+            if (state.live.following) {
+                setLiveText(PLAN_ARTIFACT_ID, JSON.stringify(plan), "markdown");
+                set({ ...state, live: { ...state.live, writingLive: false } });
+            }
         },
 
         setActivity(text) {

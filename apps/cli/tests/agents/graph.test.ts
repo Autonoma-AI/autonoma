@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test, beforeEach, afterEach } from "vitest";
 import {
+    ALL_NODES,
     BFS_STATE_FILE,
     CoverageState,
     estimateExpectedTests,
@@ -10,7 +11,13 @@ import {
     JOURNEY_STATE_FILE,
     saveBfsState,
     loadBfsState,
+    type WorkerScope,
 } from "../../src/agents/05-test-generator/graph";
+
+/** A worker that owns exactly one page id, for scoped-drain assertions. */
+function pageWorker(id: string): WorkerScope {
+    return { id, owns: (nodeId: string) => nodeId === id };
+}
 
 function makeNode(overrides: Partial<FeatureNode> = {}): FeatureNode {
     return {
@@ -141,7 +148,7 @@ describe("CoverageState", () => {
         // and the whole review-fix cycle silently does nothing.
         state.nextNode();
         state.nextNode();
-        expect(state.currentNode).toBeUndefined();
+        expect(state.exploring()).toBeUndefined();
 
         expect(state.resolveNodeId("admin/claims/create.md", "qa-tests/admin/claims/create.md")).toBe("admin-claims");
     });
@@ -198,6 +205,64 @@ describe("CoverageState", () => {
         expect(stats.tested).toBe(1);
         expect(stats.skipped).toBe(1);
         expect(stats.totalTests).toBe(1);
+    });
+});
+
+describe("hasDrained (worker-scoped termination)", () => {
+    test("a queued worker has not drained", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "a" }));
+        expect(state.hasDrained(pageWorker("a"))).toBe(false);
+    });
+
+    test("a worker mid-exploration has not drained", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "a" }));
+        const a = pageWorker("a");
+
+        state.nextNode(a);
+        expect(state.exploring(a)).toBe("a");
+        // Its queue is empty but the node is still open - finishing here would drop
+        // the node's tests, so it must not count as drained.
+        expect(state.remainingFor(a)).toBe(0);
+        expect(state.hasDrained(a)).toBe(false);
+    });
+
+    test("a worker drains when its own slice is done, regardless of other workers' queues", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "a" }));
+        state.enqueue(makeNode({ id: "b" }));
+        const a = pageWorker("a");
+        const b = pageWorker("b");
+
+        // Worker A processes its one node and asks again - next_node returns done
+        // and clears its in-progress marker.
+        state.nextNode(a);
+        state.markTested("a", ["a.md"]);
+        state.nextNode(a);
+
+        // A is done even though B's node is still globally queued. This is the
+        // regression: gating finish on the whole run's queue (queued > 0) kept A
+        // spinning next_node until every other worker also drained.
+        expect(state.summary().queued).toBe(1);
+        expect(state.hasDrained(a)).toBe(true);
+        expect(state.hasDrained(b)).toBe(false);
+    });
+
+    test("the default whole-graph worker drains only when nothing is left", () => {
+        const state = new CoverageState();
+        state.enqueue(makeNode({ id: "a" }));
+        state.enqueue(makeNode({ id: "b" }));
+
+        expect(state.hasDrained(ALL_NODES)).toBe(false);
+
+        for (const id of ["a", "b"]) {
+            state.nextNode();
+            state.markTested(id, [`${id}.md`]);
+        }
+        state.nextNode();
+
+        expect(state.hasDrained(ALL_NODES)).toBe(true);
     });
 });
 
