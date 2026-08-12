@@ -1,5 +1,6 @@
 export { EncryptionHelper } from "./encryption";
 export { SdkClient, type SdkCallOptions, type SdkClientOptions } from "./sdk-client";
+export { SdkCallError } from "./sdk-call-error";
 export { SdkHttpError } from "./sdk-http-error";
 export {
     isColdStartError,

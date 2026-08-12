@@ -3,7 +3,9 @@ import {
     type AnalysisTestOrigin,
     type AnalysisVerdict,
     SELF_HEAL_RERUN_REASON,
+    type SdkFailure,
     analysisVerdictSchema,
+    mapSdkFailureToVerdict,
 } from "@autonoma/types";
 import { CancellationScope, log, proxyActivities } from "@temporalio/workflow";
 import type {
@@ -18,6 +20,7 @@ import type {
 } from "../activities";
 import { rootFailureMessage } from "../root-failure-message";
 import { categorizeInfraFailure } from "../rules/infra-failure";
+import { sdkFailureFromError } from "../sdk-failure-from-error";
 import { TaskQueue } from "../task-queues";
 
 /**
@@ -423,12 +426,13 @@ async function runAndClassify(
             scenarioInstanceId = up.scenarioInstanceId;
         } catch (error) {
             const message = rootFailureMessage(error);
+            const failure = sdkFailureFromError(error);
             log.warn("Scenario setup failed; the app was never exercised", {
                 snapshot: { snapshotId },
-                extra: { slug, message },
+                extra: { slug, message, failureKind: failure?.kind },
             });
             await markGenerationFailed(snapshotId, slug, testGenerationId, { kind: "scenario_setup", message });
-            return faultOutcome(message, "Scenario setup failed before the app was exercised");
+            return faultOutcome(message, "Scenario setup failed before the app was exercised", "provisioning", failure);
         }
     }
 
@@ -467,7 +471,7 @@ async function runAndClassify(
             snapshot: { snapshotId },
             extra: { slug, message },
         });
-        return faultOutcome(message, "The run could not be classified");
+        return faultOutcome(message, "The run could not be classified", "unknown");
     } finally {
         // Never let a teardown error escape - it would mask the outcome this function just resolved. Tear down
         // outside cancellation so a superseded run still releases the scenario instance.
@@ -511,13 +515,30 @@ async function markGenerationFailed(
 }
 
 /**
- * Build a contained coverage-plane outcome for a run/classify fault. A recognizable infra error maps to
- * environment_failure / scenario_issue (the failure is attributable to the environment or the scenario data, not
- * the PR); anything else is an engine_artifact (a harness fault). The underlying message rides along in the
- * headline (capped) so the contained finding is self-explanatory.
+ * Build a contained coverage-plane outcome for a run/classify fault. Its verdict comes from `faultCategory`: the
+ * structured `SdkFailure` tag when the provisioning activity carried one, else `categorizeInfraFailure`'s string
+ * match (kept as the transitional net for a failure with no tag - an older activity, or one mid-deploy), else
+ * engine_artifact. The underlying message rides along in the headline (capped) so the contained finding is
+ * self-explanatory.
  */
-function faultOutcome(message: string, prefix: string): ClassifyOutcome {
-    const category: AnalysisVerdict = categorizeInfraFailure(message) ?? "engine_artifact";
+function faultOutcome(
+    message: string,
+    prefix: string,
+    origin: "provisioning" | "unknown",
+    failure?: SdkFailure,
+): ClassifyOutcome {
+    const category = faultCategory(message, origin, failure);
     const detail = message.length > FAULT_DETAIL_CAP ? `${message.slice(0, FAULT_DETAIL_CAP)}...` : message;
     return { kind: "fault", category, headline: `${prefix}: ${detail}` };
+}
+
+/**
+ * The verdict for a contained fault. A structured `SdkFailure` tag is authoritative - it was computed at the SDK
+ * boundary from the real error, so it never guesses. Absent (a non-SDK throw, or an activity too old to carry one),
+ * fall back to `categorizeInfraFailure`'s string match, and finally to `engine_artifact` - which, on the
+ * provisioning path, now precisely means "our orchestration threw before the SDK call".
+ */
+function faultCategory(message: string, origin: "provisioning" | "unknown", failure?: SdkFailure): AnalysisVerdict {
+    if (failure != null) return mapSdkFailureToVerdict(failure);
+    return categorizeInfraFailure(message, origin) ?? "engine_artifact";
 }

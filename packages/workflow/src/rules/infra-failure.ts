@@ -10,7 +10,9 @@ const SDK_CONTEXT_MARKERS = ["sdk", "scenario", "preview", "endpoint", "webhook"
 
 /**
  * Transport-level errors that are unambiguously a network failure no matter who raised them - safe to categorize
- * without SDK context (a DNS/connection error to any host is an infra problem, never a classifier logic bug).
+ * without SDK context (a DNS/connection error to any host is an infra problem, never a classifier logic bug). A
+ * peer that drops the connection surfaces under two phrasings, both listed here: Node's "socket hang up" and
+ * undici's "other side closed" (the server closed the socket mid-fetch).
  */
 const TRANSPORT_ERROR_MARKERS = [
     "econnrefused",
@@ -19,6 +21,7 @@ const TRANSPORT_ERROR_MARKERS = [
     "eai_again",
     "getaddrinfo",
     "socket hang up",
+    "other side closed",
 ];
 
 /**
@@ -28,16 +31,23 @@ const TRANSPORT_ERROR_MARKERS = [
  * `classification_error`. STRICT by design: an unrecognized message returns `undefined` so real classifier bugs
  * keep surfacing as `classification_error` instead of being silently buried as "not the PR's fault".
  *
- * Ambiguous signals (an HTTP status, a bare "timeout"/"fetch failed") are only trusted when the message also
- * carries SDK/scenario/preview context - otherwise a model-API timeout during classification would be mislabeled
- * as "the preview was unavailable". Only genuinely transport-level errors (ECONNREFUSED/ENOTFOUND/socket hang up)
- * are categorized without that context. In the SDK-context branch:
+ * Ambiguous signals (an HTTP status, a bare "timeout"/"fetch failed") are only trusted once SDK/scenario/preview
+ * context is established - either the message names it, or the caller passes `origin: "provisioning"` because the
+ * throw escaped the scenario up/down path, where the context is a given the raw network error never spells out.
+ * Without either, a model-API timeout during classification would be mislabeled as "the preview was unavailable",
+ * so `origin: "unknown"` (the default) makes the message prove it. Only genuinely transport-level errors
+ * (ECONNREFUSED/ENOTFOUND/socket hang up/other side closed) are categorized without any context. In the
+ * SDK-context branch:
  * - a 5xx / a failed seed query / a sign-in failure means the endpoint responded but seeding failed (`scenario_issue`);
  * - a 404 / 503 / 504 / timed-out / unreachable endpoint means the preview is missing or unreachable (`environment_failure`).
  */
-export function categorizeInfraFailure(message: string): ProvisioningCategory | undefined {
+export function categorizeInfraFailure(
+    message: string,
+    origin: "provisioning" | "unknown" = "unknown",
+): ProvisioningCategory | undefined {
     const normalized = message.toLowerCase();
-    const hasSdkContext = SDK_CONTEXT_MARKERS.some((marker) => normalized.includes(marker));
+    const hasSdkContext =
+        origin === "provisioning" || SDK_CONTEXT_MARKERS.some((marker) => normalized.includes(marker));
 
     if (hasSdkContext) {
         const isSeedFailure =

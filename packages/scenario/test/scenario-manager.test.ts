@@ -410,7 +410,12 @@ integrationTestSuite({
             const instance = await manager.up(subject, scenarioId);
 
             expect(instance.status).toBe("UP_FAILED");
-            expect(instance.lastError).toEqual({ message: "SDK returned HTTP 500: internal" });
+            // lastError carries both the human message and the structured SdkFailure tag (a 500 with no body `code`
+            // is a bare status), so the analysis workflow can classify the failure without re-parsing the string.
+            expect(instance.lastError).toEqual({
+                message: "SDK returned HTTP 500: internal",
+                failure: { kind: "http", status: 500 },
+            });
             expect(instance.completedAt).not.toBeNull();
         });
 

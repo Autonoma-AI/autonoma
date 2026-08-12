@@ -10,6 +10,7 @@ export * from "./org-domain";
 export * from "./app-links";
 export * from "./agent-handoff-links";
 export * from "./sdk-error-signals";
+export * from "./sdk-failure";
 export * from "./designated-run";
 export * from "./deployment-signal-template";
 export * from "./constants/index";

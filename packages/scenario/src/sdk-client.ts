@@ -1,8 +1,9 @@
 import { createHmac } from "node:crypto";
 import { type Logger, logger } from "@autonoma/logger";
-import type { DiscoverResponse, DownResponse, UpResponse } from "@autonoma/types";
+import type { DiscoverResponse, DownResponse, SdkFailure, UpResponse } from "@autonoma/types";
 import { DiscoverResponseSchema, DownResponseSchema, UpResponseSchema } from "@autonoma/types";
 import type { z } from "zod";
+import { SdkCallError } from "./sdk-call-error";
 import { NOOP_RECORDER, type SdkAction, type SdkCallRecorder } from "./sdk-call-recorder";
 import { SdkHttpError } from "./sdk-http-error";
 
@@ -121,6 +122,7 @@ export class SdkClient {
                 : cause != null && cause !== error.message
                   ? `${error.message}: ${cause}`
                   : error.message;
+            const failure: SdkFailure = isTimeout ? { kind: "timed_out" } : { kind: "unreachable" };
             await this.recorder.record({
                 applicationId: this.applicationId,
                 instanceId,
@@ -130,7 +132,7 @@ export class SdkClient {
                 error: message,
             });
             this.logger.warn(`SDK ${action} failed`, { error: message });
-            throw new Error(message);
+            throw new SdkCallError(message, failure);
         }
 
         const { status, responseBody } = response;
@@ -146,14 +148,17 @@ export class SdkClient {
 
         if (status < 200 || status >= 300) {
             const detail = extractResponseDetail(responseBody);
+            const code = extractResponseCode(responseBody);
             const message = detail != null ? `SDK returned HTTP ${status}: ${detail}` : `SDK returned HTTP ${status}`;
             this.logger.warn(`SDK ${action} returned ${status}`, { status, responseBody });
-            throw new SdkHttpError(status, message, detail);
+            throw new SdkHttpError(status, message, code, detail);
         }
 
         const parsed = responseSchema.safeParse(responseBody);
         if (!parsed.success) {
-            throw new Error(`SDK ${action} response validation failed: ${parsed.error.message}`);
+            throw new SdkCallError(`SDK ${action} response validation failed: ${parsed.error.message}`, {
+                kind: "bad_response",
+            });
         }
         return parsed.data;
     }
@@ -219,4 +224,18 @@ function extractResponseDetail(responseBody: unknown): string | undefined {
         return `code=${code.trim()} - the SDK endpoint returned an empty error message; check the preview app runtime logs`;
     }
     return undefined;
+}
+
+/**
+ * The SDK's contractual error `code` (e.g. `INTERNAL_ERROR`, `UNKNOWN_ENVIRONMENT`), when the non-2xx body carried
+ * one. Its presence is what separates "the customer's handler answered with a structured error" (the scenario
+ * plane) from "an ingress/proxy answered" (the environment plane) - so it rides onto `SdkHttpError` for the
+ * analysis workflow to classify on. Absent for a gateway HTML page or any body without a `code`.
+ */
+function extractResponseCode(responseBody: unknown): string | undefined {
+    if (responseBody == null || typeof responseBody !== "object" || !("code" in responseBody)) return undefined;
+    const code = responseBody.code;
+    if (typeof code !== "string") return undefined;
+    const trimmed = code.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
 }

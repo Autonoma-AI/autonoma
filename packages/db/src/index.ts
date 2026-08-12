@@ -16,6 +16,7 @@ import type {
     primaryScreenshotSchema,
     ScenarioRecipeSchema,
     ScenarioStructureJsonSchema,
+    sdkFailureSchema,
     suspectedCauseSchema,
 } from "@autonoma/types";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -197,7 +198,13 @@ declare global {
          * gracefully when it is null.
          */
         export type ScenarioGeneratedData = unknown;
-        export type ScenarioLastError = { message: string };
+        /**
+         * The unwrapped root cause of a scenario UP/DOWN failure. `failure` is the structured `SdkFailure` tag
+         * when the failure came from the SDK call (computed at the transport boundary), letting the analysis
+         * workflow classify it without re-parsing `message`; absent on non-SDK throws and on rows written before
+         * the tag existed, so consumers must degrade to `message`.
+         */
+        export type ScenarioLastError = { message: string; failure?: z.infer<typeof sdkFailureSchema> };
 
         /**
          * Failure modes shared by both generations and runs. Each carries a

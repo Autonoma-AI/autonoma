@@ -9,7 +9,13 @@ import {
     SdkClient,
     SdkHttpError,
 } from "@autonoma/scenario";
-import { type PreviewConfig, resolveSdkAppName, sdkPathOf, trustedPreviewConfigSchema } from "@autonoma/types";
+import {
+    type PreviewConfig,
+    SDK_ERROR_CODE,
+    resolveSdkAppName,
+    sdkPathOf,
+    trustedPreviewConfigSchema,
+} from "@autonoma/types";
 import { resolvePreviewkitBypassToken } from "@autonoma/utils";
 import { env } from "../../env";
 import { DryRunSubject } from "./dry-run-subject";
@@ -964,6 +970,9 @@ function isStringRecord(value: unknown): value is Record<string, string> {
  * scoped to the SDK handler's "Invalid HMAC signature" response specifically.
  */
 function isInvalidHmacError(error: SdkHttpError): boolean {
+    // The SDK's contractual code is the exact signal; the message substring stays as a fallback for a custom-language
+    // SDK that phrases the rejection without emitting the code.
+    if (error.code === SDK_ERROR_CODE.INVALID_SIGNATURE) return true;
     const haystack = `${error.detail ?? ""} ${error.message}`.toLowerCase();
     return haystack.includes("invalid hmac signature");
 }

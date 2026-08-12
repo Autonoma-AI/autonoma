@@ -1,6 +1,8 @@
 import type { PrismaClient } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { GenerationSubject, type ScenarioManager } from "@autonoma/scenario";
+import { SCENARIO_SETUP_FAILURE_TYPE } from "@autonoma/types";
+import { ApplicationFailure } from "@temporalio/activity";
 
 export interface ScenarioUpParams {
     entityId: string;
@@ -33,13 +35,16 @@ export async function scenarioUp(params: ScenarioUpParams, deps: ScenarioUpDeps)
     const instance = await manager.up(subject, scenarioId, { snapshotId, sdkUrlOverride: params.sdkUrlOverride });
 
     if (instance.status === "UP_FAILED") {
-        logger.error("Scenario up failed", { instanceId: instance.id, lastError: instance.lastError });
-        // Surface the underlying error message (e.g. "SDK returned HTTP 500")
-        // as the primary message so it flows cleanly through to the failure
-        // panel, while carrying the instance id on `cause` so it is preserved
-        // in the error chain (Temporal history, Sentry) for debugging.
-        throw new Error(instance.lastError?.message ?? "Scenario environment failed to start", {
-            cause: new Error(`scenario instance ${instance.id} failed to come up`),
+        const lastError = instance.lastError;
+        logger.error("Scenario up failed", { instanceId: instance.id, lastError });
+        // Surface the underlying message (e.g. "SDK returned HTTP 500") as the primary message so it flows to the
+        // failure panel, and carry the structured `SdkFailure` tag in the ApplicationFailure `details` so the
+        // analysis workflow classifies the failure from it rather than re-parsing the string. `details` is empty
+        // when the failure did not come from the SDK call (no tag) - the workflow then falls back to the message.
+        throw ApplicationFailure.create({
+            message: lastError?.message ?? "Scenario environment failed to start",
+            type: SCENARIO_SETUP_FAILURE_TYPE,
+            details: lastError?.failure != null ? [lastError.failure] : [],
         });
     }
 

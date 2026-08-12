@@ -23,9 +23,28 @@ describe("categorizeInfraFailure", () => {
             "connect ECONNREFUSED 10.0.0.1:443",
             "getaddrinfo ENOTFOUND preview.example.test",
             "socket hang up",
+            // undici's phrasing for a server that dropped the connection mid-fetch - the exact message a whole
+            // provisioning run was miscounted as an engine artifact under before it was whitelisted.
+            "other side closed",
+            "fetch failed: other side closed",
         ]) {
             expect(categorizeInfraFailure(message)).toBe("environment_failure");
         }
+    });
+
+    it("trusts an ambiguous signal from a known provisioning throw, even when the message names no SDK context", () => {
+        // A scenario-setup failure the preview raised - a bare "fetch failed", a timeout, a 5xx - carries none of
+        // the SDK/scenario/preview marker words, so at the default origin it falls through to an engine_artifact.
+        // The provisioning origin supplies the context the raw network error never spells out.
+        expect(categorizeInfraFailure("fetch failed", "provisioning")).toBe("environment_failure");
+        expect(categorizeInfraFailure("the request timed out", "provisioning")).toBe("environment_failure");
+        expect(categorizeInfraFailure("HTTP 500: internal server error", "provisioning")).toBe("scenario_issue");
+
+        // The same messages stay strict at the default (unknown) origin, so a model-API failure mid-classify is
+        // never buried as a preview outage.
+        expect(categorizeInfraFailure("fetch failed")).toBeUndefined();
+        expect(categorizeInfraFailure("the request timed out")).toBeUndefined();
+        expect(categorizeInfraFailure("HTTP 500: internal server error")).toBeUndefined();
     });
 
     it("does NOT categorize a bare timeout / fetch failure with no SDK context (could be the model API mid-classify)", () => {

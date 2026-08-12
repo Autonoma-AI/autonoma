@@ -15,10 +15,18 @@ import type { EncryptionHelper } from "./encryption";
 import { hashRecipe } from "./hash-recipe";
 import { ScenarioRecipeStore } from "./scenario-recipe-store";
 import type { ScenarioSubject } from "./scenario-subject";
+import { SdkCallError } from "./sdk-call-error";
 import { SdkClient, type SdkCallOptions } from "./sdk-client";
 import { resolveSdkConfig, type SdkConfig } from "./sdk-config-resolver";
 
 const DEFAULT_EXPIRES_IN_SECONDS = 2 * 60 * 60; // 2 hours
+
+/** Build the persisted `lastError` from a caught throw, carrying the `SdkFailure` tag when the SDK client raised it
+ * (so the analysis workflow classifies from the tag) and degrading to message-only for any other failure. */
+function toScenarioLastError(err: unknown): PrismaJson.ScenarioLastError {
+    const message = err instanceof Error ? err.message : String(err);
+    return err instanceof SdkCallError ? { message, failure: err.failure } : { message };
+}
 
 interface ScenarioApplicationData {
     organizationId: string;
@@ -155,9 +163,9 @@ export class ScenarioManager {
             response =
                 coldStartRetry === true ? await withColdStartRetry(callUp, { logger: this.logger }) : await callUp();
         } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            this.logger.error("Scenario up failed", { error: message, instanceId: instance.id });
-            return this.markUpFailure(instance.id, message);
+            const lastError = toScenarioLastError(err);
+            this.logger.error("Scenario up failed", { error: lastError.message, instanceId: instance.id });
+            return this.markUpFailure(instance.id, lastError);
         }
 
         this.logger.info("Scenario up succeeded", { instanceId: instance.id });
@@ -218,9 +226,9 @@ export class ScenarioManager {
                 options,
             );
         } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            this.logger.error("Scenario down failed", { error: message, instanceId: instance.id });
-            return this.markDownFailure(instance.id, message);
+            const lastError = toScenarioLastError(err);
+            this.logger.error("Scenario down failed", { error: lastError.message, instanceId: instance.id });
+            return this.markDownFailure(instance.id, lastError);
         }
 
         this.logger.info("Scenario down succeeded", { instanceId: instance.id });
@@ -256,12 +264,12 @@ export class ScenarioManager {
         });
     }
 
-    private markUpFailure(instanceId: string, message: string): Promise<ScenarioInstance> {
+    private markUpFailure(instanceId: string, lastError: PrismaJson.ScenarioLastError): Promise<ScenarioInstance> {
         return this.db.scenarioInstance.update({
             where: { id: instanceId },
             data: {
                 status: "UP_FAILED",
-                lastError: { message },
+                lastError,
                 completedAt: new Date(),
             },
         });
@@ -278,14 +286,14 @@ export class ScenarioManager {
         });
     }
 
-    private markDownFailure(instanceId: string, message: string): Promise<ScenarioInstance> {
+    private markDownFailure(instanceId: string, lastError: PrismaJson.ScenarioLastError): Promise<ScenarioInstance> {
         return this.db.scenarioInstance.update({
             where: { id: instanceId },
             data: {
                 status: "DOWN_FAILED",
                 downAt: new Date(),
                 completedAt: new Date(),
-                lastError: { message },
+                lastError,
             },
         });
     }

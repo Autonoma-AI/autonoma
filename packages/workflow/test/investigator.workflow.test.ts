@@ -1,6 +1,11 @@
-import { type AnalysisClassificationReport, type AnalysisTestOrigin, analysisVerdictPlane } from "@autonoma/types";
+import {
+    type AnalysisTestOrigin,
+    type AnalysisClassificationReport,
+    SCENARIO_SETUP_FAILURE_TYPE,
+    analysisVerdictPlane,
+} from "@autonoma/types";
 import type { AnalysisCandidateFinding } from "@autonoma/workflow/activities";
-import { Context } from "@temporalio/activity";
+import { ApplicationFailure, Context } from "@temporalio/activity";
 import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -649,6 +654,44 @@ describe("investigatorWorkflow verdict state machine", () => {
         // The verdict is still filed, and only after the generation's status is on disk.
         expect(harness.events.slice(0, 3)).toEqual(["startRun", "scenarioUp", "markFailed:scenario_setup"]);
         expect(harness.persistCalls).toHaveLength(1);
+    });
+
+    it("classifies a tagged provisioning failure from its SdkFailure tag - a 500 with the SDK's error code is scenario_issue", async () => {
+        // The provisioning activity carries the structured tag in the ApplicationFailure details. A 500 whose body
+        // carried the SDK's INTERNAL_ERROR code means the customer's factory threw - the scenario plane, not ours.
+        harness.scenarioUpError = ApplicationFailure.create({
+            message: "SDK returned HTTP 500: seeding blew up",
+            type: SCENARIO_SETUP_FAILURE_TYPE,
+            details: [{ kind: "http", status: 500, code: "INTERNAL_ERROR" }],
+        });
+
+        const finding = await runInvestigator("pre_existing", "scenario-1");
+
+        expect(finding.category).toBe("scenario_issue");
+        expect(harness.webRuns).toEqual([]);
+    });
+
+    it("classifies a tagged unreachable provisioning failure as environment_failure", async () => {
+        harness.scenarioUpError = ApplicationFailure.create({
+            message: "fetch failed",
+            type: SCENARIO_SETUP_FAILURE_TYPE,
+            details: [{ kind: "unreachable" }],
+        });
+
+        const finding = await runInvestigator("pre_existing", "scenario-1");
+
+        expect(finding.category).toBe("environment_failure");
+    });
+
+    it("falls back to the message-string net for an untagged provisioning transport drop", async () => {
+        // No SdkFailure tag (an older activity, or a throw that never reached the SDK call); the categorizeInfraFailure
+        // net still keeps a transport drop off the engine_artifact bucket that is hard-wired to us.
+        harness.scenarioUpError = new Error("fetch failed: other side closed");
+
+        const finding = await runInvestigator("pre_existing", "scenario-1");
+
+        expect(finding.category).toBe("environment_failure");
+        expect(harness.webRuns).toEqual([]);
     });
 
     it("records an engine failure when the run errors before the engine owns the generation", async () => {
