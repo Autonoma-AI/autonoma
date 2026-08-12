@@ -476,6 +476,40 @@ function callsThenFinishesModel(): MockLanguageModelV3 {
     });
 }
 
+describe("logs never carry inline media", () => {
+    const FRAME = "A".repeat(200_000);
+
+    class BigFrameTool extends AgentTool<{ note: string }, { stepOrder: number; base64: string }> {
+        constructor() {
+            super({ name: "noop", description: "Views a frame.", inputSchema: z.object({ note: z.string() }) });
+        }
+        protected async execute(): Promise<{ stepOrder: number; base64: string }> {
+            return { stepOrder: 3, base64: FRAME };
+        }
+    }
+
+    it("elides an oversized tool result, keeping the rest of it readable", async () => {
+        const sink: LogRecord[] = [];
+        setDefaultLogger(new RecordingLogger(sink));
+
+        await new AgentLoop<FakeResult>({
+            name: "frame-loop",
+            model: callsThenFinishesModel(),
+            systemPrompt: "system",
+            tools: [new BigFrameTool()],
+            reportTool: new FinishTool({ resultSchema: z.object({ payload: z.string() }) }),
+            maxSteps: 5,
+        }).runLoop([{ role: "user", content: "go" }]);
+
+        const serialized = JSON.stringify(sink);
+        expect(serialized).not.toContain(FRAME);
+        expect(serialized).toContain("200000 chars elided");
+
+        const toolLog = sink.find((r) => r.message === "Tool executed successfully");
+        expect(toolLog?.extra?.result).toEqual({ stepOrder: 3, base64: "[200000 chars elided]" });
+    });
+});
+
 describe("a tool's FatalToolError ends the run", () => {
     // The AI SDK swallows anything a tool throws into a `tool-error` part and carries on, so the throw alone
     // never reaches the loop; only the tool wrapper reporting it at the throw site stops the run.

@@ -1,9 +1,12 @@
 import type { ContentPart, ToolSet } from "ai";
 import type { Logger } from "../logger";
+import { redactForLog } from "./log-redaction";
 
 /**
  * Default per-step logger used by {@link AgentLoop.onStepFinish}. Pulls the text, tool calls,
  * tool results, and tool errors out of the step content into a single structured log line.
+ *
+ * Results are named, not dumped - {@link AgentTool} logs each one as it returns.
  */
 export function logStepContent(logger: Logger, stepContent: ContentPart<ToolSet>[]) {
     logger.info("Agent step finished", {
@@ -16,21 +19,20 @@ export function logStepContent(logger: Logger, stepContent: ContentPart<ToolSet>
             .map((c) => ({
                 name: c.toolName,
                 id: c.toolCallId,
-                input: c.input,
+                input: redactForLog(c.input),
             })),
         toolResults: stepContent
             .filter((c) => c.type === "tool-result")
             .map((c) => ({
                 name: c.toolName,
                 id: c.toolCallId,
-                output: c.output,
             })),
         toolErrors: stepContent
             .filter((c) => c.type === "tool-error")
             .map((c) => ({
                 name: c.toolName,
                 id: c.toolCallId,
-                error: c.error,
+                error: redactForLog(c.error),
             })),
     });
 }

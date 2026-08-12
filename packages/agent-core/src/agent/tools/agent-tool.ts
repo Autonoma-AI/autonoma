@@ -2,6 +2,7 @@ import { tool, type Tool } from "ai";
 import type z from "zod";
 import { getDefaultLogger, type Logger } from "../../logger";
 import type { AgentLoop } from "../agent-loop";
+import { redactForLog } from "../log-redaction";
 import { FatalToolError, FixableToolError } from "./tool-errors";
 
 /**
@@ -100,9 +101,9 @@ export abstract class AgentTool<TInput, TOutput, TLoop extends AgentLoop = Agent
             inputSchema: this.inputSchema,
             execute: async (input: TInput): Promise<ToolEnvelope<TOutput>> => {
                 try {
-                    this.logger.info("Executing tool", { input });
+                    this.logger.info("Executing tool", { input: redactForLog(input) });
                     const result = await this.execute(input, loop);
-                    this.logger.info("Tool executed successfully", { result });
+                    this.logger.info("Tool executed successfully", { result: redactForLog(result) });
                     return toolSuccess(result);
                 } catch (error) {
                     if (

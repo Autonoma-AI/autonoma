@@ -10,6 +10,7 @@ import {
 import type { MessageCompactor } from "../compaction/types";
 import { getDefaultLogger, type Logger } from "../logger";
 import type { LanguageModel } from "../model";
+import { redactForLog } from "./log-redaction";
 import { logStepContent } from "./log-step";
 import type { ReportResultTool } from "./tools/agent-result";
 import type { AgentTool } from "./tools/agent-tool";
@@ -227,7 +228,7 @@ export class AgentLoop<TResult = unknown> {
             throw new MultipleResultCalls();
         }
 
-        this.logger.info("Setting result of agent loop", { result });
+        this.logger.info("Setting result of agent loop", { result: redactForLog(result) });
         this.result = result;
     }
 
@@ -353,7 +354,7 @@ export class AgentLoop<TResult = unknown> {
             throw new NoAgentResultError(conversation, partialResult);
         }
 
-        this.logger.info("Agent loop finished successfully", { result: this.result });
+        this.logger.info("Agent loop finished successfully", { result: redactForLog(this.result) });
 
         return { result: this.result, conversation };
     }
