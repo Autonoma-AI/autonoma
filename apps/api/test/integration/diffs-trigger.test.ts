@@ -65,6 +65,13 @@ apiTestSuite({
             data: { githubRepositoryId: 1001 },
         });
 
+        // This suite exercises the live flow throughout: a pull request on an application still being set up is
+        // refused before a branch is created, which `parks the app mid-onboarding` below covers deliberately.
+        await harness.db.onboardingState.update({
+            where: { applicationId: app.id },
+            data: { step: "completed" },
+        });
+
         // Suites share one DB with no truncation and installation_id is globally unique, so ids must not repeat.
         await harness.services.github.handleInstallation(33333, harness.organizationId, {
             login: "test-org",
@@ -76,6 +83,71 @@ apiTestSuite({
         return { app, service };
     },
     cases: (test) => {
+        // The Branch row is what puts a pull request on Home, so it must not exist for a pull request Autonoma
+        // never reviewed. `upsertPrBranch` runs before the activation gate, so this check has to sit ahead of it.
+        test("refuses a PR trigger and creates no branch while the app is still being set up", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.startAnalysisRun.mockClear();
+            await harness.db.onboardingState.update({
+                where: { applicationId: app.id },
+                data: { step: "previewkit_configuring" },
+            });
+
+            try {
+                const result = await service.triggerPrDiffs({
+                    organizationId: harness.organizationId,
+                    repoId: 1001,
+                    prNumber: 76,
+                    url: "https://preview.example.com",
+                });
+
+                expect(result.skipped).toBe(true);
+                expect(result.branchId).toBeUndefined();
+                expect(harness.startAnalysisRun).not.toHaveBeenCalled();
+                const branch = await harness.db.branch.findFirst({
+                    where: { applicationId: app.id, prInfo: { prNumber: 76 } },
+                    select: { id: true },
+                });
+                expect(branch).toBeNull();
+            } finally {
+                await harness.db.onboardingState.update({
+                    where: { applicationId: app.id },
+                    data: { step: "completed" },
+                });
+            }
+        });
+
+        // `/start analysis` on a not-yet-live app is a person asking for it by hand, which is exactly what the
+        // `requested` bypass is for.
+        test("an explicitly requested run still goes through while the app is being set up", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.startAnalysisRun.mockClear();
+            await harness.db.onboardingState.update({
+                where: { applicationId: app.id },
+                data: { step: "previewkit_configuring" },
+            });
+
+            try {
+                const result = await service.triggerPrDiffs({
+                    organizationId: harness.organizationId,
+                    repoId: 1001,
+                    prNumber: 75,
+                    requested: true,
+                });
+
+                expect(result.branchId).toBeDefined();
+            } finally {
+                await harness.db.onboardingState.update({
+                    where: { applicationId: app.id },
+                    data: { step: "completed" },
+                });
+            }
+        });
+
         test("triggers diffs for a new branch", async ({ harness, seedResult: { app, service } }) => {
             const result = await service.triggerPrDiffs({
                 organizationId: harness.organizationId,

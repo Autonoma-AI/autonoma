@@ -2,6 +2,7 @@ import type { PrismaClient } from "@autonoma/db";
 import { BadRequestError, InternalError, NotFoundError } from "@autonoma/errors";
 import { recordBranchDeployment } from "@autonoma/scenario";
 import { TestSuiteStore } from "@autonoma/test-suite";
+import { hasGoneLive } from "@autonoma/types";
 import type { AnalysisRunWorkflowInput } from "@autonoma/workflow";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
@@ -31,11 +32,15 @@ interface TriggerDiffsParams extends BaseTriggerDiffsParams {
 }
 
 export interface TriggerDiffsResult {
-    branchId: string;
     /**
-     * True when the request was a no-op: the head was already analyzed, or activation suppressed it. Absent means a
-     * run is under way - either one this call started or one it attached to. No snapshot id: the run opens inside
-     * its workflow, so the trigger never learns one.
+     * Absent only when the request was refused before a branch existed to name - a pull request on an application
+     * that has not gone live, where creating the branch is itself part of what is being held back.
+     */
+    branchId?: string;
+    /**
+     * True when the request was a no-op: the head was already analyzed, activation suppressed it, or the
+     * application is still being set up. Absent means a run is under way - either one this call started or one it
+     * attached to. No snapshot id: the run opens inside its workflow, so the trigger never learns one.
      */
     skipped?: boolean;
 }
@@ -114,6 +119,18 @@ export class DiffsTriggerService extends Service {
         });
 
         if (app == null) throw new NoApplicationLinkedError(repoId);
+
+        // Before the branch is created, not after: the Branch row is what puts a pull request on the customer's
+        // Home screen, so an application still being set up must not leave one behind for a pull request nobody
+        // reviewed. An explicit request (`/start analysis`) still runs - the same bypass the activation gate uses.
+        if (!requested && !(await this.isLive(app.id))) {
+            this.logger.info("Skipping PR diffs: the application has not gone live yet", {
+                organizationId,
+                repoId,
+                prNumber,
+            });
+            return { skipped: true };
+        }
 
         const pullRequest = await this.githubInstallationService.getPullRequest(organizationId, repoId, prNumber);
         const normalizedBranch = pullRequest.headRef;
@@ -327,6 +344,18 @@ export class DiffsTriggerService extends Service {
             select: { application: { select: { triggerConfig: { select: { autoRunOnReadyForReview: true } } } } },
         });
         return branch?.application.triggerConfig?.autoRunOnReadyForReview === true;
+    }
+
+    /**
+     * Whether the application has gone live. An application with no onboarding row reads as not live, which is the
+     * shared predicate failing closed - see `hasGoneLive`.
+     */
+    private async isLive(applicationId: string): Promise<boolean> {
+        const state = await this.db.onboardingState.findUnique({
+            where: { applicationId },
+            select: { step: true },
+        });
+        return hasGoneLive(state?.step);
     }
 
     /** Whether this org is migrated to activation, in which case an automatic run is suppressed. */
