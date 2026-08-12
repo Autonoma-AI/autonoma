@@ -142,7 +142,7 @@ let startedWorkflowIds: string[] = [];
 
 function verdict(
     category: string,
-    options: { suggestedTestUpdate?: string; headline?: string } = {},
+    options: { suggestedTestUpdate?: string; headline?: string; planMismatchNote?: string } = {},
 ): InvestigationVerdict {
     return {
         category,
@@ -155,6 +155,7 @@ function verdict(
         rootCause: "n/a",
         remediation: "n/a",
         suggestedTestUpdate: options.suggestedTestUpdate,
+        planMismatchNote: options.planMismatchNote,
         evidence: [{ source: "run", detail: "n/a" }],
     };
 }
@@ -324,7 +325,13 @@ function runInvestigator(
 describe("investigatorWorkflow verdict state machine", () => {
     it("rewrites the plan and re-runs when the first run shows the test itself is stale", async () => {
         harness.classifyQueue = [
-            classified(verdict("plan_mismatch", { suggestedTestUpdate: REVISED_PLAN, headline: "stale assertion" })),
+            classified(
+                verdict("plan_mismatch", {
+                    suggestedTestUpdate: REVISED_PLAN,
+                    headline: "stale assertion",
+                    planMismatchNote: "The old plan asserts an outdated state.",
+                }),
+            ),
             classified(verdict("passed", { headline: "healed and green" })),
         ];
 
@@ -368,7 +375,14 @@ describe("investigatorWorkflow verdict state machine", () => {
         // against the first pass's conclusion instead of re-investigating from scratch.
         expect(harness.classifyCalls.map((call) => call.priorPass)).toEqual([
             undefined,
-            { category: "plan_mismatch", headline: "stale assertion", rootCause: "n/a" },
+            {
+                category: "plan_mismatch",
+                headline: "stale assertion",
+                rootCause: "n/a",
+                plan: "1. Open checkout.",
+                planMismatchNote: "The old plan asserts an outdated state.",
+                evidence: [{ source: "run", detail: "n/a" }],
+            },
         ]);
     });
 

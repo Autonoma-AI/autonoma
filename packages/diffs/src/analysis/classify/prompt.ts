@@ -292,10 +292,16 @@ function scanSection(header: string, scan: string | undefined, interpretation: s
  * plan flakily escalate to client_bug on a healthy app.
  */
 function buildPriorPassSection(priorPass: NonNullable<ClassifierInput["priorPass"]>): string {
+    const priorEvidence = priorPass.evidence.map(formatPriorEvidence).join("\n");
     return [
         "\n--- SELF-HEAL RE-RUN: this run executes a CORRECTED plan ---",
         `The prior pass classified the ORIGINAL plan as ${priorPass.category}: "${priorPass.headline}".`,
         ...(priorPass.rootCause != null ? [`Its root cause: ${priorPass.rootCause}`] : []),
+        `\n--- PRIOR PLAN ---\n${priorPass.plan}`,
+        ...(priorPass.planMismatchNote != null
+            ? [`\n--- PRIOR MISMATCH DIAGNOSIS ---\n${priorPass.planMismatchNote}`]
+            : []),
+        `\n--- PRIOR EVIDENCE ---\n${priorEvidence}`,
         "That pass established the app was HEALTHY and the test itself did not match the app's (intentional)",
         "behavior; the plan was rewritten accordingly and re-run. Judge THIS run against that conclusion:",
         "- If the corrected plan PASSES, the heal worked - classify passed.",
@@ -311,4 +317,16 @@ function buildPriorPassSection(priorPass: NonNullable<ClassifierInput["priorPass
         "- ONLY convict client_bug on a re-run if you observed NEW evidence of a real defect this PR introduced",
         "  that the prior pass did not have (a new error state, a backend-confirmed failure) - and say what is new.",
     ].join("\n");
+}
+
+function formatPriorEvidence(evidence: NonNullable<ClassifierInput["priorPass"]>["evidence"][number]): string {
+    const location = formatPriorEvidenceLocation(evidence);
+    const snippet = evidence.snippet != null ? `\n  ${evidence.snippet}` : "";
+    return `- ${evidence.source}${location}: ${evidence.detail}${snippet}`;
+}
+
+function formatPriorEvidenceLocation(evidence: NonNullable<ClassifierInput["priorPass"]>["evidence"][number]): string {
+    if (evidence.file == null) return "";
+    if (evidence.lines == null) return ` (${evidence.file})`;
+    return ` (${evidence.file}:${evidence.lines})`;
 }

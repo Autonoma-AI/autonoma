@@ -13,6 +13,7 @@ import type {
     AnalysisCandidateClassification,
     AnalysisCandidateFinding,
     GeneralActivities,
+    InvestigationEvidence,
     InvestigationTestResult,
     InvestigationVerdict,
     PersistAnalysisClassificationOutput,
@@ -40,6 +41,16 @@ export const CONTAINMENT_CLASSIFICATION_NUMBER = MAX_INVESTIGATOR_ITERATIONS + 1
 
 /** How much of a fault's underlying error message to carry into the finding headline (the rest is only logged). */
 const FAULT_DETAIL_CAP = 200;
+
+/** The complete first-pass record a self-heal re-run needs to judge the repair rather than rediscover it. */
+interface SelfHealPriorPass {
+    category: string;
+    headline: string;
+    rootCause?: string;
+    plan: string;
+    planMismatchNote?: string;
+    evidence: InvestigationEvidence[];
+}
 
 /**
  * Classification is the long pole of an Investigator pass: the vision probes, then a multi-step tool loop whose
@@ -163,7 +174,7 @@ async function runWithSelfHeal(params: SelfHealParams): Promise<AnalysisCandidat
     let currentReason = reason;
     // The prior iteration's verdict, carried into a self-heal re-run's classify call so the second iteration judges
     // the corrected plan against the first's conclusion instead of re-investigating from scratch.
-    let priorPass: { category: string; headline: string; rootCause?: string } | undefined;
+    let priorPass: SelfHealPriorPass | undefined;
     // The plan record the assignment held before a self-heal rewrite. Set if and only if a rewrite landed - self-heal
     // refuses to rewrite what it cannot undo - so this being absent means there is nothing to put back.
     let planIdBeforeSelfHeal: string | undefined;
@@ -255,6 +266,9 @@ async function runWithSelfHeal(params: SelfHealParams): Promise<AnalysisCandidat
             category: outcome.verdict.category,
             headline: outcome.verdict.headline,
             rootCause: outcome.verdict.rootCause,
+            plan: outcome.result.plan,
+            planMismatchNote: outcome.verdict.planMismatchNote,
+            evidence: outcome.verdict.evidence,
         };
     }
 
@@ -417,7 +431,7 @@ async function runAndClassify(
     testGenerationId: string,
     scenarioId: string | undefined,
     reason: string,
-    priorPass?: { category: string; headline: string; rootCause?: string },
+    priorPass?: SelfHealPriorPass,
 ): Promise<ClassifyOutcome> {
     let scenarioInstanceId: string | undefined;
     if (scenarioId != null) {

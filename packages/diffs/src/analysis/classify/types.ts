@@ -77,11 +77,18 @@ export interface ClassifierInput {
     /** A short diff stat for context; the model reads the patch itself with `git diff` over the range below. */
     diffSummary: string;
     /**
-     * Present when this run is a SELF-HEAL RE-RUN of a corrected plan: the prior pass's verdict on the original
-     * plan. The prior pass concluded the app was healthy and the TEST was wrong; this run executes the plan it
-     * rewrote. The classifier judges the re-run against that conclusion (see the prompt's self-heal section).
+     * Present when this run is a SELF-HEAL RE-RUN of a corrected plan. It carries the actual first-pass plan,
+     * diagnosis, and proof so the classifier can judge whether the failed repair reveals an invalid test instead
+     * of reconstructing that decision from a headline.
      */
-    priorPass?: { category: string; headline: string; rootCause?: string };
+    priorPass?: {
+        category: string;
+        headline: string;
+        rootCause?: string;
+        plan: string;
+        planMismatchNote?: string;
+        evidence: Array<{ source: string; detail: string; file?: string; lines?: string; snippet?: string }>;
+    };
 
     /** The repo cloned at the PR head, read through the shared read-only `bash` tool. */
     codebase: Codebase;

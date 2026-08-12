@@ -344,6 +344,12 @@ export interface ClassifyInvestigationRunInput {
         category: string;
         headline: string;
         rootCause?: string;
+        /** The test plan the prior classification actually judged, before self-heal replaced it. */
+        plan: string;
+        /** Why the prior plan mismatched the healthy app and what its repair attempted. */
+        planMismatchNote?: string;
+        /** The prior classifier's proof, carried into the re-run rather than reconstructed from a headline. */
+        evidence: InvestigationEvidence[];
     };
 }
 
