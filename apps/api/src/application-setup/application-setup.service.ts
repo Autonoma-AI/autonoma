@@ -11,6 +11,7 @@ import {
     type UploadArtifactsBody,
     type UploadScenarioRecipeVersionsBody,
     FileDataSchema,
+    hasGoneLive,
     TestCaseFrontmatterSchema,
     TOTAL_SETUP_STEPS,
 } from "@autonoma/types";
@@ -216,7 +217,7 @@ export class ApplicationSetupService {
         const onboardingState = await this.onboardingManager.getState(applicationId);
         const step = onboardingState.step;
 
-        if (step === "completed") {
+        if (hasGoneLive(step)) {
             await this.onboardingManager.activatePendingSnapshot(applicationId, organizationId);
             log.info("Activated pending snapshot after setup completion", { setupId, applicationId });
             return;

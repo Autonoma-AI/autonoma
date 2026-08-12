@@ -17,6 +17,7 @@ import {
     analysisIssueKindSchema,
     analysisIssueSeveritySchema,
     evidenceManifestEntrySchema,
+    hasGoneLive,
     primaryScreenshotSchema,
     suspectedCauseSchema,
 } from "@autonoma/types";
@@ -381,10 +382,9 @@ const ApplicationSetupFactory = defineFactory({
     },
 });
 
-// The real ApplicationsService.createApplication seeds an OnboardingState row;
-// the app's list gate only checks app-count, but the Finish-setup / SDK-validation
-// screens read this. Defaults describe a finished tenant, which is what most
-// scenarios want.
+// Application creation seeds an OnboardingState row; the app's list gate only checks
+// app-count, but the Finish-setup / SDK-validation screens read this. Defaults describe a
+// finished tenant, which is what most scenarios want.
 //
 // A scenario that wants the OPPOSITE - an app still mid-setup, so the
 // Finish-setup wizard is reachable - must set `step` to an earlier value AND
@@ -411,8 +411,8 @@ const OnboardingStateFactory = defineFactory({
             data: {
                 applicationId: data.applicationId,
                 step,
-                completedAt: (data.completed ?? step === "completed") ? now : undefined,
-                dryRunPassedAt: (data.dryRunPassed ?? step === "completed") ? now : undefined,
+                completedAt: (data.completed ?? hasGoneLive(step)) ? now : undefined,
+                dryRunPassedAt: (data.dryRunPassed ?? hasGoneLive(step)) ? now : undefined,
                 previewVerificationStatus:
                     OnboardingPreviewVerificationStatus.safeParse(data.previewVerificationStatus).data ?? "ready",
                 productionUrl: data.productionUrl ?? undefined,

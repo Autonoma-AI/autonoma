@@ -7,7 +7,7 @@ import {
     MERGE_GATE_CHECK_NAME,
     MERGE_GATE_EVENT,
 } from "@autonoma/github/check";
-import { isOnboardingComplete } from "@autonoma/github/comment";
+import { hasGoneLive } from "@autonoma/github/comment";
 import { logger as rootLogger } from "@autonoma/logger";
 import {
     ANALYSIS_VERDICT,
@@ -57,7 +57,7 @@ export async function concludeMergeGate({
         return { status: "skipped" };
     }
 
-    if (!isOnboardingComplete(meta.onboardingStep)) {
+    if (!hasGoneLive(meta.onboardingStep)) {
         logger.info("Skipping merge gate - application is not fully onboarded");
         return { status: "skipped" };
     }

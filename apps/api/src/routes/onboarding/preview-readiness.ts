@@ -8,6 +8,7 @@ import {
 import { NotFoundError } from "@autonoma/errors";
 import type { WorkloadLiveness } from "@autonoma/k8s/preview-liveness";
 import { parseStringRecord, previewConfigSchema, projectManifest, resolvePrimaryUrl } from "@autonoma/types";
+import { hasGoneLive } from "@autonoma/types";
 import { applicationBranchRefs } from "../../github/application-branch-refs";
 import {
     buildServiceSummaries,
@@ -307,7 +308,7 @@ export async function buildPreviewkitReadiness(
 ): Promise<PreviewReadiness> {
     // Once onboarding is completed, report readiness but never persist a
     // status/step change - that would roll a finished onboarding backward.
-    const isCompleted = step === "completed";
+    const isCompleted = hasGoneLive(step);
     const application = await db.application.findFirst({
         where: { id: applicationId, organizationId },
         select: {

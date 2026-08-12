@@ -1,6 +1,6 @@
 import { db } from "@autonoma/db";
 import { OctokitGitHubApp } from "@autonoma/github";
-import { isOnboardingComplete } from "@autonoma/github/comment";
+import { hasGoneLive } from "@autonoma/github/comment";
 import { logger as rootLogger } from "@autonoma/logger";
 import { autonomaHostsPreviews } from "@autonoma/scenario";
 import type { ResolvePreviewTargetInput, ResolvePreviewTargetOutput } from "@autonoma/workflow/activities";
@@ -46,7 +46,7 @@ export async function resolvePreviewTarget(input: ResolvePreviewTargetInput): Pr
     // Read once here rather than in the workflow: this query already joins the onboarding row, so
     // asking for the step costs nothing, and a second activity to fetch it would be a round trip
     // for a column we already had in hand.
-    const onboardingComplete = isOnboardingComplete(application.onboardingState?.step);
+    const onboardingComplete = hasGoneLive(application.onboardingState?.step);
     if (!autonomaHostsPreviews(application.onboardingState?.previewEnvironmentMode)) {
         logger.info("The customer deploys this preview; the run is analysis only", {
             branch: { branchId },

@@ -11,6 +11,7 @@ import {
     type PreviewkitConfigSecrets,
     type SecretItem,
 } from "@autonoma/types";
+import { hasGoneLive } from "@autonoma/types";
 import { z } from "zod";
 import { applicationBranchRefs } from "../../github/application-branch-refs";
 import { isGithubNotFound, normalizeBranchName } from "../../github/git-ref";
@@ -731,7 +732,7 @@ export class OnboardingManager {
         const readiness = await this.getPreviewReadiness(applicationId, organizationId);
         const before = await this.getState(applicationId);
 
-        if (before.step === "completed") {
+        if (hasGoneLive(before.step)) {
             this.logger.info("App is already live", { applicationId });
             return { step: before.step, alreadyLive: true, transitions: [], state: before };
         }
@@ -836,7 +837,7 @@ export class OnboardingManager {
         if (write.advancedToVerified) {
             await this.analytics.stepAdvanced(machineActor(application), "deployment_signal", "signal", write.fromStep);
         }
-        if (application.onboardingState.step === "completed") {
+        if (hasGoneLive(application.onboardingState.step)) {
             await this.triggerDiffsFromSignal(application.id, application.organizationId, {
                 repoId: application.githubRepositoryId ?? undefined,
                 previewUrl: body.previewUrl,

@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@autonoma/db";
 import {
     createGitHubPrCommentStore,
-    isOnboardingComplete,
+    hasGoneLive,
     postOrUpdateCommentOnGithub,
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
@@ -71,7 +71,7 @@ export async function postAnalysisComment({
         return { status: "skipped" };
     }
 
-    if (!isOnboardingComplete(meta.onboardingStep)) {
+    if (!hasGoneLive(meta.onboardingStep)) {
         logger.info("Skipping analysis PR comment - application is not fully onboarded");
         return { status: "skipped" };
     }

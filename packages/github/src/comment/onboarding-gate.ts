@@ -1,12 +1,11 @@
-import type { OnboardingStep } from "@autonoma/db";
-
 /**
- * Whether an application has finished onboarding (e2e tests generated, preview environment wired up,
- * gone live). Autonoma must not post PR comments on a client's repository until this is true: a
- * half-onboarded app has no meaningful results to report, and commenting early is just noise on the
- * client's PRs. A missing step (no onboarding row) counts as not-onboarded, so we fail closed and stay
- * silent when in doubt.
+ * The onboarding gate every PR-facing write asks before it touches a customer's repository:
+ * a half-onboarded app has no meaningful results to report, and commenting early is just
+ * noise on their pull requests.
+ *
+ * The predicate itself lives in `@autonoma/types` because the same question is asked from
+ * the browser, which cannot import a Prisma enum. It is re-exported here so this package's
+ * consumers keep importing it from `@autonoma/github/comment`, next to the comment writers
+ * it guards.
  */
-export function isOnboardingComplete(step: OnboardingStep | null | undefined): boolean {
-    return step === "completed";
-}
+export { hasGoneLive } from "@autonoma/types";

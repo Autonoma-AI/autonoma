@@ -6,6 +6,7 @@ import {
     buildDeploymentSignalWorkflow,
     DEPLOYMENT_SIGNAL_BODY_FIELDS,
     INTEGRATION_BRANCH,
+    hasGoneLive,
     isProtectedPreviewkitEnvKey,
     type OnboardingAgentPendingRequest,
 } from "@autonoma/types";
@@ -944,7 +945,7 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                     const mode = result.state.previewEnvironmentMode ?? undefined;
                     return {
                         step: result.step,
-                        live: result.step === "completed",
+                        live: hasGoneLive(result.step),
                         alreadyLive: result.alreadyLive,
                         transitions: result.transitions,
                         previewSource: previewSourceOf(mode),

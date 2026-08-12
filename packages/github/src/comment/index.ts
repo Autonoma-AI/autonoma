@@ -2,7 +2,7 @@ export { buildAgentHandoffLinks, capHandoffPrompt, MAX_HANDOFF_PROMPT_CHARS } fr
 export { renderMarkdown } from "./markdown";
 export { payloadBuilder } from "./payload";
 export { resolveCommentAssetBaseUrl } from "./assets";
-export { isOnboardingComplete } from "./onboarding-gate";
+export { hasGoneLive } from "./onboarding-gate";
 export { createGitHubPrCommentStore } from "./pr-comment-store";
 export { postOrUpdateCommentOnGithub } from "./updater";
 export type {

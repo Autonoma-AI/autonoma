@@ -92,7 +92,7 @@ export async function analysisRunWorkflow(input: AnalysisRunWorkflowInput): Prom
     // Nothing downstream can say anything useful yet, so stop after the build. Impact analysis
     // needs a suite to select from and there is none until onboarding produces one; the comment
     // and merge-gate stages already refuse to act on a half-onboarded app for the same reason
-    // (`isOnboardingComplete` in post-analysis-comment and apply-merge-gate-verdict). Running it
+    // (`hasGoneLive` in post-analysis-comment and apply-merge-gate-verdict). Running it
     // anyway spends a model call to reach a selection of zero that means nothing, and - before
     // the exemption above - that zero was what refused the build the customer was waiting for.
     if (resolved.onboardingComplete === false) {

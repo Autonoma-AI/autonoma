@@ -11,7 +11,7 @@ import {
     MERGE_GATE_IN_PROGRESS_SUMMARY,
     MERGE_GATE_IN_PROGRESS_TITLE,
 } from "@autonoma/github/check";
-import { isOnboardingComplete } from "@autonoma/github/comment";
+import { hasGoneLive } from "@autonoma/github/comment";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { OpenMergeGateInput, OpenMergeGateOutput } from "@autonoma/workflow/activities";
 import { resolveRunTarget } from "../../codebase/run-target";
@@ -50,7 +50,7 @@ async function tryOpenMergeGate(snapshotId: string, logger: Logger): Promise<Ope
     const meta = await loadSnapshotMeta(snapshotId);
 
     if (!(await isMergeGateEnabledForOrg(meta.organizationId))) return { status: "skipped" };
-    if (!isOnboardingComplete(meta.onboardingStep)) return { status: "skipped" };
+    if (!hasGoneLive(meta.onboardingStep)) return { status: "skipped" };
 
     // Only the auto-run-on-ready path flips here. On-demand triggers (comment/label/mcp) already flipped the check
     // and stamped their own source via `requestAnalysisRun`, and a non-migrated org's check is already in-progress

@@ -1,5 +1,5 @@
 import type { OnboardingStep } from "@autonoma/db";
-import { isStepAtOrPast } from "./onboarding-step-order";
+import { hasGoneLive } from "@autonoma/types";
 
 /**
  * Idle window before the UI treats the agent as released (soft mutex handed back
@@ -47,6 +47,6 @@ export function isAgentSessionStale(lastActivityAt: Date | undefined, now = Date
  */
 export function isAgentDrivenApplication(session: AgentSessionLiveness, now = Date.now()): boolean {
     if (session.agentConnectedAt == null) return false;
-    if (!isStepAtOrPast(session.step, "completed")) return true;
+    if (!hasGoneLive(session.step)) return true;
     return !isAgentSessionStale(session.agentLastActivityAt, now);
 }

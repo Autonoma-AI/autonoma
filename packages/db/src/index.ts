@@ -136,6 +136,8 @@ export async function withAdvisoryLock<T>(client: PrismaClient, name: string, fn
 export type { PrismaClient } from "./generated/prisma/client";
 export * from "./generated/prisma/client";
 export { INCOMPLETE_GENERATION_STATUSES, isIncompleteGenerationStatus } from "./generation-status";
+// Exported so the parity check is part of this package's typecheck rather than an orphan file.
+export type { LiveStepIsAnOnboardingStep } from "./onboarding-step-parity";
 export {
     previewkitConfigCreateChildren,
     previewkitConfigReplaceChildren,
