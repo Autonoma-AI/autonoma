@@ -1,9 +1,9 @@
 import { Skeleton, Tooltip, TooltipContent, TooltipTrigger, cn } from "@autonoma/blacklight";
 import type { SuiteHealth, SuiteHealthLevel } from "@autonoma/types";
-import { SUITE_HEALTH_LEVELS, suiteHealthRank } from "@autonoma/types";
+import { suiteHealthRank } from "@autonoma/types";
 import { WrenchIcon } from "@phosphor-icons/react/Wrench";
+import { SuiteHealthBars, SuiteHealthPill } from "components/suite-health/suite-health-meter";
 import { useShellSuiteHealth } from "lib/query/app-shell.queries";
-import { Component, Suspense, useState, type ReactNode } from "react";
 import {
   SUITE_HEALTH_LOWERS,
   SUITE_HEALTH_PRESENTATION,
@@ -11,14 +11,12 @@ import {
   suiteHealthDriverNote,
   suiteHealthFooter,
   suiteHealthStats,
-} from "./suite-health-copy";
+} from "lib/suite-health/copy";
+import { Component, Suspense, useState, type ReactNode } from "react";
 import { SuiteHealthFixDialog } from "./suite-health-fix-dialog";
 
 /** Where "how it works" goes: the public docs page explaining the calculation, not an in-app tab. */
 const SUITE_HEALTH_DOCS_URL = "https://docs.autonoma.app/suite-health";
-
-/** Rising bar heights, one per rung of the ladder. Index maps to rank, so the array length is the ladder's. */
-const BAR_HEIGHTS = ["h-1.5", "h-2", "h-3", "h-4", "h-5"];
 
 /**
  * Below this rung the suite has a backlog worth handing to an agent, so the tooltip offers to. At CALIBRATING and
@@ -28,31 +26,6 @@ const FIX_OFFERED_BELOW_RANK = suiteHealthRank("calibrating");
 
 function isFixOffered(level: SuiteHealthLevel): boolean {
   return suiteHealthRank(level) < FIX_OFFERED_BELOW_RANK;
-}
-
-function SuiteHealthBars({ health }: { health: SuiteHealth }) {
-  const { bar } = SUITE_HEALTH_PRESENTATION[health.level];
-
-  return (
-    <div className="flex h-5 items-end gap-1">
-      {SUITE_HEALTH_LEVELS.map((level, index) => (
-        <span
-          key={level}
-          className={cn("w-1.5 shrink-0", BAR_HEIGHTS[index], index < health.rank ? bar : "bg-border-dim")}
-        />
-      ))}
-    </div>
-  );
-}
-
-function SuiteHealthPill({ health }: { health: SuiteHealth }) {
-  const { label, pill } = SUITE_HEALTH_PRESENTATION[health.level];
-
-  return (
-    <span className={cn("border px-1.5 py-0.5 font-mono text-4xs font-semibold uppercase tracking-widest", pill)}>
-      {label}
-    </span>
-  );
 }
 
 /** Exported so a story can render the panel on its own - it needs no router context at all. */

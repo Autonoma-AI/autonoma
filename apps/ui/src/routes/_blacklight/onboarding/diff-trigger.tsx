@@ -43,10 +43,14 @@ function DiffTriggerContent({ appId }: { appId: string }) {
   const isByo = state.previewEnvironmentMode === "existing_deploys";
   const isConfirmed = state.diffTriggerConfirmedAt != null;
 
+  // Resume rather than a named step: going live flips the backend step to
+  // `completed`, and from there the route resolves the first outstanding setup
+  // step for us. Naming one here would pin the flow to a step the app may already
+  // be past - an agent can land the SDK before the user ever reaches this button.
   function handleGoLive() {
     goLive.mutate(
       { applicationId: appId },
-      { onSuccess: () => void navigate({ to: "/onboarding", search: buildOnboardingSearch("complete", appId) }) },
+      { onSuccess: () => void navigate({ to: "/onboarding", search: buildOnboardingSearch(undefined, appId) }) },
     );
   }
 
@@ -111,7 +115,7 @@ function DiffTriggerContent({ appId }: { appId: string }) {
           onClick={handleGoLive}
           aria-label="onboarding-go-live"
         >
-          {goLive.isPending ? "Going live..." : "Go live"}
+          {goLive.isPending ? "Turning on..." : "Turn on PR reviews"}
           <ArrowRightIcon size={16} weight="bold" />
         </Button>
       </div>

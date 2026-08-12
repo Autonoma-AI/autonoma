@@ -5,8 +5,8 @@ import { CheckIcon } from "@phosphor-icons/react/Check";
 import { CopyIcon } from "@phosphor-icons/react/Copy";
 import { ConnectAgentDialog, MCP_SERVER_NAME } from "components/connect-agent-dialog";
 import { useShellSuiteHealthFixPlan } from "lib/query/app-shell.queries";
+import { SUITE_HEALTH_PRESENTATION } from "lib/suite-health/copy";
 import { Suspense, useState } from "react";
-import { SUITE_HEALTH_PRESENTATION } from "./suite-health-copy";
 
 const KIND_LABEL: Record<SuiteHealthFixKind, string> = {
   bug: "bug",

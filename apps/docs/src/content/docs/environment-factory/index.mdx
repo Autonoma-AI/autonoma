@@ -63,7 +63,7 @@ Everything happens through **one POST endpoint** that responds to three actions:
 You provide three things - a **scope field** (how data is scoped to a tenant), a set of **factories** (one per model), and an **auth callback** (how to log in). The SDK handles everything else: it reads the dependency graph from each request, creates records in the right order, validates every input, signs the teardown token, and runs the full lifecycle.
 
 :::note
-The Environment Factory is part of deepening your coverage - it's what lets Autonoma provision real test data. You can go live with preview environments and PR reviews first, then add it from the **Finish setup** tab.
+The Environment Factory is what lets Autonoma provision real test data. It is a step of onboarding, immediately after **PR reviews** - preview environments and PR reviews start working there, and the flow then continues here rather than ending.
 :::
 
 ## Get started

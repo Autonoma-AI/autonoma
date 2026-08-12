@@ -1,24 +1,27 @@
 import { Button } from "@autonoma/blacklight";
+import { hasGoneLive } from "@autonoma/types";
 import { ArrowCounterClockwiseIcon } from "@phosphor-icons/react/ArrowCounterClockwise";
+import { HeadsetIcon } from "@phosphor-icons/react/Headset";
 import { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
 import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { DemoReturnButton } from "components/demo-return-button";
-import { TalkToSupport } from "components/talk-to-support";
+import { SUPPORT_URL } from "components/talk-to-support";
 import { useAuth, useAuthClient } from "lib/auth";
 import { manageUrlSchema } from "lib/github-install-errors";
 import { isConfigStepId } from "lib/onboarding/config-steps";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
-import { isOnboardingViewStep, type OnboardingViewStep } from "lib/onboarding/onboarding-steps";
+import { isOnboardingViewStep, isSetupStep, type OnboardingViewStep } from "lib/onboarding/onboarding-steps";
+import { type SetupProgress, firstIncompleteSetupStep, isSetupStepReachable } from "lib/onboarding/setup-progress";
 import { useDeleteApplication } from "lib/query/applications.queries";
 import { ensureSessionData } from "lib/query/auth.queries";
-import { useAgentSession } from "lib/query/onboarding.queries";
 import { toastManager } from "lib/toast-manager";
 import { trpc } from "lib/trpc";
 import { Component, useState, type ReactNode } from "react";
-import { StepProgress } from "./-components/step-progress";
+import { FlowProgress } from "./-components/flow-progress";
+import { SetupStepsPage } from "./-components/setup/setup-steps-page";
 import { AddAppPage } from "./add-app";
 import { CompletePage } from "./complete";
 import { DiffTriggerPage } from "./diff-trigger";
@@ -27,13 +30,22 @@ import { PreviewDeployVerifyPage } from "./preview-deploy-verify";
 import { PreviewEnvironmentPage } from "./preview-environment";
 import { PreviewkitConfigPage } from "./previewkit-config";
 
+/**
+ * What the flow still has to do once the app is live. Going live is the last thing
+ * the persisted `step` column records, so everything after it is resolved from
+ * these derived flags instead.
+ */
+interface SetupState extends SetupProgress {
+  setupComplete: boolean;
+}
+
 function mapBackendStepToViewStep(step: string | undefined): OnboardingViewStep {
   if (step === "preview_environment") return "preview-environment";
   if (step === "previewkit_configuring") return "previewkit-config";
   if (step === "existing_deploys_configuring" || step === "existing_deploys_waiting") return "existing-deploys";
   if (step === "previewkit_deploying" || step === "preview_verified") return "deploy-verify";
   if (step === "diff_trigger") return "diff-trigger";
-  if (step === "completed") return "complete";
+  if (hasGoneLive(step)) return "complete";
   // "github" (Add app) and any legacy SDK/CLI step start at the merged Add app step.
   return "add-app";
 }
@@ -53,6 +65,9 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
     // localStorage) so a refresh keeps the same setup the CLI uploads to.
     const apiKey = typeof search.apiKey === "string" ? search.apiKey : undefined;
     const setupId = typeof search.setupId === "string" ? search.setupId : undefined;
+    // The preview the SDK step validated, so the dry-run step runs against that
+    // same environment and a refresh restores it.
+    const target = typeof search.target === "string" ? search.target : undefined;
     // Deploy diagnostics deep-link back into the config form: which app card
     // (and which field) to scroll to and focus.
     const focusApp = typeof search.focusApp === "string" ? search.focusApp : undefined;
@@ -77,6 +92,7 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
       manageUrl,
       apiKey,
       setupId,
+      target,
       focusApp,
       focusField,
       focusSection,
@@ -91,13 +107,19 @@ export const Route = createFileRoute("/_blacklight/onboarding")({
     if (session == null) throw Route.redirect({ to: "/login", search: { error: undefined } });
     const applicationId = readAppIdFromSearch(location.search);
     if (applicationId == null) {
-      return { backendStep: undefined };
+      return { backendStep: undefined, setup: undefined };
     }
     try {
       const state = await queryClient.ensureQueryData(trpc.onboarding.getState.queryOptions({ applicationId }));
-      return { backendStep: state.step };
+      const setup: SetupState = {
+        artifactsUploaded: state.artifactsUploaded,
+        sdkConfigured: state.sdkConfigured,
+        dryRunPassed: state.dryRunPassed,
+        setupComplete: state.setupComplete,
+      };
+      return { backendStep: state.step, setup };
     } catch {
-      return { backendStep: undefined };
+      return { backendStep: undefined, setup: undefined };
     }
   },
 });
@@ -112,15 +134,32 @@ function readFocusSection(value: unknown): "config" | "secrets" | "logs" | undef
   return undefined;
 }
 
+/**
+ * Which screen the flow is on.
+ *
+ * Everything up to go-live comes from the persisted backend step. After it, the
+ * backend has nothing left to say - `completed` means live, and the remaining work
+ * (upload, SDK, dry run) is tracked as derived flags - so the step is the first one
+ * of those still outstanding. A requested step is honoured only where it is a step
+ * the user has actually reached, so a stale or hand-typed `?step=` cannot skip work
+ * the later steps depend on.
+ */
 function resolveViewStep(
   requestedStep: OnboardingViewStep | undefined,
   backendStep: string | undefined,
+  setup: SetupState | undefined,
   hasApplication: boolean,
 ): OnboardingViewStep {
   const backendViewStep = mapBackendStepToViewStep(backendStep);
-  if (backendStep === "completed" && hasApplication) return backendViewStep;
-  if (requestedStep == null) return backendViewStep;
-  return requestedStep;
+  if (!hasGoneLive(backendStep) || !hasApplication) return requestedStep ?? backendViewStep;
+  if (setup == null || setup.setupComplete) return "complete";
+
+  const nextSetupStep = firstIncompleteSetupStep(setup);
+  if (nextSetupStep == null) return "complete";
+  if (requestedStep != null && isSetupStep(requestedStep) && isSetupStepReachable(requestedStep, setup)) {
+    return requestedStep;
+  }
+  return nextSetupStep;
 }
 
 function GridBackground() {
@@ -178,7 +217,7 @@ function OnboardingLayout() {
   const queryClient = useQueryClient();
   const { user, isAdmin } = useAuth();
   const authClient = useAuthClient();
-  const { backendStep } = Route.useLoaderData();
+  const { backendStep, setup } = Route.useLoaderData();
   const {
     step,
     appId,
@@ -197,9 +236,7 @@ function OnboardingLayout() {
   // useSearch widens the enums to `string`; re-narrow for the typed props.
   const initialProvider = provider === "vercel" || provider === "custom" ? provider : undefined;
   const onboardingOrigin = origin === "vercel" ? "vercel" : undefined;
-  const currentStepId = resolveViewStep(step, backendStep, appId != null);
-  const { data: agentSession } = useAgentSession(appId ?? "");
-  const agentConfiguring = agentSession?.effectiveHolder === "agent";
+  const currentStepId = resolveViewStep(step, backendStep, setup, appId != null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   // Part of the error boundary's key. The boundary clears its error only by
@@ -281,6 +318,7 @@ function OnboardingLayout() {
       return <ExistingDeploysPage appId={appId} initialProvider={initialProvider} />;
     if (currentStepId === "deploy-verify") return <PreviewDeployVerifyPage appId={appId} />;
     if (currentStepId === "diff-trigger") return <DiffTriggerPage appId={appId} />;
+    if (isSetupStep(currentStepId)) return <SetupStepsPage appId={appId} step={currentStepId} />;
     return <CompletePage appId={appId} />;
   }
 
@@ -288,11 +326,49 @@ function OnboardingLayout() {
     <div className="relative flex h-full overflow-hidden bg-surface-void">
       <GridBackground />
 
-      <div className="fixed left-0 right-0 top-0 z-50 flex h-14 shrink-0 items-center justify-between border-b border-border-dim bg-surface-void/80 px-6 backdrop-blur">
-        <img src="/logo.svg" alt="Autonoma" className="h-5 w-auto" />
-        <div className="flex items-center gap-2">
+      {/* Onboarding is one flow with no way out until it is done, so this bar is all
+          the chrome there is: where you are, how to get help, and how to start over.
+          There is deliberately no app navigation - leaving half-configured is what
+          used to make the product look broken. */}
+      <div className="fixed left-0 right-0 top-0 z-50 flex h-14 shrink-0 items-center justify-between gap-6 border-b border-border-dim bg-surface-void/80 px-6 backdrop-blur">
+        <img src="/logo.svg" alt="Autonoma" className="h-5 w-auto shrink-0" />
+
+        <div className="hidden min-w-0 justify-center overflow-x-auto md:flex">
+          <FlowProgress currentStepId={currentStepId} />
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
           <DemoReturnButton />
-          <span className="font-mono text-2xs text-text-secondary">{user?.name ?? user?.email ?? ""}</span>
+          {confirmReset ? (
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-2xs text-text-secondary">Delete this app and start over?</span>
+              <Button variant="destructive" size="xs" onClick={handleReset} disabled={isResetting}>
+                {isResetting ? "resetting..." : "confirm reset"}
+              </Button>
+              <Button variant="ghost" size="xs" onClick={() => setConfirmReset(false)}>
+                cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="xs"
+              className="gap-1.5 font-mono text-3xs uppercase tracking-widest text-text-secondary"
+              onClick={() => setConfirmReset(true)}
+            >
+              <ArrowCounterClockwiseIcon size={12} />
+              reset
+            </Button>
+          )}
+          <a href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">
+            <Button variant="outline" size="xs" className="gap-1.5">
+              <HeadsetIcon size={14} weight="duotone" />
+              Talk to support
+            </Button>
+          </a>
+          <span className="hidden font-mono text-2xs text-text-secondary lg:inline">
+            {user?.name ?? user?.email ?? ""}
+          </span>
           {isAdmin && (
             <Link
               to="/admin"
@@ -318,48 +394,6 @@ function OnboardingLayout() {
           </Button>
         </div>
       </div>
-
-      <aside className="relative z-10 mt-14 flex w-64 shrink-0 flex-col border-r border-border-dim bg-surface-base/30 backdrop-blur-sm">
-        <div className="flex-1 p-8 pt-10">
-          <h3 className="mb-8 font-mono text-3xs uppercase tracking-widest text-text-secondary">New Application</h3>
-          <StepProgress
-            currentStepId={currentStepId}
-            configStep={configStep}
-            appId={appId}
-            agentConfiguring={agentConfiguring}
-          />
-        </div>
-
-        <div className="border-t border-border-dim px-8 py-6">
-          <TalkToSupport />
-        </div>
-
-        <div className="border-t border-border-dim p-6">
-          {confirmReset ? (
-            <div className="space-y-3">
-              <p className="font-mono text-2xs text-text-secondary">Delete this app and start over?</p>
-              <div className="flex gap-2">
-                <Button variant="destructive" size="xs" onClick={handleReset} disabled={isResetting}>
-                  {isResetting ? "resetting..." : "confirm reset"}
-                </Button>
-                <Button variant="ghost" size="xs" onClick={() => setConfirmReset(false)}>
-                  cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button
-              variant="outline"
-              size="xs"
-              className="gap-2 font-mono text-3xs uppercase tracking-widest opacity-50 hover:opacity-100"
-              onClick={() => setConfirmReset(true)}
-            >
-              <ArrowCounterClockwiseIcon size={12} />
-              reset onboarding
-            </Button>
-          )}
-        </div>
-      </aside>
 
       <main
         className="relative z-10 mt-14 flex-1 overflow-y-auto"

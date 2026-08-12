@@ -2,7 +2,6 @@ import { Skeleton } from "@autonoma/blacklight";
 import { RoutePendingSkeleton } from "components/route-pending-skeleton";
 import { useSidebarCollapsed } from "./sidebar";
 import { sidebarGridTemplate } from "./sidebar-grid";
-import { useHidesAppNav } from "./use-hides-app-nav";
 
 const NAV_ROWS = ["nav-1", "nav-2", "nav-3", "nav-4"];
 
@@ -16,17 +15,6 @@ const NAV_ROWS = ["nav-1", "nav-2", "nav-3", "nav-4"];
  */
 export function AppShellSkeleton() {
   const [collapsed] = useSidebarCollapsed();
-  const hidesAppNav = useHidesAppNav();
-
-  // Finish setup runs on the minimal chrome, so drawing a sidebar here would only be replaced by one that
-  // never comes.
-  if (hidesAppNav) {
-    return (
-      <div className="h-full overflow-hidden bg-surface-void">
-        <RoutePendingSkeleton />
-      </div>
-    );
-  }
 
   return (
     <div className="grid h-full overflow-hidden" style={{ gridTemplateColumns: sidebarGridTemplate(collapsed) }}>

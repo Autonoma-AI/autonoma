@@ -45,7 +45,7 @@ export function FixWithAgentButton({
   prompt,
   repoFullName,
   label = "Fix with coding agent",
-  // Outline rather than the accent the finish-setup steps use: those sit in a neutral row,
+  // Outline rather than the accent the onboarding setup steps use: those sit in a neutral row,
   // where accent is the only thing drawing the eye. Here the button sits inside an
   // already-red block that has the reader's attention, and accent green on it just fights.
   variant = "outline",

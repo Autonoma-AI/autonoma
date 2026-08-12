@@ -12,12 +12,11 @@ import { HouseIcon } from "@phosphor-icons/react/House";
 import type { Icon } from "@phosphor-icons/react/lib";
 import { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
-import { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
 import { Link, useLocation, useParams, useRouteContext } from "@tanstack/react-router";
 import { useAuth, useAuthClient } from "lib/auth";
 import { CHECKOUT_TYPE_SUBSCRIPTION } from "lib/billing/formatters";
 import { isSubscribed } from "lib/billing/is-subscribed";
-import { useCreateCheckoutSession, useShellNavState, useShellSubscriptionStatus } from "lib/query/app-shell.queries";
+import { useCreateCheckoutSession, useShellSubscriptionStatus } from "lib/query/app-shell.queries";
 import { Suspense, useEffect, useState } from "react";
 import { SidebarAppSelector } from "./app-selector";
 import { OrgSwitcher } from "./org-switcher";
@@ -57,7 +56,6 @@ function useAppNav() {
   const params = useParams({ strict: false }) as { appSlug?: string };
   const { isAdmin } = useAuth();
   const app = params.appSlug != null ? applications.find((a) => a.slug === params.appSlug) : undefined;
-  const { data: navState } = useShellNavState(app?.id ?? "");
 
   if (params.appSlug == null || app == null) return { items: [] as NavItem[], tools: [] as NavItem[] };
 
@@ -70,12 +68,7 @@ function useAppNav() {
     { icon: BugIcon, label: "Tests", href: `${base}/tests` },
   ];
 
-  const tools: NavItem[] = [];
-  // Show "Finish setup" until all three deepening steps are complete.
-  if (navState != null && !navState.setupComplete) {
-    tools.push({ icon: SlidersHorizontalIcon, label: "Finish setup", href: `${base}/finish-setup` });
-  }
-  tools.push({ icon: GearSixIcon, label: "Settings", href: `${base}/settings` });
+  const tools: NavItem[] = [{ icon: GearSixIcon, label: "Settings", href: `${base}/settings` }];
 
   if (isAdmin) {
     tools.push({ icon: ShieldCheckIcon, label: "App admin", href: `${base}/admin` });

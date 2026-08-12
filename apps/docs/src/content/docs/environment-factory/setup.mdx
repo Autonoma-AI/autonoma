@@ -263,7 +263,7 @@ curl -s -X POST http://localhost:3000/api/autonoma \
 
 You should get back your schema - every registered model and its fields, plus `scopeField`.
 
-![The SDK step of Finish setup in Autonoma, showing a "Validate SDK" button with a green confirmation beside it reading "Discovered 12 models". Above the button, a validation target selector names the preview the check ran against and the SDK endpoint URL it called](/img/environment-factory/sdk-validated.png)
+![The SDK step of Autonoma onboarding. A "Validation target" selector reads "feat: autonoma-sdk endpoint #42 (SDK PR)", with the resolved SDK endpoint https://acme-web-pr-42.preview.autonoma.app/api/autonoma beneath it and a note that Autonoma auto-selected the SDK PR. A "Redeploy preview" button sits alongside the explanation that it rebuilds at the latest commit with the current preview configuration. On the bottom row, a lime "Validate SDK" button has a green tick beside it reading "Discovered 12 models", with "Debug with coding agent" and "Preview configuration" actions to the right](/img/environment-factory/sdk-validated.png)
 
 In the dashboard the same check reports back as a model count. That count is the whole confirmation - there is no screen that lists the discovered models or their fields, so use the `curl` above when you want to read the schema itself.
 
@@ -309,5 +309,5 @@ See [Security & Troubleshooting](/environment-factory/security/) for the full th
 **Connect to Autonoma.** Deploy your endpoint and set the same `AUTONOMA_SHARED_SECRET` in your deployment secrets. Autonoma then calls `discover` to learn your schema, generates scenario data, and sends `up` / `down` around every test run.
 
 :::tip
-Prefer to iterate on a branch? Open a `feat: autonoma-sdk` pull request - Autonoma auto-detects it and lets you validate against a preview environment from the **Finish setup** tab, so you never push straight to `main`.
+Prefer to iterate on a branch? Open a `feat: autonoma-sdk` pull request - Autonoma auto-detects it and lets you validate against that PR's preview environment from the SDK step, so you never push straight to `main`.
 :::

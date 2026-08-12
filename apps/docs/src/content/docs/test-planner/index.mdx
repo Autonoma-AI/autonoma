@@ -53,9 +53,9 @@ If it is interrupted, `--resume` picks up from the step that did not finish.
 
 The run holds your app's setup for as long as it is going, so Autonoma stops offering you the steps it is doing and points you back at your terminal. **Take over** in the web app hands those steps back to you - your run keeps going either way, so stop it in the terminal too if you meant to take the work back.
 
-The same command also appears on **Finish setup** in Autonoma, for an app whose preview you set up by hand. It is the same command and the same run; it simply has less left to do.
+The same command also appears on the **Upload test artifacts** step of onboarding, for an app whose preview you set up by hand. It is the same command and the same run; it simply has less left to do.
 
-![The Upload test artifacts step in Autonoma. A "Finish setup" stepper reads 0 of 3 complete, with step 1 "CLI - upload test artifacts" active and steps 2 "SDK" and 3 "Dry run" ahead of it. The step explains that the planner runs in your repo, generates your test suite and uploads it, and that nothing is committed to your repo. Under a label reading "Run in your terminal" sits a command block prefixed with a shell prompt, holding the full npx line with your shared secret, distinct id, API token, generation id and application id filled in, and beneath it a bright lime "Copy command" button; clicking anywhere in the block copies it too. Below that, a row labelled "Waiting for uploads" carries a 0/4 count and four pending chips - recipe.json, qa-tests/, AUTONOMA.md and scenarios.md - each with an empty circle, and each revealing what the file is on hover](/img/test-planner/upload-artifacts.png)
+![The Upload test artifacts step of Autonoma onboarding. The heading reads "Upload test artifacts" and explains that the planner CLI runs in your repo, generates your test suite and uploads it, and that nothing is committed to your repo; a second line notes the command already carries a key and links to "organization API keys" for minting another. Under a label reading "Run in your terminal" sits a command block prefixed with a shell prompt, holding the full npx line with AUTONOMA_API_URL, AUTONOMA_SHARED_SECRET, AUTONOMA_DISTINCT_ID, AUTONOMA_API_TOKEN, AUTONOMA_GENERATION_ID and AUTONOMA_APPLICATION_ID filled in, and beneath it a bright lime "Copy command" button; clicking anywhere in the block copies it too. Below that, a row labelled "Waiting for uploads" carries a 0/4 count and four pending chips - recipe.json, qa-tests/, AUTONOMA.md and scenarios.md - each with an empty circle, and each revealing what the file is on hover](/img/test-planner/upload-artifacts.png)
 
 The four chips are how you watch the upload land: the count climbs and each one fills in as the planner sends it. Hover a chip to see what that file is.
 
@@ -187,7 +187,7 @@ The run sets an environment variable when it spawns a coding agent, and refuses 
 
 ## Output
 
-Artifacts are written to `~/.autonoma/<project-slug>/` as they're produced. When you run the planner from the dashboard's Finish setup flow, the knowledge base, scenarios, recipe, and generated tests are uploaded to Autonoma automatically at the end - ready to run against your preview environments.
+Artifacts are written to `~/.autonoma/<project-slug>/` as they're produced. When you run the planner from the onboarding flow's upload step, the knowledge base, scenarios, recipe, and generated tests are uploaded to Autonoma automatically at the end - ready to run against your preview environments.
 
 :::note
 The planner and the [Environment Factory](/environment-factory/) work together: the planner **designs** the scenarios and generates the tests; the Environment Factory **provisions** the real, isolated data those tests run against, on every run.

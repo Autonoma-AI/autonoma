@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
+import type { RouterOutputs } from "lib/trpc";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
 const LAST_SEEN = new Date("2026-01-05T10:30:00.000Z");
@@ -182,19 +183,33 @@ export const ManyPullRequests: Story = {
   },
 };
 
+const API_KEYS: RouterOutputs["apiKeys"]["list"] = [
+  {
+    id: "apikey_fixture_01",
+    name: "planner-cli",
+    start: "ask_9f2c",
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    lastRequest: new Date("2026-01-02T09:14:00.000Z"),
+    ownerLeft: false,
+    user: { id: "user_fixture_01", name: "Ada Lovelace", email: "ada@acme.example.com" },
+  },
+];
+
 /**
- * The previewkit side is live but the three deepening steps (SDK, artifacts, dry run) are not done.
- * Home renders its pull requests and problems like any other app; the sidebar's "Finish setup" entry
- * is what carries the outstanding work.
+ * The previewkit side is live but the setup steps (upload, SDK, dry run) are not done, so Home is
+ * unreachable: the app route sends this app back into the onboarding flow rather than rendering a
+ * dashboard it cannot fill. Settings stay reachable, which is what the flow's own links depend on -
+ * so this story renders one to prove the gate lets them through.
  */
-export const SetupIncomplete: Story = {
-  args: { path: `/app/${baseApplication.slug}` },
+export const SetupIncompleteReachesSettings: Story = {
+  args: { path: `/app/${baseApplication.slug}/settings/api-keys` },
   parameters: {
     msw: {
       handlers: appShellHandlers({
         ...dashboardFixtures,
         branches: { ...dashboardFixtures.branches, list: PAGED_PRS },
         onboarding: { getState: makeUnfinishedOnboardingState() },
+        apiKeys: { list: API_KEYS },
       }),
     },
   },

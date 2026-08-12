@@ -58,7 +58,7 @@ interface PreviewLogsTabsProps {
   /**
    * Adds the level filter and a per-tab footer (status + line/error counts) - the "control room"
    * toolbar. Defaults to false, preserving the plain Build/App + search toolbar and per-viewer header
-   * for the other pages that embed these tabs (onboarding, admin, finish-setup).
+   * for the other pages that embed these tabs (onboarding, admin).
    */
   toolbar?: boolean | undefined;
   className?: string | undefined;

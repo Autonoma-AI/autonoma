@@ -87,7 +87,7 @@ your machine, not on ours. Full reference: [Test Planner](/test-planner/).
 In your own terminal, from the root of the repository you want to test. The planner reads your code,
 so it has to be somewhere it can see it.
 
-Copy the command from **Finish setup → Upload test artifacts** in the dashboard - it comes with your
+Copy the command from the **Upload test artifacts** step of onboarding - it comes with your
 token and generation id already filled in - and paste it into your terminal:
 
 ```bash

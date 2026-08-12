@@ -39,7 +39,7 @@ function useStepMismatchHandler() {
 /**
  * The onboarding state, kept live until setup is finished.
  *
- * The finish-setup screens decide what to show - and when to leave - from
+ * The post-go-live steps decide what to show - and when the flow is over - from
  * `setupComplete`, and the work that flips it happens somewhere else entirely: a
  * planner run in a terminal, a coding agent in the repo. Without a poll the field
  * only refreshes when the tab regains focus, so the screen sits on a finished

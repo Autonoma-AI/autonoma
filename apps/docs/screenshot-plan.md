@@ -82,7 +82,7 @@ Priority is the reader's, not ours: HIGH = readers get stuck without it.
 | # | Heading | Shot | Framing | Source | Status |
 |---|---|---|---|---|---|
 | T1 | `## Watch it work` | The TUI mid-run - replaces both prose paragraphs, and forces D6 to be fixed | full terminal | gallery scene `mid` | [x] `tui-dashboard.png` |
-| T2 | `## Run it` | Finish setup → Upload test artifacts: the copyable command + the "what it generates" checklist | zoomed crop | new export on `finish-setup-sdk.stories.tsx` | [x] `upload-artifacts.png` |
+| T2 | `## Run it` | Onboarding → Upload test artifacts: the copyable command + the "what it generates" checklist | zoomed crop | new export on `onboarding-setup-steps.stories.tsx` | [x] `upload-artifacts.png` |
 | T3 | `### Step 6: your coding agent wires the test data` | The pre-handoff countdown over the dimmed dashboard | full terminal | gallery scene `countdown` | [x] `tui-handoff.png` |
 
 ### `index.mdx` (landing)
@@ -120,7 +120,7 @@ Deliberately thin. This section is mostly backend code the reader writes in thei
 
 | # | Page / heading | Shot | Framing | Story | Status |
 |---|---|---|---|---|---|
-| E1 | `setup.mdx` `## 8. Go live` | Dry-run step **after a run**: per-scenario pass/fail rows with the inline failure reason | zoomed crop | `pages-finishsetupsdk--dry-run-step` shows the step **unrun** - needs a new export driving the run via `play` | [ ] |
+| E1 | `setup.mdx` `## 8. Go live` | Dry-run step **after a run**: per-scenario pass/fail rows with the inline failure reason | zoomed crop | `pages-onboardingsetupsteps--dry-run-step` shows the step **unrun** - needs a new export driving the run via `play` | [ ] |
 | E2 | `setup.mdx` `## 7. Validate` | The validation row alone: target select, **Validate SDK**, `✓ Discovered 12 models` | tight crop | none - existing fixtures never render the chip | [x] `sdk-validated.png` |
 | E3 | `security.md` `## Other common problems` | One `DryRunOutcomeNote` failure card with a real FK-violation message, and the **Fix with coding agent** button under it | component | `components-dryrunoutcomenote--failed-during-up` (exists) | [x] `dry-run-failed.png` |
 | E4 | `setup.mdx` `## 8. Go live` | Scenarios → **Webhook calls** tab: DISCOVER/UP/DOWN badges, status codes, durations | zoomed crop, 5-6 rows | none - route is HARD (7+ fixtures) | [ ] |
@@ -138,7 +138,7 @@ Recorded so we do not relitigate:
 - **The PR comment itself** - rendered by GitHub, not `apps/ui`. Outside the Storybook pipeline, and a real one embeds a customer repo name.
 - **`environment-factory/factories.md` almost entirely** - factories are code the reader writes. Nothing in our product renders one.
 - **The recipe JSON viewer** - it exists, but behind `isAdmin` and labelled "Admin Recipe Debug". Screenshotting it advertises a screen no customer can open.
-- **Secrets themselves** - never in frame. The Finish setup step deliberately hides the shared secret.
+- **Secrets themselves** - never in frame. The SDK step deliberately hides the shared secret.
 - **`databases.md` "Which repository it runs against"** - documents settings recorded but not yet honored. A screenshot would make a no-op look functional.
 - **`examples/index.md`** - a link table. The artifact the reader wants is a GitHub repo.
 - **Any full-page `/app/$appSlug/preview-config`** - agent banner + rail + pane reads as noise at docs width. Crop to the pane, or use the onboarding-step equivalent.
@@ -162,7 +162,7 @@ Roughly 25 images across the whole docs site, over half of them zoomed crops or 
 | M2 | The manual preview-config wizard | Needs a new page story at `?configStep=apps` |
 | P8 | `AddAppDialog` with Fallback branch | Needs `github.listRepositories` fixtures |
 | P9, P13, P14 | Config stepper, finish-fork card, add-app dialog on `preview-environments/index.md` | The overview now points at the agent path in prose; revisit whether it also needs its own images |
-| E1 | Dry run **after** a run, with per-scenario results | Results live in component state behind a mutation, so it needs a `play` function. Feasible - `finish-setup-sdk.stories.tsx` now has a working `play` to copy - but a mixed pass/fail row set needs the tRPC handler to vary by input |
+| E1 | Dry run **after** a run, with per-scenario results | Results live in component state behind a mutation, so it needs a `play` function. Feasible - `onboarding-setup-steps.stories.tsx` now has a working `play` to copy - but a mixed pass/fail row set needs the tRPC handler to vary by input |
 | E4 | Scenarios → Webhook calls tab | Route needs 7+ fixtures |
 
 | `/img/mcp/remote-agent-tab.png` | `components-connectagentdialog--remote-agent` | 1120x900, trimmed then padded 30px to `#0a0a0a` | The Remote agent tab, which is where a browserless agent gets its credential. Re-shoot when the tab strip or that block changes. |

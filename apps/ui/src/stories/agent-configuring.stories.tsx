@@ -179,8 +179,8 @@ function withPreviewPath(mode: "previewkit" | "existing_deploys" | undefined, ve
 
 /**
  * The agent has verified the preview and the screen collapses to its summary. No
- * forward action: the agent takes the app live itself, and the screen redirects to
- * Finish setup once the step moves - so what is rendered here is the wait for that.
+ * forward action: the agent takes the app live itself, and the screen resumes the
+ * onboarding flow once the step moves - so what is rendered here is the wait for that.
  */
 function withReadyPreview(): TrpcFixtures {
   const onboarding = configuringFixtures.onboarding ?? {};
@@ -401,8 +401,8 @@ export const OwnPipelineVercel: Story = {
 
 /**
  * The end of the agent-driven preview flow: the preview is verified and nothing is
- * left for the user to press. The agent goes live from here and the screen follows
- * it to Finish setup, not the app home.
+ * left for the user to press. The agent goes live from here and the screen resumes
+ * the onboarding flow at whatever step is genuinely next, not the app home.
  */
 export const PreviewReady: Story = {
   args: { applicationId: baseApplication.id },

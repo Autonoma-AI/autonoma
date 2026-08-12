@@ -206,7 +206,18 @@ const baseTrpcFixtures: TrpcFixtures = {
     // Every "what is unresolved on main" surface reads this one query, so the baseline answers it with a quiet
     // application - a story that does not care about main's problems renders the empty state instead of erroring.
     branches: { mainOpenProblems: [] },
-    github: { getInstallation: null },
+    // `getApplicationRepository` is the onboarding header's org/repo subheading, which
+    // renders on every step of the flow - baseline it so a step story does not have to.
+    github: {
+        getInstallation: null,
+        getApplicationRepository: {
+            id: 123456,
+            name: "web",
+            fullName: "acme/web",
+            defaultBranch: "main",
+            private: true,
+        },
+    },
     // List views poll preview liveness; default to none so a story that doesn't
     // set it renders without the badge (and never errors on the unmocked call).
     previewAccess: { livenessForApplication: {}, livenessForFleet: {} },
@@ -228,6 +239,10 @@ const baseTrpcFixtures: TrpcFixtures = {
         // The billing page asks this to explain a zero balance, so the baseline answers the ordinary
         // case - entitled, nothing to explain - and a story overrides it to show the notice.
         freeStartEligibility: { eligible: true, blockedBy: [] },
+        // The sidebar's own read, on every page under the shell - so it belongs in the baseline
+        // rather than in each page's fixtures. Subscribed, so the Upgrade button stays out of shots
+        // that are not about billing; a billing story overrides it.
+        subscriptionStatus: { subscriptionStatus: "active" },
         status: {
             creditBalance: 740,
             subscriptionCreditBalance: 500,

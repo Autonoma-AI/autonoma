@@ -50,16 +50,17 @@ previews**, and **Finish**:
 | --- | --- |
 | **Create app** | Install the Autonoma GitHub App, pick the repository, and name the application. |
 | **Config previews** | A short set of questions works out which setup fits - whether you already deploy previews per branch, where your backend runs, and how your data is scoped. From there you either connect deploys you already have, or configure PreviewKit to build them. Then Autonoma deploys one and verifies it is reachable. |
-| **Finish** | Confirm per-PR reviews and **Go live**. |
+| **PR reviews** | Confirm the per-PR review loop and turn it on. |
+| **Test data** | Upload test artifacts with the [planner](/test-planner/), implement the [Environment Factory](/environment-factory/), and dry-run your scenarios. |
 
-That last screen is the one to know about. It is headed **PR reviews are on**, and the **Go live**
-button is what actually completes onboarding - not the **Start generating tests** button on the
-previous screen, which only moves you to it. Until you press it, the app is not finished.
+The **PR reviews** screen is the one to know about. It is headed **PR reviews are on**, and the
+**Turn on PR reviews** button is what starts them - not the **Start generating tests** button on the
+previous screen, which only moves you to it.
 
-Once you are live, the **Finish setup** tab is where you deepen coverage: upload test artifacts with
-the [planner](/test-planner/), implement the [Environment Factory](/environment-factory/), and dry-run
-your scenarios. Those three are what let Autonoma provision real test data, and none of them is
-required to get PR reviews working.
+Pressing it does not end onboarding. The flow carries straight on into the **Test data** phase, which
+is what lets Autonoma provision real test data for your tests. Onboarding is one continuous flow with
+no way out until all of it is done, so plan to run it in one sitting - the planner upload and the
+Environment Factory both involve work in your repo.
 
 ## How apps are built
 

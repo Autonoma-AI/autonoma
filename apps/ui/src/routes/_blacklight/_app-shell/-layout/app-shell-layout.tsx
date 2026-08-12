@@ -19,7 +19,6 @@ import { DemoModal } from "./demo-modal";
 import { FeedbackModal } from "./feedback-modal";
 import { Sidebar, useAppNav, useSidebarCollapsed } from "./sidebar";
 import { sidebarGridTemplate } from "./sidebar-grid";
-import { useHidesAppNav } from "./use-hides-app-nav";
 
 function GridBackground() {
   return (
@@ -93,11 +92,8 @@ export function AppShellLayout({ children }: { children: ReactNode }) {
   const [collapsed, setCollapsed] = useSidebarCollapsed();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
-  // The page keeps the minimal chrome (logo + sign out) and its own "Back to home" link as the way out.
-  const hidesAppNav = useHidesAppNav();
-
   const hasAppNav = appNavItems.length > 0;
-  const hasNav = (hasAppNav || (isAdminPage && isAdmin)) && !hidesAppNav;
+  const hasNav = hasAppNav || (isAdminPage && isAdmin);
 
   if (!hasNav) {
     return (

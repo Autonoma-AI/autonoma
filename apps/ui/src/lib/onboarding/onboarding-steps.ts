@@ -14,6 +14,9 @@ export const ONBOARDING_VIEW_STEPS = [
     "existing-deploys",
     "deploy-verify",
     "diff-trigger",
+    "cli",
+    "sdk",
+    "dry-run",
     "complete",
 ] as const;
 
@@ -23,4 +26,19 @@ const ONBOARDING_VIEW_STEP_SET = new Set<string>(ONBOARDING_VIEW_STEPS);
 
 export function isOnboardingViewStep(value: string): value is OnboardingViewStep {
     return ONBOARDING_VIEW_STEP_SET.has(value);
+}
+
+/**
+ * The steps that run after go-live, in the order they must be done: the planner
+ * upload lands the recipe a dry run provisions from, and the dry run needs an SDK
+ * endpoint to call. Ordering is load-bearing, not presentational.
+ */
+export const SETUP_STEPS = ["cli", "sdk", "dry-run"] as const satisfies readonly OnboardingViewStep[];
+
+export type SetupStep = (typeof SETUP_STEPS)[number];
+
+const SETUP_STEP_SET: ReadonlySet<string> = new Set<string>(SETUP_STEPS);
+
+export function isSetupStep(value: string): value is SetupStep {
+    return SETUP_STEP_SET.has(value);
 }

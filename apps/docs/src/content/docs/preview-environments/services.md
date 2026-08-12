@@ -7,7 +7,7 @@ description: Run non-database side containers - MinIO, a mock API server, a Mail
 
 ![A preview namespace containing your app alongside extra service containers - MinIO, a mock API, and Mailpit](/img/preview-environments/extra-services.jpg)
 
-This step is off the main onboarding flow. You don't have to add anything here to finish setup. Only add an extra service if your app genuinely depends on a non-database side container running next to it.
+This step is optional. You don't have to add anything here to complete onboarding. Only add an extra service if your app genuinely depends on a non-database side container running next to it.
 
 ## When to add an extra service
 

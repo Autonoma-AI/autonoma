@@ -3,8 +3,8 @@ import { ONBOARDING_PHASES } from "./onboarding-phases";
 
 /**
  * Resolves how far an application is through onboarding for the resume hub,
- * using the same three phases the onboarding sidebar shows: how many phases
- * are done, the total, a percentage, and the name of the phase to do next.
+ * using the same phases the onboarding flow shows: how many phases are done,
+ * the total, a percentage, and the name of the phase to do next.
  */
 export function getOnboardingProgress(step: string | undefined) {
     const uiStep = resolveStep(step);

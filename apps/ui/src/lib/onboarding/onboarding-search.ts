@@ -19,6 +19,12 @@ interface OnboardingSearchOverrides {
     manageUrl?: string;
     apiKey?: string;
     setupId?: string;
+    /**
+     * The preview the SDK step validated, carried into the dry-run step so both
+     * run against the same environment (and survive a refresh). Falls back to the
+     * auto-detected default when the target is gone - PR closed, preview torn down.
+     */
+    target?: string;
     focusApp?: string;
     focusField?: string;
     focusSection?: FocusSection;
@@ -58,6 +64,7 @@ export function buildOnboardingSearch(
         manageUrl: overrides.manageUrl,
         apiKey: overrides.apiKey,
         setupId: overrides.setupId,
+        target: overrides.target,
         focusApp: overrides.focusApp,
         focusField: overrides.focusField,
         focusSection: overrides.focusSection,

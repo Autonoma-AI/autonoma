@@ -228,7 +228,7 @@ function readyPreviewkitSummary(services: PreviewServiceFixture[], primaryUrl: s
   };
 }
 
-// The app shell's sidebar (finish-setup nudge) reads this on every page; completed hides the nudge.
+// The app shell's route guard reads this on every page; a completed setup is what keeps the app reachable.
 function completedOnboardingState() {
   return {
     id: "onboarding_fixture_01",
@@ -265,7 +265,7 @@ function completedOnboardingState() {
   };
 }
 
-// Fixtures the app shell itself needs on every page (sidebar milestones/bugs/finish-setup-nudge) plus
+// Fixtures the app shell itself needs on every page (sidebar milestones/bugs, onboarding state) plus
 // the PR's own branch/GitHub metadata - identical across every story in this file.
 const SHARED_FIXTURES: TrpcFixtures = {
   branches: {

@@ -158,13 +158,13 @@ export function AgentConfiguringScreen({ applicationId }: { applicationId: strin
   // that has already happened.
   //
   // While the preview is ready the step is at `preview_verified` or beyond, so leaving
-  // it is the whole condition. Finish setup rather than the app home, because the SDK /
-  // artifacts / dry-run work is what actually comes next - and that route's own loader
-  // records the app as last-viewed, so nothing needs to be written on the way out.
+  // it is the whole condition. Stay in the onboarding flow and resume: the route reads
+  // the app's state and lands on whatever is genuinely next - the SDK, the upload, or
+  // the finished screen if an agent already did all of it.
   const wentLive = ready && session.step !== "preview_verified";
   const application = applications.find((app) => app.id === applicationId);
   if (wentLive && application != null) {
-    return <Navigate to="/app/$appSlug/finish-setup" params={{ appSlug: application.slug }} replace />;
+    return <Navigate to="/onboarding" search={buildOnboardingSearch(undefined, application.id)} replace />;
   }
 
   return (

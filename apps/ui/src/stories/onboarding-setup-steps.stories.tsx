@@ -14,7 +14,7 @@ type SdkDryRunTarget = SdkDryRunTargets["targets"][number];
 
 /**
  * Onboarding mid-setup: CLI artifacts uploaded, SDK not yet validated - the
- * state in which the finish-setup page lands on the SDK step.
+ * state in which the flow lands on the SDK step.
  */
 function makeOnboardingState(): RouterOutputs["onboarding"]["getState"] {
   return {
@@ -79,9 +79,9 @@ function makeSdkValidatedState(): RouterOutputs["onboarding"]["getState"] {
 }
 
 /**
- * Nobody is driving: the page renders its own stepper. Every story below is the
- * human-held case except the agent ones at the bottom, which is also the state a
- * user lands in after taking over.
+ * Nobody is driving, so the flow renders the step itself. Every story below is
+ * the human-held case except the agent ones at the bottom, which is also the
+ * state a user lands in after taking over.
  */
 const humanHeldSession: RouterOutputs["onboarding"]["getAgentSession"] = {
   applicationId: baseApplication.id,
@@ -96,7 +96,7 @@ const humanHeldSession: RouterOutputs["onboarding"]["getAgentSession"] = {
   logs: [],
 };
 
-/** A coding agent holds the app, so finish setup points at the terminal instead. */
+/** A coding agent holds the app, so the flow points at the terminal instead. */
 const agentHeldSession: RouterOutputs["onboarding"]["getAgentSession"] = {
   ...humanHeldSession,
   holder: "agent",
@@ -511,12 +511,13 @@ const inProgressBuildFrames: LogStreamEvent[] = [
 ];
 
 /**
- * The finish-setup SDK step across the preview-target states the deploy/redeploy
- * button covers: a ready target (redeploy at the latest head), a failed deploy
- * (redeploy to retry), and an open PR with no preview at all (first deploy).
+ * The post-go-live steps of the onboarding flow - upload, SDK, dry run - across
+ * the preview-target states the deploy/redeploy button covers: a ready target
+ * (redeploy at the latest head), a failed deploy (redeploy to retry), and an open
+ * PR with no preview at all (first deploy).
  */
 const meta = {
-  title: "Pages/FinishSetupSdk",
+  title: "Pages/OnboardingSetupSteps",
   component: PageStory,
   parameters: { pageStory: true },
 } satisfies Meta<typeof PageStory>;
@@ -525,24 +526,28 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-const PATH = `/app/${baseApplication.slug}/finish-setup`;
+// Each step is its own screen in the flow, addressed by `?step=`. A step is only
+// honoured once the app has reached it, so the fixtures behind each story decide
+// which of these actually renders.
+const CLI_PATH = `/onboarding?step=cli&appId=${baseApplication.id}`;
+const SDK_PATH = `/onboarding?step=sdk&appId=${baseApplication.id}`;
+const DRY_RUN_PATH = `/onboarding?step=dry-run&appId=${baseApplication.id}`;
 
 /**
  * The first step, before the planner has run: the copyable CLI command carrying
  * the API token and generation id, and the artifact checklist still pending.
  */
 export const ArtifactsStep: Story = {
-  args: { path: PATH },
+  args: { path: CLI_PATH },
   parameters: { msw: { handlers: appShellHandlers(artifactsStepFixtures()) } },
 };
 
 /**
  * The CLI step once every artifact has landed: the chips fill in and the count
- * reads 4/4. A complete CLI step means the page opens on the SDK step, so the
- * story walks back to it.
+ * reads 4/4. The step stays reachable after it is done, so Back returns here.
  */
 export const ArtifactsStepComplete: Story = {
-  args: { path: PATH },
+  args: { path: CLI_PATH },
   parameters: {
     msw: {
       handlers: appShellHandlers({
@@ -553,37 +558,33 @@ export const ArtifactsStepComplete: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    const cliStep = await canvas.findByRole("button", { name: /Upload test artifacts/ }, { timeout: 10_000 });
-    await userEvent.click(cliStep);
-    await canvas.findByText("4/4", undefined, { timeout: 10_000 });
+    // The whole screen arrives behind a route loader and a Suspense boundary, so
+    // give the queries longer than the 1s testing-library default.
+    await within(canvasElement).findByText("4/4", undefined, { timeout: 10_000 });
+    await canvas.findByText(/Run in your terminal/, undefined, { timeout: 10_000 });
   },
 };
 
 export const TargetReady: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: { msw: { handlers: appShellHandlers(sdkStepFixtures(readyTargets)) } },
 };
 
 /**
  * The SDK step after a successful validation, showing the "Discovered 12 models"
- * chip. A complete SDK step means the page opens on the dry-run step, so the
- * story clicks the SDK entry in the stepper to get back to it.
+ * chip.
  */
 export const SdkValidated: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: { msw: { handlers: appShellHandlers(sdkValidatedFixtures()) } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    // The whole page arrives behind a route loader and a Suspense boundary, so
-    // give both queries longer than the 1s testing-library default.
-    const sdkStep = await canvas.findByRole("button", { name: /Implement the Autonoma SDK/ }, { timeout: 10_000 });
-    await userEvent.click(sdkStep);
     await canvas.findByText(/Discovered 12 models/, undefined, { timeout: 10_000 });
   },
 };
 
 export const TargetFailed: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: {
     msw: {
       handlers: [
@@ -599,7 +600,7 @@ export const TargetFailed: Story = {
  * nothing to offer, so the step is blocked and says so in red.
  */
 export const VercelNoReadyDeployments: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: { msw: { handlers: appShellHandlers(vercelNoDeploymentsFixtures()) } },
 };
 
@@ -608,7 +609,7 @@ export const VercelNoReadyDeployments: Story = {
  * development). The failure is theirs to fix, so it carries the "Fix with coding agent" handoff.
  */
 export const VercelSdkDiscoveryError: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: { msw: { handlers: appShellHandlers(vercelDiscoveryErrorFixtures()) } },
 };
 
@@ -618,7 +619,7 @@ export const VercelSdkDiscoveryError: Story = {
  * hands a finding over.
  */
 export const VercelSdkDiscoveryErrorHandoff: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: { msw: { handlers: appShellHandlers(vercelDiscoveryErrorFixtures()) } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -631,7 +632,7 @@ export const VercelSdkDiscoveryErrorHandoff: Story = {
 
 /** The same class of failure on the bring-your-own-preview path. */
 export const SdkDiscoveryError: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: {
     msw: {
       handlers: [
@@ -653,7 +654,7 @@ export const SdkDiscoveryError: Story = {
  * repo is broken, so this one asks for a retry and offers no agent.
  */
 export const SdkDiscoveryErrorTransient: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: {
     msw: {
       handlers: [
@@ -670,7 +671,7 @@ export const SdkDiscoveryErrorTransient: Story = {
 };
 
 export const TargetNoPreview: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: { msw: { handlers: appShellHandlers(sdkStepFixtures(noPreviewTargets)) } },
 };
 
@@ -680,12 +681,12 @@ export const TargetNoPreview: Story = {
  * is no second picker to keep in sync.
  */
 export const DryRunStep: Story = {
-  args: { path: PATH },
+  args: { path: DRY_RUN_PATH },
   parameters: { msw: { handlers: appShellHandlers(dryRunStepFixtures(readyTargets)) } },
 };
 
 export const TargetBuilding: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: {
     msw: {
       handlers: [
@@ -697,13 +698,13 @@ export const TargetBuilding: Story = {
 };
 
 /**
- * Finish setup while a coding agent holds the app. The stepper is replaced
+ * The setup steps while a coding agent holds the app. The step is replaced
  * outright: the work is happening in a terminal the user opened, which is a
  * better window onto it than anything this page could render, and the CLI step
  * only exists to hand out the command that run already is.
  */
 export const AgentDriving: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: {
     msw: { handlers: appShellHandlers(sdkStepFixtures(readyTargets, makeOnboardingState(), agentHeldSession)) },
   },
@@ -714,6 +715,6 @@ export const AgentDriving: Story = {
  * answering - so the only row still open is the dry run.
  */
 export const AgentDrivingPartway: Story = {
-  args: { path: PATH },
+  args: { path: SDK_PATH },
   parameters: { msw: { handlers: appShellHandlers(sdkValidatedFixtures(agentHeldSession)) } },
 };

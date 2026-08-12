@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { testCaseFolder } from "./-test-case-folder";
+import { testCaseFolder } from "./test-case-folder";
 
 describe("testCaseFolder", () => {
     test("strips a leading qa-tests/ segment so it matches the CLI's key", () => {

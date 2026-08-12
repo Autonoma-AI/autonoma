@@ -14,6 +14,7 @@ import { isMidOnboarding } from "lib/onboarding/app-onboarding";
 import { buildResumeSearch } from "lib/onboarding/navigate-to-onboarding";
 import { getOnboardingProgress } from "lib/onboarding/onboarding-progress";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
+import { ensureShellNavState } from "lib/query/app-shell.queries";
 import { type ReactNode, useState } from "react";
 import { getLastAppId } from "./-last-app";
 
@@ -41,7 +42,7 @@ function appTypeLabel(architecture: string): string {
 }
 
 export const Route = createFileRoute("/_blacklight/_app-shell/")({
-  beforeLoad: ({ context }) => {
+  beforeLoad: async ({ context }) => {
     const onboardedApps = context.applications.filter((app) => !isMidOnboarding(app));
     const incompleteApps = context.applications.filter(isMidOnboarding);
 
@@ -59,6 +60,18 @@ export const Route = createFileRoute("/_blacklight/_app-shell/")({
     const lastAppId = getLastAppId();
     const targetApp = onboardedApps.find((a) => a.id === lastAppId) ?? onboardedApps[0];
     if (targetApp == null) return;
+
+    // "Onboarded" here is answered from `step` alone, which the app list carries - and an app can
+    // have gone live while its setup steps are still outstanding. The app route gates on exactly
+    // that and would bounce this deep-link into onboarding, and because the hub only renders when
+    // NOTHING is onboarded, it would never get a chance to draw: an account whose last-viewed app
+    // is unfinished could not reach its other, working apps at all.
+    //
+    // One read, for the single app we are about to jump into rather than for the list, and only on
+    // the way through the hub. Unconfirmed falls through to rendering the picker, which is the safe
+    // direction - the worst case is showing a chooser to someone who would have been deep-linked.
+    const navState = await ensureShellNavState(context.queryClient, targetApp.id).catch(() => undefined);
+    if (navState?.setupComplete === false) return;
 
     throw redirect({
       to: "/app/$appSlug",

@@ -43,9 +43,17 @@ const SHELL_READS = {
  * meter's slot, never the chrome around it.
  */
 export function useShellSuiteHealth() {
-    const currentApp = useCurrentApplication();
+    return useSuiteHealthFor(useCurrentApplication().id);
+}
+
+/**
+ * The same meter for an application named outright. The end of onboarding shows it - to explain why
+ * a brand-new suite is not green yet - and that screen runs outside the app shell, so there is no
+ * current application to read it from.
+ */
+export function useSuiteHealthFor(applicationId: string) {
     return useSuspenseQuery({
-        ...SHELL_READS["applications.suiteHealth"](currentApp.id),
+        ...SHELL_READS["applications.suiteHealth"](applicationId),
         refetchInterval: SUITE_HEALTH_REFETCH_MS,
     });
 }
@@ -72,9 +80,16 @@ export function useShellNavState(applicationId: string) {
     });
 }
 
-/** Warms the nav read from the app route loader. Fire-and-forget, for the same reason as the meter. */
-export function prefetchShellNavState(queryClient: QueryClient, applicationId: string): void {
-    void queryClient.prefetchQuery(SHELL_READS["onboarding.navState"](applicationId));
+/**
+ * The same read, awaited.
+ *
+ * The app route gates on it: an app that has not finished onboarding is redirected back into the
+ * flow, and that decision has to be made before the dashboard paints or the user sees a flash of the
+ * screen the gate exists to keep them out of. The one shell read that cannot be fire-and-forget -
+ * which is why it is a separate function rather than an option on the prefetch.
+ */
+export function ensureShellNavState(queryClient: QueryClient, applicationId: string) {
+    return queryClient.ensureQueryData(SHELL_READS["onboarding.navState"](applicationId));
 }
 
 /**

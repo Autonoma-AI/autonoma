@@ -4,17 +4,11 @@ import { RobotIcon } from "@phosphor-icons/react/Robot";
 import { StopIcon } from "@phosphor-icons/react/Stop";
 import { agentDisplayName } from "lib/onboarding/agent-display-name";
 import { useAgentSession, useStopAgent } from "lib/onboarding/onboarding-api";
-
-/** What the platform has confirmed about this app, each derived from real evidence. */
-export interface FinishSetupProgress {
-  artifactsUploaded: boolean;
-  sdkConfigured: boolean;
-  dryRunPassed: boolean;
-}
+import type { SetupProgress } from "lib/onboarding/setup-progress";
 
 interface AgentFinishingScreenProps {
   applicationId: string;
-  progress: FinishSetupProgress;
+  progress: SetupProgress;
 }
 
 /**
