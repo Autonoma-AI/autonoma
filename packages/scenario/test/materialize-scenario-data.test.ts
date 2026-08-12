@@ -1,6 +1,6 @@
 import { logger } from "@autonoma/logger";
 import { describe, expect, it } from "vitest";
-import { materializeScenarioData } from "../src/scenario-data";
+import { materializeScenarioData } from "../src/scenario-data/materialize-scenario-data";
 
 const testLogger = logger.child({ name: "materialize-scenario-data.test" });
 

@@ -33,11 +33,6 @@ src/plan-authoring/          The plan-authoring context the DiffsAgent's create_
                              built from (flow + scenario summaries), alongside the guide itself
                              (PLAN_AUTHORING_GUIDE, in src/agents/diffs).
 
-src/scenario-data/           The entity-graph primitives scenario-recipe builds on
-                             (normalizeEntities, summarizeEntities), over the scenario-data
-                             types and materializeScenarioData that @autonoma/scenario owns
-                             and this barrel re-exports.
-
 src/scenario-recipe/         Template-level sibling of scenario-data, for the diffs
                              analysis agent (Step 1): resolveScenarioRecipesForSnapshot (DB)
                              + materializeScenarioRecipe (pure) + summarizeScenarioRecipes
@@ -51,9 +46,9 @@ src/scenario-recipe/         Template-level sibling of scenario-data, for the di
 These two capabilities are deliberately distinct data shapes:
 
 - **`scenario-data`** is the **instance** shape - the concrete rows a single generation's
-  scenario instance _actually generated_ (`ScenarioInstance.generatedData`). Its types and
-  materializer are owned by `@autonoma/scenario`; what this package keeps are the shared
-  entity-graph primitives `scenario-recipe` builds on.
+  scenario instance _actually generated_ (`ScenarioInstance.generatedData`). It is owned
+  entirely by `@autonoma/scenario`, including the entity-graph primitives `scenario-recipe`
+  builds on (`normalizeEntities`, `summarizeEntities`, `boundRecords`).
 - **`scenario-recipe`** is **recipe template** data - what each scenario is _designed to
   seed_, read from the point-in-time `ScenarioRecipeVersion.fixtureJson` for the snapshot.
   The diffs **analysis** agent uses it: analysis runs _before generation_, so no instance
@@ -200,4 +195,4 @@ The read is `loadAnalysisCommentInput`, kept separate from the posting activity 
 
 The copied classifier still emits its 7-value `Category` and a `planFidelity` field, both untouched here: the taxonomy is resolved by a mapping layer (`routeVerdict`) rather than editing the classifier, and fidelity is derived from whether the test was classified more than once rather than consuming `planFidelity` - which is now vestigial for the merged pipeline. Teaching the copied classifier to emit the taxonomy natively and dropping `planFidelity` is deferred to the classifier-cleanup slice (#1514).
 
-The pipeline is now the only copy - `packages/investigation` is deleted - so every downstream analysis-merge change modifies it freely. It is exposed on a dedicated subpath because it ships its own `openModelSession`/`ModelSession` that would collide with the diffs agents' model session on the main entrypoint. The pipeline's Temporal activities + worker infra live in `apps/workers/diffs/src/activities/{analysis,classify-run}`.
+The pipeline is now the only copy - `packages/investigation` is deleted - so every downstream analysis-merge change modifies it freely. It owns the package's only `openModelSession`/`ModelSession`, on the `./analysis` subpath; everything that needs a metered model - including the eval judge - opens a session from there. The pipeline's Temporal activities + worker infra live in `apps/workers/diffs/src/activities/{analysis,classify-run}`.

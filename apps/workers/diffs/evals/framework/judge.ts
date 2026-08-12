@@ -1,7 +1,9 @@
 import { ObjectGenerator } from "@autonoma/ai";
-import { type DiffsModelName, openModelSession, summarizeSessionCost } from "@autonoma/diffs";
+import { summarizeSessionCost } from "@autonoma/diffs";
+import type { InvestigationModelName } from "@autonoma/diffs/analysis";
 import { type JudgeParams, type JudgeResult, judgeVerdictSchema } from "@autonoma/evals";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
+import { createModelSession } from "../../src/services";
 
 const SYSTEM_PROMPT = `You are a strict grader for an automated test-engineering agent.
 
@@ -26,21 +28,24 @@ and in your reasoning name the specific rubric point(s) that failed.`;
  *
  * Sees the step's structured output plus the authored rubric body and returns a
  * pass/fail verdict. It is deliberately step-agnostic (output is serialized to
- * JSON) so every per-step eval can reuse it. The judge runs on its own
- * {@link openModelSession} so its cost is metered into a collector distinct from
- * the agent's.
+ * JSON) so every per-step eval can reuse it. The judge opens its own
+ * {@link createModelSession} so its cost is metered into a collector distinct
+ * from the agent's.
+ *
+ * It grades serialized JSON against prose and never reads a screenshot, so it
+ * runs on `impact` - the registry's one text-only, provider-agnostic key.
  */
 export class DiffsJudge {
     private readonly logger: Logger;
 
-    constructor(private readonly model: DiffsModelName = "smart-visual") {
+    constructor(private readonly model: InvestigationModelName = "impact") {
         this.logger = rootLogger.child({ name: this.constructor.name });
     }
 
     async judge({ output, rubric }: JudgeParams): Promise<JudgeResult> {
         this.logger.info("Judging agent output against rubric");
 
-        const session = openModelSession();
+        const session = createModelSession();
         const model = session.getModel({ model: this.model, tag: "analysis-judge" });
 
         const generator = new ObjectGenerator({ model, systemPrompt: SYSTEM_PROMPT, schema: judgeVerdictSchema });

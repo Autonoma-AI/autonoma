@@ -1,5 +1,5 @@
+import { scenarioEntitiesSchema } from "@autonoma/scenario";
 import { z } from "zod";
-import { scenarioEntitiesSchema } from "../scenario-data";
 
 /**
  * One scenario's materialized **recipe template** - the data the scenario is

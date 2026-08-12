@@ -2,6 +2,7 @@ import type { ScenarioEntityRecord } from "./types";
 
 export interface BoundedRecords {
     records: ScenarioEntityRecord[];
+    /** Total records before truncation - not `records.length`. */
     count: number;
     truncated: boolean;
 }

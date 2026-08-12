@@ -1,6 +1,6 @@
 import type { Logger } from "@autonoma/logger";
+import { normalizeEntities } from "@autonoma/scenario";
 import { z } from "zod";
-import { normalizeEntities } from "../scenario-data";
 import type { ScenarioRecipeData } from "./types";
 
 /** Identifying fields a caller supplies for a recipe being materialized. */

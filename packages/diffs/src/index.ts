@@ -47,7 +47,6 @@ export {
     validateCommand,
 } from "./agents";
 
-export { openModelSession, type DiffsModelName, type ModelSession } from "./ai/model-session";
 export { summarizeSessionCost, type SessionCostSummary } from "./ai/session-cost";
 
 export { FlowIndex, type FlowInfo } from "./flow-index";
@@ -96,18 +95,6 @@ export {
     type EvidenceLoader,
     type VideoDownloader,
 } from "./agents/tools/run-evidence/evidence-loader";
-
-// Scenario-data capability - reusable, agent-agnostic resolution + presentation
-// + in-memory disclosure of the data a run's scenario actually created.
-export {
-    materializeScenarioData,
-    type ScenarioData,
-    type ScenarioEntities,
-    type ScenarioEntityRecord,
-    scenarioDataSchema,
-    scenarioEntitiesSchema,
-    scenarioEntityRecordSchema,
-} from "./scenario-data";
 
 // Scenario-recipe capability - the template-level sibling of scenario-data:
 // resolves + presents + discloses the data each scenario is *designed to seed*

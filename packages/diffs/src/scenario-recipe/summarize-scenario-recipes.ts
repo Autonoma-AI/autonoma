@@ -1,4 +1,4 @@
-import { summarizeEntities } from "../scenario-data";
+import { summarizeEntities } from "@autonoma/scenario";
 import type { ScenarioRecipeData } from "./types";
 
 /**

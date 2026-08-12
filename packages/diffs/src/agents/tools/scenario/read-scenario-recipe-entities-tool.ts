@@ -1,8 +1,7 @@
 import { AgentTool, FixableToolError } from "@autonoma/ai";
+import { boundRecords, type ScenarioEntityRecord } from "@autonoma/scenario";
 import { z } from "zod";
-import type { ScenarioEntityRecord } from "../../../scenario-data";
 import type { ScenarioRecipeData } from "../../../scenario-recipe";
-import { boundRecords } from "./bound-records";
 import type { ScenarioRecipeLoop } from "./scenario-recipe-loop";
 
 /**

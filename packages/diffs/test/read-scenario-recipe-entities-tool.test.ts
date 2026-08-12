@@ -1,6 +1,6 @@
+import type { ScenarioEntityRecord } from "@autonoma/scenario";
 import { describe, expect, it } from "vitest";
 import { ReadScenarioRecipeEntitiesTool } from "../src/agents/tools/scenario/read-scenario-recipe-entities-tool";
-import type { ScenarioEntityRecord } from "../src/scenario-data";
 import type { ScenarioRecipeData } from "../src/scenario-recipe";
 import { type ToolEnvelope, executeTool } from "./execute-tool";
 import { makeDiffsLoop } from "./test-loops";

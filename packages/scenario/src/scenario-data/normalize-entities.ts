@@ -1,5 +1,12 @@
 import type { ScenarioEntities, ScenarioEntityRecord } from "./types";
 
+/**
+ * Entity-type names that would corrupt the plain object we build up rather than
+ * become an own property. `__proto__` is the dangerous one: `obj["__proto__"] =
+ * value` hits the inherited setter and reparents the object (silently dropping
+ * the type); `constructor`/`prototype` are rejected too as belt-and-suspenders.
+ * These names arrive from untrusted JSON (`generatedData` / recipe `create`).
+ */
 const UNSAFE_ENTITY_TYPES = new Set(["__proto__", "constructor", "prototype"]);
 
 /**

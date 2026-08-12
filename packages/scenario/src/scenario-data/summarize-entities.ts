@@ -5,6 +5,7 @@ const MAX_ENTITY_TYPES = 30;
 const MAX_IDENTIFYING_FIELDS = 2;
 const MAX_VALUE_CHARS = 80;
 
+/** Searched in order, so reordering this changes which fields a record is summarized by. */
 const IDENTIFYING_FIELD_PRIORITY = ["name", "title", "email", "username", "handle", "slug", "label", "key", "id"];
 
 export interface EntitySummaryHints {
@@ -35,6 +36,8 @@ function summarizeEntityType(entityType: string, records: ScenarioEntityRecord[]
     }
 
     const shown = records.slice(0, MAX_RECORDS_PER_TYPE);
+    // Pick fields off the records we actually render, so the scan stays bounded
+    // by MAX_RECORDS_PER_TYPE regardless of how many records the type has.
     const identifyingFields = pickIdentifyingFields(shown);
 
     const lines = [
