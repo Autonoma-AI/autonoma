@@ -19,15 +19,23 @@ export interface ModelEntry {
 }
 
 /**
- * OpenRouter serves `minimax/minimax-m3` from eight upstreams and they do NOT agree on video. Probed with one
- * 3.3 MB run recording, only deepinfra and morph actually received it (~11.7k prompt tokens) and read the
- * on-screen value correctly; novita and atlas-cloud silently DROPPED the `video_url` part (183 / 26 prompt
- * tokens) and answered "I don't see any video", venice and together received it but misread the value, and
- * gmicloud / minimax errored. A silently video-blind answer is the worst possible outcome for a vision tool -
- * it reads as confident evidence that nothing was on screen - so routing is pinned rather than left to
- * OpenRouter's default load balancing. Re-probe before widening this list.
+ * OpenRouter serves `minimax/minimax-m3` from several upstreams that do NOT agree on video, so routing is
+ * pinned rather than left to OpenRouter's load balancing. Probed with a ~3-4 MB run recording, only deepinfra
+ * and morph actually receive the `video_url` part (~11.8k prompt tokens) and read the on-screen value
+ * correctly; novita / atlas-cloud / gmicloud silently DROP it (under ~400 prompt tokens) and answer "I don't
+ * see any video", together receives it but misreads the value, and venice / parasail / minimax error or
+ * rate-limit. A silently video-blind answer is the worst possible outcome for a vision tool - it reads as
+ * confident evidence that nothing was on screen.
+ *
+ * `only` hard-restricts to the two upstreams that read video (OpenRouter honours it regardless of
+ * `allow_fallbacks`), and `allow_fallbacks: false` keeps a busy pin from spilling onto a video-blind one.
+ * `order` prefers morph: its full-recording reads settle in ~30s where deepinfra's run ~2-4x slower and can
+ * cross the classifier's per-read timeout, but deepinfra stays second-in-order as a live backup. Re-probe
+ * before widening this list.
  */
-const MINIMAX_M3_ROUTING = { provider: { only: ["deepinfra", "morph"], allow_fallbacks: false } };
+const MINIMAX_M3_ROUTING = {
+    provider: { only: ["deepinfra", "morph"], order: ["morph", "deepinfra"], allow_fallbacks: false },
+};
 // Only route Qwen to providers that support the structured-output param the object detector sends.
 const QWEN3_VL_32B_ROUTING = { provider: { require_parameters: true } };
 

@@ -19,14 +19,20 @@ import { VerdictTool } from "./verdict-tool";
 /**
  * Bounded retry for the vision reads, tighter than the shared default.
  *
- * `buildRetry` treats a TIMEOUT as transient, so `maxRetries` multiplies the per-attempt ceiling: the default
- * policy would let one hung full-recording read spend 33 minutes, past the 30-minute Temporal
- * `startToCloseTimeout` that is this classifier's only wall clock.
+ * `buildRetry` treats a TIMEOUT as transient, so `maxRetries` multiplies the per-attempt ceiling
+ * ({@link RECORDING_TIMEOUT_MS}): this caps a slow read at 3 attempts, ~12 minutes total, well inside the
+ * 30-minute Temporal `startToCloseTimeout` that is this classifier's only wall clock. The shared default
+ * (11 attempts) would let one hung read run that clock out several times over.
  */
-const VISION_RETRY: RetryConfig = { maxRetries: 3, initialDelayInMs: 1000, backoffFactor: 2, maxDelayInMs: 10_000 };
+const VISION_RETRY: RetryConfig = { maxRetries: 2, initialDelayInMs: 1000, backoffFactor: 2, maxDelayInMs: 10_000 };
 
-/** A full-recording read re-sends the whole video and has been measured from ~10s to well over a minute. */
-const RECORDING_TIMEOUT_MS = 3 * 60_000;
+/**
+ * Ceiling for one full-recording read, which re-sends the whole video. Reads run from ~10s to a few minutes on
+ * a slow upstream, so the bound is set to give a genuinely-working read room to finish: a timed-out read is
+ * retried as transient (see {@link VISION_RETRY}), so a bound set too tight turns a slow-but-valid read into a
+ * chain of timeouts that exhausts the retry budget and drops the scan entirely.
+ */
+const RECORDING_TIMEOUT_MS = 4 * 60_000;
 
 export interface ClassifierAgentConfig {
     /** The reasoning model that drives the loop. */
