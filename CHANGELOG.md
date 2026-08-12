@@ -1,5 +1,51 @@
 # Changelog
 
+## [1.260812.1](https://github.com/Autonoma-AI/agent/compare/v1.260811.1...v1.260812.1) (2026-08-12)
+
+
+### Features
+
+* **api:** read the preview config from its topology rows ([#2468](https://github.com/Autonoma-AI/agent/issues/2468)) ([baafec8](https://github.com/Autonoma-AI/agent/commit/baafec8d72b806631e75641214779a1e2927c788))
+* **billing:** attribute AI cost to org via ambient observability con… ([#2427](https://github.com/Autonoma-AI/agent/issues/2427)) ([56d5bd3](https://github.com/Autonoma-AI/agent/commit/56d5bd3713dd484474052740d6496acc53840ea7))
+* **cli:** budget tests by flow importance and verify real effects, not cosmetics ([#2485](https://github.com/Autonoma-AI/agent/issues/2485)) ([c9727ac](https://github.com/Autonoma-AI/agent/commit/c9727ac9508f7092d47f26add78159d6ac4b738e))
+* **db:** backfill ai_cost_record.organization_id and make it NOT NULL ([#2327](https://github.com/Autonoma-AI/agent/issues/2327)) ([492d1ce](https://github.com/Autonoma-AI/agent/commit/492d1ce4e39ef7d6e084c0abb7db6ea82ad75c50))
+* **organization:** choose which of a removed member's API keys to delete ([#2455](https://github.com/Autonoma-AI/agent/issues/2455)) ([d96a0f3](https://github.com/Autonoma-AI/agent/commit/d96a0f3dfb3c03a5bbe0ac1cfaaa9bef4777baa0))
+* **previewkit:** plan the deploy from the config topology rows ([#2469](https://github.com/Autonoma-AI/agent/issues/2469)) ([9a63c22](https://github.com/Autonoma-AI/agent/commit/9a63c223cb3ed7fd65625b196145d6cf8a368aa1))
+* **terraform:** import EKS access entries for nodes, Karpenter, and human/service principals ([#2418](https://github.com/Autonoma-AI/agent/issues/2418)) ([40410c1](https://github.com/Autonoma-AI/agent/commit/40410c1ab28b9e2ca95290bf8f55600d8efb4336))
+* **terraform:** import the 5 us-east-1 application S3 buckets ([#2432](https://github.com/Autonoma-AI/agent/issues/2432)) ([39f19b0](https://github.com/Autonoma-AI/agent/commit/39f19b02692f760c82501e877b69bf0098ea4f2a))
+* **terraform:** import the main-vpc to previewkit-vpc peering connection ([#2429](https://github.com/Autonoma-AI/agent/issues/2429)) ([3ba447c](https://github.com/Autonoma-AI/agent/commit/3ba447c71b8884775ed9acd85e6383636cacef7d))
+
+
+### Bug Fixes
+
+* **agent-core:** stop shipping base64 screenshots to Sentry on every tool call ([#2489](https://github.com/Autonoma-AI/agent/issues/2489)) ([b2c5167](https://github.com/Autonoma-AI/agent/commit/b2c51673fb2fb6de0afd2260383de721278516f0))
+* **analysis:** carry the full prior pass through the classifier eval harness ([#2491](https://github.com/Autonoma-AI/agent/issues/2491)) ([db70fff](https://github.com/Autonoma-AI/agent/commit/db70fff5f4a17c1cef94c9e96c1efc5028afa9d4))
+* **api:** create the onboarding row in both application-creation paths ([#2450](https://github.com/Autonoma-AI/agent/issues/2450)) ([92e5543](https://github.com/Autonoma-AI/agent/commit/92e5543c0f93b1dd38e7b5619ef06dd9c4ca6cec))
+* **api:** seed the dogfood scenario with data its tests can actually reach ([#2313](https://github.com/Autonoma-AI/agent/issues/2313)) ([647ab12](https://github.com/Autonoma-AI/agent/commit/647ab12e2cdb2ba798daf4a748f5544ab3ad970b))
+* **api:** seed the merge-gate fixtures as a live application ([#2472](https://github.com/Autonoma-AI/agent/issues/2472)) ([bb33429](https://github.com/Autonoma-AI/agent/commit/bb33429a62a8634300dbdb49be7e824f1266a65d))
+* **ci:** stop a title edit stamping "skipped" over the real CI results ([#2474](https://github.com/Autonoma-AI/agent/issues/2474)) ([41ee96c](https://github.com/Autonoma-AI/agent/commit/41ee96c36d3786bfc24c66b7f98f1c9c6fa2d1b1))
+* **db:** declare ai_cost_record.organization_id NOT NULL, as its migration already does ([#2478](https://github.com/Autonoma-AI/agent/issues/2478)) ([8b0ed54](https://github.com/Autonoma-AI/agent/commit/8b0ed5457e9c5949e90575c46f6342c438d0e571))
+* **diffs:** do not open a PR branch before the application is live ([#2452](https://github.com/Autonoma-AI/agent/issues/2452)) ([a614cba](https://github.com/Autonoma-AI/agent/commit/a614cba4720c07f46d9802a7cabaf12cd71b1566))
+* **github:** gate the merge-gate check on the application being live ([#2454](https://github.com/Autonoma-AI/agent/issues/2454)) ([d793144](https://github.com/Autonoma-AI/agent/commit/d793144ce4a5a62b2970acea84a5b950d0658538))
+* **image:** derive screenshot media type from the bytes, not a hardcoded image/png ([#2488](https://github.com/Autonoma-AI/agent/issues/2488)) ([bf8f202](https://github.com/Autonoma-AI/agent/commit/bf8f202213853165834275e44ed12ddb8b4c8949))
+* prefer the fast MiniMax M3 provider and widen the vision read timeout ([#2460](https://github.com/Autonoma-AI/agent/issues/2460)) ([7922c17](https://github.com/Autonoma-AI/agent/commit/7922c17dbf675c70a9412f38377d342978fa4572))
+* preserve full context across self-heal classifier reruns ([#2396](https://github.com/Autonoma-AI/agent/issues/2396)) ([e5c8311](https://github.com/Autonoma-AI/agent/commit/e5c8311965f6202b6feed6ede8d6a9c3bf534115))
+* **previewkit:** carry an app's sdk_path into the topology rows ([#2465](https://github.com/Autonoma-AI/agent/issues/2465)) ([407a193](https://github.com/Autonoma-AI/agent/commit/407a193958eb5f90df3369573de3f00621a4f72f))
+* **previewkit:** do not run pull requests before the application is live ([#2451](https://github.com/Autonoma-AI/agent/issues/2451)) ([503f1ee](https://github.com/Autonoma-AI/agent/commit/503f1ee566791235da055f47293e3d2098e7681d))
+* **previewkit:** hold back PR comments and statuses until the application is live ([#2453](https://github.com/Autonoma-AI/agent/issues/2453)) ([c891b28](https://github.com/Autonoma-AI/agent/commit/c891b284df145fc5698a12c5908ca21bac59dc4b))
+* **previewkit:** pass onboardingComplete from the previewkit preview target ([#2447](https://github.com/Autonoma-AI/agent/issues/2447)) ([8afff26](https://github.com/Autonoma-AI/agent/commit/8afff26c158d7c0e25a1259d558ae16c6d242093))
+* stop the execution agent re-injecting every step's screenshot ([#2461](https://github.com/Autonoma-AI/agent/issues/2461)) ([819ece1](https://github.com/Autonoma-AI/agent/commit/819ece1cb0b98e316c5ac16725fde33ae0bfc402))
+* store classifier app logs as eval artifacts ([#2493](https://github.com/Autonoma-AI/agent/issues/2493)) ([abc127e](https://github.com/Autonoma-AI/agent/commit/abc127e8b98c275b8a5d6c30965dd96d17794179))
+* **ui:** pick the shell the planner command is written for ([#2490](https://github.com/Autonoma-AI/agent/issues/2490)) ([fe5c9e5](https://github.com/Autonoma-AI/agent/commit/fe5c9e534e33cf2837011fb5fdc83c36a1ffb542))
+* **ui:** the PR page reads the itemization after the report, and states a ratio ([#2431](https://github.com/Autonoma-AI/agent/issues/2431)) ([944f77c](https://github.com/Autonoma-AI/agent/commit/944f77c5ed71e166675cf442c11140a59df4782b))
+* **worker-general:** skip env validation under TESTING, like every other worker ([#2457](https://github.com/Autonoma-AI/agent/issues/2457)) ([90b10ec](https://github.com/Autonoma-AI/agent/commit/90b10eca2cc83acb6e5bcef8f043c4b9826d0c78))
+
+
+### Performance Improvements
+
+* **api:** fork a database per integration suite and run them in parallel ([#2416](https://github.com/Autonoma-AI/agent/issues/2416)) ([710b41b](https://github.com/Autonoma-AI/agent/commit/710b41b6d8547bacf6f0c45e68128a361994f72d))
+* **ui:** decouple app-shell reads from page batches ([#2444](https://github.com/Autonoma-AI/agent/issues/2444)) ([667d9b3](https://github.com/Autonoma-AI/agent/commit/667d9b3151dc6689c98fed4b640f2008bbc3198a))
+
 ## [1.260811.1](https://github.com/Autonoma-AI/agent/compare/v1.260810.1...v1.260811.1) (2026-08-11)
 
 
