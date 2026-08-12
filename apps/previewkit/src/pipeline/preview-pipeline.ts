@@ -9,7 +9,12 @@ import {
     resolveCommentAssetBaseUrl,
 } from "@autonoma/github/comment";
 import type { BuildLogSink } from "@autonoma/logger/build-log-sink";
-import { buildPreviewFrontDoorUrl, DEFAULT_DEPENDENCY_FALLBACK_BRANCH, resolvePrimaryUrl } from "@autonoma/types";
+import {
+    buildPreviewFrontDoorUrl,
+    DEFAULT_DEPENDENCY_FALLBACK_BRANCH,
+    hasGoneLive,
+    resolvePrimaryUrl,
+} from "@autonoma/types";
 import type {
     DeployPreviewEnvironmentInput,
     DeployPreviewEnvironmentOutput,
@@ -176,7 +181,7 @@ export class PreviewPipeline {
         });
         const application = await db.application.findUnique({
             where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
-            select: { id: true },
+            select: { id: true, onboardingState: { select: { step: true } } },
         });
         if (application == null) {
             logger.info("Repo not linked to an Application; skipping deployment", {
@@ -224,14 +229,30 @@ export class PreviewPipeline {
             });
         }
 
-        if (isPullRequest) {
+        // An application still being set up gets no comment and no commit status either. It has no
+        // verdict to report yet, and half its previews fail while the config is still being written
+        // - "Preview deployment failed" on a customer's pull request is the worst possible first
+        // thing Autonoma ever says to them. The preview itself still builds; only the thread is
+        // quiet. The automatic webhook is gated too, so what reaches here before go-live is an
+        // explicit deploy: the Finish setup Deploy button, or a redeploy.
+        const isLive = hasGoneLive(application.onboardingState?.step);
+        if (isPullRequest && !isLive) {
+            logger.info("Skipping GitHub comments + commit statuses; the application has not gone live yet", {
+                organizationId,
+                repo: repoFullName,
+                pr: prNumber,
+            });
+        }
+        const feedbackEnabled = isPullRequest && isLive;
+
+        if (feedbackEnabled) {
             logger.info("Prepare step 3/6 setting initial pending commit status", { repo: repoFullName, pr: prNumber });
             await this.provider.setCommitStatus(repoFullName, headSha, "pending", "Building preview environment...");
             logger.info("Prepare step 3/6 set initial pending commit status", { repo: repoFullName, pr: prNumber });
         }
 
         let commentId = "";
-        if (isPullRequest) {
+        if (feedbackEnabled) {
             logger.info("Prepare step 4/6 posting initial PR comment", { repo: repoFullName, pr: prNumber });
             const result = await postOrUpdateCommentOnGithub({
                 client: this.provider,
@@ -305,9 +326,9 @@ export class PreviewPipeline {
             repo: repoFullName,
             pr: prNumber,
             namespace,
-            feedbackEnabled: isPullRequest,
+            feedbackEnabled,
         });
-        return { skipped: false, namespace, commentId, feedbackEnabled: isPullRequest };
+        return { skipped: false, namespace, commentId, feedbackEnabled };
     }
 
     /**
