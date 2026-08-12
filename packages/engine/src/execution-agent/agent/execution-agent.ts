@@ -183,7 +183,15 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
 
                 const additionalContext = await this.getStepContext();
 
-                return { ...step, messages: [...step.messages, ...additionalContext] };
+                // In AI SDK 7 a `messages` override returned from prepareStep persists as the base
+                // for every subsequent step, so appending to `step.messages` (which already carries
+                // every prior step's override) would re-inject each earlier screenshot forever and
+                // grow context quadratically. Rebuild from the clean base - the initial prompt plus
+                // the real model turns - so exactly one view message, the current screenshot, is present.
+                return {
+                    ...step,
+                    messages: [...step.initialMessages, ...step.responseMessages, ...additionalContext],
+                };
             },
             onStepFinish: async ({ content }) => {
                 const text = (content.filter(({ type }) => type === "text") as TextPart[])
@@ -515,7 +523,11 @@ export class ExecutionAgent<TSpec extends CommandSpec, TContext extends BaseComm
             success,
             reasoning,
             finalScreenshot: this.lastContextScreenshot,
-            conversation: this.stepResults.flatMap((step) => step.response.messages),
+            // Built from the complete `steps` param. `this.stepResults` would also work - it aliases
+            // the SDK's live step array, which is fully populated by the time we read it - but that
+            // relies on a reference coincidence. `step.response.messages` is per-step in AI SDK 7, so
+            // this flatMap yields the full, non-duplicated transcript.
+            conversation: steps.flatMap((step) => step.response.messages),
         };
     }
 }
