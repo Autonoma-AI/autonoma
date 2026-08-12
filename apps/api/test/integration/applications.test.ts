@@ -55,6 +55,18 @@ apiTestSuite({
             expect(ios.architecture).toBe(ApplicationArchitecture.IOS);
         });
 
+        // Without the row every completion check reads the app as not live, permanently: nothing
+        // else creates one, and no screen can advance a step that does not exist.
+        test("seeds an onboarding row so the app can be taken live", async ({ harness, seedResult: { web, ios } }) => {
+            const rows = await harness.db.onboardingState.findMany({
+                where: { applicationId: { in: [web.id, ios.id] } },
+                select: { applicationId: true, step: true },
+            });
+
+            expect(rows).toHaveLength(2);
+            expect(rows.every((row) => row.step === "github")).toBe(true);
+        });
+
         test("throws CONFLICT on duplicate name within same organization", async ({ harness, seedResult: { web } }) => {
             await expect(
                 harness.request().applications.create({

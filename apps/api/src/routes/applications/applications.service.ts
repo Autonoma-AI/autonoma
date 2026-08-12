@@ -294,6 +294,13 @@ export class ApplicationsService extends Service {
                     include: deploymentInclude,
                 });
 
+                // Every application needs one. Without it `hasGoneLive` reads the app as
+                // not live - correct as a default, but permanent, because nothing else creates the
+                // row and no screen can advance a step that does not exist.
+                await tx.onboardingState.create({
+                    data: { applicationId: app.id, step: "github" },
+                });
+
                 this.logger.info("Application created", { applicationId: app.id, branchId: branch.id });
 
                 return { application };
