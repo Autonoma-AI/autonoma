@@ -1,9 +1,24 @@
 import type { CreatedTest, DiffsAgentResult } from "@autonoma/diffs";
+import type { RunVerdict } from "@autonoma/diffs/analysis";
 import { describe, expect, it } from "vitest";
 import { checkAnalysisResult } from "../evals/analysis/analysis-frontmatter";
+import { checkClassifierVerdict } from "../evals/classifier/classifier-frontmatter";
 
 function diffsResult(createdTests: CreatedTest[]): DiffsAgentResult {
     return { affectedTests: [], createdTests, reasoning: "ok" };
+}
+
+function planMismatchVerdict(suggestedTestUpdate: string): RunVerdict {
+    return {
+        category: "plan_mismatch",
+        isClientBug: false,
+        ran: true,
+        confidence: "high",
+        headline: "The test asserts a label the page no longer renders.",
+        evidence: [{ source: "run", detail: "The step failed looking for the old copy." }],
+        suggestedTestUpdate,
+        planMismatchNote: "Old assertion targeted the pre-rename label.",
+    };
 }
 
 function createdTest(overrides: Partial<CreatedTest> = {}): CreatedTest {
@@ -41,5 +56,31 @@ describe("analysis dedup grader", () => {
         const result = diffsResult([createdTest({ description: "checkout" })]);
         const failures = checkAnalysisResult(result, {});
         expect(failures.map((f) => f.check)).toEqual(["createdTests.description"]);
+    });
+});
+
+describe("classifier suggestedTestUpdate grader", () => {
+    it("passes a plan_mismatch that carries a substantive revised plan", () => {
+        const verdict = planMismatchVerdict("Navigate to /settings, open the Billing tab, assert the plan name.");
+        const failures = checkClassifierVerdict(verdict, { expectRewrite: true, runs: 1 });
+        expect(failures).toEqual([]);
+    });
+
+    it("flags a plan_mismatch whose revised plan is a trivial placeholder", () => {
+        const verdict = planMismatchVerdict("n/a");
+        const failures = checkClassifierVerdict(verdict, { expectRewrite: true, runs: 1 });
+        expect(failures.map((f) => f.check)).toEqual(["suggestedTestUpdate"]);
+    });
+
+    it("flags a plan_mismatch whose revised plan is blank", () => {
+        const verdict = planMismatchVerdict("   ");
+        const failures = checkClassifierVerdict(verdict, { expectRewrite: true, runs: 1 });
+        expect(failures.map((f) => f.check)).toEqual(["suggestedTestUpdate"]);
+    });
+
+    it("accepts an empty revised plan as the sanctioned answer when expectRewrite is false", () => {
+        const verdict = planMismatchVerdict("");
+        const failures = checkClassifierVerdict(verdict, { expectRewrite: false, runs: 1 });
+        expect(failures).toEqual([]);
     });
 });

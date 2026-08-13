@@ -6,6 +6,14 @@ import { z } from "zod";
 const DEFAULT_RUNS = 1;
 
 /**
+ * The shortest a revised plan can be and still carry instruction. A `plan_mismatch` carries the COMPLETE
+ * rewritten plan, so anything under this is a placeholder ("n/a", "TODO", "same") - present but empty of steps,
+ * which the self-heal loop would re-run to no effect. Set well below any real multi-step plan so it only ever
+ * trips on a non-answer, never a terse-but-genuine rewrite.
+ */
+const MIN_SUGGESTED_TEST_UPDATE_LENGTH = 20;
+
+/**
  * Deterministic checks for a Classifier case, layered on the shared base.
  *
  * Only three things are graded here, and the omissions are deliberate:
@@ -69,17 +77,20 @@ function checkPlanFidelity(verdict: RunVerdict, frontmatter: ClassifierFrontmatt
 
 /**
  * A `plan_mismatch` verdict is the entry point to the self-heal loop, and `suggestedTestUpdate` is the plan
- * that loop re-runs - so an empty one on a case that expects a rewrite means the classifier diagnosed a fixable
- * test and then fixed nothing. Only applies to the arm that carries the field; every other category is silent.
+ * that loop re-runs - so a blank OR placeholder-length one on a case that expects a rewrite means the classifier
+ * diagnosed a fixable test and then fixed nothing. Only applies to the arm that carries the field; every other
+ * category is silent.
  */
 function checkSuggestedTestUpdate(verdict: RunVerdict, frontmatter: ClassifierFrontmatter): CheckFailure[] {
     if (verdict.category !== "plan_mismatch" || !frontmatter.expectRewrite) return [];
-    if (verdict.suggestedTestUpdate.trim() !== "") return [];
+
+    const revisedPlan = verdict.suggestedTestUpdate.trim();
+    if (revisedPlan.length >= MIN_SUGGESTED_TEST_UPDATE_LENGTH) return [];
 
     return [
         {
             check: "suggestedTestUpdate",
-            message: "plan_mismatch carried no revised plan; set expectRewrite: false if that is the right answer",
+            message: `plan_mismatch carried a ${revisedPlan.length}-char revised plan (min ${MIN_SUGGESTED_TEST_UPDATE_LENGTH}); set expectRewrite: false if the empty rewrite is the right answer`,
         },
     ];
 }
