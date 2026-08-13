@@ -31,6 +31,44 @@ describe("computePrPipelineStatus", () => {
         expect(status).toEqual({ kind: "build_failed" });
     });
 
+    describe("telling a failed build apart from a failed rollout", () => {
+        // The shape a real customer hit: the api image built in nine seconds, then the container
+        // crashlooped and the rollout timed out. Reported as "Build failed", it sent them to the one
+        // set of logs that was fine.
+        it("reports a rollout failure as deploy_failed, not build_failed", () => {
+            const status = computePrPipelineStatus({
+                previewEnv: {
+                    status: "failed",
+                    headSha: "x",
+                    appStatuses: ["deploy_failed", "ready"],
+                },
+            });
+            expect(status).toEqual({ kind: "deploy_failed" });
+        });
+
+        it("still reports build_failed when an app never built", () => {
+            const status = computePrPipelineStatus({
+                previewEnv: { status: "failed", headSha: "x", appStatuses: ["build_failed", "skipped"] },
+            });
+            expect(status).toEqual({ kind: "build_failed" });
+        });
+
+        it("prefers the build failure when one app failed to build and another failed to deploy", () => {
+            // A failed build poisons what follows, so it is the cause worth naming.
+            const status = computePrPipelineStatus({
+                previewEnv: { status: "failed", headSha: "x", appStatuses: ["deploy_failed", "build_failed"] },
+            });
+            expect(status).toEqual({ kind: "build_failed" });
+        });
+
+        it("falls back to build_failed for an environment-level failure that never reached the apps", () => {
+            const status = computePrPipelineStatus({
+                previewEnv: { status: "failed", headSha: "x", appStatuses: [] },
+            });
+            expect(status).toEqual({ kind: "build_failed" });
+        });
+    });
+
     it("shows building while a newer commit's preview is still coming up", () => {
         const status = computePrPipelineStatus({
             activeSnapshot: { headSha: "old", summary },

@@ -987,7 +987,7 @@ export class BranchesService extends Service {
         applicationId: string,
         organizationId: string,
         prNumbers: number[],
-    ): Promise<Map<number, { status: string; headSha: string }>> {
+    ): Promise<Map<number, { status: string; headSha: string; appStatuses: string[] }>> {
         if (prNumbers.length === 0) return new Map();
 
         const application = await this.db.application.findFirst({
@@ -1004,14 +1004,21 @@ export class BranchesService extends Service {
                 prNumber: { in: prNumbers },
                 status: { not: "torn_down" },
             },
-            select: { prNumber: true, status: true, headSha: true },
+            // The per-app statuses are what tell a failed build apart from a failed rollout; the
+            // environment's own `failed` cannot. One extra column on a row set already bounded by
+            // the page's PR numbers.
+            select: { prNumber: true, status: true, headSha: true, appInstances: { select: { status: true } } },
             orderBy: { updatedAt: "desc" },
         });
 
-        const stateByPr = new Map<number, { status: string; headSha: string }>();
+        const stateByPr = new Map<number, { status: string; headSha: string; appStatuses: string[] }>();
         for (const environment of environments) {
             if (stateByPr.has(environment.prNumber)) continue;
-            stateByPr.set(environment.prNumber, { status: environment.status, headSha: environment.headSha });
+            stateByPr.set(environment.prNumber, {
+                status: environment.status,
+                headSha: environment.headSha,
+                appStatuses: environment.appInstances.map((instance) => instance.status),
+            });
         }
         return stateByPr;
     }

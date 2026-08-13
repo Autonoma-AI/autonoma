@@ -13,6 +13,10 @@ import { checkpointPresentationSummarySchema } from "./checkpoint-summary";
  *                       with an external, off-platform deploy emit).
  * - `analysis_failed` - the newest analysis run died on the current commit, so this PR has no verdict.
  * - `build_failed`    - the preview build failed on a commit not yet analyzed.
+ * - `deploy_failed`   - the images built, but a workload never came up (a crash on startup, a missing
+ *                       dependency). Distinct from `build_failed` because it sends the reader somewhere
+ *                       else entirely: a build failure is explained by the build logs, a rollout failure
+ *                       by the app's own runtime logs.
  * - `none`            - nothing to show yet.
  *
  * The backend derives this from SHA-equality between the preview environment's commit and the branch's
@@ -25,6 +29,7 @@ export const prPipelineStatusSchema = z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("analyzing") }),
     z.object({ kind: z.literal("analysis_failed") }),
     z.object({ kind: z.literal("build_failed") }),
+    z.object({ kind: z.literal("deploy_failed") }),
     z.object({ kind: z.literal("none") }),
 ]);
 export type PrPipelineStatus = z.infer<typeof prPipelineStatusSchema>;

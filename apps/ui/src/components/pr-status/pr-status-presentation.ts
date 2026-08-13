@@ -13,8 +13,13 @@ export interface PrStatusPresentation {
  *
  * A completed analysis speaks through its checkpoint summary, whose labels come from `derivePresentation` in
  * `@autonoma/checkpoint`. The in-flight and failed phases get a fixed label here: failures are red
- * (`build_failed` for the preview, `analysis_failed` for the run itself) while the in-flight phases stay
- * neutral and are told apart by their label - Building, then Pending checks, then Analyzing - never by color.
+ * (`build_failed` / `deploy_failed` for the preview, `analysis_failed` for the run itself) while the in-flight
+ * phases stay neutral and are told apart by their label - Building, then Pending checks, then Analyzing - never
+ * by color.
+ *
+ * The two preview failures are separate words because they send the reader to different places. "Build failed"
+ * on an app that built in nine seconds and then crashlooped points at the one set of logs that is fine, and
+ * that is exactly what it used to say.
  *
  * `none` has nothing to say, so it returns undefined rather than inventing a word for "no signal yet"; the
  * caller decides whether that renders as a dash or as nothing at all.
@@ -36,6 +41,11 @@ export function prStatusPresentation(status: PrPipelineStatus): PrStatusPresenta
             return { tone: "critical", label: PIPELINE_LABEL.analysisFailed };
         case "build_failed":
             return { tone: "critical", label: "Build failed" };
+        // No `reason`: the Health column is as narrow as 108px, where one would be truncated away, and
+        // every other non-checkpoint kind is a bare label. What actually went wrong belongs on the
+        // preview page, next to the logs that explain it.
+        case "deploy_failed":
+            return { tone: "critical", label: "Deploy failed" };
         case "none":
             return undefined;
     }

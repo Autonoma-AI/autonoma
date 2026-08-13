@@ -69,6 +69,7 @@ const EVERY_STATUS: { caption: string; status: PrPipelineStatus }[] = [
   { caption: "analyzing", status: { kind: "analyzing" } },
   { caption: "analysis_failed", status: { kind: "analysis_failed" } },
   { caption: "build_failed", status: { kind: "build_failed" } },
+  { caption: "deploy_failed", status: { kind: "deploy_failed" } },
   { caption: "none", status: { kind: "none" } },
 ];
 
