@@ -32,29 +32,16 @@ describe("categorizeInfraFailure", () => {
         }
     });
 
-    it("trusts an ambiguous signal from a known provisioning throw, even when the message names no SDK context", () => {
-        // A scenario-setup failure the preview raised - a bare "fetch failed", a timeout, a 5xx - carries none of
-        // the SDK/scenario/preview marker words, so at the default origin it falls through to an engine_artifact.
-        // The provisioning origin supplies the context the raw network error never spells out.
-        expect(categorizeInfraFailure("fetch failed", "provisioning")).toBe("environment_failure");
-        expect(categorizeInfraFailure("the request timed out", "provisioning")).toBe("environment_failure");
-        expect(categorizeInfraFailure("HTTP 500: internal server error", "provisioning")).toBe("scenario_issue");
-
-        // The same messages stay strict at the default (unknown) origin, so a model-API failure mid-classify is
-        // never buried as a preview outage.
-        expect(categorizeInfraFailure("fetch failed")).toBeUndefined();
-        expect(categorizeInfraFailure("the request timed out")).toBeUndefined();
-        expect(categorizeInfraFailure("HTTP 500: internal server error")).toBeUndefined();
-    });
-
-    it("does NOT categorize a bare timeout / fetch failure with no SDK context (could be the model API mid-classify)", () => {
+    it("does NOT categorize a bare timeout / fetch failure / 5xx with no SDK context (could be the model API mid-classify)", () => {
         // The reviewer's case: a classifier/model-API failure whose message happens to contain network-ish words
-        // must stay classification_error, not be mislabeled as "the preview was unavailable".
+        // must stay classification_error, not be mislabeled as "the preview was unavailable". An ambiguous signal
+        // is only trusted once the message names SDK/scenario/preview context.
         for (const message of [
             "fetch failed",
             "The operation timed out",
             "Activity task timed out",
             "request to https://api.openai.com timed out",
+            "HTTP 500: internal server error",
         ]) {
             expect(categorizeInfraFailure(message)).toBeUndefined();
         }

@@ -70,7 +70,7 @@ Webhook response schemas for the Environment Factory protocol:
 Pure functions with no Zod or Node dependencies, living here because more than one app needs them and this is the only package the browser bundle and the workers both import.
 
 - `buildAgentHandoffLinks` / `capHandoffPrompt` / `MAX_HANDOFF_PROMPT_CHARS` (`agent-handoff-links.ts`) - the "open in Claude Code / ChatGPT / Cursor" deep-links that prefill a coding-agent brief, plus the length cap that keeps one inside GitHub's comment limit. The vendor encoding quirks (Cursor truncating at `&`, markdown link destinations breaking on `)`) live here so they are fixed once. Used by the GitHub PR comments and by the in-app failure notes.
-- `isColdStartMessage` / `isColdStartStatus` / `sdkErrorStatus` (`sdk-error-signals.ts`) - tell a customer SDK endpoint that answered wrongly apart from a scaled-to-zero preview that had not woken up. `@autonoma/scenario` retries on these; the UI uses the same rules to decide whether a failed validation is worth handing to a coding agent.
+- `isColdStartMessage` / `isColdStartStatus` / `sdkErrorStatus` (`sdk-error-signals.ts`), plus `isColdStartFailure` (`sdk-failure.ts`, the tag-native counterpart that reads a structured `SdkFailure` instead of a message string) - tell a customer SDK endpoint that answered wrongly apart from a scaled-to-zero preview that had not woken up. `@autonoma/scenario` retries on these; the UI uses the same rules to decide whether a failed validation is worth handing to a coding agent.
 - `buildPrPageUrl` / `buildAnalysisIssueUrl` / `buildAnalysisFindingUrl` (`app-links.ts`) - the in-app URL shapes for a pull request's analysis surfaces.
 
 ## Usage

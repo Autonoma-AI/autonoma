@@ -66,6 +66,19 @@ export function mapSdkFailureToVerdict(failure: SdkFailure): AnalysisVerdict {
     }
 }
 
+/**
+ * Whether a structured {@link SdkFailure} carries a cold-start signature - a scaled-to-zero preview waking up. The
+ * tag-native counterpart of {@link isColdStartMessage}, for a caller that has the structured failure rather than
+ * only the persisted message: a connection-level `unreachable` or a gateway 502/503/504 is a cold start; a timeout
+ * (it burns the full budget, more likely a hung endpoint than a cold one), a bad response, or any other HTTP status
+ * is not.
+ */
+export function isColdStartFailure(failure: SdkFailure): boolean {
+    if (failure.kind === "unreachable") return true;
+    if (failure.kind === "http") return isColdStartStatus(failure.status);
+    return false;
+}
+
 function mapHttpFailure(status: number, code: string | undefined): AnalysisVerdict {
     if (code === SDK_ERROR_CODE.INVALID_BODY) return "engine_artifact";
     if (code === SDK_ERROR_CODE.INVALID_SIGNATURE) return "environment_failure";

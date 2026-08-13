@@ -1,13 +1,8 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient, ScenarioRecipeEditSource } from "@autonoma/db";
 import { NotFoundError } from "@autonoma/errors";
-import {
-    type ScenarioManager,
-    applyScenarioRecipeUpdate,
-    findRecipeProblems,
-    isColdStartMessage,
-} from "@autonoma/scenario";
-import { type ScenarioRecipe, ScenarioRecipeSchema } from "@autonoma/types";
+import { type ScenarioManager, applyScenarioRecipeUpdate, findRecipeProblems } from "@autonoma/scenario";
+import { type ScenarioRecipe, ScenarioRecipeSchema, isColdStartFailure } from "@autonoma/types";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { DryRunSubject } from "../onboarding/dry-run-subject";
@@ -275,12 +270,16 @@ export class ScenariosService extends Service {
         });
 
         if (instance.status === "UP_FAILED") {
-            const coldStart = instance.lastError != null && isColdStartMessage(instance.lastError.message);
+            // A fresh up() failure always carries the structured SdkFailure tag - ScenarioManager only records an
+            // UP_FAILED from the SDK-call catch - so the cold-start decision reads the tag directly, the same way
+            // the analysis workflow now does.
+            const lastError = instance.lastError;
+            const coldStart = lastError?.failure != null && isColdStartFailure(lastError.failure);
             this.logger.info("Dry run failed during up phase", { applicationId, scenarioId, extra: { coldStart } });
             return {
                 success: false as const,
                 phase: "up" as const,
-                error: coldStart ? { message: COLD_START_DRY_RUN_MESSAGE } : instance.lastError,
+                error: coldStart ? { message: COLD_START_DRY_RUN_MESSAGE } : lastError,
                 coldStart,
                 saved: false as const,
             };

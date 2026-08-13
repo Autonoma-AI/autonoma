@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapSdkFailureToVerdict } from "../src/sdk-failure";
+import { isColdStartFailure, mapSdkFailureToVerdict } from "../src/sdk-failure";
 
 describe("mapSdkFailureToVerdict", () => {
     it("maps transport-plane failures to environment_failure", () => {
@@ -35,5 +35,23 @@ describe("mapSdkFailureToVerdict", () => {
         expect(mapSdkFailureToVerdict({ kind: "http", status: 401, code: "INVALID_SIGNATURE" })).toBe(
             "environment_failure",
         );
+    });
+});
+
+describe("isColdStartFailure", () => {
+    it("treats a connection-level drop or a gateway 502/503/504 as a cold start", () => {
+        expect(isColdStartFailure({ kind: "unreachable" })).toBe(true);
+        for (const status of [502, 503, 504]) {
+            expect(isColdStartFailure({ kind: "http", status })).toBe(true);
+        }
+    });
+
+    it("does not treat a timeout, a bad response, or any other status as a cold start", () => {
+        // A timeout burns the full budget - more likely a hung endpoint than a cold one - so retrying it is wasteful.
+        expect(isColdStartFailure({ kind: "timed_out" })).toBe(false);
+        expect(isColdStartFailure({ kind: "bad_response" })).toBe(false);
+        for (const status of [404, 500, 400, 200]) {
+            expect(isColdStartFailure({ kind: "http", status })).toBe(false);
+        }
     });
 });

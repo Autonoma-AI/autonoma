@@ -697,14 +697,15 @@ describe("investigatorWorkflow verdict state machine", () => {
         expect(finding.category).toBe("environment_failure");
     });
 
-    it("falls back to the message-string net for an untagged provisioning transport drop", async () => {
-        // No SdkFailure tag (an older activity, or a throw that never reached the SDK call); the categorizeInfraFailure
-        // net still keeps a transport drop off the engine_artifact bucket that is hard-wired to us.
+    it("contains an untagged provisioning failure as an engine artifact - a real failure is always tagged now", async () => {
+        // Post-deploy the provisioning activity always tags a real preview/scenario failure, so an untagged throw is
+        // our own orchestration failing before the SDK call ever happened - contained on us, never guessed at from
+        // the raw message (the transitional string net is gone).
         harness.scenarioUpError = new Error("fetch failed: other side closed");
 
         const finding = await runInvestigator("pre_existing", "scenario-1");
 
-        expect(finding.category).toBe("environment_failure");
+        expect(finding.category).toBe("engine_artifact");
         expect(harness.webRuns).toEqual([]);
     });
 

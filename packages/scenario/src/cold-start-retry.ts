@@ -1,7 +1,7 @@
 import type { Logger } from "@autonoma/logger";
-import { isColdStartMessage, isColdStartStatus } from "@autonoma/types";
+import { isColdStartFailure, isColdStartMessage } from "@autonoma/types";
 import { sleep as defaultSleep } from "@autonoma/utils/sleep";
-import { SdkHttpError } from "./sdk-http-error";
+import { SdkCallError } from "./sdk-call-error";
 
 // The signatures themselves live in `@autonoma/types`, because the UI classifies a persisted
 // failure message with the same rules this retry loop uses.
@@ -15,13 +15,15 @@ export { isColdStartMessage } from "@autonoma/types";
 const DEFAULT_COLD_START_DELAYS_MS = [2_000, 5_000, 10_000, 15_000];
 
 /**
- * Whether an error is the signature of a scaled-to-zero preview waking up (a
- * 502/503/504 from the ingress, or a connection refused/reset), as opposed to a
- * genuine failure. A real 4xx/5xx from the app, a bad response, or a timeout are
- * NOT cold starts - retrying those just fails the same way (or wastes the budget).
+ * Whether an error is the signature of a scaled-to-zero preview waking up (a 502/503/504 from the ingress, or a
+ * refused/reset/dropped connection), as opposed to a genuine failure. A real 4xx/5xx from the app, a bad response,
+ * or a timeout are NOT cold starts - retrying those just fails the same way (or wastes the budget).
+ *
+ * Every `SdkClient` throw carries the structured `SdkFailure` tag, so the rule reads that one source of truth
+ * (shared with the analysis workflow and the dry-run path); only a non-SDK error falls back to sniffing the message.
  */
 export function isColdStartError(err: unknown): boolean {
-    if (err instanceof SdkHttpError) return isColdStartStatus(err.status);
+    if (err instanceof SdkCallError) return isColdStartFailure(err.failure);
     if (err instanceof Error) return isColdStartMessage(err.message);
     return false;
 }
