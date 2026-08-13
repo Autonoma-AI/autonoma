@@ -57,6 +57,7 @@ const completedOnboardingState = {
   previewEnvironmentMode: "previewkit" as const,
   previewUrl: null,
   previewVerificationStatus: "ready" as const,
+  previewVerificationError: null,
   previewDeployRequestedAt: null,
   completedAt: FIXTURE_EPOCH,
   lastDiscoveryError: null,

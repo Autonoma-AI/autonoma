@@ -18,7 +18,12 @@ export class DiffTriggerState extends OnboardingState {
         this.logger.info("Going live from diff_trigger");
         await this.db.onboardingState.update({
             where: { applicationId: this.applicationId },
-            data: { step: "completed", completedAt: new Date(), previewVerificationStatus: "ready" },
+            data: {
+                step: "completed",
+                completedAt: new Date(),
+                previewVerificationStatus: "ready",
+                previewVerificationError: null,
+            },
         });
     }
 }

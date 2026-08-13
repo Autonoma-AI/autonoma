@@ -408,6 +408,40 @@ integrationTestSuite({
             expect(state.previewVerificationStatus).toBe("failed");
         });
 
+        test("getPreviewReadiness still explains the failure on the poll after it was recorded", async ({
+            harness,
+            seedResult: { orgId, manager, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 91_151);
+            const staleDeployRequestedAt = new Date(Date.now() - 3 * 60 * 1000);
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: {
+                    applicationId: appId,
+                    step: "previewkit_deploying",
+                    previewEnvironmentMode: "previewkit",
+                    previewVerificationStatus: "building",
+                    updatedAt: staleDeployRequestedAt,
+                },
+                update: {
+                    step: "previewkit_deploying",
+                    previewEnvironmentMode: "previewkit",
+                    previewVerificationStatus: "building",
+                    updatedAt: staleDeployRequestedAt,
+                },
+            });
+
+            // The first read is the transition that diagnoses the failure; the second is every read
+            // after it, when the status it just wrote means the transition can no longer be re-derived.
+            await manager.getPreviewReadiness(appId, orgId);
+            const readiness = await manager.getPreviewReadiness(appId, orgId);
+
+            expect(readiness.diagnostics.status).toBe("failed");
+            expect(readiness.diagnostics.error).toContain("no environment was created");
+            expect(readiness.diagnostics.error).not.toContain("No PreviewKit environment row exists yet");
+        });
+
         test("getPreviewReadiness keeps failed PreviewKit environments failed even when branch is stale", async ({
             harness,
             seedResult: { orgId, manager, createApp },

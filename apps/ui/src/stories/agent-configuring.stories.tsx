@@ -332,6 +332,33 @@ function withStaleHeartbeat(fixtures: TrpcFixtures): TrpcFixtures {
   };
 }
 
+/**
+ * A deploy that was requested and produced nothing at all - no environment, no build,
+ * no logs. Distinct from {@link withFailedDeploy}, where a build ran and failed: here
+ * there is no service state to show, which is what makes the message the entire screen.
+ */
+function withNeverStartedDeploy(diagnostics: {
+  status: "idle" | "failed";
+  phase?: string;
+  error: string;
+}): TrpcFixtures {
+  const readiness = configuringFixtures.onboarding?.getPreviewReadiness;
+  return {
+    ...configuringFixtures,
+    onboarding: {
+      ...configuringFixtures.onboarding,
+      getPreviewReadiness:
+        readiness == null
+          ? readiness
+          : {
+              ...readiness,
+              diagnostics: { ...diagnostics, actions: [], logs: { available: false } },
+              services: [],
+            },
+    },
+  };
+}
+
 const meta = {
   title: "Onboarding/AgentConfiguringScreen",
   component: AgentConfiguringScreen,
@@ -469,6 +496,47 @@ export const AgentStalled: Story = {
   parameters: {
     msw: {
       handlers: appShellHandlers(withStaleHeartbeat(withPreviewPath("existing_deploys"))),
+    },
+  },
+};
+
+/**
+ * What a deploy that never started said BEFORE the reason was persisted: readiness
+ * explained the failure on the transition, then the status it wrote in the same breath
+ * moved the next poll off that branch and onto this generic message. Kept as a story
+ * because it is the state a user actually sat in front of, and it reads as "nothing was
+ * ever attempted" on an app whose deploy had been requested three times.
+ */
+export const DeployNeverStartedGenericMessage: Story = {
+  args: { applicationId: baseApplication.id },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers(
+        withNeverStartedDeploy({
+          status: "idle",
+          phase: "workflow_not_started",
+          error:
+            "No PreviewKit environment row exists yet. Start or redeploy the main environment after saving config.",
+        }),
+      ),
+    },
+  },
+};
+
+/** The same poll with the reason persisted: the diagnosis survives the write that recorded it. */
+export const DeployNeverStartedReasonKept: Story = {
+  args: { applicationId: baseApplication.id },
+  parameters: {
+    msw: {
+      handlers: appShellHandlers(
+        // No phase: `failedReadiness` sets none, and a phase of "deploy_requested" would render
+        // the request-accepted stepper over a deploy that has already been given up on.
+        withNeverStartedDeploy({
+          status: "failed",
+          error:
+            "PreviewKit accepted the deploy request, but no environment was created. Check PreviewKit service health, then redeploy.",
+        }),
+      ),
     },
   },
 };

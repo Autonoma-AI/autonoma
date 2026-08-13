@@ -224,6 +224,13 @@ model OnboardingState {
   previewEnvironmentMode    OnboardingPreviewEnvironmentMode?   @map("preview_environment_mode")
   previewUrl                String?                             @map("preview_url")
   previewVerificationStatus OnboardingPreviewVerificationStatus @default(idle) @map("preview_verification_status")
+  // Why the last verification failed, in the words the user was shown. Kept because the
+  // diagnosis is derived from a state transition and destroyed by the act of recording it:
+  // readiness explains the failure while the previous status still reads `building`, and
+  // writing `failed` is what moves it off `building`. Without this the next poll falls
+  // through to a generic "nothing has been started yet", which reads as if the deploy was
+  // never attempted. Cleared whenever verification succeeds.
+  previewVerificationError  String?                             @map("preview_verification_error")
   // When a previewkit main-branch deploy was last requested. This is the freshness
   // reference readiness uses to decide whether the environment reflects the current
   // deploy: `updatedAt` is bumped by unrelated writes (notably the agent heartbeat),

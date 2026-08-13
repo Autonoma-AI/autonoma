@@ -384,6 +384,7 @@ const chromeFixtures: TrpcFixtures = {
       previewEnvironmentMode: "previewkit",
       previewUrl: null,
       previewVerificationStatus: "ready",
+      previewVerificationError: null,
       previewDeployRequestedAt: null,
       completedAt: FIXTURE_EPOCH,
       lastDiscoveryError: null,

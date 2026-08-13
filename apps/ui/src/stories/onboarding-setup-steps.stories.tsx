@@ -27,6 +27,7 @@ function makeOnboardingState(): RouterOutputs["onboarding"]["getState"] {
     previewEnvironmentMode: "previewkit",
     previewUrl: null,
     previewVerificationStatus: "ready",
+    previewVerificationError: null,
     previewDeployRequestedAt: null,
     completedAt: FIXTURE_EPOCH,
     lastDiscoveryError: null,

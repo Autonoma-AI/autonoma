@@ -271,6 +271,7 @@ export class OnboardingManager {
             previewEnvironmentMode: null,
             previewUrl: null,
             previewVerificationStatus: "idle",
+            previewVerificationError: null,
             previewDeployRequestedAt: null,
             completedAt: null,
             lastDiscoveryError: null,
@@ -705,18 +706,18 @@ export class OnboardingManager {
             return idleReadiness(state.previewEnvironmentMode ?? undefined);
         }
 
-        return buildPreviewkitReadiness(
-            this.db,
+        return buildPreviewkitReadiness(this.db, {
             applicationId,
             organizationId,
-            state.step,
-            state.previewVerificationStatus,
+            step: state.step,
+            previousStatus: state.previewVerificationStatus,
             // The deploy-request time, NOT the row's `updatedAt`: the latter is bumped
             // by unrelated writes (the agent heartbeat) and would drift past the moment
             // the environment goes ready, so the deploy would never be observed as ready.
             // Fall back to `updatedAt` only for rows predating this column.
-            state.previewDeployRequestedAt ?? state.updatedAt,
-        );
+            previousStatusUpdatedAt: state.previewDeployRequestedAt ?? state.updatedAt,
+            previousError: state.previewVerificationError ?? undefined,
+        });
     }
 
     /** Verify the preview is ready and advance `preview_verified` -> `diff_trigger`. */

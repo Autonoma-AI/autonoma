@@ -19,6 +19,7 @@ function makeConfiguringState(): RouterOutputs["onboarding"]["getState"] {
     previewEnvironmentMode: "previewkit",
     previewUrl: null,
     previewVerificationStatus: "idle",
+    previewVerificationError: null,
     previewDeployRequestedAt: null,
     completedAt: null,
     lastDiscoveryError: null,

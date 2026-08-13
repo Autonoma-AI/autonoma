@@ -282,6 +282,7 @@ export async function buildExistingDeploysReadiness(
                 previewUrl,
                 productionUrl: previewUrl,
                 previewVerificationStatus: "ready",
+                previewVerificationError: null,
             },
         });
     }
@@ -298,13 +299,26 @@ export async function buildExistingDeploysReadiness(
     };
 }
 
+export interface PreviewkitReadinessInput {
+    applicationId: string;
+    organizationId: string;
+    step: OnboardingStep;
+    previousStatus: PreviewDiagnosticsStatus;
+    previousStatusUpdatedAt: Date;
+    /** The reason the last verification failed, as it was persisted. Absent unless `previousStatus` is `failed`. */
+    previousError?: string;
+}
+
 export async function buildPreviewkitReadiness(
     db: PrismaClient,
-    applicationId: string,
-    organizationId: string,
-    step: OnboardingStep,
-    previousStatus: PreviewDiagnosticsStatus,
-    previousStatusUpdatedAt: Date,
+    {
+        applicationId,
+        organizationId,
+        step,
+        previousStatus,
+        previousStatusUpdatedAt,
+        previousError,
+    }: PreviewkitReadinessInput,
 ): Promise<PreviewReadiness> {
     // Once onboarding is completed, report readiness but never persist a
     // status/step change - that would roll a finished onboarding backward.
@@ -356,7 +370,10 @@ export async function buildPreviewkitReadiness(
                 if (!isCompleted) {
                     await db.onboardingState.update({
                         where: { applicationId },
-                        data: { previewVerificationStatus: "failed" },
+                        data: {
+                            previewVerificationStatus: "failed",
+                            previewVerificationError: readiness.diagnostics.error,
+                        },
                     });
                 }
 
@@ -373,6 +390,13 @@ export async function buildPreviewkitReadiness(
                 },
                 services: [],
             };
+        }
+
+        // A deploy that failed leaves no environment behind, so the generic message below - written
+        // for an app that has not deployed yet - is the one thing this state must not say. It reads
+        // as "nothing was ever attempted" to somebody whose deploy did run and did fail.
+        if (previousStatus === "failed" && previousError != null) {
+            return failedReadiness(previousError, ["redeploy", "edit_config", "copy_for_agent"], "previewkit");
         }
 
         return {
@@ -398,7 +422,10 @@ export async function buildPreviewkitReadiness(
             if (!isCompleted) {
                 await db.onboardingState.update({
                     where: { applicationId },
-                    data: { previewVerificationStatus: "failed" },
+                    data: {
+                        previewVerificationStatus: "failed",
+                        previewVerificationError: readiness.diagnostics.error,
+                    },
                 });
             }
 
@@ -512,6 +539,10 @@ export async function buildPreviewkitReadiness(
             where: { applicationId },
             data: {
                 previewVerificationStatus: diagnostics.status,
+                // Written on every status change, not only on failure: a reason left behind by an
+                // earlier failure would otherwise resurface on the next deploy that fails for a
+                // reason we could not name.
+                previewVerificationError: diagnostics.status === "failed" ? (diagnostics.error ?? null) : null,
                 ...(diagnostics.status === "building" && stillInDeployPhase ? { step: "previewkit_deploying" } : {}),
             },
         });
@@ -697,7 +728,13 @@ export async function writePreviewUrl(
             data: {
                 previewUrl,
                 productionUrl: previewUrl,
-                ...(alreadyAtOrPastVerified ? {} : { step: "preview_verified", previewVerificationStatus: "ready" }),
+                ...(alreadyAtOrPastVerified
+                    ? {}
+                    : {
+                          step: "preview_verified",
+                          previewVerificationStatus: "ready",
+                          previewVerificationError: null,
+                      }),
             },
         });
 
