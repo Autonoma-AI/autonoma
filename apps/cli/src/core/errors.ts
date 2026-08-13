@@ -13,6 +13,20 @@ export class AgentError extends Error {
     }
 }
 
+/**
+ * The Autonoma API refused this run's credential. Terminal by construction: no
+ * later call can succeed, and each one that tries fails less legibly than this.
+ */
+export class AutonomaAuthError extends Error {
+    constructor(
+        message: string,
+        public override readonly cause?: unknown,
+    ) {
+        super(message);
+        this.name = "AutonomaAuthError";
+    }
+}
+
 export class ToolError extends Error {
     constructor(
         message: string,
@@ -146,6 +160,7 @@ export function describeKnownError(err: unknown): KnownError | undefined {
     const status = apiStatusOf(err);
 
     const looksLikeAuth =
+        err instanceof AutonomaAuthError ||
         msg.includes("missing authentication header") ||
         msg.includes("no auth credentials") ||
         msg.includes("not authenticated") ||

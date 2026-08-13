@@ -7,6 +7,7 @@ vi.mock("../../src/ui/prompts", () => ({
 import type { AppConfig } from "../../src/config";
 import type { AutonomaClient } from "../../src/core/autonoma-client";
 import type { AgentLauncher } from "../../src/core/coding-agent";
+import { AutonomaAuthError } from "../../src/core/errors";
 import { describeIncompletePreview, planFrontDoor, runPreviewHandoff } from "../../src/core/front-door";
 
 const API_URL = "https://api.example.test";
@@ -93,6 +94,27 @@ function stubApi(phase: keyof typeof STATE_BY_PHASE): void {
     });
 }
 
+/** Every procedure answering the way the API answers an unusable credential. */
+function stubUnauthorized(): void {
+    vi.stubGlobal("fetch", (url: string | URL) => {
+        calls.push(new URL(url.toString()).pathname.replace("/v1/trpc/", ""));
+        return Promise.resolve(
+            new Response(
+                JSON.stringify({
+                    error: {
+                        json: {
+                            message: "UNAUTHORIZED",
+                            code: -32001,
+                            data: { code: "UNAUTHORIZED", httpStatus: 401 },
+                        },
+                    },
+                }),
+                { status: 401, headers: { "Content-Type": "application/json" } },
+            ),
+        );
+    });
+}
+
 beforeEach(() => {
     calls = [];
     failing = new Set();
@@ -152,6 +174,26 @@ describe("planFrontDoor", () => {
 
         expect(plan?.phase).toBe("planner");
         expect(calls).toContain("onboarding.resumeAgent");
+    });
+
+    // Autonoma being briefly unreadable is not worth failing a run over, so this
+    // path degrades rather than throwing.
+    test("runs standalone when the status call fails for any other reason", async () => {
+        stubApi("planner");
+        failing = new Set(["onboarding.getState"]);
+
+        await expect(planFrontDoor(config())).resolves.toBeUndefined();
+    });
+
+    /**
+     * A refused credential is different in kind. Every later call fails the same
+     * way, and the LLM proxy's 401 reaches the agent with no message at all - so a
+     * run that continued here spent seven steps failing blankly. It used to.
+     */
+    test("stops the run when Autonoma refuses the credential", async () => {
+        stubUnauthorized();
+
+        await expect(planFrontDoor(config())).rejects.toBeInstanceOf(AutonomaAuthError);
     });
 });
 

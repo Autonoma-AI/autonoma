@@ -64,7 +64,7 @@ Three pieces, in order. The first one alone gets you live.
 
 ```bash
 # Generate a test suite for the repo you are standing in
-AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... npx @autonoma-ai/planner@latest
+AUTONOMA_API_TOKEN=<api-token> AUTONOMA_GENERATION_ID=<generation-id> npx @autonoma-ai/planner@latest
 ```
 
 Tests are plain Markdown with YAML frontmatter. The agent works out how to run them:

@@ -9,13 +9,17 @@ description: The planner CLI is how you set Autonoma up. One command sets up you
 
 ## Run it
 
-Autonoma shows you this command when you connect your app, with your token and ids already baked in. Copy it, open a terminal in your project, and paste:
+Autonoma shows you this command when you connect your app, with your token and ids already baked in. It has this shape:
 
 ```bash
-AUTONOMA_SHARED_SECRET=... AUTONOMA_DISTINCT_ID=... AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... AUTONOMA_APPLICATION_ID=... npx @autonoma-ai/planner@latest
+AUTONOMA_SHARED_SECRET=<shared-secret> AUTONOMA_DISTINCT_ID=<distinct-id> AUTONOMA_API_TOKEN=<api-token> AUTONOMA_GENERATION_ID=<generation-id> AUTONOMA_APPLICATION_ID=<application-id> npx @autonoma-ai/planner@latest
 ```
 
-That is the whole of setup. There is no second command, no step list to work through, and nothing to install - `npx` fetches the planner and runs it.
+:::note[Get yours, don't copy this one]
+The values above are stand-ins. **[Open Autonoma](https://autonoma.app)** and copy the command off your app's connect screen - it arrives with the token and ids filled in. The planner rejects a placeholder token on sight rather than starting a run that cannot authenticate.
+:::
+
+Copy it, open a terminal in your project, and paste. That is the whole of setup. There is no second command, no step list to work through, and nothing to install - `npx` fetches the planner and runs it.
 
 :::caution[Run it in a terminal, not inside a coding agent you already have open]
 The command takes the terminal over and starts a coding agent of its own. Pasting it into a session that is already running leaves two agents fighting over one screen.
@@ -122,7 +126,7 @@ The subcommand comes first, before any flags.
 
 ```bash
 # Run the pipeline. This is the command the dashboard gives you, with your tokens filled in.
-AUTONOMA_SHARED_SECRET=... AUTONOMA_DISTINCT_ID=... AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... \
+AUTONOMA_SHARED_SECRET=<shared-secret> AUTONOMA_DISTINCT_ID=<distinct-id> AUTONOMA_API_TOKEN=<api-token> AUTONOMA_GENERATION_ID=<generation-id> \
   npx @autonoma-ai/planner@latest
 
 # Show how far the last run got. Local only - reads the saved progress file, no network.
@@ -130,7 +134,7 @@ npx @autonoma-ai/planner@latest status
 
 # Re-send everything already generated on disk. Idempotent, and the fix when a run
 # finished but an artifact did not arrive. Needs the same env vars as the run.
-AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... \
+AUTONOMA_API_TOKEN=<api-token> AUTONOMA_GENERATION_ID=<generation-id> \
   npx @autonoma-ai/planner@latest upload
 ```
 
@@ -166,7 +170,7 @@ Flags go after the subcommand. `--help` prints all of this, plus what each step 
 Hand the same command to a hosted agent, an autonomous engineer, or a CI job and add `--non-interactive`. It runs the entire pipeline in **one invocation** - there is no step list to sequence, and nothing to call back into:
 
 ```bash
-AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... AUTONOMA_APPLICATION_ID=... \
+AUTONOMA_API_TOKEN=<api-token> AUTONOMA_GENERATION_ID=<generation-id> AUTONOMA_APPLICATION_ID=<application-id> \
   npx @autonoma-ai/planner@latest --non-interactive \
   --coding-agent claude --frontend apps/web --backend apps/api
 ```

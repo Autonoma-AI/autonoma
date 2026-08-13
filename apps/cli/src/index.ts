@@ -26,6 +26,7 @@ import { installInterruptHandler, installTerminationDiagnostics, restoreTerminal
 import { captureLog } from "./core/logs";
 import { DEFAULT_MODEL } from "./core/model";
 import { clearOutputDir, displayPath, ensureOutputDir } from "./core/output";
+import { isPlaceholderCredential } from "./core/placeholder-credential";
 import { getRuntimeContext } from "./core/runtime-context";
 import { selfInvocation } from "./core/self-invocation";
 import { initSession } from "./core/session";
@@ -604,14 +605,33 @@ ${DIM}  E2E Test Planner - Generate exhaustive test suites from your codebase${R
  * which the web app injects when it launches the CLI. There's no LLM key to
  * paste anymore - if the token is missing we error with instructions rather than
  * prompting. Returns false when unauthenticated.
+ *
+ * A placeholder is rejected as hard as a missing token. It cannot authenticate
+ * anything, and letting it through costs the user a full run that fails one
+ * unexplained step at a time (see `isPlaceholderCredential`).
  */
 function ensureAutonomaAuth(): boolean {
-    if (readEnv().AUTONOMA_API_TOKEN?.trim()) return true;
+    const token = readEnv().AUTONOMA_API_TOKEN?.trim();
 
-    p.log.error(
-        "Not authenticated. Launch the planner from the Autonoma app, or set AUTONOMA_API_TOKEN (create a key at https://autonoma.app/settings/api-keys).",
-    );
-    return false;
+    if (token == null || token === "") {
+        track("cli_auth_rejected", { reason: "missing" });
+        p.log.error(
+            "Not authenticated. Launch the planner from the Autonoma app, or set AUTONOMA_API_TOKEN (create a key at https://autonoma.app/settings/api-keys).",
+        );
+        return false;
+    }
+
+    if (isPlaceholderCredential(token)) {
+        track("cli_auth_rejected", { reason: "placeholder" });
+        p.log.error(
+            "AUTONOMA_API_TOKEN is a placeholder, not a credential. The command in the docs is an example - " +
+                "yours, with the token and ids already filled in, is on your app's connect screen at https://autonoma.app " +
+                "(or create a key at https://autonoma.app/settings/api-keys and set AUTONOMA_API_TOKEN yourself).",
+        );
+        return false;
+    }
+
+    return true;
 }
 
 /**
@@ -727,6 +747,13 @@ async function main() {
             project: args.value("project"),
             slug: args.value("slug"),
         });
+        // Before the uploads, not just before a run: `upload` is the documented way to
+        // recover a run whose artifacts are already on disk, so it is exactly where
+        // someone lands after a placeholder token has failed them once already.
+        if (!ensureAutonomaAuth()) {
+            await flushTelemetry();
+            process.exit(1);
+        }
         const outputDir = await ensureOutputDir(config.projectSlug);
         // Re-upload everything already generated in `~/.autonoma/<app>/`: the recipe
         // first (so scenarios exist before tests reference them), then the artifacts

@@ -41,8 +41,10 @@ This is the same server you use afterwards, once Autonoma is reviewing your pull
 You do not install or configure anything for this. Autonoma's connect screen hands you **one command** - the [planner CLI](/test-planner/), carrying your app's id - and that command does the wiring:
 
 ```bash
-AUTONOMA_SHARED_SECRET=... AUTONOMA_DISTINCT_ID=... AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... AUTONOMA_APPLICATION_ID=... npx @autonoma-ai/planner@latest
+AUTONOMA_SHARED_SECRET=<shared-secret> AUTONOMA_DISTINCT_ID=<distinct-id> AUTONOMA_API_TOKEN=<api-token> AUTONOMA_GENERATION_ID=<generation-id> AUTONOMA_APPLICATION_ID=<application-id> npx @autonoma-ai/planner@latest
 ```
+
+The values above are stand-ins - the command with yours filled in is on the connect screen at **[autonoma.app](https://autonoma.app)**, and the planner refuses to start on a placeholder token.
 
 **Copy it, open a terminal in your project folder, and paste.** From there it registers this MCP server with your coding agent, authorizes it, mints a pairing code, and starts a **fresh** agent session on the job - then keeps going once the preview is up, through your test suite, the SDK integration and a scenario dry run. There is no second command and no pairing code for you to read off a screen.
 
@@ -67,7 +69,7 @@ The app id in the command is how the agent knows _which_ app to set up. You neve
 The OAuth sign-in needs a browser on the same machine. If you are a hosted agent, an autonomous engineer, or a CI job, run the same command with `--non-interactive`:
 
 ```bash
-AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... AUTONOMA_APPLICATION_ID=... \
+AUTONOMA_API_TOKEN=<api-token> AUTONOMA_GENERATION_ID=<generation-id> AUTONOMA_APPLICATION_ID=<application-id> \
   npx @autonoma-ai/planner@latest --non-interactive \
   --coding-agent claude --frontend apps/web --backend apps/api
 ```

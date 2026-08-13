@@ -88,14 +88,28 @@ In your own terminal, from the root of the repository you want to test. The plan
 so it has to be somewhere it can see it.
 
 Copy the command from the **Upload test artifacts** step of onboarding - it comes with your
-token and generation id already filled in - and paste it into your terminal:
+token and generation id already filled in - and paste it into your terminal. It has this shape,
+with real values where the stand-ins are:
 
 ```bash
-AUTONOMA_SHARED_SECRET=... AUTONOMA_DISTINCT_ID=... AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... npx @autonoma-ai/planner@latest
+AUTONOMA_SHARED_SECRET=<shared-secret> AUTONOMA_DISTINCT_ID=<distinct-id> AUTONOMA_API_TOKEN=<api-token> AUTONOMA_GENERATION_ID=<generation-id> npx @autonoma-ai/planner@latest
 ```
 
 If your frontend and backend live in separate repositories, run it somewhere it can reach both, or
 point it with `--frontend` and `--backends`.
+
+### It says my AUTONOMA_API_TOKEN is a placeholder
+
+You ran an example rather than your own command. The snippets on this site write every credential as
+a stand-in - `<api-token>`, `<generation-id>` - and pasting one unchanged sends that stand-in as your
+token, which authenticates nothing.
+
+Your real command lives on your app's connect screen at [autonoma.app](https://autonoma.app), with
+the token and ids already filled in. If you are running standalone, mint a key under
+**Settings → API keys** and set `AUTONOMA_API_TOKEN` to it yourself.
+
+The planner checks this before it starts, so the run stops immediately instead of failing its first
+step over and over with nothing that explains why.
 
 ### It has been on the same step for ages - is it stuck?
 
@@ -129,7 +143,7 @@ is nothing to resume - it will print `All steps complete.` and exit without uplo
 already on your disk instead:
 
 ```bash
-AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... \
+AUTONOMA_API_TOKEN=<api-token> AUTONOMA_GENERATION_ID=<generation-id> \
   npx @autonoma-ai/planner@latest upload
 ```
 

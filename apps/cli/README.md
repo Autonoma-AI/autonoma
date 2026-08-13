@@ -37,7 +37,7 @@ Requires **Node.js >= 22.13**. Autonoma shows you this command when you connect 
 your token and ids already filled in. Open a terminal in your project and paste it:
 
 ```bash
-AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... AUTONOMA_APPLICATION_ID=... \
+AUTONOMA_API_TOKEN=<api-token> AUTONOMA_GENERATION_ID=<generation-id> AUTONOMA_APPLICATION_ID=<application-id> \
   npx @autonoma-ai/planner@latest
 ```
 
@@ -69,7 +69,7 @@ npx @autonoma-ai/planner@latest status
 
 # Re-send everything already generated on disk. Idempotent, and the fix when a run
 # finished but an artifact did not arrive. Needs the same env vars as a run.
-AUTONOMA_API_TOKEN=... AUTONOMA_GENERATION_ID=... \
+AUTONOMA_API_TOKEN=<api-token> AUTONOMA_GENERATION_ID=<generation-id> \
   npx @autonoma-ai/planner@latest upload
 
 # Every flag, and what each step of the run does.
@@ -173,7 +173,7 @@ a standalone run.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `AUTONOMA_API_TOKEN` | yes | The run's credential. It runs on managed Autonoma credits through our LLM proxy, so no LLM key is needed. Create one under **Settings → API keys**. |
+| `AUTONOMA_API_TOKEN` | yes | The run's credential. It runs on managed Autonoma credits through our LLM proxy, so no LLM key is needed. Create one under **Settings → API keys**. A stand-in copied out of a snippet (`...`, `<api-token>`, `YOUR_TOKEN`) is rejected before the run starts. |
 | `AUTONOMA_APPLICATION_ID` | no | The app this run belongs to. With it the run also sets up the preview environment and validates the result; without it the planner runs standalone against any repo. |
 | `AUTONOMA_GENERATION_ID` | for upload | The setup its artifacts are uploaded against. |
 | `AUTONOMA_SHARED_SECRET` | no | Signs the SDK and webhook requests the run makes on your behalf. |

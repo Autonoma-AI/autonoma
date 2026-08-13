@@ -4,12 +4,14 @@ import { resolveMcpUrl } from "./api-url";
 import { AutonomaClient } from "./autonoma-client";
 import { buildAllLaunchers, parsePermissionMode, selectLauncher, type AgentLauncher } from "./coding-agent";
 import { debugLog } from "./debug";
+import { AutonomaAuthError } from "./errors";
 import { resume, suspend } from "./interrupt";
 import { captureLog } from "./logs";
 import { resolveEntryPhase, type OnboardingPhase } from "./onboarding-phase";
 import { resolvePermissionMode } from "./permission-mode";
 import { runPreviewPhase, type PreviewPhaseOutcome } from "./preview-phase";
 import { runSdkRepairPhase, type SdkReadiness, type SdkRepairOutcome } from "./sdk-repair-phase";
+import { isUnauthorizedResponse } from "./unauthorized";
 
 /** What a run has left to do, and what it needs to do it. */
 export interface FrontDoorPlan {
@@ -41,6 +43,10 @@ export async function planFrontDoor(config: AppConfig): Promise<FrontDoorPlan | 
         await claimHoldForRun(client, applicationId, phase);
         return { client, applicationId, phase };
     } catch (err) {
+        if (isUnauthorizedResponse(err)) {
+            captureLog("error", "Autonoma refused the run's credential", { source: "front_door" });
+            throw new AutonomaAuthError("Autonoma rejected this run's credential (unauthorized).", err);
+        }
         p.log.warn("Couldn't read your setup status from Autonoma - continuing with the test-suite run.");
         debugLog("Front-door planning failed", { err });
         captureLog("warn", "Could not resolve the onboarding entry phase", { source: "front_door" });
