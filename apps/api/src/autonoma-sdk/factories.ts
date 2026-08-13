@@ -7,6 +7,7 @@ import {
     OnboardingStep as OnboardingStepEnum,
     PreviewkitAppStatus as PreviewkitAppStatusEnum,
     PreviewkitStatus,
+    previewkitConfigCreateChildren,
     SubscriptionStatus as SubscriptionStatusEnum,
     VercelInstallationStatus,
     db,
@@ -18,8 +19,11 @@ import {
     analysisIssueSeveritySchema,
     evidenceManifestEntrySchema,
     hasGoneLive,
+    PREVIEW_CONFIG_VERSION,
+    previewkitConfigRowValues,
     primaryScreenshotSchema,
     suspectedCauseSchema,
+    trustedPreviewConfigSchema,
 } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
 import { z } from "zod";
@@ -932,17 +936,34 @@ const PreviewkitConfigInput = loose({
     document: JsonDocument.optional(),
 });
 
+/**
+ * A seeded config has to name at least one app. The schema has always required it,
+ * and every reader composes the config from the topology rows, so a row seeded with
+ * no apps is one they all read as empty - the workspace page this factory exists to
+ * populate included.
+ */
+const SEEDED_PREVIEW_DOCUMENT = {
+    version: PREVIEW_CONFIG_VERSION,
+    apps: [{ name: "web", repository: "autonoma/seeded-preview", port: 3000, primary: true }],
+};
+
 const PreviewkitConfigFactory = defineFactory({
     inputSchema: PreviewkitConfigInput,
     refSchema: emptyRef,
     // The preview-config workspace reads this row (loadSavedConfigAppIndexes in
     // onboarding/preview-readiness.ts). With no row the page renders
     // "We couldn't load this." - there is no empty state for a missing config.
+    //
+    // Written the way the authoring API writes it: parsed, then decomposed into the
+    // topology rows readers actually serve. Seeding the document column alone leaves
+    // a config every reader sees as empty.
     create: async (data) => {
+        const config = trustedPreviewConfigSchema.parse(data.document ?? SEEDED_PREVIEW_DOCUMENT);
         const row = await db.previewkitConfig.create({
             data: {
                 applicationId: data.applicationId,
-                document: data.document ?? { apps: [] },
+                document: JSON.parse(JSON.stringify(config)),
+                ...previewkitConfigCreateChildren(previewkitConfigRowValues(config)),
             },
         });
         return { id: row.id };
