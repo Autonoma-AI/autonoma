@@ -1,6 +1,7 @@
 import { Agent, type AgentTool, type LanguageModel, type ModelMessage } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import type { Codebase } from "../../codebase";
+import { buildRepoManifestSection } from "../../codebase";
 import type { DiffAnalysis, ExistingTestInfo, MergeContextInfo, PreClassifiedConflictInfo } from "../../diffs-agent";
 import type { FlowIndex } from "../../flow-index";
 import { readPrChangedFiles, readPrCommitSubjects } from "../../pr-range";
@@ -106,14 +107,14 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
     }
 
     protected async buildUserPrompt(input: DiffsAgentInput): Promise<ModelMessage[]> {
-        const range = { root: input.codebase.root, baseSha: input.baseSha, headSha: input.headSha };
+        const range = { root: input.codebase.primaryDir, baseSha: input.baseSha, headSha: input.headSha };
         const [affectedFiles, summary] = await Promise.all([readPrChangedFiles(range), readPrCommitSubjects(range)]);
         const analysis: DiffAnalysis = { affectedFiles, summary };
         this.logger.info("Built diff analysis", {
             extra: { affectedFiles: affectedFiles.length, summary: summary.slice(0, 200) },
         });
 
-        const prompt = buildDiffsUserPrompt({
+        let prompt = buildDiffsUserPrompt({
             analysis,
             range: { baseSha: input.baseSha, headSha: input.headSha },
             flowIndex: input.flowIndex,
@@ -122,6 +123,14 @@ export class DiffsAgent extends Agent<DiffsAgentInput, DiffsAgentResult, DiffsAg
             testScopeGuidelines: input.testScopeGuidelines,
             scenarioRecipes: input.scenarioRecipes ?? [],
         });
+
+        // A backend/dependency change can move which tests are affected, so surface the pinned dependency repos
+        // (and their diffs) when the snapshot deployed a multi-repo preview.
+        const manifest = input.codebase.dependencyManifest();
+        if (manifest != null) {
+            prompt += `\n\n## Repositories\n\n${await buildRepoManifestSection(manifest)}`;
+        }
+
         return [{ role: "user", content: prompt }];
     }
 

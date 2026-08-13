@@ -3,6 +3,7 @@ import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { sharedCompactor } from "../../agents/compaction";
 import { buildCodebaseTools } from "../../agents/tools/codebase/build-codebase-tools";
 import { ViewStepDetailsTool } from "../../agents/tools/run-evidence/view-step-details-tool";
+import { buildRepoManifestSection } from "../../codebase";
 import type { RunVerdict } from "../schema";
 import { ClassifierAgentLoop } from "./classifier-agent-loop";
 import { describeEvidenceLimits } from "./evidence-limits";
@@ -103,11 +104,19 @@ export class ClassifierAgent extends Agent<ClassifierInput, RunVerdict, Classifi
             recording != null
                 ? await runVisionProbes({ recording, reader: this.recordingReader, testPlan: input.test.plan })
                 : undefined;
-        const promptText = buildClassifierPrompt({
+        let promptText = buildClassifierPrompt({
             input,
             scans,
             evidenceLimits: describeEvidenceLimits(input),
         });
+
+        // When the snapshot deployed a multi-repo preview, tell the classifier which dependency repos are checked
+        // out beside the primary and how to diff each - a backend defect grounds against a dependency repo just
+        // like one in the primary.
+        const manifest = input.codebase.dependencyManifest();
+        if (manifest != null) {
+            promptText += `\n\n## Repositories\n\n${await buildRepoManifestSection(manifest)}`;
+        }
 
         const finalScreenshot = input.run.finalScreenshot;
         if (finalScreenshot == null) return [{ role: "user", content: promptText }];

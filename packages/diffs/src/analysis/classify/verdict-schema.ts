@@ -28,6 +28,7 @@ export const VerdictForModel = z.object({
             z.object({
                 source: EvidenceSource,
                 detail: z.string().min(1),
+                repo: declinable(z.string().min(1)),
                 file: declinable(z.string().min(1)),
                 lines: declinable(z.string().min(1)),
                 snippet: declinable(z.string().min(1)),

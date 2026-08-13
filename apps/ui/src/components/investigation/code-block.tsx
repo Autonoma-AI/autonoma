@@ -123,6 +123,21 @@ export function githubPermalink(
   return `https://github.com/${repoFullName}/blob/${commitSha}/${file}${lineAnchor(lines)}`;
 }
 
+/**
+ * The permalink for one evidence/code reference. `repoFullName`/`commitSha` identify the PRIMARY repo, so only a
+ * primary-repo reference can be linked: a dependency reference (`repo` set) would resolve to
+ * primary-repo/blob/<primary-sha>/<file>, a wrong or nonexistent file - so it stays plain text until the
+ * dependency's own pinned sha is threaded to this page.
+ */
+export function evidencePermalink(
+  ref: { repo?: string; file?: string; lines?: string },
+  repoFullName: string | undefined,
+  commitSha: string | undefined,
+): string | undefined {
+  if (ref.repo != null) return undefined;
+  return githubPermalink(repoFullName, commitSha, ref.file, ref.lines);
+}
+
 /** Turn an evidence line range ("451-470", "L58-67", "42") into a GitHub anchor ("#L451-L470", "#L42"). */
 function lineAnchor(lines: string | undefined): string {
   if (lines == null) return "";

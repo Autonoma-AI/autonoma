@@ -32,7 +32,7 @@ export const authoredIssueContentSchema = z.object({
         .min(1)
         .describe("Every one of THIS job's finding slugs that manifests this problem (at least one)."),
     suspectedCause: declinable(suspectedCauseSchema).describe(
-        "The hedged, code-level cause (explanation + file:line references you read via `bash`). Each reference is validated against the checked-out repo at persist time - a reference whose file/lines/snippet does not match is dropped, so only code you actually read survives. Pass null for environment/scenario issues or when you could not ground a cause; a guess you did not read is worse than nothing.",
+        "The hedged, code-level cause (explanation + file:line references you read via `bash`). When a reference's file lives in a dependency repo (see the Repositories section), set its `repo` to that repo's `owner/repo` name; omit `repo` for the primary. Each reference is validated against the checkout it names at persist time - a reference whose file/lines/snippet does not match, or whose repo is not checked out, is dropped, so only code you actually read survives. Pass null for environment/scenario issues or when you could not ground a cause; a guess you did not read is worse than nothing.",
     ),
     primaryScreenshotAssetId: declinable(z.string().min(1)).describe(
         "The assetId of the fetched screenshot that best shows the problem, to feature as the issue's hero. Must be an id you fetched via `fetch_evidence`; an unfetched/unknown id is dropped. Pass null when this run has no screenshot worth featuring - a contained fault that blocked the run before the browser loaded usually has none.",

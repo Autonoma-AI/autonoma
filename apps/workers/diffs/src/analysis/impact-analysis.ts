@@ -170,7 +170,9 @@ async function absorbMergedBranchWork({
         targetBranchRef: branchData.defaultBranch,
         baseSha: coordinates.baseSha,
         headSha: coordinates.headSha,
-        repoDir: codebase.root,
+        // primaryDir, not root: in a multi-repo workspace `root` is the parent that holds the repos, not a repo -
+        // the merge flow runs git against the primary repo's own clone.
+        repoDir: codebase.primaryDir,
     });
 
     logger.info("Merge flow absorbed", {

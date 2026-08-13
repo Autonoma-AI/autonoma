@@ -9,7 +9,7 @@ import {
 } from "@autonoma/blacklight";
 import type { InvestigationEvidence, InvestigationFinding, InvestigationRunStep } from "@autonoma/types";
 import { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
-import { CodeBlock, githubPermalink } from "components/investigation/code-block";
+import { CodeBlock, evidencePermalink } from "components/investigation/code-block";
 import type { FindingBadgeVariant } from "components/investigation/finding-category";
 import { NavigableLightbox, type NavigableStep } from "components/screenshot-lightbox";
 import { type ReactNode, useState } from "react";
@@ -235,9 +235,12 @@ function EvidenceItem({
   repoFullName?: string;
   commitSha?: string;
 }) {
-  const permalink = githubPermalink(repoFullName, commitSha, item.file, item.lines);
+  const permalink = evidencePermalink(item, repoFullName, commitSha);
   const snippet = item.snippet;
-  const fileLabel = item.file != null ? `${item.file}${item.lines != null ? `:${item.lines}` : ""}` : undefined;
+  const fileLabel =
+    item.file != null
+      ? `${item.repo != null ? `${item.repo} › ` : ""}${item.file}${item.lines != null ? `:${item.lines}` : ""}`
+      : undefined;
   return (
     <div className="flex flex-col gap-2">
       {item.detail !== "" && (

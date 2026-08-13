@@ -194,7 +194,7 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             test: { slug, plan: generation.testPlan.prompt, affectedReason: reason },
             provision: describeProvision(generation),
             diffSummary: await readPrDiffStat({
-                root: context.codebase.root,
+                root: context.codebase.primaryDir,
                 baseSha: context.baseSha,
                 headSha: context.headSha,
             }),

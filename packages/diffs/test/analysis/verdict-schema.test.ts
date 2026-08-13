@@ -22,7 +22,9 @@ function wireVerdict(overrides: Partial<WireVerdict>): WireVerdict {
         planMismatchNote: null,
         invalidTestNote: null,
         observedAppIssues: null,
-        evidence: [{ source: "run", detail: "what the run showed", file: null, lines: null, snippet: null }],
+        evidence: [
+            { source: "run", detail: "what the run showed", repo: null, file: null, lines: null, snippet: null },
+        ],
         keyStepIndex: null,
         ...overrides,
     };
@@ -47,6 +49,34 @@ describe("the classifier's finish contract", () => {
         // A passing finding never carries a false-positive check or remediation-style filler.
         expect("falsePositiveRisk" in verdict).toBe(false);
         expect("suggestedTestUpdate" in verdict).toBe(false);
+    });
+
+    it("carries a dependency-repo attribution on an evidence item through the parse", async () => {
+        const verdict = await classify(
+            wireVerdict({
+                category: "client_bug",
+                isClientBug: true,
+                expectedBehavior: "the total uses the 10% tax rate",
+                actualBehavior: "the total is 10x too high",
+                falsePositiveRisk: "the PR did not intend this",
+                evidence: [
+                    {
+                        source: "diff",
+                        detail: "tax rate changed in the backend",
+                        repo: "eon-rides-org/teslarents-be",
+                        file: "pricing.ts",
+                        lines: "1",
+                        snippet: "export const tax = 1.0;",
+                    },
+                ],
+            }),
+        );
+        expect(verdict.evidence[0]).toMatchObject({ repo: "eon-rides-org/teslarents-be", file: "pricing.ts" });
+    });
+
+    it("declines repo to undefined for a primary-repo evidence item", async () => {
+        const verdict = await classify(wireVerdict({ category: "passed", expectedBehavior: "x", actualBehavior: "y" }));
+        expect(verdict.evidence[0]?.repo).toBeUndefined();
     });
 
     it("keeps the false-positive check on a client bug alongside expected/actual", async () => {

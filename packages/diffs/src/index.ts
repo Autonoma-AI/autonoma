@@ -77,7 +77,16 @@ export {
 export { mapTestSuiteToContext } from "./loaders/map-suite-to-context";
 export { loadFlows } from "./loaders/load-flows";
 
-export { Codebase } from "./codebase";
+export {
+    Codebase,
+    type RepoCloneSpec,
+    type CloneWorkspaceSpec,
+    type RepoRole,
+    type RepoCheckout,
+    type UnavailableRepo,
+    type RepoManifest,
+    buildRepoManifestSection,
+} from "./codebase";
 
 // PR-range git reads: the one implementation Impact Analysis and the classifier share.
 export { readPrChangedFiles, readPrCommitSubjects, readPrDiffStat, type PrRange } from "./pr-range";

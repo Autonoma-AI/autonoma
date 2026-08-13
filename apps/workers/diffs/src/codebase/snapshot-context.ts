@@ -6,6 +6,7 @@ import { Codebase } from "@autonoma/diffs";
 import { type GitHubApp, type GitHubInstallationClient } from "@autonoma/github";
 import { logger as rootLogger } from "@autonoma/logger";
 import { createGithubApp } from "../create-services";
+import { resolveDependencyCheckouts } from "./resolve-dependencies";
 
 let githubAppSingleton: GitHubApp | undefined;
 
@@ -110,29 +111,47 @@ interface CloneCoords {
 }
 
 /**
- * Clone a repo into a fresh temp dir for one activity, hand it to `body`, and dispose on exit. The dir is unique
- * per invocation (`mkdtemp`), not a deterministic path, so concurrent activities on one pod don't collide.
+ * Clone a snapshot's checkout into a fresh temp dir for one activity, hand it to `body`, and dispose on exit.
+ * The dir is unique per invocation (`mkdtemp`), not a deterministic path, so concurrent activities on one pod
+ * don't collide.
+ *
+ * When the snapshot pinned resolvable dependency repos, the checkout is a multi-repo **workspace** (the primary
+ * plus each dependency as a named sibling, `codebase.root` = the parent); otherwise it is a flat single-repo
+ * clone, exactly as before multi-repo grounding.
  */
-async function withClone<T>(
+async function withCheckout<T>(
     github: GitHubAccess,
-    coords: CloneCoords,
+    primary: CloneCoords,
+    dependencies: Awaited<ReturnType<typeof resolveDependencyCheckouts>>,
     targetDirSeed: string,
     body: (codebase: Codebase) => Promise<T>,
 ): Promise<T> {
+    const isMultiRepo = dependencies.dependencies.length > 0 || dependencies.unavailable.length > 0;
     const cloneDir = await mkdtemp(join(tmpdir(), `codebase-${targetDirSeed}-`));
     try {
-        const codebase = await Codebase.clone(github.githubClient, cloneDir, {
-            repoName: github.repoFullName,
-            commitSha: coords.headSha,
-            baseSha: coords.baseSha,
-        });
+        const codebase = isMultiRepo
+            ? await Codebase.cloneWorkspace(github.githubClient, cloneDir, {
+                  // The primary's manifest name is its lowercased owner/repo, matching the dependency-pin key space.
+                  primary: {
+                      name: github.repoFullName.toLowerCase(),
+                      commitSha: primary.headSha,
+                      baseSha: primary.baseSha,
+                  },
+                  dependencies: dependencies.dependencies,
+                  unavailable: dependencies.unavailable,
+              })
+            : await Codebase.clone(github.githubClient, cloneDir, {
+                  repoName: github.repoFullName,
+                  commitSha: primary.headSha,
+                  baseSha: primary.baseSha,
+              });
         try {
             return await body(codebase);
         } finally {
             await codebase.dispose();
         }
     } catch (error) {
-        // dispose() only runs once Codebase.clone succeeds; on a clone failure this rm is what stops the dir leaking.
+        // dispose() only runs once the clone succeeds; on a clone failure this rm is what stops the dir leaking.
         await rm(cloneDir, { recursive: true, force: true }).catch((rmError) => {
             rootLogger.warn("Failed to remove analysis clone dir after failure", {
                 extra: { cloneDir, rmError },
@@ -143,8 +162,9 @@ async function withClone<T>(
 }
 
 /**
- * Resolve + clone a snapshot's repo for the duration of one activity, exposing the SHAs and repo metadata
- * alongside the clone, then dispose it on exit.
+ * Resolve + clone a snapshot's codebase for the duration of one activity, exposing the SHAs and repo metadata
+ * alongside the clone, then dispose it on exit. When the snapshot pinned dependency repos, the clone is a
+ * multi-repo workspace (see {@link withCheckout}).
  */
 export async function withSnapshotContext<T>(
     snapshotId: string,
@@ -153,8 +173,13 @@ export async function withSnapshotContext<T>(
 ): Promise<T> {
     const meta = await loadSnapshotMeta(snapshotId);
     const github = await resolveGitHubAccess(meta);
-    return withClone(github, { headSha: meta.headSha, baseSha: meta.baseSha }, targetDirSeed, (codebase) =>
-        body(buildSnapshotContext(meta, github, codebase)),
+    const dependencies = await resolveDependencyCheckouts(db, snapshotId);
+    return withCheckout(
+        github,
+        { headSha: meta.headSha, baseSha: meta.baseSha },
+        dependencies,
+        targetDirSeed,
+        (codebase) => body(buildSnapshotContext(meta, github, codebase)),
     );
 }
 

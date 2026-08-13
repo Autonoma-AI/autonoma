@@ -418,7 +418,8 @@ function renderIssueForPrompt(issue: AnalysisCommentIssue, index: number, contex
 }
 
 function renderCodeReferenceForPrompt(ref: SuspectedCause["codeReferences"][number]): string {
-    const location = `${ref.file}${ref.lines != null ? `:${ref.lines}` : ""}`;
+    const repoPrefix = ref.repo != null ? `${ref.repo} › ` : "";
+    const location = `${repoPrefix}${ref.file}${ref.lines != null ? `:${ref.lines}` : ""}`;
     const head = `- ${location}`;
     if (ref.snippet == null || ref.snippet === "") return head;
     return `${head}\n\`\`\`\n${ref.snippet}\n\`\`\``;
@@ -434,6 +435,7 @@ function toEvidence(cause: SuspectedCause | undefined): AutonomaCommentEvidence[
     if (cause == null) return [];
     return cause.codeReferences.map((ref) => ({
         source: "code",
+        repo: ref.repo,
         file: ref.file,
         lines: ref.lines,
         snippet: ref.snippet,

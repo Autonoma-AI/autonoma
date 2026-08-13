@@ -29,6 +29,12 @@ export type Confidence = z.infer<typeof Confidence>;
 export const Evidence = z.object({
     source: EvidenceSource,
     detail: z.string().describe("What you observed and what it showed."),
+    repo: z
+        .string()
+        .optional()
+        .describe(
+            "owner/repo when the file is in a dependency repo (from the Repositories section); omit for the primary.",
+        ),
     file: z.string().optional().describe("repo-relative path (when source=code/diff)."),
     lines: z.string().optional().describe("line range, e.g. '34-41'."),
     snippet: z.string().optional().describe("the exact code excerpt that matters."),

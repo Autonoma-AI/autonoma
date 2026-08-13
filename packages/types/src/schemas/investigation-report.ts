@@ -10,6 +10,8 @@ import { z } from "zod";
 export const investigationEvidenceSchema = z.object({
     source: z.string(),
     detail: z.string(),
+    /** `owner/repo` when the cited file lives in a dependency repo; absent for the primary repo. */
+    repo: z.string().optional(),
     file: z.string().optional(),
     lines: z.string().optional(),
     snippet: z.string().optional(),

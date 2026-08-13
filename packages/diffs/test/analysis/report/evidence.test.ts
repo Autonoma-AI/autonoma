@@ -8,6 +8,8 @@ import {
     resolvePrimaryScreenshot,
     validateSuspectedCause,
 } from "../../../src/analysis/report/evidence";
+import { Codebase } from "../../../src/codebase";
+import type { RepoCheckout } from "../../../src/codebase";
 
 function fetched(...assetIds: string[]): Map<string, EvidenceManifestEntry> {
     return new Map(assetIds.map((assetId) => [assetId, { assetId, s3Key: `s3/${assetId}`, kind: "screenshot" }]));
@@ -52,11 +54,13 @@ describe("resolvePrimaryScreenshot", () => {
 
 describe("validateSuspectedCause", () => {
     let root: string;
+    let codebase: Codebase;
 
     beforeAll(() => {
         root = mkdtempSync(join(tmpdir(), "reporter-evidence-"));
         mkdirSync(join(root, "src"), { recursive: true });
         writeFileSync(join(root, "src", "checkout.ts"), "export function total() {\n  return items.length;\n}\n");
+        codebase = new Codebase(root);
     });
 
     afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -67,7 +71,7 @@ describe("validateSuspectedCause", () => {
                 explanation: "off by one",
                 codeReferences: [{ file: "src/checkout.ts", lines: "2", snippet: "return items.length;" }],
             },
-            root,
+            codebase,
         );
         expect(cause?.codeReferences).toHaveLength(1);
     });
@@ -78,7 +82,7 @@ describe("validateSuspectedCause", () => {
                 explanation: "guessed",
                 codeReferences: [{ file: "src/checkout.ts", lines: "2", snippet: "return items.length - 1;" }],
             },
-            root,
+            codebase,
         );
         expect(cause).toBeUndefined();
     });
@@ -92,7 +96,7 @@ describe("validateSuspectedCause", () => {
                     { file: "src/checkout.ts", lines: "9", snippet: "throw new Error('nope');" },
                 ],
             },
-            root,
+            codebase,
         );
         expect(cause?.codeReferences).toHaveLength(1);
         expect(cause?.codeReferences[0]?.snippet).toBe("return items.length;");
@@ -101,14 +105,90 @@ describe("validateSuspectedCause", () => {
     it("drops a reference to a file outside the repo (traversal) or one that does not exist", () => {
         const traversal = validateSuspectedCause(
             { explanation: "escape", codeReferences: [{ file: "../../../etc/passwd", snippet: "root:" }] },
-            root,
+            codebase,
         );
         expect(traversal).toBeUndefined();
 
         const missing = validateSuspectedCause(
             { explanation: "missing", codeReferences: [{ file: "src/nope.ts", lines: "1" }] },
-            root,
+            codebase,
         );
         expect(missing).toBeUndefined();
+    });
+});
+
+describe("validateSuspectedCause across a multi-repo workspace", () => {
+    let workspaceRoot: string;
+    let codebase: Codebase;
+
+    beforeAll(() => {
+        workspaceRoot = mkdtempSync(join(tmpdir(), "reporter-ws-"));
+        const primaryDir = join(workspaceRoot, "acme__web");
+        const depDir = join(workspaceRoot, "acme__api");
+        mkdirSync(primaryDir, { recursive: true });
+        mkdirSync(depDir, { recursive: true });
+        writeFileSync(join(primaryDir, "app.ts"), "export const ui = 1;\n");
+        writeFileSync(join(depDir, "pricing.ts"), "export const tax = 1.0;\n");
+
+        const primary: RepoCheckout = {
+            name: "acme/web",
+            role: "primary",
+            relPath: "acme__web",
+            dir: primaryDir,
+            headSha: "web-head",
+            baseSha: "web-base",
+        };
+        const dep: RepoCheckout = {
+            name: "acme/api",
+            role: "dependency",
+            relPath: "acme__api",
+            dir: depDir,
+            headSha: "api-head",
+            baseSha: "api-base",
+        };
+        codebase = new Codebase(workspaceRoot, [primary, dep], []);
+    });
+
+    afterAll(() => rmSync(workspaceRoot, { recursive: true, force: true }));
+
+    it("validates a dependency reference against that dependency's clone", () => {
+        const cause = validateSuspectedCause(
+            {
+                explanation: "backend tax bug",
+                codeReferences: [
+                    { repo: "acme/api", file: "pricing.ts", lines: "1", snippet: "export const tax = 1.0;" },
+                ],
+            },
+            codebase,
+        );
+        expect(cause?.codeReferences).toHaveLength(1);
+    });
+
+    it("validates an omitted-repo reference against the primary, and drops a ref pointing across repos", () => {
+        // A primary ref (no repo) resolves to the primary clone; a ref that names the dependency but cites a file
+        // that lives in the primary is dropped (it is validated against the dependency, where the file is absent).
+        const cause = validateSuspectedCause(
+            {
+                explanation: "mixed repos",
+                codeReferences: [
+                    { file: "app.ts", snippet: "export const ui = 1;" },
+                    { repo: "acme/api", file: "app.ts", snippet: "export const ui = 1;" },
+                ],
+            },
+            codebase,
+        );
+        expect(cause?.codeReferences).toHaveLength(1);
+        expect(cause?.codeReferences[0]?.repo).toBeUndefined();
+    });
+
+    it("drops a reference whose repo is not part of the checkout", () => {
+        const cause = validateSuspectedCause(
+            {
+                explanation: "unknown repo",
+                codeReferences: [{ repo: "acme/ghost", file: "pricing.ts", snippet: "export const tax = 1.0;" }],
+            },
+            codebase,
+        );
+        expect(cause).toBeUndefined();
     });
 });

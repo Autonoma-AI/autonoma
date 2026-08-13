@@ -9,6 +9,7 @@ import {
     stripUnbackedNarrativeImages,
     type SuspectedCause,
 } from "@autonoma/types";
+import type { Codebase } from "../../codebase";
 
 /**
  * Grounding-by-construction helpers for the Reporter, built analysis-native on the shared evidence-token grammar
@@ -52,21 +53,25 @@ export function resolvePrimaryScreenshot(
 }
 
 /**
- * Validate a `suspectedCause` against the checked-out repo, dropping every code reference whose file/lines/snippet
+ * Validate a `suspectedCause` against the checked-out code, dropping every code reference whose file/lines/snippet
  * does not match, and dropping the whole cause when no reference survives (the schema requires at least one). This
  * is what keeps a `bash`-reading agent from persisting a fabricated file:line: the reference must point at code
  * that is really there.
+ *
+ * A reference's `repo` selects which checkout it is validated against: omitted -> the primary repo; a dependency's
+ * `owner/repo` name -> that dependency's clone. A `repo` that is not part of this snapshot's checkout (unavailable
+ * or unknown) drops the reference - the agent cannot ground against code it could not read.
  */
 export function validateSuspectedCause(
     cause: SuspectedCause | undefined,
-    codebaseRoot: string,
+    codebase: Codebase,
 ): SuspectedCause | undefined {
     if (cause == null) return undefined;
 
     const logger = rootLogger.child({ name: "validateSuspectedCause" });
-    const survivors = cause.codeReferences.filter((ref) => isValidCodeReference(ref, codebaseRoot, logger));
+    const survivors = cause.codeReferences.filter((ref) => isValidCodeReference(ref, codebase, logger));
     if (survivors.length === 0) {
-        logger.warn("Dropping suspectedCause - no code reference validated against the repo", {
+        logger.warn("Dropping suspectedCause - no code reference validated against the checkout", {
             extra: { references: cause.codeReferences.length },
         });
         return undefined;
@@ -74,13 +79,27 @@ export function validateSuspectedCause(
     return { explanation: cause.explanation, codeReferences: survivors };
 }
 
+/** The on-disk clone a reference's `repo` points at (primary when omitted); undefined when it names a repo not checked out. */
+function resolveRepoDir(codebase: Codebase, repo: string | undefined): string | undefined {
+    if (repo == null) return codebase.primaryDir;
+    return codebase.repos.find((candidate) => candidate.name.toLowerCase() === repo.toLowerCase())?.dir;
+}
+
 /**
- * A reference is valid when its file is inside the repo and either its verbatim snippet is really present in that
- * file, or (with no snippet) its line range is within the file. A snippet that does not appear - a fabricated or
- * paraphrased excerpt - fails; a file outside the clone fails.
+ * A reference is valid when its file is inside the repo it names and either its verbatim snippet is really present
+ * in that file, or (with no snippet) its line range is within the file. A snippet that does not appear - a
+ * fabricated or paraphrased excerpt - fails; a file outside the clone, or a `repo` not in the checkout, fails.
  */
-function isValidCodeReference(ref: CodeReference, codebaseRoot: string, logger: Logger): boolean {
-    const content = readRepoFile(codebaseRoot, ref.file);
+function isValidCodeReference(ref: CodeReference, codebase: Codebase, logger: Logger): boolean {
+    const repoDir = resolveRepoDir(codebase, ref.repo);
+    if (repoDir == null) {
+        logger.warn("Dropping code reference - its repo is not part of the checkout", {
+            extra: { repo: ref.repo, file: ref.file },
+        });
+        return false;
+    }
+
+    const content = readRepoFile(repoDir, ref.file);
     if (content == null) {
         logger.warn("Dropping code reference - file not readable inside the repo", { extra: { file: ref.file } });
         return false;

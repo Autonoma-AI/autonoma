@@ -408,10 +408,11 @@ function renderEvidence(items: AutonomaCommentEvidence[]): string {
     // out. An <img> chip here would hijack the click to open the image instead of toggling the <details>.
     const lines: string[] = ["<details>", "<summary><strong>Evidence</strong></summary>", ""];
     for (const item of items) {
-        const location =
+        const fileLabel =
             item.file != null
-                ? ` \`${inlineCodeContent(`${item.file}${item.lines != null ? `:${item.lines}` : ""}`)}\``
-                : "";
+                ? `${item.repo != null ? `${item.repo} › ` : ""}${item.file}${item.lines != null ? `:${item.lines}` : ""}`
+                : undefined;
+        const location = fileLabel != null ? ` \`${inlineCodeContent(fileLabel)}\`` : "";
         const detail = item.detail != null && item.detail !== "" ? ` - ${sanitizeRichMarkdown(item.detail)}` : "";
         lines.push(`**[${escapeMarkdown(item.source)}]**${location}${detail}`);
         if (item.snippet != null && item.snippet !== "") {

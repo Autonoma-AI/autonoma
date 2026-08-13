@@ -199,9 +199,9 @@ export class ReporterAgentLoop extends AgentLoop<ReporterResult> implements Code
         return resolvePrimaryScreenshot(assetId, this.fetchedEvidence);
     }
 
-    /** Validate a suspected cause's code references against this run's checked-out repo, dropping fabrications. */
+    /** Validate a suspected cause's code references against this run's checkout (per-repo), dropping fabrications. */
     public validateSuspectedCause(cause: SuspectedCause | undefined): SuspectedCause | undefined {
-        return validateSuspectedCause(cause, this.codebase.root);
+        return validateSuspectedCause(cause, this.codebase);
     }
 
     // --- Scenarios ------------------------------------------------------------------------------------------

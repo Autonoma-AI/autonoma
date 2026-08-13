@@ -112,6 +112,7 @@ export function AnalysisIssueDetail({ issue, prNumber }: { issue: AnalysisIssueD
                 {issue.suspectedCause.codeReferences.map((ref, i) => (
                   <li key={i} className="flex flex-col gap-1">
                     <span className="font-mono text-2xs text-text-secondary">
+                      {ref.repo != null ? `${ref.repo} › ` : ""}
                       {ref.file}
                       {ref.lines != null ? `:${ref.lines}` : ""}
                     </span>

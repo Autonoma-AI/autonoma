@@ -2,6 +2,7 @@ import { Agent, type LanguageModel, type ModelMessage } from "@autonoma/ai";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { sharedCompactor } from "../../agents/compaction";
 import { buildCodebaseTools } from "../../agents/tools/codebase/build-codebase-tools";
+import { buildRepoManifestSection } from "../../codebase";
 import { REPORTER_SYSTEM_PROMPT, buildReporterPrompt } from "./prompt";
 import { ReporterAgentLoop } from "./reporter-agent-loop";
 import { ReporterResultTool } from "./reporter-result-tool";
@@ -50,7 +51,16 @@ export class ReporterAgent extends Agent<ReporterInput, ReporterResult, Reporter
                 existingIssues: input.existingIssues.length,
             },
         });
-        return buildReporterPrompt(input);
+        const messages = buildReporterPrompt(input);
+
+        // When the snapshot deployed a multi-repo preview, tell the reporter which dependency repos are checked
+        // out beside the primary, so it can re-ground a suspectedCause in a dependency and set its `repo`.
+        const manifest = input.codebase.dependencyManifest();
+        if (manifest == null) return messages;
+        return [
+            ...messages,
+            { role: "user", content: `## Repositories\n\n${await buildRepoManifestSection(manifest)}` },
+        ];
     }
 
     protected async createLoop(input: ReporterInput): Promise<ReporterAgentLoop> {
