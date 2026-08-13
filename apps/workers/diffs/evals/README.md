@@ -258,6 +258,7 @@ default is to refuse rather than freeze a window nobody could read.
 ```bash
 pnpm --filter @autonoma/worker-diffs capture:analysis               <snapshotId>   [--name <case-name>] [--force]
 pnpm --filter @autonoma/worker-diffs capture:classifier            <classificationId> [--name <case-name>] [--force] [--skip-app-logs]
+pnpm --filter @autonoma/worker-diffs capture:reporter               <snapshotId>   [--name <case-name>] [--force]
 ```
 
 After capture, fill in the frontmatter checks and the rubric
@@ -266,6 +267,16 @@ in `expected.md`, then flip `skip: false`.
 `--force` **re-freezes an existing case's `input.json`** - use it to pull a case forward when the
 frozen shape gains a field. It never touches `expected.md`: the expectation is hand-authored, so
 only a case that does not have one yet gets the blank template.
+
+**Reporter - forward-only.** `capture:reporter` does not reconstruct its input: it reads back the assembled
+`ReporterInput` the Reporter serialized to S3 at report birth. Reconstruction is not an option because the branch's
+issues are mutated in place across snapshots (a carried-forward issue overwrites its own narrative), so rebuilding
+weeks later would read the captured run's own answer back into its input. A snapshot whose Reporter ran *before* that
+serializer shipped therefore has no blob to capture - the corpus is forward-only. Capture needs `DATABASE_URL`, the
+`GITHUB_APP_*` credentials (to resolve coords and validate SHA-fetchability), and S3 access (the frozen input blob
+and the referenced screenshots both live there), but **no model key** - it reads the input the Reporter already
+serialized and calls no model. It re-resolves the git coords from the DB and probes every referenced screenshot key,
+refusing a case with a dead SHA or rotated-away media.
 
 **Classifier - what capture recomputes.** Everything the classifier reasons from is
 reassembled through the **same helpers the production activity uses** (the generation

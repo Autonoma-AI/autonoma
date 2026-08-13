@@ -24,6 +24,9 @@ export {
     reporterIssueSeveritySchema,
     reporterIssueStatusSchema,
     authoredIssueContentSchema,
+    reporterInputPayloadSchema,
+    reporterInputStorageKey,
+    serializeReporterInput,
 } from "./report";
 export type {
     FlowCorrections,
@@ -44,4 +47,5 @@ export type {
     ReporterIssueStatus,
     AuthoredIssueContent,
     RecordedIssueAction,
+    ReporterInputPayload,
 } from "./report";

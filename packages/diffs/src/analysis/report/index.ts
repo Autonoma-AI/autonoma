@@ -2,6 +2,8 @@ export { ReporterAgent } from "./reporter-agent";
 export type { ReporterAgentConfig } from "./reporter-agent";
 export { REPORTER_SYSTEM_PROMPT, buildReporterPrompt } from "./prompt";
 export { authoredIssueContentSchema } from "./issue-actions";
+export { reporterInputPayloadSchema, reporterInputStorageKey, serializeReporterInput } from "./input-snapshot";
+export type { ReporterInputPayload } from "./input-snapshot";
 export type {
     AuthoredIssueContent,
     RecordedCarryForwardIssueAction,

@@ -7,13 +7,14 @@ import {
     type AnalysisIssueStatus,
     analysisIssueStatusSchema,
     type AnalysisRunTarget,
-    type AnalysisVerdict,
+    analysisVerdictSchema,
     type EvidenceManifestEntry,
-    type InvestigationEvidence,
-    type OverlayPoint,
+    investigationEvidenceSchema,
+    overlayPointSchema,
     type PrimaryScreenshot,
     type SuspectedCause,
 } from "@autonoma/types";
+import { z } from "zod";
 import type { ScreenshotLoader } from "../../agents/tools/run-evidence/run-evidence-types";
 import type { Codebase } from "../../codebase";
 import type { FlowCorrections } from "./flows";
@@ -40,68 +41,76 @@ export type ReporterIssueStatus = AnalysisIssueStatus;
  * One screenshot the Reporter may pull for a finding via `fetch_evidence`. The `assetId` is stable and unique
  * across the whole run; only an id offered here can be fetched, and only a fetched id can be embedded - the two
  * halves of grounding-by-construction. `s3Key` is internal and never shown to the model.
+ *
+ * Defined as a Zod schema, with the interface inferred from it, so the same definition is the runtime type AND the
+ * shape the eval's frozen `input.json` is validated against - a field added here cannot silently drift out of a
+ * captured case (see `input-snapshot.ts`, which composes these schemas rather than re-declaring them).
  */
-export interface ReporterEvidenceAsset {
-    assetId: string;
-    s3Key: string;
+export const reporterEvidenceAssetSchema = z.object({
+    assetId: z.string(),
+    s3Key: z.string(),
     /** Human caption shown to the model when the screenshot is fetched (e.g. "final screen", "step 5 (after)"). */
-    label: string;
+    label: z.string(),
     /** The resolved interaction point drawn over the frame, when the source step resolved one. */
-    pin?: OverlayPoint;
-}
+    pin: overlayPointSchema.optional(),
+});
+export type ReporterEvidenceAsset = z.infer<typeof reporterEvidenceAssetSchema>;
 
 /**
  * One test's finding as the Reporter sees it: the classifier's verdict plus the retry/self-heal context and the
  * fetchable screenshots. Passing and coverage-plane findings are included - the Reporter reasons over the whole
  * job, not just the bugs.
  */
-export interface ReporterFinding {
-    slug: string;
-    category: AnalysisVerdict;
-    headline: string;
-    expectedBehavior?: string;
-    actualBehavior?: string;
+export const reporterFindingSchema = z.object({
+    slug: z.string(),
+    category: analysisVerdictSchema,
+    headline: z.string(),
+    expectedBehavior: z.string().optional(),
+    actualBehavior: z.string().optional(),
     /**
      * The coverage plane's account of what went wrong, in place of expected/actual (which only the app-health
      * verdicts carry). This is what an `environment_failure` is placed by: whether it traces to the reader's
      * configuration or to our own infrastructure is readable here and nowhere else.
      */
-    whatHappened?: string;
+    whatHappened: z.string().optional(),
     /** Whether the Investigator rewrote this test's plan and re-ran it before reaching this verdict - true when
      * the test was classified more than once (a retry-context signal, never an issue of its own). */
-    selfHealed: boolean;
-    plan?: string;
-    observedAppIssues?: string;
-    falsePositiveRisk?: string;
+    selfHealed: z.boolean(),
+    plan: z.string().optional(),
+    observedAppIssues: z.string().optional(),
+    falsePositiveRisk: z.string().optional(),
     /** The classifier's already-grounded code/log evidence (static context; not re-fetched). */
-    codeEvidence?: InvestigationEvidence[];
+    codeEvidence: z.array(investigationEvidenceSchema).optional(),
     /** The screenshots the Reporter may fetch for this finding. */
-    screenshots: ReporterEvidenceAsset[];
-}
+    screenshots: z.array(reporterEvidenceAssetSchema),
+});
+export type ReporterFinding = z.infer<typeof reporterFindingSchema>;
 
 /**
  * An existing branch-scoped issue the Reporter must reconcile against this job. Mostly open; resolved issues are
  * included so a regression can reopen one. `findingSlugs` is the set of test slugs the issue currently covers,
  * derived from the findings attributed to it - the anchor for the finish-time coverage checks.
  */
-export interface ReporterExistingIssue {
-    id: string;
-    title: string;
-    kind: ReporterIssueKind;
-    severity: ReporterIssueSeverity;
-    status: ReporterIssueStatus;
-    expectedBehavior?: string;
-    actualBehavior: string;
+export const reporterExistingIssueSchema = z.object({
+    id: z.string(),
+    title: z.string(),
+    kind: reporterIssueKindSchema,
+    severity: reporterIssueSeveritySchema,
+    status: reporterIssueStatusSchema,
+    expectedBehavior: z.string().optional(),
+    actualBehavior: z.string(),
     /** A short summary of the narrative (not the full prose) - enough for cross-time matching. */
-    narrativeSummary?: string;
-    findingSlugs: string[];
-}
+    narrativeSummary: z.string().optional(),
+    findingSlugs: z.array(z.string()),
+});
+export type ReporterExistingIssue = z.infer<typeof reporterExistingIssueSchema>;
 
 /** A previous snapshot's holistic report prose, given as context so the Reporter writes a cumulative narrative. */
-export interface ReporterPriorReport {
-    snapshotId: string;
-    reportMarkdown: string;
-}
+export const reporterPriorReportSchema = z.object({
+    snapshotId: z.string(),
+    reportMarkdown: z.string(),
+});
+export type ReporterPriorReport = z.infer<typeof reporterPriorReportSchema>;
 
 /**
  * One test in the branch's LAST-KNOWN VERDICT MAP: every test any snapshot of this PR has investigated, carrying its
@@ -114,35 +123,38 @@ export interface ReporterPriorReport {
  *
  * Structurally a superset of `AnalysisFlowMember`, so it can be handed straight to the flow derivation.
  */
-export interface ReporterBranchTest {
-    slug: string;
+export const reporterBranchTestSchema = z.object({
+    slug: z.string(),
     /** The test's name - the agent clusters on meaning, and a slug is a poor carrier of it. */
-    name: string;
-    category: AnalysisVerdict;
+    name: z.string(),
+    category: analysisVerdictSchema,
     /** Whether this verdict came from the run being reported, or was carried from an earlier snapshot. */
-    checkedThisRun: boolean;
+    checkedThisRun: z.boolean(),
     /** Whether the finding sits under a client-owned issue - the only reading of an `environment_failure`'s side. */
-    attributedToClientIssue: boolean;
+    attributedToClientIssue: z.boolean(),
     /** One line of what happened, from the last-known classification. */
-    headline?: string;
+    headline: z.string().optional(),
     /** The short SHA the verdict came from. Present on carried rows, where "when" is load-bearing. */
-    fromSha?: string;
-}
+    fromSha: z.string().optional(),
+});
+export type ReporterBranchTest = z.infer<typeof reporterBranchTestSchema>;
 
 /** A one-line scenario entry; the full recipe is fetched on demand via `read_scenario`. */
-export interface ReporterScenarioSummary {
-    id: string;
-    name: string;
-    summary: string;
-}
+export const reporterScenarioSummarySchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    summary: z.string(),
+});
+export type ReporterScenarioSummary = z.infer<typeof reporterScenarioSummarySchema>;
 
 /** The full recipe `read_scenario` returns for a scenario id. */
-export interface ReporterScenarioRecipe {
-    id: string;
-    name: string;
-    description?: string;
-    recipe: string;
-}
+export const reporterScenarioRecipeSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    recipe: z.string(),
+});
+export type ReporterScenarioRecipe = z.infer<typeof reporterScenarioRecipeSchema>;
 
 /** Loads a scenario recipe by id on demand. Absent in contexts without scenario data; the tool degrades. */
 export interface ReporterScenarioLoader {

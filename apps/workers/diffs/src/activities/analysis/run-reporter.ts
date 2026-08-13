@@ -11,6 +11,8 @@ import {
     type ReporterResult,
     type ReporterScenarioLoader,
     type ReporterScenarioSummary,
+    reporterInputStorageKey,
+    serializeReporterInput,
 } from "@autonoma/diffs/analysis";
 import { type Logger, logger as rootLogger } from "@autonoma/logger";
 import { TestSuiteStore } from "@autonoma/test-suite";
@@ -141,7 +143,9 @@ async function produceReporterResult(input: RunReporterInput): Promise<ReporterR
         const agent = new ReporterAgent({ model: session.getModel({ model: "reporter", tag: "analysis-reporter" }) });
         const { result, conversation } = await agent.run(reporterInput);
 
-        // Both auxiliary writes are best-effort - a failure of either must not discard the report we just produced.
+        // All three auxiliary writes are best-effort - a failure of any must not discard the report we just
+        // produced. The input snapshot is the artifact the Reporter eval reads back as a case (see
+        // `uploadReporterInput`).
         await Promise.all([
             uploadConversation({
                 storage: getStorage(),
@@ -156,9 +160,25 @@ async function produceReporterResult(input: RunReporterInput): Promise<ReporterR
                 { investigationSnapshotId: snapshotId },
                 logger,
             ).catch((error) => logger.warn("Failed to persist reporter costs", { err: error })),
+            uploadReporterInput(snapshotId, reporterInput, logger.child({ name: "uploadReporterInput" })).catch(
+                (error) => logger.warn("Failed to upload reporter input snapshot", { err: error }),
+            ),
         ]);
         return result;
     });
+}
+
+/**
+ * Freeze the Reporter's assembled input and upload it so the Reporter eval can read it back as a capturable case.
+ * Best-effort by contract (like the conversation upload): the eval corpus must never gate a production run. The
+ * key shares the snapshot's `diffs-job/<snapshotId>/` artifact prefix with the conversation upload.
+ */
+async function uploadReporterInput(snapshotId: string, input: ReporterInput, logger: Logger): Promise<void> {
+    const payload = await serializeReporterInput(input);
+    const key = reporterInputStorageKey(snapshotId);
+    logger.info("Uploading reporter input snapshot", { extra: { key, findings: payload.findings.length } });
+    await getStorage().upload(key, Buffer.from(JSON.stringify(payload)));
+    logger.info("Uploaded reporter input snapshot", { extra: { key } });
 }
 
 /** Assemble the Reporter's input from the run's persisted findings + the branch's issue/report history + deps. */

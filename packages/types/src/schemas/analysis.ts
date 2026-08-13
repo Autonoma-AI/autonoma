@@ -22,9 +22,17 @@ import { suspectedCauseSchema } from "./suspected-cause";
  * Resolved from the run's snapshot (its branch), never from a sentinel PR number: "no PR" and "skip this effect"
  * are two different facts and a single number cannot carry both.
  */
-export type AnalysisRunTarget =
-    | { kind: "pull_request"; prNumber: number; prTitle?: string; prBody?: string }
-    | { kind: "main_branch"; branchName: string };
+export const analysisRunTargetSchema = z.discriminatedUnion("kind", [
+    z.object({
+        kind: z.literal("pull_request"),
+        prNumber: z.number(),
+        prTitle: z.string().optional(),
+        prBody: z.string().optional(),
+    }),
+    z.object({ kind: z.literal("main_branch"), branchName: z.string() }),
+]);
+
+export type AnalysisRunTarget = z.infer<typeof analysisRunTargetSchema>;
 
 /**
  * The previewkit environment number a run's preview lives under. A PR run's preview is its PR's environment; a main

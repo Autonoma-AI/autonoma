@@ -12,7 +12,8 @@
         "test": "vitest run --passWithNoTests",
         "eval": "RUN_EVALS=true vitest run --passWithNoTests",
         "capture:analysis": "tsx --env-file=../../../.env evals/capture/capture-analysis-cli.ts",
-        "capture:classifier": "tsx --env-file=../../../.env evals/capture/capture-classifier-cli.ts"
+        "capture:classifier": "tsx --env-file=../../../.env evals/capture/capture-classifier-cli.ts",
+        "capture:reporter": "tsx --env-file=../../../.env evals/capture/capture-reporter-cli.ts"
     },
     "dependencies": {
         "@autonoma/ai": "workspace:*",
