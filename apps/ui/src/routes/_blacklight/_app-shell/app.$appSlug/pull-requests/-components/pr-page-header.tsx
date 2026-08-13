@@ -6,6 +6,7 @@ import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
 import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
 import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { useLocation } from "@tanstack/react-router";
+import { PrStatusPill } from "components/pr-status/pr-status-pill";
 import { useActiveOrg } from "lib/query/auth.queries";
 import { useBranchByPr, usePrPipelineStatus } from "lib/query/branches.queries";
 import { useApplicationRepositoryFromGitHub, usePullRequestFromGitHub, useRunAnalysis } from "lib/query/github.queries";
@@ -13,7 +14,6 @@ import type { RouterOutputs } from "lib/trpc";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
 import { PRMetaRow } from "./pr-meta-row";
-import { PrStatusBadge } from "./pr-status-badge";
 import type { PRTab } from "./pr-tabs";
 
 type Repository = RouterOutputs["github"]["getApplicationRepository"];
@@ -92,7 +92,7 @@ function PRTopBar({
         </h1>
       )}
 
-      <PrStatusBadge status={status} />
+      <PrStatusPill status={status} density="comfortable" />
 
       <RunAnalysisButton applicationId={applicationId} prNumber={prNumber} />
 

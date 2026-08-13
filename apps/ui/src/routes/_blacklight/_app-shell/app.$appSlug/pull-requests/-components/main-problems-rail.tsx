@@ -3,12 +3,24 @@ import type { MainOpenProblem } from "@autonoma/types";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { formatRelativeTime } from "lib/format";
 import { useMainOpenProblems } from "lib/query/branches.queries";
+import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
-import { AppLink } from "../../-app-link";
 
+/**
+ * `self-start max-h-full` is what makes this a card beside the table rather than a column down the side of the
+ * window. As a plain flex child it stretched to the row, so on an application with nothing unresolved the header
+ * and its one-line "no unresolved problems" sat at the top with a screen of empty surface below them and the
+ * main-branch link stranded at the very bottom - all while the pull request panel beside it, which sizes to its
+ * rows, ended a few hundred pixels higher. Starting at the top and capping at the row's height gives both
+ * columns the same rule: grow to what you have, stop at what fits. The inner region keeps its own scroll for
+ * the case where the problems outrun the cap.
+ *
+ * A full border rather than the left edge alone, now that it ends where its content does - a lone rule floating
+ * beside the table read as a seam that had come apart.
+ */
 function RailShell({ count, children }: { count: number; children: React.ReactNode }) {
   return (
-    <aside className="flex w-85 shrink-0 flex-col overflow-hidden border-l border-border-dim bg-surface-base">
+    <aside className="flex max-h-full w-85 shrink-0 flex-col self-start overflow-hidden border border-border-dim bg-surface-base">
       <div className="shrink-0 border-b border-border-dim px-4 py-3.5">
         <div className="flex items-center gap-2">
           <span className="font-mono text-3xs font-semibold uppercase tracking-widest text-status-critical">

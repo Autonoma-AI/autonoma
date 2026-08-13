@@ -9,6 +9,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { env } from "./env";
 import { authClient } from "./lib/auth";
+import { evictRetiredStorageKeys } from "./lib/storage-migrations";
 import { queryClient, trpc } from "./lib/trpc";
 import { routeTree } from "./routeTree.gen";
 
@@ -112,6 +113,8 @@ declare module "@tanstack/react-router" {
     router: typeof router;
   }
 }
+
+evictRetiredStorageKeys();
 
 const rootElement = document.getElementById("root");
 if (rootElement == null) throw new Error("Root element not found");

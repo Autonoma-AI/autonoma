@@ -13,9 +13,9 @@ import { LightningIcon } from "@phosphor-icons/react/Lightning";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react/MagnifyingGlass";
 import { createFileRoute } from "@tanstack/react-router";
 import { formatDate } from "lib/format";
+import { toGenerationBadgeVariant, toGenerationStatusLabel } from "lib/generation-status";
 import { ensureGenerationsListData, useGenerations } from "lib/query/generations.queries";
 import { useState } from "react";
-import { toGenerationBadgeVariant, toGenerationStatusLabel } from "../-home/helpers";
 import { AppLink } from "../../-app-link";
 
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/admin/generations")({
@@ -155,7 +155,7 @@ function GenerationsTableSkeleton() {
 
 function GenerationsPage() {
   return (
-    <div className="flex h-full min-h-0 flex-col gap-6 p-6 lg:p-8">
+    <div className="flex h-full min-h-0 flex-col gap-6">
       <header>
         <h1 className="text-2xl font-medium tracking-tight text-text-primary">Generations</h1>
         <p className="mt-1 font-mono text-xs text-text-secondary">Admin-only: every generation for this app.</p>

@@ -52,7 +52,7 @@ export const baseApplication: RouterOutputs["applications"]["list"][number] = {
 };
 
 /**
- * The sidebar's suite-health meter renders on every page under the app shell, so the baseline must answer it.
+ * The shell prefetches suite health on every application page, so the baseline must answer it.
  * CALIBRATING is the default every real app starts at, which makes it the honest baseline here too.
  */
 export const baseSuiteHealth: RouterOutputs["applications"]["suiteHealth"] = {
@@ -142,8 +142,8 @@ export const baseSuiteHealthFixPlan: RouterOutputs["applications"]["suiteHealthF
 };
 
 /**
- * A fully onboarded application. The app shell's sidebar reads this on every page to decide whether to nudge the
- * user to finish setup, so a story about anything else says "completed" and gets the nudge out of the frame.
+ * A fully onboarded application. `app.$appSlug/route.tsx` redirects an unfinished one into the onboarding flow,
+ * so a story about anything else has to say "completed" or it photographs that flow instead of its own page.
  */
 export function completedOnboardingState(): RouterOutputs["onboarding"]["getState"] {
     return {
@@ -182,6 +182,17 @@ export function completedOnboardingState(): RouterOutputs["onboarding"]["getStat
     };
 }
 
+/**
+ * The nav's slice of an onboarding state, derived from the state itself rather than written out beside it.
+ *
+ * `onboarding.navState` is a projection of the same rows `getState` reads, so a story that overrides one and
+ * hand-writes the other can put the bar and the page into states the server cannot produce - a Finish setup
+ * prompt over a finished application, or the reverse.
+ */
+export function navStateFor(state: RouterOutputs["onboarding"]["getState"]): RouterOutputs["onboarding"]["navState"] {
+    return { setupComplete: state.setupComplete };
+}
+
 const baseTrpcFixtures: TrpcFixtures = {
     auth: {
         orgStatus: "approved",
@@ -204,6 +215,9 @@ const baseTrpcFixtures: TrpcFixtures = {
         suiteHealth: baseSuiteHealth,
         suiteHealthFixPlan: baseSuiteHealthFixPlan,
     },
+    // The bar reads this on every page under the shell to decide whether to offer Finish setup, so the baseline
+    // has to answer it or every story fails the screenshot run's unmocked-procedure check.
+    onboarding: { navState: navStateFor(completedOnboardingState()) },
     // Every "what is unresolved on main" surface reads this one query, so the baseline answers it with a quiet
     // application - a story that does not care about main's problems renders the empty state instead of erroring.
     branches: { mainOpenProblems: [] },
@@ -223,7 +237,9 @@ const baseTrpcFixtures: TrpcFixtures = {
     // set it renders without the badge (and never errors on the unmocked call).
     previewAccess: { livenessForApplication: {}, livenessForFleet: {} },
     organization: {
-        // The app shell's switcher reads this on every page under it.
+        // The app shell's switcher reads this on every page under it, and the account menu reads it to decide
+        // whether the organization name is a switcher or a label. One organization is the common case, and the
+        // one that renders as a label; a story that wants the switcher overrides this with a second.
         mine: [
             {
                 id: ORG_ID,

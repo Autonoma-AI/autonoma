@@ -5,7 +5,7 @@ import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { HttpResponse, delay, http } from "msw";
 import { userEvent, within } from "storybook/test";
 import superjson from "superjson";
-import { dashboardFixtures } from "./app-home.stories";
+import { dashboardFixtures } from "lib/storybook/dashboard-fixtures";
 
 /**
  * What a screen shows WHILE it is waiting, and what it shows when the wait fails -
@@ -21,12 +21,15 @@ import { dashboardFixtures } from "./app-home.stories";
  * TanStack Router only wraps a match in a Suspense (or catch) boundary when the
  * route has a pending (or error) component, so before `main.tsx` set the router
  * defaults, 63 of 70 routes had no boundary at all - every wait and every throw
- * escaped to the root Outlet and blanked the whole app, sidebar included. If a
+ * escaped to the root Outlet and blanked the whole app, chrome included. If a
  * shot here ever comes back black again, that is what regressed.
  *
  * Shoot them with the document wait, since a held-open query never reaches
  * `networkidle`:
- *   storybook:shoot --wait-until domcontentloaded --settle-ms 2500 --story ...
+ *   storybook:shoot --wait-until domcontentloaded --settle-ms 6000 --story ...
+ *
+ * Do not trim the settle: below about 4s these come back as a blank page with a
+ * spinner, which is indistinguishable from the regression they exist to catch.
  */
 
 /** Longer than any screenshot run, so the waiting state is what gets captured. */
@@ -116,7 +119,7 @@ export default meta;
 export const AppLayout = waiting({
   path: `/app/${baseApplication.slug}/pull-requests?state=open`,
   stall: ["branches.detailByName"],
-  // The sidebar renders during this wait now that the layout has a boundary, so its own (non-suspending)
+  // The top bar renders during this wait now that the layout has a boundary, so its own (non-suspending)
   // reads need answering - before, nothing rendered and nothing asked.
   fixtures: dashboardFixtures,
 });
@@ -128,8 +131,12 @@ export const Settled = waiting({
   fixtures: dashboardFixtures,
 });
 
-/** Home: three `ensure*` calls in the loader, behind its real header and the two panel outlines. */
-export const Home = waiting({
+/**
+ * The application root, which is now a redirect onto the list rather than a second surface over the same
+ * query. Worth keeping as a waiting screen because the redirect happens in `beforeLoad`: if it ever stopped
+ * resolving, this would be the blank page rather than the list's pending state.
+ */
+export const ApplicationRoot = waiting({
   path: `/app/${baseApplication.slug}`,
   stall: ["branches.list"],
   fixtures: dashboardFixtures,
@@ -168,7 +175,7 @@ export const Tests = waiting({
 });
 
 /**
- * The same stalled `branches.list`, reached by clicking through the sidebar instead
+ * The same stalled `branches.list`, reached by clicking through the top bar instead
  * of landing cold. `branches.detailByName` is cached by then, so the layout does not
  * wait and the list's own `pendingComponent` is what shows - which is why a
  * per-route pending component is worth having on top of the router default, but
@@ -180,18 +187,17 @@ export const PullRequestsWarm = waiting({
   fixtures: dashboardFixtures,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await userEvent.click(await canvas.findByRole("link", { name: /pull requests/i }));
+    await userEvent.click(await canvas.findByRole("link", { name: /^home$/i }));
   },
 });
 
 /**
- * Home reached by clicking, so the layout is warm and Home's own pending state is
- * what shows: the real header over the two-column body's outline. Cold, the
- * layout's query shares a batch with Home's and the generic default covers both -
- * which is the honest limit of a per-route pending component.
+ * The list's own pending state with BOTH of its loader reads outstanding, reached warm so the route's
+ * `pendingComponent` is what shows rather than the router default. `mainOpenProblems` feeds the main-branch
+ * chip in the heading, so stalling it too holds the whole page in outline.
  */
-export const HomeWarm = waiting({
-  path: `/app/${baseApplication.slug}/tests`,
+export const PullRequestsWarmFullPage = waiting({
+  path: `/app/${baseApplication.slug}/settings`,
   stall: ["branches.list", "branches.mainOpenProblems"],
   fixtures: dashboardFixtures,
   play: async ({ canvasElement }) => {
@@ -213,12 +219,34 @@ export const AppLayoutFailed = waiting({
   fixtures: dashboardFixtures,
 });
 
-/** A page-level read failing rather than a layout one, contained the same way. */
-export const HomeFailed = waiting({
-  path: `/app/${baseApplication.slug}`,
+/**
+ * A page-level read failing rather than a layout one - but landing cold, so it is still the LAYOUT's error
+ * that shows. The client batches, and the fixture fails a whole request once any procedure in it is failing,
+ * so `branches.detailByName` goes down with `branches.list` and the throw surfaces at the ancestor that owns
+ * it. That is honest behaviour rather than a fixture artefact: a network that drops one call drops its batch.
+ */
+export const PullRequestsFailed = waiting({
+  path: `/app/${baseApplication.slug}/pull-requests?state=open`,
   stall: [],
   fail: ["branches.list"],
   fixtures: dashboardFixtures,
+});
+
+/**
+ * The same failure reached warm, which is the only way to see the list's OWN error state: the layout's query
+ * is cached by then, so the failing batch contains nothing but this route's two loader reads. The heading
+ * survives because it comes from route context rather than the failed query - so a reader still knows which
+ * application they are looking at, and the other two tabs are one click away.
+ */
+export const PullRequestsFailedWarm = waiting({
+  path: `/app/${baseApplication.slug}/settings`,
+  stall: [],
+  fail: ["branches.list"],
+  fixtures: dashboardFixtures,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole("link", { name: /^home$/i }));
+  },
 });
 
 // ─── Settings ─────────────────────────────────────────────────────────────────

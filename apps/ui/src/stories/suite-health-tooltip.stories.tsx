@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { baseSuiteHealth } from "lib/storybook/base-fixtures";
 import { suiteHealthFixture } from "lib/storybook/suite-health-fixtures";
-import { SuiteHealthTooltip } from "routes/_blacklight/_app-shell/-layout/sidebar-suite-health";
+import { SuiteHealthTooltip } from "routes/_blacklight/_app-shell/-layout/suite-health-meter";
 
 const meta = {
   title: "Components/SuiteHealthTooltip",
@@ -12,7 +12,7 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
- * The panel behind the sidebar meter, at every rung. This is where the copy lives, so it is the thing worth
+ * The panel behind the health card, at every rung. This is where the copy lives, so it is the thing worth
  * reviewing - and the second paragraph is the part that makes two suites at the same level actionable
  * differently: horizon should keep shipping pull requests, agree should go fix its preview environment.
  *

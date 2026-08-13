@@ -9,7 +9,7 @@ A degraded suite looks like a lot of work. It usually is not. The same failure t
 
 ## Fix it
 
-Hover the suite-health meter in the sidebar. At **At risk** and below, the tooltip carries a **Fix it** button.
+Hover the suite-health card on your application's pull request list, beside the page heading. At **At risk** and below, the panel it opens carries a **Fix it** button.
 
 It opens a dialog with three steps:
 

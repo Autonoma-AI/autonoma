@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { RouterOutputs } from "lib/trpc";
-import { dashboardFixtures } from "./app-home.stories";
+import { dashboardFixtures } from "lib/storybook/dashboard-fixtures";
 
 const generations: RouterOutputs["generations"]["list"] = [
   {

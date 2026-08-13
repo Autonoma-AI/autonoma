@@ -2,6 +2,7 @@ import { Button, Skeleton } from "@autonoma/blacklight";
 import { BroadcastIcon } from "@phosphor-icons/react/Broadcast";
 import { PencilSimpleIcon } from "@phosphor-icons/react/PencilSimple";
 import { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
+import { SparkleIcon } from "@phosphor-icons/react/Sparkle";
 import { createFileRoute, notFound, Outlet, redirect } from "@tanstack/react-router";
 import { useAuth } from "lib/auth";
 import { ensureBranchData } from "lib/query/branches.queries";
@@ -126,9 +127,18 @@ function TestsPage() {
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        {/* The agents that author and run this suite read the instructions and scope guidelines in settings,
-            and the scenarios a test can be pinned to are configured there too. Both are only reachable from
-            Settings otherwise, which is nowhere near where they take effect. */}
+        {/* Three entry points, all of them things that act ON this suite rather than places to go: where the
+            tests came from, the instructions the authoring agent follows, and the scenarios a test can be
+            pinned to. The last two live in Settings, which is nowhere near where they take effect. */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="gap-1.5 font-mono text-2xs text-text-secondary"
+          render={<AppLink to="/app/$appSlug/generation-progress" />}
+        >
+          <SparkleIcon size={12} />
+          Generations
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -160,8 +170,12 @@ function TestsPage() {
   return (
     <TestChangesContext.Provider value={changes}>
       <TestsTreeProvider>
-        <div className="flex flex-col gap-6">
-          {header}
+        {/* `h-full` is what makes the rest of this layout mean anything: the `min-h-0 flex-1` below and the
+            panels' own `h-full` resolve against it, so the tree and the open test scroll inside their boxes
+            and the heading stays put. Without it the panels sized to their content and the whole page
+            scrolled, taking the branch picker and the test count with it. */}
+        <div className="flex h-full flex-col gap-6 overflow-hidden">
+          <div className="shrink-0">{header}</div>
 
           <div className="flex min-h-0 flex-1 gap-4">
             <div className="w-72 shrink-0 overflow-hidden">

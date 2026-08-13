@@ -15,11 +15,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
 } from "@autonoma/blacklight";
-import { AppWindowIcon } from "@phosphor-icons/react/AppWindow";
 import { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 import { CaretUpDownIcon } from "@phosphor-icons/react/CaretUpDown";
 import { PlusIcon } from "@phosphor-icons/react/Plus";
@@ -72,7 +68,13 @@ function DiscardConfirmDialog({
   );
 }
 
-function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; name: string }; collapsed: boolean }) {
+function AppSelector({
+  currentApp,
+  organizationName,
+}: {
+  currentApp: { slug: string; name: string };
+  organizationName: string;
+}) {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
   const navigate = useNavigate();
   const deleteApp = useDeleteApplication();
@@ -81,30 +83,22 @@ function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; na
   const incompleteApps = applications.filter(isMidOnboarding);
   const completedApps = applications.filter((app) => !isMidOnboarding(app));
 
-  const trigger = collapsed ? (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <DropdownMenuTrigger
-            render={
-              <button
-                type="button"
-                aria-label={`Switch app (current: ${currentApp.name})`}
-                className="flex w-full items-center justify-center rounded px-2 py-1.5 text-text-secondary transition-colors hover:bg-surface-raised hover:text-text-primary"
-              >
-                <AppWindowIcon size={18} />
-              </button>
-            }
-          />
-        }
-      />
-      <TooltipContent side="right">{currentApp.name}</TooltipContent>
-    </Tooltip>
-  ) : (
-    <DropdownMenuTrigger className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-xs font-medium text-text-primary transition-colors hover:bg-surface-raised">
+  // The organization reads as a path prefix rather than a second label, and below `lg` it is the part that goes:
+  // on a narrow bar the application you are actually looking at survives and its owner gives way.
+  //
+  // The cap is a backstop for a pathological name, not the working width. At 224px it was the binding constraint
+  // on every screen size - the bar had hundreds of pixels of slack beside it and the trigger still clipped the
+  // organization to four characters - so ordinary names now fit and `min-w-0` lets flex take the width back when
+  // the row genuinely runs out.
+  const trigger = (
+    <DropdownMenuTrigger
+      aria-label={`Switch application (current: ${currentApp.name})`}
+      className="flex h-full min-w-0 max-w-md items-center gap-2 px-2 text-sm transition-colors hover:bg-surface-raised"
+    >
       <span className="block size-2 shrink-0 rounded-sm bg-primary" />
-      <span className="truncate">{currentApp.name}</span>
-      <CaretUpDownIcon size={12} className="ml-auto shrink-0 text-text-tertiary" />
+      <span className="hidden min-w-0 truncate text-text-secondary lg:block">{organizationName} /</span>
+      <span className="min-w-0 truncate font-medium text-text-primary">{currentApp.name}</span>
+      <CaretUpDownIcon size={12} className="shrink-0 text-text-secondary" />
     </DropdownMenuTrigger>
   );
 
@@ -127,13 +121,13 @@ function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; na
             <>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
-                <DropdownMenuGroupLabel className="font-mono text-3xs uppercase tracking-widest text-text-tertiary">
+                <DropdownMenuGroupLabel className="font-mono text-3xs uppercase tracking-widest text-text-secondary">
                   Continue setup
                 </DropdownMenuGroupLabel>
                 {incompleteApps.map((app) => (
                   <DropdownMenuItem
                     key={app.id}
-                    className="text-text-tertiary opacity-60 hover:opacity-100"
+                    className="text-text-secondary opacity-60 hover:opacity-100"
                     onClick={() => {
                       navigateToOnboarding(app.id, app.onboardingState?.step, navigate);
                     }}
@@ -142,7 +136,7 @@ function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; na
                     <div className="ml-auto flex shrink-0 items-center gap-1">
                       <button
                         type="button"
-                        className="rounded p-0.5 text-text-tertiary hover:text-status-critical"
+                        className="rounded p-0.5 text-text-secondary hover:text-status-critical"
                         onClick={(e) => {
                           e.stopPropagation();
                           setDiscardTarget({ id: app.id, name: app.name });
@@ -205,23 +199,18 @@ function AppSelector({ currentApp, collapsed }: { currentApp: { slug: string; na
   );
 }
 
-export function SidebarAppSelector({ collapsed }: { collapsed: boolean }) {
+export function AppSwitcher() {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
-  const params = useParams({ strict: false }) as { appSlug?: string };
+  const activeOrganization = useRouteContext({
+    from: "/_blacklight/_app-shell",
+    select: (ctx) => ctx.activeOrganization,
+  });
+  const params = useParams({ strict: false });
 
-  if (params.appSlug == null) return null;
+  if (params.appSlug == null) return undefined;
 
   const app = applications.find((a) => a.slug === params.appSlug);
-  if (app == null) return null;
+  if (app == null) return undefined;
 
-  if (collapsed) {
-    return <AppSelector currentApp={app} collapsed={collapsed} />;
-  }
-
-  return (
-    <div className="flex flex-col gap-1 pt-4 border-t border-border-dim">
-      <span className="px-1.5 font-mono text-3xs uppercase tracking-widest text-text-tertiary">App</span>
-      <AppSelector currentApp={app} collapsed={collapsed} />
-    </div>
-  );
+  return <AppSelector currentApp={app} organizationName={activeOrganization.name} />;
 }

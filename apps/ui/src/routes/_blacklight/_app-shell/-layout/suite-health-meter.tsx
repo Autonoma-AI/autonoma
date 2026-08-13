@@ -2,6 +2,7 @@ import { Skeleton, Tooltip, TooltipContent, TooltipTrigger, cn } from "@autonoma
 import type { SuiteHealth, SuiteHealthLevel } from "@autonoma/types";
 import { suiteHealthRank } from "@autonoma/types";
 import { WrenchIcon } from "@phosphor-icons/react/Wrench";
+import { IsolatedErrorBoundary } from "components/isolated-error-boundary";
 import { SuiteHealthBars, SuiteHealthPill } from "components/suite-health/suite-health-meter";
 import { useShellSuiteHealth } from "lib/query/app-shell.queries";
 import {
@@ -12,7 +13,7 @@ import {
   suiteHealthFooter,
   suiteHealthStats,
 } from "lib/suite-health/copy";
-import { Component, Suspense, useState, type ReactNode } from "react";
+import { Suspense, useState } from "react";
 import { SuiteHealthFixDialog } from "./suite-health-fix-dialog";
 
 /** Where "how it works" goes: the public docs page explaining the calculation, not an in-app tab. */
@@ -35,10 +36,12 @@ export function SuiteHealthTooltip({ health, onFixIt }: { health: SuiteHealth; o
 
   return (
     <div className="flex w-80 flex-col">
+      {/* The rank and the stats line lived beside the meter while it had a 200px column to itself. The bar has
+          no room for either, so they moved in here rather than being dropped. */}
       <div className="flex items-center gap-2 border-b border-border-dim px-3.5 py-2.5">
         <span className={cn("size-1.5 shrink-0", dot)} />
         <span className="font-mono text-3xs font-semibold uppercase tracking-widest text-text-primary">
-          Suite health · {label}
+          Suite health · {label} · {health.rank}/5
         </span>
         <span className="flex-1" />
         {onFixIt != null && isFixOffered(health.level) && (
@@ -56,6 +59,7 @@ export function SuiteHealthTooltip({ health, onFixIt }: { health: SuiteHealth; o
       <div className="flex flex-col gap-2 border-b border-border-dim px-3.5 py-3">
         <p className="text-pretty text-xs leading-relaxed text-text-primary">{body}</p>
         {driverNote != null && <p className="text-pretty text-xs leading-relaxed text-text-secondary">{driverNote}</p>}
+        <span className="font-mono text-3xs text-text-secondary">{suiteHealthStats(health)}</span>
       </div>
 
       <div className="flex flex-col gap-3 px-3.5 py-3">
@@ -104,7 +108,7 @@ function SuiteHealthFactorList({
   );
 }
 
-function SidebarSuiteHealthContent({ collapsed }: { collapsed: boolean }) {
+function SuiteHealthCardContent() {
   const { data: health } = useShellSuiteHealth();
   const [fixOpen, setFixOpen] = useState(false);
   // The tooltip is controlled so opening the modal can dismiss it. Left uncontrolled it stays open behind the
@@ -114,101 +118,63 @@ function SidebarSuiteHealthContent({ collapsed }: { collapsed: boolean }) {
     setFixOpen(true);
     setTooltipOpen(false);
   };
-  const fixDialog = <SuiteHealthFixDialog health={health} open={fixOpen} onOpenChange={setFixOpen} />;
-
-  if (collapsed) {
-    return (
-      <>
-        <div className="flex justify-center px-2 py-3">
-          <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
-            <TooltipTrigger render={<div className="cursor-default" />}>
-              <SuiteHealthBars health={health} />
-            </TooltipTrigger>
-            <TooltipContent side="right" align="start" className="max-w-none p-0">
-              <SuiteHealthTooltip health={health} onFixIt={openFix} />
-            </TooltipContent>
-          </Tooltip>
-        </div>
-        {fixDialog}
-      </>
-    );
-  }
 
   return (
     <>
       <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
         <TooltipTrigger
-          render={<div className="flex cursor-default flex-col gap-2 px-4 py-3 hover:bg-surface-raised" />}
+          render={
+            <div
+              aria-label="Suite health"
+              className="flex cursor-default items-center gap-5 border border-border-dim bg-surface-base px-4 py-2.5 transition-colors hover:border-border-mid"
+            />
+          }
         >
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-mono text-4xs font-semibold uppercase tracking-widest text-text-secondary">
-              Suite health
-            </span>
-            <SuiteHealthPill health={health} />
+          <div className="flex min-w-0 flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-3xs font-semibold uppercase tracking-widest text-text-secondary">
+                Suite health
+              </span>
+              <SuiteHealthPill health={health} />
+            </div>
+            {/* The rank and the stats read here rather than only in the panel: with a page to sit on, the two
+                numbers a reader wants at a glance no longer have to be hovered for. */}
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+              <span className="text-2xl font-medium leading-none text-text-primary">{health.rank}/5</span>
+              <span className="font-mono text-2xs text-text-secondary">{suiteHealthStats(health)}</span>
+            </div>
           </div>
-          <div className="flex items-end gap-2">
-            <SuiteHealthBars health={health} />
-            <span className="flex-1" />
-            <span className="font-mono text-3xs text-text-secondary">{health.rank}/5</span>
-          </div>
-          <span className="truncate font-mono text-3xs text-text-secondary">{suiteHealthStats(health)}</span>
+          <SuiteHealthBars health={health} />
         </TooltipTrigger>
-        <TooltipContent side="right" align="start" className="max-w-none p-0">
+        <TooltipContent side="bottom" align="end" className="max-w-none p-0">
           <SuiteHealthTooltip health={health} onFixIt={openFix} />
         </TooltipContent>
       </Tooltip>
-      {fixDialog}
+      <SuiteHealthFixDialog health={health} open={fixOpen} onOpenChange={setFixOpen} />
     </>
   );
 }
 
-function SidebarSuiteHealthSkeleton({ collapsed }: { collapsed: boolean }) {
-  if (collapsed) {
-    return (
-      <div className="flex justify-center px-2 py-3">
-        <Skeleton className="h-5 w-10" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex flex-col gap-2 px-4 py-3">
-      <div className="flex items-center justify-between gap-2">
-        <Skeleton className="h-3 w-20" />
-        <Skeleton className="h-4 w-16" />
-      </div>
-      <Skeleton className="h-5 w-full" />
-      <Skeleton className="h-3 w-32" />
-    </div>
-  );
+function SuiteHealthCardSkeleton() {
+  return <Skeleton className="h-16 w-72" />;
 }
 
 /**
- * Isolates a failed suite-health fetch to the meter itself, and renders nothing when it happens.
+ * How the suite is doing, on the page it is about rather than in the chrome.
  *
- * The sidebar is on every page, so without this the throw from `useSuspenseQuery` - including one from the
- * background poll, which re-throws on the next render - takes the whole app shell down with it. There is nothing
- * useful to say in its place either: the meter is a passive glance at a number, and an error row where a number
- * belongs asks the reader to deal with a problem that is not theirs. It comes back on its own on the next poll.
+ * It sat in the top bar, where there was room for bars and a word and nothing else - so the rank and the
+ * stats line could only be reached by hovering. On the application's own heading it has room to say both
+ * outright, and it stops being a permanent fixture on every screen for something that is only ever a fact
+ * about one application.
  */
-class SuiteHealthErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
-  override state: { hasError: boolean } = { hasError: false };
-
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
-
-  override render() {
-    return this.state.hasError ? null : this.props.children;
-  }
-}
-
-export function SidebarSuiteHealth({ collapsed }: { collapsed: boolean }) {
+export function SuiteHealthCard() {
+  // No fallback: a failed poll is a passive glance at a number that comes back on its own next tick, and an
+  // error card beside the page heading would outlive its own cause.
   return (
-    <SuiteHealthErrorBoundary>
-      <Suspense fallback={<SidebarSuiteHealthSkeleton collapsed={collapsed} />}>
-        <SidebarSuiteHealthContent collapsed={collapsed} />
+    <IsolatedErrorBoundary>
+      <Suspense fallback={<SuiteHealthCardSkeleton />}>
+        <SuiteHealthCardContent />
       </Suspense>
-    </SuiteHealthErrorBoundary>
+    </IsolatedErrorBoundary>
   );
 }

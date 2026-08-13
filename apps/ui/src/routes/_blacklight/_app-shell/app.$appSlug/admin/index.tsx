@@ -11,7 +11,7 @@ function AppAdminPage() {
   const app = useCurrentApplication();
 
   return (
-    <div className="flex flex-col gap-6 p-6 lg:p-8">
+    <div className="flex flex-col gap-6">
       <header>
         <h1 className="text-2xl font-medium tracking-tight text-text-primary">App admin</h1>
         <p className="mt-1 font-mono text-xs text-text-secondary">

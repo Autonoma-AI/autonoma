@@ -1,8 +1,5 @@
-import { Badge } from "@autonoma/blacklight";
-import { GitPullRequestIcon } from "@phosphor-icons/react/GitPullRequest";
-import { formatRelativeTime } from "lib/format";
-
-type PRState = "open" | "closed" | "merged";
+import { prActivityLabel } from "./pr-activity-label";
+import type { PullRequestRow } from "./pull-request-row";
 
 export function PRNameCell({ title, branchName }: { title?: string; branchName: string }) {
   // Fall back to the branch name until the cached PR title is populated.
@@ -14,7 +11,7 @@ export function PRNameCell({ title, branchName }: { title?: string; branchName: 
 
 export function PRAuthorCell({ authorLogin }: { authorLogin?: string }) {
   if (authorLogin == null) {
-    return <span className="text-sm text-text-tertiary">-</span>;
+    return <span className="text-sm text-text-secondary">-</span>;
   }
   return (
     <span className="flex min-w-0 items-center gap-2">
@@ -28,33 +25,6 @@ export function PRAuthorCell({ authorLogin }: { authorLogin?: string }) {
   );
 }
 
-export function PRStateCell({ state }: { state?: PRState }) {
-  if (state === "merged") {
-    return (
-      <Badge variant="outline" className="gap-1 border-primary-ink/40 bg-primary-ink/5 text-primary-ink">
-        <GitPullRequestIcon size={10} />
-        Merged
-      </Badge>
-    );
-  }
-  if (state === "closed") {
-    return (
-      <Badge variant="outline" className="gap-1 border-status-critical/40 bg-status-critical/5 text-status-critical">
-        <GitPullRequestIcon size={10} />
-        Closed
-      </Badge>
-    );
-  }
-  // Default to Open until the cached state is populated.
-  return (
-    <Badge variant="success" className="gap-1">
-      <GitPullRequestIcon size={10} />
-      Open
-    </Badge>
-  );
-}
-
-export function PRUpdatedCell({ updatedAt }: { updatedAt?: Date }) {
-  if (updatedAt == null) return <span className="text-sm text-text-tertiary">-</span>;
-  return <span className="font-mono text-xs text-text-secondary">{formatRelativeTime(updatedAt)}</span>;
+export function PRActivityCell({ row }: { row: PullRequestRow }) {
+  return <span className="whitespace-nowrap font-mono text-xs text-text-secondary">{prActivityLabel(row)}</span>;
 }

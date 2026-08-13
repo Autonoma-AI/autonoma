@@ -1,6 +1,6 @@
 ---
 title: Suite health
-description: The five-state signal in your Autonoma sidebar - what each level means, exactly how the score is calculated from your analysis runs, and why every new app starts at Calibrating rather than at zero or at green.
+description: The five-state signal on your application's pull request list - what each level means, exactly how the score is calculated from your analysis runs, and why every new app starts at Calibrating rather than at zero or at green.
 ---
 
 <p class="lead">Suite health answers one question: how much should you trust a failure this suite reports? It is a five-step ladder, and every new app starts in the middle.</p>

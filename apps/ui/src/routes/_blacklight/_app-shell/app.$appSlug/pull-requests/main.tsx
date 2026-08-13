@@ -3,6 +3,8 @@ import { GitBranchIcon } from "@phosphor-icons/react/GitBranch";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import type { PreviewLogSource } from "components/build-logs/preview-logs-tabs";
 import { MainProblemsSection, MainProblemsSectionSkeleton } from "components/main-problems/main-problems-section";
+import { CheckpointSummaryPill } from "components/pr-status/checkpoint-summary-pill";
+import { PrStatusPill } from "components/pr-status/pr-status-pill";
 import { ShaRange } from "components/snapshot/sha-range";
 import { formatRelativeTime } from "lib/format";
 import {
@@ -23,11 +25,9 @@ import {
 import type { RouterOutputs } from "lib/trpc";
 import { Suspense } from "react";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
-import { CheckpointSummaryBadge } from "./-components/checkpoint-summary-badge";
 import { CheckpointTestsRun } from "./-components/checkpoint-tests-run";
 import { checkpointTriggerLabel } from "./-components/checkpoint-trigger-label";
 import { formatCheckpointMetrics } from "./-components/format-checkpoint-metrics";
-import { PrStatusBadge } from "./-components/pr-status-badge";
 import {
   EnvironmentSummaryStrip,
   EnvironmentSummaryStripSkeleton,
@@ -130,7 +130,7 @@ function MainBranchContent() {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3 border border-border-dim bg-surface-base px-5 py-3">
-        <PrStatusBadge status={prStatus} />
+        <PrStatusPill status={prStatus} density="comfortable" />
         <ShaRange baseSha={latest.baseSha} headSha={latest.headSha} />
         <span className="ml-auto font-mono text-2xs text-text-secondary">
           {snapshots.length} {snapshots.length === 1 ? "checkpoint" : "checkpoints"} ·{" "}
@@ -239,17 +239,16 @@ function MainCheckpointRail({ snapshots }: { snapshots: Snapshot[] }) {
 }
 
 /**
- * One checkpoint on main. The verdict is the derived `CheckpointSummaryBadge` the PR surfaces render, never the raw
- * `health` signal beside it: an amber "Not confirmed" run (raw `health` `unknown`) would lose its badge entirely.
+ * One checkpoint on main. The verdict is the derived `CheckpointSummaryPill` the PR surfaces render, never the raw
+ * `health`/`bugCount` pair: those are legacy-shaped, so a row would assert a count from a signal the problem list
+ * beside it does not read, and an amber "Not confirmed" run (raw `health` `unknown`) would lose its badge entirely.
  * "Latest" marks the newest row without standing in for its verdict, so every row says how its run went.
  */
 function MainCheckpointRow({ snapshot, isLatest }: { snapshot: Snapshot; isLatest: boolean }) {
   return (
     <div className="flex flex-col gap-2 border-b border-border-dim px-4 py-3 last:border-b-0">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-        {snapshot.summary != null && (
-          <CheckpointSummaryBadge summary={snapshot.summary} className="font-mono uppercase tracking-wider" />
-        )}
+        {snapshot.summary != null && <CheckpointSummaryPill summary={snapshot.summary} />}
         {isLatest && (
           <Badge variant="outline" className="font-mono uppercase tracking-wider text-text-secondary">
             Latest

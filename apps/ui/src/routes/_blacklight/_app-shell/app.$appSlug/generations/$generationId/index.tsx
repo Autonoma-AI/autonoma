@@ -26,10 +26,10 @@ import { NavigableLightbox, type NavigableStep, ScreenshotLightbox } from "compo
 import { SystemFailurePanel, isSystemFailure } from "components/system-failure-panel";
 import { useAuth } from "lib/auth";
 import { formatDate } from "lib/format";
+import { toGenerationBadgeVariant, toGenerationStatusLabel } from "lib/generation-status";
 import { ensureGenerationDetailData, useGenerationDetail } from "lib/query/generations.queries";
 import { useState } from "react";
 import Markdown from "react-markdown";
-import { toGenerationBadgeVariant, toGenerationStatusLabel } from "../../-home/helpers";
 import { AppLink } from "../../../-app-link";
 import { useCurrentApplication } from "../../../-use-current-application";
 

@@ -1,97 +1,28 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { toPageParam } from "lib/page-param";
-import { ensureMainOpenProblemsData } from "lib/query/branches.queries";
-import { ensureLatestPullRequestsData } from "lib/query/latest-prs.queries";
-import { type ReactNode, Suspense } from "react";
-import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
-import { HomeHeader } from "./-home/home-header";
-import { MainProblemsRail, MainProblemsRailSkeleton } from "./-home/main-problems-rail";
-import { OpenPrsList, OpenPrsListSkeleton } from "./-home/open-prs-list";
 
+/**
+ * The application root is the pull request list.
+ *
+ * It used to be a second surface over the same `branches.list` query - a different table, a different status
+ * vocabulary, and no way to tell which of the two was authoritative. The list absorbed it, so this route exists
+ * to keep every link that pointed at the app root working: the app selector, the finish-setup exits, and the
+ * generation progress screen all send people here.
+ *
+ * `?prs` was the old pager, and the old list was hard-filtered to open pull requests, so it maps onto the open
+ * tab's page. The redirect replaces rather than pushes, so the back button does not bounce off it.
+ */
 export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/")({
-  // `prs` rather than `page`: Home is one screen with several lists, so the param says which list it pages.
-  // Optional, and omitted on page 1 - so every existing link to Home stays valid and the common URL stays clean.
   validateSearch: (search: Record<string, unknown>): { prs?: number } => {
     const page = toPageParam(search.prs);
     return page > 1 ? { prs: page } : {};
   },
-  loaderDeps: ({ search: { prs } }) => ({ prs: prs ?? 1 }),
-  loader: async ({ context, params: { appSlug }, deps: { prs } }) => {
-    const app = context.applications.find((a) => a.slug === appSlug);
-    if (app == null) return;
-    await Promise.all([
-      ensureLatestPullRequestsData(context.queryClient, app.id, prs),
-      ensureMainOpenProblemsData(context.queryClient, app.id),
-    ]);
+  beforeLoad: ({ params, search }) => {
+    throw redirect({
+      to: "/app/$appSlug/pull-requests",
+      params,
+      search: { state: "open", page: search.prs },
+      replace: true,
+    });
   },
-  pendingComponent: HomePending,
-  component: HomePage,
 });
-
-/** `-m-6` + `h-[calc(100%+3rem)]` cancels the app-shell's p-6 so the page fills the viewport exactly; the
- * columns scroll internally instead of the whole page. Shared with the pending state so nothing shifts. */
-function HomeFrame({ children }: { children: ReactNode }) {
-  return <div className="-m-6 flex h-[calc(100%+3rem)] flex-col overflow-hidden">{children}</div>;
-}
-
-/**
- * The app name and architecture come from the route context, which the app shell already resolved - so the
- * header is real while the panels load, rather than a bar standing in for text we have.
- */
-function HomePending() {
-  const app = useCurrentApplication();
-
-  return (
-    <HomeFrame>
-      <HomeHeader appName={app.name} architecture={app.architecture} />
-      <HomeBodySkeleton />
-    </HomeFrame>
-  );
-}
-
-function HomePage() {
-  const app = useCurrentApplication();
-
-  return (
-    <HomeFrame>
-      <HomeHeader appName={app.name} architecture={app.architecture} />
-
-      <Suspense fallback={<HomeBodySkeleton />}>
-        <HomeBody />
-      </Suspense>
-    </HomeFrame>
-  );
-}
-
-/** The two-column body, in outline. Same layout as `HomeBody`'s, so the panels land where their outlines were. */
-function HomeBodySkeleton() {
-  return (
-    <div className="flex min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-6 py-5">
-        <OpenPrsListSkeleton />
-      </div>
-      <MainProblemsRailSkeleton />
-    </div>
-  );
-}
-
-function HomeBody() {
-  const { prs = 1 } = Route.useSearch();
-  const navigate = Route.useNavigate();
-
-  return (
-    <div className="flex min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden px-6 py-5">
-        {/* Keyed on the page so the list suspends to its skeleton while the next page loads, rather than
-            holding the previous page's rows under a stale pager. */}
-        <Suspense key={prs} fallback={<OpenPrsListSkeleton />}>
-          <OpenPrsList page={prs} onPageChange={(next) => void navigate({ search: { prs: next }, replace: true })} />
-        </Suspense>
-      </div>
-
-      <Suspense fallback={<MainProblemsRailSkeleton />}>
-        <MainProblemsRail />
-      </Suspense>
-    </div>
-  );
-}

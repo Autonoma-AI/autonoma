@@ -39,7 +39,7 @@ An invitation can only be accepted by the address it was sent to. If they are si
 
 Two places let you move between organizations:
 
-- **The organization name at the top of the sidebar** becomes a menu once you belong to more than one.
+- **The organization name in the account menu** becomes a menu once you belong to more than one. Open it from the button at the right-hand end of the top bar.
 - **After signing in**, you are asked which organization to start in. With only one you go straight through and never see the question.
 
 Switching applies to **that browser** - two browsers can sit in two different organizations at the same time. Your most recent choice is remembered, so signing in again starts you back where you left off rather than in whichever organization you joined first.

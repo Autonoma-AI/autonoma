@@ -1,14 +1,14 @@
 import type { SuiteHealth } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseSuiteHealth } from "lib/storybook/base-fixtures";
+import { dashboardFixtures } from "lib/storybook/dashboard-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import { suiteHealthFixture } from "lib/storybook/suite-health-fixtures";
 import { HttpResponse, http } from "msw";
 import { userEvent, within } from "storybook/test";
-import { dashboardFixtures } from "./app-home.stories";
 
 /**
- * The suite-health meter in the app sidebar, at each rung of the ladder. Every fixture is a real production
+ * The suite-health meter in the top bar, at each rung of the ladder. Every fixture is a real production
  * application's numbers as of 2026-07-31, so what these render is what a customer sees, not an invented shape.
  */
 
@@ -17,7 +17,7 @@ function handlers(suiteHealth: SuiteHealth) {
 }
 
 const meta = {
-  title: "Components/SidebarSuiteHealth",
+  title: "Components/SuiteHealthMeter",
   component: PageStory,
   parameters: { pageStory: true, layout: "fullscreen" },
 } satisfies Meta<typeof PageStory>;
@@ -25,7 +25,7 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-const PATH = "/app/acme-web";
+const PATH = "/app/acme-web/pull-requests";
 
 /** Matches the meter's own request only - it is deliberately unbatched, so it is never in a URL with anything else. */
 const SUITE_HEALTH_ENDPOINT = "*/v1/trpc/applications.suiteHealth";
@@ -191,8 +191,8 @@ export const WaitingForFirstRun: Story = {
 };
 
 /**
- * The meter's request fails. The sidebar renders on every page, so the failure has to stop here: the meter simply
- * is not there, and the rest of the shell - navigation, the page itself - keeps working around the gap.
+ * The meter's request fails. The top bar renders on every page, so the failure has to stop here: the meter
+ * simply is not there, and the rest of the shell - navigation, the page itself - keeps working around the gap.
  */
 export const Unavailable: Story = {
   args: { path: PATH },
@@ -207,7 +207,7 @@ export const Unavailable: Story = {
 };
 
 /**
- * The fix modal as a user actually reaches it: hover the sidebar meter, then click "Fix it" in the tooltip
+ * The fix modal as a user actually reaches it: hover the meter in the bar, then click "Fix it" in the tooltip
  * header. Driven through the real interaction rather than rendered open, because a button living inside a hover
  * tooltip is the part most likely to break - if the popup stops being hoverable, this story fails rather than
  * quietly screenshotting a closed dialog.
@@ -241,7 +241,7 @@ export const FixItInContext: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    const meter = await within(canvasElement).findByText("Suite health");
+    const meter = await within(canvasElement).findByLabelText("Suite health");
     await userEvent.hover(meter);
 
     // The tooltip renders in a portal, so it is outside `canvasElement` - reach it through the document body.

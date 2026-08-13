@@ -96,7 +96,7 @@ function AdminPreviewkitPage() {
   if (!isAdmin) return <Navigate to="/" />;
 
   return (
-    <section className="flex-1 overflow-auto p-6 lg:p-8">
+    <section className="flex-1 overflow-auto">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <header className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2 text-text-tertiary">

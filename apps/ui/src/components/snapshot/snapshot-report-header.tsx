@@ -2,11 +2,11 @@ import { Badge } from "@autonoma/blacklight";
 import { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 import { CameraIcon } from "@phosphor-icons/react/Camera";
 import { SentryLogsLink } from "components/observability-links";
+import { CheckpointSummaryPill } from "components/pr-status/checkpoint-summary-pill";
 import { useAuth } from "lib/auth";
 import { formatDuration, formatRelativeTime } from "lib/format";
 import type { RouterOutputs } from "lib/trpc";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
-import { CheckpointSummaryBadge } from "routes/_blacklight/_app-shell/app.$appSlug/pull-requests/-components/checkpoint-summary-badge";
 import { formatCheckpointMetrics } from "routes/_blacklight/_app-shell/app.$appSlug/pull-requests/-components/format-checkpoint-metrics";
 import { unresolvedLabel } from "routes/_blacklight/_app-shell/app.$appSlug/pull-requests/-components/outcome-vocab";
 import { ShaRange } from "./sha-range";
@@ -27,6 +27,7 @@ export function SnapshotReportHeader({
   snapshotId: string;
 }) {
   const { isAdmin } = useAuth();
+
   return (
     <header className="flex flex-col gap-3">
       <div className="flex items-center gap-2 text-text-tertiary">
@@ -53,7 +54,7 @@ export function SnapshotReportHeader({
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {report.summary != null ? (
-            <CheckpointSummaryBadge summary={report.summary} />
+            <CheckpointSummaryPill summary={report.summary} density="comfortable" />
           ) : (
             <Badge variant={healthVariant(report.health)} className="font-mono uppercase">
               {report.health}

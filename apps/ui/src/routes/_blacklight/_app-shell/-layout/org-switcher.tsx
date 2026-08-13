@@ -12,7 +12,7 @@ import { useShellOrganizations, useSwitchOrganization } from "lib/query/app-shel
 
 /**
  * Switches which organization this session is acting as. Renders as plain text for the common case
- * of a single organization, so the sidebar does not grow a control that can only ever do nothing.
+ * of a single organization, so the account menu does not grow a control that can only ever do nothing.
  *
  * The choice is session-scoped - it writes `session.activeOrganizationId`, so another browser stays
  * where it was and a fresh sign-in falls back to the default. A stored per-user preference is a

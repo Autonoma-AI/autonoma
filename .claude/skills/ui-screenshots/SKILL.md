@@ -136,7 +136,7 @@ The root `README.md` is the public mirror's front page and embeds two product sc
 | Asset | Story | Viewport |
 |---|---|---|
 | `.github/assets/pr-review.webp` | `pages-authoritativeprpage--report` | `1600x470` |
-| `.github/assets/analysis-issue.webp` | `pages-authoritativesnapshotpage--issue` | `1600x1290`, sidebar cropped |
+| `.github/assets/analysis-issue.webp` | `pages-authoritativesnapshotpage--issue` | `1600x1290` |
 
 **When you change the PR review page or the analysis issue page, re-shoot the one you affected and commit it in the same PR.** A stale screenshot on the front page is worse than none - it advertises a UI we no longer ship.
 
@@ -145,7 +145,6 @@ pnpm --filter @autonoma/ui storybook:shoot --url "http://localhost:$PORT" \
   --story pages-authoritativeprpage--report --viewport 1600x470 --out screenshots/readme
 cwebp -q 88 apps/ui/screenshots/readme/pages-authoritativeprpage--report.png \
   -o .github/assets/pr-review.webp
-# analysis-issue additionally crops off the app sidebar: -crop 199 0 1401 1290
 ```
 
 Rules for anything under `.github/assets/`:

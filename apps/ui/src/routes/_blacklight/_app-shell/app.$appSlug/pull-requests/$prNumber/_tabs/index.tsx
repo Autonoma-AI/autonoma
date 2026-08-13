@@ -9,6 +9,7 @@ import { AnalysisFlowList } from "components/analysis/flow-list";
 import { AnalysisOpenIssuesList } from "components/analysis/open-issues-list";
 import { AnalysisPrIssuesHeadline } from "components/analysis/pr-issues-headline";
 import { AnalysisReportProse } from "components/analysis/report-prose";
+import { CheckpointSummaryPill } from "components/pr-status/checkpoint-summary-pill";
 import { ShaRange } from "components/snapshot/sha-range";
 import { CATEGORY, buildSections, type EntryCategory } from "components/snapshot/snapshot-entries";
 import { formatRelativeTime } from "lib/format";
@@ -30,7 +31,6 @@ import type { RouterOutputs } from "lib/trpc";
 import { Suspense, useMemo } from "react";
 import { AppLink } from "routes/_blacklight/_app-shell/-app-link";
 import { useCurrentApplication } from "routes/_blacklight/_app-shell/-use-current-application";
-import { CheckpointSummaryBadge } from "../../-components/checkpoint-summary-badge";
 import { ExecutedTestLink } from "../../-components/executed-test-link";
 import { formatCheckpointMetrics } from "../../-components/format-checkpoint-metrics";
 
@@ -587,7 +587,7 @@ function CheckpointRailItem({
             Latest
           </Badge>
         )}
-        {snapshot.summary != null && <CheckpointSummaryBadge summary={snapshot.summary} />}
+        {snapshot.summary != null && <CheckpointSummaryPill summary={snapshot.summary} />}
         <span className="ml-auto font-mono text-2xs text-text-tertiary">{formatRelativeTime(snapshot.createdAt)}</span>
       </div>
       <ShaRange baseSha={snapshot.baseSha} headSha={snapshot.headSha} />

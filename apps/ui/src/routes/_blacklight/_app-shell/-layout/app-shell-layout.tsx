@@ -1,5 +1,5 @@
 import {
-  Button,
+  cn,
   Toast,
   ToastClose,
   ToastDescription,
@@ -9,16 +9,24 @@ import {
   TooltipProvider,
   useToastManager,
 } from "@autonoma/blacklight";
-import { SignOutIcon } from "@phosphor-icons/react/SignOut";
-import { Link, useLocation } from "@tanstack/react-router";
-import { useAuth, useAuthClient } from "lib/auth";
 import { toastManager } from "lib/toast-manager";
 import { type ReactNode, useState } from "react";
+import { APP_SHELL_GUTTER } from "./app-shell-gutter";
 import { DemoBanner } from "./demo-banner";
 import { DemoModal } from "./demo-modal";
 import { FeedbackModal } from "./feedback-modal";
-import { Sidebar, useAppNav, useSidebarCollapsed } from "./sidebar";
-import { sidebarGridTemplate } from "./sidebar-grid";
+import { MinimalTopNav } from "./minimal-top-nav";
+import { TopNav } from "./top-nav";
+import { useAppNav } from "./use-app-nav";
+
+/**
+ * Where toasts start, measured from the top of the viewport.
+ *
+ * `ToastViewport` is `fixed top-4`, which was written when the application pages had no bar above them - a rail
+ * took the width instead. With chrome across the top, that lands a 384px panel squarely over the account menu
+ * and the application switcher. This clears it: the bar (`h-14`, 56px) plus the same 16px gap the original had.
+ */
+const TOAST_TOP = "top-18";
 
 function GridBackground() {
   return (
@@ -33,46 +41,10 @@ function GridBackground() {
   );
 }
 
-function MinimalLayout({ children }: { children: ReactNode }) {
-  const { user } = useAuth();
-  const authClient = useAuthClient();
-
-  return (
-    <div className="relative flex h-full flex-col overflow-hidden bg-surface-void">
-      <GridBackground />
-
-      <div className="relative z-10 flex h-14 shrink-0 items-center justify-between border-b border-border-dim bg-surface-void/80 px-6 backdrop-blur">
-        <Link to="/">
-          <img src="/logo.svg" alt="Autonoma" className="h-5 w-auto" />
-        </Link>
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-2xs text-text-secondary">{user?.name ?? user?.email ?? "User"}</span>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            title="Sign out"
-            className="hover:text-status-critical"
-            onClick={() => {
-              void authClient.signOut().then(() => {
-                window.location.href = "/login";
-              });
-            }}
-          >
-            <SignOutIcon size={16} />
-          </Button>
-        </div>
-      </div>
-
-      <DemoBanner />
-      <div className="relative z-10 flex-1 overflow-y-auto">{children}</div>
-    </div>
-  );
-}
-
 function AppShellToasts() {
   const { toasts } = useToastManager();
   return (
-    <ToastViewport>
+    <ToastViewport className={TOAST_TOP}>
       {toasts.map((t) => (
         <Toast key={t.id} toast={t}>
           <ToastTitle>{t.title}</ToastTitle>
@@ -85,46 +57,40 @@ function AppShellToasts() {
 }
 
 export function AppShellLayout({ children }: { children: ReactNode }) {
-  const { isAdmin } = useAuth();
-  const { pathname } = useLocation();
-  const { items: appNavItems } = useAppNav();
-  const isAdminPage = pathname === "/admin" || pathname.startsWith("/admin/");
-  const [collapsed, setCollapsed] = useSidebarCollapsed();
+  const { scope } = useAppNav();
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
-  const hasAppNav = appNavItems.length > 0;
-  const hasNav = hasAppNav || (isAdminPage && isAdmin);
+  const showAppNav = scope !== "none";
 
-  if (!hasNav) {
-    return (
-      <ToastProvider toastManager={toastManager}>
-        <TooltipProvider>
-          <MinimalLayout>{children}</MinimalLayout>
-        </TooltipProvider>
-        <AppShellToasts />
-        <DemoModal />
-      </ToastProvider>
-    );
-  }
-
+  // The two bars share the shell, so the page below them starts at the same place either way. Only the padding
+  // differs: the pages that render without the app nav (organization settings, the app picker) lay out their
+  // own margins, and a padded `main` would double them.
   return (
     <ToastProvider toastManager={toastManager}>
       <TooltipProvider>
-        <div
-          className="grid h-full overflow-hidden transition-[grid-template-columns] duration-200"
-          style={{ gridTemplateColumns: sidebarGridTemplate(collapsed) }}
-        >
-          <Sidebar
-            collapsed={collapsed}
-            onToggleCollapsed={() => setCollapsed(!collapsed)}
-            onFeedback={() => setFeedbackOpen(true)}
-          />
+        <div className="relative flex h-full flex-col overflow-hidden bg-surface-void">
+          <GridBackground />
 
-          <main className="relative flex flex-col overflow-hidden bg-surface-void">
-            <GridBackground />
+          {showAppNav ? (
+            <TopNav onFeedback={() => setFeedbackOpen(true)} />
+          ) : (
+            <MinimalTopNav onFeedback={() => setFeedbackOpen(true)} />
+          )}
 
-            <DemoBanner />
-            <div className="relative z-10 flex-1 overflow-y-auto p-6">{children}</div>
+          <DemoBanner />
+
+          <main className="relative z-10 flex-1 overflow-y-auto">
+            {/* Only the pages that render with the app nav get the shell's padding. The ones that do not
+                (finish setup, organization settings) lay out their own margins, and padding here would
+                double them.
+
+                `h-full` is load-bearing, not decoration: a page that fills the viewport does it by resolving a
+                percentage height against this wrapper, so leaving it auto-height silently turns
+                `h-[calc(100%+3rem)]` into "as tall as the content" and the page's own scroll regions stop
+                scrolling. Padding is inside the height because the box is border-box. */}
+            <div className={showAppNav ? cn("h-full", APP_SHELL_GUTTER.content, APP_SHELL_GUTTER.container) : "h-full"}>
+              {children}
+            </div>
           </main>
         </div>
         <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />

@@ -900,7 +900,7 @@ function AdminContent() {
   const [createOpen, setCreateOpen] = useState(false);
 
   return (
-    <section className="flex-1 overflow-auto p-6 lg:p-8">
+    <section className="flex-1 overflow-auto">
       <div className="mx-auto max-w-6xl">
         <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>

@@ -9,9 +9,10 @@ const BAR_HEIGHTS = ["h-1.5", "h-2", "h-3", "h-4", "h-5"];
 /**
  * The five-rung meter. Lit bars up to the suite's rank, in the level's own colour.
  *
- * Shared rather than owned by the sidebar: the same meter appears at the end of
- * onboarding, where it is the first thing that explains why a brand-new suite is
- * not green yet, and two drawings of one measurement would drift apart.
+ * Shared rather than owned by the pull request list's health card: the same meter
+ * appears at the end of onboarding, where it is the first thing that explains why
+ * a brand-new suite is not green yet, and two drawings of one measurement would
+ * drift apart.
  */
 export function SuiteHealthBars({ health }: { health: SuiteHealth }) {
   const { bar } = SUITE_HEALTH_PRESENTATION[health.level];

@@ -1,8 +1,9 @@
-import { Skeleton } from "@autonoma/blacklight";
+import { Skeleton, cn } from "@autonoma/blacklight";
 import { Outlet, createFileRoute, notFound } from "@tanstack/react-router";
 import { ensureBranchByPrData, ensurePrPipelineStatusData } from "lib/query/branches.queries";
 import { ensurePreviewEnvironmentSummaryData } from "lib/query/deployments.queries";
 import { Suspense } from "react";
+import { APP_SHELL_GUTTER } from "routes/_blacklight/_app-shell/-layout/app-shell-gutter";
 import { PRPageHeader } from "../../-components/pr-page-header";
 
 // Layout for the PR's tab pages (Overview + Preview). Renders the shared header + tab bar once and
@@ -37,11 +38,12 @@ function PRTabsLayout() {
   const { prNumber } = Route.useParams();
 
   return (
-    // `-m-6` + `h-[calc(100%+3rem)]` cancels the app-shell's p-6 so the page fills the viewport
-    // exactly; the Preview tab's panels scroll internally instead of the whole page. The Outlet is
-    // wrapped in its own flex/scroll region rather than left bare so the Overview tab (which has no
-    // bounded-height content of its own) keeps scrolling exactly as it does today.
-    <div className="-m-6 flex h-[calc(100%+3rem)] flex-col overflow-hidden">
+    // Cancels the app-shell's padding so the page fills the viewport exactly; the Preview tab's panels
+    // scroll internally instead of the whole page. The negative margin comes from the same module as the
+    // padding it undoes - hand-written, they drifted apart the moment the gutter changed and left a gap
+    // nothing failed on. The Outlet is wrapped in its own flex/scroll region rather than left bare so the
+    // Overview tab (which has no bounded-height content of its own) keeps scrolling as it does today.
+    <div className={cn("flex flex-col overflow-hidden", APP_SHELL_GUTTER.bleed)}>
       <Suspense fallback={<PRHeaderSkeleton />}>
         <PRPageHeader prNumber={prNumber} />
       </Suspense>

@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { demoModalStore } from "lib/demo-modal-store";
 import { appShellHandlers, baseApplication } from "lib/storybook/base-fixtures";
+import { dashboardFixtures } from "lib/storybook/dashboard-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
 import { useEffect } from "react";
-import { dashboardFixtures } from "./app-home.stories";
 
 /**
  * The read-only demo UX rendered through the real app shell: the persistent top banner

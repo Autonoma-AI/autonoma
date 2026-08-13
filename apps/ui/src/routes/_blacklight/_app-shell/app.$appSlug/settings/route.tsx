@@ -16,20 +16,25 @@ export const Route = createFileRoute("/_blacklight/_app-shell/app/$appSlug/setti
 function SettingsLayout() {
   const { appSlug } = Route.useParams();
 
+  // The rail is navigation, so it holds still: the page takes the shell's height and only the destination
+  // scrolls. Left to grow, the whole column scrolled inside `main` and the section list - the one thing on
+  // screen for moving between destinations - was the first thing to leave.
   return (
-    <div className="flex flex-col gap-6">
-      <header>
+    <div className="flex h-full flex-col gap-6 overflow-hidden">
+      <header className="shrink-0">
         <h1 className="text-2xl font-medium tracking-tight text-text-primary">Settings</h1>
         <p className="mt-1 font-mono text-xs text-text-secondary">Configure this application</p>
       </header>
 
-      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      {/* No `items-start`: the destination column has to stretch to the full height to be the thing that
+          scrolls. The rail is `shrink-0` and sizes to its own content either way. */}
+      <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row">
         <SettingsRail appSlug={appSlug} />
         {/* One content width for every destination, set here rather than by each of them - they had three
             different answers between them, so General and Scenarios did not line up. `mx-auto` only starts
             doing anything past roughly a 1500px window, where the column would otherwise stretch to fill
             an ultrawide screen; below that it is inert and nothing moves. */}
-        <div className="mx-auto min-w-0 w-full max-w-5xl flex-1">
+        <div className="mx-auto min-h-0 w-full min-w-0 max-w-5xl flex-1 overflow-y-auto">
           <Outlet />
         </div>
       </div>
