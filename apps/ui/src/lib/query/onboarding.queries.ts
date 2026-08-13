@@ -60,8 +60,28 @@ export function useOnboardingState(applicationId: string) {
     );
 }
 
+/**
+ * The same state, for a caller that may not have an application yet - the onboarding layout,
+ * which decides WHICH screen to show.
+ *
+ * That decision used to read the route loader, which runs once per navigation and never again.
+ * So the screen watching a setup could see its own checkmarks go green (those read the polled
+ * query) while the value choosing the screen stayed frozen at page load, and the flow never left
+ * a step it had finished. Polls on the same terms as {@link useOnboardingState}: the work that
+ * finishes setup happens in a terminal, and it stops once `setupComplete` is true.
+ */
 export function useOnboardingStateOptional(applicationId: string) {
-    return useQuery(trpc.onboarding.getState.queryOptions({ applicationId }, { enabled: applicationId.length > 0 }));
+    return useQuery(
+        trpc.onboarding.getState.queryOptions(
+            { applicationId },
+            {
+                enabled: applicationId.length > 0,
+                refetchInterval: (query) =>
+                    query.state.data?.setupComplete === true ? false : ONBOARDING_STATE_POLL_MS,
+                refetchIntervalInBackground: true,
+            },
+        ),
+    );
 }
 
 // `onboarding.navState` - the one boolean the shell's nav needs, rather than this module's full

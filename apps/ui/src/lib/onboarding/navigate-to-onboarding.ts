@@ -11,7 +11,6 @@ const STEP_ROUTES: Record<string, OnboardingViewStep> = {
     existing_deploys_waiting: "existing-deploys",
     previewkit_deploying: "deploy-verify",
     preview_verified: "deploy-verify",
-    diff_trigger: "diff-trigger",
     completed: "complete",
     // Legacy SDK/CLI steps moved out of the required path: send them to the start.
     install: "add-app",

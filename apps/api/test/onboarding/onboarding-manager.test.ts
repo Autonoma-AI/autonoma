@@ -141,7 +141,7 @@ integrationTestSuite({
             await expect(manager.listSdkDryRunTargets("does-not-exist", orgId)).rejects.toThrow(NotFoundError);
         });
 
-        test("full onboarding flow: github -> preview_environment -> preview_verified -> diff_trigger -> completed", async ({
+        test("full onboarding flow: github -> preview_environment -> preview_verified -> completed", async ({
             harness,
             seedResult: { orgId, manager, createApp },
         }) => {
@@ -170,15 +170,10 @@ integrationTestSuite({
             expect(afterSignal.step).toBe("preview_verified");
             expect(afterSignal.previewUrl).toBe("https://preview.example.com");
 
-            // Preview verified -> diff_trigger (not yet completed).
+            // Verifying the preview IS going live - there is no step in between.
             const afterPreview = await manager.completePreviewOnboarding(appId, orgId);
-            expect(afterPreview.step).toBe("diff_trigger");
-            expect(afterPreview.completedAt).toBeNull();
-
-            // Go live -> completed.
-            const afterLive = await manager.goLive(appId, orgId);
-            expect(afterLive.step).toBe("completed");
-            expect(afterLive.completedAt).not.toBeNull();
+            expect(afterPreview.step).toBe("completed");
+            expect(afterPreview.completedAt).not.toBeNull();
         });
 
         test("cannot go live before the preview is verified", async ({
@@ -1072,7 +1067,7 @@ integrationTestSuite({
             expect(state.step).toBe("existing_deploys_configuring");
         });
 
-        test("goLive activates the pending snapshot and completes from diff_trigger", async ({
+        test("verifying the preview activates the pending snapshot and completes onboarding", async ({
             harness,
             seedResult: { orgId, manager, createApp },
         }) => {
@@ -1109,18 +1104,10 @@ integrationTestSuite({
                 },
             });
 
-            // Verifying the preview moves to diff_trigger without activating the snapshot.
-            const verified = await manager.completePreviewOnboarding(appId, orgId);
-            expect(verified.step).toBe("diff_trigger");
-            const stillPending = await harness.db.branch.findFirstOrThrow({
-                where: { id: branch.id },
-                select: { pendingSnapshotId: true, activeSnapshotId: true },
-            });
-            expect(stillPending.pendingSnapshotId).toBe(pendingSnapshot.id);
-            expect(stillPending.activeSnapshotId).toBeNull();
-
-            // Going live completes onboarding and activates the pending snapshot on main.
-            const live = await manager.goLive(appId, orgId);
+            // Verifying the preview completes onboarding AND activates the pending snapshot on
+            // main: activation belongs to whichever transition lands `completed`, and with
+            // `diff_trigger` retired that is this one.
+            const live = await manager.completePreviewOnboarding(appId, orgId);
             expect(live.step).toBe("completed");
             const activated = await harness.db.branch.findFirstOrThrow({
                 where: { id: branch.id },

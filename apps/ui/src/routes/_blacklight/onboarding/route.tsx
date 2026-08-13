@@ -12,6 +12,7 @@ import { SUPPORT_URL } from "components/talk-to-support";
 import { useAuth, useAuthClient } from "lib/auth";
 import { manageUrlSchema } from "lib/github-install-errors";
 import { isConfigStepId } from "lib/onboarding/config-steps";
+import { useOnboardingStateOptional } from "lib/onboarding/onboarding-api";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
 import { isOnboardingViewStep, isSetupStep, type OnboardingViewStep } from "lib/onboarding/onboarding-steps";
 import { type SetupProgress, firstIncompleteSetupStep, isSetupStepReachable } from "lib/onboarding/setup-progress";
@@ -24,7 +25,6 @@ import { FlowProgress } from "./-components/flow-progress";
 import { SetupStepsPage } from "./-components/setup/setup-steps-page";
 import { AddAppPage } from "./add-app";
 import { CompletePage } from "./complete";
-import { DiffTriggerPage } from "./diff-trigger";
 import { ExistingDeploysPage } from "./existing-deploys";
 import { PreviewDeployVerifyPage } from "./preview-deploy-verify";
 import { PreviewEnvironmentPage } from "./preview-environment";
@@ -44,7 +44,8 @@ function mapBackendStepToViewStep(step: string | undefined): OnboardingViewStep 
   if (step === "previewkit_configuring") return "previewkit-config";
   if (step === "existing_deploys_configuring" || step === "existing_deploys_waiting") return "existing-deploys";
   if (step === "previewkit_deploying" || step === "preview_verified") return "deploy-verify";
-  if (step === "diff_trigger") return "diff-trigger";
+  // Retired step. The rows still parked on it verified a preview, which is now all live means.
+  if (step === "diff_trigger") return "complete";
   if (hasGoneLive(step)) return "complete";
   // "github" (Add app) and any legacy SDK/CLI step start at the merged Add app step.
   return "add-app";
@@ -217,7 +218,7 @@ function OnboardingLayout() {
   const queryClient = useQueryClient();
   const { user, isAdmin } = useAuth();
   const authClient = useAuthClient();
-  const { backendStep, setup } = Route.useLoaderData();
+  const { backendStep: loadedStep, setup: loadedSetup } = Route.useLoaderData();
   const {
     step,
     appId,
@@ -236,6 +237,21 @@ function OnboardingLayout() {
   // useSearch widens the enums to `string`; re-narrow for the typed props.
   const initialProvider = provider === "vercel" || provider === "custom" ? provider : undefined;
   const onboardingOrigin = origin === "vercel" ? "vercel" : undefined;
+  // The loader answers this once per navigation, but what it answers with keeps changing after
+  // the page has loaded: an agent finishes the SDK and the dry run in a terminal, and the flow
+  // has to leave on its own when they land. So the loader's value is the first paint, and the
+  // polled query takes over as soon as it has one.
+  const liveState = useOnboardingStateOptional(appId ?? "");
+  const backendStep = liveState.data?.step ?? loadedStep;
+  const setup: SetupState | undefined =
+    liveState.data == null
+      ? loadedSetup
+      : {
+          artifactsUploaded: liveState.data.artifactsUploaded,
+          sdkConfigured: liveState.data.sdkConfigured,
+          dryRunPassed: liveState.data.dryRunPassed,
+          setupComplete: liveState.data.setupComplete,
+        };
   const currentStepId = resolveViewStep(step, backendStep, setup, appId != null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
@@ -317,7 +333,6 @@ function OnboardingLayout() {
     if (currentStepId === "existing-deploys")
       return <ExistingDeploysPage appId={appId} initialProvider={initialProvider} />;
     if (currentStepId === "deploy-verify") return <PreviewDeployVerifyPage appId={appId} />;
-    if (currentStepId === "diff-trigger") return <DiffTriggerPage appId={appId} />;
     if (isSetupStep(currentStepId)) return <SetupStepsPage appId={appId} step={currentStepId} />;
     return <CompletePage appId={appId} />;
   }

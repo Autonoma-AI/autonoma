@@ -17,6 +17,7 @@ import {
 } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
 import type { OnboardingManager } from "../routes/onboarding/onboarding-manager";
+import { isStepAtOrPast } from "../routes/onboarding/onboarding-step-order";
 
 const log = logger.child({ name: "ApplicationSetupService" });
 
@@ -204,8 +205,8 @@ export class ApplicationSetupService {
      *
      * Finish setup and onboarding's "Go live" are independent signals and nothing
      * enforces their order, so we can land here before `goLive` was ever clicked.
-     * Reaching `diff_trigger` means the preview was verified, so from there we go
-     * live ourselves (advancing the state machine and activating) rather than
+     * A verified preview is all that stands between the app and live, so from there we
+     * go live ourselves (advancing the state machine and activating) rather than
      * depend on a manual click the user may never make. Activation is idempotent,
      * so a double signal is harmless.
      */
@@ -223,7 +224,11 @@ export class ApplicationSetupService {
             return;
         }
 
-        if (step === "diff_trigger") {
+        // `preview_verified` (or a legacy `diff_trigger`) means the preview is verified, which is
+        // now all that stands between the app and live. Optimistic on purpose: the preview was
+        // verified once, and re-checking it here would let a rebuild in flight strand a finished
+        // setup with its suite staged and nothing to retry it.
+        if (isStepAtOrPast(step, "preview_verified")) {
             log.info("Setup completed and preview verified - going live to activate snapshot", {
                 setupId,
                 applicationId,

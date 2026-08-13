@@ -720,11 +720,16 @@ export class OnboardingManager {
         });
     }
 
-    /** Verify the preview is ready and advance `preview_verified` -> `diff_trigger`. */
+    /** Verify the preview is ready and take the app live. */
     async completePreviewOnboarding(applicationId: string, organizationId: string) {
         this.logger.info("Completing preview onboarding", { applicationId, organizationId });
         const readiness = await this.getPreviewReadiness(applicationId, organizationId);
-        return this.completeVerifiedPreview(applicationId, readiness);
+        const state = await this.completeVerifiedPreview(applicationId, readiness);
+        // Activation belongs to whichever transition lands `completed`, and this is now that
+        // transition. It used to hang off `goLive` alone, so leaving it there would have left the
+        // main branch's first uploaded suite staged forever on the path the UI takes.
+        await this.activatePendingSnapshot(applicationId, organizationId);
+        return state;
     }
 
     /**
@@ -794,18 +799,18 @@ export class OnboardingManager {
             throw new BadRequestError(describeUnverifiedPreview(readiness.diagnostics.status));
         }
 
-        const transitions: string[] = [];
-        // Only from `preview_verified`. `loadStateOrEarlier` resolves a transition
-        // against the earliest step that implements it, so calling this from
-        // `diff_trigger` would push the app BACK a step instead of failing.
+        // One transition now, not two: verifying the preview lands `completed` directly.
         if (before.step === "preview_verified") {
             await this.completeVerifiedPreview(applicationId, readiness);
-            transitions.push("preview_verified -> diff_trigger");
+            await this.activatePendingSnapshot(applicationId, organizationId);
+            const state = await this.getState(applicationId);
+            return { step: state.step, alreadyLive: false, transitions: ["preview_verified -> completed"], state };
         }
-        const after = await this.goLive(applicationId, organizationId);
-        transitions.push("diff_trigger -> completed");
 
-        return { step: after.step, alreadyLive: false, transitions, state: after };
+        // Rows parked at `diff_trigger` before that step was retired. Nothing arrives here any
+        // more, but the ones already there still have to be able to finish.
+        const after = await this.goLive(applicationId, organizationId);
+        return { step: after.step, alreadyLive: false, transitions: ["diff_trigger -> completed"], state: after };
     }
 
     async acceptDeploymentSignal(input: DeploymentSignalInput) {

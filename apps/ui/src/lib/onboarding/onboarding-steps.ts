@@ -13,7 +13,6 @@ export const ONBOARDING_VIEW_STEPS = [
     "previewkit-config",
     "existing-deploys",
     "deploy-verify",
-    "diff-trigger",
     "cli",
     "sdk",
     "dry-run",

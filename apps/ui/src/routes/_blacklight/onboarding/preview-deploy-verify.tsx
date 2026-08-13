@@ -83,15 +83,14 @@ function PreviewDeployVerifyContent({ appId }: { appId: string }) {
     complete.mutate(
       { applicationId: appId },
       {
-        // Advance the user to the diff-trigger wizard step, not the app home:
-        // completePreviewOnboarding leaves the app at `diff_trigger`, and only
-        // "Go live" there reaches `completed`. Landing on the app home strands
-        // the app short of `completed` (so its PR comments stay suppressed)
-        // unless the user later notices "Continue setup".
+        // Resume rather than a named step: verifying the preview takes the app live, so
+        // the route resolves the first outstanding setup step for us. Naming one here
+        // would pin the flow to a step the app may already be past - an agent can land
+        // the SDK before the user ever gets back to this screen.
         onSuccess: async () => {
           setLastAppId(application.id);
           await router.invalidate();
-          void navigate({ to: "/onboarding", search: buildOnboardingSearch("diff-trigger", appId), replace: true });
+          void navigate({ to: "/onboarding", search: buildOnboardingSearch(undefined, appId), replace: true });
         },
       },
     );

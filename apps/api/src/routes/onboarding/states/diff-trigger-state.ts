@@ -1,8 +1,10 @@
 import { OnboardingState } from "./onboarding-state";
 
 /**
- * Per-PR diff trigger - the loop the customer is actually buying. Reached once a
- * preview env is verified.
+ * LEGACY. Nothing reaches this step any more: verifying a preview goes straight to
+ * `completed` (see {@link PreviewVerifiedState}). It stays only so the handful of rows that
+ * stopped here before the step was removed can still be taken live, rather than being
+ * stranded on a transition no code performs.
  *
  * - PreviewKit mode: automatic. PreviewKit already triggers diff analysis after
  *   each PR deploy, so the screen is a confirmation and `goLive` is available

@@ -23,7 +23,6 @@ import { Route as BlacklightOnboardingPreviewkitConfigRouteImport } from './rout
 import { Route as BlacklightOnboardingPreviewEnvironmentRouteImport } from './routes/_blacklight/onboarding/preview-environment'
 import { Route as BlacklightOnboardingPreviewDeployVerifyRouteImport } from './routes/_blacklight/onboarding/preview-deploy-verify'
 import { Route as BlacklightOnboardingExistingDeploysRouteImport } from './routes/_blacklight/onboarding/existing-deploys'
-import { Route as BlacklightOnboardingDiffTriggerRouteImport } from './routes/_blacklight/onboarding/diff-trigger'
 import { Route as BlacklightOnboardingCompleteRouteImport } from './routes/_blacklight/onboarding/complete'
 import { Route as BlacklightOnboardingAddAppRouteImport } from './routes/_blacklight/onboarding/add-app'
 import { Route as BlacklightInviteInvitationIdRouteImport } from './routes/_blacklight/invite.$invitationId'
@@ -148,12 +147,6 @@ const BlacklightOnboardingExistingDeploysRoute =
   BlacklightOnboardingExistingDeploysRouteImport.update({
     id: '/existing-deploys',
     path: '/existing-deploys',
-    getParentRoute: () => BlacklightOnboardingRouteRoute,
-  } as any)
-const BlacklightOnboardingDiffTriggerRoute =
-  BlacklightOnboardingDiffTriggerRouteImport.update({
-    id: '/diff-trigger',
-    path: '/diff-trigger',
     getParentRoute: () => BlacklightOnboardingRouteRoute,
   } as any)
 const BlacklightOnboardingCompleteRoute =
@@ -514,7 +507,6 @@ export interface FileRoutesByFullPath {
   '/invite/$invitationId': typeof BlacklightInviteInvitationIdRoute
   '/onboarding/add-app': typeof BlacklightOnboardingAddAppRoute
   '/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
-  '/onboarding/diff-trigger': typeof BlacklightOnboardingDiffTriggerRoute
   '/onboarding/existing-deploys': typeof BlacklightOnboardingExistingDeploysRoute
   '/onboarding/preview-deploy-verify': typeof BlacklightOnboardingPreviewDeployVerifyRoute
   '/onboarding/preview-environment': typeof BlacklightOnboardingPreviewEnvironmentRoute
@@ -579,7 +571,6 @@ export interface FileRoutesByTo {
   '/invite/$invitationId': typeof BlacklightInviteInvitationIdRoute
   '/onboarding/add-app': typeof BlacklightOnboardingAddAppRoute
   '/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
-  '/onboarding/diff-trigger': typeof BlacklightOnboardingDiffTriggerRoute
   '/onboarding/existing-deploys': typeof BlacklightOnboardingExistingDeploysRoute
   '/onboarding/preview-deploy-verify': typeof BlacklightOnboardingPreviewDeployVerifyRoute
   '/onboarding/preview-environment': typeof BlacklightOnboardingPreviewEnvironmentRoute
@@ -639,7 +630,6 @@ export interface FileRoutesById {
   '/_blacklight/invite/$invitationId': typeof BlacklightInviteInvitationIdRoute
   '/_blacklight/onboarding/add-app': typeof BlacklightOnboardingAddAppRoute
   '/_blacklight/onboarding/complete': typeof BlacklightOnboardingCompleteRoute
-  '/_blacklight/onboarding/diff-trigger': typeof BlacklightOnboardingDiffTriggerRoute
   '/_blacklight/onboarding/existing-deploys': typeof BlacklightOnboardingExistingDeploysRoute
   '/_blacklight/onboarding/preview-deploy-verify': typeof BlacklightOnboardingPreviewDeployVerifyRoute
   '/_blacklight/onboarding/preview-environment': typeof BlacklightOnboardingPreviewEnvironmentRoute
@@ -709,7 +699,6 @@ export interface FileRouteTypes {
     | '/invite/$invitationId'
     | '/onboarding/add-app'
     | '/onboarding/complete'
-    | '/onboarding/diff-trigger'
     | '/onboarding/existing-deploys'
     | '/onboarding/preview-deploy-verify'
     | '/onboarding/preview-environment'
@@ -774,7 +763,6 @@ export interface FileRouteTypes {
     | '/invite/$invitationId'
     | '/onboarding/add-app'
     | '/onboarding/complete'
-    | '/onboarding/diff-trigger'
     | '/onboarding/existing-deploys'
     | '/onboarding/preview-deploy-verify'
     | '/onboarding/preview-environment'
@@ -833,7 +821,6 @@ export interface FileRouteTypes {
     | '/_blacklight/invite/$invitationId'
     | '/_blacklight/onboarding/add-app'
     | '/_blacklight/onboarding/complete'
-    | '/_blacklight/onboarding/diff-trigger'
     | '/_blacklight/onboarding/existing-deploys'
     | '/_blacklight/onboarding/preview-deploy-verify'
     | '/_blacklight/onboarding/preview-environment'
@@ -993,13 +980,6 @@ declare module '@tanstack/react-router' {
       path: '/existing-deploys'
       fullPath: '/onboarding/existing-deploys'
       preLoaderRoute: typeof BlacklightOnboardingExistingDeploysRouteImport
-      parentRoute: typeof BlacklightOnboardingRouteRoute
-    }
-    '/_blacklight/onboarding/diff-trigger': {
-      id: '/_blacklight/onboarding/diff-trigger'
-      path: '/diff-trigger'
-      fullPath: '/onboarding/diff-trigger'
-      preLoaderRoute: typeof BlacklightOnboardingDiffTriggerRouteImport
       parentRoute: typeof BlacklightOnboardingRouteRoute
     }
     '/_blacklight/onboarding/complete': {
@@ -1631,7 +1611,6 @@ const BlacklightAppShellRouteRouteWithChildren =
 interface BlacklightOnboardingRouteRouteChildren {
   BlacklightOnboardingAddAppRoute: typeof BlacklightOnboardingAddAppRoute
   BlacklightOnboardingCompleteRoute: typeof BlacklightOnboardingCompleteRoute
-  BlacklightOnboardingDiffTriggerRoute: typeof BlacklightOnboardingDiffTriggerRoute
   BlacklightOnboardingExistingDeploysRoute: typeof BlacklightOnboardingExistingDeploysRoute
   BlacklightOnboardingPreviewDeployVerifyRoute: typeof BlacklightOnboardingPreviewDeployVerifyRoute
   BlacklightOnboardingPreviewEnvironmentRoute: typeof BlacklightOnboardingPreviewEnvironmentRoute
@@ -1642,7 +1621,6 @@ const BlacklightOnboardingRouteRouteChildren: BlacklightOnboardingRouteRouteChil
   {
     BlacklightOnboardingAddAppRoute: BlacklightOnboardingAddAppRoute,
     BlacklightOnboardingCompleteRoute: BlacklightOnboardingCompleteRoute,
-    BlacklightOnboardingDiffTriggerRoute: BlacklightOnboardingDiffTriggerRoute,
     BlacklightOnboardingExistingDeploysRoute:
       BlacklightOnboardingExistingDeploysRoute,
     BlacklightOnboardingPreviewDeployVerifyRoute:

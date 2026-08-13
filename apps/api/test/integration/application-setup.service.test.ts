@@ -151,6 +151,34 @@ apiTestSuite({
             activateSpy.mockRestore();
         });
 
+        // The step a finished setup actually lands on now that `diff_trigger` is retired. The
+        // sibling case above seeds `diff_trigger`, which sits AFTER this step - so it exercised a
+        // state that could go live and said nothing about the one every app reaches.
+        test("PATCH completion goes live and activates from preview_verified", async ({ harness }) => {
+            const { app, setupId, service, onboardingManager } = await createSetupFixture(
+                harness,
+                "Application Setup PATCH Preview Verified",
+            );
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: app.id },
+                create: { applicationId: app.id, step: "preview_verified" },
+                update: { step: "preview_verified" },
+            });
+
+            const activateSpy = vi.spyOn(onboardingManager, "activatePendingSnapshot").mockResolvedValue(undefined);
+
+            await service.updateSetup(setupId, harness.organizationId, { status: "completed" });
+
+            expect(activateSpy).toHaveBeenCalledWith(app.id, harness.organizationId);
+            const onboarding = await harness.db.onboardingState.findUniqueOrThrow({
+                where: { applicationId: app.id },
+                select: { step: true, completedAt: true },
+            });
+            expect(onboarding.step).toBe("completed");
+            expect(onboarding.completedAt).not.toBeNull();
+            activateSpy.mockRestore();
+        });
+
         test("PATCH completion defers snapshot activation while onboarding is unfinished", async ({ harness }) => {
             const { app, setupId, service, onboardingManager } = await createSetupFixture(
                 harness,
