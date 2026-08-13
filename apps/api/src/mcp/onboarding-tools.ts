@@ -917,13 +917,12 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
         {
             title: "Take the app live",
             description:
-                "Take this app from a verified preview all the way to live - the last two steps of onboarding, the " +
-                "ones the Autonoma UI otherwise walks a human through. Call it once the preview is up " +
+                "Take this app from a verified preview all the way to live - the step the Autonoma UI otherwise " +
+                "walks a human through as `Start generating tests`. Call it once the preview is up " +
                 "AND you have verified it yourself (get_session_status reports `ready`, and you have exercised the " +
                 "app against the preview URL rather than trusting a health check). It advances `preview_verified` " +
-                "-> `diff_trigger` -> `completed` in a single call, because nothing in between is yours to " +
-                "decide: the per-PR review loop is automatic on Autonoma-hosted previews and driven by your signal " +
-                "on their own pipeline, so the middle step is a screen that explains it, not a choice. Going live is " +
+                "-> `completed` directly: the per-PR review loop is automatic on Autonoma-hosted previews and " +
+                "driven by your signal on their own pipeline, so there is nothing in between to decide. Going live is " +
                 "what turns pull-request reviews ON - until it happens Autonoma stays silent and holds back the " +
                 "comments it would have posted (they are re-run for open pull requests when you finish, so nothing " +
                 "is lost). Going live is only about pull-request reviews: the Autonoma SDK handler and the scenario " +

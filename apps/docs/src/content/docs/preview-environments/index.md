@@ -43,24 +43,23 @@ Extra services and lifecycle hooks sit off the main path: the flow finishes at V
 
 ## The setup flow, end to end
 
-Connecting a repository walks through three phases, shown down the left as **Create app**, **Config
-previews**, and **Finish**:
+Connecting a repository walks through three phases, shown across the top as **Create app**, **Config
+previews**, and **Test data**:
 
 | Phase | What happens |
 | --- | --- |
 | **Create app** | Install the Autonoma GitHub App, pick the repository, and name the application. |
 | **Config previews** | A short set of questions works out which setup fits - whether you already deploy previews per branch, where your backend runs, and how your data is scoped. From there you either connect deploys you already have, or configure PreviewKit to build them. Then Autonoma deploys one and verifies it is reachable. |
-| **PR reviews** | Confirm the per-PR review loop and turn it on. |
 | **Test data** | Upload test artifacts with the [planner](/test-planner/), implement the [Environment Factory](/environment-factory/), and dry-run your scenarios. |
 
-The **PR reviews** screen is the one to know about. It is headed **PR reviews are on**, and the
-**Turn on PR reviews** button is what starts them - not the **Start generating tests** button on the
-previous screen, which only moves you to it.
+The button to know about is **Start generating tests**, at the end of Config previews. Pressing it
+does two things at once: it takes the app live, so Autonoma begins reviewing pull requests, and it
+moves you into the **Test data** phase. There is no separate screen that turns reviews on.
 
-Pressing it does not end onboarding. The flow carries straight on into the **Test data** phase, which
-is what lets Autonoma provision real test data for your tests. Onboarding is one continuous flow with
-no way out until all of it is done, so plan to run it in one sitting - the planner upload and the
-Environment Factory both involve work in your repo.
+It does not end onboarding. Test data is the third phase of the same flow, and it is what lets
+Autonoma provision real data for your tests. Onboarding is one continuous flow with no way out until
+all of it is done, so plan to run it in one sitting - and note that the planner upload alone usually
+takes over an hour, since it reads your whole codebase to generate the suite.
 
 ## How apps are built
 
