@@ -28,8 +28,11 @@ const CRASHLOOP_RESTART_THRESHOLD = 3;
 //   - the Deployment's `ProgressDeadlineExceeded` condition (a real API enum),
 //     handled in the workload view.
 // A Set behind a predicate so a new reason is one entry and call sites ask
-// membership by name (never scan an array).
-const FATAL_WAITING_REASONS: ReadonlySet<string> = new Set([
+// membership by name (never scan an array). The names are also exported as a
+// tuple: callers that give each reason its own treatment (the user-facing
+// explanation of a failed rollout) key a Record off `FatalWaitingReason`, so
+// adding a reason here is a compile error there rather than a silent fallback.
+export const FATAL_WAITING_REASON_NAMES = [
     "CrashLoopBackOff",
     "ImagePullBackOff",
     "ErrImagePull",
@@ -38,10 +41,32 @@ const FATAL_WAITING_REASONS: ReadonlySet<string> = new Set([
     "CreateContainerConfigError",
     "CreateContainerError",
     "RunContainerError",
-]);
+] as const;
 
-export function isFatalWaitingReason(reason: string | undefined): boolean {
+export type FatalWaitingReason = (typeof FATAL_WAITING_REASON_NAMES)[number];
+
+const FATAL_WAITING_REASONS: ReadonlySet<string> = new Set(FATAL_WAITING_REASON_NAMES);
+
+export function isFatalWaitingReason(reason: string | undefined): reason is FatalWaitingReason {
     return reason != null && FATAL_WAITING_REASONS.has(reason);
+}
+
+/**
+ * The fatal reason named inside a free-text failure message, if any.
+ *
+ * The sibling of {@link isFatalWaitingReason}, for callers holding prose rather than a pod. The
+ * deployer formats its verdict as a sentence (`pod <name> container <name> is in <reason>: ...`)
+ * and stores that string, so anything reading it back out of the database - rather than off a live
+ * pod - has only the text. Kept here, beside the vocabulary and the structural extractor, so
+ * "which reasons exist and how do I spot one" is answered in exactly one module however the caller
+ * happens to be holding the failure.
+ *
+ * Scanned in declaration order and by substring, because the reason arrives embedded in that
+ * sentence rather than as a bare field.
+ */
+export function fatalReasonFromMessage(message: string | undefined): FatalWaitingReason | undefined {
+    if (message == null) return undefined;
+    return FATAL_WAITING_REASON_NAMES.find((reason) => message.includes(reason));
 }
 
 export interface NamespaceWorkloads {

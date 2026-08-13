@@ -1,5 +1,6 @@
 import type { PreviewkitAppStatus, PreviewkitStatus } from "@autonoma/db";
-import type { PreviewkitManifest } from "@autonoma/types";
+import type { DeployFailureExplanation, PreviewkitManifest } from "@autonoma/types";
+import { explainDeployFailure } from "../../previewkit/deploy-failure-explanation";
 
 // The environment statuses in which the pipeline is still working. Asked through
 // `isEnvironmentInFlight` rather than re-listed at each call site: several separate
@@ -61,6 +62,12 @@ type PreviewServiceSummary = {
     buildLogUrl: string | null;
     buildDurationMs: number | null;
     statusReason: string | null;
+    /**
+     * `statusReason` said in words, when the platform's own message is one we recognise. Null
+     * when nothing matched, which is the signal to keep showing the raw text rather than
+     * inventing an explanation for a message nobody has classified.
+     */
+    statusExplanation: DeployFailureExplanation | null;
     lastBuiltAt: Date | null;
     lastDeployedAt: Date | null;
 };
@@ -179,6 +186,7 @@ export function buildServiceSummaries({
         const manifestApp = manifest.apps?.find((app) => app.name === name);
         const build = appBuilds[name];
         const kind = inferServiceKind(name);
+        const statusReason = build?.status === "failed" ? build.error : (instance?.error ?? null);
         return {
             name,
             kind,
@@ -193,7 +201,11 @@ export function buildServiceSummaries({
             imageTag: instance?.imageTag ?? (build?.status === "success" ? build.imageTag : null),
             buildLogUrl: build?.logUrl ?? null,
             buildDurationMs: build?.durationMs ?? null,
-            statusReason: build?.status === "failed" ? build.error : (instance?.error ?? null),
+            statusReason,
+            // Only a runtime failure gets one: a build error is already the build's own output,
+            // read in the tab that produced it, and needs no translation.
+            statusExplanation:
+                build?.status === "failed" ? null : (explainDeployFailure(statusReason ?? undefined) ?? null),
             lastBuiltAt: latestBuild?.finishedAt ?? null,
             lastDeployedAt: instance?.updatedAt ?? environment.deployedAt,
         } satisfies PreviewServiceSummary;
@@ -219,6 +231,7 @@ export function buildServiceSummaries({
             buildLogUrl: null,
             buildDurationMs: null,
             statusReason: null,
+            statusExplanation: null,
             lastBuiltAt: null,
             lastDeployedAt: environment.deployedAt,
         } satisfies PreviewServiceSummary;

@@ -16,6 +16,7 @@ import {
 import type { PreviewRedeployAppMode } from "@autonoma/types";
 import { ArrowClockwiseIcon } from "@phosphor-icons/react/ArrowClockwise";
 import { ArrowSquareOutIcon } from "@phosphor-icons/react/ArrowSquareOut";
+import { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { HammerIcon } from "@phosphor-icons/react/Hammer";
 import type { Icon } from "@phosphor-icons/react/lib";
@@ -23,6 +24,7 @@ import { LinkIcon } from "@phosphor-icons/react/Link";
 import { TimerIcon } from "@phosphor-icons/react/Timer";
 import { XCircleIcon } from "@phosphor-icons/react/XCircle";
 import { PreviewLogsTabs, type PreviewLogSource } from "components/build-logs/preview-logs-tabs";
+import { PreviewCrashedEmptyState } from "components/preview-crashed-empty-state";
 import { PreviewIdleEmptyState } from "components/preview-idle-empty-state";
 import { PreviewLink } from "components/preview-link";
 import { PREVIEW_STATUS_HELP, PreviewStatusBadge } from "components/preview-status-badge";
@@ -106,10 +108,7 @@ export function PreviewEnvironmentExplorer({
           />
         )}
         {selectedService?.statusReason != null && (
-          <span className="inline-flex items-center gap-1.5 border border-status-critical/30 bg-status-critical/10 px-2.5 py-1 font-mono text-xs text-status-critical">
-            <XCircleIcon size={13} className="shrink-0" />
-            {selectedService?.statusReason}
-          </span>
+          <ServiceFailureNote reason={selectedService.statusReason} explanation={selectedService.statusExplanation} />
         )}
         <PreviewLogsBody
           service={selectedService}
@@ -121,6 +120,71 @@ export function PreviewEnvironmentExplorer({
           onLogsChange={(next) => onSearchChange({ logs: next })}
         />
       </div>
+    </div>
+  );
+}
+
+/** Where the cause lives, as the words on the tab the reader has to click. */
+const EVIDENCE_SOURCE_HINT: Record<NonNullable<PreviewService["statusExplanation"]>["lookIn"], string> = {
+  app_logs: "The reason is in App logs below, not Build logs.",
+  build_logs: "The reason is in Build logs below.",
+  config: "Nothing ran, so there are no app logs - check this app's configuration and secrets.",
+};
+
+/**
+ * Why the selected service is not up.
+ *
+ * The platform's own message is a Kubernetes rollout error carrying pod hashes and a namespace UUID, and
+ * it used to be the entire content of this strip - which is how somebody debugging their first preview
+ * was shown `container api is in CrashLoopBackOff: back-off 10s restarting failed container=api
+ * pod=api-54d89594cc-nmjjn_preview-…`. It is still here, because it is what an engineer pastes into a
+ * search or hands to support; it is just no longer the headline, and it no longer stands alone.
+ *
+ * With no explanation (a message nothing has classified yet) this renders exactly what it always did,
+ * rather than guessing.
+ */
+function ServiceFailureNote({
+  reason,
+  explanation,
+}: {
+  reason: string;
+  explanation: PreviewService["statusExplanation"];
+}) {
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  if (explanation == null) {
+    return (
+      <span className="inline-flex items-center gap-1.5 border border-status-critical/30 bg-status-critical/10 px-2.5 py-1 font-mono text-xs text-status-critical">
+        <XCircleIcon size={13} className="shrink-0" />
+        {reason}
+      </span>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 border border-status-critical/30 bg-status-critical/10 px-3 py-2.5">
+      <div className="flex items-start gap-2">
+        <XCircleIcon size={14} className="mt-0.5 shrink-0 text-status-critical" />
+        <div className="flex min-w-0 flex-col gap-1">
+          <p className="text-sm font-medium text-text-primary">{explanation.title}</p>
+          <p className="text-2xs leading-relaxed text-text-secondary">{explanation.explanation}</p>
+          <p className="text-2xs font-medium text-text-primary">{EVIDENCE_SOURCE_HINT[explanation.lookIn]}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => setDetailOpen((open) => !open)}
+        aria-expanded={detailOpen}
+        className="flex items-center gap-1 self-start font-mono text-3xs uppercase tracking-widest text-text-secondary transition-colors hover:text-text-primary"
+      >
+        <CaretDownIcon size={11} className={cn("transition-transform", detailOpen && "rotate-180")} />
+        {detailOpen ? "Hide technical detail" : "Show technical detail"}
+      </button>
+      {detailOpen && (
+        <p className="break-all border-t border-status-critical/20 pt-2 font-mono text-3xs text-text-secondary">
+          {explanation.technicalDetail}
+        </p>
+      )}
     </div>
   );
 }
@@ -409,11 +473,13 @@ function PreviewLogsBody({
   }
 
   const [owner = "", repo = ""] = repoFullName.split("/");
-  // A preview that has scaled to zero produces no runtime output, so the App logs tab
-  // says so and offers to wake it instead of waiting on a line that isn't coming. Any
-  // output it did produce before sleeping still wins - this only replaces the spinner.
+  // Two ways an app stream stays silent forever, and the spinner is wrong for both. A preview
+  // scaled to zero produces no runtime output, so the tab says so and offers to wake it. An app
+  // that died on startup may never have logged at all - and the failure note above has just sent
+  // the reader here, so an indefinite spinner reads as "still loading" at the worst moment.
+  // Either way this only replaces the spinner: any output the app did produce still wins.
   const wakeUrl = openPreview.enabled && openPreview.href != null ? openPreview.href : undefined;
-  const appEmptyState = livenessState === "asleep" ? <PreviewIdleEmptyState url={wakeUrl} /> : undefined;
+  const appEmptyState = resolveAppEmptyState(service, livenessState, wakeUrl);
 
   return (
     <PreviewLogsTabs
@@ -430,6 +496,31 @@ function PreviewLogsBody({
       toolbar
     />
   );
+}
+
+/**
+ * Which empty state the App logs panel should show in place of its "waiting for output" spinner,
+ * or undefined to leave the spinner alone.
+ *
+ * Keyed on the classified explanation rather than on `status === "failed"`, so it speaks only where
+ * it knows what happened. A build failure carries no explanation (the build's own output is the
+ * story, one tab over) and keeps the spinner, rather than being told its app "exited" when no
+ * container ever started.
+ *
+ * Order matters: a failed app is answered first. A crashlooping workload can also read as `asleep`
+ * once the cluster stops counting it, and "Preview is idle - start it" would be actively misleading
+ * for something that is failing to start on its own.
+ */
+function resolveAppEmptyState(
+  service: PreviewService | undefined,
+  livenessState: PreviewLivenessState,
+  wakeUrl: string | undefined,
+) {
+  if (service?.statusExplanation != null) {
+    return <PreviewCrashedEmptyState appName={service.name} lookIn={service.statusExplanation.lookIn} />;
+  }
+  if (livenessState === "asleep") return <PreviewIdleEmptyState url={wakeUrl} />;
+  return undefined;
 }
 
 /** Body skeleton mirroring the explorer's layout (services rail / detail+logs). */

@@ -30,6 +30,7 @@ export * from "./previewkit-redeploy-app";
 export * from "./previewkit-service-suggestion";
 export * from "./previewkit-env-suggestion";
 export * from "./previewkit-diagnosis";
+export * from "./preview-deploy-failure";
 export * from "./snapshot-dependency-pin";
 export * from "./snapshot-report";
 export * from "./checkpoint-summary";

@@ -1,3 +1,4 @@
+import type { DeployFailureExplanation } from "@autonoma/types";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
 import { logStreamHandler, type LogStreamEvent } from "lib/storybook/log-stream-handler";
@@ -33,6 +34,7 @@ function appService({
   buildDurationMs,
   status = "failed",
   statusReason = "buildctl exited with code 1",
+  statusExplanation = null,
   endpoint = null,
 }: {
   name: string;
@@ -41,6 +43,7 @@ function appService({
   buildDurationMs: number;
   status?: "ready" | "failed";
   statusReason?: string | null;
+  statusExplanation?: DeployFailureExplanation | null;
   endpoint?: string | null;
 }) {
   return {
@@ -58,6 +61,7 @@ function appService({
     buildLogUrl: null,
     buildDurationMs,
     statusReason,
+    statusExplanation,
     lastBuiltAt: BUILD_FINISHED_AT,
     lastDeployedAt: FIXTURE_EPOCH,
   };
@@ -89,6 +93,7 @@ function dependencyService({
     buildLogUrl: null,
     buildDurationMs: null,
     statusReason: null,
+    statusExplanation: null,
     lastBuiltAt: null,
     lastDeployedAt: FIXTURE_EPOCH,
   };
@@ -628,6 +633,89 @@ export const DeploymentHistoryUnavailable: Story = {
         deploymentHistoryFails,
         logStreamHandler({ build: readyBuildFrames, app: readyAppFrames }),
         ...appShellHandlers(readyPreviewTabFixtures),
+      ],
+    },
+  },
+};
+
+/**
+ * The api image builds in nine seconds, then the container crashloops and the rollout times out.
+ *
+ * Reported verbatim - as it used to be - this frame is a pod hash, a namespace UUID and the word
+ * "CrashLoopBackOff", and that was the whole of the explanation. The story exists to hold the
+ * translated version against it: the headline is what happened, and the Kubernetes text is one
+ * disclosure away. Names are invented; this file syncs to the public mirror.
+ */
+const CRASHLOOP_ERROR =
+  'Deployment "api" will not become ready: pod api-54d89594cc-nmjjn container api is in ' +
+  "CrashLoopBackOff: back-off 10s restarting failed container=api " +
+  "pod=api-54d89594cc-nmjjn_preview-acme-shop-pr-6(00000000-0000-4000-8000-000000000000)";
+
+const CRASHLOOP_SERVICES: PreviewServiceFixture[] = [
+  appService({
+    name: "api",
+    kind: "api",
+    iconKey: "api",
+    buildDurationMs: 9_000,
+    statusReason: CRASHLOOP_ERROR,
+    statusExplanation: {
+      title: "The app started and then exited",
+      explanation:
+        "The image built and the container ran, but the process stopped almost immediately and Kubernetes " +
+        "has been restarting it in a loop. Something the app needs at startup is missing or wrong - a " +
+        "database it cannot reach, an environment variable it reads on boot, a migration that has not run.",
+      lookIn: "app_logs",
+      technicalDetail: CRASHLOOP_ERROR,
+    },
+  }),
+  appService({
+    name: "web",
+    kind: "web",
+    iconKey: "web",
+    buildDurationMs: 31_000,
+    status: "ready",
+    statusReason: null,
+    endpoint: "https://web.preview-2624.internal",
+  }),
+  dependencyService({ name: "db", kind: "database", iconKey: "postgres", endpoint: "db.preview-2624.internal:5432" }),
+];
+
+function crashLoopSummary() {
+  return {
+    ...previewkitSummary(),
+    // The build succeeded; the rollout is what failed. `phase` says so, which is the distinction
+    // the PR header badge now reads too.
+    phase: "deploy_failed",
+    error: 'Deployment "api" will not become ready.',
+    serviceCount: CRASHLOOP_SERVICES.length,
+    readyServiceCount: 2,
+    failedServiceCount: 1,
+    services: CRASHLOOP_SERVICES,
+    latestBuild: {
+      headSha: HEAD_SHA,
+      status: "ready" as const,
+      durationMs: 9_000,
+      error: null,
+      startedAt: BUILD_STARTED_AT,
+      finishedAt: BUILD_FINISHED_AT,
+    },
+  };
+}
+
+export const CrashLooping: Story = {
+  args: { path: `${PREVIEW_PATH}?service=app-api` },
+  parameters: {
+    msw: {
+      handlers: [
+        logStreamHandler({ build: readyBuildFrames, app: [] }),
+        ...appShellHandlers({
+          ...SHARED_FIXTURES,
+          deployments: {
+            previewSummaryByPr: crashLoopSummary(),
+            previewSummaryById: crashLoopSummary(),
+            history: idleDeploymentHistory,
+          },
+        }),
       ],
     },
   },

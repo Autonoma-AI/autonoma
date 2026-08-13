@@ -13,6 +13,7 @@ import {
     toAppBuildOutcomeMap,
 } from "../routes/deployments/preview-summary";
 import { Service } from "../routes/service";
+import { describeEvidenceSource, explainDeployFailure } from "./deploy-failure-explanation";
 import { type DeployFreshness, deployFreshness } from "./deploy-freshness";
 
 /** Main-branch preview environments are stored under PR number 0. */
@@ -317,6 +318,28 @@ function heuristicFinding(failure: PreviewFailure): PreviewDiagnosisFinding {
             confidence: "medium",
         };
     }
+    // A rollout that got far enough to name a terminal pod reason is explainable, and the
+    // generic fallback below is actively wrong for it: a crashlooping container's cause is in
+    // its own runtime logs, never in the build output the fallback points at.
+    //
+    // Gated on the code the same way `buildServiceSummaries` gates it, so the agent and the UI
+    // cannot come to different conclusions about one failure. A build error is the build's own
+    // output and needs no translation; without this gate, a build message that happened to
+    // contain a reason substring would be explained here and not there.
+    const explanation = failure.code === "build_failed" ? undefined : explainDeployFailure(failure.message);
+    if (explanation != null) {
+        return {
+            ...base,
+            category: "user_setup",
+            severity: "blocking",
+            title: explanation.title,
+            explanation: explanation.explanation,
+            fixSteps: [describeEvidenceSource(explanation.lookIn), "Fix the cause, then redeploy."],
+            action: "redeploy",
+            confidence: "medium",
+        };
+    }
+
     return {
         ...base,
         category: failure.code === "unknown" ? "unknown" : "user_setup",

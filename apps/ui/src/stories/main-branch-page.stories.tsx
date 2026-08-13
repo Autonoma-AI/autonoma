@@ -84,6 +84,7 @@ function appService({
     buildLogUrl: null,
     buildDurationMs,
     statusReason: "buildctl exited with code 1",
+    statusExplanation: null,
     lastBuiltAt: BUILD_FINISHED_AT,
     lastDeployedAt: FIXTURE_EPOCH,
   };
@@ -115,6 +116,7 @@ function dependencyService({
     buildLogUrl: null,
     buildDurationMs: null,
     statusReason: null,
+    statusExplanation: null,
     lastBuiltAt: null,
     lastDeployedAt: FIXTURE_EPOCH,
   };
