@@ -29,6 +29,7 @@ export async function resolvePreviewTarget(input: ResolvePreviewTargetInput): Pr
                 select: {
                     organizationId: true,
                     githubRepositoryId: true,
+                    previewDeployRef: true,
                     onboardingState: { select: { previewEnvironmentMode: true, step: true } },
                 },
             },
@@ -65,11 +66,19 @@ export async function resolvePreviewTarget(input: ResolvePreviewTargetInput): Pr
     if (repoFullName == null) return { organizationId, hasRecordedPreview, onboardingComplete };
 
     const prNumber = branch.prInfo?.prNumber ?? MAIN_BRANCH_ENVIRONMENT_NUMBER;
+    // The base environment follows the app's pinned deploy ref, which is deliberately NOT the
+    // Branch record: that record is the app's trunk identity and drives suite lineage and every
+    // "main" label in the product, so pointing it at an integration branch would redefine what
+    // main means (see setDeployBranch). Taking the ref from the record instead handed the builder
+    // the trunk's NAME with the integration branch's SHA - a mismatched pair, and the wrong branch
+    // for the deploy that was asked for. A PR environment has its own head and never consults this.
+    const headRef =
+        prNumber === MAIN_BRANCH_ENVIRONMENT_NUMBER ? (application.previewDeployRef ?? branch.name) : branch.name;
 
     logger.info("This run owns a previewkit preview", {
         organization: { organizationId },
         branch: { branchId },
-        preview: { repo: repoFullName, headRef: branch.name },
+        preview: { repo: repoFullName, headRef },
         extra: { pr: prNumber },
     });
 
@@ -83,7 +92,7 @@ export async function resolvePreviewTarget(input: ResolvePreviewTargetInput): Pr
             organizationId,
             githubRepositoryId: application.githubRepositoryId,
             headSha,
-            headRef: branch.name,
+            headRef,
             branchId,
         },
     };
