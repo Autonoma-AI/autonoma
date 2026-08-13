@@ -1,11 +1,9 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { type Logger, logger } from "@autonoma/logger";
 import type { App } from "@octokit/app";
 import { z } from "zod";
 import type { EtagStore } from "./etag-store";
+import { buildAuthenticatedGitEnv, GitCommandError, redactSecret, runGitStep } from "./git-clone-step";
 
-const execFileAsync = promisify(execFile);
 const GITHUB_API = "https://api.github.com";
 
 /** Branch-listing page size. One page is enough for a deploy-branch picker; repos past this are flagged truncated. */
@@ -13,6 +11,17 @@ const BRANCHES_PER_PAGE = 100;
 
 /** Default color for a label the app auto-creates. */
 const DEFAULT_LABEL_COLOR = "0e8a16";
+
+/**
+ * Per-step timeouts for the clone path. `checkout` and `cat-file` were previously
+ * unbounded, so a hang there ran to the enclosing activity timeout (~20m) and
+ * surfaced as an unattributable "Activity task timed out"; they are bounded here.
+ */
+const CLONE_TIMEOUT_MS = 120_000;
+const FETCH_TIMEOUT_MS = 60_000;
+const CHECKOUT_TIMEOUT_MS = 60_000;
+const CAT_FILE_TIMEOUT_MS = 30_000;
+const CLONE_MAX_BUFFER_BYTES = 10 * 1024 * 1024;
 
 const installationAuthSchema = z.object({ token: z.string().min(1) });
 
@@ -269,34 +278,6 @@ function isNotFoundError(error: unknown): boolean {
     return typeof error === "object" && error != null && "status" in error && error.status === 404;
 }
 
-/**
- * Build an environment for `git` that supplies the installation token as an
- * `Authorization` header via env-based config (`GIT_CONFIG_*`). This avoids
- * putting the token in the process argv or the cloned remote URL, so it can't
- * leak through git's stderr or an `execFile` error.
- */
-function buildAuthenticatedGitEnv(token: string): NodeJS.ProcessEnv {
-    const basicAuth = Buffer.from(`x-access-token:${token}`).toString("base64");
-    return {
-        ...process.env,
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_CONFIG_COUNT: "1",
-        GIT_CONFIG_KEY_0: "http.extraHeader",
-        GIT_CONFIG_VALUE_0: `Authorization: Basic ${basicAuth}`,
-    };
-}
-
-/**
- * Replace every occurrence of `secret` in an error (message and any string
- * fields like `stderr`/`cmd`) with `***`. Used as defense in depth so a git
- * failure can never surface the installation token to callers that log it.
- */
-function redactSecret(error: unknown, secret: string): Error {
-    const message = error instanceof Error ? error.message : String(error);
-    if (secret.length === 0) return error instanceof Error ? error : new Error(message);
-    return new Error(message.split(secret).join("***"));
-}
-
 /** Typed wrapper around an installation-scoped Octokit. */
 export class OctokitGitHubInstallationClient implements GitHubInstallationClient {
     private readonly logger: Logger;
@@ -346,47 +327,81 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
         // failing git command can't leak it into logs/Sentry via the error.
         const gitEnv = buildAuthenticatedGitEnv(token);
         const cloneUrl = `https://github.com/${fullName}.git`;
+        const startedAt = Date.now();
 
         try {
             this.logger.info("Cloning repository", { fullName, headSha, targetDir });
-            await execFileAsync("git", ["clone", `--depth=${depth}`, cloneUrl, targetDir], {
-                maxBuffer: 10 * 1024 * 1024,
-                timeout: 120_000,
-                env: gitEnv,
-            });
+            await runGitStep(
+                "clone",
+                ["clone", `--depth=${depth}`, cloneUrl, targetDir],
+                { timeoutMs: CLONE_TIMEOUT_MS, env: gitEnv, maxBufferBytes: CLONE_MAX_BUFFER_BYTES },
+                token,
+                this.logger,
+            );
 
             this.logger.info("Checking out commit", { headSha });
             try {
-                await execFileAsync("git", ["checkout", headSha], { cwd: targetDir });
+                await runGitStep(
+                    "checkout-head",
+                    ["checkout", headSha],
+                    { timeoutMs: CHECKOUT_TIMEOUT_MS, cwd: targetDir },
+                    token,
+                    this.logger,
+                );
             } catch (err) {
                 this.logger.info("Head SHA not in shallow clone, fetching explicitly", { headSha, err });
-                await execFileAsync("git", ["fetch", `--depth=${depth}`, "origin", headSha], {
-                    cwd: targetDir,
-                    timeout: 60_000,
-                    env: gitEnv,
-                });
-                await execFileAsync("git", ["checkout", headSha], { cwd: targetDir });
+                await runGitStep(
+                    "fetch-head",
+                    ["fetch", `--depth=${depth}`, "origin", headSha],
+                    { timeoutMs: FETCH_TIMEOUT_MS, cwd: targetDir, env: gitEnv },
+                    token,
+                    this.logger,
+                );
+                await runGitStep(
+                    "checkout-head",
+                    ["checkout", headSha],
+                    { timeoutMs: CHECKOUT_TIMEOUT_MS, cwd: targetDir },
+                    token,
+                    this.logger,
+                );
             }
 
             if (baseSha != null) {
                 this.logger.info("Ensuring base commit is available", { baseSha });
                 try {
-                    await execFileAsync("git", ["cat-file", "-t", baseSha], { cwd: targetDir });
+                    await runGitStep(
+                        "cat-file-base",
+                        ["cat-file", "-t", baseSha],
+                        { timeoutMs: CAT_FILE_TIMEOUT_MS, cwd: targetDir },
+                        token,
+                        this.logger,
+                    );
                 } catch (err) {
                     this.logger.debug("Base SHA not in shallow clone, fetching explicitly", { baseSha, err });
-                    await execFileAsync("git", ["fetch", `--depth=${depth}`, "origin", baseSha], {
-                        cwd: targetDir,
-                        timeout: 60_000,
-                        env: gitEnv,
-                    });
+                    await runGitStep(
+                        "fetch-base",
+                        ["fetch", `--depth=${depth}`, "origin", baseSha],
+                        { timeoutMs: FETCH_TIMEOUT_MS, cwd: targetDir, env: gitEnv },
+                        token,
+                        this.logger,
+                    );
                 }
             }
 
-            this.logger.info("Repository cloned successfully", { fullName, targetDir });
+            this.logger.info("Repository cloned successfully", {
+                fullName,
+                targetDir,
+                extra: { elapsedMs: Date.now() - startedAt },
+            });
             return targetDir;
         } catch (err) {
-            // Defense in depth: redact the installation token from any git error
-            // before it propagates to callers that log it.
+            // Git steps already throw a redacted, structured GitCommandError; log its
+            // fields here (they don't survive Temporal's flattening to a message) and
+            // rethrow untouched. Only a non-git failure still needs token redaction.
+            if (err instanceof GitCommandError) {
+                this.logger.error("Clone path failed", { extra: { ...err.details } });
+                throw err;
+            }
             throw redactSecret(err, token);
         }
     }
