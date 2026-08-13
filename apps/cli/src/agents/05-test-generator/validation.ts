@@ -43,6 +43,21 @@ export function requiresLocation(verb: string): boolean {
 /** Matches a numbered step line and captures its verb, for any verb (valid or not). */
 export const STEP_LINE_PATTERN = /^\d+\.\s+(\w+):/gm;
 
+/**
+ * A step line whose verb marker is doubled - `1. assert: assert: ...`. The verb
+ * is meant to be rendered exactly once as the marker; a second verb-colon means
+ * the model repeated it inside the description and the render strip missed the
+ * shape. Derived from STEP_VERBS so it tracks the verb set, and requires both
+ * halves to be real verbs so an ordinary target that merely starts with a word
+ * plus colon is not mistaken for one. It is the backstop for the deterministic
+ * strip in renderSteps, because a doubled marker is malformed against the
+ * `N. verb: target` layout the downstream platform parses.
+ */
+const DOUBLED_VERB_MARKER_PATTERN = new RegExp(
+    `^\\d+\\.\\s+(?:${STEP_VERBS.join("|")}):\\s+(?:${STEP_VERBS.join("|")}):`,
+    "im",
+);
+
 /** The verbs in a test's step list, in order. Invalid verbs are included so callers can reject them. */
 export function parseStepVerbs(content: string): string[] {
     return [...content.matchAll(STEP_LINE_PATTERN)].map((m) => m[1]!);
@@ -87,6 +102,12 @@ export function validateTestContent(content: string): ValidationResult {
 
     for (const verb of verbs) {
         if (!isValidVerb(verb)) errors.push(`Invalid verb: "${verb}"`);
+    }
+
+    if (DOUBLED_VERB_MARKER_PATTERN.test(content)) {
+        errors.push(
+            'Doubled verb marker in a step line (e.g. "assert: assert:") - the verb is rendered once as the marker; the description must not repeat it',
+        );
     }
 
     const bodyStart = content.indexOf("---", 3);

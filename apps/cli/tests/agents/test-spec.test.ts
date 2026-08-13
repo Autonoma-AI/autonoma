@@ -3,6 +3,7 @@ import {
     buildTestSpecSchema,
     renderTestMarkdown,
     type TestSpec,
+    type TestStep,
     testSpecSchema,
 } from "../../src/agents/05-test-generator/test-spec";
 import { validateTestContent } from "../../src/agents/05-test-generator/validation";
@@ -183,6 +184,60 @@ describe("renderTestMarkdown", () => {
     it("omits the Verification section when there are no verification steps", () => {
         expect(renderTestMarkdown({ ...VALID, verificationSteps: [] })).not.toContain("**Verification**");
     });
+
+    // The verb is rendered once as the marker. When the model also puts the verb
+    // inside `description` ("assert: X", "click the button"), the naive render
+    // repeated it - `1. assert: assert: ...` - which is malformed against the
+    // `N. verb: target` contract the downstream platform parses. A real-app eval
+    // found this in 40-77% of generated files across three runs.
+    it("strips a leading copy of the step's own verb so the marker is never doubled", () => {
+        const cases: { step: TestStep; expectedLine: string }[] = [
+            {
+                step: { verb: "assert", description: 'assert: text "Saved"', location: "in the toast" },
+                expectedLine: '1. assert: text "Saved" in the toast',
+            },
+            {
+                step: { verb: "assert", description: 'assert text "Saved"', location: "in the toast" },
+                expectedLine: '1. assert: text "Saved" in the toast',
+            },
+            {
+                step: { verb: "click", description: "click the button", location: "in the modal footer" },
+                expectedLine: "1. click: the button in the modal footer",
+            },
+            {
+                step: { verb: "type", description: 'type: "Acme" into Name', location: "in the modal" },
+                expectedLine: '1. type: "Acme" into Name in the modal',
+            },
+        ];
+
+        for (const { step, expectedLine } of cases) {
+            const rendered = renderTestMarkdown({ ...VALID, steps: [step], verificationSteps: [] });
+            expect(rendered, JSON.stringify(step)).toContain(expectedLine);
+            expect(rendered, JSON.stringify(step)).not.toMatch(
+                /\d+\.\s+(?:assert|click|type):\s+(?:assert|click|type):/,
+            );
+        }
+    });
+
+    it("leaves a description that only happens to contain or resemble a verb untouched", () => {
+        const cases: { step: TestStep; expectedLine: string }[] = [
+            {
+                // "Refresh" is a legitimate word inside an assert, not this step's verb.
+                step: { verb: "assert", description: "the Refresh button is visible", location: "in the header" },
+                expectedLine: "1. assert: the Refresh button is visible in the header",
+            },
+            {
+                // "typescript" starts with "type" but is not the verb - word boundary protects it.
+                step: { verb: "type", description: '"typescript" into the search box', location: "in the toolbar" },
+                expectedLine: '1. type: "typescript" into the search box in the toolbar',
+            },
+        ];
+
+        for (const { step, expectedLine } of cases) {
+            const rendered = renderTestMarkdown({ ...VALID, steps: [step], verificationSteps: [] });
+            expect(rendered, JSON.stringify(step)).toContain(expectedLine);
+        }
+    });
 });
 
 describe("validateTestContent", () => {
@@ -199,6 +254,37 @@ describe("validateTestContent", () => {
         ].join("\n");
 
         expect(validateTestContent(content).errors).toContain('Contains "Dynamic:" placeholder in steps');
+    });
+
+    // Backstop for the render strip: even if a doubled marker were somehow written
+    // to disk, the on-disk validator must reject it rather than let it ship to the
+    // downstream parser.
+    it("rejects a step line whose verb marker is doubled", () => {
+        const content = [
+            "---",
+            "verification: On the Overview tab, assert the balance changed at the source of truth",
+            "---",
+            "**Intent**: The heading should appear.",
+            "**Steps**:",
+            '1. assert: assert: text "Saved" is visible in the toast',
+        ].join("\n");
+
+        const result = validateTestContent(content);
+        expect(result.valid).toBe(false);
+        expect(result.errors.some((e) => e.includes("Doubled verb marker"))).toBe(true);
+    });
+
+    it("does not flag a normal single-marker step line", () => {
+        const content = [
+            "---",
+            "verification: On the Overview tab, assert the balance changed at the source of truth",
+            "---",
+            "**Intent**: The heading should appear.",
+            "**Steps**:",
+            '1. assert: text "Saved" is visible in the toast',
+        ].join("\n");
+
+        expect(validateTestContent(content).errors).not.toContainEqual(expect.stringContaining("Doubled verb marker"));
     });
 });
 

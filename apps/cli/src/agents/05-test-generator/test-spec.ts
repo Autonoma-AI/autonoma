@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CRITICALITY_LEVELS, requiresLocation, STEP_VERBS } from "./validation";
+import { CRITICALITY_LEVELS, requiresLocation, STEP_VERBS, type StepVerb } from "./validation";
 
 /**
  * The shape of a generated test, and the one place it becomes markdown.
@@ -79,7 +79,7 @@ const stepSchema = z
             .string()
             .min(1)
             .describe(
-                "What to do or check, naming the exact visible text. For assert, the thing expected on screen - e.g. 'text \"Transfer Successful\"'.",
+                'What to do or check, naming the exact visible text. The verb is prepended automatically when the step is rendered, so do NOT start this with the verb - write just the target or what to check, never "click ..." or "assert: ...". For assert, the thing expected on screen - e.g. \'text "Transfer Successful"\'.',
             ),
         location: z
             .string()
@@ -188,9 +188,27 @@ export function renderTestMarkdown(spec: TestSpec): string {
 function renderSteps(steps: TestStep[]): string {
     return steps
         .map((step, index) => {
+            const description = stripLeadingVerb(step.verb, step.description);
             const location = step.location?.trim();
-            const text = location != null && location !== "" ? `${step.description} ${location}` : step.description;
+            const text = location != null && location !== "" ? `${description} ${location}` : description;
             return `${index + 1}. ${step.verb}: ${text}`;
         })
         .join("\n");
+}
+
+/**
+ * The step's target text with a redundant leading copy of the step's OWN verb
+ * removed. The verb is rendered once as the marker; the model is told not to
+ * repeat it, but sometimes does ("assert: the heading appears", "click the
+ * button"), which would render as a doubled marker (`1. assert: assert: ...`) -
+ * malformed against the `N. verb: target` contract the downstream platform
+ * parses. The match is anchored to the start and word-bounded, so only the
+ * step's own verb is stripped: a legitimate "Refresh" inside an assert, or
+ * "typescript" after a type, is never touched. A description that is nothing but
+ * the verb is left as-is rather than emptied.
+ */
+function stripLeadingVerb(verb: StepVerb, description: string): string {
+    const leadingOwnVerb = new RegExp(`^\\s*${verb}\\b:?\\s*`, "i");
+    const cleaned = description.replace(leadingOwnVerb, "");
+    return cleaned.length > 0 ? cleaned : description;
 }
