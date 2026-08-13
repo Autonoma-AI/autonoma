@@ -1,5 +1,5 @@
 import type { ConfigStepId } from "./config-steps";
-import type { OnboardingViewStep } from "./onboarding-steps";
+import type { OnboardingViewStep } from "./onboarding-flow";
 
 type FocusSection = "config" | "secrets" | "logs";
 

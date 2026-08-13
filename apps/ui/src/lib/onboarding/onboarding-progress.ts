@@ -1,5 +1,4 @@
-import { resolveStep } from "./navigate-to-onboarding";
-import { ONBOARDING_PHASES } from "./onboarding-phases";
+import { ONBOARDING_PHASES, resolveStep } from "./onboarding-flow";
 
 /**
  * Resolves how far an application is through onboarding for the resume hub,

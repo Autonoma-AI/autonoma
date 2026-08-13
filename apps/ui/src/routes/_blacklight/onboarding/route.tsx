@@ -13,8 +13,13 @@ import { useAuth, useAuthClient } from "lib/auth";
 import { manageUrlSchema } from "lib/github-install-errors";
 import { isConfigStepId } from "lib/onboarding/config-steps";
 import { useOnboardingStateOptional } from "lib/onboarding/onboarding-api";
+import {
+  isOnboardingViewStep,
+  isSetupStep,
+  type OnboardingViewStep,
+  resolveStep,
+} from "lib/onboarding/onboarding-flow";
 import { buildOnboardingSearch } from "lib/onboarding/onboarding-search";
-import { isOnboardingViewStep, isSetupStep, type OnboardingViewStep } from "lib/onboarding/onboarding-steps";
 import { type SetupProgress, firstIncompleteSetupStep, isSetupStepReachable } from "lib/onboarding/setup-progress";
 import { useDeleteApplication } from "lib/query/applications.queries";
 import { ensureSessionData } from "lib/query/auth.queries";
@@ -37,18 +42,6 @@ import { PreviewkitConfigPage } from "./previewkit-config";
  */
 interface SetupState extends SetupProgress {
   setupComplete: boolean;
-}
-
-function mapBackendStepToViewStep(step: string | undefined): OnboardingViewStep {
-  if (step === "preview_environment") return "preview-environment";
-  if (step === "previewkit_configuring") return "previewkit-config";
-  if (step === "existing_deploys_configuring" || step === "existing_deploys_waiting") return "existing-deploys";
-  if (step === "previewkit_deploying" || step === "preview_verified") return "deploy-verify";
-  // Retired step. The rows still parked on it verified a preview, which is now all live means.
-  if (step === "diff_trigger") return "complete";
-  if (hasGoneLive(step)) return "complete";
-  // "github" (Add app) and any legacy SDK/CLI step start at the merged Add app step.
-  return "add-app";
 }
 
 export const Route = createFileRoute("/_blacklight/onboarding")({
@@ -151,7 +144,7 @@ function resolveViewStep(
   setup: SetupState | undefined,
   hasApplication: boolean,
 ): OnboardingViewStep {
-  const backendViewStep = mapBackendStepToViewStep(backendStep);
+  const backendViewStep = resolveStep(backendStep);
   if (!hasGoneLive(backendStep) || !hasApplication) return requestedStep ?? backendViewStep;
   if (setup == null || setup.setupComplete) return "complete";
 

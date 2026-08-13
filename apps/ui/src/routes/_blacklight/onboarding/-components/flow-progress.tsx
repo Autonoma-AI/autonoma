@@ -1,6 +1,6 @@
 import { cn } from "@autonoma/blacklight";
 import { CheckIcon } from "@phosphor-icons/react/Check";
-import { ONBOARDING_PHASES } from "lib/onboarding/onboarding-phases";
+import { ONBOARDING_PHASES } from "lib/onboarding/onboarding-flow";
 
 const ALL_STEP_IDS: readonly string[] = ONBOARDING_PHASES.flatMap((phase) => phase.activeSteps);
 

@@ -1,4 +1,4 @@
-import { SETUP_STEPS, type SetupStep } from "./onboarding-steps";
+import { SETUP_STEPS, type SetupStep } from "./onboarding-flow";
 
 /**
  * The post-go-live progress the backend derives for an application. These are
