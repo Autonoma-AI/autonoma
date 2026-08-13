@@ -13,6 +13,7 @@ only on `@autonoma/db`, `@autonoma/logger`, and Octokit - no HTTP or app-server 
 | `FakeGitHubApp` / `FakeGitHubInstallationClient` | In-memory doubles for tests (build repos/PRs/commits, inspect comments + check runs). |
 | `LocalDevGitHubApp` / `LocalDevGitHubInstallationClient` | Fixed-response doubles for `LOCAL_DEV`. |
 | `parseRepoFullName` | Split `"owner/repo"`. |
+| `UnreachableBaseShaError` / `isUnreachableRefError` | Signal + classifier for a clone whose base SHA the remote will not serve (`not our ref`), distinguished from a transient timeout, so a caller can recover to a reachable base rather than fail the run. |
 | `parseCoAuthoredByTrailers` | Parse `Co-authored-by: Name <email>` trailers out of a commit message. |
 | `resolveContributorsFromCommits` / `contributorKey` | Collapse a PR's commits (+ opener) into a deduped `ResolvedContributor[]`. |
 

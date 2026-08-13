@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { logger } from "@autonoma/logger";
 import { describe, expect, it } from "vitest";
-import { GitCommandError, runGitStep, toGitCommandError } from "./git-clone-step";
+import { GitCommandError, isUnreachableRefError, runGitStep, toGitCommandError } from "./git-clone-step";
 
 describe("toGitCommandError", () => {
     it("marks a timeout kill as timedOut and names the step", () => {
@@ -139,5 +139,64 @@ describe("runGitStep", () => {
         expect(error.details.timedOut).toBe(false);
         expect(error.details.step).toBe("cat-file-base");
         expect(error.details.exitCode).toBe(128);
+    });
+});
+
+describe("isUnreachableRefError", () => {
+    /** A `fetch-base` failure as `runGitStep` would translate it, from the raw `execFile` rejection shape. */
+    function fetchBaseError(raw: { killed: boolean; signal: string | null; code: number | null; stderr: string }) {
+        return toGitCommandError(raw, {
+            step: "fetch-base",
+            subcommand: "fetch",
+            elapsedMs: 42,
+            timeoutMs: 60_000,
+            token: "",
+        });
+    }
+
+    it("recovers a base the remote refuses to serve (not our ref)", () => {
+        const error = fetchBaseError({
+            killed: false,
+            signal: null,
+            code: 128,
+            stderr: "fatal: remote error: upload-pack: not our ref f3a9c2aa989ae44c25fae9b8b8827bd6289ab65c\n",
+        });
+        expect(isUnreachableRefError(error)).toBe(true);
+    });
+
+    it("recovers a ref the remote never had (couldn't find remote ref)", () => {
+        const error = fetchBaseError({
+            killed: false,
+            signal: null,
+            code: 128,
+            stderr: "fatal: couldn't find remote ref deadbeef\n",
+        });
+        expect(isUnreachableRefError(error)).toBe(true);
+    });
+
+    it("does NOT recover a fetch the timeout killed, even if its stderr names a missing ref", () => {
+        // timedOut wins over the message: a killed child never completed the ref negotiation.
+        const error = fetchBaseError({
+            killed: true,
+            signal: "SIGTERM",
+            code: null,
+            stderr: "fatal: not our ref deadbeef\n",
+        });
+        expect(isUnreachableRefError(error)).toBe(false);
+    });
+
+    it("does NOT recover a fetch an external signal killed (e.g. the OOM killer)", () => {
+        const error = fetchBaseError({ killed: false, signal: "SIGKILL", code: null, stderr: "" });
+        expect(isUnreachableRefError(error)).toBe(false);
+    });
+
+    it("does NOT recover a generic network failure", () => {
+        const error = fetchBaseError({
+            killed: false,
+            signal: null,
+            code: 128,
+            stderr: "fatal: unable to access ...: Could not resolve host: github.com\n",
+        });
+        expect(isUnreachableRefError(error)).toBe(false);
     });
 });

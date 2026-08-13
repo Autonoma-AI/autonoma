@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { db, type OnboardingStep } from "@autonoma/db";
 import { Codebase } from "@autonoma/diffs";
-import { type GitHubApp, type GitHubInstallationClient } from "@autonoma/github";
+import { type GitHubApp, type GitHubInstallationClient, UnreachableBaseShaError } from "@autonoma/github";
 import { logger as rootLogger } from "@autonoma/logger";
 import { createGithubApp } from "../create-services";
 import { resolveDependencyCheckouts } from "./resolve-dependencies";
@@ -117,7 +117,7 @@ interface CloneCoords {
  *
  * When the snapshot pinned resolvable dependency repos, the checkout is a multi-repo **workspace** (the primary
  * plus each dependency as a named sibling, `codebase.root` = the parent); otherwise it is a flat single-repo
- * clone, exactly as before multi-repo grounding.
+ * clone.
  */
 async function withCheckout<T>(
     github: GitHubAccess,
@@ -164,7 +164,8 @@ async function withCheckout<T>(
 /**
  * Resolve + clone a snapshot's codebase for the duration of one activity, exposing the SHAs and repo metadata
  * alongside the clone, then dispose it on exit. When the snapshot pinned dependency repos, the clone is a
- * multi-repo workspace (see {@link withCheckout}).
+ * multi-repo workspace (see {@link withCheckout}). Recovers once if the recorded base SHA is unreachable on the
+ * remote (see {@link cloneWithBaseRecovery}).
  */
 export async function withSnapshotContext<T>(
     snapshotId: string,
@@ -174,13 +175,67 @@ export async function withSnapshotContext<T>(
     const meta = await loadSnapshotMeta(snapshotId);
     const github = await resolveGitHubAccess(meta);
     const dependencies = await resolveDependencyCheckouts(db, snapshotId);
-    return withCheckout(
-        github,
-        { headSha: meta.headSha, baseSha: meta.baseSha },
-        dependencies,
-        targetDirSeed,
-        (codebase) => body(buildSnapshotContext(meta, github, codebase)),
-    );
+    return cloneWithBaseRecovery(meta, github, dependencies, targetDirSeed, body);
+}
+
+/**
+ * Clone for one activity, recovering ONCE from an unreachable recorded base SHA (a force-pushed/GC'd head the
+ * previous run inherited). Left unhandled the run fails and never promotes, so every later push re-inherits the
+ * same dead base and the branch wedges dark; recovering to the head's first parent lets it promote and advance
+ * the active pointer to a reachable head. Only the primary repo's base triggers this (a dependency's degrades to
+ * `unavailable`); a transient fetch failure is a different error and stays a hard failure.
+ */
+async function cloneWithBaseRecovery<T>(
+    meta: SnapshotMeta,
+    github: GitHubAccess,
+    dependencies: Awaited<ReturnType<typeof resolveDependencyCheckouts>>,
+    targetDirSeed: string,
+    body: (context: SnapshotContext) => Promise<T>,
+): Promise<T> {
+    const cloneAndRun = (snapshot: SnapshotMeta) =>
+        withCheckout(
+            github,
+            { headSha: snapshot.headSha, baseSha: snapshot.baseSha },
+            dependencies,
+            targetDirSeed,
+            (codebase) => body(buildSnapshotContext(snapshot, github, codebase)),
+        );
+
+    try {
+        return await cloneAndRun(meta);
+    } catch (error) {
+        if (!(error instanceof UnreachableBaseShaError)) throw error;
+        const recoveredBaseSha = await recoverUnreachableBase(meta, github, error);
+        return await cloneAndRun({ ...meta, baseSha: recoveredBaseSha });
+    }
+}
+
+/**
+ * Resolve a reachable base and persist it, so every stage that re-clones this run reads the healed coordinates.
+ * Uses the head's first parent - remotely reachable by definition, being an ancestor of the just-pushed head. A
+ * root commit with no parent falls back to head itself (an empty self-diff), which still satisfies the
+ * non-null-base invariant so the run can promote.
+ */
+async function recoverUnreachableBase(
+    meta: SnapshotMeta,
+    github: GitHubAccess,
+    error: UnreachableBaseShaError,
+): Promise<string> {
+    const logger = rootLogger.child({ name: "recoverUnreachableBase" });
+    logger.warn("Recovering an unreachable base SHA to the head's first parent", {
+        snapshot: { snapshotId: meta.snapshotId },
+        extra: { unreachableBaseSha: error.baseSha, headSha: meta.headSha },
+    });
+
+    const headCommit = await github.githubClient.getCommit(meta.githubRepositoryId, meta.headSha);
+    const recoveredBaseSha = headCommit.parents[0] ?? meta.headSha;
+    await db.branchSnapshot.update({ where: { id: meta.snapshotId }, data: { baseSha: recoveredBaseSha } });
+
+    logger.info("Recovered base SHA persisted onto the snapshot", {
+        snapshot: { snapshotId: meta.snapshotId },
+        extra: { recoveredBaseSha, isRootCommit: headCommit.parents.length === 0 },
+    });
+    return recoveredBaseSha;
 }
 
 function buildSnapshotContext(meta: SnapshotMeta, github: GitHubAccess, codebase: Codebase): SnapshotContext {

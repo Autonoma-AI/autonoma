@@ -31,7 +31,13 @@ export {
     type RepoCollaboratorPermission,
     isRepoWriteAccess,
 } from "./github-installation-client";
-export { GitCommandError, type GitStep, type GitFailureDetails } from "./git-clone-step";
+export {
+    GitCommandError,
+    isUnreachableRefError,
+    UnreachableBaseShaError,
+    type GitStep,
+    type GitFailureDetails,
+} from "./git-clone-step";
 export { parseCoAuthoredByTrailers, type CoAuthorTrailer } from "./contributors/parse-co-authors";
 export {
     resolveContributorsFromCommits,

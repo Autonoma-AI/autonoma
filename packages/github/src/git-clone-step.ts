@@ -91,6 +91,40 @@ export class GitCommandError extends Error {
     }
 }
 
+/**
+ * The base SHA a clone was asked to fetch is not on the remote (`not our ref`) - a commit orphaned by a
+ * force-push or GC. Raised by `cloneRepository` INSTEAD of a generic clone failure so a caller can recover to a
+ * reachable base rather than failing the whole run. A transient fetch failure (a timeout) is deliberately NOT
+ * this error - it stays a {@link GitCommandError} so it surfaces and retries.
+ *
+ * The message carries only the SHA (a hash, never a secret), so it needs no token redaction.
+ */
+export class UnreachableBaseShaError extends Error {
+    constructor(public readonly baseSha: string) {
+        super(`Base SHA ${baseSha} is unreachable on the remote (not our ref)`);
+        this.name = "UnreachableBaseShaError";
+    }
+}
+
+/**
+ * git `upload-pack` stderr signatures for a ref the remote will not serve. These are GitHub's wording; this
+ * client is GitHub-only, but a different git server rejects an unadvertised want with other wording (e.g. `Server
+ * does not allow request for unadvertised object`) this would NOT match, so do not reuse it verbatim against a
+ * non-GitHub remote. Patterns, not literals, so `.some(...)` is the right membership check.
+ */
+const UNREACHABLE_REF_PATTERNS = [/not our ref/i, /couldn't find remote ref/i];
+
+/**
+ * Whether a failed git step means the remote does not have the ref (recoverable), as opposed to a transient
+ * failure. A step our timeout killed - or that died by any signal - never completed the ref negotiation, so it is
+ * transient by definition; only a genuine non-zero exit whose (redacted) stderr, carried in the message, names
+ * the missing ref counts.
+ */
+export function isUnreachableRefError(error: GitCommandError): boolean {
+    if (error.details.timedOut || error.details.killed) return false;
+    return UNREACHABLE_REF_PATTERNS.some((pattern) => pattern.test(error.message));
+}
+
 interface GitStepContext {
     step: GitStep;
     /** The git subcommand (`args[0]`), used as the human verb in the message. */

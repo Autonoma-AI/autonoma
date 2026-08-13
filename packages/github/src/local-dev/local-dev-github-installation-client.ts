@@ -155,6 +155,7 @@ export class LocalDevGitHubInstallationClient implements GitHubInstallationClien
                 { filename: "apps/web/hero/hero.css", status: "modified", additions: 8, deletions: 2 },
                 { filename: "apps/api/experiments/assign.ts", status: "added", additions: 41, deletions: 0 },
             ],
+            parents: [`parent-${sha}`],
         };
     }
 

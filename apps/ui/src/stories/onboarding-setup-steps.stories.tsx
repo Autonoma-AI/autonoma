@@ -243,6 +243,7 @@ const headCommit: RouterOutputs["github"]["getCommit"] = {
     { filename: "src/routes/autonoma.ts", status: "added", additions: 84, deletions: 0 },
     { filename: "package.json", status: "modified", additions: 2, deletions: 0 },
   ],
+  parents: ["c0ffee1234ab"],
 };
 
 const noPreviewTargets: SdkDryRunTargets = {

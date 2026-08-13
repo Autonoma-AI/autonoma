@@ -2,7 +2,14 @@ import { type Logger, logger } from "@autonoma/logger";
 import type { App } from "@octokit/app";
 import { z } from "zod";
 import type { EtagStore } from "./etag-store";
-import { buildAuthenticatedGitEnv, GitCommandError, redactSecret, runGitStep } from "./git-clone-step";
+import {
+    buildAuthenticatedGitEnv,
+    GitCommandError,
+    isUnreachableRefError,
+    redactSecret,
+    runGitStep,
+    UnreachableBaseShaError,
+} from "./git-clone-step";
 
 const GITHUB_API = "https://api.github.com";
 
@@ -60,6 +67,9 @@ export interface Commit {
     message: string;
     authorLogin?: string;
     files: CommitFile[];
+    /** Parent commit SHAs, first-parent first. Empty for a root commit. Remotely reachable by definition (they are
+     * ancestors of this commit), which is what makes the first parent a safe recovery base for an unreachable one. */
+    parents: string[];
 }
 
 export type PullRequestState = "open" | "closed" | "merged";
@@ -378,13 +388,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
                     );
                 } catch (err) {
                     this.logger.debug("Base SHA not in shallow clone, fetching explicitly", { baseSha, err });
-                    await runGitStep(
-                        "fetch-base",
-                        ["fetch", `--depth=${depth}`, "origin", baseSha],
-                        { timeoutMs: FETCH_TIMEOUT_MS, cwd: targetDir, env: gitEnv },
-                        token,
-                        this.logger,
-                    );
+                    await this.fetchBaseOrSignalUnreachable(baseSha, targetDir, depth, gitEnv, token);
                 }
             }
 
@@ -395,6 +399,9 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             });
             return targetDir;
         } catch (err) {
+            // An unreachable base is a recoverable condition, not a leak risk: its message is SHA-only, so it
+            // passes through un-redacted and typed for the caller (the diffs worker) to recover from.
+            if (err instanceof UnreachableBaseShaError) throw err;
             // Git steps already throw a redacted, structured GitCommandError; log its
             // fields here (they don't survive Temporal's flattening to a message) and
             // rethrow untouched. Only a non-git failure still needs token redaction.
@@ -403,6 +410,39 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
                 throw err;
             }
             throw redactSecret(err, token);
+        }
+    }
+
+    /**
+     * Fetch the base commit into the shallow clone. When the remote will not serve it (`not our ref` - orphaned by
+     * a force-push or GC), raise a typed {@link UnreachableBaseShaError} so the caller can recover to a reachable
+     * base instead of failing the run. A transient failure (a timeout) stays a `GitCommandError`, rethrown as-is:
+     * it must stay a hard failure so it surfaces and retries, never a silent recovery.
+     */
+    private async fetchBaseOrSignalUnreachable(
+        baseSha: string,
+        targetDir: string,
+        depth: number,
+        gitEnv: NodeJS.ProcessEnv,
+        token: string,
+    ): Promise<void> {
+        try {
+            await runGitStep(
+                "fetch-base",
+                ["fetch", `--depth=${depth}`, "origin", baseSha],
+                { timeoutMs: FETCH_TIMEOUT_MS, cwd: targetDir, env: gitEnv },
+                token,
+                this.logger,
+            );
+        } catch (err) {
+            if (err instanceof GitCommandError && isUnreachableRefError(err)) {
+                this.logger.warn("Base SHA is unreachable on the remote; signalling for recovery", {
+                    baseSha,
+                    extra: { ...err.details },
+                });
+                throw new UnreachableBaseShaError(baseSha);
+            }
+            throw err;
         }
     }
 
@@ -692,6 +732,7 @@ export class OctokitGitHubInstallationClient implements GitHubInstallationClient
             message: data.commit.message,
             authorLogin: data.author?.login,
             files,
+            parents: data.parents.map((parent) => parent.sha),
         };
 
         this.logger.info("Fetched commit", { repoId, sha: commit.sha, fileCount: files.length });

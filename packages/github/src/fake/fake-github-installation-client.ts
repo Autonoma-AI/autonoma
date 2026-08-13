@@ -26,6 +26,8 @@ export interface CommitDetails {
     message: string;
     authorLogin?: string;
     files?: CommitFile[];
+    /** Parent commit SHAs (first-parent first); defaults to empty (a root commit) when unset. */
+    parents?: string[];
 }
 
 export interface RepositorySetup {
@@ -321,6 +323,7 @@ export class FakeGitHubInstallationClient implements GitHubInstallationClient {
             message: details?.message ?? "",
             authorLogin: details?.authorLogin,
             files: details?.files ?? [],
+            parents: details?.parents ?? [],
         };
     }
 
