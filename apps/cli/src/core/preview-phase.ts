@@ -47,6 +47,19 @@ const HEADLESS_GUIDANCE =
     "deploy again. Never report success you have not confirmed.";
 
 /**
+ * Which name to call the app by, said here because the agent picks one before it has read
+ * anything: the MCP's instructions open by teaching an agent in a checkout to read "owner/repo"
+ * off the git remote, which is the wrong half of them for an app that is being onboarded. There
+ * may be no repository linked yet, and there is no pull request at all - so an agent that reaches
+ * for the repo name loses the deploy-debug tools exactly when the deploy it is debugging fails.
+ */
+const IDENTITY_GUIDANCE =
+    " Call every Autonoma tool with the applicationId that `pair` returns - including the " +
+    "deploy-debug ones (get_deploy_status, diagnose_deploy, get_build_logs, get_app_logs) - " +
+    "rather than looking up this repository's name. Where a tool asks for prNumber, pass 0: that " +
+    "is the base environment, the one onboarding sets up, and this app has no pull request yet.";
+
+/**
  * Said here as well as in the MCP's own playbook, because it has to happen BEFORE the
  * first edit and the agent may make one while still reading the playbook. Getting a
  * preview to build takes commits, and they do not belong on the developer's default
@@ -72,7 +85,8 @@ const BRANCH_GUIDANCE =
  */
 function previewPrompt(code: string, interactive: boolean): string {
     const instruction = `set up my preview environments with the ${MCP_SERVER_NAME} MCP, code ${code}`;
-    return interactive ? `${instruction}.${BRANCH_GUIDANCE}` : `${instruction}.${BRANCH_GUIDANCE}${HEADLESS_GUIDANCE}`;
+    const guided = `${instruction}.${IDENTITY_GUIDANCE}${BRANCH_GUIDANCE}`;
+    return interactive ? guided : `${guided}${HEADLESS_GUIDANCE}`;
 }
 
 /**

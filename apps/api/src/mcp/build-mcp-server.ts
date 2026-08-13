@@ -11,8 +11,8 @@ import { type McpSurface, surfaceGuidance } from "./mcp-surface";
 import { registerOnboardingTools } from "./onboarding-tools";
 import { registerReadTools } from "./read-tools";
 import { registerRecipeTools } from "./recipe-tools";
+import { resolveDebugTarget } from "./resolve-debug-target";
 import { type McpTargetInput, resolveMcpTarget } from "./resolve-mcp-target";
-import { resolveRepoContext } from "./resolve-repo-context";
 import { createWriteGuard } from "./write-guard";
 
 /** Reported to the client on connect, alongside the surface's name. */
@@ -52,14 +52,14 @@ export function buildMcpServer(surface: McpSurface, deps: BuildMcpServerDeps): M
     // The org is discovered deep inside a handler (from the application a tool names), so both
     // resolvers record it onto the call's observability context for the analytics event to read
     // back. A resolver reaching a handler unwrapped costs every tool behind it its org attribution.
-    const observedRepoContext = analytics.observeTargetResolution((repoFullName: string) =>
-        resolveRepoContext(repoReader, principal, repoFullName),
+    const observedDebugTarget = analytics.observeTargetResolution((input: McpTargetInput) =>
+        resolveDebugTarget(repoReader, principal, input),
     );
     const guard = createWriteGuard(services);
 
     registerDebugTools(server, {
         services,
-        resolveRepoContext: observedRepoContext,
+        resolveTarget: observedDebugTarget,
         listRepos: () => listAccessibleRepos(services.github, principal),
         analytics,
         mergeGate: services.mergeGate,

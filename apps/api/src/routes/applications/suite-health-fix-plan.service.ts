@@ -11,6 +11,7 @@ import type {
     SuiteHealthLevel,
 } from "@autonoma/types";
 import { suiteHealthFixBranchStateSchema } from "@autonoma/types";
+import { findApplicationRepo } from "../../github/application-repo";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
 import { Service } from "../service";
 import { suiteHealthFixPrompt } from "./suite-health-fix-prompt";
@@ -98,7 +99,11 @@ export class SuiteHealthFixPlanService extends Service {
         const [health, reported, repoFullName] = await Promise.all([
             this.suiteHealth.getForApplication(applicationId, organizationId),
             this.openIssues(applicationId, organizationId),
-            this.resolveRepoFullName(applicationId, organizationId),
+            findApplicationRepo(
+                { db: this.db, listRepositories: (orgId) => this.github.listRepositories(orgId) },
+                organizationId,
+                applicationId,
+            ).then((repo) => repo?.fullName),
         ]);
         const level: SuiteHealthLevel = health.level;
 
@@ -243,37 +248,6 @@ export class SuiteHealthFixPlanService extends Service {
                 },
             ];
         });
-    }
-
-    /**
-     * `owner/repo` for the app, which every MCP tool is keyed by. Tries the preview environment first (a plain DB
-     * read); falls back to the org's GitHub App installation, which apps that deploy externally need. Best-effort
-     * throughout: an unresolved name only means the prompt tells the agent to read the git remote itself.
-     */
-    private async resolveRepoFullName(applicationId: string, organizationId: string): Promise<string | undefined> {
-        const application = await this.db.application.findFirst({
-            where: { id: applicationId, organizationId },
-            select: { githubRepositoryId: true },
-        });
-        if (application?.githubRepositoryId == null) return undefined;
-
-        const preview = await this.db.previewkitEnvironment.findFirst({
-            where: { organizationId, githubRepositoryId: application.githubRepositoryId },
-            select: { repoFullName: true },
-            orderBy: { createdAt: "desc" },
-        });
-        if (preview != null) return preview.repoFullName;
-
-        try {
-            const listing = await this.github.listRepositories(organizationId);
-            return listing.repos.find((repo) => repo.applicationId === applicationId)?.fullName;
-        } catch (err) {
-            this.logger.warn("Could not resolve repo full name from GitHub; prompt will ask the agent to", {
-                application: { applicationId },
-                extra: { err },
-            });
-            return undefined;
-        }
     }
 }
 

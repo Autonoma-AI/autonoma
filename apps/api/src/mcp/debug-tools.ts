@@ -11,7 +11,9 @@ import { derivePreviewSdkUrl } from "../routes/deployments/preview-sdk-url";
 import type { AccessibleRepos, UnreadableOrganization } from "./list-accessible-repos";
 import { DEFAULT_LOG_BYTES, logMaxBytesSchema, unknownServiceMessage } from "./log-tail-bounds";
 import type { McpAnalytics } from "./mcp-analytics";
-import type { RepoContext } from "./resolve-repo-context";
+import { targetInputFields, type TargetInputFields, toTargetInput } from "./mcp-target-input";
+import type { DebugTarget } from "./resolve-debug-target";
+import type { McpTargetInput } from "./resolve-mcp-target";
 import { errorResult, jsonResult, toToolResult, unavailableResult } from "./tool-result";
 
 /** Ceiling on log lines a single tail tool can request. */
@@ -33,9 +35,10 @@ const MCP_ACTOR_LOGIN = "autonoma-mcp";
  */
 export const DEBUG_INSTRUCTIONS = `Autonoma runs your end-to-end tests against a per-PR preview deployment of your app and reviews the result. When a preview fails to build or deploy, or a test fails because the app is broken, these tools let you read the live evidence and fix the cause in this repo.
 
-Every tool is keyed by repoFullName ("owner/repo"). You almost never need to ask the user for it:
-- It is this repository's GitHub remote. Infer it from the working directory (e.g. run \`git remote get-url origin\` and parse "owner/repo"). Use that directly.
-- Only if you are not inside the app's repo, or can't determine the remote, call list_apps to see the repos you can debug and ask the user which one.
+Every tool names the app either by repoFullName ("owner/repo") or by applicationId - send one, never both. You almost never need to ask the user for either:
+- repoFullName is this repository's GitHub remote. Infer it from the working directory (e.g. run \`git remote get-url origin\` and parse "owner/repo"). Use that directly.
+- applicationId is what \`pair\` returns if you are onboarding this app. Prefer it while onboarding: the repository may not be linked yet, and there is usually no pull request, so prNumber 0 (the base environment) is the one to ask about.
+- Only if you have neither, call list_apps to see the repos you can debug and ask the user which one.
 You do NOT need GitHub access - repoFullName is just how Autonoma identifies your app; the org is inferred from it and you must be a member.
 
 Start with the analysis: call get_analysis(repoFullName, prNumber) to read what Autonoma found on the PR - the run's summary, which tests it selected and why, and every open issue with what should have happened, what did happen, file:line code evidence, and a screenshot/clip of the failing run. That is usually enough to fix the problem. Use the deploy-debug flow below instead when a preview fails to BUILD or DEPLOY (not a test/app bug).
@@ -71,22 +74,23 @@ Scenario recipes (test data): before a test runs, Autonoma asks your deployed SD
 
 Cold starts: previews scale to zero after inactivity, so the FIRST request to a preview URL (from get_endpoints) can return a 503 or time out while the pod wakes - the request itself wakes it. That is warm-up, not a failure: wait a few seconds and retry before concluding the app is down. A genuine crash shows up in get_app_logs; a cold start does not.
 
-Keys: every tool takes repoFullName ("owner/repo"); the per-PR tools also take prNumber. The organization is inferred from the repo (which you must be a member of), so everything is automatically scoped to it.`;
+Keys: every tool takes repoFullName ("owner/repo") or applicationId - one of the two, not both; the per-PR tools also take prNumber, where 0 means the base environment. The organization is inferred from the application (which you must be a member of the org of), so everything is automatically scoped to it.`;
 
 /** The snippet the `setup_autonoma` prompt asks the agent to add to AGENTS.md / CLAUDE.md. */
 const AGENTS_MD_SNIPPET = `## Autonoma
 
-After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause - get_analysis for the run's issues + evidence (what broke, why, and where the fix lives), and get_deploy_status / diagnose_deploy / get_build_logs / get_app_logs / get_secret_status when a preview fails to build or deploy - fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes, or list_scenarios/get_recipe/dry_run_scenario when a test failed on its seed data rather than on the app), confirm the deploy with wait_for_deploy, then call start_analysis to have Autonoma re-check the PR - before merging. The tools take this repo as "owner/repo" - infer it from the git remote; if unsure, call list_apps.`;
+After you push a PR, Autonoma reviews its preview deploy. If it flagged a problem, use the Autonoma MCP tools to find the cause - get_analysis for the run's issues + evidence (what broke, why, and where the fix lives), and get_deploy_status / diagnose_deploy / get_build_logs / get_app_logs / get_secret_status when a preview fails to build or deploy - fix it (set_secret for a missing secret value, edit_previewkit_config for build/wiring changes, or list_scenarios/get_recipe/dry_run_scenario when a test failed on its seed data rather than on the app), confirm the deploy with wait_for_deploy, then call start_analysis to have Autonoma re-check the PR - before merging. The tools name the app by "owner/repo" (infer it from the git remote; if unsure, call list_apps) or by applicationId.`;
 
 /** Everything a debug MCP tool needs: the service graph and a per-repo org resolver. */
 export interface DebugToolDeps {
     services: Services;
     /**
-     * Resolve the organization + linked application a call acts in from the `repoFullName` it names,
-     * verifying the authenticated user is a member. Throws NotFoundError when no accessible Autonoma
-     * application is found or the user is not a member of its org.
+     * Resolve the organization + application a call acts in from either name it may carry - the
+     * repository, or the application id `pair` hands an onboarding agent - down to the previewkit
+     * keys these tools reach services by. Verifies the authenticated user's membership, and throws
+     * NotFoundError when no accessible Autonoma application is found.
      */
-    resolveRepoContext: (repoFullName: string) => Promise<RepoContext>;
+    resolveTarget: (input: McpTargetInput) => Promise<DebugTarget>;
     /** List the repos the authenticated user can debug (across their orgs). */
     listRepos: () => Promise<AccessibleRepos>;
     /** Records a `mcp.tool_called` PostHog event per tool invocation, per customer org. */
@@ -99,9 +103,16 @@ export interface DebugToolDeps {
     mergeGate: MergeGateService;
 }
 
-/** Shared `(repoFullName, prNumber)` tool input - the previewkit execution key. */
-const repoPrInput = {
-    repoFullName: z.string().regex(/^[^/]+\/[^/]+$/, "must be 'owner/repo'"),
+/**
+ * Shared `(application, prNumber)` tool input - the previewkit execution key.
+ *
+ * The application is named either way ({@link targetInputFields}), because the two callers hold
+ * different things: an agent in a checkout reads "owner/repo" off the git remote, while an agent
+ * onboarding an app was handed an id by `pair` and has no repository name at all - and, often
+ * enough, no pull request either.
+ */
+const targetPrInput = {
+    ...targetInputFields,
     prNumber: z
         .number()
         .int()
@@ -141,24 +152,44 @@ function noLiveEnvResult(repoFullName: string, prNumber: number, everDeployed = 
     );
 }
 
+/**
+ * How a call named its application, for the log line that precedes resolution.
+ *
+ * Logged instead of the resolved repo because a failure to resolve is exactly the case worth
+ * reading later, and by then there is no repo name to log.
+ */
+function describeTarget(input: TargetInputFields): string {
+    return input.repoFullName ?? input.applicationId ?? "unnamed";
+}
+
+/** The error for an analysis run asked of an application with no GitHub repository behind it. */
+function noLinkedRepositoryMessage(repoFullName: string): string {
+    return (
+        `${repoFullName} is not linked to a GitHub repository Autonoma can read, so there is no pull request to ` +
+        `analyze. Link the repository first.`
+    );
+}
+
 /** The `unavailable` result for a PR Autonoma has not analyzed. */
 function noAnalysisResult(repoFullName: string, prNumber: number) {
     return unavailableResult(`No analysis run for ${repoFullName} PR ${prNumber}. Autonoma has not analyzed this PR.`);
 }
 
 /**
- * Registers the previewkit-scoped debug tools: the surface an agent uses to fix a broken preview
- * on an application that is already live. Every tool resolves its org + application from the
- * `repoFullName` it names via `deps.resolveRepoContext` (which verifies the authenticated user is
- * a member) and then reuses an existing org-scoped service - this layer only maps the
- * agent-friendly execution key (repoFullName, and prNumber where per-PR) onto those services.
- * Resolving per-repo (not a fixed org) is what lets a multi-org user's token work
- * unambiguously. Secret VALUES are never returned; `get_secret_status` reports
- * presence + masked length only.
+ * Registers the previewkit-scoped debug tools: the surface an agent uses to fix a broken preview.
+ * Every tool resolves its org + application from whichever name it carries - the repository, or
+ * the application id - via `deps.resolveTarget` (which verifies the authenticated user is a
+ * member) and then reuses an existing org-scoped service; this layer only maps the agent-friendly
+ * execution key onto those services. Resolving per-application (not a fixed org) is what lets a
+ * multi-org user's token work unambiguously. Secret VALUES are never returned; `get_secret_status`
+ * reports presence + masked length only.
  */
 export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void {
     const logger = rootLogger.child({ name: "debugTools" });
-    const { services, resolveRepoContext, listRepos, analytics, mergeGate } = deps;
+    const { services, listRepos, analytics, mergeGate } = deps;
+    // Every tool hands its whole input here, so a tool that grows a field never has to remember to
+    // keep naming the two it identifies the application by.
+    const resolveTarget = (input: TargetInputFields) => deps.resolveTarget(toTargetInput(input));
 
     server.registerTool(
         "list_apps",
@@ -201,14 +232,15 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "status/endpoint/build outcome, and the latest build. Start here when a preview is broken. The " +
                 "status is what the last deploy recorded, not a live probe, so read `freshness`: `stale: true` " +
                 "means the deploy is old enough that a 'ready' here may describe a preview that no longer exists.",
-            inputSchema: repoPrInput,
+            inputSchema: targetPrInput,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        async ({ repoFullName, prNumber }) =>
+        async (input) =>
             analytics.track("get_deploy_status", async () => {
-                logger.info("get_deploy_status", { extra: { repoFullName, prNumber } });
+                const { prNumber } = input;
+                logger.info("get_deploy_status", { extra: { target: describeTarget(input), prNumber } });
                 try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const { organizationId, applicationId, repoFullName } = await resolveTarget(input);
                     const summary = await tryPreviewSummary(applicationId, prNumber, organizationId);
                     if (summary == null) return await noEnvResult(repoFullName, prNumber, organizationId);
                     return jsonResult({ ...summary, freshness: summaryFreshness(summary) });
@@ -232,14 +264,15 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "concluding the app is down. These URLs are read from the last deploy's record and are not probed: " +
                 "`freshness.stale` means the deploy is old enough that they may no longer resolve at all (a 404 for " +
                 "an unknown host, as opposed to a cold start's 503).",
-            inputSchema: repoPrInput,
+            inputSchema: targetPrInput,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        async ({ repoFullName, prNumber }) =>
+        async (input) =>
             analytics.track("get_endpoints", async () => {
-                logger.info("get_endpoints", { extra: { repoFullName, prNumber } });
+                const { prNumber } = input;
+                logger.info("get_endpoints", { extra: { target: describeTarget(input), prNumber } });
                 try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const { organizationId, applicationId, repoFullName } = await resolveTarget(input);
                     const summary = await tryPreviewSummary(applicationId, prNumber, organizationId);
                     if (summary == null) return await noEnvResult(repoFullName, prNumber, organizationId);
                     const endpoints = summary.services.map((service) => {
@@ -288,7 +321,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "attempts. Logs persist ~30 days and remain readable after the preview is torn down - you can pull " +
                 "a past deploy's build logs even when get_deploy_status reports the environment is gone.",
             inputSchema: {
-                ...repoPrInput,
+                ...targetPrInput,
                 app: appNameSchema(),
                 limit: logLimitSchema(),
                 filter: logFilterSchema(),
@@ -297,10 +330,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
             },
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        async ({ repoFullName, prNumber, app, limit, filter, from, maxBytes }) =>
-            analytics.track("get_build_logs", () =>
-                tailLogs("build", { repoFullName, prNumber, app, limit, filter, from, maxBytes }),
-            ),
+        async (input) => analytics.track("get_build_logs", () => tailLogs("build", input)),
     );
 
     server.registerTool(
@@ -320,7 +350,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "readable after the preview is torn down, so they work for a post-mortem even when get_deploy_status " +
                 "reports no environment.",
             inputSchema: {
-                ...repoPrInput,
+                ...targetPrInput,
                 app: appNameSchema(),
                 limit: logLimitSchema(),
                 filter: logFilterSchema(),
@@ -329,10 +359,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
             },
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        async ({ repoFullName, prNumber, app, limit, filter, from, maxBytes }) =>
-            analytics.track("get_app_logs", () =>
-                tailLogs("app", { repoFullName, prNumber, app, limit, filter, from, maxBytes }),
-            ),
+        async (input) => analytics.track("get_app_logs", () => tailLogs("app", input)),
     );
 
     server.registerTool(
@@ -349,14 +376,15 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 'deploy is old enough that an "ok" may be describing a preview that has since been torn down, so ' +
                 "read it before reporting a preview healthy. Use when get_deploy_status shows a failure and you " +
                 "want the full evidence in one call.",
-            inputSchema: repoPrInput,
+            inputSchema: targetPrInput,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        async ({ repoFullName, prNumber }) =>
+        async (input) =>
             analytics.track("diagnose_deploy", async () => {
-                logger.info("diagnose_deploy", { extra: { repoFullName, prNumber } });
+                const { prNumber } = input;
+                logger.info("diagnose_deploy", { extra: { target: describeTarget(input), prNumber } });
                 try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const { organizationId, applicationId } = await resolveTarget(input);
                     const result = await services.previewkitDiagnosis.signals(organizationId, {
                         applicationId,
                         prNumber,
@@ -387,14 +415,15 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 '`status: "complete"` with no issues and a `passed` verdict is a clean PR. A `newerRun` field means a ' +
                 "later run exists whose result is not in yet, so the issue set may still change. When it reports no " +
                 "analysis run, Autonoma has not analyzed this PR.",
-            inputSchema: repoPrInput,
+            inputSchema: targetPrInput,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        async ({ repoFullName, prNumber }) =>
+        async (input) =>
             analytics.track("get_analysis", async () => {
-                logger.info("get_analysis", { extra: { repoFullName, prNumber } });
+                const { prNumber } = input;
+                logger.info("get_analysis", { extra: { target: describeTarget(input), prNumber } });
                 try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const { organizationId, applicationId, repoFullName } = await resolveTarget(input);
                     const analysis = await services.branches.getAnalysisForPr(applicationId, prNumber, organizationId);
                     if (analysis.status === "no_analysis") return noAnalysisResult(repoFullName, prNumber);
                     return jsonResult(analysis);
@@ -416,15 +445,18 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "get_analysis afterward to read the new findings. It NO-OPS quietly if the merge gate or " +
                 "activation is not enabled for this org (a run there starts automatically, so nothing is needed), " +
                 "and if the PR's current commit was already analyzed or has no live preview, no run starts and " +
-                "Autonoma comments on the PR why. Takes the repo ('owner/repo') and the PR number.",
-            inputSchema: repoPrInput,
+                "Autonoma comments on the PR why. Names the app by repoFullName ('owner/repo') or applicationId, plus the " +
+                "PR number - this one needs a real pull request, so it does not apply to the base environment (0).",
+            inputSchema: targetPrInput,
             annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         },
-        async ({ repoFullName, prNumber }) =>
+        async (input) =>
             analytics.track("start_analysis", async () => {
-                logger.info("start_analysis", { extra: { repoFullName, prNumber } });
+                const { prNumber } = input;
+                logger.info("start_analysis", { extra: { target: describeTarget(input), prNumber } });
                 try {
-                    const { organizationId, githubRepositoryId } = await resolveRepoContext(repoFullName);
+                    const { organizationId, githubRepositoryId, repoFullName } = await resolveTarget(input);
+                    if (githubRepositoryId == null) return errorResult(noLinkedRepositoryMessage(repoFullName));
                     // The PR is named by number; resolve its current head so the run and the check target the same
                     // commit, exactly as the /start analysis comment path does.
                     const pullRequest = await services.github.getPullRequest(
@@ -468,15 +500,15 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "presence, masked length, and a non-reversible `fingerprint` (first 12 hex of SHA-256 of the value) - " +
                 "never the value itself; hash a value you hold as sha256(value).hex.slice(0,12) and compare to check a " +
                 "match. `missingBuildSecrets` are declared build secrets with no value set (a concrete misconfig to " +
-                "fix). Takes the repo ('owner/repo').",
-            inputSchema: { repoFullName: repoPrInput.repoFullName },
+                "fix). Names the app by repoFullName ('owner/repo') or applicationId.",
+            inputSchema: targetInputFields,
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        async ({ repoFullName }) =>
+        async (input) =>
             analytics.track("get_secret_status", async () => {
-                logger.info("get_secret_status", { extra: { repoFullName } });
+                logger.info("get_secret_status", { extra: { target: describeTarget(input) } });
                 try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const { organizationId, applicationId } = await resolveTarget(input);
                     const status = await services.previewkitSecretStatus.status(applicationId, organizationId);
                     return jsonResult(status);
                 } catch (err) {
@@ -505,18 +537,21 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "rebuild/restart is async - call wait_for_deploy(repoFullName, prNumber, app) afterward to block " +
                 "until it settles.",
             inputSchema: {
-                ...repoPrInput,
+                ...targetPrInput,
                 app: requiredAppNameSchema(),
                 key: z.string().min(1).max(255),
                 value: z.string().min(1).max(65536).optional(),
             },
             annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: false },
         },
-        async ({ repoFullName, prNumber, app, key, value }) =>
+        async (input) =>
             analytics.track("set_secret", async () => {
-                logger.info("set_secret", { extra: { repoFullName, prNumber, app, key, removing: value == null } });
+                const { prNumber, app, key, value } = input;
+                logger.info("set_secret", {
+                    extra: { target: describeTarget(input), prNumber, app, key, removing: value == null },
+                });
                 try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const { organizationId, applicationId, repoFullName } = await resolveTarget(input);
                     const result = await services.previewkitWrite.setSecret({
                         applicationId,
                         repoFullName,
@@ -555,7 +590,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "set_secret; how one service is built or wired -> here; reshape the preview -> apply_config. The " +
                 "rebuild is async - call wait_for_deploy(repoFullName, prNumber, app) afterward to block until it settles.",
             inputSchema: {
-                ...repoPrInput,
+                ...targetPrInput,
                 app: requiredAppNameSchema(),
                 path: z.string().min(1).max(1024).optional(),
                 dockerfile: z.string().min(1).max(1024).optional(),
@@ -576,22 +611,14 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
             },
             annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
         },
-        async ({
-            repoFullName,
-            prNumber,
-            app,
-            path,
-            dockerfile,
-            port,
-            healthCheck,
-            buildSecrets,
-            connections,
-            apply,
-        }) =>
+        async (input) =>
             analytics.track("edit_previewkit_config", async () => {
-                logger.info("edit_previewkit_config", { extra: { repoFullName, prNumber, app, apply } });
+                const { prNumber, app, path, dockerfile, port, healthCheck, buildSecrets, connections, apply } = input;
+                logger.info("edit_previewkit_config", {
+                    extra: { target: describeTarget(input), prNumber, app, apply },
+                });
                 try {
-                    const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
+                    const { organizationId, applicationId, repoFullName } = await resolveTarget(input);
                     const result = await services.previewkitWrite.editConfig({
                         applicationId,
                         repoFullName,
@@ -626,17 +653,18 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 "carries the last few log lines (`recentLogs`) from the phase-relevant stream, so you can see it is " +
                 "progressing (and, on failure, often the cause) without a separate log call.",
             inputSchema: {
-                ...repoPrInput,
+                ...targetPrInput,
                 app: appNameSchema(),
                 timeoutSeconds: z.number().int().min(5).max(55).optional(),
             },
             annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
         },
-        async ({ repoFullName, prNumber, app, timeoutSeconds }) =>
+        async (input) =>
             analytics.track("wait_for_deploy", async () => {
-                logger.info("wait_for_deploy", { extra: { repoFullName, prNumber, app } });
+                const { prNumber, app, timeoutSeconds } = input;
+                logger.info("wait_for_deploy", { extra: { target: describeTarget(input), prNumber, app } });
                 try {
-                    const { organizationId } = await resolveRepoContext(repoFullName);
+                    const { organizationId, repoFullName } = await resolveTarget(input);
                     const result = await services.previewkitEnvironments.waitForDeploy({
                         repoFullName,
                         prNumber,
@@ -751,8 +779,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
 
     async function tailLogs(
         source: "build" | "app",
-        input: {
-            repoFullName: string;
+        input: TargetInputFields & {
             prNumber: number;
             app?: string;
             limit?: number;
@@ -761,11 +788,11 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
             maxBytes?: number;
         },
     ) {
-        logger.info(`get_${source}_logs`, { extra: { repoFullName: input.repoFullName, prNumber: input.prNumber } });
+        logger.info(`get_${source}_logs`, { extra: { target: describeTarget(input), prNumber: input.prNumber } });
         try {
-            const { organizationId } = await resolveRepoContext(input.repoFullName);
+            const { organizationId, repoFullName } = await resolveTarget(input);
             const result = await services.previewkitLogs.tail({
-                repoFullName: input.repoFullName,
+                repoFullName,
                 prNumber: input.prNumber,
                 source,
                 callerOrgId: organizationId,
@@ -777,7 +804,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
             });
             if (result == null) {
                 return unavailableResult(
-                    `No ${source} logs found for ${input.repoFullName} PR ${input.prNumber} - the preview may never ` +
+                    `No ${source} logs found for ${repoFullName} PR ${input.prNumber} - the preview may never ` +
                         `have deployed, or its logs have aged out (retained ~30 days).`,
                 );
             }

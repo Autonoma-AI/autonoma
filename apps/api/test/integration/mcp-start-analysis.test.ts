@@ -10,7 +10,7 @@ import { MergeGateService } from "../../src/github/merge-gate.service";
 import { registerDebugTools } from "../../src/mcp/debug-tools";
 import { McpAnalytics } from "../../src/mcp/mcp-analytics";
 import { resolveMcpPrincipal } from "../../src/mcp/mcp-principal";
-import { resolveRepoContext } from "../../src/mcp/resolve-repo-context";
+import { resolveDebugTarget } from "../../src/mcp/resolve-debug-target";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
 
@@ -50,7 +50,7 @@ const PR_NUMBER = 42;
 apiTestSuite({
     name: "debug MCP start_analysis",
     seed: async ({ harness }) => {
-        // resolveRepoContext's membership gate reads the `member` table, which the base harness does not populate.
+        // The target resolver's membership gate reads the `member` table, which the base harness does not populate.
         await harness.db.member.create({
             data: { userId: harness.userId, organizationId: harness.organizationId, role: "owner" },
         });
@@ -82,7 +82,12 @@ apiTestSuite({
                 trigger,
             );
 
-            const result = await callStartAnalysis(harness, mergeGate, fixture.repoFullName, PR_NUMBER);
+            const result = await callStartAnalysis(
+                harness,
+                mergeGate,
+                { repoFullName: fixture.repoFullName },
+                PR_NUMBER,
+            );
 
             // The tool reports the request back to the agent, naming the resolved head commit.
             expect(result.isError).not.toBe(true);
@@ -141,7 +146,12 @@ apiTestSuite({
                 trigger,
             );
 
-            const result = await callStartAnalysis(harness, mergeGate, fixture.repoFullName, PR_NUMBER);
+            const result = await callStartAnalysis(
+                harness,
+                mergeGate,
+                { repoFullName: fixture.repoFullName },
+                PR_NUMBER,
+            );
 
             // Still a clean, non-error result - the tool always returns the "requested" acknowledgement.
             expect(result.isError).not.toBe(true);
@@ -150,6 +160,38 @@ apiTestSuite({
             // Nothing ran, nothing was recorded.
             expect(trigger.calls).toHaveLength(0);
             expect(analytics.captures.filter((capture) => capture.event === "merge_gate.activated")).toHaveLength(0);
+        });
+
+        test("start_analysis fires the same run when the app is named by applicationId", async ({ harness }) => {
+            const analytics = new RecordingAnalytics();
+            const trigger = new RecordingPrDiffsTrigger();
+            const fixture = await createRepoApp(harness);
+            await setActivationGate(harness);
+
+            const mergeGate = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+                trigger,
+            );
+
+            const result = await callStartAnalysis(harness, mergeGate, { applicationId: fixture.appId }, PR_NUMBER);
+
+            // The id resolves to the same repo, so the run fired is indistinguishable from the repo-named one -
+            // including the repo name quoted back, which the tool only knows by resolving the id.
+            expect(result.isError).not.toBe(true);
+            const payload = parseToolText(result);
+            expect(payload.status).toBe("requested");
+            expect(payload.message).toContain(fixture.repoFullName);
+            expect(trigger.calls).toHaveLength(1);
+            expect(trigger.calls[0]).toMatchObject({
+                organizationId: harness.organizationId,
+                repoId: fixture.repoId,
+                prNumber: PR_NUMBER,
+                requested: true,
+            });
         });
     },
 });
@@ -191,7 +233,7 @@ async function createRepoApp(harness: APITestHarness): Promise<RepoAppFixture> {
     });
     await harness.db.application.update({ where: { id: app.id }, data: { githubRepositoryId: repoId } });
 
-    // The preview env is the fast path resolveRepoContext uses to map repoFullName -> org + app + repo id.
+    // The preview env is the fast path the resolver uses to map repoFullName -> org + app + repo id.
     await harness.db.previewkitEnvironment.create({
         data: {
             namespace: `preview-start-analysis-${randomBytes(4).toString("hex")}`,
@@ -224,21 +266,24 @@ async function setActivationGate(
     });
 }
 
-/** Serve the debug tools over an in-memory transport and call `start_analysis` as a real MCP client would. */
+/**
+ * Serve the debug tools over an in-memory transport and call `start_analysis` as a real MCP client
+ * would. `target` is whichever of the two names the caller is exercising, passed through verbatim.
+ */
 async function callStartAnalysis(
     harness: APITestHarness,
     mergeGate: MergeGateService,
-    repoFullName: string,
+    target: { repoFullName: string } | { applicationId: string },
     prNumber: number,
 ) {
     const server = new McpServer({ name: "autonoma-debug", version: "0.0.0" });
     registerDebugTools(server, {
         services: harness.services,
-        resolveRepoContext: async (repo) =>
-            resolveRepoContext(
+        resolveTarget: async (input) =>
+            resolveDebugTarget(
                 { db: harness.db, listRepositories: (orgId) => harness.services.github.listRepositories(orgId) },
                 await resolveMcpPrincipal(harness.db, { userId: harness.userId }),
-                repo,
+                input,
             ),
         listRepos: () => Promise.resolve({ repos: [], truncated: false, unreadable: [] }),
         analytics: new McpAnalytics(new PostHogAnalytics(), "debug", harness.userId),
@@ -251,7 +296,7 @@ async function callStartAnalysis(
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 
     try {
-        return await client.callTool({ name: "start_analysis", arguments: { repoFullName, prNumber } });
+        return await client.callTool({ name: "start_analysis", arguments: { ...target, prNumber } });
     } finally {
         await client.close();
         await server.close();

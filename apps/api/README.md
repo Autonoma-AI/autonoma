@@ -90,8 +90,10 @@ Hono HTTP server
 ### MCP surface (`/v1/mcp`)
 
 One server carries every Autonoma tool: onboarding an application (pinned by a pairing code, keyed by
-`applicationId`) and debugging a reviewed pull request (keyed by `repoFullName`), plus the tools both
-jobs share, which take either identity. `/v1/mcp/debug` and `/v1/mcp/onboarding` are permanent aliases
+`applicationId`) and debugging a reviewed pull request. Every tool outside the onboarding group takes
+either identity - `resolve-mcp-target.ts` narrows the two optional fields to one target, and
+`resolve-debug-target.ts` carries that further to the previewkit keys (`repoFullName` and the numeric
+repository id) the debug tools reach their services by, via `github/application-repo.ts`. `/v1/mcp/debug` and `/v1/mcp/onboarding` are permanent aliases
 serving the same tools - what differs is the guidance a client reads on connect and the `server`
 property on the `mcp.tool_called` analytics event, so usage per address stays distinguishable.
 
