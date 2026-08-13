@@ -1,4 +1,6 @@
 import { ApplicationArchitecture } from "@autonoma/db";
+import { mintSecretKey, SecretKeys, SecretValues } from "@autonoma/secrets";
+import { FakeKeyProvider } from "@autonoma/secrets/fake-key-provider";
 import { TRPCError } from "@trpc/server";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
@@ -201,6 +203,49 @@ apiTestSuite({
             expect(
                 await harness.db.previewkitConfig.findUnique({ where: { applicationId: survivor.id } }),
             ).not.toBeNull();
+        });
+
+        /**
+         * Deleting an application must take its sealed secret values with it. The
+         * delete is a SOFT one - the row is disabled and renamed, never removed - so
+         * `PreviewkitSecret`'s cascade never fires and this is the only thing standing
+         * between a customer deleting an app and their credentials living on. It is
+         * also invisible in ordinary use, which is why it is pinned here.
+         */
+        test("delete takes the application's preview secrets, and only that application's", async ({ harness }) => {
+            const provider = new FakeKeyProvider();
+            await mintSecretKey({ db: harness.db, provider, keyId: `key-${crypto.randomUUID()}` });
+            const values = new SecretValues(harness.db, new SecretKeys(harness.db, provider));
+
+            const doomed = await harness.services.applications.createApplication({
+                name: "App With Secrets",
+                organizationId: harness.organizationId,
+                architecture: ApplicationArchitecture.WEB,
+                url: "https://secrets.example.com",
+                file: "s3://bucket/default-file.png",
+            });
+            const survivor = await harness.services.applications.createApplication({
+                name: "Other App With Secrets",
+                organizationId: harness.organizationId,
+                architecture: ApplicationArchitecture.WEB,
+                url: "https://other-secrets.example.com",
+                file: "s3://bucket/default-file.png",
+            });
+            for (const applicationId of [doomed.id, survivor.id]) {
+                await values.put({ applicationId, appName: "web" }, [{ key: "STRIPE_SECRET_KEY", value: "sk_test_x" }]);
+            }
+
+            await harness.request().applications.delete({ id: doomed.id });
+
+            expect(await harness.db.previewkitSecret.count({ where: { applicationId: doomed.id } })).toBe(0);
+            expect(await harness.db.previewkitSecret.count({ where: { applicationId: survivor.id } })).toBe(1);
+            // The application row itself survives - a soft delete, so nothing cascaded.
+            expect(
+                await harness.db.application.findUniqueOrThrow({
+                    where: { id: doomed.id },
+                    select: { disabled: true },
+                }),
+            ).toEqual({ disabled: true });
         });
     },
 });
