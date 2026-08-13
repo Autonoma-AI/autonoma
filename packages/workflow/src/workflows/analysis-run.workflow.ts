@@ -96,7 +96,13 @@ export async function analysisRunWorkflow(input: AnalysisRunWorkflowInput): Prom
     // anyway spends a model call to reach a selection of zero that means nothing, and - before
     // the exemption above - that zero was what refused the build the customer was waiting for.
     if (resolved.onboardingComplete === false) {
-        log.info("Onboarding is not finished: built the preview and skipped analysis", ids);
+        log.info("Onboarding is not finished: building the preview and skipping analysis", ids);
+        // Awaited rather than left running: the child carries `parentClosePolicy: REQUEST_CANCEL`, so
+        // returning here cancels the build this run exists to produce - which is what the customer is
+        // staring at while onboarding tells them a deploy was requested. The policy is right for the
+        // case it was written for (a newer push terminates the parent and takes the stale build with
+        // it); it is a normal RETURN that must not double as a cancellation.
+        if (eager != null) await awaitStartedBuild(eager, ids);
         return;
     }
 
@@ -236,10 +242,10 @@ async function buildOwnedBySkippedRun(params: {
 async function awaitStartedBuild(build: BuildHandle, ids: ObservabilityContext): Promise<void> {
     try {
         const built = await build.result();
-        log.info("Preview build finished for a skipped run", { ...ids, extra: { primaryUrl: built.primaryUrl } });
+        log.info("Preview build finished", { ...ids, extra: { primaryUrl: built.primaryUrl } });
     } catch (error) {
         if (isCancellation(error)) throw error;
-        log.warn("Preview build failed for a skipped run", { ...ids, extra: { message: rootFailureMessage(error) } });
+        log.warn("Preview build failed", { ...ids, extra: { message: rootFailureMessage(error) } });
     }
 }
 

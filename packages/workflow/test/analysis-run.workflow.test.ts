@@ -129,6 +129,19 @@ async function buildWasStarted(): Promise<boolean> {
     }
 }
 
+/**
+ * The build child's terminal status, so a test can tell a build that RAN from one that was merely
+ * STARTED. `buildWasStarted` cannot: the child exists either way, and a cancelled one is the failure.
+ */
+async function buildStatusName(): Promise<string | undefined> {
+    try {
+        const description = await env.client.workflow.getHandle(currentBuildId).describe();
+        return description.status.name;
+    } catch {
+        return undefined;
+    }
+}
+
 /** Only skips: a build reports its own reason from inside the child, asynchronously, and would race. */
 function skipReports(): PreviewBuildWarrantReason[] {
     return harness.gateReports.map((report) => report.reason).filter((reason) => !warrantsBuild(reason));
@@ -455,6 +468,19 @@ describe("analysisRunWorkflow build gate", () => {
         expect(await buildWasStarted()).toBe(true);
         await harness.buildLaunched;
         expect(harness.events).toEqual(["build:launch"]);
+    });
+
+    // The build is a child started with REQUEST_CANCEL, so a run that returns while it is in flight
+    // cancels the build it just started. Onboarding is the only path that returns with one running,
+    // which makes it the only path where "started" and "ran" can come apart - and the base preview is
+    // precisely what the customer is waiting on at that moment.
+    it("lets the onboarding build finish instead of cancelling it on the way out", async () => {
+        harness.onboardingComplete = false;
+
+        await runToCompletion(deployEvent({ prNumber: 0 }));
+
+        expect(await buildStatusName()).toBe("COMPLETED");
+        expect(harness.cancelledJobs).toEqual([]);
     });
 
     it("builds and then investigates when a never-previewed branch's diff selects a test", async () => {
