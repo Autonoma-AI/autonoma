@@ -161,15 +161,11 @@ model Organization {
   applicationSetups       ApplicationSetup[]
   signupHookStates        SignupHookState[]
   previewkitEnvironments  PreviewkitEnvironment[]
-  diffsJobs               DiffsJob[]
   analysisJobs            AnalysisJob[]
-  investigationReports    InvestigationReport[]
   analysisReports         AnalysisReport[]
   analysisFindings        AnalysisFinding[]
   analysisClassifications AnalysisClassification[]
   analysisIssues          AnalysisIssue[]
-  affectedTests           AffectedTest[]
-  refinementLoops         RefinementLoop[]
   vercelInstallations     VercelInstallation[]
 
   @@map("organization")
@@ -784,11 +780,12 @@ model BranchSnapshot {
   nextSnapshots  BranchSnapshot[] @relation("SnapshotHistory")
 
   // The detached investigation twin paired with this snapshot, if any. The
-  // investigation agent runs on its own snapshot so its shadow generations never
-  // pollute this snapshot's pending-generation set (which the refinement loop
-  // reads). The twin is never wired to a branch pointer; it is reachable only via
-  // this FK. `investigationParent` (the reverse side) is the canonical signal that
-  // a snapshot IS such a twin, used to hide it from user-facing snapshot queries.
+  // retired investigation agent ran on its own snapshot so its shadow generations
+  // never polluted this snapshot's pending-generation set. The twin is never wired
+  // to a branch pointer; it is reachable only via this FK. `investigationParent`
+  // (the reverse side) is the canonical signal that a snapshot IS such a twin, used
+  // to hide it from user-facing snapshot queries. Nothing writes the pair any more,
+  // but historical twins still exist and must stay hidden.
   investigationSnapshotId String?         @unique @map("investigation_snapshot_id")
   investigationSnapshot   BranchSnapshot? @relation("InvestigationPair", fields: [investigationSnapshotId], references: [id], onDelete: SetNull)
   investigationParent     BranchSnapshot? @relation("InvestigationPair")
@@ -812,13 +809,10 @@ model BranchSnapshot {
   baseOfBranches  Branch[]         @relation("BaseSnapshot")
   testGenerations TestGeneration[]
 
-  diffsJob             DiffsJob?
   analysisJob          AnalysisJob?
-  investigationReport  InvestigationReport?
   analysisReport       AnalysisReport?
-  investigationAiCosts AiCostRecord[]       @relation("InvestigationAiCost")
+  investigationAiCosts AiCostRecord[]     @relation("InvestigationAiCost")
   issues               Issue[]
-  refinementLoop       RefinementLoop?
   vercelDeployments    VercelDeployment[]
 
   @@index([branchId, createdAt])
@@ -883,8 +877,6 @@ model TestCase {
 
   bugEvidence BugTestCaseEvidence[]
 
-  affectedIn AffectedTest[]
-
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
   organizationId String       @map("organization_id")
@@ -908,11 +900,10 @@ model TestPlan {
   scenario     Scenario? @relation(fields: [scenarioId], references: [id], onDelete: SetNull)
   scenarioName String?   @map("scenario_name")
 
-  generations               TestGeneration[]
-  stepLists                 StepInputList[]
-  assignments               TestCaseAssignment[]
-  runs                      Run[]
-  refinementIterationInputs RefinementIterationInput[]
+  generations TestGeneration[]
+  stepLists   StepInputList[]
+  assignments TestCaseAssignment[]
+  runs        Run[]
 
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @updatedAt @map("updated_at")
@@ -977,8 +968,6 @@ model TestGeneration {
   costRecords      AiCostRecord[]
   generationReview GenerationReview?
   attempts         StepAttempt[]
-
-  affectedTest AffectedTest?
 
   /// The analysis findings whose verdict this run produced. A list rather than one row because a re-filed
   /// containment finding can overwrite in place while an earlier self-heal pass still points here.
@@ -1194,132 +1183,6 @@ model BugTestCaseEvidence {
   @@unique([bugId, testCaseId])
   @@index([testCaseId])
   @@map("bug_test_case_evidence")
-}
-
-// ─── Refinement Loop ─────────────────────────────────────────────────────────
-
-enum RefinementTrigger {
-  onboarding
-  diffs
-
-  @@map("refinement_trigger")
-}
-
-enum RefinementStatus {
-  running
-  converged
-  max_iterations
-  error
-
-  @@map("refinement_status")
-}
-
-enum RefinementActionKind {
-  update_plan
-  add_test
-  report_bug
-  report_engine_limitation
-  report_unknown_issue
-  report_scenario_unsupported
-  remove_test
-
-  @@map("refinement_action_kind")
-}
-
-enum RefinementIterationStatus {
-  pending
-  running
-  completed
-
-  @@map("refinement_iteration_status")
-}
-
-model RefinementLoop {
-  id String @id @default(cuid())
-
-  snapshotId String         @unique @map("snapshot_id")
-  snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-
-  triggeredBy RefinementTrigger @map("triggered_by")
-  status      RefinementStatus  @default(running)
-
-  startedAt  DateTime  @default(now()) @map("started_at")
-  finishedAt DateTime? @map("finished_at")
-
-  iterations RefinementIteration[]
-
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId])
-  @@map("refinement_loop")
-}
-
-model RefinementIteration {
-  id String @id @default(cuid())
-
-  loopId String         @map("loop_id")
-  loop   RefinementLoop @relation(fields: [loopId], references: [id], onDelete: Cascade)
-
-  number     Int
-  status     RefinementIterationStatus @default(pending)
-  startedAt  DateTime                  @default(now()) @map("started_at")
-  finishedAt DateTime?                 @map("finished_at")
-
-  /// S3 URL of the persisted HealingAgent conversation for this iteration.
-  healingConversationUrl String? @map("healing_conversation_url")
-
-  /// The HealingAgent's one-paragraph summary reasoning for this iteration,
-  /// captured from its finish tool. Nullable: written after the agent runs, so
-  /// it stays null for pending/running iterations and for iterations that error
-  /// before the agent finishes.
-  reasoning String? @map("reasoning") @db.Text
-
-  actions RefinementAction[]
-  inputs  RefinementIterationInput[]
-
-  @@unique([loopId, number])
-  @@map("refinement_iteration")
-}
-
-model RefinementAction {
-  id String @id @default(cuid())
-
-  iterationId String              @map("iteration_id")
-  iteration   RefinementIteration @relation(fields: [iterationId], references: [id], onDelete: Cascade)
-
-  planId     String?              @map("plan_id")
-  testCaseId String?              @map("test_case_id")
-  kind       RefinementActionKind
-
-  /// ![object]
-  payload   Json
-  reasoning String @db.Text
-
-  appliedAt DateTime? @map("applied_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-
-  @@index([iterationId])
-  @@map("refinement_action")
-}
-
-/// The set of plans each refinement iteration is responsible for analyzing.
-/// Iter 1's rows are written by the loop's init from the seed planIds parameter;
-/// iter N+1's rows are written by applyHealingActions when plan-changing actions
-/// (update_plan, add_test) are produced. Makes the loop's scope an explicit
-/// first-class fact rather than an inferred join over upstream tables.
-model RefinementIterationInput {
-  iterationId String   @map("iteration_id")
-  planId      String   @map("plan_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  iteration RefinementIteration @relation(fields: [iterationId], references: [id], onDelete: Cascade)
-  plan      TestPlan            @relation(fields: [planId], references: [id], onDelete: Cascade)
-
-  @@id([iterationId, planId])
-  @@index([iterationId])
-  @@index([planId])
-  @@map("refinement_iteration_input")
 }
 
 // ─── Step Input / Output ──────────────────────────────────────────────────────
@@ -1569,8 +1432,6 @@ model Run {
   outputs     StepOutputList?
   runReview   RunReview?
   costRecords AiCostRecord[]
-
-  affectedTest AffectedTest?
 
   reasoning String? @map("reasoning") @db.Text
 
@@ -2804,219 +2665,7 @@ model ApplicationTriggerConfig {
   @@map("application_trigger_config")
 }
 
-// ─── Diffs Job ────────────────────────────────────────────────────────────────
-
-enum DiffsJobStatus {
-  pending
-  analyzing
-  replaying
-  resolving
-  generating
-  finalizing
-  completed
-  failed
-
-  @@map("diffs_job_status")
-}
-
-enum AffectedReason {
-  code_change
-  merge_plan_imported
-  merge_conflict
-
-  @@map("affected_reason")
-}
-
-model DiffsJob {
-  snapshotId String         @id @map("snapshot_id")
-  snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-
-  status DiffsJobStatus @default(pending)
-
-  analysisReasoning   String? @map("analysis_reasoning") @db.Text
-  resolutionReasoning String? @map("resolution_reasoning") @db.Text
-  failureReason       String? @map("failure_reason") @db.Text
-
-  analysisConversationUrl String? @map("analysis_conversation_url")
-
-  startedAt   DateTime? @map("started_at")
-  completedAt DateTime? @map("completed_at")
-
-  affectedTests AffectedTest[]
-
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId])
-  @@map("diffs_job")
-}
-
-enum InvestigationReportStatus {
-  running
-  completed
-  failed
-
-  @@map("investigation_report_status")
-}
-
-/// The shadow "investigation" agent's structured report for a snapshot. This, plus its child tables
-/// (InvestigationFinding / InvestigationSuggestedTest), is the queryable native
-/// home for the agent's output - it REPLACES the old S3-JSON round-trip (the API reads these tables and signs
-/// the stored media keys on read). The whole set is an isolated island: it only FKs OUTWARD (snapshot / org,
-/// cascade) and nothing in the core app FKs into it, so retiring the agent later is a clean DROP TABLE.
-/// Internal-only surface (shown to @autonoma.app users to compare against the deployed diffs agent).
-model InvestigationReport {
-  snapshotId String         @id @map("snapshot_id")
-  snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
-
-  /// Lifecycle for the progress UI: seeded `running` at workflow start, flipped `completed`/`failed` at the end.
-  status         InvestigationReportStatus @default(completed) @map("status")
-  /// Current workflow stage while running (progress UI); null once terminal or on legacy rows.
-  stage          String?                   @map("stage")
-  stageUpdatedAt DateTime?                 @map("stage_updated_at")
-
-  /// Report header, denormalized so the read path never re-resolves PR meta (a heavy GitHub round-trip).
-  client       String? @map("client")
-  appSlug      String? @map("app_slug")
-  prNumber     Int?    @map("pr_number")
-  prTitle      String? @map("pr_title") @db.Text
-  prBody       String? @map("pr_body") @db.Text
-  repoFullName String? @map("repo_full_name")
-  commitSha    String? @map("commit_sha")
-
-  /// The deployed-agent comparison - a display-only blob, never queried, so JSON not a table.
-  /// [InvestigationDeployedComparison]
-  deployed Json? @map("deployed")
-
-  /// Legacy S3 markdown key. Optional now: pre-cutover reports keep their raw-report link; new reports persist
-  /// to the child tables and (per config) may still write the human-readable markdown mirror.
-  s3Key          String? @map("s3_key")
-  testCount      Int     @default(0) @map("test_count")
-  clientBugCount Int     @default(0) @map("client_bug_count")
-
-  findings       InvestigationFinding[]
-  suggestedTests InvestigationSuggestedTest[]
-
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@index([organizationId])
-  @@map("investigation_report")
-}
-
-/// One classified per-test finding (the investigation agent's OWN classification - not the diffs Bug model).
-/// Media stays as s3:// keys (signed on read); display-only blobs (evidence, run trace) are JSON; the fields
-/// the UI filters/sorts on are real columns. FKs only to its parent report (cascade); organizationId is a
-/// plain scalar for cross-report scoping, deliberately NOT a relation so the Organization model stays untouched.
-model InvestigationFinding {
-  id               String              @id @default(cuid())
-  reportSnapshotId String              @map("report_snapshot_id")
-  report           InvestigationReport @relation(fields: [reportSnapshotId], references: [snapshotId], onDelete: Cascade)
-
-  /// Stable per-report routing id (the slug, suffixed when a slug appears more than once).
-  findingKey        String   @map("finding_key")
-  slug              String
-  category          String
-  confidence        String?
-  planFidelity      String?  @map("plan_fidelity")
-  falsePositiveRisk String?  @map("false_positive_risk")
-  headline          String   @db.Text
-  whatHappened      String?  @map("what_happened") @db.Text
-  observedAppIssues String?  @map("observed_app_issues") @db.Text
-  remediation       String?  @db.Text
-  rootCause         String?  @map("root_cause") @db.Text
-  suggestedFixDiff  String?  @map("suggested_fix_diff") @db.Text
-  plan              String?  @db.Text
-  runSuccess        Boolean? @map("run_success")
-  stepCount         Int?     @map("step_count")
-
-  /// string[] run trace and InvestigationEvidence[] - display blobs, never queried.
-  /// [InvestigationRunSteps]
-  runSteps Json? @map("run_steps")
-  /// The structured, inspectable trace: per-step frame (s3 key, signed on read) + click coords. Additive/
-  /// nullable; populated alongside runSteps, which stays the text fallback for legacy rows.
-  /// [InvestigationRunTrace]
-  runTrace Json? @map("run_trace")
-  /// [InvestigationEvidenceList]
-  evidence Json?
-
-  /// s3:// keys, signed on read. screenshotKey is the error-frame once PR2 lands.
-  videoKey      String? @map("video_key")
-  screenshotKey String? @map("screenshot_key")
-
-  /// Present instead of the verdict fields when the model failed to classify this test.
-  error String? @db.Text
-
-  /// When the reconciliation agent MERGED several tests that surfaced the same underlying issue into this one
-  /// finding, the slugs of every test it now represents (this finding's own slug plus the absorbed ones). A
-  /// merged finding carries the agent's combined narrative + the union of the members' evidence; the absorbed
-  /// per-test findings are never persisted. Null/absent on a standalone (unreconciled) finding.
-  /// [InvestigationCoveredSlugs]
-  coveredSlugs Json? @map("covered_slugs")
-
-  displayOrder Int @map("display_order")
-
-  createdAt      DateTime @default(now()) @map("created_at")
-  organizationId String   @map("organization_id")
-
-  @@unique([reportSnapshotId, findingKey])
-  @@index([reportSnapshotId])
-  @@index([organizationId, category])
-  @@map("investigation_finding")
-}
-
-/// A NEW test the agent proposes to add (with its validation outcome, if the validate->edit->retry loop ran).
-model InvestigationSuggestedTest {
-  id               String              @id @default(cuid())
-  reportSnapshotId String              @map("report_snapshot_id")
-  report           InvestigationReport @relation(fields: [reportSnapshotId], references: [snapshotId], onDelete: Cascade)
-
-  name        String
-  instruction String @db.Text
-  reasoning   String @db.Text
-
-  validationPassed        Boolean? @map("validation_passed")
-  validationIterations    Int?     @map("validation_iterations")
-  validationFailureReason String?  @map("validation_failure_reason") @db.Text
-
-  displayOrder Int @map("display_order")
-
-  createdAt      DateTime @default(now()) @map("created_at")
-  organizationId String   @map("organization_id")
-
-  @@index([reportSnapshotId])
-  @@map("investigation_suggested_test")
-}
-
-model AffectedTest {
-  snapshotId String   @map("snapshot_id")
-  testCaseId String   @map("test_case_id")
-  diffsJob   DiffsJob @relation(fields: [snapshotId], references: [snapshotId], onDelete: Cascade)
-  testCase   TestCase @relation(fields: [testCaseId], references: [id], onDelete: Cascade)
-
-  affectedReason AffectedReason @map("affected_reason")
-  reasoning      String         @db.Text
-
-  runId String? @unique @map("run_id")
-  run   Run?    @relation(fields: [runId], references: [id], onDelete: SetNull)
-
-  generationId String?         @unique @map("generation_id")
-  generation   TestGeneration? @relation(fields: [generationId], references: [id], onDelete: SetNull)
-
-  createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
-  organizationId String       @map("organization_id")
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@id([snapshotId, testCaseId])
-  @@index([organizationId])
-  @@index([testCaseId])
-  @@map("affected_test")
-}
+// ─── Analysis ─────────────────────────────────────────────────────────────────
 
 enum AnalysisJobStatus {
   running
@@ -3026,9 +2675,8 @@ enum AnalysisJobStatus {
   @@map("analysis_job_status")
 }
 
-/// The status row for one authoritative-mode analysis run - the AnalysisJob mirrors DiffsJob so the snapshot
-/// status/badge/history queries have a job to read when an org runs the merged pipeline instead of diffs (there
-/// is no DiffsJob then). Created `running` by the trigger and flipped `completed`/`failed` by finalize (a
+/// The status row for one analysis run - what the snapshot status/badge/history queries read to learn whether a
+/// run is in flight. Created `running` by the trigger and flipped `completed`/`failed` by finalize (a
 /// supersession marks it terminal). Keyed 1:1 by snapshot, cascade from BranchSnapshot. Health counts still
 /// derive from runs; this only tracks the pipeline's own lifecycle.
 model AnalysisJob {

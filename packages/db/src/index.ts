@@ -8,7 +8,6 @@ import type {
     Build as PreviewkitBuild,
     DatabaseSetupLocation as PreviewkitDatabaseSetupLocation,
     evidenceManifestEntrySchema,
-    investigationDeployedComparisonSchema,
     investigationEvidenceSchema,
     investigationRunStepSchema,
     issueReportSchema,
@@ -153,16 +152,12 @@ declare global {
         export type IssueReport = z.infer<typeof issueReportSchema>;
         export type ScenarioRecipeJson = z.infer<typeof ScenarioRecipeSchema>;
         export type ScenarioStructureJson = z.infer<typeof ScenarioStructureJsonSchema>;
-        /** The deployed-agent comparison stored on InvestigationReport.deployed (display-only). */
-        export type InvestigationDeployedComparison = z.infer<typeof investigationDeployedComparisonSchema>;
-        /** Per-finding code/run evidence stored on InvestigationFinding.evidence (display-only). */
+        /** Per-classification code/run evidence stored on AnalysisClassification.evidence (display-only). */
         export type InvestigationEvidenceList = z.infer<typeof investigationEvidenceSchema>[];
-        /** The step-by-step run trace stored on InvestigationFinding.runSteps (display-only). */
+        /** The step-by-step run trace stored on AnalysisClassification.runSteps (display-only). */
         export type InvestigationRunSteps = string[];
-        /** The structured per-step trace (frame key + click coords) stored on InvestigationFinding.runTrace. */
+        /** The structured per-step trace (frame key + click coords) stored on AnalysisClassification.runTrace. */
         export type InvestigationRunTrace = z.infer<typeof investigationRunStepSchema>[];
-        /** The test slugs a MERGED finding represents (its own + absorbed duplicates), stored on covered_slugs. */
-        export type InvestigationCoveredSlugs = string[];
         /**
          * The Reporter's grounded, branch-scoped issue store (and the report's) JSON columns. The manifest lists
          * exactly the evidence assets the Reporter fetched (embeddable by `evidence:<assetId>` token); the primary
