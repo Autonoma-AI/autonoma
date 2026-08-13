@@ -176,7 +176,6 @@ function expectedReport(overrides: Partial<AnalysisClassificationReport> = {}): 
         rootCause: "n/a",
         remediation: "n/a",
         falsePositiveRisk: "none",
-        plan: "1. Open checkout.",
         runSuccess: false,
         stepCount: 2,
         evidence: [{ source: "run", detail: "n/a" }],

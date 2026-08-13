@@ -2899,7 +2899,9 @@ model AnalysisClassification {
   remediation       String?  @db.Text
   rootCause         String?  @map("root_cause") @db.Text
   falsePositiveRisk String?  @map("false_positive_risk") @db.Text
-  /// The test's plan AS THIS ITERATION RAN IT - a self-heal rewrites it, so the plan differs between iterations.
+  /// Retired: a copy of the immutable `test_plan` its generation pins (the plan the classifier judged), now read
+  /// through the generation FK. Neither written nor read; the historical copies just wait for the DROP, which rides
+  /// a follow-up migration one deploy later.
   plan              String?  @db.Text
   runSuccess        Boolean? @map("run_success")
   stepCount         Int?     @map("step_count")
@@ -2912,11 +2914,12 @@ model AnalysisClassification {
   /// [InvestigationEvidenceList]
   evidence Json?
 
-  /// `s3://` keys, signed on read.
+  /// Retired: verbatim copies of `generation.videoUrl` / `generation.optimizedVideoUrl`, now read straight off the
+  /// generation FK. Neither written nor read; the historical copies just wait for the DROP, which rides a follow-up
+  /// migration one deploy later.
   videoKey          String? @map("video_key")
-  /// `s3://` key of the dead-time-stripped mp4 recording, signed on read. Backs the finding page's
-  /// Optimized/Original toggle; null for runs recorded before the optimizer landed.
   optimizedVideoKey String? @map("optimized_video_key")
+  /// The classifier-CHOSEN key frame (distinct from `generation.finalScreenshot`); `s3://` key, signed on read.
   screenshotKey     String? @map("screenshot_key")
   /// Short GIF clip of the failure (client bugs only).
   clipKey           String? @map("clip_key")

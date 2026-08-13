@@ -341,10 +341,6 @@ export interface InvestigationTestResult {
     runTrace?: InvestigationRunStep[];
     verdict?: InvestigationVerdict;
     error?: string;
-    videoUrl?: string;
-    /** The dead-time-stripped mp4 recording (s3 key), when the engine produced one. Signed on read; backs the
-     *  finding page's Optimized/Original toggle. Absent for runs recorded before the optimizer landed. */
-    optimizedVideoUrl?: string;
     keyScreenshotUrl?: string;
     /** S3 key of a short GIF clip of the failure (client bugs only). */
     clipUrl?: string;

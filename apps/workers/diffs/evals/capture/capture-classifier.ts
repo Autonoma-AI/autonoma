@@ -240,27 +240,20 @@ async function loadPriorPass(classification: LoadedClassification): Promise<Clas
             category: true,
             headline: true,
             rootCause: true,
-            plan: true,
             planMismatchNote: true,
             evidence: true,
+            // The plan the prior pass judged is the immutable plan its generation pinned - the same source the
+            // store reads through.
+            generation: { select: { testPlan: { select: { prompt: true } } } },
         },
     });
     if (prior == null) return undefined;
-
-    // The plan the prior pass judged is what a self-heal re-run is graded against, so a row without one cannot
-    // be frozen into a case that means anything. Refuse rather than write a case with an empty prior plan.
-    if (prior.plan == null) {
-        throw new Error(
-            `The prior classification of finding ${classification.findingId} (iteration ${classification.number - 1}) ` +
-                "has no plan, so its self-heal context cannot be frozen. Pick a run whose prior pass recorded one.",
-        );
-    }
 
     return {
         category: prior.category,
         headline: prior.headline,
         rootCause: prior.rootCause ?? undefined,
-        plan: prior.plan,
+        plan: prior.generation.testPlan.prompt,
         planMismatchNote: prior.planMismatchNote ?? undefined,
         // An absent list is a prior pass that cited nothing, which is what an empty one says.
         evidence: prior.evidence ?? [],

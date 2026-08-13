@@ -253,8 +253,6 @@ export async function classifyInvestigationRun(input: ClassifyInvestigationRunIn
             runSteps: runArtifacts.steps,
             runTrace: deriveRunTrace(generation.attempts),
             verdict,
-            videoUrl: generation.videoUrl ?? undefined,
-            optimizedVideoUrl: generation.optimizedVideoUrl ?? undefined,
             keyScreenshotUrl: keyScreenshot ?? undefined,
             clipUrl,
             conversationUrl,

@@ -293,6 +293,93 @@ analysisSuite({
             expect(finding.currentClassification?.conversationUrl).toBeNull();
         });
 
+        test("resolves plan and video keys from the generation for a row that stored none", async ({ harness }) => {
+            const run = await harness.seedAnalysis();
+            const { testCaseId, generationId } = await harness.seedRunForSlug(run, "checkout");
+            // The generation is the single source of these run facts; give it a recording to resolve.
+            await harness.db.testGeneration.update({
+                where: { id: generationId },
+                data: { videoUrl: "s3://gen/video.webm", optimizedVideoUrl: "s3://gen/video.mp4" },
+            });
+            const generation = await harness.db.testGeneration.findUniqueOrThrow({
+                where: { id: generationId },
+                select: { testPlan: { select: { prompt: true } } },
+            });
+            const scope = harness.store.forAnalysis(run.snapshotId);
+            await scope.recordClassification({
+                testCaseId,
+                origin: "pre_existing",
+                number: 1,
+                generationId,
+                category: "client_bug",
+                headline: "checkout 500s",
+            });
+
+            // The row itself stored no copy of any of the three.
+            const stored = await harness.db.analysisClassification.findFirstOrThrow({ where: { generationId } });
+            expect(stored.plan).toBeNull();
+            expect(stored.videoKey).toBeNull();
+            expect(stored.optimizedVideoKey).toBeNull();
+
+            // ...yet the finding still carries them, resolved through the generation join.
+            const [finding] = await scope.findings();
+            expect(finding?.current?.plan).toBe(generation.testPlan.prompt);
+            expect(finding?.current?.videoKey).toBe("s3://gen/video.webm");
+            expect(finding?.current?.optimizedVideoKey).toBe("s3://gen/video.mp4");
+        });
+
+        test("a historical row reads plan and video keys off the generation, ignoring its frozen copies", async ({
+            harness,
+        }) => {
+            const run = await harness.seedAnalysis();
+            const { testCaseId, generationId } = await harness.seedRunForSlug(run, "legacy");
+            await harness.db.testGeneration.update({
+                where: { id: generationId },
+                data: { videoUrl: "s3://gen/new.webm", optimizedVideoUrl: "s3://gen/new.mp4" },
+            });
+            const generation = await harness.db.testGeneration.findUniqueOrThrow({
+                where: { id: generationId },
+                select: { testPlan: { select: { prompt: true } } },
+            });
+
+            // A finding + classification written the old way: the run facts frozen onto the row itself, and here
+            // deliberately DIFFERENT from what the generation pins, to prove the stored copies are ignored.
+            const finding = await harness.db.analysisFinding.create({
+                data: {
+                    reportSnapshotId: run.snapshotId,
+                    testCaseId,
+                    organizationId: run.organizationId,
+                    origin: "pre_existing",
+                },
+                select: { id: true },
+            });
+            const classification = await harness.db.analysisClassification.create({
+                data: {
+                    findingId: finding.id,
+                    number: 1,
+                    generationId,
+                    organizationId: run.organizationId,
+                    category: "client_bug",
+                    headline: "checkout 500s",
+                    plan: "a stale frozen plan copy",
+                    videoKey: "s3://frozen/video.webm",
+                    optimizedVideoKey: "s3://frozen/video.mp4",
+                },
+                select: { id: true },
+            });
+            await harness.db.analysisFinding.update({
+                where: { id: finding.id },
+                data: { currentClassificationId: classification.id },
+            });
+
+            const scope = harness.store.forAnalysis(run.snapshotId);
+            const [read] = await scope.findings();
+            // All three come from the generation the row pins, not the frozen columns.
+            expect(read?.current?.plan).toBe(generation.testPlan.prompt);
+            expect(read?.current?.videoKey).toBe("s3://gen/new.webm");
+            expect(read?.current?.optimizedVideoKey).toBe("s3://gen/new.mp4");
+        });
+
         test("selfHealed is derived correctly for every finding shape", async ({ harness }) => {
             const run = await harness.seedAnalysis();
             await harness.recordVerdict(run, "single", "passed");

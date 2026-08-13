@@ -598,8 +598,6 @@ export const analysisClassificationReportSchema = z.object({
     observedAppIssues: z.string().optional(),
     /** The classifier's explicit false-positive self-check. */
     falsePositiveRisk: z.string().optional(),
-    /** The test plan the run was checked against (the "reproduction" steps). */
-    plan: z.string().optional(),
     runSuccess: z.boolean().optional(),
     stepCount: z.number().optional(),
     /** The run agent's per-step text trace (interaction + status + per-step error). */
@@ -607,11 +605,6 @@ export const analysisClassificationReportSchema = z.object({
     /** The structured, inspectable trace: per-step frame (`s3://` key) + click coords. */
     runTrace: z.array(investigationRunStepSchema).optional(),
     evidence: z.array(investigationEvidenceSchema).optional(),
-    /** `s3://` media keys, signed on read. */
-    videoKey: z.string().optional(),
-    /** `s3://` key of the dead-time-stripped mp4 recording, signed on read. Backs the finding page's
-     *  Optimized/Original toggle; absent for runs recorded before the optimizer landed. */
-    optimizedVideoKey: z.string().optional(),
     screenshotKey: z.string().optional(),
     /** Short GIF clip of the failure (client bugs only), signed on read. */
     clipKey: z.string().optional(),

@@ -299,8 +299,9 @@ type ClassifyOutcome =
  * Map the classifier's rich result onto the classification's evidence bundle. It is persisted onto this
  * iteration's `AnalysisClassification` row, which is what the UI renders (a
  * `client_bug` carries its evidence here, not in any Bug/Issue). Media ride as `s3://` keys (signed on read).
- * Pure shaping; the runner fields (`videoUrl`/`keyScreenshotUrl`/`clipUrl`) are already storage keys despite
- * their names.
+ * Pure shaping; the runner fields (`keyScreenshotUrl`/`clipUrl`) are already storage keys despite their names.
+ * The run's plan and recording are NOT copied here - they are the generation's own facts, resolved through the
+ * classification's generation FK on read.
  */
 function toClassificationReport(result: InvestigationTestResult): AnalysisClassificationReport {
     const verdict = result.verdict;
@@ -315,14 +316,11 @@ function toClassificationReport(result: InvestigationTestResult): AnalysisClassi
         remediation: verdict?.remediation,
         observedAppIssues: verdict?.observedAppIssues,
         falsePositiveRisk: verdict?.falsePositiveRisk,
-        plan: result.plan,
         runSuccess: result.runSuccess,
         stepCount: result.stepCount,
         runSteps: result.runSteps,
         runTrace: result.runTrace,
         evidence: verdict?.evidence,
-        videoKey: result.videoUrl,
-        optimizedVideoKey: result.optimizedVideoUrl,
         screenshotKey: result.keyScreenshotUrl,
         clipKey: result.clipUrl,
         conversationUrl: result.conversationUrl,

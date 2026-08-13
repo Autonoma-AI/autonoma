@@ -306,15 +306,14 @@ function buildClassificationFields(input: RecordClassificationInput) {
         remediation: report?.remediation,
         rootCause: report?.rootCause,
         falsePositiveRisk: report?.falsePositiveRisk,
-        plan: report?.plan,
         runSuccess: report?.runSuccess,
         stepCount: report?.stepCount,
         runSteps: report?.runSteps,
         runTrace: report?.runTrace,
         evidence: report?.evidence,
-        // These carry the raw s3:// keys (the API signs them on read), not URLs.
-        videoKey: report?.videoKey,
-        optimizedVideoKey: report?.optimizedVideoKey,
+        // Raw s3:// keys (the API signs them on read), not URLs. `plan` / `videoKey` / `optimizedVideoKey` are no
+        // longer persisted here - they are pure copies of the generation this row already points at, resolved
+        // through that join on read.
         screenshotKey: report?.screenshotKey,
         clipKey: report?.clipKey,
         conversationUrl: report?.conversationUrl,

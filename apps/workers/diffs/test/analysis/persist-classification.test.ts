@@ -172,7 +172,7 @@ integrationTestSuite({
                 number: 1,
                 classification: classification("plan_mismatch", generationIds[0], {
                     headline: "The test asserts the old copy",
-                    report: { conversationUrl: "s3://conversations/pass-1.json", plan: "assert -$350.00" },
+                    report: { conversationUrl: "s3://conversations/pass-1.json" },
                 }),
             });
             const second = await persistAnalysisClassification({
@@ -182,7 +182,7 @@ integrationTestSuite({
                 number: 2,
                 classification: classification("plan_mismatch", generationIds[1], {
                     headline: "Still wrong after the rewrite",
-                    report: { conversationUrl: "s3://conversations/pass-2.json", plan: "assert +$350.00" },
+                    report: { conversationUrl: "s3://conversations/pass-2.json" },
                 }),
             });
 
@@ -203,9 +203,12 @@ integrationTestSuite({
             expect(first?.category).toBe("plan_mismatch");
             expect(first?.generationId).toBe(generationIds[0]);
             expect(first?.conversationUrl).toBe("s3://conversations/pass-1.json");
-            expect(first?.plan).toBe("assert -$350.00");
+            // Each iteration pins its own generation, and the plan is resolved from that generation on read - it is
+            // no longer copied onto the classification row.
+            expect(first?.plan).toBeNull();
+            expect(latest?.generationId).toBe(generationIds[1]);
             expect(latest?.conversationUrl).toBe("s3://conversations/pass-2.json");
-            expect(latest?.plan).toBe("assert +$350.00");
+            expect(latest?.plan).toBeNull();
         });
 
         // Several readers infer a self-heal from how many classifications a test has, so filing the same iteration
