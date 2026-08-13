@@ -120,9 +120,9 @@ Write only the accepted descriptions.
 - If multiple toggles exist in a section, test toggling each independently
 
 **Forms (create/edit/delete):**
-- Create: fill all fields, submit, verify the new item appears in the list WITHOUT refreshing
-- Edit: modify an existing item, save, verify the change is reflected
-- Delete: remove an item, verify it disappears, verify it stays gone after refresh
+- Create: fill all fields, submit, then refresh and verify the new item is still in the list (an in-page assertion right after the submit can pass on an optimistic update that never persisted)
+- Edit: modify an existing item, save, then refresh and verify the change is still reflected
+- Delete: remove an item, verify it disappears, refresh, verify it stays gone
 - Partial submission: leave optional fields empty, verify it still works
 - Duplicate prevention: if the source has unique constraints, try creating a duplicate
 
@@ -366,10 +366,20 @@ What does NOT count as verification (these are UI acknowledgments, not proof):
 - The action button changing state
 
 Verification destinations:
-- After CREATE → verify in list/table
-- After EDIT → verify changed field in detail/list view
+- After CREATE → refresh the list/table and verify the record is still there
+- After EDIT → refresh and verify the changed field still shows the new value
 - After DELETE → verify absence in list, refresh, verify still absent
 - After TOGGLE → refresh, verify retained state
+
+### Persistence requires a reload (CRITICAL)
+When a test commits a create, edit, delete, save, submit, approve or publish of a record that should PERSIST, the verification steps MUST include a refresh followed by re-asserting the same entity/value/status (for a delete, that it is still gone). Asserting the result in-page right after the mutation is NOT proof of persistence - it can pass on an optimistic UI update that was never written to the backend ("looks saved but wasn't"). Only a reload-and-re-assert proves the record actually persisted.
+
+Do NOT add a reload when it would prove nothing or be wrong - keep the rule scoped to genuine persisted-record CRUD:
+- Validation-blocked writes: the test asserts an error (a required-field or invalid-input message) and no record was created - there is nothing to persist, so no reload.
+- Pure navigation or authentication: sign-in/out, redirects, landing pages. This rule is about persisted DATA records (create/edit/delete of an entity in a list/table); an auth/session state change - sign-in, sign-out, session revocation - is not a data-record mutation, so its confirmation is the auth-state screen or the protected-route redirect, not a reload.
+- Genuinely ephemeral or session state: streaming interrupts, live filters, unsaved in-session UI toggles, in-session workflow steps - state that is not a persisted record and that a reload would legitimately discard.
+
+Real-time or optimistic UI updates are NOT proof of persistence. The ephemeral exemption applies only to genuinely ephemeral or session-scoped state - not to a persisted record that merely renders via a subscription. A subscription, socket, or optimistic cache can show a just-created row even when the backend write failed. So if the action creates, edits, or deletes a record that should survive a reload, a real-time-updated list showing it does NOT waive the reload-and-re-assert: still refresh and re-assert the record. A live filter or streaming view mutates no record, so it stays exempt.
 
 ## CRUD test templates (for any page with forms/CRUD):
 1. **Create**: fill all fields, submit, verify the item appears

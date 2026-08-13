@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { flowCompletenessRubric } from "../../src/agents/05-test-generator/rubrics";
 import {
     buildTestSpecSchema,
     renderTestMarkdown,
@@ -156,6 +157,59 @@ describe("testSpecSchema", () => {
 
     it("accepts optional notes", () => {
         const result = testSpecSchema.safeParse({ ...VALID, notes: "Could not determine the toggle's default state." });
+
+        expect(result.success).toBe(true);
+    });
+
+    // The persistence guidance (reload-and-re-assert after a persisted-record
+    // mutation) lives in these field descriptions, so the model reads it when it
+    // fills verification/verificationSteps. A description that silently loses the
+    // reload instruction reopens the optimistic-update blind spot, so guard it.
+    it("tells the model to reload and re-assert for persisted-record mutations", () => {
+        for (const description of [
+            testSpecSchema.shape.verification.description,
+            testSpecSchema.shape.verificationSteps.description,
+        ]) {
+            expect(description).toMatch(/refresh|reload/i);
+            expect(description).toMatch(/persist/i);
+        }
+    });
+
+    // Regression for the real-time loophole: a canonical create-in-list slipped past
+    // the reviewer because the list updated via a subscription, and the reviewer read
+    // that as the ephemeral/real-time exemption. Real-time rendering is not proof of a
+    // backend write, so the rubric must keep saying so explicitly - if this guidance is
+    // dropped, "looks saved but wasn't" creates go unflagged again. The rule is
+    // abstract on purpose (no framework or component names).
+    it("keeps the rubric stating real-time / optimistic updates are not proof of persistence", () => {
+        const prompt = flowCompletenessRubric.systemPrompt;
+
+        expect(prompt).toMatch(/real-time|realtime|optimistic/i);
+        expect(prompt).toMatch(/not proof of persistence|not proof the write persisted|does not waive/i);
+    });
+
+    // Regression for the sign-out over-fire: the strengthened persistence rule began
+    // treating session revocation as a persisted-record mutation and demanding a
+    // reload. Auth/session state is not a data record - its confirmation is the
+    // auth-state screen or the protected-route redirect - so the rubric must keep
+    // exempting it, or sign-out tests fail for lacking a reload they never needed.
+    it("keeps the rubric exempting auth/session state (sign-out) from the reload rule", () => {
+        const prompt = flowCompletenessRubric.systemPrompt;
+
+        expect(prompt).toMatch(/sign-out|session revocation/i);
+        expect(prompt).toMatch(/data record/i);
+    });
+
+    // A CRUD test whose verification steps reload and re-assert must still parse -
+    // the reload is expressed with the existing `refresh` verb, no new shape.
+    it("accepts a create verified by a refresh followed by a re-assert", () => {
+        const result = testSpecSchema.safeParse({
+            ...VALID,
+            verificationSteps: [
+                { verb: "refresh", description: "the page" },
+                { verb: "assert", description: 'the "Acme Corp" row', location: "in the recipients table" },
+            ],
+        });
 
         expect(result.success).toBe(true);
     });

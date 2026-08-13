@@ -87,7 +87,7 @@ export const flowCompletenessRubric: ReviewRubric = {
             "Does the test verify its mutation at the source of truth - not just a toast or inline indicator?",
         ),
         effectVerification: dimensionResultSchema.describe(
-            "Does the verification confirm the EFFECT of what the steps changed, at a source of truth DISTINCT from the control the step touched - not by re-asserting that control's own cosmetic state? And is the verification consistent with the test's stated intent/mission?",
+            "Does the verification confirm the EFFECT of what the steps changed, at a source of truth DISTINCT from the control the step touched - not by re-asserting that control's own cosmetic state? When the steps commit a create/edit/delete/save of a record that should persist, does the verification reload the page and re-assert the same entity/value/status - not just assert it in-page right after the mutation (a real-time or optimistic list update rendering the record is not proof it persisted)? And is the verification consistent with the test's stated intent/mission?",
         ),
     }),
     systemPrompt: `You are a flow completeness reviewer for E2E test plans. Each test will be executed by a VISUAL agent that sees the screen like a human user.
@@ -129,7 +129,22 @@ The distinct source of truth can be a reload of the same surface, a different su
 - FAIL: intent says "the filter returns only matching items" but the verification only checks that the filter chip appears.
 - PASS: intent and verification target the same real outcome.
 
-Read the source before judging (a) and (b) - the point is what the feature actually does, not the wording of the test.
+(c) When the steps commit a create / edit / delete / save / submit / approve / publish of a record that should PERSIST, an in-page assertion made right after the mutation is not proof of persistence - it can pass on an optimistic UI update that was never written to the backend ("looks saved but wasn't"). The only proof of persistence is a reload (refresh) followed by re-asserting the same entity/value/status is still there (or, for a delete, still gone). A persisted-record mutation verified only in-page, with no reload, is a FAIL.
+- FAIL: after committing a create, asserting the new row appears in the list with no reload - could be an optimistic update that never persisted.
+- PASS: after the create, refreshing and asserting the row is still in the list.
+- PASS: after an edit, refreshing and re-asserting the record shows the new value.
+Apply (c) ONLY to genuine persisted-record CRUD. Do NOT require a reload - and do not FAIL for its absence - when:
+- The write was validation-blocked: the test asserts an error ("is required", "Missing or invalid") and no record was ever created; there is nothing to persist.
+- The flow is pure navigation or auth: sign-in/out, redirects, landing pages. Rule (c) is about persisted DATA records - the create/edit/delete of an entity in a list/table. An auth/session state change (sign-in, sign-out, session revocation) is not a data-record mutation: its confirmation is the auth-state screen or the protected-route redirect, not a reload, so do not FAIL it for lacking one.
+- The state is genuinely ephemeral / session-scoped: a streaming interrupt (Stop then Send), a live filter, an unsaved in-session UI toggle, or an in-session workflow step - state that is not a persisted record and that a reload would legitimately discard.
+Real-time or optimistic UI updates are NOT proof of persistence and do NOT qualify for the ephemeral exemption. A subscription, socket, or optimistic cache can render a just-created / edited row even when the backend write failed - the exact "looks saved but wasn't" bug this rule exists to catch. If the action creates, edits, or deletes a record that should survive a reload, a real-time-updated list showing that record does not waive the reload-and-re-assert requirement: the exemption covers ephemeral state itself, never a persisted record that merely happens to render via a subscription.
+- FAIL: after creating a record, asserting it appears in a list that updates via a real-time subscription, with no reload - real-time rendering is not proof the write persisted.
+- PASS (excluded): a validation test asserting "Missing or invalid" where nothing was created - no reload required.
+- PASS (excluded): verifying a streaming interrupt by the Stop-then-Send transition - a reload would be wrong.
+- PASS (excluded): asserting a live-filtered list changed its contents - a filter mutates no record, so no reload applies.
+- PASS (excluded): verifying a sign-out by the signed-out confirmation screen (or a protected route redirecting to login) - session revocation is auth state, not a data record, so no reload is required.
+
+Read the source before judging (a), (b) and (c) - the point is what the feature actually does, not the wording of the test.
 
 When done reviewing, call finish with your structured evaluation.`,
 };

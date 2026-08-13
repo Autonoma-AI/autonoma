@@ -127,7 +127,7 @@ export function buildTestSpecSchema(validFlowIds?: ReadonlySet<string>) {
             .string()
             .min(20)
             .describe(
-                "WHERE to navigate and WHAT to assert to prove the mutation worked. Must name the source of truth - a toast, a confirmation dialog or an inline success indicator is an acknowledgment, not proof.",
+                "WHERE to navigate and WHAT to assert to prove the mutation worked. Must name the source of truth - a toast, a confirmation dialog or an inline success indicator is an acknowledgment, not proof. When the test commits a create/edit/delete/save of a record that should PERSIST, this must reload (refresh) and re-assert the same entity/value/status - an in-page assertion right after a mutation can pass on an optimistic update that never persisted. Skip the reload for validation-blocked writes (nothing was created), pure navigation/auth, and ephemeral/real-time/session state.",
             ),
         setup: z
             .string()
@@ -139,7 +139,7 @@ export function buildTestSpecSchema(validFlowIds?: ReadonlySet<string>) {
         verificationSteps: z
             .array(stepSchema)
             .describe(
-                "Steps that navigate to the source of truth and assert the mutation landed. Implements the `verification` field above.",
+                "Steps that navigate to the source of truth and assert the mutation landed. Implements the `verification` field above. For a persisted-record create/edit/delete/save, these must include a refresh followed by re-asserting the same entity/value/status - an in-page assertion right after the mutation can pass on an optimistic update that never persisted. Omit the reload for validation-blocked writes, pure navigation/auth, and ephemeral/real-time/session state, where a reload would prove nothing or be wrong.",
             ),
         expectedResult: z.string().min(1).describe("What should be true when the test passes."),
         notes: z
