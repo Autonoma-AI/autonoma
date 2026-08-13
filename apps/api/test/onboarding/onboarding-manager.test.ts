@@ -726,9 +726,9 @@ integrationTestSuite({
             expect(saved.saved).toBe(true);
             const stored = await harness.db.previewkitConfig.findUniqueOrThrow({
                 where: { applicationId: appId },
-                select: { document: true },
+                include: { apps: true },
             });
-            expect(stored.document).toMatchObject({ version: 2 });
+            expect(stored.apps).not.toHaveLength(0);
         });
 
         test("triggerPreviewkitMainDeploy requires a saved valid config", async ({

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { PreviewkitStatus, PrismaClient } from "@autonoma/db";
+import { type PreviewkitStatus, previewkitConfigRowsInclude, type PrismaClient } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
 import { type Logger, logger } from "@autonoma/logger";
 import {
@@ -10,6 +10,7 @@ import {
     SdkHttpError,
 } from "@autonoma/scenario";
 import {
+    documentFromPreviewkitConfigRows,
     type PreviewConfig,
     SDK_ERROR_CODE,
     resolveSdkAppName,
@@ -675,14 +676,14 @@ export class OnboardingSdkCapabilityService {
 
             const stored = await this.db.previewkitConfig.findUnique({
                 where: { applicationId },
-                select: { document: true },
+                include: previewkitConfigRowsInclude,
             });
             if (stored == null) return;
 
-            // Parsed with the TRUSTED schema on purpose. The deploy reads this same document honoring each app's
+            // Parsed with the TRUSTED schema on purpose. The deploy reads this same config honoring each app's
             // `resources`, so a read-modify-write through a schema that discards them would silently reset a tuned
             // app to the standard tier on its next deploy - a side effect this write has no business having.
-            const parsed = trustedPreviewConfigSchema.safeParse(stored.document);
+            const parsed = trustedPreviewConfigSchema.safeParse(documentFromPreviewkitConfigRows(stored));
             if (!parsed.success) return;
 
             const config = parsed.data;

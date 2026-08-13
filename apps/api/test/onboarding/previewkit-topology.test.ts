@@ -199,12 +199,12 @@ integrationTestSuite({
             });
             expect(dependencyApplication).toBeNull();
 
-            // One row holding the whole topology - there is no dependency sidecar.
+            // One config holding the whole topology - there is no dependency sidecar.
             const storedConfig = await harness.db.previewkitConfig.findUniqueOrThrow({
                 where: { applicationId: appId },
-                select: { document: true },
+                include: { apps: { orderBy: { position: "asc" } } },
             });
-            expect(storedConfig.document).toMatchObject({ version: 2 });
+            expect(storedConfig.apps.map((app) => app.repository)).toEqual(["acme/web", "acme/api"]);
 
             // getPreviewkitConfig round-trips the whole topology.
             const loaded = await manager.getPreviewkitConfig(appId, orgId);

@@ -2462,12 +2462,13 @@ model PreviewkitConfig {
   applicationId String      @unique @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  // Opaque config document (v2); validated by previewConfigSchema on read. The
-  // whole topology lives here: every app carries its `repository` (owner/repo
-  // full name), multirepo dependency apps included. Dependency repos are NOT
-  // separate Applications - the deploy clones them for source only.
+  // RETIRED. The topology lives in the child rows above; nothing reads this and
+  // nothing writes it. Kept for one release as the rollback path - a revert of the
+  // stop-write restores readers that still expect it, and
+  // `scripts/backfill-previewkit-config-rows.ts --restore-documents` refills it from
+  // the rows. Null on every config saved since. Dropped in the release after this.
   /// ![object]
-  document Json
+  document Json?
 
   // The topology, normalized. Readers compose a config document from these rows
   // via `documentFromPreviewkitConfigRows` and validate it at their own

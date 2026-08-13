@@ -50,7 +50,8 @@ integrationTestSuite({
             });
             const composed = trustedPreviewConfigSchema.parse(documentFromPreviewkitConfigRows(stored));
 
-            expect(composed).toEqual(trustedPreviewConfigSchema.parse(stored.document));
+            expect(stored.document).toBeNull();
+            expect(composed.apps.map((app) => app.name)).toEqual(["web", "api"]);
             expect(composed.domain).toBe("preview.example.com");
             expect(composed.hooks.pre_deploy).toEqual([{ app: "api", command: "pnpm migrate" }]);
             expect(composed.services[0]?.options).toEqual({ database: "preview" });
@@ -86,18 +87,16 @@ integrationTestSuite({
             expect(stored.apps.map((app) => app.name)).toEqual(["api"]);
             expect(stored.apps[0]?.position).toBe(0);
             expect(stored.apps[0]?.connections.map((connection) => connection.key)).toEqual(["SELF_URL"]);
-            expect(trustedPreviewConfigSchema.parse(documentFromPreviewkitConfigRows(stored))).toEqual(
-                trustedPreviewConfigSchema.parse(stored.document),
-            );
+            expect(trustedPreviewConfigSchema.parse(documentFromPreviewkitConfigRows(stored)).apps).toHaveLength(1);
         });
 
         /**
-         * The document column is still written, so a reader that quietly kept using
-         * it would pass every other test in here. Doctoring the column to disagree
-         * with the rows is the only way to say which one the reader is actually
-         * serving - and while both are written, it is the rows.
+         * Saves no longer write the column, but the retired values are still there on
+         * every config saved before the stop-write. Filling it with something that
+         * disagrees with the rows is what proves a reader cannot quietly fall back to
+         * it while it remains droppable.
          */
-        test("getConfig serves the rows, not the document column", async ({
+        test("getConfig serves the rows, not a leftover document column", async ({
             harness,
             seedResult: { orgId, config },
         }) => {

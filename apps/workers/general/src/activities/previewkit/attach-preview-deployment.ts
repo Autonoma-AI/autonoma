@@ -1,7 +1,7 @@
-import { db } from "@autonoma/db";
+import { db, previewkitConfigRowsInclude } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
 import { recordBranchDeployment } from "@autonoma/scenario";
-import { buildSdkUrl, sdkPathFromDocument } from "@autonoma/types";
+import { buildSdkUrl, documentFromPreviewkitConfigRows, sdkPathFromDocument } from "@autonoma/types";
 import type { AttachPreviewDeploymentInput, AttachPreviewDeploymentOutput } from "@autonoma/workflow/activities";
 
 const logger = rootLogger.child({ name: "attachPreviewDeployment" });
@@ -45,10 +45,10 @@ export async function attachPreviewDeployment(
 async function resolveConfiguredSdkPath(branchId: string): Promise<string | undefined> {
     const branch = await db.branch.findUnique({
         where: { id: branchId },
-        select: { application: { select: { previewkitConfig: { select: { document: true } } } } },
+        select: { application: { select: { previewkitConfig: { include: previewkitConfigRowsInclude } } } },
     });
 
-    const document = branch?.application.previewkitConfig?.document;
-    if (document == null) return undefined;
-    return sdkPathFromDocument(document);
+    const config = branch?.application.previewkitConfig;
+    if (config == null) return undefined;
+    return sdkPathFromDocument(documentFromPreviewkitConfigRows(config));
 }

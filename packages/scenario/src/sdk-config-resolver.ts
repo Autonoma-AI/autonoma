@@ -1,6 +1,6 @@
-import type { PrismaClient } from "@autonoma/db";
+import { type PrismaClient, previewkitConfigRowsInclude } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
-import { applySdkPath, sdkPathFromDocument } from "@autonoma/types";
+import { applySdkPath, documentFromPreviewkitConfigRows, sdkPathFromDocument } from "@autonoma/types";
 import type { EncryptionHelper } from "./encryption";
 
 export interface SdkConfig {
@@ -102,11 +102,11 @@ export async function resolveConfiguredSdkPath(db: PrismaClient, applicationId: 
 
     const stored = await db.previewkitConfig.findUnique({
         where: { applicationId },
-        select: { document: true },
+        include: previewkitConfigRowsInclude,
     });
     if (stored == null) return undefined;
 
-    const path = sdkPathFromDocument(stored.document);
+    const path = sdkPathFromDocument(documentFromPreviewkitConfigRows(stored));
     if (path != null) {
         logger.info("Preview config declares an SDK endpoint path", { applicationId, extra: { sdkPath: path } });
     }
