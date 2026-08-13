@@ -64,6 +64,31 @@ export class PreviewkitEnvironmentsService {
     }
 
     /**
+     * Whether this repo has EVER had a preview environment, in any PR.
+     *
+     * Separates "torn down after testing" from "nothing has ever run here", which read identically
+     * from a single missing row and mean opposite things to whoever is asking. During onboarding
+     * only the second is possible, and telling that reader their environment was cleaned up sends
+     * them looking for logs of a deploy that never started.
+     */
+    async hasEverDeployed(repoFullName: string, organizationId: string): Promise<boolean> {
+        this.logger.info("Checking whether a preview environment has ever existed", {
+            organizationId,
+            extra: { repoFullName },
+        });
+        const existing = await this.db.previewkitEnvironment.findFirst({
+            where: { repoFullName, organizationId },
+            select: { id: true },
+        });
+        const everDeployed = existing != null;
+        this.logger.info("Preview environment history checked", {
+            organizationId,
+            extra: { repoFullName, everDeployed },
+        });
+        return everDeployed;
+    }
+
+    /**
      * Status for one (repo, PR) preview environment, or undefined if none exists. Org-scoped, so one org cannot
      * read another's status / URLs / errors: a foreign environment is indistinguishable from "not found".
      */

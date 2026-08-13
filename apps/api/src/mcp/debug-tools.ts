@@ -102,7 +102,15 @@ export interface DebugToolDeps {
 /** Shared `(repoFullName, prNumber)` tool input - the previewkit execution key. */
 const repoPrInput = {
     repoFullName: z.string().regex(/^[^/]+\/[^/]+$/, "must be 'owner/repo'"),
-    prNumber: z.number().int().min(0),
+    prNumber: z
+        .number()
+        .int()
+        .min(0)
+        .describe(
+            "The pull request's number. Pass 0 for the BASE environment - the preview built from the app's " +
+                "configured deploy branch, which is the one onboarding sets up and the only one an app has " +
+                "before it opens a pull request.",
+        ),
 };
 
 /**
@@ -112,8 +120,20 @@ const repoPrInput = {
  * the environment by ~30 days, so a torn-down env is not a dead end for a
  * post-mortem. Without this nudge an agent reads "not found" as "nothing here"
  * and gives up (or needlessly redeploys) instead of pulling the logs.
+ *
+ * The steady-state wording is wrong for a first deploy, so it is not used there.
+ * During onboarding nothing has ever run, which makes the teardown half
+ * impossible and "more often" an active lie - it reads as "this is normal
+ * cleanup" to somebody whose deploy in fact never started.
  */
-function noLiveEnvResult(repoFullName: string, prNumber: number) {
+function noLiveEnvResult(repoFullName: string, prNumber: number, everDeployed = true) {
+    if (!everDeployed) {
+        return unavailableResult(
+            `No preview environment has ever been deployed for ${repoFullName} PR ${prNumber}. Nothing was torn ` +
+                `down - there is nothing to inspect yet. If you asked for a deploy, check the \`queued\` field of ` +
+                `your trigger_deploy response to see what it started, then wait_for_deploy.`,
+        );
+    }
     return unavailableResult(
         `No live preview environment for ${repoFullName} PR ${prNumber} - it was never deployed, or (more often) ` +
             `it was torn down after Autonoma finished testing. The live surface (deploy status, endpoints) is gone, ` +
@@ -190,7 +210,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 try {
                     const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
                     const summary = await tryPreviewSummary(applicationId, prNumber, organizationId);
-                    if (summary == null) return noLiveEnvResult(repoFullName, prNumber);
+                    if (summary == null) return await noEnvResult(repoFullName, prNumber, organizationId);
                     return jsonResult({ ...summary, freshness: summaryFreshness(summary) });
                 } catch (err) {
                     return toToolResult(err);
@@ -221,7 +241,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                 try {
                     const { organizationId, applicationId } = await resolveRepoContext(repoFullName);
                     const summary = await tryPreviewSummary(applicationId, prNumber, organizationId);
-                    if (summary == null) return noLiveEnvResult(repoFullName, prNumber);
+                    if (summary == null) return await noEnvResult(repoFullName, prNumber, organizationId);
                     const endpoints = summary.services.map((service) => {
                         const hasUrl = service.endpoint != null && service.endpoint !== "";
                         if (hasUrl) return { name: service.name, url: service.endpoint };
@@ -625,7 +645,7 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
                         timeoutMs: timeoutSeconds != null ? timeoutSeconds * 1000 : undefined,
                     });
                     if (result == null) {
-                        return noLiveEnvResult(repoFullName, prNumber);
+                        return await noEnvResult(repoFullName, prNumber, organizationId);
                     }
                     const recentLogs = await tailRecentLogs(result.appStatus ?? result.status, {
                         repoFullName,
@@ -714,6 +734,19 @@ export function registerDebugTools(server: McpServer, deps: DebugToolDeps): void
             if (err instanceof NotFoundError) return undefined;
             throw err;
         }
+    }
+
+    /**
+     * Which "no environment" this is.
+     *
+     * A repo that has never deployed anything is in a different situation from one whose preview was
+     * torn down after testing, and the two arrive here as the same missing row. Answering with the
+     * steady-state wording during onboarding tells somebody whose deploy never started that their
+     * environment was cleaned up, and sends them hunting for logs that were never written.
+     */
+    async function noEnvResult(repoFullName: string, prNumber: number, organizationId: string) {
+        const everDeployed = await services.previewkitEnvironments.hasEverDeployed(repoFullName, organizationId);
+        return noLiveEnvResult(repoFullName, prNumber, everDeployed);
     }
 
     async function tailLogs(
