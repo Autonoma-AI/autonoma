@@ -554,7 +554,10 @@ export class OnboardingManager {
             throw new ConflictError(`Saved PreviewKit config has blocking issues: ${issueText}`);
         }
 
-        await previewkitClient.deployApplicationMain(applicationId, organizationId);
+        // Names what was started - branch, sha, workflow. Returned to the caller as `queued`, so
+        // an agent waiting on this deploy can say which run it is waiting on; a request that
+        // cannot name its run is undiagnosable without cluster access nobody here has.
+        const receipt = await previewkitClient.deployApplicationMain(applicationId, organizationId);
 
         await this.db.onboardingState.update({
             where: { applicationId },
@@ -566,7 +569,19 @@ export class OnboardingManager {
             },
         });
 
-        return this.getPreviewReadiness(applicationId, organizationId);
+        this.logger.info("Queued the base preview deploy", {
+            applicationId,
+            organizationId,
+            extra: {
+                branch: receipt.branch,
+                headSha: receipt.headSha,
+                prNumber: receipt.prNumber,
+                workflowId: receipt.workflowId,
+            },
+        });
+
+        const readiness = await this.getPreviewReadiness(applicationId, organizationId);
+        return { ...readiness, queued: receipt };
     }
 
     /**

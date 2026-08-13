@@ -19,7 +19,7 @@ const ANALYSIS_RUN_EXECUTION_TIMEOUT = "10h";
  * build, no analysis of a stale head. The superseded run's AnalysisJob is closed out by the fresh run opening its
  * own snapshot.
  */
-export async function triggerAnalysisRun(input: AnalysisRunWorkflowInput): Promise<void> {
+export async function triggerAnalysisRun(input: AnalysisRunWorkflowInput): Promise<string> {
     return await withObservabilityContext({ branch: { branchId: input.branchId } }, async () => {
         const client = await getTemporalClient();
         const workflowId = `analysis-run-${input.branchId}`;
@@ -38,5 +38,10 @@ export async function triggerAnalysisRun(input: AnalysisRunWorkflowInput): Promi
         });
 
         logger.info("Analysis run started", { extra: { workflowId } });
+        // Returned so the caller can hand it back to whoever asked for the deploy. A
+        // request that cannot name the workflow it started is undiagnosable later: the
+        // only alternative is cluster access, and the person who needs the answer is
+        // usually an agent that has none.
+        return workflowId;
     });
 }

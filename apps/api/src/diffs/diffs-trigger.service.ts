@@ -74,7 +74,7 @@ export class DiffsTriggerService extends Service {
         private readonly db: PrismaClient,
         private readonly githubInstallationService: GitHubInstallationService,
         /** Injected so a test can observe what a trigger asked for without standing up Temporal. */
-        private readonly startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<void>,
+        private readonly startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<unknown>,
     ) {
         super();
     }

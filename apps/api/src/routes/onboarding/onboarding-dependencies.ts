@@ -6,8 +6,23 @@ export interface PreviewkitSecretsUpsertResult {
     changed: boolean;
 }
 
+/**
+ * What a base-preview deploy request actually queued.
+ *
+ * Onboarding records "building" off this rather than off the call returning, so a request
+ * that queued nothing can never be reported as a build in progress.
+ */
+export interface OnboardingMainDeployReceipt {
+    repoFullName: string;
+    branch: string;
+    headSha: string;
+    prNumber: number;
+    /** The analysis workflow that was started, when the deploy went through one. */
+    workflowId?: string;
+}
+
 export interface OnboardingPreviewkitClient {
-    deployApplicationMain(applicationId: string, organizationId: string): Promise<void>;
+    deployApplicationMain(applicationId: string, organizationId: string): Promise<OnboardingMainDeployReceipt>;
     redeploy(repoFullName: string, prNumber: number, organizationId: string): Promise<void>;
     /** First deploy for an open PR with no preview environment yet (e.g. a draft the webhook skipped). */
     startRunForPullRequest(organizationId: string, githubRepositoryId: number, prNumber: number): Promise<void>;

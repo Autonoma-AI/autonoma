@@ -71,6 +71,20 @@ export interface MainBranchDeployResult {
     branch: string;
     headSha: string;
     prNumber: number;
+    /**
+     * The analysis workflow this deploy started, when it went through one. Absent for a
+     * repo with no resolvable branch, which builds directly.
+     *
+     * Carried so the caller can say what it queued. Without it a deploy request is
+     * unfalsifiable after the fact - the only way to check whether anything ran is
+     * cluster access, and the agents that ask for deploys have none.
+     */
+    workflowId?: string;
+}
+
+/** What a run request queued, for a caller that has to prove it queued anything. */
+export interface PreviewRunReceipt {
+    workflowId?: string;
 }
 
 /** A push webhook resolved to the main-branch environment it updates. */
@@ -131,7 +145,7 @@ export class PreviewkitTriggerService extends Service {
         private readonly db: PrismaClient,
         private readonly githubInstallationService: PreviewkitGitHubReader,
         private readonly billingService: Pick<BillingService, "checkPreviewDeployCreditsGate">,
-        private readonly startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<void>,
+        private readonly startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<string>,
         private readonly startPreviewBuild: (input: PreviewBuildWorkflowInput) => Promise<void>,
         private readonly triggerTeardown: (target: PreviewTeardownTarget) => Promise<void>,
         private readonly triggerRedeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>,
@@ -140,7 +154,7 @@ export class PreviewkitTriggerService extends Service {
     }
 
     /** Credits are checked HERE so every caller surfaces the same refusal. */
-    async startRun(request: PreviewkitRunRequest, action: PreviewDeployAction = "opened"): Promise<void> {
+    async startRun(request: PreviewkitRunRequest, action: PreviewDeployAction = "opened"): Promise<PreviewRunReceipt> {
         this.logger.info("Starting a preview run", {
             repo: request.repoFullName,
             pr: request.prNumber,
@@ -151,14 +165,15 @@ export class PreviewkitTriggerService extends Service {
 
         if (request.branchId == null) {
             await this.startBuildWithoutRun(request);
-            return;
+            return {};
         }
 
-        await this.startAnalysisRun({
+        const workflowId = await this.startAnalysisRun({
             branchId: request.branchId,
             headSha: request.headSha,
             baseSha: request.baseSha,
         });
+        return { workflowId };
     }
 
     /** No Application, so no run to open - but lack of analysis wiring must not cost a customer their preview. */
@@ -528,7 +543,7 @@ export class PreviewkitTriggerService extends Service {
 
         if (headSha == null) throw new NotFoundError(`Deploy branch '${branchName}' not found on GitHub`);
 
-        await this.startRun(
+        const receipt = await this.startRun(
             {
                 repoFullName: repo.fullName,
                 prNumber: MAIN_BRANCH_ENVIRONMENT_NUMBER,
@@ -548,6 +563,7 @@ export class PreviewkitTriggerService extends Service {
             branch: branchName,
             headSha,
             prNumber: MAIN_BRANCH_ENVIRONMENT_NUMBER,
+            workflowId: receipt.workflowId,
         };
     }
 

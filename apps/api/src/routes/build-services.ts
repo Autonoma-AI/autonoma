@@ -111,7 +111,8 @@ export interface ServicesParams {
     getVercelEncryptionHelper: () => EncryptionHelper;
     githubApp: GitHubApp;
     /** Required, not optional: production and tests must exercise the same seam. */
-    startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<void>;
+    /** Returns the Temporal workflow id, so a deploy request can name what it queued. */
+    startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<string>;
     startGenerationBatch: (params: TriggerBatchGenerationParams) => Promise<WorkflowRef>;
     startPreviewBuild: (input: PreviewBuildWorkflowInput) => Promise<void>;
     triggerPreviewTeardown: (target: PreviewTeardownTarget) => Promise<void>;
@@ -165,9 +166,8 @@ export function buildServices({
     const diffsTriggerService = new DiffsTriggerService(conn, githubService, startAnalysisRun);
     const onboardingOptions = {
         previewkitClient: {
-            deployApplicationMain: async (applicationId: string, organizationId: string) => {
-                await previewkitTrigger.startMainBranchRun(applicationId, organizationId);
-            },
+            deployApplicationMain: (applicationId: string, organizationId: string) =>
+                previewkitTrigger.startMainBranchRun(applicationId, organizationId),
             redeploy: async (repoFullName: string, prNumber: number, organizationId: string) => {
                 await previewkitTrigger.startRunForRedeploy({ repoFullName, prNumber }, { organizationId });
             },

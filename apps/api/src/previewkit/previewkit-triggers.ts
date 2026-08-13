@@ -15,7 +15,8 @@ import {
  * Teardown and per-app redeploy have no decision to make, so they launch their Kubernetes Job straight from here.
  */
 export interface PreviewkitTriggers {
-    startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<void>;
+    /** Returns the Temporal workflow id, so a caller can name what it queued. */
+    startAnalysisRun: (input: AnalysisRunWorkflowInput) => Promise<string>;
     startPreviewBuild: (input: PreviewBuildWorkflowInput) => Promise<void>;
     teardown: (target: PreviewTeardownTarget) => Promise<void>;
     redeployApp: (params: TriggerPreviewRedeployAppParams) => Promise<void>;

@@ -826,9 +826,13 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                 `saved config. Deploy an integration branch, not the user's default branch: cut \`${INTEGRATION_BRANCH}\` ` +
                 "off the default (its real name is `defaultBranch` from pair - do not assume 'main'), push it, and name " +
                 "it with apply_config's `branch` field before deploying. Getting a preview to build takes commits, and " +
-                "those do not belong on their default branch until a preview has actually built from them. Then poll " +
-                "get_session_status until it is up, and verify the preview URL yourself. Pass a short `description` of " +
-                "what you are deploying - the user watches it on the activity feed.",
+                "those do not belong on their default branch until a preview has actually built from them. Then wait " +
+                "for it with wait_for_deploy, and verify the preview URL yourself. Pass a short `description` of " +
+                "what you are deploying - the user watches it on the activity feed. " +
+                "The response carries `queued` - the branch, head sha and analysis workflow this request actually " +
+                "started. Check `queued.branch` is the branch you meant: if it is not, fix it with apply_config " +
+                "rather than deploying again. Do not call this a second time while one is in flight - a new request " +
+                "supersedes the running one, so retrying is how you cancel the deploy you are waiting for.",
             inputSchema: { applicationId: z.string(), description: activityDescription },
         },
         async ({ applicationId, description }) =>

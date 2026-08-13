@@ -337,8 +337,17 @@ integrationTestSuite({
         }) => {
             const appId = await createApp();
             await linkRepository(harness, appId, 91_005);
+            // The receipt the real client returns: what the deploy actually started, so a caller can
+            // hand it back instead of "a deploy was requested".
+            const receipt = {
+                repoFullName: "acme/web",
+                branch: "main",
+                headSha: "deadbeef",
+                prNumber: 0,
+                workflowId: "analysis-run-branch-1",
+            };
             const previewkitClient = {
-                deployApplicationMain: vi.fn(async () => undefined),
+                deployApplicationMain: vi.fn(async () => receipt),
                 redeploy: vi.fn(async () => undefined),
                 startRunForPullRequest: vi.fn(async () => undefined),
             };
@@ -357,6 +366,7 @@ integrationTestSuite({
 
             expect(previewkitClient.deployApplicationMain).toHaveBeenCalledWith(appId, orgId);
             expect(readiness.diagnostics.status).toBe("building");
+            expect(readiness.queued).toEqual(receipt);
             const state = await manager.getState(appId);
             expect(state.step).toBe("previewkit_deploying");
             expect(state.previewEnvironmentMode).toBe("previewkit");
