@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.260814.4](https://github.com/Autonoma-AI/agent/compare/v1.260814.3...v1.260814.4) (2026-08-14)
+
+
+### Bug Fixes
+
+* **db:** drop analysis_report.impact_reasoning ([#2547](https://github.com/Autonoma-AI/agent/issues/2547)) ([f81931b](https://github.com/Autonoma-AI/agent/commit/f81931bbab9d13ca5796d89b6f8eb48703cbb105))
+
 ## [1.260814.3](https://github.com/Autonoma-AI/agent/compare/v1.260814.2...v1.260814.3) (2026-08-14)
 
 
