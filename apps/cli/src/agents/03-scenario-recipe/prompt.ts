@@ -46,18 +46,41 @@ Write the actual data the records should hold - a real email, a real company nam
 a real id - not "test1" or "TBD". The recipe builder generates the exact records
 from what you write.
 
-There are exactly two dynamic values, and every field that must be UNIQUE per test
-run has to carry one of them:
+There are exactly two dynamic values, for the fields that must be UNIQUE per test run:
 - {{${TEST_RUN_ID_TOKEN}}} - the id of the run being seeded
 - {{${TEST_RUN_SHORT_ID_TOKEN}}} - an 8-character hash of it, for short columns
 
-An email, a username, a slug, a subdomain, an account number, an external reference -
-anything the database will refuse a second copy of - must embed a token INSIDE an
-otherwise real-looking value ("admin+{{${TEST_RUN_ID_TOKEN}}}@acme.test",
-"acme-{{${TEST_RUN_SHORT_ID_TOKEN}}}"), never replace the value entirely. Two tests
-run at the same time seed this scenario twice; without the token the second one fails
-on a unique constraint. No other {{token}} or bare {variable} exists - inventing one
-is rejected.
+Two tests run at the same time seed this scenario twice; without a token the second one
+fails on a unique constraint. But a token is a different string every run, so it is NOT a
+value a test can read off the screen. It therefore belongs ONLY in a field a test never
+names on screen:
+- an id, primary key or foreign key ("usr-{{${TEST_RUN_SHORT_ID_TOKEN}}}", "acc-{{${TEST_RUN_SHORT_ID_TOKEN}}}")
+- an email or login ("admin+{{${TEST_RUN_ID_TOKEN}}}@acme.test")
+- an external reference the interface does not display
+
+NEVER put a token in a value the user sees and a test asserts by its on-screen text - a
+name, a title, a label, a domain, a zone name, a displayed slug. A token there corners the
+test author: they cannot emit the {{token}} (a test resolves no variables at run time) and
+cannot read the real value (it changes every run), so they invent a literal that was never
+seeded - a failure that reads as a broken product rather than a broken test.
+
+Most uniqueness is per-scope, not global: a zone, a project or a document is usually unique
+only within its owning account or organization, and that OWNER id already carries the token.
+So put the token on the scope id and leave the displayed value a plain, real-looking string -
+an account "acc-{{${TEST_RUN_SHORT_ID_TOKEN}}}" owns a zone whose displayed Domain is simply
+"acme.internal", and two concurrent runs stay distinct on the (account, domain) pair with no
+token on the domain at all.
+
+Only when a displayed value carries its OWN global unique constraint, independent of any
+scope id, do NOT try to tokenise the displayed value - that is unsatisfiable, because a
+{{token}} may never appear in a value a test reads on screen. Instead keep the displayed
+column token-free (its value MAY repeat across runs, and that is fine - uniqueness is
+enforced by the id, not the label) and add a separate id/reference column that carries the
+token. The one rule that never bends: a field the user reads on screen must never itself
+contain a {{token}}.
+
+Embed a token INSIDE an otherwise real-looking value, never replace the value entirely. No
+other {{token}} or bare {variable} exists - inventing one is rejected.
 
 ## Data the app compares against the current time
 This scenario is written once and seeded again, unchanged, before every run for as long

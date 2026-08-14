@@ -11,7 +11,7 @@ import { parseEntityNames } from "../../core/parse-entity-audit";
 import { buildCodebaseTools } from "../../tools";
 import { buildAskUserTool } from "../../tools/ask-user";
 import { SCENARIO_DESIGN_PROMPT } from "./prompt";
-import { validateScenarioIsConcrete } from "./scenario-table";
+import { findTokenisedDisplayFields, validateScenarioIsConcrete } from "./scenario-table";
 
 export interface ScenarioRecipeInput {
     projectRoot: string;
@@ -68,6 +68,27 @@ export function buildFinishTool(
                         `substitutes are ${BUILT_IN_RECIPE_TOKEN_LIST}.\n` +
                         `Fix these before calling finish:\n` +
                         concretenessErrors.map((e) => `  - ${e}`).join("\n"),
+                };
+            }
+
+            const displayTokenFields = findTokenisedDisplayFields(content);
+            if (displayTokenFields.length > 0) {
+                debugLog("scenario finish rejected: run-unique token in a display field", {
+                    columns: [...new Set(displayTokenFields.map((f) => f.column))],
+                    rejectedCells: displayTokenFields.length,
+                });
+                return {
+                    error:
+                        `Cannot finish: a run-unique token is sitting in a field a test names on screen. ` +
+                        `A token is a different value every run, so a test cannot assert it - leaving one here ` +
+                        `forces the test author to invent a literal that was never seeded.\n` +
+                        `There is exactly ONE rule to satisfy: a {{token}} must never appear in a value a test ` +
+                        `reads on screen. Fix each field below, then finish - do not re-design the whole scenario:\n` +
+                        displayTokenFields.map((f) => `  - ${f.message}`).join("\n") +
+                        `\nIf a value must be BOTH globally unique AND shown on screen, do NOT try to tokenise it - ` +
+                        `that constraint is unsatisfiable. Keep the DISPLAYED value token-free (it may repeat across ` +
+                        `runs, which is fine) and put the token in a SEPARATE id/reference column beside it; ` +
+                        `uniqueness is then enforced by that id, not by the visible label.`,
                 };
             }
 

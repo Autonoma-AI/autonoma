@@ -323,7 +323,7 @@ The "Test data" section of this prompt lists EXACTLY what Autonoma writes to the
 - A value shown as \`<generated per run>\` differs every run - NEVER assert it literally. Assert a stable field on the same row instead.
 - Never take a data value from the app's own seed/fixture/mock files (see "Two sources of truth")
 - Do NOT assert on values that are auto-generated or vary at runtime (like database IDs); assert on the stable scenario values instead
-- NEVER use "Dynamic:", "{variableName}", "{{token}}", or "e.g." in steps or assertions. You have exact data - use it.
+- NEVER use "Dynamic:", "{variableName}", "{{token}}", or "e.g." in steps or assertions - a test resolves no variables at run time. Reference the exact value the scenario shows as a plain, token-free string. If the only value the scenario gives for something is itself a {{token}} (a per-run id, email or reference), that value is NOT on screen for you to assert - never invent a literal to stand in for it; assert a stable, token-free field on the same record instead.
 - NEVER assume facts not stated in the scenario data.
 
 ## Test generation ordering (for consistency)
