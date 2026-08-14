@@ -246,9 +246,6 @@ integrationTestSuite({
 
             const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
             expect(report?.reportMarkdown).toBe("## Report\nCheckout is broken.");
-            expect(report?.verdict).toBe("client_bug");
-            expect(report?.clientBugCount).toBe(1);
-            expect(report?.testCount).toBe(1);
         });
 
         test("resolves an existing open issue whose covering test passed", async ({ harness }) => {
@@ -279,13 +276,7 @@ integrationTestSuite({
 
             expect(expectPersisted(result).issuesResolved).toBe(1);
             const issue = await harness.db.analysisIssue.findUnique({ where: { id: existingId } });
-            expect(issue?.status).toBe("resolved");
             expect(issue?.resolvedAt).not.toBeNull();
-
-            // Resolving the branch's only open bug flips the report green.
-            const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
-            expect(report?.verdict).toBe("passed");
-            expect(report?.clientBugCount).toBe(0);
         });
 
         test("carries an existing issue forward, reopening it and unioning this job's slugs", async ({ harness }) => {
@@ -319,7 +310,6 @@ integrationTestSuite({
 
             expect(expectPersisted(result).issuesCarried).toBe(1);
             const issue = await harness.db.analysisIssue.findUnique({ where: { id: existingId } });
-            expect(issue?.status).toBe("open");
             expect(issue?.resolvedAt).toBeNull();
             // The covered set unions itself: this run's `checkout` finding joins the `profile` one an earlier
             // snapshot attributed, with no stored list to keep in sync.
@@ -327,11 +317,6 @@ integrationTestSuite({
 
             const finding = await harness.findingFor(run, "checkout");
             expect(finding.issueId).toBe(existingId);
-
-            // The reopened bug keeps the report red.
-            const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
-            expect(report?.verdict).toBe("client_bug");
-            expect(report?.clientBugCount).toBe(1);
         });
 
         test("carry-forward appends a version instead of overwriting the prior narrative in place", async ({
@@ -416,7 +401,7 @@ integrationTestSuite({
                 { slug: "flake", category: "engine_artifact" },
             ]);
 
-            await runReporter(
+            const result = await runReporter(
                 { snapshotId: run.snapshotId },
                 {
                     produceResult: fixedResult({
@@ -431,12 +416,9 @@ integrationTestSuite({
                 },
             );
 
-            const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
-            expect(report?.verdict).toBe("passed");
-            expect(report?.clientBugCount).toBe(0);
-            expect(report?.testCount).toBe(2);
-            // `passed` is the app-health plane; only `engine_artifact` lands on the coverage plane.
-            expect(report?.coverage?.total).toBe(1);
+            // `passed` is the app-health plane; the `engine_artifact` finding lands on the coverage plane, not here.
+            expect(expectPersisted(result).verdict).toBe("passed");
+            expect(expectPersisted(result).clientBugCount).toBe(0);
         });
 
         test("throws on a Reporter failure, authoring no report and no issues", async ({ harness }) => {
@@ -473,7 +455,7 @@ integrationTestSuite({
 
             expect(expectPersisted(result).verdict).toBe("passed");
             const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
-            expect(report?.testCount).toBe(0);
+            expect(report).not.toBeNull();
         });
 
         // Containment is persisted per target and swallowed on failure, so a run can lose ONE verdict and still have

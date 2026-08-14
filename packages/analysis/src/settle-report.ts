@@ -9,8 +9,6 @@ import {
     type EvidenceManifestEntry,
     type PrimaryScreenshot,
     type SuspectedCause,
-    analysisIssueStatusSchema,
-    summarizeVerdictPlanes,
 } from "@autonoma/types";
 import { BranchLedger } from "./branch-ledger";
 import { AnalysisCoverageGapError, AnalysisSnapshotNotFoundError, IssueNotOnBranchError } from "./errors";
@@ -132,16 +130,11 @@ export async function settleAnalysisReport(
             new BranchLedger(tx, branchId).openBugCount(),
         ]);
         const verdict = openBugCount > 0 ? ANALYSIS_VERDICT.client_bug : ANALYSIS_VERDICT.passed;
-        const coverage = summarizeVerdictPlanes(categories);
 
         await tx.analysisReport.create({
             data: {
                 snapshotId,
                 organizationId,
-                verdict,
-                clientBugCount: openBugCount,
-                testCount: categories.length,
-                coverage,
                 title: settlement.content.title,
                 headline: settlement.content.headline,
                 flows: settlement.content.flows,
@@ -231,7 +224,6 @@ async function applyReconciliation(
             });
         }
         await updateIssueOnBranch(tx, issue.existingIssueId, branchId, {
-            status: analysisIssueStatusSchema.enum.resolved,
             resolvedAt: new Date(),
             resolvedByFindingId: resolvingFinding?.id,
             resolutionNote: issue.note,
@@ -250,9 +242,8 @@ async function applyReconciliation(
     // annotation is what makes a stale column fail at the write. `lifecycle` is a Pick so it also fits the updateMany arm.
     const lifecycle: Pick<
         Prisma.AnalysisIssueUncheckedCreateInput,
-        "status" | "resolvedAt" | "resolvedByFindingId" | "resolutionNote"
+        "resolvedAt" | "resolvedByFindingId" | "resolutionNote"
     > = {
-        status: analysisIssueStatusSchema.enum.open,
         resolvedAt: null,
         resolvedByFindingId: null,
         resolutionNote: null,

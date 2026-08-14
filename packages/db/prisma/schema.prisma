@@ -2784,10 +2784,13 @@ model AnalysisReport {
   snapshotId String         @id @map("snapshot_id")
   snapshot   BranchSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
 
-  /// The app-health verdict for the PR: `client_bug` if the branch has any open bug-kind issue, else `passed`.
-  /// Written by the Reporter at report birth.
-  verdict String
+  /// Retired: the app-health verdict is derived on read from the branch's open bug-kind issues, not stored. No
+  /// longer written; relaxed to nullable so the writer can omit it, and retained so a rollback to the previous
+  /// image meets a populated column. Its DROP rides #2036 one deploy later.
+  verdict String?
 
+  /// Retired: both are derived on read from `analysis_finding` (loadFindingCategories + summarizeVerdictPlanes),
+  /// no longer written. Retained for rollback safety; their DROP rides #2036 one deploy later.
   testCount      Int @default(0) @map("test_count")
   clientBugCount Int @default(0) @map("client_bug_count")
 
@@ -2795,9 +2798,8 @@ model AnalysisReport {
   /// display-only; absent when selection produced no reasoning.
   impactReasoning String? @map("impact_reasoning") @db.Text
 
-  /// The coverage-confidence plane summary: per-category counts of the run's findings that are not app-health
-  /// (engine_artifact/environment_failure/scenario_issue/plan_mismatch). Display-only blob.
-  /// ![{ byCategory: { category: string; count: number }[]; total: number }]
+  /// Retired: the coverage-confidence plane summary is derived on read from `analysis_finding`, no longer written.
+  /// Retained for rollback safety; its DROP rides #2036 one deploy later.
   coverage Json?
 
   /// Dead column: nothing writes or reads it. Superseded by `headline`, which the Reporter authors directly.
