@@ -1,5 +1,45 @@
 # Changelog
 
+## [1.260813.1](https://github.com/Autonoma-AI/agent/compare/v1.260812.1...v1.260813.1) (2026-08-13)
+
+
+### Features
+
+* add public key ([#2523](https://github.com/Autonoma-AI/agent/issues/2523)) ([084183c](https://github.com/Autonoma-AI/agent/commit/084183c4f8c3531d86784328971f2d8d02cf8734))
+* **analysis:** assert the classifier eval's suggestedTestUpdate carries content ([#2510](https://github.com/Autonoma-AI/agent/issues/2510)) ([7de447b](https://github.com/Autonoma-AI/agent/commit/7de447b61e489b64d5322340dffb521595abb249))
+* **analysis:** freeze the Reporter's assembled input for replay ([#2443](https://github.com/Autonoma-AI/agent/issues/2443)) ([9cbe428](https://github.com/Autonoma-AI/agent/commit/9cbe4285bba74b4ccbf0bca3475504b6404e22b3))
+* **api:** let the debug tools take an applicationId ([#2503](https://github.com/Autonoma-AI/agent/issues/2503)) ([743f623](https://github.com/Autonoma-AI/agent/commit/743f623b48b2693cc12fac3f8d623d6127ddfa11))
+* **api:** stop writing the retired preview config document column ([#2519](https://github.com/Autonoma-AI/agent/issues/2519)) ([6d7cd77](https://github.com/Autonoma-AI/agent/commit/6d7cd77f6b60ce416d8b8eb9c4b11257fe576f11))
+* **api:** translate deploy failures before they reach the user ([#2555](https://github.com/Autonoma-AI/agent/issues/2555)) ([f5b7085](https://github.com/Autonoma-AI/agent/commit/f5b7085768626321ace0e89b79bf71e3d3338f9d))
+* **cli:** require reload-and-verify persistence for CRUD in effect verification ([#2534](https://github.com/Autonoma-AI/agent/issues/2534)) ([6f7a581](https://github.com/Autonoma-AI/agent/commit/6f7a581be483891bf93b427779a24ddefd190fa0))
+* multi-repo checkout and cross-repo grounding ([#2377](https://github.com/Autonoma-AI/agent/issues/2377)) ([5625bf1](https://github.com/Autonoma-AI/agent/commit/5625bf18fdb78995e2c3a69b11f7502f64fd9978))
+* **terraform:** import all 11 ACM certificates ([#2506](https://github.com/Autonoma-AI/agent/issues/2506)) ([56dda9e](https://github.com/Autonoma-AI/agent/commit/56dda9e2f0c0e9e853b2455db7d49447189ce4d8))
+* **terraform:** import all 2 customer-managed KMS keys ([#2543](https://github.com/Autonoma-AI/agent/issues/2543)) ([b8269ea](https://github.com/Autonoma-AI/agent/commit/b8269eaf134373182b23c8e80bb1a7f62e5b6eb4))
+* **terraform:** import the 3 CloudFront distributions ([#2433](https://github.com/Autonoma-AI/agent/issues/2433)) ([8fa0d76](https://github.com/Autonoma-AI/agent/commit/8fa0d760ad46d8684f06bea68a031c2eaa05fa2b))
+* **terraform:** import the 5 Route53 hosted zones and their static records ([#2522](https://github.com/Autonoma-AI/agent/issues/2522)) ([3724994](https://github.com/Autonoma-AI/agent/commit/37249946f5ed58b1b99e2877109efb8f5d21f40b))
+* **ui:** make onboarding one continuous flow through SDK and dry run ([#2436](https://github.com/Autonoma-AI/agent/issues/2436)) ([f9e1359](https://github.com/Autonoma-AI/agent/commit/f9e1359f6bc0707fff8d66798558b4804d911b54))
+* **ui:** unify the PR surfaces and replace the sidebar with a top navigation ([#2174](https://github.com/Autonoma-AI/agent/issues/2174)) ([c9d3cc3](https://github.com/Autonoma-AI/agent/commit/c9d3cc3fbc2660009f8e80f49e393291da358e44))
+
+
+### Bug Fixes
+
+* **api:** keep the reason a preview deploy failed ([#2504](https://github.com/Autonoma-AI/agent/issues/2504)) ([4434415](https://github.com/Autonoma-AI/agent/commit/4434415a4a5293a92abd8d380172c350629c9676))
+* **api:** point the onboarding playbook at wait_for_deploy ([#2502](https://github.com/Autonoma-AI/agent/issues/2502)) ([66af29b](https://github.com/Autonoma-AI/agent/commit/66af29b9c5121cd80f8a62e339ac893b8e341b30))
+* **api:** seed preview configs into the topology rows readers serve ([#2518](https://github.com/Autonoma-AI/agent/issues/2518)) ([cf7f272](https://github.com/Autonoma-AI/agent/commit/cf7f272067642bfa800c65c989ff74620179e21b))
+* **api:** stop reporting a preview build that was never enqueued ([#2500](https://github.com/Autonoma-AI/agent/issues/2500)) ([311b458](https://github.com/Autonoma-AI/agent/commit/311b458a2e22ba4efbfd3d206c717f0f79a4d9ae))
+* **ci:** stop the alpha dump filling the runner's tmpfs /tmp ([#2538](https://github.com/Autonoma-AI/agent/issues/2538)) ([d4a6e84](https://github.com/Autonoma-AI/agent/commit/d4a6e84f02b4aa5c6844330da4446c2a89b27619))
+* **ci:** wait for the temporal port-forward instead of sleeping 3s ([#2470](https://github.com/Autonoma-AI/agent/issues/2470)) ([e783bf9](https://github.com/Autonoma-AI/agent/commit/e783bf905e2847319cbe9549990a4d3c61bcd97b))
+* **cli:** refuse a placeholder API token instead of failing every step ([#2550](https://github.com/Autonoma-AI/agent/issues/2550)) ([4e3fa93](https://github.com/Autonoma-AI/agent/commit/4e3fa932809f31e6d2b4789ba19ebfb655a013e9))
+* **cli:** stop step-05 doubling the verb marker in rendered tests ([#2542](https://github.com/Autonoma-AI/agent/issues/2542)) ([b23dad0](https://github.com/Autonoma-AI/agent/commit/b23dad03972ef53b3ded8a7dbd35439945fe0b5d))
+* **docs:** describe the onboarding phases that actually exist ([#2552](https://github.com/Autonoma-AI/agent/issues/2552)) ([fb80748](https://github.com/Autonoma-AI/agent/commit/fb80748d7fdf6b98cb84b92a068099686af4c260))
+* **github:** capture structured, redacted outcomes for every git step in the clone path ([#2484](https://github.com/Autonoma-AI/agent/issues/2484)) ([008f758](https://github.com/Autonoma-AI/agent/commit/008f7583d5d286d2733d9c292d0378a24cc436e0))
+* **onboarding:** drop the PR reviews step and go live when the preview verifies ([#2509](https://github.com/Autonoma-AI/agent/issues/2509)) ([c61660d](https://github.com/Autonoma-AI/agent/commit/c61660da746277a2a21bccade298c2bc1c8c6b4d))
+* **previewkit:** deploy the base preview from its deploy ref, not the trunk ([#2501](https://github.com/Autonoma-AI/agent/issues/2501)) ([914cbb1](https://github.com/Autonoma-AI/agent/commit/914cbb113e7d761580c73c77fb990f7f76fa22e6))
+* **previewkit:** stop cancelling the onboarding preview build on the way out ([#2508](https://github.com/Autonoma-AI/agent/issues/2508)) ([46aafef](https://github.com/Autonoma-AI/agent/commit/46aafef833ea02dff768623821e71d3ed6e1fb40))
+* recover an unreachable base SHA instead of wedging the branch ([#2492](https://github.com/Autonoma-AI/agent/issues/2492)) ([b5f9691](https://github.com/Autonoma-AI/agent/commit/b5f96911bd7971c039dc75e08cf302e9a2a7a81c))
+* **terraform:** strip literal quotes from newsletter SPF TXT record ([#2539](https://github.com/Autonoma-AI/agent/issues/2539)) ([330c171](https://github.com/Autonoma-AI/agent/commit/330c1712400ebee530d39340938a49380994ebcb))
+* **ui:** stop calling a failed rollout a failed build ([#2553](https://github.com/Autonoma-AI/agent/issues/2553)) ([4e9a715](https://github.com/Autonoma-AI/agent/commit/4e9a71577a71eafb091c50f4bb14a2f576525c5a))
+
 ## [1.260812.1](https://github.com/Autonoma-AI/agent/compare/v1.260811.1...v1.260812.1) (2026-08-12)
 
 
