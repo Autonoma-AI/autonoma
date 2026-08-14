@@ -2,7 +2,7 @@ import { ApplicationArchitecture } from "@autonoma/db";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
-import { seedAnalysisFindings } from "../seed-analysis-findings";
+import { seedAnalysisFindings, seedAnalysisIssue } from "../seed-analysis-findings";
 
 /**
  * `branches.mainOpenProblems` is the one presenter for what is still unresolved on main: the open `AnalysisIssue`
@@ -51,21 +51,16 @@ async function createIssue(
     branchId: string,
     issue: { title: string; kind: string; severity: string; status?: string; actualBehavior?: string },
 ): Promise<string> {
-    const created = await harness.db.analysisIssue.create({
-        data: {
-            branchId,
-            title: issue.title,
-            kind: issue.kind,
-            severity: issue.severity,
-            status: issue.status ?? "open",
-            // Written with `status`, which is how the store reads the two as one fact.
-            resolvedAt: issue.status === "resolved" ? new Date() : null,
-            actualBehavior: issue.actualBehavior ?? `${issue.title} - what happened.`,
-            narrativeMarkdown: `## ${issue.title}`,
-            organizationId: harness.organizationId,
-        },
+    return await seedAnalysisIssue(harness.db, {
+        branchId,
+        organizationId: harness.organizationId,
+        title: issue.title,
+        kind: issue.kind,
+        severity: issue.severity,
+        status: issue.status ?? "open",
+        actualBehavior: issue.actualBehavior ?? `${issue.title} - what happened.`,
+        narrativeMarkdown: `## ${issue.title}`,
     });
-    return created.id;
 }
 
 apiTestSuite({

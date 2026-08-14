@@ -2,10 +2,7 @@ import { ApplicationArchitecture, type PrismaClient, createClient } from "@auton
 import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { expect } from "vitest";
 import { loadAnalysisCommentInput } from "../../src/activities/analysis/load-analysis-comment-input";
-import { seedGenerationForSlug } from "./seed-generation";
-
-/** When a seeded issue was resolved. Written with `status`, which is how the store reads the two as one fact. */
-const RESOLVED_AT = new Date("2026-07-01T00:00:00Z");
+import { seedAnalysisIssue, seedGenerationForSlug } from "./seed-generation";
 
 declare global {
     // eslint-disable-next-line no-var
@@ -169,21 +166,16 @@ class CommentInputHarness implements IntegrationHarness {
         const issueId =
             options.issueKind == null
                 ? undefined
-                : (
-                      await this.db.analysisIssue.create({
-                          data: {
-                              branchId: branch.branchId,
-                              organizationId: branch.organizationId,
-                              title: options.issueTitle ?? `${options.slug} issue`,
-                              kind: options.issueKind,
-                              severity: options.issueSeverity ?? "high",
-                              status: options.issueStatus ?? "open",
-                              resolvedAt: options.issueStatus === "resolved" ? RESOLVED_AT : null,
-                              actualBehavior: "The flow never ran.",
-                              narrativeMarkdown: "narrative",
-                          },
-                      })
-                  ).id;
+                : await seedAnalysisIssue(this.db, {
+                      branchId: branch.branchId,
+                      organizationId: branch.organizationId,
+                      title: options.issueTitle ?? `${options.slug} issue`,
+                      kind: options.issueKind,
+                      severity: options.issueSeverity ?? "high",
+                      status: options.issueStatus ?? "open",
+                      actualBehavior: "The flow never ran.",
+                      narrativeMarkdown: "narrative",
+                  });
         const finding = await this.db.analysisFinding.create({
             data: { reportSnapshotId: branch.snapshotId, organizationId: branch.organizationId, testCaseId, issueId },
         });
@@ -205,35 +197,33 @@ class CommentInputHarness implements IntegrationHarness {
 
     /** An open bug issue covering both runs' `checkout` findings (and this branch's `cart` findings). */
     async seedIssue(branch: SeededBranch, options: SeedIssueOptions = {}): Promise<string> {
-        const issue = await this.db.analysisIssue.create({
-            data: {
-                branch: { connect: { id: branch.branchId } },
-                organization: { connect: { id: branch.organizationId } },
-                title: "Place order never enables",
-                kind: "bug",
-                severity: options.severity ?? "critical",
-                status: options.status ?? "open",
-                resolvedAt: options.status === "resolved" ? RESOLVED_AT : null,
-                actualBehavior: "The button stayed disabled.",
-                narrativeMarkdown: "narrative",
-                primaryTestCase: {
-                    connect: {
-                        applicationId_slug: {
-                            applicationId: branch.applicationId,
-                            slug: options.primaryFindingSlug ?? "checkout",
-                        },
-                    },
+        const primaryTestCase = await this.db.testCase.findUniqueOrThrow({
+            where: {
+                applicationId_slug: {
+                    applicationId: branch.applicationId,
+                    slug: options.primaryFindingSlug ?? "checkout",
                 },
-                primaryScreenshot:
-                    options.withPrimaryScreenshot === false ? undefined : { s3Key: "s3://bucket/hero.png" },
-                suspectedCause:
-                    options.withSuspectedCause === false
-                        ? undefined
-                        : {
-                              explanation: "formValid is computed once on mount.",
-                              codeReferences: [{ file: "src/PlaceOrder.tsx", lines: "42-58" }],
-                          },
             },
+            select: { id: true },
+        });
+        const issueId = await seedAnalysisIssue(this.db, {
+            branchId: branch.branchId,
+            organizationId: branch.organizationId,
+            title: "Place order never enables",
+            kind: "bug",
+            severity: options.severity ?? "critical",
+            status: options.status ?? "open",
+            actualBehavior: "The button stayed disabled.",
+            narrativeMarkdown: "narrative",
+            primaryTestCaseId: primaryTestCase.id,
+            primaryScreenshot: options.withPrimaryScreenshot === false ? undefined : { s3Key: "s3://bucket/hero.png" },
+            suspectedCause:
+                options.withSuspectedCause === false
+                    ? undefined
+                    : {
+                          explanation: "formValid is computed once on mount.",
+                          codeReferences: [{ file: "src/PlaceOrder.tsx", lines: "42-58" }],
+                      },
         });
         // Attribute BOTH runs' checkout findings to the issue - the cross-snapshot recurrence the card picks from.
         await this.db.analysisFinding.updateMany({
@@ -241,9 +231,9 @@ class CommentInputHarness implements IntegrationHarness {
                 testCase: { slug: "checkout" },
                 reportSnapshotId: { in: [branch.snapshotId, branch.olderSnapshotId] },
             },
-            data: { issueId: issue.id },
+            data: { issueId },
         });
-        return issue.id;
+        return issueId;
     }
 }
 

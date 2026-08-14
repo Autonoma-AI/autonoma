@@ -12,6 +12,9 @@ export interface SeededAnalysis {
     snapshotId: string;
 }
 
+/** The fixed instant a seeded resolved issue is closed at, when the caller does not pin one. */
+const SEED_RESOLVED_AT = new Date("2026-01-01T00:00:00.000Z");
+
 export class AnalysisHarness implements IntegrationHarness {
     public readonly db: PrismaClient;
     public readonly store: AnalysisStore;
@@ -141,6 +144,50 @@ export class AnalysisHarness implements IntegrationHarness {
             headline: `${slug} ${category}`,
         });
         return { testCaseId, generationId, findingId };
+    }
+
+    /**
+     * Seed an AnalysisIssue the way the store writes one: the issue row carries identity + lifecycle, one immutable
+     * version carries the authored content, and `currentVersion` points at it. Returns the issue id.
+     */
+    async seedIssue(input: {
+        branchId: string;
+        organizationId: string;
+        title?: string;
+        kind?: string;
+        severity?: string;
+        status?: string;
+        /** Explicit close time; otherwise derived from `status: "resolved"` (the store reads `resolvedAt`). */
+        resolvedAt?: Date | null;
+        resolutionNote?: string;
+        actualBehavior?: string;
+        narrativeMarkdown?: string;
+        primaryTestCaseId?: string;
+    }): Promise<{ id: string }> {
+        const resolvedAt = input.resolvedAt ?? (input.status === "resolved" ? SEED_RESOLVED_AT : undefined);
+        const issue = await this.db.analysisIssue.create({
+            data: {
+                branchId: input.branchId,
+                organizationId: input.organizationId,
+                status: input.status ?? "open",
+                resolvedAt: resolvedAt ?? undefined,
+                resolutionNote: input.resolutionNote ?? undefined,
+            },
+        });
+        const version = await this.db.analysisIssueVersion.create({
+            data: {
+                issueId: issue.id,
+                organizationId: input.organizationId,
+                title: input.title ?? "Seeded issue",
+                kind: input.kind ?? "bug",
+                severity: input.severity ?? "high",
+                actualBehavior: input.actualBehavior ?? "misbehaves",
+                narrativeMarkdown: input.narrativeMarkdown ?? "narrative",
+                primaryTestCaseId: input.primaryTestCaseId ?? undefined,
+            },
+        });
+        await this.db.analysisIssue.update({ where: { id: issue.id }, data: { currentVersionId: version.id } });
+        return { id: issue.id };
     }
 
     /** A minimal settlement whose reconciliations are the interesting part. */

@@ -1,5 +1,5 @@
 import { db } from "@autonoma/db";
-import { type ReporterBranchTest, reporterIssueKindSchema, reporterIssueStatusSchema } from "@autonoma/diffs/analysis";
+import { type ReporterBranchTest, reporterIssueKindSchema } from "@autonoma/diffs/analysis";
 import type { Logger } from "@autonoma/logger";
 import { ANALYSIS_VERDICT, analysisVerdictSchema } from "@autonoma/types";
 
@@ -46,7 +46,8 @@ export async function loadBranchTests(
                 reportSnapshotId: true,
                 testCase: { select: { slug: true, name: true } },
                 currentClassification: { select: { category: true, headline: true } },
-                issue: { select: { status: true, kind: true } },
+                // The issue's lifecycle is `resolvedAt` (open = null); its kind rides the current restatement.
+                issue: { select: { resolvedAt: true, currentVersion: { select: { kind: true } } } },
                 job: { select: { snapshot: { select: { headSha: true } } } },
             },
         }),
@@ -111,9 +112,13 @@ export async function loadBranchTests(
  * attributed gap is theirs and an unattributed one stays ours. A bug issue is not a coverage placement, and a
  * resolved one is no longer a live gap.
  */
-function isClientOwnedIssue(issue: { status: string; kind: string } | null): boolean {
-    if (issue == null || issue.status !== reporterIssueStatusSchema.enum.open) return false;
-    const kind = reporterIssueKindSchema.safeParse(issue.kind);
+function isClientOwnedIssue(
+    issue: { resolvedAt: Date | null; currentVersion: { kind: string } | null } | null,
+): boolean {
+    if (issue == null || issue.resolvedAt != null || issue.currentVersion == null) {
+        return false;
+    }
+    const kind = reporterIssueKindSchema.safeParse(issue.currentVersion.kind);
     return kind.success && kind.data !== reporterIssueKindSchema.enum.bug;
 }
 

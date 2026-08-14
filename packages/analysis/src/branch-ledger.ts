@@ -56,7 +56,8 @@ export class BranchLedger {
         const issues = await readIssues(this.db, {
             branchId: this.branchId,
             resolvedAt: filter?.status != null ? issueStatusFilter(filter.status) : undefined,
-            kind: filter?.kind,
+            // Kind is authored content, on the issue's current version.
+            currentVersion: filter?.kind != null ? { kind: filter.kind } : undefined,
         });
         this.logger.info("Loaded branch issues", {
             branch: { branchId: this.branchId },
@@ -75,7 +76,7 @@ export class BranchLedger {
             where: {
                 branchId: this.branchId,
                 resolvedAt: issueStatusFilter(analysisIssueStatusSchema.enum.open),
-                kind: analysisIssueKindSchema.enum.bug,
+                currentVersion: { kind: analysisIssueKindSchema.enum.bug },
             },
         });
     }

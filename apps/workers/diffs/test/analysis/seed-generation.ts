@@ -1,6 +1,67 @@
-import type { PrismaClient } from "@autonoma/db";
+import type { Prisma, PrismaClient } from "@autonoma/db";
 
 let seq = 0;
+
+/** The fixed instant a seeded resolved issue is closed at, when the caller does not pin one. */
+const SEED_RESOLVED_AT = new Date("2026-01-01T00:00:00.000Z");
+
+/** The authored content + lifecycle a seeded AnalysisIssue needs. Content lands on the issue's one seed version. */
+export interface SeedAnalysisIssueInput {
+    branchId: string;
+    organizationId: string;
+    status?: string;
+    /** When set, the issue is resolved at this instant; defaults from `status: "resolved"` (the store reads
+     * `resolvedAt`, not `status`, so a resolved seed must carry one). */
+    resolvedAt?: Date;
+    title?: string;
+    kind?: string;
+    severity?: string;
+    expectedBehavior?: string;
+    actualBehavior?: string;
+    narrativeMarkdown?: string;
+    primaryTestCaseId?: string;
+    evidenceManifest?: Prisma.AnalysisIssueVersionCreateInput["evidenceManifest"];
+    primaryScreenshot?: Prisma.AnalysisIssueVersionCreateInput["primaryScreenshot"];
+    suspectedCause?: Prisma.AnalysisIssueVersionCreateInput["suspectedCause"];
+    /** Findings to attribute to the issue, created nested (they FK the issue, not its version). */
+    findings?: Prisma.AnalysisFindingCreateWithoutIssueInput[];
+}
+
+/**
+ * Seed an AnalysisIssue the way the Reporter writes one: an issue row carrying identity + lifecycle, one immutable
+ * version carrying the authored content, and the `currentVersion` pointer aimed at it. Returns the issue id.
+ */
+export async function seedAnalysisIssue(db: PrismaClient, input: SeedAnalysisIssueInput): Promise<string> {
+    const status = input.status ?? "open";
+    const resolvedAt = input.resolvedAt ?? (status === "resolved" ? SEED_RESOLVED_AT : undefined);
+    const issue = await db.analysisIssue.create({
+        data: {
+            branchId: input.branchId,
+            organizationId: input.organizationId,
+            status,
+            resolvedAt,
+            findings: input.findings != null ? { create: input.findings } : undefined,
+        },
+    });
+    const version = await db.analysisIssueVersion.create({
+        data: {
+            issueId: issue.id,
+            organizationId: input.organizationId,
+            title: input.title ?? "Seeded issue",
+            kind: input.kind ?? "bug",
+            severity: input.severity ?? "high",
+            expectedBehavior: input.expectedBehavior ?? undefined,
+            actualBehavior: input.actualBehavior ?? "misbehaves",
+            narrativeMarkdown: input.narrativeMarkdown ?? "seeded narrative",
+            primaryTestCaseId: input.primaryTestCaseId ?? undefined,
+            evidenceManifest: input.evidenceManifest ?? undefined,
+            primaryScreenshot: input.primaryScreenshot ?? undefined,
+            suspectedCause: input.suspectedCause ?? undefined,
+        },
+    });
+    await db.analysisIssue.update({ where: { id: issue.id }, data: { currentVersionId: version.id } });
+    return issue.id;
+}
 
 /**
  * Seeds the test case / plan / generation chain one `AnalysisFinding` needs: the finding FKs the test case, and its

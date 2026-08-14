@@ -63,19 +63,25 @@ export interface Issue {
 export const issueSelect = {
     id: true,
     branchId: true,
-    title: true,
-    kind: true,
-    severity: true,
-    expectedBehavior: true,
-    actualBehavior: true,
-    narrativeMarkdown: true,
-    primaryScreenshot: true,
-    suspectedCause: true,
-    primaryTestCaseId: true,
-    evidenceManifest: true,
     resolvedAt: true,
     createdAt: true,
     updatedAt: true,
+    // Authored content is read through the restatement the issue currently stands behind; only the lifecycle
+    // (`resolvedAt`) and the covered set live on the issue itself.
+    currentVersion: {
+        select: {
+            title: true,
+            kind: true,
+            severity: true,
+            expectedBehavior: true,
+            actualBehavior: true,
+            narrativeMarkdown: true,
+            primaryScreenshot: true,
+            suspectedCause: true,
+            primaryTestCaseId: true,
+            evidenceManifest: true,
+        },
+    },
     findings: {
         select: {
             id: true,
@@ -149,32 +155,34 @@ function compareIssuesTotally(left: Issue, right: Issue): number {
 }
 
 function toIssue(row: IssueRow): Issue | undefined {
-    const enums = parseIssueEnums(row);
+    const version = row.currentVersion;
+    if (version == null) return undefined;
+    const enums = parseIssueEnums({ id: row.id, kind: version.kind, severity: version.severity });
     if (enums == null) return undefined;
-    const primaryScreenshot = primaryScreenshotSchema.safeParse(row.primaryScreenshot);
-    const suspectedCause = suspectedCauseSchema.safeParse(row.suspectedCause);
+    const primaryScreenshot = primaryScreenshotSchema.safeParse(version.primaryScreenshot);
+    const suspectedCause = suspectedCauseSchema.safeParse(version.suspectedCause);
 
     const coveredFindings = row.findings.map(toCoveredFinding);
 
     return {
         id: row.id,
         branchId: row.branchId,
-        title: row.title,
+        title: version.title,
         kind: enums.kind,
         severity: enums.severity,
         status: issueStatusOf(row.resolvedAt),
-        expectedBehavior: row.expectedBehavior ?? undefined,
-        actualBehavior: row.actualBehavior,
-        narrativeMarkdown: row.narrativeMarkdown,
+        expectedBehavior: version.expectedBehavior ?? undefined,
+        actualBehavior: version.actualBehavior,
+        narrativeMarkdown: version.narrativeMarkdown,
         primaryScreenshot: primaryScreenshot.success ? primaryScreenshot.data : undefined,
         suspectedCause: suspectedCause.success ? suspectedCause.data : undefined,
-        primaryTestCaseId: row.primaryTestCaseId ?? undefined,
-        evidenceManifest: parseEvidenceManifest(row.evidenceManifest),
+        primaryTestCaseId: version.primaryTestCaseId ?? undefined,
+        evidenceManifest: parseEvidenceManifest(version.evidenceManifest),
         resolvedAt: row.resolvedAt ?? undefined,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         coveredFindings,
-        designatedRun: pickDesignatedRun(row.primaryTestCaseId ?? undefined, coveredFindings),
+        designatedRun: pickDesignatedRun(version.primaryTestCaseId ?? undefined, coveredFindings),
     };
 }
 

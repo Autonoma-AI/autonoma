@@ -3,7 +3,7 @@ import { createTestDatabase, type IntegrationHarness, integrationTestSuite } fro
 import { logger as rootLogger } from "@autonoma/logger";
 import { expect } from "vitest";
 import { loadBranchTests } from "../../src/activities/analysis/branch-tests";
-import { seedGenerationForSlug } from "./seed-generation";
+import { seedAnalysisIssue, seedGenerationForSlug } from "./seed-generation";
 
 declare global {
     // eslint-disable-next-line no-var
@@ -116,19 +116,14 @@ class BranchTestsHarness implements IntegrationHarness {
     }
 
     async seedOpenIssue(branch: SeededBranch, kind: string): Promise<string> {
-        const issue = await this.db.analysisIssue.create({
-            data: {
-                branchId: branch.branchId,
-                organizationId: branch.organizationId,
-                title: `${kind} gap`,
-                kind,
-                severity: "high",
-                status: "open",
-                actualBehavior: "the preview lacked its configuration",
-                narrativeMarkdown: "narrative",
-            },
+        return await seedAnalysisIssue(this.db, {
+            branchId: branch.branchId,
+            organizationId: branch.organizationId,
+            title: `${kind} gap`,
+            kind,
+            actualBehavior: "the preview lacked its configuration",
+            narrativeMarkdown: "narrative",
         });
-        return issue.id;
     }
 }
 

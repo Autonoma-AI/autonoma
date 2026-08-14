@@ -17,14 +17,14 @@ analysisSuite({
                 actualBehavior: "misbehaves",
                 narrativeMarkdown: "narrative",
             };
-            await harness.db.analysisIssue.createMany({
-                data: [
-                    { ...base, title: "Open bug", kind: "bug", severity: "high", resolvedAt: null },
-                    { ...base, title: "Resolved bug", kind: "bug", severity: "high", resolvedAt: RESOLVED_AT },
-                    { ...base, title: "Open env", kind: "environment", severity: "high", resolvedAt: null },
-                    { ...base, title: "Corrupt kind", kind: "BUG!", severity: "high", resolvedAt: null },
-                ],
-            });
+            for (const issue of [
+                { title: "Open bug", kind: "bug", severity: "high", resolvedAt: null },
+                { title: "Resolved bug", kind: "bug", severity: "high", resolvedAt: RESOLVED_AT },
+                { title: "Open env", kind: "environment", severity: "high", resolvedAt: null },
+                { title: "Corrupt kind", kind: "BUG!", severity: "high", resolvedAt: null },
+            ]) {
+                await harness.seedIssue({ ...base, ...issue });
+            }
 
             expect(await harness.store.forBranch(run.branchId).openBugCount()).toBe(1);
         });
@@ -33,17 +33,15 @@ analysisSuite({
             harness,
         }) => {
             const run = await harness.seedAnalysis();
-            await harness.db.analysisIssue.create({
-                data: {
-                    branchId: run.branchId,
-                    organizationId: run.organizationId,
-                    title: "Bug with corrupt severity",
-                    kind: "bug",
-                    severity: "URGENT",
-                    status: "open",
-                    actualBehavior: "misbehaves",
-                    narrativeMarkdown: "narrative",
-                },
+            await harness.seedIssue({
+                branchId: run.branchId,
+                organizationId: run.organizationId,
+                title: "Bug with corrupt severity",
+                kind: "bug",
+                severity: "URGENT",
+                status: "open",
+                actualBehavior: "misbehaves",
+                narrativeMarkdown: "narrative",
             });
 
             const ledger = harness.store.forBranch(run.branchId);
@@ -58,17 +56,15 @@ analysisSuite({
             harness,
         }) => {
             const run = await harness.seedAnalysis();
-            const issue = await harness.db.analysisIssue.create({
-                data: {
-                    branchId: run.branchId,
-                    organizationId: run.organizationId,
-                    title: "Cross-snapshot bug",
-                    kind: "bug",
-                    severity: "high",
-                    status: "open",
-                    actualBehavior: "misbehaves",
-                    narrativeMarkdown: "narrative",
-                },
+            const issue = await harness.seedIssue({
+                branchId: run.branchId,
+                organizationId: run.organizationId,
+                title: "Cross-snapshot bug",
+                kind: "bug",
+                severity: "high",
+                status: "open",
+                actualBehavior: "misbehaves",
+                narrativeMarkdown: "narrative",
             });
             const first = await harness.recordVerdict(run, "checkout", "client_bug");
             const laterSnapshotId = await harness.addSnapshot(run.branchId, run.organizationId);

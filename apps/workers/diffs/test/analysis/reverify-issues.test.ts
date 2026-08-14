@@ -4,10 +4,7 @@ import { createTestDatabase, type IntegrationHarness, integrationTestSuite } fro
 import { TestSuiteStore } from "@autonoma/test-suite";
 import { expect } from "vitest";
 import { type ReverifiedTest, reverifyOpenIssues } from "../../src/analysis/reverify-issues";
-import { findOrCreateTestCase } from "./seed-generation";
-
-/** When a seeded issue was resolved. Written with `status`, which is how the store reads the two as one fact. */
-const RESOLVED_AT = new Date("2026-07-01T00:00:00Z");
+import { findOrCreateTestCase, seedAnalysisIssue } from "./seed-generation";
 
 /** Monotonic counter for unique org/app slugs across the suite (one shared container, no per-test truncation). */
 let seq = 0;
@@ -99,18 +96,14 @@ class ReverifyHarness implements IntegrationHarness {
      * attributed it, which is why each run here gets its own snapshot.
      */
     async seedIssue(branch: SeededBranch, params: SeedIssueParams): Promise<string> {
-        const issue = await this.db.analysisIssue.create({
-            data: {
-                branchId: branch.branchId,
-                organizationId: branch.organizationId,
-                title: params.title,
-                kind: params.kind ?? "bug",
-                severity: "high",
-                status: params.status ?? "open",
-                resolvedAt: params.status === "resolved" ? RESOLVED_AT : null,
-                actualBehavior: `${params.title} misbehaves`,
-                narrativeMarkdown: `${params.title} narrative`,
-            },
+        const issueId = await seedAnalysisIssue(this.db, {
+            branchId: branch.branchId,
+            organizationId: branch.organizationId,
+            title: params.title,
+            kind: params.kind ?? "bug",
+            status: params.status ?? "open",
+            actualBehavior: `${params.title} misbehaves`,
+            narrativeMarkdown: `${params.title} narrative`,
         });
 
         for (let run = 0; run < (params.carriedAcross ?? 1); run += 1) {
@@ -133,12 +126,12 @@ class ReverifyHarness implements IntegrationHarness {
                         reportSnapshotId: priorSnapshot.id,
                         organizationId: branch.organizationId,
                         testCaseId: await this.testCaseFor(branch, slug),
-                        issueId: issue.id,
+                        issueId,
                     },
                 });
             }
         }
-        return issue.id;
+        return issueId;
     }
 
     /** Run re-verification the way the Impact Analysis stage does, over the run's open snapshot. */

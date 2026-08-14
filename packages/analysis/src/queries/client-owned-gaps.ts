@@ -36,7 +36,13 @@ export async function readClientOwnedGaps(
         orderBy: { testCase: { slug: "asc" } },
         select: {
             currentClassification: { select: { category: true } },
-            issue: { select: { id: true, title: true, kind: true, severity: true, resolvedAt: true } },
+            issue: {
+                select: {
+                    id: true,
+                    resolvedAt: true,
+                    currentVersion: { select: { title: true, kind: true, severity: true } },
+                },
+            },
         },
     });
 
@@ -52,11 +58,12 @@ export async function readClientOwnedGaps(
 
         const issue = row.issue;
         // Open (unresolved) only, and never a bug - bugs are carded on their own.
-        if (issue == null || issue.resolvedAt != null) continue;
-        const enums = parseIssueEnums(issue);
+        if (issue == null || issue.resolvedAt != null || issue.currentVersion == null) continue;
+        const version = issue.currentVersion;
+        const enums = parseIssueEnums({ id: issue.id, kind: version.kind, severity: version.severity });
         if (enums == null || enums.kind === BUG_KIND) continue;
 
-        byIssueId.set(issue.id, { id: issue.id, title: issue.title, kind: enums.kind, severity: enums.severity });
+        byIssueId.set(issue.id, { id: issue.id, title: version.title, kind: enums.kind, severity: enums.severity });
     }
 
     return [...byIssueId.values()]

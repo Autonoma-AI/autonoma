@@ -166,6 +166,7 @@ model Organization {
   analysisFindings        AnalysisFinding[]
   analysisClassifications AnalysisClassification[]
   analysisIssues          AnalysisIssue[]
+  analysisIssueVersions   AnalysisIssueVersion[]
   vercelInstallations     VercelInstallation[]
 
   @@map("organization")
@@ -809,11 +810,12 @@ model BranchSnapshot {
   baseOfBranches  Branch[]         @relation("BaseSnapshot")
   testGenerations TestGeneration[]
 
-  analysisJob          AnalysisJob?
-  analysisReport       AnalysisReport?
-  investigationAiCosts AiCostRecord[]     @relation("InvestigationAiCost")
-  issues               Issue[]
-  vercelDeployments    VercelDeployment[]
+  analysisJob           AnalysisJob?
+  analysisReport        AnalysisReport?
+  investigationAiCosts  AiCostRecord[]         @relation("InvestigationAiCost")
+  issues                Issue[]
+  vercelDeployments     VercelDeployment[]
+  analysisIssueVersions AnalysisIssueVersion[]
 
   @@index([branchId, createdAt])
   @@map("branch_snapshot")
@@ -873,9 +875,11 @@ model TestCase {
   tags        TestTag[]
   assignments TestCaseAssignment[]
 
-  analysisFindings AnalysisFinding[]
-  /// The issues that designated this test as their clearest reproduction.
-  primaryOfIssues  AnalysisIssue[]   @relation("IssuePrimaryTestCase")
+  analysisFindings       AnalysisFinding[]
+  /// The issue restatements that designated this test as their clearest reproduction.
+  primaryOfIssueVersions AnalysisIssueVersion[] @relation("IssueVersionPrimaryTestCase")
+  /// Retired back-relation of the kept `AnalysisIssue.primaryTestCase`; drops with that column one deploy later (#2580).
+  primaryOfIssues        AnalysisIssue[]        @relation("IssuePrimaryTestCase")
 
   bugEvidence BugTestCaseEvidence[]
 
@@ -3007,24 +3011,107 @@ model AnalysisClassification {
 /// A branch/PR-scoped "problem" the Reporter agent authors and evolves ACROSS snapshots - the de-duped, holistic
 /// unit above the per-snapshot AnalysisFinding. One issue clusters the findings (across time and across tests) that
 /// manifest the same underlying problem; its lifecycle is open/resolved (a carry-forward re-confirms or reopens, a
-/// resolve closes it once a covering test re-ran and passed). The Reporter authors and evolves these during the
-/// reconcile stage. Enum-shaped columns
-/// (`kind`, `severity`, `status`) are plain strings, matching the rest of the analysis island; the values are
-/// Zod-validated at the boundary. Only FKs OUTWARD (branch / org, cascade); the island stays cleanly drop-able.
+/// resolve closes it once a covering test re-ran and passed).
+///
+/// This row holds only the issue's IDENTITY, its LIFECYCLE (`resolvedAt`'s presence - `status` is retired), the
+/// current-version pointer, and its covered-finding relation. Every authored CONTENT field (title, kind, severity,
+/// the behavior prose, evidence, primary screenshot/test) lives on an append-only AnalysisIssueVersion, exactly as
+/// AnalysisFinding holds AnalysisClassification: a carry-forward that re-states the problem mints a NEW version and
+/// re-points `currentVersion` rather than overwriting the last one in place, so a weak run can no longer destroy a
+/// good narrative authored earlier. A `resolve` is a pure lifecycle transition - it sets `resolvedAt` (plus
+/// `resolvedByFinding`/`resolutionNote`) and mints no version. Only FKs OUTWARD (branch / org, cascade); drop-able.
 model AnalysisIssue {
   id String @id @default(cuid())
 
   branchId String @map("branch_id")
   branch   Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
+  /// Retired: the lifecycle IS `resolvedAt`'s presence, which is what the store reads. Still written so a rollback
+  /// to the previous image meets a populated column; its DROP rides #2036 one deploy later.
+  status String @default("open")
+
+  resolvedAt DateTime? @map("resolved_at")
+
+  /// The passing finding whose run justified resolving this issue - the Reporter names the covering test that
+  /// re-ran and passed, resolved to that test's finding on the resolving snapshot. SetNull so deleting the finding
+  /// keeps the resolution; null on issues resolved before this was recorded (or by hand).
+  resolvedByFindingId String?          @map("resolved_by_finding_id")
+  resolvedByFinding   AnalysisFinding? @relation("IssueResolvedByFinding", fields: [resolvedByFindingId], references: [id], onDelete: SetNull)
+
+  /// The Reporter's stated justification for the resolve - why the passing run proves the problem is gone.
+  resolutionNote String? @map("resolution_note") @db.Text
+
+  /// Retired: the authored content now lives on AnalysisIssueVersion, read through `currentVersion`. These copies are
+  /// kept one deploy - unread and unwritten by the current code - so a rollback to the prior image, whose Reporter
+  /// still writes them on `analysisIssue.create`/`update`, meets columns that still exist. Relaxed to nullable so the
+  /// current create (which omits them) succeeds. Their DROP, with the `primaryTestCase` relation, rides a follow-up
+  /// migration one deploy later (#2580).
+  title             String?   @db.Text
+  kind              String?
+  severity          String?
+  expectedBehavior  String?   @map("expected_behavior") @db.Text
+  actualBehavior    String?   @map("actual_behavior") @db.Text
+  narrativeMarkdown String?   @map("narrative_markdown") @db.Text
+  evidenceManifest  Json?     @map("evidence_manifest")
+  primaryScreenshot Json?     @map("primary_screenshot")
+  suspectedCause    Json?     @map("suspected_cause")
+  /// Retired with the content columns above; the live designation is `AnalysisIssueVersion.primaryTestCase`.
+  primaryTestCaseId String?   @map("primary_test_case_id")
+  primaryTestCase   TestCase? @relation("IssuePrimaryTestCase", fields: [primaryTestCaseId], references: [id], onDelete: SetNull)
+
+  /// The restatement the issue currently stands behind - readers resolve every content field through it. Null only
+  /// between the issue's creation and its first version, inside the one transaction that writes both. SetNull rather
+  /// than Cascade because a version is only ever deleted with its whole issue, so this never fires in practice.
+  currentVersionId String?               @unique @map("current_version_id")
+  currentVersion   AnalysisIssueVersion? @relation("CurrentIssueVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+
+  /// Every restatement of this issue, oldest first - one per open/carry-forward run that authored its content.
+  versions AnalysisIssueVersion[] @relation("IssueVersions")
+
+  findings AnalysisFinding[]
+
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  /// The ledger's hot read is "this branch's open issues", which is `resolvedAt IS NULL`.
+  @@index([branchId, resolvedAt])
+  @@index([organizationId])
+  /// Indexes the FK's referencing side: without it, every AnalysisFinding delete seq-scans this table to SetNull.
+  @@index([resolvedByFindingId])
+  /// Retired with `primaryTestCaseId`; kept until its follow-up DROP so the FK's referencing side stays indexed.
+  @@index([primaryTestCaseId])
+  @@map("analysis_issue")
+}
+
+/// One authored restatement of an AnalysisIssue - the immutable content the issue stood behind at one point in its
+/// life. The Reporter mints one on `open` (the first) and one on every `carry_forward` (which re-states the problem
+/// and may reopen it); a `resolve` mints none. The parent's `currentVersion` points at the newest, so the previous
+/// narrative/severity/cause survive as an audit trail ("opened at abc123 as critical, restated at def456 as high")
+/// instead of being overwritten in place.
+///
+/// One version per `(issue, snapshot)`: a snapshot's Reporter authors at most one restatement of an issue (a
+/// re-settle of a committed snapshot is refused by the report-exists guard, so this never twins). `snapshotId` is
+/// nullable and SetNull: the content outlives the run that authored it, and a version backfilled from a
+/// pre-versioning issue has no known origin snapshot. Ordered by `createdAt` (not a sequence counter) because
+/// different snapshots' Reporters can run concurrently, and a max+1 number would race between them.
+model AnalysisIssueVersion {
+  id String @id @default(cuid())
+
+  issueId String        @map("issue_id")
+  issue   AnalysisIssue @relation("IssueVersions", fields: [issueId], references: [id], onDelete: Cascade)
+
+  /// The snapshot whose Reporter authored this restatement. Null on a backfilled first version (origin unknown);
+  /// SetNull so deleting the snapshot keeps the content but forgets which run wrote it.
+  snapshotId String?         @map("snapshot_id")
+  snapshot   BranchSnapshot? @relation(fields: [snapshotId], references: [id], onDelete: SetNull)
+
   title    String @db.Text
   /// The problem's class: "bug" | "environment" | "scenario".
   kind     String
   /// The Reporter's severity call: "critical" | "high" | "medium" | "low".
   severity String
-  /// Retired: the lifecycle IS `resolvedAt`'s presence, which is what the store reads. Still written so a rollback
-  /// to the previous image meets a populated column; its DROP rides #2036 one deploy later.
-  status   String @default("open")
 
   expectedBehavior  String? @map("expected_behavior") @db.Text
   actualBehavior    String  @map("actual_behavior") @db.Text
@@ -3042,42 +3129,31 @@ model AnalysisIssue {
 
   /// The covered test the Reporter designated as the clearest REPRODUCTION of the problem. Which test is the
   /// judgement call, so the agent makes it (naming a slug, resolved to this FK at persist); which RUN of it to show
-  /// is mechanical, so readers resolve the newest covering finding for this test - a carried-forward issue's media
-  /// tracks the PR's current head with no re-designation. Null when the model named a test it was never shown.
+  /// is mechanical, so readers resolve the newest covering finding for this test. Null when the model named a test
+  /// it was never shown.
   primaryTestCaseId String?   @map("primary_test_case_id")
-  primaryTestCase   TestCase? @relation("IssuePrimaryTestCase", fields: [primaryTestCaseId], references: [id], onDelete: SetNull)
+  primaryTestCase   TestCase? @relation("IssueVersionPrimaryTestCase", fields: [primaryTestCaseId], references: [id], onDelete: SetNull)
 
   /// The hedged, code-level suspected cause (explanation + grounded file:line references), validated against the
   /// checked-out repo at author time so a fabricated reference never lands. Absent when nothing was grounded.
   /// [SuspectedCause]
   suspectedCause Json? @map("suspected_cause")
 
-  resolvedAt DateTime? @map("resolved_at")
-
-  /// The passing finding whose run justified resolving this issue - the Reporter names the covering test that
-  /// re-ran and passed, resolved to that test's finding on the resolving snapshot. SetNull so deleting the finding
-  /// keeps the resolution; null on issues resolved before this was recorded (or by hand).
-  resolvedByFindingId String?          @map("resolved_by_finding_id")
-  resolvedByFinding   AnalysisFinding? @relation("IssueResolvedByFinding", fields: [resolvedByFindingId], references: [id], onDelete: SetNull)
-
-  /// The Reporter's stated justification for the resolve - why the passing run proves the problem is gone.
-  resolutionNote String? @map("resolution_note") @db.Text
-
-  findings AnalysisFinding[]
-
   createdAt      DateTime     @default(now()) @map("created_at")
-  updatedAt      DateTime     @updatedAt @map("updated_at")
   organizationId String       @map("organization_id")
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  /// The ledger's hot read is "this branch's open issues", which is `resolvedAt IS NULL`.
-  @@index([branchId, resolvedAt])
+  /// The issue this version is the current restatement of, if it is. Back-relation of
+  /// `AnalysisIssue.currentVersion`; never queried from this side.
+  currentOf AnalysisIssue? @relation("CurrentIssueVersion")
+
+  @@unique([issueId, snapshotId])
+  @@index([issueId])
   @@index([organizationId])
   /// Indexes the FK's referencing side: without it, every TestCase delete seq-scans this table to SetNull.
   @@index([primaryTestCaseId])
-  /// Indexes the FK's referencing side: without it, every AnalysisFinding delete seq-scans this table to SetNull.
-  @@index([resolvedByFindingId])
-  @@map("analysis_issue")
+  @@index([snapshotId])
+  @@map("analysis_issue_version")
 }
 
 // Generic durable fixed-window rate-limit counter. One row per limiter key (e.g.

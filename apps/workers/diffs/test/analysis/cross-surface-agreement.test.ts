@@ -4,7 +4,7 @@ import { expect } from "vitest";
 import { resolveMergeGateCheckResult } from "../../src/activities/analysis/apply-merge-gate-verdict";
 import { loadAnalysisCommentInput } from "../../src/activities/analysis/load-analysis-comment-input";
 import type { SnapshotMeta } from "../../src/codebase/snapshot-context";
-import { seedGenerationForSlug } from "./seed-generation";
+import { seedAnalysisIssue, seedGenerationForSlug } from "./seed-generation";
 
 declare global {
     // eslint-disable-next-line no-var
@@ -79,18 +79,15 @@ class CrossSurfaceHarness implements IntegrationHarness {
         });
 
         for (const [index, title] of options.openBugTitles.entries()) {
-            const issue = await this.db.analysisIssue.create({
-                data: {
-                    branchId: branch.id,
-                    organizationId: org.id,
-                    title,
-                    kind: "bug",
-                    severity: "critical",
-                    status: "open",
-                    resolvedAt: null,
-                    actualBehavior: "It misbehaves.",
-                    narrativeMarkdown: "narrative",
-                },
+            const issueId = await seedAnalysisIssue(this.db, {
+                branchId: branch.id,
+                organizationId: org.id,
+                title,
+                kind: "bug",
+                severity: "critical",
+                status: "open",
+                actualBehavior: "It misbehaves.",
+                narrativeMarkdown: "narrative",
             });
             await this.seedFinding({
                 app,
@@ -98,7 +95,7 @@ class CrossSurfaceHarness implements IntegrationHarness {
                 snapshot,
                 slug: `bug-${index}`,
                 category: "client_bug",
-                issueId: issue.id,
+                issueId,
             });
         }
 

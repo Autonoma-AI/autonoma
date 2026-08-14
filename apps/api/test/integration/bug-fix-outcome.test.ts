@@ -6,6 +6,7 @@ import { BranchContributorService } from "../../src/github/branch-contributor.se
 import { BugFixOutcomeService } from "../../src/github/bug-fix-outcome.service";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
+import { seedAnalysisIssue } from "../seed-analysis-findings";
 
 interface CapturedEvent {
     event: string;
@@ -438,21 +439,17 @@ async function addIssue(
     branchId: string,
     opts: { kind: string; status: string; severity: string; resolvedAt?: Date },
 ): Promise<string> {
-    const issue = await harness.db.analysisIssue.create({
-        data: {
-            branchId,
-            organizationId: harness.organizationId,
-            title: `${opts.kind} issue`,
-            kind: opts.kind,
-            severity: opts.severity,
-            status: opts.status,
-            resolvedAt: opts.resolvedAt,
-            actualBehavior: "It did the wrong thing.",
-            narrativeMarkdown: "The narrative.",
-        },
-        select: { id: true },
+    return await seedAnalysisIssue(harness.db, {
+        branchId,
+        organizationId: harness.organizationId,
+        title: `${opts.kind} issue`,
+        kind: opts.kind,
+        severity: opts.severity,
+        status: opts.status,
+        resolvedAt: opts.resolvedAt,
+        actualBehavior: "It did the wrong thing.",
+        narrativeMarkdown: "The narrative.",
     });
-    return issue.id;
 }
 
 function mergeParams(harness: APITestHarness, fixture: RepoAppFixture) {

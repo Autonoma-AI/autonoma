@@ -250,14 +250,25 @@ async function applyReconciliation(
     // can name a test no finding exists for.
     const content = issue.content;
     const covered = await resolveCoveredFindings(tx, snapshotId, content.coveredTestSlugs);
-    const data = {
-        title: content.title,
-        kind: content.kind,
-        severity: content.severity,
+    // Lifecycle stays on the issue; content is minted as an immutable version and pointed at, so a carry-forward
+    // appends rather than overwriting the prior restatement. Both literals are TYPED to keep excess-property checking
+    // engaged - Prisma's XOR-shaped `data` silently accepts a dropped/renamed column from an inferred spread, so the
+    // annotation is what makes a stale column fail at the write. `lifecycle` is a Pick so it also fits the updateMany arm.
+    const lifecycle: Pick<
+        Prisma.AnalysisIssueUncheckedCreateInput,
+        "status" | "resolvedAt" | "resolvedByFindingId" | "resolutionNote"
+    > = {
         status: analysisIssueStatusSchema.enum.open,
         resolvedAt: null,
         resolvedByFindingId: null,
         resolutionNote: null,
+    };
+    const versionData: Prisma.AnalysisIssueVersionUncheckedCreateWithoutIssueInput = {
+        snapshotId,
+        organizationId,
+        title: content.title,
+        kind: content.kind,
+        severity: content.severity,
         expectedBehavior: content.expectedBehavior,
         actualBehavior: content.actualBehavior,
         narrativeMarkdown: content.narrativeMarkdown,
@@ -270,14 +281,24 @@ async function applyReconciliation(
     };
 
     if (issue.kind === "open") {
-        const created = await tx.analysisIssue.create({ data: { ...data, branchId, organizationId } });
+        const created = await tx.analysisIssue.create({ data: { ...lifecycle, branchId, organizationId } });
+        const version = await tx.analysisIssueVersion.create({ data: { issueId: created.id, ...versionData } });
+        await tx.analysisIssue.update({ where: { id: created.id }, data: { currentVersionId: version.id } });
         await attributeFindings(tx, covered, created.id);
         return;
     }
 
-    // carry_forward: re-state the issue's content and reopen it if it had been resolved. The covered set unions
-    // itself: attributing this run's findings adds to the ones earlier snapshots already attributed.
-    await updateIssueOnBranch(tx, issue.existingIssueId, branchId, data);
+    // carry_forward: append a fresh restatement, make it current, and reopen the issue if it had been resolved. The
+    // version keys on (issue, snapshot) - a snapshot authors at most one restatement of an issue - so if this ever
+    // runs twice for the same snapshot the upsert updates in place rather than twinning (a re-settle is already
+    // refused earlier by the report-exists guard). The covered set unions itself: attributing this run's findings
+    // adds to the ones earlier snapshots attributed.
+    const version = await tx.analysisIssueVersion.upsert({
+        where: { issueId_snapshotId: { issueId: issue.existingIssueId, snapshotId } },
+        create: { issueId: issue.existingIssueId, ...versionData },
+        update: versionData,
+    });
+    await updateIssueOnBranch(tx, issue.existingIssueId, branchId, { ...lifecycle, currentVersionId: version.id });
     await attributeFindings(tx, covered, issue.existingIssueId);
 }
 

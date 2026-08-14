@@ -1300,16 +1300,24 @@ const AnalysisIssueInput = loose({
 const AnalysisIssueFactory = defineFactory({
     inputSchema: AnalysisIssueInput,
     refSchema: emptyRef,
+    // The authored content lives on an AnalysisIssueVersion; the issue holds only its identity + lifecycle. Seed the
+    // issue, its one version, then point `currentVersion` at that version - the same three writes the Reporter makes.
     create: async (data) => {
-        const row = await db.analysisIssue.create({
+        const issue = await db.analysisIssue.create({
             data: {
                 id: data.id ?? undefined,
                 branchId: data.branchId,
                 organizationId: data.organizationId,
+                status: data.status ?? "open",
+            },
+        });
+        const version = await db.analysisIssueVersion.create({
+            data: {
+                issueId: issue.id,
+                organizationId: data.organizationId,
                 title: data.title ?? "Autonoma test analysis issue",
                 kind: analysisIssueKindSchema.safeParse(data.kind).data ?? "bug",
                 severity: analysisIssueSeveritySchema.safeParse(data.severity).data ?? "medium",
-                status: data.status ?? "open",
                 expectedBehavior: data.expectedBehavior ?? undefined,
                 actualBehavior: data.actualBehavior ?? "seeded by the Autonoma SDK test-data endpoint",
                 narrativeMarkdown: data.narrativeMarkdown ?? "Seeded by the Autonoma SDK test-data endpoint.",
@@ -1319,7 +1327,8 @@ const AnalysisIssueFactory = defineFactory({
                 suspectedCause: data.suspectedCause ?? undefined,
             },
         });
-        return { id: row.id };
+        await db.analysisIssue.update({ where: { id: issue.id }, data: { currentVersionId: version.id } });
+        return { id: issue.id };
     },
 });
 

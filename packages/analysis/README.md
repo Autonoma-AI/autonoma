@@ -5,8 +5,9 @@ branch's **issue ledger**, with one **analysis** (one pass of the pipeline over 
 scope inside it - `AnalysisIssue` is branch-scoped but its only writer is always an analysis, so the durable thing
 the module owns is the ledger and an analysis is an episode that appends findings and reconciles it.
 
-It writes `analysis_job`, `analysis_finding`, `analysis_classification`, `analysis_issue` and `analysis_report`,
-and never touches an assignment (the suite is `@autonoma/test-suite`'s aggregate; the two write sets are disjoint).
+It writes `analysis_job`, `analysis_finding`, `analysis_classification`, `analysis_issue`, `analysis_issue_version`
+and `analysis_report`, and never touches an assignment (the suite is `@autonoma/test-suite`'s aggregate; the two
+write sets are disjoint).
 
 ## Interface
 
@@ -47,6 +48,12 @@ await store.priorRuns({ applicationId, testSlug, currentSnapshotId });
   (`AnalysisClassification.generationId` is required). An investigation that crashed without judging a run records
   a structured `failure` on the finding and has **no** classification - "contained" is derived from that emptiness,
   never stored as a fake classification, so `number` has no sentinel slots and no gaps.
+- **Issue content is append-only**: `AnalysisIssue` holds only identity + lifecycle (`resolvedAt`); every authored
+  restatement (title, severity, expected/actual behavior, narrative, evidence, primary screenshot/test, suspected
+  cause) is an immutable `AnalysisIssueVersion`, with `currentVersion` pointing at the newest - the same shape as
+  `AnalysisFinding` → `AnalysisClassification`. An `open`/`carry_forward` mints a version and re-points; a `resolve`
+  mints none. So a carry-forward **appends** a restatement rather than overwriting the prior narrative/severity/cause
+  in place, and "what did this issue say last week" stays answerable. Readers resolve content through `currentVersion`.
 - **`settleReport` is atomic**: the issue reconciliations, the finding attributions and the report row commit
   together, so a run's verdict and its issues can never disagree.
 - **Branch-scoped writes assert liveness inside the transaction that writes**: `settleReport` takes an exclusive

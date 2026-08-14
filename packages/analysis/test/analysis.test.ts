@@ -58,16 +58,14 @@ analysisSuite({
             // The second reconciliation names an issue on a different branch, which throws after the first
             // reconciliation already created its issue - the transaction must take that issue down with it.
             const foreign = await harness.seedAnalysis();
-            const foreignIssue = await harness.db.analysisIssue.create({
-                data: {
-                    branchId: foreign.branchId,
-                    organizationId: foreign.organizationId,
-                    title: "Foreign",
-                    kind: "bug",
-                    severity: "low",
-                    actualBehavior: "other branch",
-                    narrativeMarkdown: "other branch",
-                },
+            const foreignIssue = await harness.seedIssue({
+                branchId: foreign.branchId,
+                organizationId: foreign.organizationId,
+                title: "Foreign",
+                kind: "bug",
+                severity: "low",
+                actualBehavior: "other branch",
+                narrativeMarkdown: "other branch",
             });
 
             await expect(
@@ -93,16 +91,14 @@ analysisSuite({
         }) => {
             const run = await harness.seedAnalysis();
             // The branch already carries an open issue a stale resolve would wrongly close.
-            const existing = await harness.db.analysisIssue.create({
-                data: {
-                    branchId: run.branchId,
-                    organizationId: run.organizationId,
-                    title: "Existing bug",
-                    kind: "bug",
-                    severity: "high",
-                    actualBehavior: "misbehaves",
-                    narrativeMarkdown: "existing",
-                },
+            const existing = await harness.seedIssue({
+                branchId: run.branchId,
+                organizationId: run.organizationId,
+                title: "Existing bug",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "misbehaves",
+                narrativeMarkdown: "existing",
             });
             const { findingId } = await harness.recordVerdict(run, "checkout", "passed");
 
@@ -148,16 +144,14 @@ analysisSuite({
 
         test("a resolve persists which passing finding closed the issue and why", async ({ harness }) => {
             const run = await harness.seedAnalysis();
-            const existing = await harness.db.analysisIssue.create({
-                data: {
-                    branchId: run.branchId,
-                    organizationId: run.organizationId,
-                    title: "Login bug",
-                    kind: "bug",
-                    severity: "high",
-                    actualBehavior: "login fails",
-                    narrativeMarkdown: "narrative",
-                },
+            const existing = await harness.seedIssue({
+                branchId: run.branchId,
+                organizationId: run.organizationId,
+                title: "Login bug",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "login fails",
+                narrativeMarkdown: "narrative",
             });
             const { findingId } = await harness.recordVerdict(run, "login", "passed");
 
@@ -181,19 +175,17 @@ analysisSuite({
 
         test("a carry-forward reopening a resolved issue clears its resolution record", async ({ harness }) => {
             const run = await harness.seedAnalysis();
-            const existing = await harness.db.analysisIssue.create({
-                data: {
-                    branchId: run.branchId,
-                    organizationId: run.organizationId,
-                    title: "Regressed bug",
-                    kind: "bug",
-                    severity: "high",
-                    actualBehavior: "misbehaves",
-                    narrativeMarkdown: "narrative",
-                    status: "resolved",
-                    resolvedAt: new Date(),
-                    resolutionNote: "was fixed once",
-                },
+            const existing = await harness.seedIssue({
+                branchId: run.branchId,
+                organizationId: run.organizationId,
+                title: "Regressed bug",
+                kind: "bug",
+                severity: "high",
+                actualBehavior: "misbehaves",
+                narrativeMarkdown: "narrative",
+                status: "resolved",
+                resolvedAt: new Date(),
+                resolutionNote: "was fixed once",
             });
             await harness.recordVerdict(run, "checkout", "client_bug");
 

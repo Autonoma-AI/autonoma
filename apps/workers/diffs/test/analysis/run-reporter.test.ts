@@ -4,7 +4,7 @@ import { createTestDatabase, type IntegrationHarness, integrationTestSuite } fro
 import type { ReporterPersisted, RunReporterOutput } from "@autonoma/workflow/activities";
 import { expect } from "vitest";
 import { runReporter } from "../../src/activities/analysis/run-reporter";
-import { seedGenerationForSlug } from "./seed-generation";
+import { seedAnalysisIssue, seedGenerationForSlug } from "./seed-generation";
 
 declare global {
     // eslint-disable-next-line no-var
@@ -126,17 +126,11 @@ class ReporterHarness implements IntegrationHarness {
      * issue carried across snapshots actually looks like.
      */
     async seedOpenIssue(run: SeededRun, coveredSlugs: string[]): Promise<string> {
-        const issue = await this.db.analysisIssue.create({
-            data: {
-                branchId: run.branchId,
-                organizationId: run.organizationId,
-                title: "Existing bug",
-                kind: "bug",
-                severity: "high",
-                status: "open",
-                actualBehavior: "misbehaves",
-                narrativeMarkdown: "existing narrative",
-            },
+        const issueId = await seedAnalysisIssue(this.db, {
+            branchId: run.branchId,
+            organizationId: run.organizationId,
+            title: "Existing bug",
+            narrativeMarkdown: "existing narrative",
         });
 
         const prior = await this.db.branchSnapshot.create({
@@ -162,7 +156,7 @@ class ReporterHarness implements IntegrationHarness {
                     reportSnapshotId: prior.id,
                     organizationId: run.organizationId,
                     testCaseId,
-                    issueId: issue.id,
+                    issueId,
                 },
             });
             const classification = await this.db.analysisClassification.create({
@@ -180,7 +174,7 @@ class ReporterHarness implements IntegrationHarness {
                 data: { currentClassificationId: classification.id },
             });
         }
-        return issue.id;
+        return issueId;
     }
 
     /** The tests an issue currently covers, as the Reporter derives them: the findings attributed to it. */
@@ -237,9 +231,12 @@ integrationTestSuite({
                 clientBugCount: 1,
             });
 
-            const issues = await harness.db.analysisIssue.findMany({ where: { branchId: run.branchId } });
+            const issues = await harness.db.analysisIssue.findMany({
+                where: { branchId: run.branchId },
+                include: { currentVersion: true },
+            });
             expect(issues).toHaveLength(1);
-            expect(issues[0]?.kind).toBe("bug");
+            expect(issues[0]?.currentVersion?.kind).toBe("bug");
             expect(issues[0]?.status).toBe("open");
             const issueId = issues[0]?.id ?? "";
             expect(await harness.coveredSlugs(issueId)).toEqual(new Set(["checkout"]));
@@ -335,6 +332,80 @@ integrationTestSuite({
             const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
             expect(report?.verdict).toBe("client_bug");
             expect(report?.clientBugCount).toBe(1);
+        });
+
+        test("carry-forward appends a version instead of overwriting the prior narrative in place", async ({
+            harness,
+        }) => {
+            const run = await harness.seedRun([{ slug: "checkout", category: "client_bug" }]);
+            const existingId = await harness.seedOpenIssue(run, ["checkout"]);
+
+            await runReporter(
+                { snapshotId: run.snapshotId },
+                {
+                    produceResult: fixedResult({
+                        reportMarkdown: "## Report\nStill broken.",
+                        reportEvidenceManifest: [],
+                        title: "Autonoma checked this PR",
+                        headline: "One bug: the app misbehaves.",
+                        flows: [],
+                        flowCorrections: { sweptSlugs: [], duplicateSlugs: [], unknownSlugs: [] },
+                        issues: [
+                            {
+                                kind: "carry_forward",
+                                existingIssueId: existingId,
+                                content: issueContent("Checkout broken", ["checkout"]),
+                            },
+                        ],
+                    }),
+                },
+            );
+
+            const issue = await harness.db.analysisIssue.findUniqueOrThrow({
+                where: { id: existingId },
+                include: { versions: { orderBy: { createdAt: "asc" } }, currentVersion: true },
+            });
+            // The seed restatement survives; the carry-forward is a NEW row, not an overwrite of it.
+            expect(issue.versions).toHaveLength(2);
+            expect(issue.versions.map((version) => version.title)).toEqual(["Existing bug", "Checkout broken"]);
+            // The seed had no origin run; the carried restatement records the snapshot that authored it.
+            expect(issue.versions[0]?.snapshotId).toBeNull();
+            expect(issue.versions[1]?.snapshotId).toBe(run.snapshotId);
+            // Readers stand behind the newest restatement.
+            expect(issue.currentVersion?.title).toBe("Checkout broken");
+            expect(issue.currentVersionId).toBe(issue.versions[1]?.id);
+
+            // A second settlement of the same snapshot is refused by the report-exists guard, so it re-authors
+            // nothing: the restatement stays exactly one per (issue, snapshot) - never a twin, and never overwritten
+            // by a later run of the same commit.
+            const retry = await runReporter(
+                { snapshotId: run.snapshotId },
+                {
+                    produceResult: fixedResult({
+                        reportMarkdown: "## Report\nStill broken.",
+                        reportEvidenceManifest: [],
+                        title: "Autonoma checked this PR",
+                        headline: "One bug: the app misbehaves.",
+                        flows: [],
+                        flowCorrections: { sweptSlugs: [], duplicateSlugs: [], unknownSlugs: [] },
+                        issues: [
+                            {
+                                kind: "carry_forward",
+                                existingIssueId: existingId,
+                                content: issueContent("Checkout broken again", ["checkout"]),
+                            },
+                        ],
+                    }),
+                },
+            );
+            if (retry.persisted) throw new Error("expected the second settlement to be discarded, not persisted");
+            expect(retry.reason).toBe("already_settled");
+            const afterRetry = await harness.db.analysisIssueVersion.findMany({
+                where: { issueId: existingId },
+                orderBy: { createdAt: "asc" },
+            });
+            expect(afterRetry).toHaveLength(2);
+            expect(afterRetry[1]?.title).toBe("Checkout broken");
         });
 
         test("stays green with no open bug issues, counting coverage findings on the coverage plane", async ({

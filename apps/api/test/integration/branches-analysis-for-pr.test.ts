@@ -4,7 +4,7 @@ import { expect } from "vitest";
 import { presentCheckpoint } from "../../src/routes/branches/checkpoint-presentation";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
-import { seedAnalysisFindings } from "../seed-analysis-findings";
+import { type SeedAnalysisIssueInput, seedAnalysisFindings, seedAnalysisIssue } from "../seed-analysis-findings";
 
 /**
  * The read behind the MCP `get_analysis` tool. Every case drives the service directly (the tool is a thin wrapper
@@ -494,35 +494,33 @@ async function createIssue(
         severity: string;
         actualBehavior: string;
         expectedBehavior?: string;
-        suspectedCause?: object;
-        primaryScreenshot?: object;
+        suspectedCause?: SeedAnalysisIssueInput["suspectedCause"];
+        primaryScreenshot?: SeedAnalysisIssueInput["primaryScreenshot"];
         primaryTestCaseId?: string;
         slugs?: string[];
     },
 ): Promise<string> {
-    const issue = await harness.db.analysisIssue.create({
-        data: {
-            branchId,
-            organizationId: harness.organizationId,
-            title,
-            kind,
-            severity,
-            status: "open",
-            actualBehavior,
-            expectedBehavior,
-            narrativeMarkdown: `## ${title}\n\n${actualBehavior}`,
-            suspectedCause,
-            primaryScreenshot,
-            primaryTestCaseId,
-        },
+    const issueId = await seedAnalysisIssue(harness.db, {
+        branchId,
+        organizationId: harness.organizationId,
+        title,
+        kind,
+        severity,
+        status: "open",
+        actualBehavior,
+        expectedBehavior,
+        narrativeMarkdown: `## ${title}\n\n${actualBehavior}`,
+        suspectedCause,
+        primaryScreenshot,
+        primaryTestCaseId,
     });
     if (slugs.length > 0) {
         await harness.db.analysisFinding.updateMany({
             where: { organizationId: harness.organizationId, testCase: { slug: { in: slugs } } },
-            data: { issueId: issue.id },
+            data: { issueId },
         });
     }
-    return issue.id;
+    return issueId;
 }
 
 /** Slug -> TestCase id for the application, so an issue can designate its primary test. */

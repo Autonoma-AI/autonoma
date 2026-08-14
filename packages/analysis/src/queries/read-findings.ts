@@ -113,7 +113,13 @@ const findingSelect = {
     selectionReason: true,
     failure: true,
     testCase: { select: { id: true, name: true, slug: true } },
-    issue: { select: { id: true, title: true, kind: true, severity: true, resolvedAt: true } },
+    issue: {
+        select: {
+            id: true,
+            resolvedAt: true,
+            currentVersion: { select: { title: true, kind: true, severity: true } },
+        },
+    },
     currentClassification: {
         select: {
             generationId: true,
@@ -166,7 +172,11 @@ type FindingRow = Prisma.AnalysisFindingGetPayload<{ select: typeof findingSelec
 
 function toFinding(row: FindingRow): Finding {
     const current = row.currentClassification;
-    const issueEnums = row.issue == null ? undefined : parseIssueEnums(row.issue);
+    const issueVersion = row.issue?.currentVersion;
+    const issueEnums =
+        row.issue == null || issueVersion == null
+            ? undefined
+            : parseIssueEnums({ id: row.issue.id, kind: issueVersion.kind, severity: issueVersion.severity });
     return {
         findingId: row.id,
         testCase: row.testCase,
@@ -175,11 +185,11 @@ function toFinding(row: FindingRow): Finding {
         failure: row.failure ?? undefined,
         selfHealed: row.classifications.length > 1,
         issue:
-            row.issue == null || issueEnums == null
+            row.issue == null || issueVersion == null || issueEnums == null
                 ? undefined
                 : {
                       id: row.issue.id,
-                      title: row.issue.title,
+                      title: issueVersion.title,
                       kind: issueEnums.kind,
                       severity: issueEnums.severity,
                       status: issueStatusOf(row.issue.resolvedAt),

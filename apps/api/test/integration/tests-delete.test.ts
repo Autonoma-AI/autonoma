@@ -3,7 +3,7 @@ import { ApplicationArchitecture } from "@autonoma/db";
 import { expect } from "vitest";
 import { apiTestSuite } from "../api-test";
 import type { APITestHarness } from "../harness";
-import { seedAnalysisFindings } from "../seed-analysis-findings";
+import { seedAnalysisFindings, seedAnalysisIssue } from "../seed-analysis-findings";
 
 /**
  * Deleting a test drops its assignment from the branch's active snapshot and nothing else. The `TestCase` row is
@@ -47,20 +47,15 @@ async function seedBranchWithHistory(harness: APITestHarness, slug: string): Pro
     });
     await harness.db.testCaseAssignment.create({ data: { snapshotId: terminal.id, testCaseId: testCase.id } });
 
-    const issue = await harness.db.analysisIssue.create({
-        data: {
-            branchId,
-            title: `${slug} is broken`,
-            kind: "bug",
-            severity: "high",
-            status: "open",
-            actualBehavior: `${slug} failed.`,
-            narrativeMarkdown: `## ${slug}`,
-            organizationId: harness.organizationId,
-        },
-        select: { id: true },
+    const issueId = await seedAnalysisIssue(harness.db, {
+        branchId,
+        organizationId: harness.organizationId,
+        title: `${slug} is broken`,
+        kind: "bug",
+        actualBehavior: `${slug} failed.`,
+        narrativeMarkdown: `## ${slug}`,
     });
-    await harness.db.analysisFinding.update({ where: { id: findingIdOf(slug) }, data: { issueId: issue.id } });
+    await harness.db.analysisFinding.update({ where: { id: findingIdOf(slug) }, data: { issueId } });
 
     const active = await harness.db.branchSnapshot.create({
         data: {
@@ -80,7 +75,7 @@ async function seedBranchWithHistory(harness: APITestHarness, slug: string): Pro
         terminalSnapshotId: terminal.id,
         activeSnapshotId: active.id,
         testCaseId: testCase.id,
-        issueId: issue.id,
+        issueId,
         slug,
     };
 }
