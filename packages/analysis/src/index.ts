@@ -1,5 +1,10 @@
 export { AnalysisStore, type OpenAnalysisInput } from "./analysis-store";
-export { Analysis, type RecordClassificationInput, type RecordContainmentInput } from "./analysis";
+export {
+    Analysis,
+    type RecordClassificationInput,
+    type RecordContainmentInput,
+    type RecordSelectionInput,
+} from "./analysis";
 export { type ClientOwnedGap } from "./queries/client-owned-gaps";
 export {
     type IssueContent,

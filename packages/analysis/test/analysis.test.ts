@@ -473,5 +473,90 @@ analysisSuite({
             });
             expect(unchanged.status).toBe("failed");
         });
+
+        test("recordSelection is born-at-selection: an unjudged finding with its origin and reason and no verdict", async ({
+            harness,
+        }) => {
+            const run = await harness.seedAnalysis();
+            const scope = harness.store.forAnalysis(run.snapshotId);
+            const bySlug = await harness.selectTests(run, ["checkout", "login"]);
+
+            const findings = await scope.findings();
+            expect(findings).toHaveLength(2);
+            for (const finding of findings) {
+                expect(finding.current).toBeUndefined();
+                expect(finding.failure).toBeUndefined();
+                expect(finding.origin).toBe("pre_existing");
+                expect(finding.selectionReason).toBe(`${bySlug.get(finding.testCase.slug)} affected by the diff`);
+                expect(finding.classifications).toHaveLength(0);
+                expect(finding.selfHealed).toBe(false);
+            }
+        });
+
+        test("an unjudged selected finding counts toward neither plane", async ({ harness }) => {
+            const run = await harness.seedAnalysis();
+            const scope = harness.store.forAnalysis(run.snapshotId);
+            await harness.selectTests(run, ["checkout", "login"]);
+            // Only one of the two selected tests actually got judged.
+            await harness.recordVerdict(run, "checkout", "passed");
+
+            const plane = await scope.planeSummary();
+            expect(plane.testCount).toBe(1);
+            expect(plane.passedCount).toBe(1);
+            expect(plane.coverage.total).toBe(0);
+        });
+
+        test("recording a verdict after selection restates the same finding rather than duplicating it", async ({
+            harness,
+        }) => {
+            const run = await harness.seedAnalysis();
+            const scope = harness.store.forAnalysis(run.snapshotId);
+            await harness.selectTests(run, ["checkout"]);
+
+            // The Investigator's verdict lands on the finding that selection already created.
+            await harness.recordVerdict(run, "checkout", "client_bug");
+
+            const findings = await scope.findings();
+            expect(findings).toHaveLength(1);
+            expect(findings[0]?.current?.category).toBe("client_bug");
+            // The facts settled at selection survive the verdict write.
+            expect(findings[0]?.origin).toBe("pre_existing");
+            expect(findings[0]?.selectionReason).toContain("affected by the diff");
+        });
+
+        test("selection followed by a verdict and a containment settles with full coverage", async ({ harness }) => {
+            const run = await harness.seedAnalysis();
+            const scope = harness.store.forAnalysis(run.snapshotId);
+            const bySlug = await harness.selectTests(run, ["checkout", "login"]);
+
+            // checkout runs and is judged; login's Investigator crashes and is contained.
+            await harness.recordVerdict(run, "checkout", "passed");
+            await scope.recordContainment({
+                testCaseId: bySlug.get("login") ?? "",
+                origin: "pre_existing",
+                failure: { kind: "investigator_crashed", message: "crashed" },
+            });
+
+            const result = await scope.settleReport(harness.settlement());
+            expect(result.settled).toBe(true);
+            const report = await harness.db.analysisReport.findUniqueOrThrow({ where: { snapshotId: run.snapshotId } });
+            expect(report.testCount).toBe(2);
+        });
+
+        test("recordSelection is idempotent and never wipes a verdict already filed", async ({ harness }) => {
+            const run = await harness.seedAnalysis();
+            const scope = harness.store.forAnalysis(run.snapshotId);
+            const bySlug = await harness.selectTests(run, ["checkout"]);
+            await harness.recordVerdict(run, "checkout", "client_bug");
+
+            // A workflow replay re-runs the impact stage and re-selects the same test.
+            await scope.recordSelection([
+                { testCaseId: bySlug.get("checkout") ?? "", origin: "pre_existing", selectionReason: "re-selected" },
+            ]);
+
+            const findings = await scope.findings();
+            expect(findings).toHaveLength(1);
+            expect(findings[0]?.current?.category).toBe("client_bug");
+        });
     },
 });

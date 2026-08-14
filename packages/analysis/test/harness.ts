@@ -106,6 +106,22 @@ export class AnalysisHarness implements IntegrationHarness {
         return created.id;
     }
 
+    /** Record one unjudged finding per slug; returns each slug's test case id. */
+    async selectTests(run: SeededAnalysis, slugs: string[]): Promise<Map<string, string>> {
+        const testCaseIdBySlug = new Map<string, string>();
+        for (const slug of slugs) {
+            testCaseIdBySlug.set(slug, await this.findOrCreateTestCase(run, slug));
+        }
+        await this.store.forAnalysis(run.snapshotId).recordSelection(
+            [...testCaseIdBySlug.values()].map((testCaseId) => ({
+                testCaseId,
+                origin: "pre_existing",
+                selectionReason: `${testCaseId} affected by the diff`,
+            })),
+        );
+        return testCaseIdBySlug;
+    }
+
     /** Record one classified iteration for a slug, seeding its run chain. */
     async recordVerdict(
         run: SeededAnalysis,

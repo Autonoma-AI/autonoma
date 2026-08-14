@@ -42,6 +42,12 @@ export interface RecordContainmentInput {
     failure: PrismaJson.AnalysisFindingFailure;
 }
 
+export interface RecordSelectionInput {
+    testCaseId: string;
+    origin: AnalysisTestOrigin;
+    selectionReason?: string;
+}
+
 /**
  * One analysis - one pass of the pipeline over one snapshot, 1:1 with it.
  *
@@ -113,6 +119,27 @@ export class Analysis {
 
         const finding = await this.upsertFinding(this.db, input, organizationId);
         return { findingId: finding.id };
+    }
+
+    /** Create a finding for each selected test - its origin and selection reason, no classification yet. */
+    public async recordSelection(inputs: RecordSelectionInput[]): Promise<void> {
+        this.logger.info("Recording analysis selection", {
+            snapshot: { snapshotId: this.snapshotId },
+            extra: { count: inputs.length },
+        });
+        if (inputs.length === 0) return;
+        const { organizationId } = await this.identity();
+
+        await this.db.$transaction(async (tx) => {
+            for (const input of inputs) {
+                await this.upsertFinding(tx, input, organizationId);
+            }
+        });
+
+        this.logger.info("Recorded analysis selection", {
+            snapshot: { snapshotId: this.snapshotId },
+            extra: { count: inputs.length },
+        });
     }
 
     /** This analysis's findings, contained ones included, slug-ordered. See {@link readFindings}. */

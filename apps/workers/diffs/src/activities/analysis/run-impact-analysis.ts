@@ -5,6 +5,7 @@ import type { RunImpactAnalysisInput, RunImpactAnalysisOutput } from "@autonoma/
 import { selectImpactTargets } from "../../analysis/impact-analysis";
 import { SnapshotDependencyManifestPinner } from "../../codebase/pin-dependency-manifest";
 import { withSnapshotContext } from "../../codebase/snapshot-context";
+import { getAnalysisStore } from "../../services";
 
 /**
  * Impact Analysis stage. Fails fast unless the snapshot is `processing` (later stages read its frozen baseline
@@ -31,6 +32,16 @@ export async function runImpactAnalysis(input: RunImpactAnalysisInput): Promise<
     const selection = await withSnapshotContext(snapshotId, `impact-${snapshotId}`, (context) =>
         selectImpactTargets({ snapshotId, codebase: context.codebase }),
     );
+
+    await getAnalysisStore()
+        .forAnalysis(snapshotId)
+        .recordSelection(
+            selection.targets.map((target) => ({
+                testCaseId: target.testCaseId,
+                origin: target.origin,
+                selectionReason: target.reason,
+            })),
+        );
 
     logger.info("Impact Analysis stage finished", { extra: { targetCount: selection.targets.length } });
     return { targets: selection.targets, reasoning: selection.reasoning };
