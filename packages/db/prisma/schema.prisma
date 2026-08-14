@@ -2024,7 +2024,7 @@ enum PreviewkitAppStatus {
 model PreviewkitEnvironment {
   id String @id @default(cuid())
 
-  // Identity — matches the K8s namespace naming: preview-{owner}-{repo}-pr-{N}
+  // Identity - matches the K8s namespace naming: {owner}-{repo}-{N}-{hash}
   namespace          String @unique
   repoFullName       String @map("repo_full_name")
   prNumber           Int    @map("pr_number")

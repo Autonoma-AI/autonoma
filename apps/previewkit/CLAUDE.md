@@ -28,7 +28,7 @@ GitHub pull_request webhook
   -> analysisRunWorkflow (packages/workflow, general task queue; its cloning stages proxy to diffs)
        create the branch snapshot -> run impact analysis (source-only) -> DECIDE whether to build
        -> PreviewkitJobLauncher.launchDeploy() creates a `pk-deploy-*` Job (runs apps/previewkit/src/runner):
-            clone repo(s) -> build images -> create namespace preview-{owner}-{repo}-pr-{N}
+            clone repo(s) -> build images -> create namespace {owner}-{repo}-{N}-{hash}
             -> deploy infra services -> hand namespace to the central Gatekeeper
             -> deploy app Deployments + Services
             -> run pre/post-deploy hooks -> post/update the PR comment, then exit
@@ -180,7 +180,7 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
       ExternalSecret *owning* its Secret, and ESO would keep reconciling that from a store nobody
       writes, so taking the target over deletes it with `Orphan` propagation (the default cascade
       would garbage-collect the live preview's Secret with it). For namespaces that will not
-      redeploy soon - mainly the long-lived `-pr-0` environments -
+      redeploy soon - mainly the long-lived PR-0 (main-branch) environments -
       `deployment/previewkit/cluster/release-external-secrets.sh` sweeps them (dry-run by default,
       needs kubectl on the PREVIEW cluster). This is one-way: nothing hands a Secret back to ESO.
   The runner does NOT start the Autonoma review: `analysisRunWorkflow` launched the build in the first place

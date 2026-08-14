@@ -31,7 +31,7 @@ export interface BuildRequest {
     // reuse layers a previous build already pushed. Omitted (e.g. tests)
     // disables cache import/export entirely.
     cacheRef?: string;
-    // Preview namespace this build belongs to (e.g. `preview-acme-bank-pr-42`).
+    // Preview namespace this build belongs to (e.g. `acme-bank-42-fd0fec8ddbb111b7`).
     // Used as the key under which the builder streams live log output to the
     // build-log sink. Optional: when absent (or no sink is wired) the build runs
     // with only its pod-local temporary log file.

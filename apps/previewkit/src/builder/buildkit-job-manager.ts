@@ -60,7 +60,7 @@ const LABEL_CAPACITY_TYPE = "karpenter.sh/capacity-type";
  */
 export interface BuildJobIdentity {
     appName?: string;
-    /** Preview namespace, e.g. `preview-acme-bank-pr-42`. */
+    /** Preview namespace, e.g. `acme-bank-42-fd0fec8ddbb111b7`. */
     namespace?: string;
     /** `owner/repo` full name, e.g. `acme/bank`. */
     repo?: string;

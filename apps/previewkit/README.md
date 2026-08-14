@@ -19,7 +19,7 @@ PR opened/updated
   Clone repo, build images (Dockerfile: user-authored or generated)
       |
       v
-  Create K8s namespace: preview-{owner}-{repo}-pr-{N}
+  Create K8s namespace: {owner}-{repo}-{N}-{hash}
       |
       v
   Deploy infrastructure services (Postgres, Redis)
@@ -538,7 +538,7 @@ For `readiness.http` and `readiness.tcp`, the probe port defaults to `options.po
 Each preview environment gets its own namespace with full isolation:
 
 ```
-Namespace: preview-{owner}-{repo}-pr-{N}
+Namespace: {owner}-{repo}-{N}-{hash}
   ├── StatefulSet + Service + PVC        (per infrastructure service)
   ├── Deployment + Service               (per app; no per-app Ingress)
   ├── Role + RoleBinding                 (central-gatekeeper: the central proxy's workload grant)

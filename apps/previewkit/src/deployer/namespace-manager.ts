@@ -1,6 +1,24 @@
+import { createHash } from "node:crypto";
+import { toSlug } from "@autonoma/utils";
 import * as k8s from "@kubernetes/client-node";
 import { logger } from "../logger";
 import { isConflict, isNotFound } from "./k8s-errors";
+
+// Kubernetes namespace names are RFC 1123 DNS labels: lowercase alphanumeric
+// or `-`, max 63 chars, must start/end alphanumeric.
+const NAMESPACE_MAX_LENGTH = 63;
+// Hex chars of sha256(`${repoFullName}#${prNumber}`) appended to the name.
+// The `#` separates the two before hashing, and hashing the exact identity
+// (not the sanitized/truncated display prefix) is what guarantees two
+// different (repo, PR) pairs never land on the same namespace, even when
+// their owner/repo slugs collide or the readable prefix gets truncated.
+// 16 hex chars (64 bits) keeps the birthday-bound collision probability
+// negligible even at fleet sizes far beyond previewkit's real scale - a
+// collision here isn't just cosmetic: `NamespaceManager.create` treats a
+// namespace name already existing as "redeploying the same environment"
+// and merges annotations into it, so two different (repo, PR) pairs
+// colliding would mean one silently takes over the other's namespace.
+const NAMESPACE_HASH_LENGTH = 16;
 
 const LABEL_MANAGED_BY = "previewkit.dev/managed-by";
 const LABEL_PR_NUMBER = "previewkit.dev/pr-number";
@@ -66,17 +84,30 @@ export class NamespaceManager {
         this.coreApi = kc.makeApiClient(k8s.CoreV1Api);
     }
 
+    /**
+     * Builds `{owner}-{repo}-{N}-{hash}`. Owner and repo are slugged
+     * separately (not the whole "owner/repo" string at once) so the `/`
+     * boundary can't be swallowed by the same collapse that eats other
+     * invalid characters. The trailing `-{N}-{hash}` is reserved space that
+     * is never truncated, so a too-long owner/repo only ever shortens the
+     * readable prefix - it can't collide two different environments the way
+     * truncating the whole name could.
+     */
     buildNamespaceName(repoFullName: string, prNumber: number): string {
-        // Lowercase first; the character class is case-sensitive so any
-        // uppercase letter would otherwise be replaced with a hyphen, leaving
-        // doubled-up dashes and missing characters for mixed-case names.
-        const sanitized = repoFullName
-            .toLowerCase()
-            .replace(/[^a-z0-9-]/g, "-")
-            .replace(/-+/g, "-")
-            .replace(/^-+|-+$/g, "");
-        const name = `preview-${sanitized}-pr-${prNumber}`;
-        return name.slice(0, 63).replace(/-+$/, "");
+        const slashIndex = repoFullName.indexOf("/");
+        const owner = slashIndex === -1 ? repoFullName : repoFullName.slice(0, slashIndex);
+        const repo = slashIndex === -1 ? "" : repoFullName.slice(slashIndex + 1);
+        const prefix = [toSlug(owner), toSlug(repo)].filter((part) => part.length > 0).join("-");
+
+        const hash = createHash("sha256")
+            .update(`${repoFullName}#${prNumber}`)
+            .digest("hex")
+            .slice(0, NAMESPACE_HASH_LENGTH);
+        const suffix = `${prNumber}-${hash}`;
+
+        const prefixBudget = NAMESPACE_MAX_LENGTH - suffix.length - 1;
+        const trimmedPrefix = prefix.slice(0, prefixBudget).replace(/-+$/, "");
+        return trimmedPrefix.length > 0 ? `${trimmedPrefix}-${suffix}` : suffix;
     }
 
     async create(

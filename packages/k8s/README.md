@@ -138,7 +138,7 @@ const loader = new EksKubeconfigLoader("preview-cluster", "us-east-1");
 const client = new PreviewFleetClient(await loader.load());
 
 const fleet = await client.listFleet();
-fleet.get("preview-acme-web-pr-42")?.state; // "asleep" | "waking" | "healthy" | "error"
+fleet.get("acme-web-42-8455b40d414fa88a")?.state; // "asleep" | "waking" | "healthy" | "error"
 ```
 
 ## Environment Variables
