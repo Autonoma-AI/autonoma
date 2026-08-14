@@ -1,8 +1,8 @@
 import type { PrismaClient } from "@autonoma/db";
 
 /**
- * Counts the tests assigned to each snapshot - the "of N tests" denominator on the PR list and the checkpoint
- * rail.
+ * Counts the tests assigned to each snapshot - the "of N tests" denominator shown on the PR list and the
+ * pull-request page.
  *
  * One grouped query for the whole set, never a nested `_count` on a list query. Prisma compiles a nested relation
  * `_count` into per-row aggregate work: on an application with ~300 open pull requests that turned the PR-list

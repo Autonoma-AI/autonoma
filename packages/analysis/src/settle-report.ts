@@ -284,7 +284,7 @@ async function applyReconciliation(
 
     // carry_forward: append a fresh restatement, make it current, and reopen the issue if it had been resolved. The
     // version keys on (issue, snapshot) - a snapshot authors at most one restatement of an issue - so if this ever
-    // runs twice for the same snapshot the upsert updates in place rather than twinning (a re-settle is already
+    // runs twice for the same snapshot the upsert updates in place rather than duplicating (a re-settle is already
     // refused earlier by the report-exists guard). The covered set unions itself: attributing this run's findings
     // adds to the ones earlier snapshots attributed.
     const version = await tx.analysisIssueVersion.upsert({

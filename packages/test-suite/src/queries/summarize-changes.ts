@@ -43,8 +43,8 @@ export async function summarizeSuiteChanges(
     if (comparisons.length === 0) return new Map();
 
     // Both sides of every comparison in one read. A `prevSnapshotId` is not necessarily itself
-    // among the compared snapshots - callers hide cancelled snapshots and investigation twins from
-    // history, but either can still be some visible snapshot's predecessor.
+    // among the compared snapshots - callers hide cancelled snapshots from history, yet a cancelled
+    // snapshot can still be some visible snapshot's predecessor.
     const snapshotIds = new Set<string>();
     for (const comparison of comparisons) {
         snapshotIds.add(comparison.snapshotId);
