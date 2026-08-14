@@ -3,7 +3,7 @@ import { Evaluation, type LoadedCase, type RunCaseHelpers } from "@autonoma/eval
 import { logger as rootLogger } from "@autonoma/logger";
 import { expect } from "vitest";
 import { createModelSession } from "../../src/services";
-import { type CodebaseCoords, DiffsJudge, ensureCachedCheckout, UnfetchableShaError } from "../framework";
+import { DiffsJudge, rehydrateOrSkip } from "../framework";
 import { type AnalysisFrontmatter, checkAnalysisResult } from "./analysis-frontmatter";
 import { type AnalysisCaseInput, rehydrateAnalysisInput } from "./analysis-input";
 
@@ -67,7 +67,7 @@ export class AnalysisEvaluation extends Evaluation<AnalysisCase> {
 
         const { coords, agentInput } = rehydrateAnalysisInput(testCase.input);
 
-        const codebase = await this.rehydrateCodebase(coords, helpers, testCase.name);
+        const codebase = await rehydrateOrSkip(coords, helpers, { logger: this.logger, caseName: testCase.name });
 
         const session = createModelSession();
         const model = session.getModel({ model: "impact", tag: "analysis-impact" });
@@ -98,19 +98,5 @@ export class AnalysisEvaluation extends Evaluation<AnalysisCase> {
         addInfo({ judgePassed: verdict.passed, judgeReasoning: verdict.reasoning, judgeCost: verdict.cost });
 
         expect(verdict.passed, `Judge failed: ${verdict.reasoning}`).toBe(true);
-    }
-
-    private async rehydrateCodebase(coords: CodebaseCoords, helpers: RunCaseHelpers, caseName: string) {
-        try {
-            return await ensureCachedCheckout(coords);
-        } catch (err) {
-            if (err instanceof UnfetchableShaError) {
-                this.logger.warn("Skipping case: codebase no longer fetchable", {
-                    extra: { case: caseName, sha: err.sha, repo: err.repoFullName },
-                });
-                helpers.skip(`codebase unfetchable: ${err.message}`);
-            }
-            throw err;
-        }
     }
 }

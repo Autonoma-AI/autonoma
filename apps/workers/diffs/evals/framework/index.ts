@@ -8,3 +8,4 @@ export {
 export { casesDir } from "./cases-dir";
 export { type EvidenceKeys, MissingEvidenceError, probeEvidence } from "./evidence-probe";
 export { DiffsJudge } from "./judge";
+export { type CaseSkipContext, rehydrateOrSkip, skipIfEvidenceUnreachable } from "./skip";

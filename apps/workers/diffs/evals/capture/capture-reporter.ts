@@ -132,23 +132,24 @@ function blankExpected(snapshotId: string): string {
     return `---
 description: "Captured from snapshot ${snapshotId} - TODO: describe what this case exercises"
 skip: true
-# Deterministic checks (provisional shape - the reporter eval PR finalizes the frontmatter schema). Uncomment,
-# fill in, then set skip: false. The headline assertion is the dedup call: whether this run's finding is the SAME
-# problem as an existing issue (carry_forward) or a new one (open). The coverage guarantees self-heal, so they are
-# NOT asserted here.
+# Deterministic checks. Uncomment, fill in, then set skip: false. The headline assertion is the dedup call:
+# whether this run's finding is the SAME problem as an existing issue (carry_forward) or a new one (open). The
+# coverage guarantees self-heal, so they are NOT asserted here.
 # issues:
-#   open: { minCount: 0, maxCount: 0 }   # how many brand-new issues this run should open
-#   carryForward: [ ]                     # existing issue ids that MUST be carried forward (the dedup call)
-#   resolve: [ ]                          # existing issue ids that MUST be resolved
-# issueDetails:                           # per asserted issue: its kind + severity (not self-healed)
-#   - id: <existingIssueId>
+#   open: { minCount: 0, maxCount: 0 }    # how many brand-new issues this run should open
+#   carryForward: { include: [ ] }        # existing issue ids that MUST be carried forward (the dedup call)
+#   resolve: { include: [ ] }             # existing issue ids that MUST be resolved ({ exact: [] } asserts none)
+# issueDetails:                           # per asserted issue: its kind + severity, keyed by a covered finding slug
+#   - findingSlug: <slug>
 #     kind: bug                           # bug | environment | scenario
 #     severity: high                      # critical | high | medium | low
-# flows:                                  # flow membership - which flow a test lands in (the agent's call)
+# flows:                                  # flow membership - which tests cluster into a named flow (the agent's call)
 #   - title: <flow name>
 #     include: [ ]                        # slugs that MUST be clustered into this flow
-# maxSweptSlugs: 0                        # flowCorrections budget (recorded metric; unknownSlugs is always 0)
 # runs: 1                                 # >1 requires EVERY run to pass (stability measurement)
+#
+# unknownSlugs is checked ALWAYS (a flow citing a test outside the branch map fails the case); the swept and
+# duplicate flow counts are recorded, never gating.
 ---
 
 TODO: author the LLM-judge rubric here.

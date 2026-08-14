@@ -4,15 +4,18 @@ Local, per-step, **scored** evaluations for the diffs pipeline - the replacement
 the eyeball-only local-dev scripts. Each step keeps a corpus of on-disk cases and
 scores the agent's output with **deterministic frontmatter checks plus an LLM judge**.
 
-Two steps are currently under eval: **Diff Analysis** and the **Classifier** (the
-Investigator's verdict on one run). The classifier eval additionally exercises the
-**multimedia rehydration path** - it downloads screenshots + the recording from S3
-at run time via the production evidence loader. No media bytes are ever committed.
+Three steps are currently under eval: **Diff Analysis**, the **Classifier** (the
+Investigator's verdict on one run), and the **Reporter** (which reconciles a job's
+findings into branch-scoped issues and authors how the PR reads). The classifier eval
+additionally exercises the **multimedia rehydration path** - it downloads screenshots +
+the recording from S3 at run time via the production evidence loader. No media bytes are
+ever committed.
 
 Note that `analysis/` is the **impact-analysis** step (the `DiffsAgent`, which picks
-which tests a diff affects), while `classifier/` is the step that judges what a run's
-outcome MEANT. Both live under the pipeline's "analysis" banner; they grade different
-agents.
+which tests a diff affects), `classifier/` is the step that judges what a run's
+outcome MEANT, and `reporter/` is the step that rolls a whole job up into de-duped
+issues plus a holistic PR report. All live under the pipeline's "analysis" banner; they
+grade different agents.
 
 Each step lives in its own subdirectory (`<step>/`) with the same four files
 (`<step>-input.ts` schema, `<step>-frontmatter.ts` deterministic checks,
@@ -222,10 +225,92 @@ Its recording is re-uploaded **per run**, not once per case - an uploaded video 
 handle with its own lifetime at the provider, so a `runs: N` case would otherwise replay
 a handle that may have expired mid-sweep.
 
+### Reporter frontmatter
+
+A Reporter case is **one snapshot's report birth** - the whole job rolled up. Its
+`input.json` is the assembled `ReporterInput` the Reporter serialized to S3 at run time,
+read back verbatim (see [Reporter - forward-only](#capturing-a-case)); the eval rehydrates
+the codebase from the frozen coords, fetches screenshots from S3 by their frozen keys, and
+runs the real `ReporterAgent` over it - no DB, no writes.
+
+```yaml
+---
+description: "what this case exercises"
+skip: false
+issues:                                 # the dedup call: how this run reconciled findings vs. existing issues
+  open: { minCount: 1, maxCount: 1 }     #   how many brand-new issues this run mints
+  carryForward: { include: [iss-abc] }   #   existing issue ids that MUST be carried forward
+  resolve: { exact: [] }                 #   existing issue ids that MUST be resolved ({ exact: [] } asserts none)
+issueDetails:                           # per asserted issue: its kind + severity, keyed by a COVERED finding slug
+  - findingSlug: guest-checkout-happy-path
+    kind: bug                            #   bug | environment | scenario
+    severity: high                       #   critical | high | medium | low
+flows:                                  # flow MEMBERSHIP - which tests cluster into a named flow (the agent's call)
+  - title: Guest checkout                #   matched case-insensitively against the authored flow titles
+    include: [guest-checkout-happy-path] #   slugs that MUST land in this flow (also exclude / exact)
+runs: 1                                 # >1 requires EVERY run to pass, which measures stability
+---
+
+Free-text judge rubric. The judge sees only the Reporter's structured output plus this
+body - never the codebase, screenshots, or the diff.
+```
+
+**The dedup call is the headline**, and the one judgement nothing downstream corrects. The
+coverage guarantees self-heal a dropped bug, an unresolved pass or an uncarried recurrence
+via a `FixableToolError` *before* a `ReporterResult` exists, but whether THIS finding is the
+SAME problem as an existing issue (`carry_forward`) or a genuinely new one (`open`) is the
+model's call alone. A recurrence asserts `carryForward: { include: [id] }` with
+`open: { maxCount: 0 }`; a genuinely-new problem asserts `open: { minCount: 1 }` with
+`carryForward: { exact: [] }`. `carryForward` / `resolve` name the **existing** issue ids
+each reconciliation targets; an `open` mints a fresh issue with no id yet, so its side is
+counted through `open`, never named. `issueDetails` keys on a covered finding **slug** rather
+than an issue id, because a slug is the one handle that works for a newly-opened issue too.
+
+**`unknownSlugs` is checked always**, without a field: a flow citing a test slug outside the
+branch's verdict map is a hallucination (the partition drops it rather than inventing it), the
+one flow correction that is a real error. The **swept** and **duplicate** flow counts are the
+other two corrections - clustering-quality signals the partition absorbs, so they are recorded
+in the result file but never gate. So is the finish-time **`FixableToolError` retry count**,
+read off the returned transcript by the stable `Cannot finish yet.` / `Nothing was left of`
+prefixes: a rising count across the corpus means the prompt is drifting into finishes the
+result tool has to reject.
+
+**Deliberately not asserted.** The three coverage guarantees and grounding self-heal before a
+result exists, so an assertion on the output would be tautological. Flow **status** and
+**owner** are derived in code from the verdicts a flow cites (the Reporter names a flow; it
+does not hold the pen on whether it "verified"), and are covered by `flows.test.ts` - so a case
+grades membership, never the derived judgement.
+
+**Zero production-only tools.** Unlike the classifier, the Reporter has no live-infra tool - no
+preview backend, no log stream. Every tool it uses in production is served identically on
+replay: `bash` over the real clone, `fetch_evidence` from S3 by the frozen keys, and
+`read_scenario` as a pure lookup over the recipes frozen into `scenarioRecipes`. So there is no
+capability gap to record, and a replay grades an agent that saw exactly what production's did.
+
+**The judge grades prose, never an image.** Groundedness - a real `file:line`, the right frame -
+is enforced by the result tool at author time (an unfetched image is stripped, a `suspectedCause`
+is validated against the checked-out repo), so the rubric must NOT re-grade it. It grades what the
+deterministic checks cannot: whether the report reads as the whole PR's **cumulative** state rather
+than this snapshot's counts, whether the flows cluster into units a reader recognizes, whether the
+title and headline are honest given the derived flow statuses, and whether each issue's severity is
+defensible from its narrative. Because the judge sees only the structured output, every rubric point
+must be checkable from that output alone - never "look at the screenshot".
+
+**Synthetic cases are sanctioned.** The rare multi-snapshot reconciliation scenarios -
+carry-forward and resolve - need existing issues that a single captured snapshot does not carry.
+Hand-editing a captured `input.json` to manufacture them (add a fabricated `existingIssues`
+entry; flip a finding to `passed` to force a resolve) is the primary way to cover them, and is
+only faithful *because* the Reporter reads its input back rather than reconstructing it from a
+DB the edit would contradict. A synthetic case still runs the real agent over a real clone, so
+its coords must point at a fetchable repo (the committed `example-synthetic` case, which points
+at a fabricated repo, stays `skip: true` for exactly that reason).
+
 ## Running the evals
 
-Evals are gated behind `RUN_EVALS` and need real model credentials (`GEMINI_API_KEY`,
-`GROQ_KEY`, `OPENROUTER_API_KEY`) plus `git` and `rg` on PATH. Cases against a private client
+Evals are gated behind `RUN_EVALS` and need real model credentials plus `git` and `rg` on PATH:
+`OPENAI_API_KEY` for the native-OpenAI reasoning models the classifier (`gpt-5.6-luna`) and the
+Reporter (`gpt-5.6-terra`) run on, and `GEMINI_API_KEY`, `GROQ_KEY`, `OPENROUTER_API_KEY` for the
+shared vision + text models (including the `impact`-keyed judge). Cases against a private client
 repo also need the `GITHUB_APP_*` credentials to mint a clone token; public-repo cases and cases
 whose commits are already in the repo cache run without them.
 

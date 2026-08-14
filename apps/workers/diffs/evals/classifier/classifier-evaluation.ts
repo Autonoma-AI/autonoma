@@ -6,14 +6,7 @@ import { logger as rootLogger } from "@autonoma/logger";
 import { S3Storage } from "@autonoma/storage";
 import ffmpeg from "@ffmpeg-installer/ffmpeg";
 import { expect } from "vitest";
-import {
-    type CodebaseCoords,
-    DiffsJudge,
-    MissingEvidenceError,
-    UnfetchableShaError,
-    ensureCachedCheckout,
-    probeEvidence,
-} from "../framework";
+import { type CaseSkipContext, DiffsJudge, rehydrateOrSkip, skipIfEvidenceUnreachable } from "../framework";
 import { type ClassifierFrontmatter, checkClassifierVerdict } from "./classifier-frontmatter";
 import {
     type FrozenAppLogArtifact,
@@ -104,7 +97,15 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
         }
 
         const { coords, input, media, baseline, appLogs } = rehydrateClassifierInput(testCase.input);
-        const codebase = await this.rehydrateCodebase(coords, helpers, testCase.name);
+        const skipContext = { logger: this.logger, caseName: testCase.name };
+
+        // The clone and the S3 probe are independent, so overlap the git-clone latency with the HEAD probes. The
+        // diff stat below still waits on the clone, since it reads `codebase.root`.
+        const evidenceLoader = new StorageEvidenceLoader(S3Storage.createFromEnv());
+        const [codebase] = await Promise.all([
+            rehydrateOrSkip(coords, helpers, skipContext),
+            this.probeReferencedEvidence(media, evidenceLoader, helpers, skipContext),
+        ]);
 
         // Read live rather than frozen, through the helper production calls: the stat is a pure function of the
         // two SHAs the case pins and the clone above, so freezing it could only go stale against that helper.
@@ -114,8 +115,6 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
             headSha: coords.headSha,
         });
 
-        const evidenceLoader = new StorageEvidenceLoader(S3Storage.createFromEnv());
-        await this.probeReferencedEvidence(media, evidenceLoader, helpers, testCase.name);
         const finalScreenshot = await this.loadFinalScreenshot(media, evidenceLoader);
         const appLogWindow = await this.loadAppLogWindow(appLogs, helpers, testCase.name);
 
@@ -255,20 +254,6 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
         }
     }
 
-    private async rehydrateCodebase(coords: CodebaseCoords, helpers: RunCaseHelpers, caseName: string) {
-        try {
-            return await ensureCachedCheckout(coords);
-        } catch (err) {
-            if (err instanceof UnfetchableShaError) {
-                this.logger.warn("Skipping case: codebase no longer fetchable", {
-                    extra: { case: caseName, sha: err.sha, repo: err.repoFullName },
-                });
-                helpers.skip(`codebase unfetchable: ${err.message}`);
-            }
-            throw err;
-        }
-    }
-
     /**
      * Verify every storage key the case references is still downloadable, before spending a single model call.
      * Step frames are deliberately included: the model drills into two or three of them and a dead key would
@@ -278,7 +263,7 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
         media: FrozenRunMedia,
         evidenceLoader: EvidenceLoader,
         helpers: RunCaseHelpers,
-        caseName: string,
+        ctx: CaseSkipContext,
     ): Promise<void> {
         const screenshots: string[] = [];
         for (const step of media.inspectableSteps) {
@@ -286,23 +271,12 @@ export class ClassifierEvaluation extends Evaluation<ClassifierCase> {
             if (step.screenshotAfterKey != null) screenshots.push(step.screenshotAfterKey);
         }
 
-        const keys: Parameters<typeof probeEvidence>[0] = {
-            screenshots,
-            finalScreenshot: media.finalScreenshotKey,
-            video: media.recording?.key,
-        };
-
-        try {
-            await probeEvidence(keys, evidenceLoader);
-        } catch (err) {
-            if (err instanceof MissingEvidenceError) {
-                this.logger.warn("Skipping case: evidence no longer reachable", {
-                    extra: { case: caseName, key: err.key, kind: err.kind },
-                });
-                helpers.skip(`evidence unreachable: ${err.message}`);
-            }
-            throw err;
-        }
+        await skipIfEvidenceUnreachable(
+            { screenshots, finalScreenshot: media.finalScreenshotKey, video: media.recording?.key },
+            evidenceLoader,
+            helpers,
+            ctx,
+        );
     }
 
     private async loadFinalScreenshot(
