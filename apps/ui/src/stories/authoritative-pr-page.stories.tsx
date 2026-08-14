@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { appShellHandlers, baseApplication, branchPage } from "lib/storybook/base-fixtures";
 import { PageStory } from "lib/storybook/page-story";
 import type { TrpcFixtures } from "lib/storybook/trpc-handler";
+import { within } from "storybook/test";
 import { withRunSignals } from "./analysis-run-signals";
 
 const FIXTURE_EPOCH = new Date("2026-01-01T00:00:00.000Z");
@@ -443,6 +444,76 @@ export const Report: Story = {
         }),
       ),
     },
+  },
+};
+
+// The same report, but with flows whose `testSlugs` cite the run's actual findings - so each flow can expand to the
+// checks behind it. The shared `analysisReport` above deliberately cites carried-over slugs with no finding this run
+// (the common real case, where a flow's dropdown stays empty), so this variant exists to exercise the populated one.
+const flowsAlignedReport: NonNullable<TrpcFixtures["branches"]> = {
+  analysisReport: {
+    ...analysisReport.analysisReport!,
+    flows: [
+      {
+        title: "Guest checkout",
+        detail: "The Place order button never enabled, so a guest could not submit - though add-to-cart held up.",
+        status: "broken" as const,
+        owner: "client" as const,
+        passedCount: 1,
+        gapCount: 0,
+        bugCount: 1,
+        checkedThisRunCount: 2,
+        testSlugs: ["checkout-place-order", "guest-add-to-cart"],
+      },
+      {
+        title: "Cart badge counter",
+        detail: "The badge reflected the cart's item count end to end.",
+        status: "verified" as const,
+        owner: "none" as const,
+        passedCount: 1,
+        gapCount: 0,
+        bugCount: 0,
+        checkedThisRunCount: 1,
+        testSlugs: ["cart-badge-count"],
+      },
+      {
+        title: "Coupons and payment",
+        detail: "Neither check could run: the coupon fixtures were unseeded and the payment iframe never loaded.",
+        status: "unverified" as const,
+        owner: "autonoma" as const,
+        passedCount: 0,
+        gapCount: 2,
+        bugCount: 0,
+        checkedThisRunCount: 2,
+        testSlugs: ["coupon-apply", "payment-iframe"],
+      },
+    ],
+  },
+};
+
+const flowsHandlers = appShellHandlers(
+  pageFixtures({
+    ...flowsAlignedReport,
+    analysisIssues,
+    analysisJob: { status: "completed", startedAt: STARTED_AT, completedAt: COMPLETED_AT },
+  }),
+);
+
+/** The flow itemization at rest: each flow shows its `N findings` disclosure collapsed. */
+export const FlowsCollapsed: Story = {
+  args: { path: OVERVIEW_PATH },
+  parameters: { msw: { handlers: flowsHandlers } },
+};
+
+/** The same itemization with every flow's disclosure open: the finding rows, each linking to its finding page. */
+export const FlowsExpanded: Story = {
+  args: { path: OVERVIEW_PATH },
+  parameters: { msw: { handlers: flowsHandlers } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await canvas.findByText("What this PR covers");
+    // The flow list is the only <details> on this page, so open them all rather than matching disclosure copy.
+    for (const details of canvasElement.querySelectorAll("details")) details.setAttribute("open", "");
   },
 };
 

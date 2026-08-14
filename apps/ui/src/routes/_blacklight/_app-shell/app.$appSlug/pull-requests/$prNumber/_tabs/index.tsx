@@ -208,7 +208,7 @@ function AuthoritativeReportColumn({
           issueIds={issueIds}
         />
       )}
-      <AnalysisFlowList flows={report.flows} />
+      <AnalysisFlowList flows={report.flows} findings={report.findings} prNumber={prNumber} snapshotId={snapshotId} />
       <AnalysisOpenIssuesList issues={openIssues} prNumber={prNumber} />
       <LatestSnapshotLink prNumber={prNumber} snapshotId={snapshotId} />
     </>
