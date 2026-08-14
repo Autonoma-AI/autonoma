@@ -8,6 +8,7 @@ import { WarningCircleIcon } from "@phosphor-icons/react/WarningCircle";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { DemoReturnButton } from "components/demo-return-button";
+import { SwitchOrganizationButton } from "components/organization/switch-organization-button";
 import { SUPPORT_URL } from "components/talk-to-support";
 import { useAuth, useAuthClient } from "lib/auth";
 import { manageUrlSchema } from "lib/github-install-errors";
@@ -337,7 +338,12 @@ function OnboardingLayout() {
       {/* Onboarding is one flow with no way out until it is done, so this bar is all
           the chrome there is: where you are, how to get help, and how to start over.
           There is deliberately no app navigation - leaving half-configured is what
-          used to make the product look broken. */}
+          used to make the product look broken.
+
+          Changing organization is the one exception, and only for an account that has
+          another one. An organization with no applications is redirected here by the
+          app shell, so "no way out until it is done" was trapping members whose work
+          was in a different organization entirely, with no bar to switch from. */}
       <div className="fixed left-0 right-0 top-0 z-50 flex h-14 shrink-0 items-center justify-between gap-6 border-b border-border-dim bg-surface-void/80 px-6 backdrop-blur">
         <img src="/logo.svg" alt="Autonoma" className="h-5 w-auto shrink-0" />
 
@@ -347,6 +353,7 @@ function OnboardingLayout() {
 
         <div className="flex shrink-0 items-center gap-2">
           <DemoReturnButton />
+          <SwitchOrganizationButton size="xs" />
           {confirmReset ? (
             <div className="flex items-center gap-2">
               <span className="font-mono text-2xs text-text-secondary">Delete this app and start over?</span>

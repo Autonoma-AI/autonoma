@@ -118,7 +118,7 @@ function ChooseOrgFrame({ children }: { children: React.ReactNode }) {
         <div className="flex flex-col items-center gap-2">
           <h1 className="text-2xl font-medium text-text-primary">Choose an organization</h1>
           <p className="font-mono text-sm text-text-secondary">
-            You belong to more than one. You can switch any time from the sidebar.
+            You belong to more than one. You can switch any time from the bar at the top.
           </p>
         </div>
         {children}

@@ -1,5 +1,6 @@
 import { Button, Logo } from "@autonoma/blacklight";
 import { createFileRoute } from "@tanstack/react-router";
+import { SwitchOrganizationButton } from "components/organization/switch-organization-button";
 import { useAuthClient } from "lib/auth";
 
 export const Route = createFileRoute("/_blacklight/(auth)/rejected")({
@@ -17,15 +18,18 @@ function RejectedPage() {
         <p className="mt-3 font-mono text-sm text-text-secondary">
           Your organization access request has been rejected. Contact support for assistance.
         </p>
-        <Button
-          variant="outline"
-          className="mt-6"
-          onClick={() => {
-            void authClient.signOut();
-          }}
-        >
-          Sign out
-        </Button>
+        {/* A rejected organization is not necessarily the reader's only one - see `pending.tsx`. */}
+        <div className="mt-6 flex items-center gap-2">
+          <SwitchOrganizationButton />
+          <Button
+            variant="outline"
+            onClick={() => {
+              void authClient.signOut();
+            }}
+          >
+            Sign out
+          </Button>
+        </div>
       </div>
     </div>
   );

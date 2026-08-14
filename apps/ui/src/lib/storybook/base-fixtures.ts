@@ -237,9 +237,9 @@ const baseTrpcFixtures: TrpcFixtures = {
     // set it renders without the badge (and never errors on the unmocked call).
     previewAccess: { livenessForApplication: {}, livenessForFleet: {} },
     organization: {
-        // The app shell's switcher reads this on every page under it, and the account menu reads it to decide
-        // whether the organization name is a switcher or a label. One organization is the common case, and the
-        // one that renders as a label; a story that wants the switcher overrides this with a second.
+        // The bar's organization switcher reads this on every page under the shell, to decide whether the
+        // organization name is a control or a label. One organization is the common case, and the one that
+        // renders as a label; a story that wants the switcher overrides this with a second.
         mine: [
             {
                 id: ORG_ID,

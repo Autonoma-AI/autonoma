@@ -15,10 +15,7 @@ import { GridFourIcon } from "@phosphor-icons/react/GridFour";
 import { ShieldCheckIcon } from "@phosphor-icons/react/ShieldCheck";
 import { SignOutIcon } from "@phosphor-icons/react/SignOut";
 import { Link, useLocation, useRouteContext } from "@tanstack/react-router";
-import { IsolatedErrorBoundary } from "components/isolated-error-boundary";
 import { useAuth, useAuthClient } from "lib/auth";
-import { Suspense } from "react";
-import { OrgSwitcher } from "./org-switcher";
 import { useAppNav } from "./use-app-nav";
 
 /**
@@ -76,19 +73,13 @@ export function AccountMenu({ onFeedback }: { onFeedback: () => void }) {
         <div className="flex flex-col gap-0.5 px-3 py-2.5">
           <span className="truncate text-xs font-medium text-text-primary">{displayName}</span>
           {user?.email != null && <span className="truncate font-mono text-3xs text-text-secondary">{user.email}</span>}
-          {/* The rail made the organization name a switcher; this is where that went. It renders as plain
-              text for the single-organization case, so it only becomes a control for someone who has
-              somewhere to switch to.
-
-              Boundaries because it reads with `useSuspenseQuery` and only mounts when the menu opens: the
-              rail resolved that during the page load, but here it would suspend mid-interaction, and with
-              nothing to catch it the throw lands on the route. Both fall back to the name as text, which is
-              what a single-organization reader sees anyway. */}
-          <IsolatedErrorBoundary fallback={() => <ActiveOrganizationName name={activeOrganization.name} />}>
-            <Suspense fallback={<ActiveOrganizationName name={activeOrganization.name} />}>
-              <OrgSwitcher activeOrganizationName={activeOrganization.name} />
-            </Suspense>
-          </IsolatedErrorBoundary>
+          {/* Which organization you are signed in to, as text. Switching is a control in the bar, and it is
+              there rather than here for a reason this menu cannot fix: a plain `DropdownMenu` inside this
+              popup is a Base UI `Menu.Root` with no parent, so it opens as its own modal menu over this one
+              and double-fires the item it is clicked on. See `org-switcher.tsx`. */}
+          <span className="truncate font-mono text-3xs uppercase tracking-widest text-text-secondary">
+            {activeOrganization.name}
+          </span>
         </div>
 
         <DropdownMenuSeparator />
@@ -147,11 +138,6 @@ export function AccountMenu({ onFeedback }: { onFeedback: () => void }) {
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-/** The organization as a label - what the switcher itself renders when there is nowhere to switch to. */
-function ActiveOrganizationName({ name }: { name: string }) {
-  return <span className="truncate font-mono text-3xs uppercase tracking-widest text-text-secondary">{name}</span>;
 }
 
 /**

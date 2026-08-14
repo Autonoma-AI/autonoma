@@ -68,13 +68,7 @@ function DiscardConfirmDialog({
   );
 }
 
-function AppSelector({
-  currentApp,
-  organizationName,
-}: {
-  currentApp: { slug: string; name: string };
-  organizationName: string;
-}) {
+function AppSelector({ currentApp }: { currentApp: { slug: string; name: string } }) {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
   const navigate = useNavigate();
   const deleteApp = useDeleteApplication();
@@ -83,20 +77,18 @@ function AppSelector({
   const incompleteApps = applications.filter(isMidOnboarding);
   const completedApps = applications.filter((app) => !isMidOnboarding(app));
 
-  // The organization reads as a path prefix rather than a second label, and below `lg` it is the part that goes:
-  // on a narrow bar the application you are actually looking at survives and its owner gives way.
+  // Only the application is named here. The organization is the segment to this trigger's left, which is a
+  // control of its own, so repeating it would print the name twice in one enclosure.
   //
   // The cap is a backstop for a pathological name, not the working width. At 224px it was the binding constraint
   // on every screen size - the bar had hundreds of pixels of slack beside it and the trigger still clipped the
-  // organization to four characters - so ordinary names now fit and `min-w-0` lets flex take the width back when
-  // the row genuinely runs out.
+  // name to four characters - so ordinary names now fit and `min-w-0` lets flex take the width back when the row
+  // genuinely runs out.
   const trigger = (
     <DropdownMenuTrigger
       aria-label={`Switch application (current: ${currentApp.name})`}
-      className="flex h-full min-w-0 max-w-md items-center gap-2 px-2 text-sm transition-colors hover:bg-surface-raised"
+      className="flex h-full min-w-0 max-w-md items-center gap-1.5 px-1.5 text-sm transition-colors hover:bg-surface-raised"
     >
-      <span className="block size-2 shrink-0 rounded-sm bg-primary" />
-      <span className="hidden min-w-0 truncate text-text-secondary lg:block">{organizationName} /</span>
       <span className="min-w-0 truncate font-medium text-text-primary">{currentApp.name}</span>
       <CaretUpDownIcon size={12} className="shrink-0 text-text-secondary" />
     </DropdownMenuTrigger>
@@ -201,10 +193,6 @@ function AppSelector({
 
 export function AppSwitcher() {
   const applications = useRouteContext({ from: "/_blacklight/_app-shell", select: (ctx) => ctx.applications });
-  const activeOrganization = useRouteContext({
-    from: "/_blacklight/_app-shell",
-    select: (ctx) => ctx.activeOrganization,
-  });
   const params = useParams({ strict: false });
 
   if (params.appSlug == null) return undefined;
@@ -212,5 +200,5 @@ export function AppSwitcher() {
   const app = applications.find((a) => a.slug === params.appSlug);
   if (app == null) return undefined;
 
-  return <AppSelector currentApp={app} organizationName={activeOrganization.name} />;
+  return <AppSelector currentApp={app} />;
 }

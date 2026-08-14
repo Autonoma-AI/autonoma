@@ -186,52 +186,54 @@ export const AccountMenuOpen: Story = {
   },
 };
 
+/** Two organizations, so the switcher is a control rather than a label. */
+const TWO_ORGS: RouterOutputs["organization"]["mine"] = [
+  {
+    id: "org_fixture_01",
+    name: "Acme",
+    slug: "acme",
+    isActive: true,
+    memberCount: 4,
+    applicationCount: 3,
+    joinedAt: FIXTURE_EPOCH,
+  },
+  {
+    id: "org_fixture_02",
+    name: "Northwind",
+    slug: "northwind",
+    isActive: false,
+    memberCount: 2,
+    applicationCount: 1,
+    joinedAt: FIXTURE_EPOCH,
+  },
+];
+
 /**
- * The organization switcher, for a reader who belongs to more than one.
- *
- * The rail used to carry this and the top bar dropped it, which left a multi-organization member with no way
- * to change organization anywhere in the chrome. It is a dropdown rendered inside the account menu's own
- * dropdown, so this story exists to prove that nesting actually opens rather than closing its parent.
+ * The organization switcher, for a reader who belongs to more than one. One click from the bar, which is the
+ * whole point of the story: it spent a release inside the account menu, two clicks deep and drawn as a 10px
+ * label that did not read as a control, which is how a multi-organization member came to have no way to change
+ * organization that they could find.
  */
 export const OrgSwitcherOpen: Story = {
   args: { path: PATH },
-  parameters: {
-    msw: {
-      handlers: dashboardHandlers({
-        organization: {
-          mine: [
-            {
-              id: "org_fixture_01",
-              name: "Acme",
-              slug: "acme",
-              isActive: true,
-              memberCount: 4,
-              applicationCount: 3,
-              joinedAt: FIXTURE_EPOCH,
-            },
-            {
-              id: "org_fixture_02",
-              name: "Northwind",
-              slug: "northwind",
-              isActive: false,
-              memberCount: 2,
-              applicationCount: 1,
-              joinedAt: FIXTURE_EPOCH,
-            },
-          ],
-        },
-      }),
-    },
-  },
+  parameters: { msw: { handlers: dashboardHandlers({ organization: { mine: TWO_ORGS } }) } },
   play: async ({ canvasElement }) => {
-    const trigger = await within(canvasElement).findByLabelText(/^account:/i, undefined, SHELL_READY);
+    // By label, not by text: "Acme" would also match the organization name the account menu prints, and an
+    // ambiguous `findBy*` throws - which a `play` does silently, leaving a screenshot of an unopened menu that
+    // still reports success.
+    const trigger = await within(canvasElement).findByLabelText(/^switch organization/i, undefined, SHELL_READY);
     await userEvent.click(trigger);
-    // By role, not by text: the bar renders "Acme /" as well, and an ambiguous `findByText` throws - which a
-    // `play` does silently, leaving a screenshot of an unopened menu that still reports success.
-    const orgTrigger = await within(document.body).findByRole("button", { name: "Acme" });
-    await userEvent.click(orgTrigger);
     await within(document.body).findByText("Northwind");
   },
+};
+
+/**
+ * The same bar for the single-organization account, which is almost everyone: the organization is a label with
+ * no caret, so the bar costs nothing for a reader who has nowhere to switch to. The default fixture has one
+ * organization, so this is that path with nothing added.
+ */
+export const OrgSwitcherSingle: Story = {
+  args: { path: PATH },
 };
 
 /** The suite-health panel, opened by hovering the meter the way a reader would. */

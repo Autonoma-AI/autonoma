@@ -8,6 +8,8 @@ import type { AppNavItem } from "./use-app-nav";
 
 interface TopNavBarProps {
   sections: AppNavItem[];
+  /** Which organization you are acting as. Absent only in the stories that render the bar from literals. */
+  orgSwitcher?: ReactNode;
   /** Which application you are in. Absent when the chrome is not scoped to one. */
   appSwitcher?: ReactNode;
   upgrade?: ReactNode;
@@ -42,8 +44,8 @@ interface TopNavBarProps {
  * Data-bound pieces arrive as slots rather than being read here, so this renders from literals in a story - which
  * is how the layout gets argued about without a backend.
  */
-export function TopNavBar({ sections, appSwitcher, upgrade, account, activePath }: TopNavBarProps) {
-  const hasApplication = appSwitcher != null;
+export function TopNavBar({ sections, orgSwitcher, appSwitcher, upgrade, account, activePath }: TopNavBarProps) {
+  const hasScope = orgSwitcher != null || appSwitcher != null;
 
   return (
     // The border spans the viewport - it is chrome - while the row inside it shares the page's gutter, so the
@@ -76,11 +78,23 @@ export function TopNavBar({ sections, appSwitcher, upgrade, account, activePath 
 
         {upgrade}
 
-        {/* The one thing in the bar allowed to give up width: narrow enough and the application name truncates,
-            which costs a few characters of something the page heading states in full - cheaper than any of the
+        {/* Where you are, as one object: the organization, then the application inside it. Both are dropdowns,
+            and they share an enclosure rather than standing apart because they name one place between them -
+            two bordered pills would read as two unrelated controls that happen to sit together.
+
+            The marker leads the pair rather than sitting inside the application segment, so it marks the scope
+            rather than one half of it.
+
+            The one thing in the bar allowed to give up width: narrow enough and the names truncate, which costs
+            a few characters of something the page heading states in full - cheaper than any of the
             alternatives, all of which remove a control outright. */}
-        {hasApplication && (
-          <span className="flex h-7 min-w-0 items-center overflow-hidden border border-border-dim bg-surface-base">
+        {hasScope && (
+          <span className="flex h-7 min-w-0 items-center overflow-hidden border border-border-dim bg-surface-base pl-2">
+            <span className="block size-2 shrink-0 rounded-sm bg-primary" />
+            {orgSwitcher}
+            {orgSwitcher != null && appSwitcher != null && (
+              <span className="shrink-0 text-sm text-text-secondary">/</span>
+            )}
             {appSwitcher}
           </span>
         )}
