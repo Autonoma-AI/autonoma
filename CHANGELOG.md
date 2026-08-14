@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.260814.3](https://github.com/Autonoma-AI/agent/compare/v1.260814.2...v1.260814.3) (2026-08-14)
+
+
+### Features
+
+* **analysis:** backfill impact reasoning and drop the report-column path ([#2546](https://github.com/Autonoma-AI/agent/issues/2546)) ([c41db2a](https://github.com/Autonoma-AI/agent/commit/c41db2a43f978195fbdf7c65ab6fe3d97f639abf))
+
+
+### Bug Fixes
+
+* **analysis:** cancel in-flight analysis runs when an app is deleted or unlinked ([#2573](https://github.com/Autonoma-AI/agent/issues/2573)) ([3035378](https://github.com/Autonoma-AI/agent/commit/3035378292537e7fbfa402c20f2dd4b4608640eb))
+* append AnalysisIssue versions instead of overwriting on carry-forward ([#2499](https://github.com/Autonoma-AI/agent/issues/2499)) ([726ead1](https://github.com/Autonoma-AI/agent/commit/726ead1f7e2b818810b07e9563726262aa5512eb))
+* **cli:** keep run-unique tokens out of fields tests must name ([#2586](https://github.com/Autonoma-AI/agent/issues/2586)) ([d207735](https://github.com/Autonoma-AI/agent/commit/d20773578ba46ebbad0fe72223631e5bd9417a72))
+
 ## [1.260814.2](https://github.com/Autonoma-AI/agent/compare/v1.260814.1...v1.260814.2) (2026-08-14)
 
 
