@@ -1,5 +1,32 @@
 # Changelog
 
+## [1.260814.2](https://github.com/Autonoma-AI/agent/compare/v1.260814.1...v1.260814.2) (2026-08-14)
+
+
+### Features
+
+* **analysis:** create findings at selection ([#2544](https://github.com/Autonoma-AI/agent/issues/2544)) ([9184939](https://github.com/Autonoma-AI/agent/commit/9184939be364034b5e7dc6a6328f8e5329d0bdad))
+* **analysis:** scored capture-to-replay eval for the Reporter ([#2512](https://github.com/Autonoma-AI/agent/issues/2512)) ([bded5e3](https://github.com/Autonoma-AI/agent/commit/bded5e3f660f1ac7bb608d7948f2546e2d99b10a))
+* **analysis:** write impact reasoning onto the analysis job ([#2545](https://github.com/Autonoma-AI/agent/issues/2545)) ([491b07b](https://github.com/Autonoma-AI/agent/commit/491b07bda801df8572a0861823eba6be6232f0bb))
+* aws compute pricing cronjob ([#2428](https://github.com/Autonoma-AI/agent/issues/2428)) ([2e2a561](https://github.com/Autonoma-AI/agent/commit/2e2a5611f019bf11ae39153149518bc87bc483c1))
+* **platform:** tag every EC2 launch path with a workload cost tag ([#2541](https://github.com/Autonoma-AI/agent/issues/2541)) ([6be9f9a](https://github.com/Autonoma-AI/agent/commit/6be9f9a912bc9ee502b7a9e7c01f642fe770b575))
+* **terraform:** import the 26 ECR application repositories ([#2570](https://github.com/Autonoma-AI/agent/issues/2570)) ([3815f3a](https://github.com/Autonoma-AI/agent/commit/3815f3a2a2ffb879720187b6b6a9b0ecf48d5790))
+* **ui:** add per-flow findings dropdown and cap report image height on the PR page ([#2537](https://github.com/Autonoma-AI/agent/issues/2537)) ([5f86e95](https://github.com/Autonoma-AI/agent/commit/5f86e956c1a46d803655652dac772232af5605e5))
+
+
+### Bug Fixes
+
+* **alpha:** stop orphaning namespace children and stranding EBS volumes on teardown ([#2566](https://github.com/Autonoma-AI/agent/issues/2566)) ([d451573](https://github.com/Autonoma-AI/agent/commit/d4515739ac78b57700712ee268d428c81abe5fbe))
+* **analysis:** scenario findings roll into an issue, not just bugs ([#2572](https://github.com/Autonoma-AI/agent/issues/2572)) ([8f2d12d](https://github.com/Autonoma-AI/agent/commit/8f2d12d626e1136dd313bb1cee5bd0f845d31d99))
+* **ci:** bound the alpha migration pod so it can't land on undersized… ([#2578](https://github.com/Autonoma-AI/agent/issues/2578)) ([93556f3](https://github.com/Autonoma-AI/agent/commit/93556f39e1c2c85e4e7e7ac45a65b3711dd8a02c))
+* **ci:** pass the terraform plan to the summary via file, not env ([#2567](https://github.com/Autonoma-AI/agent/issues/2567)) ([12d1d2d](https://github.com/Autonoma-AI/agent/commit/12d1d2df78c7eb51673113ac0d81d8a3d67fccea))
+* **cli:** reject step text that quotes its own field guidance ([#2571](https://github.com/Autonoma-AI/agent/issues/2571)) ([b1607d4](https://github.com/Autonoma-AI/agent/commit/b1607d4c77af199cb8417dc91348f45b4d25b44c))
+* count distinct bug issues in the checkpoint rail, not client_bug findings ([#2577](https://github.com/Autonoma-AI/agent/issues/2577)) ([76004ed](https://github.com/Autonoma-AI/agent/commit/76004ed458f7ec9975b593b3be63e04cbb7cd3b0))
+* **platform:** give every karpenter pool a terminationGracePeriod ([#2569](https://github.com/Autonoma-AI/agent/issues/2569)) ([a6d5de6](https://github.com/Autonoma-AI/agent/commit/a6d5de6ae4b703fd71cd9bf51da84336373bf086))
+* **platform:** verify the tmp mask by its artifact, not by findmnt ([#2564](https://github.com/Autonoma-AI/agent/issues/2564)) ([dd4c324](https://github.com/Autonoma-AI/agent/commit/dd4c324d10b4379552393f45ebedc1cec55015fc))
+* **terraform:** correct stale table name in previewkit_secrets KMS key description ([#2562](https://github.com/Autonoma-AI/agent/issues/2562)) ([4845fc9](https://github.com/Autonoma-AI/agent/commit/4845fc970adda00dc05b50bc7ba16c9ae74e80de))
+* **ui:** restore organization switching outside the account menu ([#2568](https://github.com/Autonoma-AI/agent/issues/2568)) ([8d73656](https://github.com/Autonoma-AI/agent/commit/8d736568d643ccb502e282623ace9be22b731fdf))
+
 ## [1.260814.1](https://github.com/Autonoma-AI/agent/compare/v1.260813.1...v1.260814.1) (2026-08-14)
 
 
