@@ -1145,9 +1145,9 @@ export class BranchesService extends Service {
     }
 
     /**
-     * The branch's snapshot history, newest first. The ordering and the filter (non-cancelled, non-twin) are
-     * part of the contract and match {@link TestSuiteStore.latestRuns}, so the first element is the branch's
-     * latest run and a client never re-sorts to find it.
+     * The branch's snapshot history, newest first. The ordering and the non-cancelled filter are part of the
+     * contract and match {@link TestSuiteStore.latestRuns}, so the first element is the branch's latest run
+     * and a client never re-sorts to find it.
      */
     async listSnapshots(branchId: string, organizationId: string) {
         this.logger.info("Listing snapshots", { branchId });
@@ -1155,13 +1155,10 @@ export class BranchesService extends Service {
         const snapshots = await this.db.branchSnapshot.findMany({
             // Canceled snapshots are abandoned drafts kept only for observability; they are
             // hidden from user-facing history but stay reachable by id via getSnapshotDetail.
-            // The detached investigation twin (non-null investigationParent) is likewise hidden - it is
-            // not part of the branch's user-facing lineage.
             where: {
                 branchId,
                 branch: { application: { organizationId } },
                 status: { not: "cancelled" },
-                investigationParent: { is: null },
             },
             select: {
                 id: true,
@@ -1436,11 +1433,7 @@ export class BranchesService extends Service {
                 snapshots: {
                     // Exclude cancelled snapshots so the PR-wide rollup reflects the real
                     // lineage; a cancelled draft must never become the latest rollup target.
-                    // The detached investigation twin is not part of the lineage either.
-                    where: {
-                        status: { not: "cancelled" },
-                        investigationParent: { is: null },
-                    },
+                    where: { status: { not: "cancelled" } },
                     select: snapshotSelect,
                     orderBy: { createdAt: "asc" },
                 },

@@ -1089,7 +1089,6 @@ const TestCaseInput = loose({
     folderId: z.string(),
     name: z.string().optional(),
     slug: z.string().optional(),
-    shadow: z.boolean().optional(),
     description: z.string().optional(),
 });
 
@@ -1105,7 +1104,6 @@ const TestCaseFactory = defineFactory({
                 name,
                 slug,
                 description: data.description ?? undefined,
-                shadow: data.shadow ?? false,
                 applicationId: data.applicationId,
                 folderId: data.folderId,
                 organizationId: data.organizationId,
@@ -1149,7 +1147,6 @@ const BranchSnapshotInput = loose({
     status: z.enum(["processing", "active", "superseded", "failed", "cancelled"]).optional(),
     headSha: z.string().optional(),
     baseSha: z.string().optional(),
-    investigationSnapshotId: z.string().optional(),
     setActiveOnBranch: z.boolean().optional(),
 });
 
@@ -1165,7 +1162,6 @@ const BranchSnapshotFactory = defineFactory({
                 status: data.status ?? "active",
                 headSha: data.headSha ?? randomBytes(20).toString("hex"),
                 baseSha: data.baseSha ?? undefined,
-                investigationSnapshotId: data.investigationSnapshotId ?? undefined,
             },
         });
         // Point the branch at this snapshot (Branch.activeSnapshotId <->
@@ -1185,7 +1181,6 @@ const TestGenerationInput = loose({
     snapshotId: z.string(),
     organizationId: z.string(),
     status: z.enum(["pending", "queued", "running", "success", "failed"]).optional(),
-    shadow: z.boolean().optional(),
 });
 
 const TestGenerationFactory = defineFactory({
@@ -1198,7 +1193,6 @@ const TestGenerationFactory = defineFactory({
                 snapshotId: data.snapshotId,
                 organizationId: data.organizationId,
                 status: data.status ?? "success",
-                shadow: data.shadow ?? false,
             },
         });
         return { id: row.id };

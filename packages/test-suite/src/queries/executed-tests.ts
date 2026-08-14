@@ -47,7 +47,6 @@ export async function listExecutedTestsForSnapshot(
         db.testGeneration.findMany({
             where: {
                 snapshotId,
-                shadow: false,
                 testPlan: {
                     testCase: {
                         assignments: {
@@ -85,7 +84,6 @@ export async function listExecutedTestsForSnapshots(
         db.testGeneration.findMany({
             where: {
                 snapshotId: { in: snapshotIds },
-                shadow: false,
                 testPlan: {
                     testCase: {
                         assignments: {

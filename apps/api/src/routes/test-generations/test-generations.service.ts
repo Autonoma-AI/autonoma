@@ -22,12 +22,6 @@ export class TestGenerationsService extends Service {
             where: {
                 id: generationId,
                 organizationId,
-                // Shadow generations are an internal A/B measurement, not part of the customer's suite, so they
-                // 404 even by direct id. The `shadow` flag is the per-row guard (it also catches shadow rows
-                // that land on the PR's active snapshot, not just the detached shadow snapshots, which the
-                // parent snapshot filters alone would miss).
-                shadow: false,
-                snapshot: { investigationParent: { is: null } },
             },
             select: {
                 id: true,
@@ -223,11 +217,6 @@ export class TestGenerationsService extends Service {
         const generations = await this.db.testGeneration.findMany({
             where: {
                 organizationId,
-                // Exclude shadow generations - an internal A/B measurement, not part of the customer's suite
-                // history. The `shadow` flag is the per-row guard (it also catches shadow rows on the PR's
-                // active snapshot, which the parent snapshot filters alone miss).
-                shadow: false,
-                snapshot: { investigationParent: { is: null } },
                 ...(applicationId != null ? { testPlan: { testCase: { applicationId } } } : {}),
             },
             select: {

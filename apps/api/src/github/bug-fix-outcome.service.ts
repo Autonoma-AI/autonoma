@@ -327,7 +327,7 @@ export class BugFixOutcomeService extends Service {
         if (this.branchContributor == null || issue.resolvedAt == null) return undefined;
 
         const snapshot = await this.db.branchSnapshot.findFirst({
-            where: { branchId, investigationParent: { is: null }, createdAt: { lte: issue.resolvedAt } },
+            where: { branchId, createdAt: { lte: issue.resolvedAt } },
             orderBy: { createdAt: "desc" },
             select: { id: true },
         });
@@ -363,13 +363,13 @@ export class BugFixOutcomeService extends Service {
 
     /**
      * Whether the analysis authoritatively assessed this PR: the branch's latest run BEFORE the merge (its most
-     * recent non-twin snapshot created at or before `mergedAt`) produced an `AnalysisReport`, whose mere existence
-     * means the Reporter ran to completion and reconciled the branch's issues.
+     * recent snapshot created at or before `mergedAt`) produced an `AnalysisReport`, whose mere existence means
+     * the Reporter ran to completion and reconciled the branch's issues.
      */
     private async isAssessed(branchId: string, mergedAt?: Date): Promise<boolean> {
         const createdBeforeMerge = mergedAt != null ? { lte: mergedAt } : undefined;
         const latest = await this.db.branchSnapshot.findFirst({
-            where: { branchId, investigationParent: { is: null }, createdAt: createdBeforeMerge },
+            where: { branchId, createdAt: createdBeforeMerge },
             orderBy: { createdAt: "desc" },
             select: { id: true },
         });

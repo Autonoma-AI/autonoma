@@ -23,8 +23,7 @@ export class FoldersService extends Service {
         const folder = await this.db.folder.findFirst({
             where: { id: folderId, application: { organizationId } },
             include: {
-                // Exclude the investigation shadow probe from the folder's displayed test-case count.
-                _count: { select: { testCases: { where: { shadow: false } }, children: true } },
+                _count: { select: { testCases: true, children: true } },
                 application: { select: { id: true, name: true } },
                 parent: { select: { id: true, name: true } },
             },

@@ -301,7 +301,7 @@ export class TestSuiteStore {
     }
 
     /**
-     * The newest non-cancelled, non-twin snapshot per branch, keyed by branch id - "the branch's latest run".
+     * The newest non-cancelled snapshot per branch, keyed by branch id - "the branch's latest run".
      * Reached by branch id rather than through `activeSnapshotId`/`pendingSnapshotId` because a failed run sits
      * on neither pointer (settlement clears it so the branch is not left blocked).
      */
@@ -312,7 +312,6 @@ export class TestSuiteStore {
             where: {
                 branchId: { in: branchIds },
                 status: { not: "cancelled" },
-                investigationParent: { is: null },
             },
             orderBy: { createdAt: "desc" },
             distinct: ["branchId"],

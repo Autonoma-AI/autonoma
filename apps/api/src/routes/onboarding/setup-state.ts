@@ -41,8 +41,7 @@ export async function computeSetupState(db: PrismaClient, applicationId: string,
                 where: { applicationId },
                 select: { id: true, isDisabled: true, activeRecipeVersionId: true },
             }),
-            // Ignore investigation shadow cases - they are validation probes, not real onboarding content.
-            db.testCase.findFirst({ where: { applicationId, shadow: false }, select: { id: true } }),
+            db.testCase.findFirst({ where: { applicationId }, select: { id: true } }),
             db.scenarioInstance.findMany({
                 where: { applicationId, status: "DOWN_SUCCESS" },
                 select: { scenarioId: true },

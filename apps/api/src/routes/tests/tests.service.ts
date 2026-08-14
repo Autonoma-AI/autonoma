@@ -17,8 +17,7 @@ export class TestsService extends Service {
         this.logger.info("Getting test cases", { applicationId, organizationId });
 
         const raw = await this.db.testCase.findMany({
-            // Exclude investigation shadow cases (validation probes) - they are never part of the customer's suite.
-            where: { applicationId, application: { organizationId }, shadow: false },
+            where: { applicationId, application: { organizationId } },
             include: {
                 tags: { include: { tag: true } },
             },
@@ -39,8 +38,7 @@ export class TestsService extends Service {
         this.logger.info("Getting test detail", { applicationId, slug, snapshotId });
 
         const testCase = await this.db.testCase.findUnique({
-            // shadow: false - the reserved shadow slug is a known constant, so guard against fetching the probe.
-            where: { applicationId_slug: { applicationId, slug }, organizationId, shadow: false },
+            where: { applicationId_slug: { applicationId, slug }, organizationId },
             include: {
                 tags: { include: { tag: true } },
                 folder: { select: { id: true, name: true } },
@@ -87,8 +85,7 @@ export class TestsService extends Service {
         this.logger.info("Renaming test", { id, name });
 
         const { count } = await this.db.testCase.updateMany({
-            // shadow: false - a user must not rename the shared investigation probe (would break in-flight runs).
-            where: { id, application: { organizationId }, shadow: false },
+            where: { id, application: { organizationId } },
             data: { name },
         });
 
