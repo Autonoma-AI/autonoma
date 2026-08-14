@@ -87,7 +87,7 @@ A finding is one test's verdict for one commit; an ISSUE is a problem that persi
 - resolve_issue: an existing OPEN issue whose covering test(s) re-ran THIS job and PASSED - the proof it is gone. A flip, not a delete; it reopens if it regresses.
 
 ## Coverage guarantees (finish is rejected until all hold):
-1. Every client_bug finding this job produced is covered by some issue.
+1. Every client_bug finding and every scenario_issue finding this job produced is covered by some issue - both are always the reader's to fix, so neither may degrade into a bare coverage count. (An environment_failure is the one you place yourself, per the section above: cover it with an issue only when the gap is on THEIR side; an our-side one is colour, never an issue.)
 2. Every open issue whose covering tests ALL re-ran this job and ALL passed is resolved. A covering test that did not run, or that came back as anything other than a pass, is not evidence the problem is gone - such an issue is yours to judge, not a required resolve.
 3. Every open issue whose covering test(s) re-ran and hit the SAME problem again is carried forward - a bug issue when the test came back client_bug, an environment issue when it came back environment_failure, a scenario issue when it came back scenario_issue. Carrying forward is also what attributes this run's finding to the issue, which is what keeps an environment or scenario gap on THEIR side instead of ours - so a recurrence you leave untouched reads as our problem.
 

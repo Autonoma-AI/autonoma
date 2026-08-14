@@ -289,7 +289,7 @@ describe("ReporterAgent - end to end on the AgentLoop harness", () => {
 
         const { result, conversation } = await new ReporterAgent({ model }).run(input);
 
-        expect(JSON.stringify(conversation)).toContain("not covered by any issue");
+        expect(JSON.stringify(conversation)).toContain("must each roll into an issue but none covers them");
         expect(result.issues).toHaveLength(1);
         expect(model.doGenerateCalls.length).toBe(3);
     });

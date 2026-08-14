@@ -61,9 +61,9 @@ class CoverageError extends FixableToolError {
 
     private static describe(v: CoverageViolations): string {
         const parts: string[] = [];
-        if (v.uncoveredBugSlugs.length > 0) {
+        if (v.uncoveredIssueFindingSlugs.length > 0) {
             parts.push(
-                `These client_bug findings are not covered by any issue: ${v.uncoveredBugSlugs.join(", ")}. Open a new issue or carry forward an existing one that lists each slug.`,
+                `These findings must each roll into an issue but none covers them: ${v.uncoveredIssueFindingSlugs.join(", ")}. Every client_bug and every scenario_issue finding is the reader's to fix, so open a new issue or carry forward an existing one that lists each slug.`,
             );
         }
         if (v.uncarriedFailingIssueIds.length > 0) {
@@ -108,11 +108,11 @@ function assertProseSurvived(prose: ProseSurfaces): void {
 
 /**
  * Terminal tool for the {@link ReporterAgent}. Before it accepts the report, it enforces the three coverage
- * guarantees (every live bug covered; every open issue whose WHOLE covered set passed resolved; every open issue whose
- * covering test hit the same problem again carried forward) as a fixable retry, then grounds every authored surface at
- * persist time: unbacked evidence images are stripped, `suspectedCause` references are validated against the
- * checked-out repo, and a hero screenshot resolves only from a fetched asset. So the result the caller gets can never
- * surface an image the agent did not fetch or a code reference that is not really there.
+ * guarantees (every live client bug and scenario gap covered; every open issue whose WHOLE covered set passed resolved;
+ * every open issue whose covering test hit the same problem again carried forward) as a fixable retry, then grounds
+ * every authored surface at persist time: unbacked evidence images are stripped, `suspectedCause` references are
+ * validated against the checked-out repo, and a hero screenshot resolves only from a fetched asset. So the result the
+ * caller gets can never surface an image the agent did not fetch or a code reference that is not really there.
  *
  * The flows get the same treatment by a different mechanism. The agent names them and cites the tests each covers;
  * whether a flow counts as verified, and whose its gaps are, is derived from those tests here. An agent that could
@@ -125,7 +125,7 @@ export class ReporterResultTool extends ReportResultTool<ReporterFinishInput, Re
         super({
             name: "finish",
             description:
-                "Finish the report. Rejected until every client_bug finding is covered by an issue, every open issue whose covering tests ALL re-ran and passed is resolved, and every open issue whose covering test hit the same problem again is carried forward.",
+                "Finish the report. Rejected until every client_bug and every scenario_issue finding is covered by an issue, every open issue whose covering tests ALL re-ran and passed is resolved, and every open issue whose covering test hit the same problem again is carried forward.",
             inputSchema: reporterFinishInputSchema,
         });
     }

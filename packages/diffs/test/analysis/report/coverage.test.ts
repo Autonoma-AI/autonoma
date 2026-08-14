@@ -44,27 +44,56 @@ function resolveAction(existingIssueId: string, resolvingFindingSlug: string): R
     return { kind: "resolve", existingIssueId, resolvingFindingSlug, note: "passes" };
 }
 
-describe("computeCoverageViolations - guarantee 1: every client_bug finding is covered", () => {
+describe("computeCoverageViolations - guarantee 1: every issue-required finding is covered", () => {
     it("flags a client_bug finding no issue covers", () => {
         const v = computeCoverageViolations([finding("checkout", "client_bug")], [], []);
-        expect(v.uncoveredBugSlugs).toEqual(["checkout"]);
+        expect(v.uncoveredIssueFindingSlugs).toEqual(["checkout"]);
+        expect(hasCoverageViolations(v)).toBe(true);
+    });
+
+    it("flags a scenario_issue finding no issue covers - the seeded data is always the reader's to fix", () => {
+        const v = computeCoverageViolations([finding("coupons", "scenario_issue")], [], []);
+        expect(v.uncoveredIssueFindingSlugs).toEqual(["coupons"]);
         expect(hasCoverageViolations(v)).toBe(true);
     });
 
     it("passes once an open or carry-forward action lists the slug", () => {
         const open = computeCoverageViolations([finding("checkout", "client_bug")], [], [openAction(["checkout"])]);
-        expect(open.uncoveredBugSlugs).toEqual([]);
+        expect(open.uncoveredIssueFindingSlugs).toEqual([]);
 
         const carried = computeCoverageViolations(
             [finding("checkout", "client_bug")],
             [openIssue("iss-1", ["checkout"])],
             [carryAction("iss-1", ["checkout"])],
         );
-        expect(carried.uncoveredBugSlugs).toEqual([]);
+        expect(carried.uncoveredIssueFindingSlugs).toEqual([]);
+
+        const scenario = computeCoverageViolations(
+            [finding("coupons", "scenario_issue")],
+            [],
+            [openAction(["coupons"])],
+        );
+        expect(scenario.uncoveredIssueFindingSlugs).toEqual([]);
     });
 
-    it("does not require coverage for passing or coverage-plane findings", () => {
-        const v = computeCoverageViolations([finding("login", "passed"), finding("flaky", "engine_artifact")], [], []);
+    it("does not require coverage for an environment_failure - covering it IS how the Reporter marks it theirs", () => {
+        // `environment_failure` is `undecided`: leaving it uncovered is the only signal that the gap is OURS (see
+        // `attributedToClientIssue`), so forcing an issue would erase the "report it as colour" path.
+        const v = computeCoverageViolations([finding("preview", "environment_failure")], [], []);
+        expect(hasCoverageViolations(v)).toBe(false);
+    });
+
+    it("does not require coverage for passing, engine_artifact, plan_mismatch, or invalid_test findings", () => {
+        const v = computeCoverageViolations(
+            [
+                finding("login", "passed"),
+                finding("flaky", "engine_artifact"),
+                finding("shaky", "plan_mismatch"),
+                finding("broken", "invalid_test"),
+            ],
+            [],
+            [],
+        );
         expect(hasCoverageViolations(v)).toBe(false);
     });
 });
@@ -126,7 +155,7 @@ describe("computeCoverageViolations - guarantee 3: an open issue whose covering 
             [openAction(["checkout"])],
         );
         expect(v.uncarriedFailingIssueIds).toEqual(["iss-1"]);
-        expect(v.uncoveredBugSlugs).toEqual([]);
+        expect(v.uncoveredIssueFindingSlugs).toEqual([]);
     });
 
     it("passes once the issue is carried forward", () => {

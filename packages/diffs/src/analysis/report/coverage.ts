@@ -1,4 +1,10 @@
-import { ANALYSIS_VERDICT, type AnalysisIssueKind, type AnalysisVerdict, analysisFindingBucket } from "@autonoma/types";
+import {
+    ANALYSIS_VERDICT,
+    type AnalysisIssueKind,
+    type AnalysisVerdict,
+    analysisCoverageOwner,
+    analysisFindingBucket,
+} from "@autonoma/types";
 import type { RecordedIssueAction } from "./issue-actions";
 import type { ReporterExistingIssue, ReporterFinding } from "./types";
 
@@ -20,14 +26,35 @@ const RECURRENCE_CATEGORY: Record<AnalysisIssueKind, AnalysisVerdict> = {
 };
 
 /**
+ * Whether a finding of this category MUST roll into an issue before the Reporter may finish. Two classes give the
+ * Reporter no discretion, so leaving either uncovered would bury an actionable, client-fixable problem in a bare
+ * coverage count:
+ *   - `client_bug`: always a bug issue.
+ *   - anything the client OWNS on the coverage plane (`analysisCoverageOwner` === "client", i.e. `scenario_issue`):
+ *     the seeded data is theirs to fix on every run.
+ *
+ * `environment_failure` is deliberately NOT required, even though it maps to an issue kind. Its side is `undecided`,
+ * and the ONLY signal of whether it is theirs or ours is whether the Reporter attributed it to an issue (see
+ * `ReporterBranchTest.attributedToClientIssue`): forcing coverage would read every environment failure as the client's
+ * and erase the "this one is ours, report it as colour" path. `engine_artifact`, `plan_mismatch` and `invalid_test`
+ * map to no issue kind at all, so a bare count is the honest ceiling for them.
+ *
+ * Derived from `analysisFindingBucket` + `analysisCoverageOwner` rather than a hand-listed category set, so a new
+ * client-owned coverage verdict is required automatically and this cannot drift from the taxonomy.
+ */
+function findingRequiresIssue(category: AnalysisVerdict): boolean {
+    return analysisFindingBucket(category) === "bug" || analysisCoverageOwner(category) === "client";
+}
+
+/**
  * The three structural coverage guarantees the Reporter must satisfy before it may finish. They keep the LLM's
- * cross-time matching honest: the model still decides which issue a finding belongs to, but it cannot drop a bug,
- * leave a fixed issue open, or silently let a still-failing issue lapse. Each violation becomes a fixable tool
- * error at finish, so the agent self-corrects in the same loop.
+ * cross-time matching honest: the model still decides which issue a finding belongs to, but it cannot drop a client
+ * bug or scenario gap, leave a fixed issue open, or silently let a still-failing issue lapse. Each violation becomes a
+ * fixable tool error at finish, so the agent self-corrects in the same loop.
  */
 export interface CoverageViolations {
-    /** (1) Live `client_bug` findings this job produced that no issue covers. */
-    uncoveredBugSlugs: string[];
+    /** (1) Live findings this job produced that must roll into an issue (see {@link findingRequiresIssue}) but no issue covers. */
+    uncoveredIssueFindingSlugs: string[];
     /** (2) Open issues whose whole covering set re-ran and passed, but which were not resolved. */
     unresolvedPassedIssueIds: string[];
     /**
@@ -40,7 +67,9 @@ export interface CoverageViolations {
 /** Whether any coverage guarantee is violated. */
 export function hasCoverageViolations(v: CoverageViolations): boolean {
     return (
-        v.uncoveredBugSlugs.length > 0 || v.unresolvedPassedIssueIds.length > 0 || v.uncarriedFailingIssueIds.length > 0
+        v.uncoveredIssueFindingSlugs.length > 0 ||
+        v.unresolvedPassedIssueIds.length > 0 ||
+        v.uncarriedFailingIssueIds.length > 0
     );
 }
 
@@ -78,8 +107,8 @@ export function computeCoverageViolations(
         if (action.kind === "resolve") resolvedIds.add(action.existingIssueId);
     }
 
-    const uncoveredBugSlugs = findings
-        .filter((f) => bucketBySlug.get(f.slug) === "bug" && !coveredSlugs.has(f.slug))
+    const uncoveredIssueFindingSlugs = findings
+        .filter((f) => findingRequiresIssue(f.category) && !coveredSlugs.has(f.slug))
         .map((f) => f.slug);
 
     const unresolvedPassedIssueIds: string[] = [];
@@ -100,5 +129,5 @@ export function computeCoverageViolations(
         }
     }
 
-    return { uncoveredBugSlugs, unresolvedPassedIssueIds, uncarriedFailingIssueIds };
+    return { uncoveredIssueFindingSlugs, unresolvedPassedIssueIds, uncarriedFailingIssueIds };
 }
