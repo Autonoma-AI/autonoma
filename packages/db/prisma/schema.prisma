@@ -780,17 +780,6 @@ model BranchSnapshot {
   prevSnapshot   BranchSnapshot?  @relation("SnapshotHistory", fields: [prevSnapshotId], references: [id])
   nextSnapshots  BranchSnapshot[] @relation("SnapshotHistory")
 
-  // The detached investigation twin paired with this snapshot, if any. The
-  // retired investigation agent ran on its own snapshot so its shadow generations
-  // never polluted this snapshot's pending-generation set. The twin is never wired
-  // to a branch pointer; it is reachable only via this FK. `investigationParent`
-  // (the reverse side) is the canonical signal that a snapshot IS such a twin, used
-  // to hide it from user-facing snapshot queries. Nothing writes the pair any more,
-  // but historical twins still exist and must stay hidden.
-  investigationSnapshotId String?         @unique @map("investigation_snapshot_id")
-  investigationSnapshot   BranchSnapshot? @relation("InvestigationPair", fields: [investigationSnapshotId], references: [id], onDelete: SetNull)
-  investigationParent     BranchSnapshot? @relation("InvestigationPair")
-
   // Per-dependency deployed commit SHAs (keyed by repo full name `owner/repo`;
   // rows pinned before config v2 used the retired repo alias), pinned the first
   // time grounding runs for this snapshot by resolving the headSha-exact
@@ -859,11 +848,6 @@ model TestCase {
   name        String
   slug        String
   description String?
-
-  /// A throwaway test case created by the investigation agent ONLY to validate a proposed NEW test (run its
-  /// candidate plan as a shadow generation). Shadow cases are never assigned to a snapshot and are excluded from
-  /// every user-facing catalog read, so they never pollute the customer's test tree. Mirrors TestGeneration.shadow.
-  shadow Boolean @default(false) @map("shadow")
 
   applicationId String      @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
@@ -944,12 +928,6 @@ model TestGeneration {
   /// `videoUrl`. Present only once the optimization pass has run for this generation; the UI offers an
   /// "optimized" playback toggle when set and falls back to `videoUrl` otherwise.
   optimizedVideoUrl String? @map("optimized_video_url")
-
-  /// A shadow generation created by the investigation agent (not a real user/diffs generation). Shadow rows
-  /// are excluded from every user-facing generation view and from the refinement loop's per-test-case dedup,
-  /// so orphaned `pending` shadow rows (the investigation workflow can stop mid-run) never pollute the
-  /// customer's UI or trip the "one plan per test case" invariant.
-  shadow Boolean @default(false) @map("shadow")
 
   /// Structured failure detail. Set iff status == failed (for rows created
   /// after this column existed; historical failed rows have null). System
@@ -1856,12 +1834,6 @@ model OrganizationSettings {
 
   previewkitBuildDraft   Boolean @default(false) @map("previewkit_build_draft")
   previewkitFilterBranch String? @map("previewkit_filter_branch")
-
-  // Org-scoped gate for the investigation agent's ACTING (autofix): editing/activating scenario recipes,
-  // applying test-suite edits, and posting client-factory PR comments. Off by default - the observe-only shadow
-  // still runs for every org via INVESTIGATION_SHADOW_ENABLED; only the mutating steps are gated here so we can
-  // roll autofix out per trusted org (Centinel first) before enabling it broadly.
-  investigationAutofixEnabled Boolean @default(false) @map("investigation_autofix_enabled")
 
   // VESTIGIAL - no code reads this. Analysis is the only PR-analysis pipeline, so there is no longer a per-org
   // choice to express. Kept for one release because a rolling deploy has old pods still selecting the column;
