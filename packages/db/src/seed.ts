@@ -513,10 +513,7 @@ async function seed() {
         console.log("  (Mock generations already exist, skipping duplicate generation seed)");
     }
 
-    // ── Main seed: Demo App, Agree, folders, tests, runs ────────────────────────
-
-    const SCREENSHOT_URL =
-        "https://i.natgeofe.com/n/548467d8-c5f1-4551-9f58-6817a8d2c45e/NationalGeographic_2572187_16x9.jpg?w=1200";
+    // ── Main seed: Demo App, Agree, folders, tests ────────────────────────
 
     const org = await db.organization.upsert({
         where: { slug: "autonoma" },
@@ -970,7 +967,7 @@ async function seed() {
         data: { mainBranchId: mainBranch.id },
     });
 
-    const assignment1 = await db.testCaseAssignment.upsert({
+    await db.testCaseAssignment.upsert({
         where: { id: "seed-assign-1" },
         update: {},
         create: {
@@ -978,11 +975,10 @@ async function seed() {
             snapshotId: mainSnapshot.id,
             testCaseId: tc1.id,
             planId: plan1.id,
-            stepsId: stepList1.id,
         },
     });
 
-    const assignment2 = await db.testCaseAssignment.upsert({
+    await db.testCaseAssignment.upsert({
         where: { id: "seed-assign-2" },
         update: {},
         create: {
@@ -990,11 +986,10 @@ async function seed() {
             snapshotId: mainSnapshot.id,
             testCaseId: tc2.id,
             planId: plan2.id,
-            stepsId: stepList2.id,
         },
     });
 
-    const assignment3 = await db.testCaseAssignment.upsert({
+    await db.testCaseAssignment.upsert({
         where: { id: "seed-assign-3" },
         update: {},
         create: {
@@ -1002,212 +997,10 @@ async function seed() {
             snapshotId: mainSnapshot.id,
             testCaseId: tc3.id,
             planId: plan3.id,
-            stepsId: stepList3.id,
         },
     });
 
     console.log("  Branch + Snapshot + Assignments seeded");
-
-    // ── Runs ─────────────────────────────────────────────────────────
-    const now = new Date();
-
-    // Run 1: Login - completed
-    const run1Start = new Date(now.getTime() - 45 * 60_000);
-    const run1End = new Date(run1Start.getTime() + 32_000);
-
-    await db.run.upsert({
-        where: { id: "seed-run-1" },
-        update: {},
-        create: {
-            id: "seed-run-1",
-            organizationId: org.id,
-            assignmentId: assignment1.id,
-            startedAt: run1Start,
-            completedAt: run1End,
-        },
-    });
-
-    const sol1 = await db.stepOutputList.upsert({
-        where: { id: "seed-sol-1" },
-        update: {},
-        create: {
-            id: "seed-sol-1",
-            organizationId: org.id,
-            runId: "seed-run-1",
-        },
-    });
-
-    for (const step of test1StepDefs) {
-        await db.stepOutput.upsert({
-            where: { listId_order: { listId: sol1.id, order: step.order } },
-            update: {},
-            create: {
-                listId: sol1.id,
-                organizationId: org.id,
-                order: step.order,
-                output: { message: "Step completed successfully", reasoning: "Element found and action performed" },
-                stepInputId: step.id,
-                screenshotBefore: SCREENSHOT_URL,
-                screenshotAfter: SCREENSHOT_URL,
-            },
-        });
-    }
-    console.log("  Run 1 (Login — completed) seeded");
-
-    // Run 2: Search — completed
-    const run2Start = new Date(now.getTime() - 30 * 60_000);
-    const run2End = new Date(run2Start.getTime() + 28_000);
-
-    await db.run.upsert({
-        where: { id: "seed-run-2" },
-        update: {},
-        create: {
-            id: "seed-run-2",
-            organizationId: org.id,
-            assignmentId: assignment2.id,
-            startedAt: run2Start,
-            completedAt: run2End,
-        },
-    });
-
-    const sol2 = await db.stepOutputList.upsert({
-        where: { id: "seed-sol-2" },
-        update: {},
-        create: {
-            id: "seed-sol-2",
-            organizationId: org.id,
-            runId: "seed-run-2",
-        },
-    });
-
-    for (const step of test2StepDefs) {
-        const isFailed = step.order === 4;
-        const isSkipped = step.order > 4;
-        await db.stepOutput.upsert({
-            where: { listId_order: { listId: sol2.id, order: step.order } },
-            update: {},
-            create: {
-                listId: sol2.id,
-                organizationId: org.id,
-                order: step.order,
-                output: {
-                    message: isFailed
-                        ? "Expected at least 3 results but found 0"
-                        : isSkipped
-                          ? null
-                          : "Step completed successfully",
-                    reasoning: isFailed
-                        ? "Search returned empty results — possible backend issue"
-                        : isSkipped
-                          ? null
-                          : "Element located and action performed",
-                },
-                stepInputId: step.id,
-                screenshotBefore: step.order <= 4 ? SCREENSHOT_URL : null,
-                screenshotAfter: step.order <= 3 ? SCREENSHOT_URL : null,
-            },
-        });
-    }
-    console.log("  Run 2 (Search — completed) seeded");
-
-    // Run 3: Cart — in progress
-    const run3Start = new Date(now.getTime() - 2 * 60_000);
-
-    await db.run.upsert({
-        where: { id: "seed-run-3" },
-        update: {},
-        create: {
-            id: "seed-run-3",
-            organizationId: org.id,
-            assignmentId: assignment3.id,
-            startedAt: run3Start,
-            completedAt: null,
-        },
-    });
-
-    const sol3 = await db.stepOutputList.upsert({
-        where: { id: "seed-sol-3" },
-        update: {},
-        create: {
-            id: "seed-sol-3",
-            organizationId: org.id,
-            runId: "seed-run-3",
-        },
-    });
-
-    for (const step of test3StepDefs.filter((s) => s.order <= 2)) {
-        await db.stepOutput.upsert({
-            where: { listId_order: { listId: sol3.id, order: step.order } },
-            update: {},
-            create: {
-                listId: sol3.id,
-                organizationId: org.id,
-                order: step.order,
-                output: { message: "Step completed successfully", reasoning: "Element located and action performed" },
-                stepInputId: step.id,
-                screenshotBefore: SCREENSHOT_URL,
-                screenshotAfter: SCREENSHOT_URL,
-            },
-        });
-    }
-    console.log("  Run 3 (Cart — running) seeded");
-
-    // Run 4: Login — completed (older)
-    const run4Start = new Date(now.getTime() - 3 * 3600_000);
-    const run4End = new Date(run4Start.getTime() + 29_000);
-
-    await db.run.upsert({
-        where: { id: "seed-run-4" },
-        update: {},
-        create: {
-            id: "seed-run-4",
-            organizationId: org.id,
-            assignmentId: assignment1.id,
-            startedAt: run4Start,
-            completedAt: run4End,
-        },
-    });
-
-    const sol4 = await db.stepOutputList.upsert({
-        where: { id: "seed-sol-4" },
-        update: {},
-        create: {
-            id: "seed-sol-4",
-            organizationId: org.id,
-            runId: "seed-run-4",
-        },
-    });
-
-    for (const step of test1StepDefs) {
-        await db.stepOutput.upsert({
-            where: { listId_order: { listId: sol4.id, order: step.order } },
-            update: {},
-            create: {
-                listId: sol4.id,
-                organizationId: org.id,
-                order: step.order,
-                output: { message: "Step completed successfully", reasoning: "Element found and action performed" },
-                stepInputId: step.id,
-                screenshotBefore: SCREENSHOT_URL,
-                screenshotAfter: SCREENSHOT_URL,
-            },
-        });
-    }
-    console.log("  Run 4 (Login — completed, older) seeded");
-
-    // Run 5: Search — pending
-    await db.run.upsert({
-        where: { id: "seed-run-5" },
-        update: {},
-        create: {
-            id: "seed-run-5",
-            organizationId: org.id,
-            assignmentId: assignment2.id,
-            startedAt: null,
-            completedAt: null,
-        },
-    });
-    console.log("  Run 5 (Search — pending) seeded");
 
     await db.billingPromoCode.upsert({
         where: { code: "0BUGS" },

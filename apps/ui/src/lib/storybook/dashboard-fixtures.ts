@@ -91,7 +91,6 @@ function makeAssignment(suffix: string, name: string, slug: string) {
         testCaseId: `testcase_fixture_${suffix}`,
         testCase: { id: `testcase_fixture_${suffix}`, name, slug, folderId: "folder_fixture_01" },
         plan: { id: `plan_fixture_${suffix}` },
-        stepsId: `steps_fixture_${suffix}`,
     };
 }
 

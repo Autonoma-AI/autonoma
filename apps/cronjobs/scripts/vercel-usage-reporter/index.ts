@@ -79,50 +79,33 @@ async function calculateUsage(orgId: string, periodStart: Date, periodEnd: Date)
 
     const consumptionTypes = [CreditTransactionType.RUN_CONSUMPTION, CreditTransactionType.GENERATION_CONSUMPTION];
 
-    const [generationsToday, generationsPeriod, runsToday, runsPeriod, creditsToday, creditsPeriod] = await Promise.all(
-        [
-            db.testGeneration.count({
-                where: { organizationId: orgId, createdAt: { gte: todayStart, lte: todayEnd } },
-            }),
-            db.testGeneration.count({
-                where: { organizationId: orgId, createdAt: { gte: periodStart, lte: periodEnd } },
-            }),
-            db.run.count({
-                where: {
-                    organizationId: orgId,
-                    createdAt: { gte: todayStart, lte: todayEnd },
-                    status: { notIn: ["failed"] },
-                },
-            }),
-            db.run.count({
-                where: {
-                    organizationId: orgId,
-                    createdAt: { gte: periodStart, lte: periodEnd },
-                    status: { notIn: ["failed"] },
-                },
-            }),
-            db.creditTransaction.aggregate({
-                where: {
-                    organizationId: orgId,
-                    type: { in: consumptionTypes },
-                    createdAt: { gte: todayStart, lte: todayEnd },
-                },
-                _sum: { amount: true },
-            }),
-            db.creditTransaction.aggregate({
-                where: {
-                    organizationId: orgId,
-                    type: { in: consumptionTypes },
-                    createdAt: { gte: periodStart, lte: periodEnd },
-                },
-                _sum: { amount: true },
-            }),
-        ],
-    );
+    const [generationsToday, generationsPeriod, creditsToday, creditsPeriod] = await Promise.all([
+        db.testGeneration.count({
+            where: { organizationId: orgId, createdAt: { gte: todayStart, lte: todayEnd } },
+        }),
+        db.testGeneration.count({
+            where: { organizationId: orgId, createdAt: { gte: periodStart, lte: periodEnd } },
+        }),
+        db.creditTransaction.aggregate({
+            where: {
+                organizationId: orgId,
+                type: { in: consumptionTypes },
+                createdAt: { gte: todayStart, lte: todayEnd },
+            },
+            _sum: { amount: true },
+        }),
+        db.creditTransaction.aggregate({
+            where: {
+                organizationId: orgId,
+                type: { in: consumptionTypes },
+                createdAt: { gte: periodStart, lte: periodEnd },
+            },
+            _sum: { amount: true },
+        }),
+    ]);
 
     return {
         generations: { dayValue: generationsToday, periodValue: generationsPeriod },
-        runs: { dayValue: runsToday, periodValue: runsPeriod },
         credits: {
             dayValue: Math.abs(creditsToday._sum.amount ?? 0),
             periodValue: Math.abs(creditsPeriod._sum.amount ?? 0),
@@ -213,14 +196,6 @@ async function generatePayload(installationId: string): Promise<BillingPayload |
                 units: "count",
                 dayValue: usage.generations.dayValue,
                 periodValue: usage.generations.periodValue,
-            },
-            {
-                resourceId: period.resourceId,
-                name: "Runs",
-                type: "interval",
-                units: "count",
-                dayValue: usage.runs.dayValue,
-                periodValue: usage.runs.periodValue,
             },
         ],
     };

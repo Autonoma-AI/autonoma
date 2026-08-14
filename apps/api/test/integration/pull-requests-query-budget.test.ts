@@ -110,8 +110,8 @@ apiTestSuite({
 });
 
 /**
- * Seeds a branch with a PR and a chain of snapshots, each with a set of executed tests (test case +
- * assignment + run). Mirrors the shape the PR pages read on load.
+ * Seeds a branch with a PR and a chain of snapshots, each with a set of assigned tests (test case +
+ * assignment). Mirrors the shape the PR pages read on load.
  */
 async function seedPullRequest(
     harness: APITestHarness,
@@ -169,17 +169,8 @@ async function seedPullRequest(
                     organizationId: harness.organizationId,
                 },
             });
-            const assignment = await harness.db.testCaseAssignment.create({
+            await harness.db.testCaseAssignment.create({
                 data: { snapshotId: snapshot.id, testCaseId: testCase.id },
-            });
-            await harness.db.run.create({
-                data: {
-                    assignmentId: assignment.id,
-                    status: "success",
-                    startedAt: new Date("2026-01-01T10:00:00Z"),
-                    createdAt: new Date("2026-01-01T10:00:00Z"),
-                    organizationId: harness.organizationId,
-                },
             });
         }
 
