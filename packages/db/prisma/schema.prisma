@@ -2712,10 +2712,9 @@ model AnalysisJob {
   failureReason String? @map("failure_reason") @db.Text
 
   /// The Impact Analysis stage's account of why it selected the tests it did, written when that stage completes -
-  /// so the selection reasoning is legible mid-run, before any report exists. Nullable: absent while the stage is
-  /// still running, on a run whose selection produced no reasoning, and on jobs that predate this column (their
-  /// reasoning lives on `AnalysisReport.impactReasoning` until it is backfilled here). The single source of truth
-  /// the report read joins.
+  /// so the selection reasoning is legible mid-run, before any report exists. The single source of truth the
+  /// report read joins. Nullable: absent while the stage is still running, and on a run whose selection produced
+  /// no reasoning.
   impactReasoning String? @map("impact_reasoning") @db.Text
 
   /// A newer analysis request displaced this run before it finished. Recorded rather than inferred: the outcome
@@ -2765,10 +2764,6 @@ model AnalysisReport {
   /// no longer written. Retained for rollback safety; their DROP rides #2036 one deploy later.
   testCount      Int @default(0) @map("test_count")
   clientBugCount Int @default(0) @map("client_bug_count")
-
-  /// The Impact Analysis stage's account of why it selected the tests it did (the affected + proposed set). Text,
-  /// display-only; absent when selection produced no reasoning.
-  impactReasoning String? @map("impact_reasoning") @db.Text
 
   /// Retired: the coverage-confidence plane summary is derived on read from `analysis_finding`, no longer written.
   /// Retained for rollback safety; its DROP rides #2036 one deploy later.
