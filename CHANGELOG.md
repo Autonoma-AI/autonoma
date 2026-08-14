@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.260814.1](https://github.com/Autonoma-AI/agent/compare/v1.260813.1...v1.260814.1) (2026-08-14)
+
+
+### Performance Improvements
+
+* **db:** index the SET NULL foreign keys on the test-case delete path ([#2558](https://github.com/Autonoma-AI/agent/issues/2558)) ([22de0f1](https://github.com/Autonoma-AI/agent/commit/22de0f16f6aa1e7a43dd4003b0abd398be4352eb))
+
 ## [1.260813.1](https://github.com/Autonoma-AI/agent/compare/v1.260812.1...v1.260813.1) (2026-08-13)
 
 
