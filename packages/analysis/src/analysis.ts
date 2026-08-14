@@ -365,16 +365,18 @@ function terminalJobFields(outcome: AnalysisRunOutcome): {
     status: "completed" | "failed";
     failureReason?: string;
     superseded: boolean;
+    cancelled: boolean;
     completedAt: Date;
 } {
     const completedAt = new Date();
-    if (outcome.kind === "succeeded") return { status: "completed", superseded: false, completedAt };
-    // A superseded run and a genuinely failed one both end `failed` - neither completed - so `superseded` is
-    // what tells them apart, and only the second is the pipeline's fault.
+    if (outcome.kind === "succeeded") return { status: "completed", superseded: false, cancelled: false, completedAt };
+    // A superseded run, a cancelled one, and a genuinely failed one all end `failed` - none completed - so the
+    // `superseded` / `cancelled` flags are what tell them apart, and only the bare failure is the pipeline's fault.
     return {
         status: "failed",
         failureReason: outcome.reason,
         superseded: outcome.kind === "superseded",
+        cancelled: outcome.kind === "cancelled",
         completedAt,
     };
 }

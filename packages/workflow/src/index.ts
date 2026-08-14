@@ -4,6 +4,8 @@ export {
     triggerBatchGeneration,
 } from "./triggers/batch-generation";
 export { triggerAnalysisRun } from "./triggers/analysis-run";
+export { cancelAnalysisRun } from "./triggers/cancel-analysis-run";
+export { isApplicationUnlinkedFailure } from "./application-unlinked-failure";
 export type { AnalysisRunWorkflowInput } from "./workflows/analysis-run.workflow";
 export { triggerPreviewBuild } from "./triggers/preview-build";
 export type { PreviewBuildWorkflowInput } from "./workflows/preview-build.workflow";

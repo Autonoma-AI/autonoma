@@ -1,5 +1,5 @@
-import type { AnalysisRunOutcome } from "@autonoma/types";
-import { Context } from "@temporalio/activity";
+import { APPLICATION_UNLINKED_FAILURE_TYPE, type AnalysisRunOutcome, CANCELLED_RUN_REASON } from "@autonoma/types";
+import { ApplicationFailure, Context } from "@temporalio/activity";
 import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -148,13 +148,24 @@ describe("analysisRunWorkflow settlement (no preview)", () => {
         expect(settlements).toEqual([{ kind: "failed", reason: "impact exploded" }]);
     });
 
-    it("settles after cancellation through the non-cancellable scope", async () => {
+    it("settles a cancelled run as cancelled through the non-cancellable scope", async () => {
         blockImpact = true;
         const handle = await startWorkflow();
         await impactStarted;
 
+        // The proactive cancel on application delete/unlink cancels this workflow; the settlement wrapper runs on
+        // cancel and settles `cancelled`, then rethrows so the workflow ends in the honest Cancelled state.
         await handle.cancel();
         await expect(handle.result()).rejects.toThrow("Workflow execution cancelled");
-        expect(settlements).toEqual([{ kind: "failed", reason: expect.any(String) }]);
+        expect(settlements).toEqual([{ kind: "cancelled", reason: CANCELLED_RUN_REASON }]);
+    });
+
+    it("settles a run whose application was unlinked mid-flight as cancelled, without rethrowing", async () => {
+        // The containment safety net: an activity throws the typed unlink failure when it discovers the null repo
+        // id. The run settles `cancelled` and completes normally - no hard failure surfaces.
+        impactFailure = ApplicationFailure.nonRetryable("app was unlinked mid-run", APPLICATION_UNLINKED_FAILURE_TYPE);
+
+        await expect(runWorkflow()).resolves.toBeUndefined();
+        expect(settlements).toEqual([{ kind: "cancelled", reason: "app was unlinked mid-run" }]);
     });
 });

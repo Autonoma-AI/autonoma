@@ -1,10 +1,12 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { db, type OnboardingStep } from "@autonoma/db";
+import { db, type OnboardingStep, type PrismaClient } from "@autonoma/db";
 import { Codebase } from "@autonoma/diffs";
 import { type GitHubApp, type GitHubInstallationClient, UnreachableBaseShaError } from "@autonoma/github";
 import { logger as rootLogger } from "@autonoma/logger";
+import { APPLICATION_UNLINKED_FAILURE_TYPE } from "@autonoma/types";
+import { ApplicationFailure } from "@temporalio/activity";
 import { createGithubApp } from "../create-services";
 import { resolveDependencyCheckouts } from "./resolve-dependencies";
 
@@ -45,9 +47,10 @@ export interface SnapshotContext extends SnapshotMeta, GitHubAccess {
     codebase: Codebase;
 }
 
-/** Load only the persisted metadata a snapshot's analysis activities need. */
-export async function loadSnapshotMeta(snapshotId: string): Promise<SnapshotMeta> {
-    const snapshot = await db.branchSnapshot.findUniqueOrThrow({
+/** Load only the persisted metadata a snapshot's analysis activities need. `client` defaults to the shared
+ * connection; an injected one lets tests seed and read through the same transaction. */
+export async function loadSnapshotMeta(snapshotId: string, client: PrismaClient = db): Promise<SnapshotMeta> {
+    const snapshot = await client.branchSnapshot.findUniqueOrThrow({
         where: { id: snapshotId },
         select: {
             headSha: true,
@@ -72,8 +75,16 @@ export async function loadSnapshotMeta(snapshotId: string): Promise<SnapshotMeta
     });
     const application = snapshot.branch.application;
     if (snapshot.headSha == null) throw new Error(`Snapshot ${snapshotId} has no headSha`);
+    // A null repo id on a snapshot that reached a run means the application was deleted, unlinked, or its org
+    // disconnected GitHub while this run was in flight - the mutation nulls `githubRepositoryId`. This is not a
+    // failure: nobody wants the result of a run against a repo we can no longer reach. It is thrown as a typed,
+    // non-retryable ApplicationFailure so the settlement wrapper settles the run as `cancelled` (and the worker
+    // interceptor keeps it out of the fatal stream), instead of crashing as a hard `failed` job.
     if (application.githubRepositoryId == null)
-        throw new Error(`Application ${application.id} has no githubRepositoryId`);
+        throw ApplicationFailure.nonRetryable(
+            `Application ${application.id} was unlinked or deleted mid-run (no githubRepositoryId); cancelling the analysis run`,
+            APPLICATION_UNLINKED_FAILURE_TYPE,
+        );
     if (snapshot.baseSha == null) throw new Error(`Snapshot ${snapshotId} has no baseSha`);
 
     return {

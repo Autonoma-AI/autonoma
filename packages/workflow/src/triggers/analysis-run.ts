@@ -1,5 +1,6 @@
 import { logger, withObservabilityContext } from "@autonoma/logger";
 import { WorkflowIdConflictPolicy } from "@temporalio/client";
+import { analysisRunWorkflowId } from "../analysis-run-id";
 import { getTemporalClient } from "../client";
 import { getWorkflowSearchAttributes } from "../search-attributes";
 import { TaskQueue } from "../task-queues";
@@ -22,7 +23,7 @@ const ANALYSIS_RUN_EXECUTION_TIMEOUT = "10h";
 export async function triggerAnalysisRun(input: AnalysisRunWorkflowInput): Promise<string> {
     return await withObservabilityContext({ branch: { branchId: input.branchId } }, async () => {
         const client = await getTemporalClient();
-        const workflowId = `analysis-run-${input.branchId}`;
+        const workflowId = analysisRunWorkflowId(input.branchId);
         logger.info("Triggering analysis run", { extra: { workflowId, headSha: input.headSha } });
 
         await client.workflow.start(WORKFLOW_TYPE.ANALYSIS_RUN, {

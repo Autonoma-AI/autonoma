@@ -1,14 +1,19 @@
+import { AnalysisStore } from "@autonoma/analysis";
 import { ApplicationArchitecture, type PrismaClient, createClient } from "@autonoma/db";
 import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
 import { type OpenSnapshot, TestSuiteStore } from "@autonoma/test-suite";
+import { CANCELLED_RUN_REASON } from "@autonoma/types";
+import { isApplicationUnlinkedFailure } from "@autonoma/workflow";
 import { expect } from "vitest";
 import { settleAnalysisRunState } from "../../src/activities/analysis/settle-analysis-run-state";
+import { loadSnapshotMeta } from "../../src/codebase/snapshot-context";
 
 let seq = 0;
 const next = () => seq++;
 
 interface SeededRun {
     organizationId: string;
+    applicationId: string;
     branchId: string;
     snapshot: OpenSnapshot;
     testCaseId: string;
@@ -43,6 +48,8 @@ class SettleHarness implements IntegrationHarness {
                 slug: `app-${n}`,
                 organizationId: org.id,
                 architecture: ApplicationArchitecture.WEB,
+                // A linked repo, as a real in-flight run has - so a test can null it to stage a mid-run unlink.
+                githubRepositoryId: 1_000 + n,
             },
         });
         const folder = await this.db.folder.create({
@@ -68,7 +75,13 @@ class SettleHarness implements IntegrationHarness {
             plan: "Open checkout",
         });
 
-        return { organizationId: org.id, branchId: branch.id, snapshot, testCaseId: added.testCaseId };
+        return {
+            organizationId: org.id,
+            applicationId: app.id,
+            branchId: branch.id,
+            snapshot,
+            testCaseId: added.testCaseId,
+        };
     }
 }
 
@@ -179,6 +192,51 @@ integrationTestSuite({
             expect(settledSnapshot.status).toBe("active");
             const job = await harness.db.analysisJob.findUniqueOrThrow({ where: { snapshotId: snapshot.snapshotId } });
             expect(job.status).toBe("completed");
+        });
+
+        test("a run whose application is unlinked mid-flight settles cancelled and is not a genuine failure", async ({
+            harness,
+        }) => {
+            const { organizationId, applicationId, snapshot } = await harness.seedRun();
+
+            // The application is deleted / unlinked / org-disconnected while this run is in flight - all null the
+            // repo id under it. The run's next codebase load discovers it.
+            await harness.db.application.update({
+                where: { id: applicationId },
+                data: { githubRepositoryId: null },
+            });
+
+            // Containment: loadSnapshotMeta throws the typed failure the settlement wrapper maps to `cancelled`.
+            const error = await loadSnapshotMeta(snapshot.snapshotId, harness.db).then(
+                () => undefined,
+                (caught: unknown) => caught,
+            );
+            expect(error).toBeInstanceOf(Error);
+            expect(isApplicationUnlinkedFailure(error)).toBe(true);
+
+            const result = await settleAnalysisRunState({
+                db: harness.db,
+                snapshotId: snapshot.snapshotId,
+                outcome: { kind: "cancelled", reason: CANCELLED_RUN_REASON },
+            });
+
+            expect(result).toEqual({ settled: true, snapshotStatus: "cancelled", discardedChangeCount: 1 });
+            const settledSnapshot = await harness.db.branchSnapshot.findUniqueOrThrow({
+                where: { id: snapshot.snapshotId },
+            });
+            expect(settledSnapshot.status).toBe("cancelled");
+            const job = await harness.db.analysisJob.findUniqueOrThrow({ where: { snapshotId: snapshot.snapshotId } });
+            // Status stays `failed` (it did not complete), but `cancelled` is the machine-readable discriminator and
+            // the reason keeps its plain prose - no "suite changes discarded" suffix a genuine failure would add.
+            expect(job.status).toBe("failed");
+            expect(job.cancelled).toBe(true);
+            expect(job.superseded).toBe(false);
+            expect(job.failureReason).toBe(CANCELLED_RUN_REASON);
+
+            // Excluded from genuine-failure counts, consistent with a superseded run.
+            const facts = new AnalysisStore(harness.db).forApplication(applicationId, organizationId);
+            const counts = await facts.jobCounts({ since: new Date(0) });
+            expect(counts).toEqual({ total: 1, genuineFailures: 0 });
         });
 
         test("a superseded run settles cancelled with the reason on its job", async ({ harness }) => {

@@ -84,12 +84,15 @@ async function reopenSettling(store: TestSuiteStore, snapshotId: string): Promis
 async function applyTerminal(snapshot: OpenSnapshot, outcome: AnalysisRunOutcome): Promise<boolean> {
     if (outcome.kind === "succeeded") return snapshot.promote();
     if (outcome.kind === "failed") return snapshot.fail(outcome.reason);
+    // superseded | cancelled - both cancel the snapshot terminal; the result lives on in a later run, or nobody
+    // wants it (the application was deleted/unlinked).
     return snapshot.cancel(outcome.reason);
 }
 
 function terminalStatus(outcome: AnalysisRunOutcome): SnapshotStatus {
     if (outcome.kind === "succeeded") return "active";
     if (outcome.kind === "failed") return "failed";
+    // superseded | cancelled
     return "cancelled";
 }
 

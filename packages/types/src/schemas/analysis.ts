@@ -43,11 +43,43 @@ export function previewEnvironmentNumber(target: AnalysisRunTarget): number {
     return target.kind === "pull_request" ? target.prNumber : MAIN_BRANCH_ENVIRONMENT_NUMBER;
 }
 
-/** The terminal state of an authoritative analysis run. */
+/**
+ * The terminal state of an authoritative analysis run.
+ *
+ * `superseded` and `cancelled` are both "not a genuine failure" outcomes that cancel the snapshot terminal and are
+ * excluded from failure counts: `superseded` is a newer analysis request displacing this run, `cancelled` is the
+ * run's application being deleted, unlinked, or its org disconnecting GitHub - so nobody wants the result.
+ */
 export type AnalysisRunOutcome =
     | { kind: "succeeded" }
     | { kind: "failed"; reason: string }
-    | { kind: "superseded"; reason: string };
+    | { kind: "superseded"; reason: string }
+    | { kind: "cancelled"; reason: string };
+
+/**
+ * Whether an outcome is a "not a genuine failure" soft terminal - `superseded` or `cancelled`. Both cancel the
+ * snapshot terminal, skip every GitHub effect (no verdict to post, no merge gate to conclude), and are excluded
+ * from genuine-failure counts. The named question every settlement guard asks, so a future soft outcome is one edit
+ * here rather than a disjunction to grep for across the worker's activity files.
+ */
+export function isNonCompletingOutcome(outcome: AnalysisRunOutcome): boolean {
+    return outcome.kind === "superseded" || outcome.kind === "cancelled";
+}
+
+/**
+ * The Temporal `ApplicationFailure.type` an analysis activity stamps on the error it throws when it discovers its
+ * application was unlinked or deleted mid-run (its `githubRepositoryId` went null under it). The settlement wrapper
+ * and the worker interceptor match on it - structurally, by this string - to settle the run as `cancelled` rather
+ * than a hard failure. Shared between the activity that throws it and the workflow/worker that read it.
+ */
+export const APPLICATION_UNLINKED_FAILURE_TYPE = "AnalysisApplicationUnlinked";
+
+/**
+ * The reason a cancelled run's `AnalysisJob` is closed with when the run is cancelled because its application was
+ * deleted, unlinked, or its org disconnected GitHub. Prose for an operator reading the row; the machine-readable
+ * fact is `AnalysisJob.cancelled`, never this string.
+ */
+export const CANCELLED_RUN_REASON = "Cancelled: the application was deleted, unlinked, or disconnected from GitHub";
 
 /**
  * The terminal verdict an Investigator emits for one test - the complete taxonomy the merged pipeline resolves

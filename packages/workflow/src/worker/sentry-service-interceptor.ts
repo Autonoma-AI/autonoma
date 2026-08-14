@@ -7,6 +7,7 @@ import {
 } from "@autonoma/logger";
 import * as Sentry from "@sentry/node";
 import type { ActivityInterceptorsFactory } from "@temporalio/worker";
+import { isApplicationUnlinkedFailure } from "../application-unlinked-failure";
 import { loadGenerationObservabilityContext } from "../observability/load-generation-context";
 import { loadSnapshotObservabilityContext } from "../observability/load-snapshot-context";
 import { extractEntityIds } from "./extract-entity-ids";
@@ -64,12 +65,13 @@ export function createSentryServiceInterceptor(
                                 try {
                                     return await next(input);
                                 } catch (error) {
-                                    // A cancelled activity is expected control flow, not a crash
-                                    // (e.g. a newer commit superseded a preview deploy, aborting the
-                                    // in-flight build). Log it at warn so it stays out of the
-                                    // fatal/error stream, then re-throw unchanged.
-                                    if (ctx.cancellationSignal.aborted) {
-                                        logger.warn(`Activity cancelled: ${activityType}`, {
+                                    // A cancelled activity (e.g. a newer commit superseded a preview
+                                    // deploy, aborting the in-flight build) or one that discovered its
+                                    // application was deleted/unlinked mid-run is expected control flow,
+                                    // not a crash. Log it at warn so it stays out of the fatal/error
+                                    // stream, then re-throw unchanged for the workflow to settle.
+                                    if (ctx.cancellationSignal.aborted || isApplicationUnlinkedFailure(error)) {
+                                        logger.warn(`Activity did not complete: ${activityType}`, {
                                             extra: { error: String(error) },
                                         });
                                         throw error;

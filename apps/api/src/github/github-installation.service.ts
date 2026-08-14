@@ -11,6 +11,7 @@ import {
     type Repository,
 } from "@autonoma/github";
 import { z } from "zod";
+import { cancelInFlightAnalysisRuns } from "../analysis/cancel-in-flight-analysis-runs";
 import { env } from "../env";
 import { Service } from "../routes/service";
 import { applicationBranchRefs } from "./application-branch-refs";
@@ -951,6 +952,10 @@ export class GitHubInstallationService extends Service {
             data: { githubRepositoryId: null },
         });
 
+        // The repo id is now null, so cancel any run already executing before it crashes on the missing id
+        // mid-flight; it settles cleanly as `cancelled` instead.
+        await cancelInFlightAnalysisRuns(this.db, { applicationId }, this.logger);
+
         this.logger.info("Repository unlinked from application", { applicationId });
     }
 
@@ -998,6 +1003,10 @@ export class GitHubInstallationService extends Service {
                 where: { organizationId: orgId },
             });
         });
+
+        // The disconnect nulled `githubRepositoryId` for every application in the org at once, so cancel every
+        // one of the org's in-flight runs before they crash on the missing id mid-flight.
+        await cancelInFlightAnalysisRuns(this.db, { organizationId: orgId }, this.logger);
 
         return { removedFromGitHub, accountLogin: installation.accountLogin };
     }

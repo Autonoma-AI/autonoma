@@ -5,6 +5,7 @@ import { ConflictError, NotFoundError } from "@autonoma/errors";
 import type { EncryptionHelper } from "@autonoma/scenario";
 import { APPLICATION_INSTRUCTIONS_MAX_LENGTH } from "@autonoma/types";
 import { toSlug } from "@autonoma/utils";
+import { cancelInFlightAnalysisRuns } from "../../analysis/cancel-in-flight-analysis-runs";
 import { FIRST_ONBOARDING_STEP, OnboardingStepSchema } from "../onboarding/onboarding-step-order";
 import { Service } from "../service";
 import { ApplicationInstructionsConflictError } from "./application-instructions-conflict-error";
@@ -527,6 +528,11 @@ export class ApplicationsService extends Service {
             // (VercelProject.connection is still set).
             await tx.vercelProjectConnection.deleteMany({ where: { applicationId: id } });
         });
+
+        // The repo id was just nulled, so any run already executing would crash on the null id mid-flight; cancel
+        // it so it settles cleanly as `cancelled` instead. After the commit, so a run that races past the cancel
+        // and re-reads the repo id already finds it null (the containment safety net).
+        await cancelInFlightAnalysisRuns(this.db, { applicationId: id }, this.logger);
 
         this.logger.info("Application disabled", { applicationId: id });
     }

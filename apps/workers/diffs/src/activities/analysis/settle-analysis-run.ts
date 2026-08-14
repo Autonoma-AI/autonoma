@@ -1,5 +1,6 @@
 import { db } from "@autonoma/db";
 import { logger as rootLogger } from "@autonoma/logger";
+import { isNonCompletingOutcome } from "@autonoma/types";
 import type { SettleAnalysisRunInput, SettleAnalysisRunOutput } from "@autonoma/workflow/activities";
 import { getAnalysisStore } from "../../services";
 import { LiveAnalysisGitHub } from "./live-analysis-github";
@@ -30,8 +31,12 @@ export async function settleAnalysisRun(input: SettleAnalysisRunInput): Promise<
         logger.info("Analysis run database state settled", { extra: { outcome: outcome.kind, durationMs } });
     }
 
-    if (outcome.kind === "superseded") {
-        logger.info("Finished settling superseded analysis run", { extra: { settled: true } });
+    // A non-completing (superseded/cancelled) run's result nobody consumes, so it never touches GitHub: there is no
+    // verdict to post and no merge gate to conclude for a displaced or abandoned run.
+    if (isNonCompletingOutcome(outcome)) {
+        logger.info("Finished settling non-completing analysis run", {
+            extra: { outcome: outcome.kind, settled: true },
+        });
         return result;
     }
 

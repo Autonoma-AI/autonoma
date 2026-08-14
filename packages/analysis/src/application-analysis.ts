@@ -94,7 +94,10 @@ export class ApplicationAnalysisFacts {
         );
     }
 
-    /** How many analyses ran since the instant, and how many genuinely failed - a superseded run did not. */
+    /**
+     * How many analyses ran since the instant, and how many genuinely failed - neither a superseded run nor one
+     * cancelled because its application was deleted/unlinked counts as a genuine failure.
+     */
     public async jobCounts(input: { since: Date }): Promise<{ total: number; genuineFailures: number }> {
         const scope = {
             organizationId: this.organizationId,
@@ -103,7 +106,9 @@ export class ApplicationAnalysisFacts {
         };
         const [total, genuineFailures] = await Promise.all([
             this.db.analysisJob.count({ where: scope }),
-            this.db.analysisJob.count({ where: { ...scope, status: "failed", superseded: false } }),
+            this.db.analysisJob.count({
+                where: { ...scope, status: "failed", superseded: false, cancelled: false },
+            }),
         ]);
         return { total, genuineFailures };
     }

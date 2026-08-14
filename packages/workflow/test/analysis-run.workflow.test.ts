@@ -1,4 +1,4 @@
-import type { AnalysisRunOutcome, PreviewDeployTarget } from "@autonoma/types";
+import { type AnalysisRunOutcome, CANCELLED_RUN_REASON, type PreviewDeployTarget } from "@autonoma/types";
 import { Context } from "@temporalio/activity";
 import type { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
@@ -656,7 +656,7 @@ describe("analysisRunWorkflow build gate", () => {
         expect(skipReports()).toEqual(["analysis_indeterminate"]);
     });
 
-    it("settles the run even when the flow is cancelled mid-analysis", async () => {
+    it("settles the run as cancelled when the flow is cancelled mid-analysis", async () => {
         harness.impactBlocksUntilCancelled = true;
 
         const handle = await startRun();
@@ -664,7 +664,7 @@ describe("analysisRunWorkflow build gate", () => {
         await handle.cancel();
 
         await expect(handle.result()).rejects.toThrow("Workflow execution cancelled");
-        expect(harness.settlements).toEqual([{ kind: "failed", reason: expect.any(String) }]);
+        expect(harness.settlements).toEqual([{ kind: "cancelled", reason: CANCELLED_RUN_REASON }]);
     });
 });
 

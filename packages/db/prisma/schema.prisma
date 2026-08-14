@@ -2752,6 +2752,11 @@ model AnalysisJob {
   /// the run did not complete - so every status reader keeps its meaning.
   superseded Boolean @default(false)
 
+  /// The run was cancelled because its application was deleted, unlinked, or its org disconnected GitHub, so
+  /// nobody wants the result. Like `superseded`, `status` stays `failed` (the run did not complete) and this flag
+  /// is the machine-readable discriminator that keeps it out of genuine-failure counts.
+  cancelled Boolean @default(false)
+
   startedAt   DateTime? @map("started_at")
   completedAt DateTime? @map("completed_at")
 
