@@ -35,7 +35,8 @@ export type CheckpointTestCounts = z.infer<typeof checkpointTestCountsSchema>;
 export const checkpointAnalysisSummarySchema = z.object({
     // The AnalysisJob lifecycle. Mirrors the `AnalysisJobStatus` db enum (types cannot import it).
     jobStatus: z.enum(["running", "completed", "failed"]),
-    // Client-bug findings - the only plane that counts against the PR (turns the checkpoint red).
+    // Distinct bugs this run surfaced (client_bug findings deduped by the branch issue they were attributed to) -
+    // the only plane that counts against the PR (turns the checkpoint red).
     bugCount: z.number().int().nonnegative(),
     // Findings that passed on the app-health plane.
     passedCount: z.number().int().nonnegative(),

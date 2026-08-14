@@ -557,13 +557,19 @@ export const coverageSummarySchema = z.object({
 export type CoverageSummary = z.infer<typeof coverageSummarySchema>;
 
 /**
- * One run's own account of itself, counted from the findings it judged. Run-scoped throughout: `bugCount` counts
- * findings THIS run judged a bug, never the branch's open bug issues, which outlive a run.
+ * One run's own account of itself, counted from the findings it judged. Run-scoped throughout: never the branch's
+ * cumulative open-issue counts, which outlive a run.
  */
 export const runPlaneSummarySchema = z.object({
     /** How this run alone reads, resolved from its own counts - the snapshot page's headline and the rail's badge. */
     state: analysisVerdictStateSchema,
     coverage: coverageSummarySchema,
+    /**
+     * The DISTINCT bugs this run surfaced: `client_bug` findings deduped by the branch issue the Reporter
+     * attributed them to (an unattributed one counts once on its own), so N tests hitting one bug reads as one
+     * bug. Run-scoped: usually equals the branch-cumulative report headline, but can read below it when a
+     * carried-forward bug is still open with no `client_bug` finding this run.
+     */
     bugCount: z.number().int().nonnegative(),
     passedCount: z.number().int().nonnegative(),
     /** Tests this run reached a terminal verdict on; zero means it decided none were needed. */
