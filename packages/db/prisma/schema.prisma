@@ -2691,6 +2691,13 @@ model AnalysisJob {
 
   failureReason String? @map("failure_reason") @db.Text
 
+  /// The Impact Analysis stage's account of why it selected the tests it did, written when that stage completes -
+  /// so the selection reasoning is legible mid-run, before any report exists. Nullable: absent while the stage is
+  /// still running, on a run whose selection produced no reasoning, and on jobs that predate this column (their
+  /// reasoning lives on `AnalysisReport.impactReasoning` until it is backfilled here). The single source of truth
+  /// the report read joins.
+  impactReasoning String? @map("impact_reasoning") @db.Text
+
   /// A newer analysis request displaced this run before it finished. Recorded rather than inferred: the outcome
   /// that closes the job already discriminates it (`AnalysisRunOutcome.kind`), and reading it back out of
   /// `failureReason`'s prose was a prefix guess that health metrics then counted on. `status` stays `failed` -

@@ -33,15 +33,17 @@ export async function runImpactAnalysis(input: RunImpactAnalysisInput): Promise<
         selectImpactTargets({ snapshotId, codebase: context.codebase }),
     );
 
-    await getAnalysisStore()
-        .forAnalysis(snapshotId)
-        .recordSelection(
-            selection.targets.map((target) => ({
-                testCaseId: target.testCaseId,
-                origin: target.origin,
-                selectionReason: target.reason,
-            })),
-        );
+    const analysis = getAnalysisStore().forAnalysis(snapshotId);
+
+    await analysis.recordSelection(
+        selection.targets.map((target) => ({
+            testCaseId: target.testCaseId,
+            origin: target.origin,
+            selectionReason: target.reason,
+        })),
+    );
+
+    await analysis.recordImpactReasoning(selection.reasoning);
 
     logger.info("Impact Analysis stage finished", { extra: { targetCount: selection.targets.length } });
     return { targets: selection.targets, reasoning: selection.reasoning };

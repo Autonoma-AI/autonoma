@@ -142,6 +142,19 @@ export class Analysis {
         });
     }
 
+    /** Write the selection reasoning onto the run's `AnalysisJob`; empty reasoning is stored as absent. */
+    public async recordImpactReasoning(reasoning?: string): Promise<void> {
+        const impactReasoning = reasoning != null && reasoning !== "" ? reasoning : undefined;
+        this.logger.info("Recording impact reasoning on the analysis job", {
+            snapshot: { snapshotId: this.snapshotId },
+            extra: { present: impactReasoning != null },
+        });
+        await this.db.analysisJob.update({
+            where: { snapshotId: this.snapshotId },
+            data: { impactReasoning },
+        });
+    }
+
     /** This analysis's findings, contained ones included, slug-ordered. See {@link readFindings}. */
     public async findings(): Promise<Finding[]> {
         return readFindings(this.db, this.snapshotId);

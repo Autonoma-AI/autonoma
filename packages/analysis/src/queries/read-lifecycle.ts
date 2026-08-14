@@ -12,6 +12,8 @@ export interface AnalysisLifecycle {
     failureReason?: string;
     startedAt?: Date;
     completedAt?: Date;
+    /** The Impact Analysis stage's selection reasoning; absent while it is still running or when it produced none. */
+    impactReasoning?: string;
 }
 
 export interface AnalysisLifecycleSummary extends AnalysisLifecycle {
@@ -28,6 +30,7 @@ export const lifecycleSelect = {
     failureReason: true,
     startedAt: true,
     completedAt: true,
+    impactReasoning: true,
 } satisfies Prisma.AnalysisJobSelect;
 
 export type LifecycleRow = Prisma.AnalysisJobGetPayload<{ select: typeof lifecycleSelect }>;
@@ -39,6 +42,7 @@ export function toLifecycle(row: LifecycleRow): AnalysisLifecycle {
         failureReason: row.failureReason ?? undefined,
         startedAt: row.startedAt ?? undefined,
         completedAt: row.completedAt ?? undefined,
+        impactReasoning: row.impactReasoning ?? undefined,
     };
 }
 
