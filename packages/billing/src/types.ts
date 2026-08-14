@@ -1,4 +1,9 @@
-import type { ApplicationArchitecture, BillingCustomer, CreditTransaction } from "@autonoma/db";
+import type {
+    ApplicationArchitecture,
+    BillingCustomer,
+    ComputePricingReference,
+    CreditTransaction,
+} from "@autonoma/db";
 import type { BillingCheckoutType } from "@autonoma/types";
 import type { VercelOverageStatus } from "./vercel-overage.service";
 
@@ -123,6 +128,11 @@ export interface BillingService {
     setPromoCodeActive(promoCodeId: string, isActive: boolean): Promise<BillingPromoCodeItem>;
     getVercelOverageStatus(organizationId: string): Promise<VercelOverageStatus>;
     updateVercelOverageCap(organizationId: string, maxOverageAmountUsd: number | undefined): Promise<void>;
+    updateComputePricing(
+        organizationId: string,
+        rates: { creditsPerVcpuHour: number; creditsPerGbMemoryHour: number },
+    ): Promise<void>;
+    getComputePricingReferences(): Promise<ComputePricingReference[]>;
 }
 
 export interface StripeBillingService {

@@ -1,4 +1,4 @@
-import type { CoreV1Event, V1Job, V1Pod } from "@kubernetes/client-node";
+import type { CoreV1Event, V1Job, V1Node, V1Pod } from "@kubernetes/client-node";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BuildAbortedError, BuildError } from "../../src/builder/builder";
 import { BuildKitJobManager } from "../../src/builder/buildkit-job-manager";
@@ -40,8 +40,11 @@ class FakeBuildJobsApi {
 class FakeBuildPodsApi {
     readCount = 0;
     readonly eventQueries: string[] = [];
+    readonly nodeReads: string[] = [];
     events: CoreV1Event[] = [];
     eventsError?: Error;
+    nodes: Record<string, V1Node> = {};
+    readNodeError?: Error;
 
     constructor(private readonly responses: V1Pod[][]) {}
 
@@ -58,6 +61,14 @@ class FakeBuildPodsApi {
         this.eventQueries.push(params.fieldSelector ?? "");
         if (this.eventsError != null) throw this.eventsError;
         return { items: this.events };
+    }
+
+    async readNode(params: { name: string }): Promise<V1Node> {
+        this.nodeReads.push(params.name);
+        if (this.readNodeError != null) throw this.readNodeError;
+        const node = this.nodes[params.name];
+        if (node == null) throw new Error(`no fake node registered for "${params.name}"`);
+        return node;
     }
 }
 
@@ -170,6 +181,35 @@ describe("BuildKitJobManager", () => {
         expect(batchApi.deletedJobs).toEqual([
             { name: instance.name, namespace: "buildkit", propagationPolicy: "Background" },
         ]);
+    });
+
+    it("resolves the real instance type/capacity type off the node the build pod landed on", async () => {
+        const batchApi = new FakeBuildJobsApi();
+        const podsApi = new FakeBuildPodsApi([[readyPod("10.40.0.12", "ip-10-40-0-99")]]);
+        podsApi.nodes["ip-10-40-0-99"] = nodeWithLabels({
+            "node.kubernetes.io/instance-type": "m7i.xlarge",
+            "karpenter.sh/capacity-type": "spot",
+        });
+        const manager = createManager(batchApi, podsApi);
+
+        const instance = await manager.provision();
+
+        expect(instance.instanceType).toBe("m7i.xlarge");
+        expect(instance.capacityType).toBe("spot");
+        expect(podsApi.nodeReads).toEqual(["ip-10-40-0-99"]);
+    });
+
+    it("provisions successfully even when the node lookup fails", async () => {
+        const batchApi = new FakeBuildJobsApi();
+        const podsApi = new FakeBuildPodsApi([[readyPod("10.40.0.12", "ip-10-40-0-99")]]);
+        podsApi.readNodeError = new Error("nodes.get is forbidden");
+        const manager = createManager(batchApi, podsApi);
+
+        const instance = await manager.provision();
+
+        expect(instance.host).toBe("tcp://10.40.0.12:1234");
+        expect(instance.instanceType).toBeUndefined();
+        expect(instance.capacityType).toBeUndefined();
     });
 
     it("deletes the Job when provisioning is aborted", async () => {
@@ -388,9 +428,10 @@ function createManager(
     });
 }
 
-function readyPod(podIP: string): V1Pod {
+function readyPod(podIP: string, nodeName?: string): V1Pod {
     return {
         metadata: { name: "pk-builder-pod" },
+        spec: nodeName != null ? { nodeName, containers: [] } : undefined,
         status: {
             podIP,
             conditions: [
@@ -399,6 +440,10 @@ function readyPod(podIP: string): V1Pod {
             ],
         },
     };
+}
+
+function nodeWithLabels(labels: Record<string, string>): V1Node {
+    return { metadata: { labels } };
 }
 
 function scheduledNotReadyPod(): V1Pod {

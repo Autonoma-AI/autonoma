@@ -116,4 +116,15 @@ export class DisabledBillingService implements BillingService {
     updateVercelOverageCap(_organizationId: string, _maxOverageAmountUsd: number | undefined) {
         return Promise.resolve();
     }
+
+    updateComputePricing(
+        organizationId: string,
+        rates: { creditsPerVcpuHour: number; creditsPerGbMemoryHour: number },
+    ) {
+        return this.billingPricingService.updateComputePricing(organizationId, rates);
+    }
+
+    getComputePricingReferences() {
+        return this.billingPricingService.getComputePricingReferences();
+    }
 }

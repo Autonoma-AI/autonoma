@@ -26,5 +26,31 @@ export { PrometheusClient } from "./preview-usage-meter/prometheus-client";
 export { PreviewUsageMeterSweepService } from "./preview-usage-meter/preview-usage-meter-sweep.service";
 export type { PreviewUsageMeterSweepResult } from "./preview-usage-meter/preview-usage-meter-sweep.service";
 export type { VercelOverageStatus } from "./vercel-overage.service";
+export {
+    AWS_EC2_REGION_US_EAST_1,
+    AWS_PRICING_LOCATION_US_EAST_1,
+    blendComputeResourceRates,
+    deriveComputeResourceRates,
+    fetchOnDemandInstancePrice,
+    fetchSpotPrice,
+    isEc2InstanceType,
+    REFERENCE_COMPUTE_POOLS,
+    toCreditRates,
+} from "./aws-pricing/aws-instance-pricing";
+export type {
+    ComputePoolReference,
+    ComputeResourceRates,
+    Ec2InstanceType,
+    OnDemandInstancePrice,
+    UsdComputeRates,
+} from "./aws-pricing/aws-instance-pricing";
+export { fetchRecentBuildCapacityMix } from "./aws-pricing/build-capacity-mix";
+export type { BuildCapacityMix } from "./aws-pricing/build-capacity-mix";
+export { fetchBuildInstanceHourlyPrice } from "./aws-pricing/build-real-cost";
+export type { BuildCapacityType } from "./aws-pricing/build-real-cost";
+export { resolveComputeRates } from "./aws-pricing/resolve-compute-rates";
+export type { ResolvedComputeRates } from "./aws-pricing/resolve-compute-rates";
+export { referenceToUsdRates, syncComputePricingReference } from "./aws-pricing/compute-pricing-reference.service";
+export type { ComputePricingSyncResult } from "./aws-pricing/compute-pricing-reference.service";
 export { persistAiCosts } from "./ai-cost-persister.service";
 export type { AiCostAnchor } from "./ai-cost-persister.service";

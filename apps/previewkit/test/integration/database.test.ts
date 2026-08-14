@@ -293,6 +293,8 @@ integrationTestSuite({
                         status: "success",
                         imageTag: "ghcr.io/acme/web:pr-7-abc1234",
                         durationMs: 30_000,
+                        instanceType: "m7i.xlarge",
+                        capacityType: "spot",
                     },
                     api: {
                         status: "success",
@@ -304,7 +306,7 @@ integrationTestSuite({
 
             const env = await harness.db.previewkitEnvironment.findUnique({
                 where: { namespace: "preview-acme-web-pr-7" },
-                include: { builds: { include: { appBuilds: true } } },
+                include: { builds: { include: { appBuilds: { include: { usage: true } } } } },
             });
             expect(env!.builds).toHaveLength(1);
             const build = env!.builds[0]!;
@@ -323,6 +325,18 @@ integrationTestSuite({
                 status: "success",
                 imageTag: "ghcr.io/acme/api:pr-7-abc1234",
                 durationMs: 12_000,
+            });
+
+            // The real instance/capacity type flows through to the usage row when the builder
+            // resolved it; an app build with no resolved node info still gets metered, just
+            // without those fields.
+            expect(appBuildsByName.get("web")?.usage).toMatchObject({
+                instanceType: "m7i.xlarge",
+                capacityType: "spot",
+            });
+            expect(appBuildsByName.get("api")?.usage).toMatchObject({
+                instanceType: null,
+                capacityType: null,
             });
         });
 

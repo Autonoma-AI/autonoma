@@ -7,6 +7,7 @@
         "billing-invoicer": "dotenv -e ../../.env -- tsx scripts/vercel-billing-invoicer/index.ts",
         "usage-reporter": "dotenv -e ../../.env -- tsx scripts/vercel-usage-reporter/index.ts",
         "usage-meter": "dotenv -e ../../.env -- tsx scripts/preview-usage-meter/index.ts",
+        "aws-compute-pricing-drift": "dotenv -e ../../.env -- tsx scripts/aws-compute-pricing-drift/index.ts",
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --fix scripts/",
         "build": "rolldown -c rolldown.config.ts"

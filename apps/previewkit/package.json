@@ -14,6 +14,7 @@
         "mint-key": "dotenv -e ../../.env -- tsx src/scripts/mint-key.ts"
     },
     "dependencies": {
+        "@autonoma/billing": "workspace:*",
         "@autonoma/db": "workspace:*",
         "@autonoma/github": "workspace:*",
         "@autonoma/k8s": "workspace:*",

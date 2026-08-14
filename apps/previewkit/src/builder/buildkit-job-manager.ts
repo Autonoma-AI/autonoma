@@ -44,7 +44,12 @@ interface BuildJobsApi {
 interface BuildPodsApi {
     listNamespacedPod(params: { namespace: string; labelSelector?: string }): Promise<{ items: k8s.V1Pod[] }>;
     listNamespacedEvent(params: { namespace: string; fieldSelector?: string }): Promise<{ items: k8s.CoreV1Event[] }>;
+    readNode(params: { name: string }): Promise<k8s.V1Node>;
 }
+
+/** Standard/Karpenter node labels identifying the real EC2 instance behind a node. */
+const LABEL_INSTANCE_TYPE = "node.kubernetes.io/instance-type";
+const LABEL_CAPACITY_TYPE = "karpenter.sh/capacity-type";
 
 /**
  * Deploy identity stamped onto the ephemeral buildkit Job/pod as labels. Every
@@ -76,6 +81,9 @@ interface BuildKitJobManagerOptions {
 interface BuildKitInstance {
     name: string;
     host: string;
+    /** Best-effort - see `resolveNodeInstanceInfo`. Undefined when the node lookup failed. */
+    instanceType?: string;
+    capacityType?: string;
 }
 
 /**
@@ -112,8 +120,11 @@ export class BuildKitJobManager {
             });
             const pod = await this.waitForReady(buildId, signal);
             const host = await this.waitForTcpReachable(pod, signal);
-            this.logger.info("Buildkit Job ready", { extra: { name, host, elapsedMs: Date.now() - startedAt } });
-            return { name, host };
+            const { instanceType, capacityType } = await this.resolveNodeInstanceInfo(pod);
+            this.logger.info("Buildkit Job ready", {
+                extra: { name, host, instanceType, capacityType, elapsedMs: Date.now() - startedAt },
+            });
+            return { name, host, instanceType, capacityType };
         } catch (err) {
             await this.release({ name }).catch((cleanupErr: unknown) => {
                 const cleanupError = cleanupErr instanceof Error ? cleanupErr : new Error(String(cleanupErr));
@@ -245,6 +256,31 @@ export class BuildKitJobManager {
             `Timed out after ${startupTimeoutMs}ms waiting for scheduled buildkit Job (build-id=${buildId}) to become Ready. ${diagnostics}`,
             { isTransient: true },
         );
+    }
+
+    /**
+     * Reads the real EC2 instance type/capacity type off the node the build pod landed on, for
+     * later cost accuracy (see `PreviewkitAppBuildUsage.instanceType`) - the node-pool
+     * requirements only bound a range (m-family, gen 6-8, xlarge, spot or on-demand), not which
+     * concrete instance Karpenter actually chose. Best-effort: a lookup failure (the node was
+     * already reclaimed, an RBAC gap, a transient API error) must never fail a build that has
+     * already succeeded, so this logs and returns an empty result instead of throwing.
+     */
+    private async resolveNodeInstanceInfo(pod: k8s.V1Pod): Promise<{ instanceType?: string; capacityType?: string }> {
+        const nodeName = pod.spec?.nodeName;
+        if (nodeName == null) return {};
+
+        try {
+            const node = await this.options.podsApi.readNode({ name: nodeName });
+            const labels = node.metadata?.labels ?? {};
+            return { instanceType: labels[LABEL_INSTANCE_TYPE], capacityType: labels[LABEL_CAPACITY_TYPE] };
+        } catch (err) {
+            const error = err instanceof Error ? err : new Error(String(err));
+            this.logger.warn("Failed to resolve buildkit node instance info", {
+                extra: { nodeName, error: error.message },
+            });
+            return {};
+        }
     }
 
     private async readBuildPod(buildId: string): Promise<k8s.V1Pod | undefined> {

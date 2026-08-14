@@ -209,5 +209,31 @@ export const adminRouter = router({
             .mutation(({ ctx: { services }, input }) =>
                 services.billing.setPromoCodeActive(input.promoCodeId, input.isActive),
             ),
+        /**
+         * The global, AWS-derived reference rates the aws-compute-pricing-drift cronjob keeps
+         * current (one row per compute pool) - purely informational, never billed directly.
+         */
+        getComputePricingReference: internalProcedure.query(({ ctx: { services } }) =>
+            services.billing.getComputePricingReferences(),
+        ),
+        /**
+         * Sets an org's live previewkit compute-usage rate. Deliberate and admin-only: this is
+         * the only path that writes BillingPricing.creditsPerVcpuHour/creditsPerGbMemoryHour -
+         * the cronjob that computes the reference rate above never calls this itself.
+         */
+        updateComputePricing: internalProcedure
+            .input(
+                z.object({
+                    organizationId: z.string().min(1),
+                    creditsPerVcpuHour: z.number().nonnegative(),
+                    creditsPerGbMemoryHour: z.number().nonnegative(),
+                }),
+            )
+            .mutation(({ ctx: { services }, input }) =>
+                services.billing.updateComputePricing(input.organizationId, {
+                    creditsPerVcpuHour: input.creditsPerVcpuHour,
+                    creditsPerGbMemoryHour: input.creditsPerGbMemoryHour,
+                }),
+            ),
     }),
 });

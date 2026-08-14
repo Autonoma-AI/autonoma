@@ -1728,6 +1728,8 @@ export class PreviewPipeline {
                 imageTag: result.imageTag,
                 durationMs: result.durationMs,
                 runtime: result.runtime,
+                instanceType: result.instanceType,
+                capacityType: result.capacityType,
             };
         } catch (err) {
             // A supersede abort is not a per-app failure - re-throw so the whole

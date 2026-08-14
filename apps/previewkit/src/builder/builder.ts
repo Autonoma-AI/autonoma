@@ -58,6 +58,14 @@ export interface BuildResult {
     imageTag: string;
     durationMs: number;
     runtime: BuildRuntime;
+    /**
+     * The real EC2 instance type/capacity type Karpenter provisioned for this build's dedicated
+     * buildkit node (e.g. "m7i.xlarge", "spot"), read from the node's labels once the build pod
+     * is scheduled. Best-effort: undefined when the node lookup failed - never a reason to fail
+     * the build.
+     */
+    instanceType?: string;
+    capacityType?: string;
 }
 
 /**

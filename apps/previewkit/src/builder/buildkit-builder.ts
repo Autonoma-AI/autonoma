@@ -76,6 +76,8 @@ interface BuildKitJobLifecycle {
 interface BuildKitInstance {
     name: string;
     host: string;
+    instanceType?: string;
+    capacityType?: string;
 }
 
 interface BuildKitAttempt {
@@ -250,7 +252,13 @@ export class BuildKitBuilder implements Builder {
                         host: instance.host,
                     });
                 }
-                return { imageTag: build.imageTag, durationMs, runtime: build.runtime };
+                return {
+                    imageTag: build.imageTag,
+                    durationMs,
+                    runtime: build.runtime,
+                    instanceType: instance.instanceType,
+                    capacityType: instance.capacityType,
+                };
             } catch (err) {
                 // A supersede abort is not a build failure: re-throw it as-is so
                 // it is neither retried nor wrapped by `annotateWithLogs` (which

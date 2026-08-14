@@ -11,6 +11,7 @@ export default defineConfig({
         "billing-invoicer": "scripts/vercel-billing-invoicer/index.ts",
         "usage-reporter": "scripts/vercel-usage-reporter/index.ts",
         "usage-meter": "scripts/preview-usage-meter/index.ts",
+        "aws-compute-pricing-drift": "scripts/aws-compute-pricing-drift/index.ts",
     },
     output: {
         dir: "dist",

@@ -155,4 +155,15 @@ export class EnabledBillingService implements BillingService, StripeBillingServi
     updateVercelOverageCap(organizationId: string, maxOverageAmountUsd: number | undefined) {
         return this.vercelOverageService.updateOverageCap(organizationId, maxOverageAmountUsd);
     }
+
+    updateComputePricing(
+        organizationId: string,
+        rates: { creditsPerVcpuHour: number; creditsPerGbMemoryHour: number },
+    ) {
+        return this.billingPricingService.updateComputePricing(organizationId, rates);
+    }
+
+    getComputePricingReferences() {
+        return this.billingPricingService.getComputePricingReferences();
+    }
 }

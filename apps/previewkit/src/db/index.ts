@@ -1,3 +1,4 @@
+import { type BuildCapacityType, fetchBuildInstanceHourlyPrice, isEc2InstanceType } from "@autonoma/billing";
 import { db } from "@autonoma/db";
 import { encryptPreviewkitBypassToken } from "@autonoma/utils";
 import type { BuildRuntime } from "../builder/builder";
@@ -15,6 +16,9 @@ import { type Logger, logger as rootLogger } from "../logger";
 // build's real duration IS its real resource consumption.
 const BUILDKIT_NODE_VCPU_COUNT = 4;
 const BUILDKIT_NODE_MEMORY_GB = 16;
+
+const MICRODOLLARS_PER_USD = 1_000_000;
+const MS_PER_HOUR = 60 * 60 * 1000;
 
 export type PreviewkitStatus = "pending" | "building" | "deploying" | "ready" | "failed" | "superseded" | "torn_down";
 
@@ -83,7 +87,14 @@ export interface PhaseChangedInput {
  * namespace - it is not part of the outcome.
  */
 export type AppBuildOutcome =
-    | { status: "success"; imageTag: string; durationMs: number; runtime?: BuildRuntime }
+    | {
+          status: "success";
+          imageTag: string;
+          durationMs: number;
+          runtime?: BuildRuntime;
+          instanceType?: string;
+          capacityType?: string;
+      }
     | { status: "failed"; durationMs: number; error: string; runtime?: BuildRuntime };
 
 export interface BuildFinishedInput {
@@ -267,7 +278,7 @@ export async function recordBuildFinished(input: BuildFinishedInput): Promise<vo
         include: { appBuilds: true },
     });
 
-    await meterAppBuilds(build.appBuilds, env.organizationId, logger);
+    await meterAppBuilds(build.appBuilds, appBuilds, env.organizationId, logger);
 }
 
 /**
@@ -276,26 +287,117 @@ export async function recordBuildFinished(input: BuildFinishedInput): Promise<vo
  * Runs regardless of the app build's outcome (success or failed) since compute was
  * consumed either way. Best-effort per app build: one failing to record must not
  * block the others or the caller.
+ *
+ * `outcomesByAppName` is the original per-app outcome map `recordBuildFinished` was
+ * called with - `instanceType`/`capacityType` live there (only ever set on a
+ * `success` outcome), not on the `PreviewkitAppBuild` row itself.
  */
 async function meterAppBuilds(
-    appBuilds: Array<{ id: string; durationMs: number }>,
+    appBuilds: Array<{ id: string; appName: string; durationMs: number }>,
+    outcomesByAppName: Record<string, AppBuildOutcome>,
     organizationId: string,
     logger: Logger,
 ): Promise<void> {
+    // Sibling app builds in the same deploy usually land on the exact same instance/capacity
+    // combination, so this dedupes their real-cost pricing lookups into one AWS call each.
+    const hourlyPriceByKey = new Map<string, Promise<number | undefined>>();
+
     await Promise.all(
         appBuilds.map(async (appBuild) => {
+            const outcome = outcomesByAppName[appBuild.appName];
+            const instanceType = outcome?.status === "success" ? outcome.instanceType : undefined;
+            const capacityType = outcome?.status === "success" ? outcome.capacityType : undefined;
+            const { vcpuSeconds, gbSeconds } = computeAppBuildResourceUsage(appBuild.durationMs);
+
             try {
-                const { vcpuSeconds, gbSeconds } = computeAppBuildResourceUsage(appBuild.durationMs);
                 await db.previewkitAppBuildUsage.upsert({
                     where: { appBuildId: appBuild.id },
-                    create: { appBuildId: appBuild.id, organizationId, vcpuSeconds, gbSeconds },
-                    update: { vcpuSeconds, gbSeconds },
+                    create: {
+                        appBuildId: appBuild.id,
+                        organizationId,
+                        vcpuSeconds,
+                        gbSeconds,
+                        instanceType,
+                        capacityType,
+                    },
+                    update: { vcpuSeconds, gbSeconds, instanceType, capacityType },
                 });
             } catch (err) {
                 logger.error("Failed to record app build usage", { appBuildId: appBuild.id, organizationId, err });
+                return;
             }
+
+            await recordAppBuildRealCost(
+                appBuild.id,
+                instanceType,
+                capacityType,
+                appBuild.durationMs,
+                hourlyPriceByKey,
+                logger,
+            );
         }),
     );
+}
+
+/**
+ * Best-effort real cost on top of the usage row `meterAppBuilds` just wrote - never a reason to
+ * lose that row. Skipped (left undefined) when the instance/capacity type weren't captured, the
+ * observed instance type isn't one the pinned AWS SDK recognizes yet, or the AWS pricing call
+ * itself fails; each case is logged, none of them throw.
+ */
+async function recordAppBuildRealCost(
+    appBuildId: string,
+    instanceType: string | undefined,
+    capacityType: string | undefined,
+    durationMs: number,
+    hourlyPriceByKey: Map<string, Promise<number | undefined>>,
+    logger: Logger,
+): Promise<void> {
+    if (instanceType == null || capacityType == null) return;
+    if (!isEc2InstanceType(instanceType) || !isBuildCapacityType(capacityType)) {
+        logger.warn("Unrecognized instance/capacity type, skipping build real cost", {
+            appBuildId,
+            instanceType,
+            capacityType,
+        });
+        return;
+    }
+
+    const cacheKey = `${instanceType}:${capacityType}`;
+    let hourlyPricePromise = hourlyPriceByKey.get(cacheKey);
+    if (hourlyPricePromise == null) {
+        hourlyPricePromise = fetchBuildInstanceHourlyPrice(instanceType, capacityType, logger).catch((err: unknown) => {
+            logger.warn("Failed to fetch build instance price, skipping build real cost", {
+                appBuildId,
+                instanceType,
+                capacityType,
+                err,
+            });
+            return undefined;
+        });
+        hourlyPriceByKey.set(cacheKey, hourlyPricePromise);
+    }
+
+    const usdPerHour = await hourlyPricePromise;
+    if (usdPerHour == null) return;
+
+    const realCostUsdMicrodollars = toBuildRealCostUsdMicrodollars(usdPerHour, durationMs);
+    try {
+        await db.previewkitAppBuildUsage.update({ where: { appBuildId }, data: { realCostUsdMicrodollars } });
+    } catch (err) {
+        logger.error("Failed to record app build real cost", { appBuildId, err });
+    }
+}
+
+/** Converts an hourly USD rate + a build's wall-clock duration into a real USD cost, in
+ *  microdollars (matching `AiCostRecord.costMicrodollars`'s unit, so build and AI cost are
+ *  directly comparable). */
+function toBuildRealCostUsdMicrodollars(usdPerHour: number, durationMs: number): number {
+    return Math.round(usdPerHour * (durationMs / MS_PER_HOUR) * MICRODOLLARS_PER_USD);
+}
+
+function isBuildCapacityType(value: string): value is BuildCapacityType {
+    return value === "spot" || value === "on-demand";
 }
 
 /**

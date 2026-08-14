@@ -1803,11 +1803,13 @@ model BillingPricing {
   creditsAndroidRunCost        Int @default(40) @map("credits_android_run_cost")
   stripeTopupAmountCents       Int @default(10000) @map("stripe_topup_amount_cents")
 
-  // Flat, fleet-uniform previewkit compute-usage rates - not derived from instance
-  // types, spot prices, or AWS cost data. Zero until a deliberate go/no-go once
-  // shadow-mode usage data informs real numbers; deductCreditsForPreviewUsage never
-  // charges while both are 0, and enforcement is separately gated by
-  // PREVIEWKIT_BILLING_ENABLED + OrganizationSettings.previewkitBillingEnabled.
+  // Flat, fleet-uniform previewkit compute-usage rates. Zero until a deliberate go/no-go -
+  // deductCreditsForPreviewUsage never charges while both are 0, and enforcement is separately
+  // gated by PREVIEWKIT_BILLING_ENABLED + OrganizationSettings.previewkitBillingEnabled. Set via
+  // the admin.billing.updateComputePricing action, which can pre-fill from the live AWS-derived
+  // ComputePricingReference (converted through this org's creditsPerUsd) but always writes a
+  // deliberate, reviewed value - never touched automatically by the pricing-drift cronjob, which
+  // only ever writes ComputePricingReference.
   creditsPerVcpuHour     Int @default(0) @map("credits_per_vcpu_hour")
   creditsPerGbMemoryHour Int @default(0) @map("credits_per_gb_memory_hour")
 
@@ -1817,6 +1819,31 @@ model BillingPricing {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@map("billing_pricing")
+}
+
+// Global (not org-scoped) - what AWS actually charges today for the reference instance behind
+// each Karpenter compute pool, in USD. Freely auto-updated by the weekly aws-compute-pricing-drift
+// cronjob (packages/billing/src/aws-pricing/resolve-compute-rates.ts) - safe to write without
+// review because nothing reads this for billing directly. It only ever informs a human decision:
+// admin.billing.updateComputePricing converts this (through an org's creditsPerUsd) into a
+// suggested credits rate for that org to review and apply to its own BillingPricing row.
+model ComputePricingReference {
+  // The compute pool this reference describes - "buildkit" | "previewkit" (see
+  // REFERENCE_COMPUTE_POOLS in packages/billing/src/aws-pricing/aws-instance-pricing.ts).
+  pool String @id
+
+  usdPerVcpuHour Float @map("usd_per_vcpu_hour")
+  usdPerGbHour   Float @map("usd_per_gb_hour")
+
+  // Set only for a spot-eligible pool (buildkit) - the real spot/on-demand split its recent
+  // builds actually got (PreviewkitAppBuildUsage.capacityType), used to blend the rate above.
+  // Null for an on-demand-only pool (previewkit), which has nothing to blend.
+  spotFraction Float? @map("spot_fraction")
+  sampleSize   Int?   @map("sample_size")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("compute_pricing_reference")
 }
 
 model OrganizationSettings {
@@ -2317,6 +2344,23 @@ model PreviewkitAppBuildUsage {
 
   vcpuSeconds Float @map("vcpu_seconds")
   gbSeconds   Float @map("gb_seconds")
+
+  // The real EC2 instance type/capacity type Karpenter provisioned for this build's dedicated
+  // buildkit node (e.g. "m7i.xlarge", "spot"), read from the node's labels once the build pod is
+  // scheduled - see BuildKitJobManager.provision(). Best-effort: undefined when the build never
+  // reached that point (e.g. a provisioning failure) or the node lookup itself failed; a missing
+  // value falls back to a pool-wide reference rate rather than blocking usage recording.
+  instanceType String? @map("instance_type")
+  capacityType String? @map("capacity_type")
+
+  // Real USD cost of THIS build - the exact instance/capacity type it landed on, priced at
+  // spot's live price (spot builds, fetched right as the build finishes) or the stable on-demand
+  // price otherwise. Deliberately separate from BillingPricing's admin-set customer rate: this
+  // answers "what did this build actually cost us", not "what do we charge for it". Undefined
+  // when instanceType/capacityType weren't captured, the observed instance type isn't one the
+  // pinned AWS SDK recognizes yet, or the pricing call itself failed - never blocks usage
+  // recording, see meterAppBuilds in apps/previewkit/src/db/index.ts.
+  realCostUsdMicrodollars Int? @map("real_cost_usd_microdollars")
 
   createdAt DateTime @default(now()) @map("created_at")
 
