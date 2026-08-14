@@ -8,7 +8,9 @@ apiTestSuite({
     name: "branches.analysisReport",
     cases: (test) => {
         test("returns the report header, narration, and findings ordered by display order", async ({ harness }) => {
-            const { snapshotId } = await createAuthoritativeSnapshot(harness);
+            const { snapshotId } = await createAuthoritativeSnapshot(harness, {
+                impactReasoning: "Selected the checkout tests because the PR touches the cart.",
+            });
 
             await harness.db.analysisReport.create({
                 data: {
@@ -17,7 +19,6 @@ apiTestSuite({
                     title: "Autonoma checked this PR",
                     testCount: 2,
                     clientBugCount: 1,
-                    impactReasoning: "Selected the checkout tests because the PR touches the cart.",
                     headline: "The checkout flow has a client bug: the submit button never enables.",
                     reportMarkdown: "## Checkout is broken\nThe submit button never enables.",
                     organizationId: harness.organizationId,
@@ -116,7 +117,10 @@ apiTestSuite({
 });
 
 /** An active snapshot with an AnalysisJob - the shape an analysis run leaves behind. */
-async function createAuthoritativeSnapshot(harness: APITestHarness): Promise<{ snapshotId: string }> {
+async function createAuthoritativeSnapshot(
+    harness: APITestHarness,
+    options: { impactReasoning?: string } = {},
+): Promise<{ snapshotId: string }> {
     const application = await harness.services.applications.createApplication({
         name: `Analysis Report ${crypto.randomUUID()}`,
         organizationId: harness.organizationId,
@@ -138,6 +142,7 @@ async function createAuthoritativeSnapshot(harness: APITestHarness): Promise<{ s
         data: {
             snapshotId: branch.activeSnapshotId,
             status: "completed",
+            impactReasoning: options.impactReasoning,
             organizationId: harness.organizationId,
         },
     });

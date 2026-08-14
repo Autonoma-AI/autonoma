@@ -451,28 +451,6 @@ integrationTestSuite({
             expect(await harness.db.analysisIssue.count({ where: { branchId: run.branchId } })).toBe(0);
         });
 
-        test("writes the Impact Analysis reasoning onto the report", async ({ harness }) => {
-            const run = await harness.seedRun([{ slug: "checkout", category: "client_bug" }]);
-
-            await runReporter(
-                { snapshotId: run.snapshotId, impactReasoning: "The diff touches checkout." },
-                {
-                    produceResult: fixedResult({
-                        reportMarkdown: "## Report",
-                        reportEvidenceManifest: [],
-                        title: "Autonoma checked this PR",
-                        headline: "One bug: the app misbehaves.",
-                        flows: [],
-                        flowCorrections: { sweptSlugs: [], duplicateSlugs: [], unknownSlugs: [] },
-                        issues: [{ kind: "open", content: issueContent("Checkout broken", ["checkout"]) }],
-                    }),
-                },
-            );
-
-            const report = await harness.db.analysisReport.findUnique({ where: { snapshotId: run.snapshotId } });
-            expect(report?.impactReasoning).toBe("The diff touches checkout.");
-        });
-
         // The empty run the `no_tests_needed` verdict rests on: nothing queued means nothing to lose, so the guard
         // must let the report through. Weaken this and an empty run stops being a decision.
         test("writes a report when the run queued nothing at all", async ({ harness }) => {

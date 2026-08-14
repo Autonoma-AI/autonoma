@@ -55,7 +55,6 @@ export interface ReportContent {
 }
 
 export interface ReportSettlement {
-    impactReasoning?: string;
     content: ReportContent;
     issues: IssueReconciliation[];
 }
@@ -135,10 +134,6 @@ export async function settleAnalysisReport(
         const verdict = openBugCount > 0 ? ANALYSIS_VERDICT.client_bug : ANALYSIS_VERDICT.passed;
         const coverage = summarizeVerdictPlanes(categories);
 
-        const impactReasoning =
-            settlement.impactReasoning != null && settlement.impactReasoning !== ""
-                ? settlement.impactReasoning
-                : undefined;
         await tx.analysisReport.create({
             data: {
                 snapshotId,
@@ -147,7 +142,6 @@ export async function settleAnalysisReport(
                 clientBugCount: openBugCount,
                 testCount: categories.length,
                 coverage,
-                impactReasoning,
                 title: settlement.content.title,
                 headline: settlement.content.headline,
                 flows: settlement.content.flows,

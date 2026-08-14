@@ -108,11 +108,11 @@ apiTestSuite({
             seedResult: { application },
         }) => {
             const { branchId, prNumber } = await createPrBranch(harness, application.id, 7005);
-            const { snapshotId } = await createRun(harness, branchId, { headSha: "sha-issues" });
-            await createReport(harness, snapshotId, {
-                verdict: "client_bug",
+            const { snapshotId } = await createRun(harness, branchId, {
+                headSha: "sha-issues",
                 impactReasoning: "Selected the checkout tests because the PR touches the cart.",
             });
+            await createReport(harness, snapshotId, { verdict: "client_bug" });
             const findingFor = await seedAnalysisFindings(harness.db, snapshotId, [
                 {
                     slug: "checkout-submit",
@@ -436,8 +436,15 @@ async function createRun(
         headSha,
         jobStatus = "completed",
         failureReason,
+        impactReasoning,
         createdAt,
-    }: { headSha: string; jobStatus?: "running" | "completed" | "failed"; failureReason?: string; createdAt?: Date },
+    }: {
+        headSha: string;
+        jobStatus?: "running" | "completed" | "failed";
+        failureReason?: string;
+        impactReasoning?: string;
+        createdAt?: Date;
+    },
 ): Promise<{ snapshotId: string }> {
     const snapshot = await harness.db.branchSnapshot.create({
         data: { branchId, source: "GITHUB_PUSH", headSha, createdAt },
@@ -447,6 +454,7 @@ async function createRun(
             snapshotId: snapshot.id,
             status: jobStatus,
             failureReason,
+            impactReasoning,
             organizationId: harness.organizationId,
         },
     });
@@ -456,13 +464,12 @@ async function createRun(
 async function createReport(
     harness: APITestHarness,
     snapshotId: string,
-    { verdict, impactReasoning }: { verdict: string; impactReasoning?: string },
+    { verdict }: { verdict: string },
 ): Promise<void> {
     await harness.db.analysisReport.create({
         data: {
             snapshotId,
             verdict,
-            impactReasoning,
             title: "Autonoma checked this PR",
             headline: "One paragraph about the run.",
             reportMarkdown: "## The run\n\nWhat it found.",

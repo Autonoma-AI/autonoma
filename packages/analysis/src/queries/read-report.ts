@@ -34,8 +34,7 @@ const settledReportSelect = {
     flows: true,
     reportMarkdown: true,
     evidenceManifest: true,
-    // Prefer the job's value; the report's own column is the fallback for rows not yet backfilled onto the job.
-    impactReasoning: true,
+    // The impact reasoning lives on `AnalysisJob`, read here through the job join.
     snapshot: {
         select: { id: true, branchId: true, createdAt: true, analysisJob: { select: { impactReasoning: true } } },
     },
@@ -81,7 +80,7 @@ function toSettledReport(row: SettledReportRow): SettledReport {
         headline: row.headline !== "" ? row.headline : undefined,
         reportMarkdown: row.reportMarkdown !== "" ? row.reportMarkdown : undefined,
         evidenceManifest: parseEvidenceManifest(row.evidenceManifest),
-        impactReasoning: row.snapshot.analysisJob?.impactReasoning ?? row.impactReasoning ?? undefined,
+        impactReasoning: row.snapshot.analysisJob?.impactReasoning ?? undefined,
     };
 }
 

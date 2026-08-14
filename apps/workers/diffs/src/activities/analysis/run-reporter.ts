@@ -49,7 +49,7 @@ export interface RunReporterDeps {
  * failure here fails the run, while a run superseded mid-Reporter reports the discard instead.
  */
 export async function runReporter(input: RunReporterInput, deps: RunReporterDeps = {}): Promise<RunReporterOutput> {
-    const { snapshotId, impactReasoning } = input;
+    const { snapshotId } = input;
     // snapshotId is bound to the observability context by the activity interceptor; only non-canonical fields go
     // in `extra`.
     const logger = rootLogger.child({ name: "runReporter" });
@@ -61,7 +61,6 @@ export async function runReporter(input: RunReporterInput, deps: RunReporterDeps
     const settled = await getAnalysisStore()
         .forAnalysis(snapshotId)
         .settleReport({
-            impactReasoning,
             content: {
                 title: result.title,
                 headline: result.headline,

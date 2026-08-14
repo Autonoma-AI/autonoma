@@ -574,23 +574,21 @@ analysisSuite({
             expect((await scope.lifecycle())?.impactReasoning).toBeUndefined();
         });
 
-        test("the settled report reads impact reasoning off the job, falling back to its own column", async ({
-            harness,
-        }) => {
-            // A run whose job carries the reasoning: the job value is what the report reads.
-            const fromJob = await harness.seedAnalysis();
-            const jobScope = harness.store.forAnalysis(fromJob.snapshotId);
-            await harness.recordVerdict(fromJob, "checkout", "passed");
-            await jobScope.recordImpactReasoning("reasoning on the job");
-            await jobScope.settleReport({ ...harness.settlement(), impactReasoning: "reasoning in the settlement" });
-            expect((await jobScope.report())?.impactReasoning).toBe("reasoning on the job");
+        test("the settled report reads impact reasoning off the job", async ({ harness }) => {
+            // A run whose job carries the reasoning: the report reads it back through the join.
+            const withReasoning = await harness.seedAnalysis();
+            const scope = harness.store.forAnalysis(withReasoning.snapshotId);
+            await harness.recordVerdict(withReasoning, "checkout", "passed");
+            await scope.recordImpactReasoning("reasoning on the job");
+            await scope.settleReport(harness.settlement());
+            expect((await scope.report())?.impactReasoning).toBe("reasoning on the job");
 
-            // A run whose job never recorded reasoning (a pre-move report): the report's own column is the fallback.
-            const fromReport = await harness.seedAnalysis();
-            const reportScope = harness.store.forAnalysis(fromReport.snapshotId);
-            await harness.recordVerdict(fromReport, "checkout", "passed");
-            await reportScope.settleReport({ ...harness.settlement(), impactReasoning: "reasoning in the settlement" });
-            expect((await reportScope.report())?.impactReasoning).toBe("reasoning in the settlement");
+            // A run whose impact stage produced no reasoning: the report carries none.
+            const withoutReasoning = await harness.seedAnalysis();
+            const bareScope = harness.store.forAnalysis(withoutReasoning.snapshotId);
+            await harness.recordVerdict(withoutReasoning, "checkout", "passed");
+            await bareScope.settleReport(harness.settlement());
+            expect((await bareScope.report())?.impactReasoning).toBeUndefined();
         });
     },
 });

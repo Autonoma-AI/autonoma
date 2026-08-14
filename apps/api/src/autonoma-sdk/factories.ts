@@ -1213,6 +1213,7 @@ const AnalysisJobInput = loose({
     organizationId: z.string(),
     status: z.string().optional(),
     failureReason: z.string().optional(),
+    impactReasoning: z.string().optional(),
 });
 
 const AnalysisJobFactory = defineFactory({
@@ -1226,6 +1227,7 @@ const AnalysisJobFactory = defineFactory({
                 organizationId: data.organizationId,
                 status: AnalysisJobStatusSchema.safeParse(data.status).data ?? "completed",
                 failureReason: data.failureReason ?? undefined,
+                impactReasoning: data.impactReasoning ?? undefined,
                 startedAt: now,
                 completedAt: now,
             },
@@ -1248,7 +1250,6 @@ const AnalysisReportInput = loose({
     title: z.string().optional(),
     headline: z.string().optional(),
     reportMarkdown: z.string().optional(),
-    impactReasoning: z.string().optional(),
     coverage: AnalysisCoverage.optional(),
     flows: AnalysisFlows.optional(),
     evidenceManifest: EvidenceManifest.optional(),
@@ -1268,7 +1269,6 @@ const AnalysisReportFactory = defineFactory({
                 title: data.title ?? "Seeded report for a test tenant",
                 headline: data.headline ?? "Seeded by the Autonoma SDK test-data endpoint.",
                 reportMarkdown: data.reportMarkdown ?? "## Seeded report\n\nNo real analysis ran for this tenant.",
-                impactReasoning: data.impactReasoning ?? undefined,
                 coverage: data.coverage ?? undefined,
                 flows: data.flows ?? undefined,
                 evidenceManifest: data.evidenceManifest ?? undefined,
