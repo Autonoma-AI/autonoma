@@ -1,4 +1,5 @@
 import matter from "@11ty/gray-matter";
+import { echoesStepGuidance } from "./step-guidance";
 
 /**
  * The step verbs a generated test may use.
@@ -118,6 +119,13 @@ export function validateTestContent(content: string): ValidationResult {
     const stepsSection = body.slice(stepsAt > -1 ? stepsAt : 0);
     if (/Dynamic:\s/i.test(stepsSection)) {
         errors.push('Contains "Dynamic:" placeholder in steps');
+    }
+
+    // Independent backstop to the write_test schema: a step that quotes the
+    // field guidance back rather than describing the screen. This sweep is the
+    // last gate before a suite ships, and it read a corrupted file as valid once.
+    if (echoesStepGuidance(stepsSection)) {
+        errors.push("A step quotes the field guidance instead of describing the screen");
     }
 
     return { valid: errors.length === 0, errors };

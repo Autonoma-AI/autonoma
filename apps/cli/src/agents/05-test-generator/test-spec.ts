@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { echoesStepGuidance, STEP_DESCRIPTION_GUIDANCE, STEP_LOCATION_GUIDANCE } from "./step-guidance";
 import { CRITICALITY_LEVELS, requiresLocation, STEP_VERBS, type StepVerb } from "./validation";
 
 /**
@@ -75,18 +76,8 @@ function flowField(validFlowIds?: ReadonlySet<string>) {
 const stepSchema = z
     .object({
         verb: z.enum(STEP_VERBS).describe("The action. Only these verbs exist."),
-        description: z
-            .string()
-            .min(1)
-            .describe(
-                'What to do or check, naming the exact visible text. The verb is prepended automatically when the step is rendered, so do NOT start this with the verb - write just the target or what to check, never "click ..." or "assert: ...". For assert, the thing expected on screen - e.g. \'text "Transfer Successful"\'.',
-            ),
-        location: z
-            .string()
-            .optional()
-            .describe(
-                'WHERE on screen the target is - "in the modal", "in the toast notification", "on the Sony WH-1000XM5 product card", "in the dashboard header", "as a page heading". REQUIRED for click, type and assert: the same label routinely appears more than once (a header button and the modal button it opens, "Buy" on every card in a list), and acting on the wrong one fails confusingly. Not needed for scroll or refresh, which act on the page.',
-            ),
+        description: z.string().min(1).describe(STEP_DESCRIPTION_GUIDANCE),
+        location: z.string().optional().describe(STEP_LOCATION_GUIDANCE),
     })
     .refine((step) => !requiresLocation(step.verb) || (step.location?.trim() ?? "") !== "", {
         message:
@@ -99,6 +90,16 @@ const stepSchema = z
     // alone, so nothing downstream caught it either.
     .refine((step) => !hasPlaceholder(step.description) && !hasPlaceholder(step.location), {
         message: "steps carry no variables - use the exact value from the test data, not a placeholder or example",
+        path: ["description"],
+    })
+    // A weak model sometimes quotes a field's own guidance back into the value
+    // instead of following it - a real run copied the location guidance into the
+    // description of every step of five journey files, past the refines above
+    // (non-empty, no placeholder token). write_test retries on failure, so
+    // rejecting the step self-heals by regenerating it.
+    .refine((step) => !echoesStepGuidance(step.description) && !echoesStepGuidance(step.location), {
+        message:
+            "this quotes the field's own guidance instead of describing the screen - write the actual target text and location",
         path: ["description"],
     });
 

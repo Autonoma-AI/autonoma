@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { flowCompletenessRubric } from "../../src/agents/05-test-generator/rubrics";
 import {
+    echoesStepGuidance,
+    STEP_DESCRIPTION_GUIDANCE,
+    STEP_LOCATION_GUIDANCE,
+} from "../../src/agents/05-test-generator/step-guidance";
+import {
     buildTestSpecSchema,
     renderTestMarkdown,
     type TestSpec,
@@ -106,6 +111,57 @@ describe("testSpecSchema", () => {
         );
 
         expect(result.success).toBe(false);
+    });
+
+    // The real bug, verbatim: the model copied the location guidance into the
+    // description of every step of five journey files, past every existing refine.
+    it("rejects a step whose description quotes the field guidance", () => {
+        const result = testSpecSchema.safeParse(
+            withSteps([
+                {
+                    verb: "click",
+                    description: 'text "Financial Analyst" and acting on the wrong one fails confusingly',
+                    location: "on the agent card",
+                },
+                { verb: "click", description: 'the "Save" button', location: "in the modal" },
+            ]),
+        );
+
+        expect(result.success).toBe(false);
+    });
+
+    // Cross-field: the location quoting the description field's guidance. Both
+    // fields are checked against all step guidance, since the real leak crossed.
+    it("rejects guidance quoted into the location too, which renders onto the same line", () => {
+        const result = testSpecSchema.safeParse(
+            withSteps([
+                {
+                    verb: "assert",
+                    description: 'text "Saved"',
+                    location: "in the toast; the verb is prepended automatically, so do not start this with the verb",
+                },
+                { verb: "click", description: 'the "Save" button', location: "in the modal" },
+            ]),
+        );
+
+        expect(result.success).toBe(false);
+    });
+
+    // False-positive guard: a long specific location and a parenthetical
+    // description are normal test text, not quoted guidance.
+    it("accepts a long location and a parenthetical description", () => {
+        const result = testSpecSchema.safeParse(
+            withSteps([
+                {
+                    verb: "click",
+                    description: 'the "Buy" button (the primary call-to-action, not the wishlist heart icon)',
+                    location: "on the product card in the search results grid below the promotional banner",
+                },
+                { verb: "assert", description: 'text "Added to cart"', location: "in the mini-cart flyout" },
+            ]),
+        );
+
+        expect(result.success).toBe(true);
     });
 
     it("rejects a verb that does not exist", () => {
@@ -339,6 +395,46 @@ describe("validateTestContent", () => {
         ].join("\n");
 
         expect(validateTestContent(content).errors).not.toContainEqual(expect.stringContaining("Doubled verb marker"));
+    });
+
+    // Independent of the schema: if a step that quotes the field guidance reaches
+    // disk, this final sweep must catch it. It read one such file as valid once.
+    it("rejects on-disk content whose step quotes the field guidance", () => {
+        const content = [
+            "---",
+            "verification: On the Overview tab, assert the balance changed at the source of truth",
+            "---",
+            "**Intent**: The report should open.",
+            "**Steps**:",
+            '1. click: text "Financial Analyst" and acting on the wrong one fails confusingly on the agent card',
+        ].join("\n");
+
+        const result = validateTestContent(content);
+        expect(result.valid).toBe(false);
+        expect(result.errors.some((e) => e.includes("quotes the field guidance"))).toBe(true);
+    });
+
+    it("does not flag a normal test rendered from a valid spec", () => {
+        expect(validateTestContent(renderTestMarkdown(VALID)).errors).not.toContainEqual(
+            expect.stringContaining("quotes the field guidance"),
+        );
+    });
+});
+
+// The guard is derived from the guidance the model is shown, so it cannot drift:
+// whatever a field's description says, a value may not quote it back. These pin
+// that property - the guard trips on the live guidance and clears real steps.
+describe("echoesStepGuidance", () => {
+    it("flags the guidance the model is shown", () => {
+        expect(echoesStepGuidance(STEP_DESCRIPTION_GUIDANCE)).toBe(true);
+        expect(echoesStepGuidance(STEP_LOCATION_GUIDANCE)).toBe(true);
+    });
+
+    it("clears real step text and short values", () => {
+        expect(echoesStepGuidance('the "Send Money" button')).toBe(false);
+        expect(echoesStepGuidance("in the toast notification")).toBe(false);
+        expect(echoesStepGuidance("on the product card in the search results grid")).toBe(false);
+        expect(echoesStepGuidance(undefined)).toBe(false);
     });
 });
 
