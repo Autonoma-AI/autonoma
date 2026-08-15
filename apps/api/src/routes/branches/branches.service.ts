@@ -32,6 +32,7 @@ import {
     type AnalysisPrIssue,
     type AnalysisPrNewerRun,
     type AnalysisReportData,
+    type AnalysisRunView,
     type AnalysisTestOrigin,
     analysisTestOriginSchema,
     type AnalysisSnapshotIssueChanges,
@@ -55,6 +56,7 @@ import { env } from "../../env";
 import type { GitHubInstallationService } from "../../github/github-installation.service";
 import type { PullRequestCacheService } from "../../github/pull-request-cache.service";
 import { Service } from "../service";
+import { buildAnalysisRunView, loadLatestGenerationStatuses } from "./analysis-run";
 import { presentCheckpoint } from "./checkpoint-presentation";
 import { loadCreatedTests, type SnapshotCreatedTest } from "./created-tests";
 import { loadMainOpenProblems } from "./main-open-problems";
@@ -108,6 +110,8 @@ export interface AnalysisJobStatusView {
     failureReason?: string;
     startedAt?: Date;
     completedAt?: Date;
+    /** The Impact Analysis stage's selection reasoning, written when that stage completes; absent while it runs. */
+    impactReasoning?: string;
 }
 
 /**
@@ -328,9 +332,41 @@ export class BranchesService extends Service {
                 failureReason: lifecycle.failureReason,
                 startedAt: lifecycle.startedAt,
                 completedAt: lifecycle.completedAt,
+                impactReasoning: lifecycle.impactReasoning,
             };
         } catch (error) {
             this.logger.warn("Could not load analysis job status; treating as absent", {
+                extra: { snapshotId },
+                err: error,
+            });
+            return null;
+        }
+    }
+
+    /**
+     * The run's findings with each test's latest generation status, plus the selection summary. Unlike
+     * {@link getAnalysisReportData} it does not wait for the Reporter to settle, so it has data mid-run. `null` for
+     * a diffs snapshot, and degrades to `null` on any failure like the other analysis reads. Org-scoped.
+     */
+    async getAnalysisRun(snapshotId: string, organizationId: string): Promise<AnalysisRunView | null> {
+        this.logger.info("Getting analysis run", { extra: { snapshotId } });
+        try {
+            const lifecycle = (await this.analysisStore.lifecycles([snapshotId], { organizationId })).get(snapshotId);
+            if (lifecycle == null) return null;
+
+            const findings = await this.analysisStore.forAnalysis(snapshotId).findings();
+            const statuses = await loadLatestGenerationStatuses(
+                this.db,
+                snapshotId,
+                findings.map((finding) => finding.testCase.id),
+            );
+            const view = buildAnalysisRunView(findings, statuses);
+            this.logger.info("Analysis run assembled", {
+                extra: { snapshotId, findingCount: view.findings.length },
+            });
+            return view;
+        } catch (error) {
+            this.logger.warn("Could not load analysis run; treating as absent", {
                 extra: { snapshotId },
                 err: error,
             });

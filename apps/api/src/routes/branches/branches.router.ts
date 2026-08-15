@@ -85,6 +85,15 @@ export const branchesRouter = router({
             services.branches.getAnalysisJobStatus(input.snapshotId, organizationId),
         ),
 
+    // The live view of an analysis run for the checkpoint page's staged progress: the run's findings (born at
+    // selection, unjudged rows included) with each test's latest generation status, plus the selection summary.
+    // Served mid-run, before the report settles; null for a diffs snapshot. User-facing.
+    analysisRun: protectedProcedure
+        .input(z.object({ snapshotId: z.string() }))
+        .query(({ ctx: { services, organizationId }, input }) =>
+            services.branches.getAnalysisRun(input.snapshotId, organizationId),
+        ),
+
     // The branch's analysis issues (all statuses, branch-scoped) for the PR page: the open ones drive the
     // issues-first list, and resolved ones let the report prose's `issue:` tokens link them. User-facing; returns
     // an empty list for a branch with no issues (or a diffs branch).

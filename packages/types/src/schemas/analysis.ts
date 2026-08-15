@@ -756,6 +756,44 @@ export const analysisReportDataSchema = z.object({
 });
 export type AnalysisReportData = z.infer<typeof analysisReportDataSchema>;
 
+/** A test generation's lifecycle status, mirroring the `GenerationStatus` DB enum. */
+export const generationStatusSchema = z.enum(["pending", "queued", "running", "success", "failed"]);
+export type GenerationStatus = z.infer<typeof generationStatusSchema>;
+
+/**
+ * One test's row in the live checkpoint view, keyed on the finding - never the generation, so a self-heal's extra
+ * generations do not split a test into two rows.
+ */
+export const analysisRunFindingSchema = z.object({
+    findingId: z.string(),
+    testCase: z.object({ id: z.string(), name: z.string(), slug: z.string() }),
+    /** Whether the test pre-existed (`pre_existing`) or was authored this run (`proposed`). */
+    origin: analysisTestOriginSchema.optional(),
+    /** Why Impact Analysis selected this test. */
+    selectionReason: z.string().optional(),
+    /** The Investigator re-planned and re-ran this test before settling on its verdict. */
+    selfHealed: z.boolean(),
+    /** The live status of this test's latest generation in the run; absent before any generation exists for it. */
+    generationStatus: generationStatusSchema.optional(),
+    /** The verdict this run stands behind, once judged; absent while the test is still running or only contained. */
+    verdict: z.object({ category: z.string(), headline: z.string() }).optional(),
+    /** The investigation crashed without judging a run (an `investigator_crashed` containment). */
+    contained: z.boolean(),
+});
+export type AnalysisRunFinding = z.infer<typeof analysisRunFindingSchema>;
+
+/** The live run view for the checkpoint page: findings with their per-test status, plus the selection summary. */
+export const analysisRunViewSchema = z.object({
+    findings: z.array(analysisRunFindingSchema),
+    /** The selection summary - `N targets · M affected · K proposed`. */
+    selection: z.object({
+        targetCount: z.number().int().nonnegative(),
+        affectedCount: z.number().int().nonnegative(),
+        proposedCount: z.number().int().nonnegative(),
+    }),
+});
+export type AnalysisRunView = z.infer<typeof analysisRunViewSchema>;
+
 /**
  * A branch/PR-scoped issue's class, severity, and lifecycle - the single source of truth the Reporter (writer),
  * the API read path, and the UI display metadata all validate against. Enum-shaped columns are stored as plain
