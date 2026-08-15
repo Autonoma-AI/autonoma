@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolveNpmRegistryMirror } from "../../src/dockerfile-builder/resolve-npm-registry-mirror";
 
-const MIRROR = "http://verdaccio.buildkit.svc.cluster.local:4873/";
+const MIRROR = "http://npm-cache.buildkit.svc.cluster.local:4873/";
 
 afterEach(() => {
     vi.unstubAllGlobals();
@@ -37,7 +37,7 @@ describe("resolveNpmRegistryMirror", () => {
     // degrading it. A missing scheme is the easy typo that makes `new URL` throw.
     it("falls back to the public registry when the mirror is a malformed URL", async () => {
         vi.stubGlobal("fetch", vi.fn());
-        await expect(resolveNpmRegistryMirror("verdaccio.buildkit.svc.cluster.local:4873")).resolves.toBe("");
+        await expect(resolveNpmRegistryMirror("npm-cache.buildkit.svc.cluster.local:4873")).resolves.toBe("");
     });
 
     it("stays disabled when no mirror is configured, without probing", async () => {

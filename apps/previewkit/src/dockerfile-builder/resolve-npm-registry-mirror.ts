@@ -28,7 +28,8 @@ export async function resolveNpmRegistryMirror(configuredMirror: string): Promis
     // crash the whole build at startup rather than degrading it.
     let probeUrl = configuredMirror;
     try {
-        // Verdaccio (and npm registries generally) expose a liveness endpoint here.
+        // npm registries (and our nginx cache, which answers it locally) expose
+        // a liveness endpoint here.
         probeUrl = new URL("/-/ping", configuredMirror).toString();
         const response = await fetch(probeUrl, {
             signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),

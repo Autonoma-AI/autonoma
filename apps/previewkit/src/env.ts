@@ -40,8 +40,9 @@ export const env = createEnv({
         // rewritten. Set to an empty string to disable mirroring.
         DOCKER_HUB_MIRROR: z.string().default("140023360995.dkr.ecr.us-east-1.amazonaws.com/docker-hub"),
 
-        // npm/bun package-registry cache (Verdaccio, deployment/buildkit/verdaccio.yaml),
-        // proxying registry.npmjs.org from inside the buildkit namespace. Unlike
+        // npm/bun package-registry cache (nginx proxy_cache,
+        // deployment/buildkit/npm-cache.yaml), proxying registry.npmjs.org from inside
+        // the buildkit namespace. Unlike
         // DOCKER_HUB_MIRROR (container image pulls), this covers npm/pnpm/yarn-classic/
         // bun installs run by RUN steps during a build - traffic BuildKit's own
         // registry mirroring never touches. Injected as npm_config_registry /
@@ -49,7 +50,7 @@ export const env = createEnv({
         // (GenerateDockerfileContext.npmRegistryMirror) and into every user-authored
         // Dockerfile after each stage's FROM (BuildKitBuilder, injectNpmRegistryMirror).
         // Empty string disables both.
-        NPM_REGISTRY_MIRROR: z.string().default("http://verdaccio.buildkit.svc.cluster.local:4873/"),
+        NPM_REGISTRY_MIRROR: z.string().default("http://npm-cache.buildkit.svc.cluster.local:4873/"),
 
         // BuildKit: each app-build attempt creates an isolated buildkitd Job in
         // the control cluster. The runner waits for its pod, dials the pod IP,

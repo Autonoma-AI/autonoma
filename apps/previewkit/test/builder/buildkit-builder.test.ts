@@ -266,7 +266,7 @@ describe("BuildKitBuilder", () => {
         const previousCapturePath = process.env.PREVIEWKIT_CAPTURE_ARGS;
         const previousCaptureDockerfile = process.env.PREVIEWKIT_CAPTURE_DOCKERFILE;
         const originalDockerfile = "FROM node:22-bookworm-slim\nRUN npm ci\n";
-        const mirror = "http://verdaccio.buildkit.svc.cluster.local:4873/";
+        const mirror = "http://npm-cache.buildkit.svc.cluster.local:4873/";
 
         try {
             await mkdir(binDir, { recursive: true });

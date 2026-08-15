@@ -40,7 +40,7 @@ export interface GenerateDockerfileContext {
     /** ECR pull-through cache prefix for Docker Hub base images; "" disables mirroring. */
     registryMirror: string;
     /**
-     * npm/bun package-registry cache URL (e.g. the in-cluster Verdaccio
+     * npm/bun package-registry cache URL (e.g. the in-cluster npm-cache
      * Service); emitted as `npm_config_registry`/`BUN_CONFIG_REGISTRY` `ENV`
      * lines right after `WORKDIR`. "" disables injection.
      */

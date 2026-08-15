@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { injectNpmRegistryMirror } from "../../src/dockerfile-builder/inject-npm-registry";
 
-const MIRROR = "http://verdaccio.buildkit.svc.cluster.local:4873/";
+const MIRROR = "http://npm-cache.buildkit.svc.cluster.local:4873/";
 
 describe("injectNpmRegistryMirror", () => {
     it("returns the content unchanged when the mirror is disabled", () => {

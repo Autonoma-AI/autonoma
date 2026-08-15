@@ -427,7 +427,7 @@ image resolving to Docker Hub - the recipe services - is
 rewritten through it via `deployer/image-mirror.ts`; the Gatekeeper proxy (public.ecr.aws) and client
 app images are never touched;
 empty string disables), `NPM_REGISTRY_MIRROR` (npm/bun package-registry cache, e.g. the in-cluster
-Verdaccio Service proxying registry.npmjs.org; unlike `DOCKER_HUB_MIRROR` this covers package-manager
+`npm-cache` nginx Service proxying registry.npmjs.org; unlike `DOCKER_HUB_MIRROR` this covers package-manager
 installs run by `RUN` steps, not image pulls - injected as `npm_config_registry`/`BUN_CONFIG_REGISTRY`
 `ENV` lines into every generated Dockerfile (`dockerfile-builder/raw-spec.ts`) and, for user-authored
 Dockerfiles, after every stage's `FROM` in a rewritten copy `buildctl` reads instead of the original

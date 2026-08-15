@@ -89,10 +89,10 @@ describe("generateDockerfile", () => {
     it("emits npm/bun registry mirror ENV lines before the install step when set", () => {
         const df = generateDockerfile(
             { framework: "node", package_manager: "pnpm", node_version: "22", build_context: "app" },
-            { ...ctx, npmRegistryMirror: "http://verdaccio.buildkit.svc.cluster.local:4873/" },
+            { ...ctx, npmRegistryMirror: "http://npm-cache.buildkit.svc.cluster.local:4873/" },
         );
-        expect(df).toContain('ENV npm_config_registry="http://verdaccio.buildkit.svc.cluster.local:4873/"');
-        expect(df).toContain('BUN_CONFIG_REGISTRY="http://verdaccio.buildkit.svc.cluster.local:4873/"');
+        expect(df).toContain('ENV npm_config_registry="http://npm-cache.buildkit.svc.cluster.local:4873/"');
+        expect(df).toContain('BUN_CONFIG_REGISTRY="http://npm-cache.buildkit.svc.cluster.local:4873/"');
         expect(df.indexOf("npm_config_registry")).toBeLessThan(df.indexOf("RUN pnpm install"));
     });
 
