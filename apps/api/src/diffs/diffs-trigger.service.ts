@@ -4,6 +4,8 @@ import { recordBranchDeployment } from "@autonoma/scenario";
 import { TestSuiteStore } from "@autonoma/test-suite";
 import { hasGoneLive } from "@autonoma/types";
 import type { AnalysisRunWorkflowInput } from "@autonoma/workflow";
+import { isBaseTrunkGateEnforced } from "../github/base-trunk-gate";
+import { sameGitRef } from "../github/git-ref";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
 import { Service } from "../routes/service";
@@ -31,18 +33,25 @@ interface TriggerDiffsParams extends BaseTriggerDiffsParams {
     githubRef: string;
 }
 
+/** Why a trigger was a no-op, when it reports one. */
+export type TriggerSkipReason = "already_analyzed" | "base_not_trunk";
+
 export interface TriggerDiffsResult {
     /**
-     * Absent only when the request was refused before a branch existed to name - a pull request on an application
-     * that has not gone live, where creating the branch is itself part of what is being held back.
+     * Absent when the request was refused before a branch existed to name - a PR that does not target the trunk, or
+     * a PR on an application that has not gone live yet, where creating the branch is itself part of what is being
+     * held back.
      */
     branchId?: string;
     /**
-     * True when the request was a no-op: the head was already analyzed, activation suppressed it, or the
-     * application is still being set up. Absent means a run is under way - either one this call started or one it
-     * attached to. No snapshot id: the run opens inside its workflow, so the trigger never learns one.
+     * True when the request was a no-op: the head was already analyzed, activation suppressed it, the application is
+     * still being set up, or the PR does not target the app's main branch. Absent means a run is under way - either
+     * one this call started or one it attached to. No snapshot id: the run opens inside its workflow, so the trigger
+     * never learns one.
      */
     skipped?: boolean;
+    /** The skip cause, set on the deliberate no-op cases so a caller can tell them apart. */
+    reason?: TriggerSkipReason;
 }
 
 export class NoApplicationLinkedError extends NotFoundError {
@@ -115,7 +124,7 @@ export class DiffsTriggerService extends Service {
                 organizationId,
                 githubRepositoryId: repoId,
             },
-            select: { id: true },
+            select: { id: true, mainBranchInfo: { select: { githubRef: true } } },
         });
 
         if (app == null) throw new NoApplicationLinkedError(repoId);
@@ -133,6 +142,22 @@ export class DiffsTriggerService extends Service {
         }
 
         const pullRequest = await this.githubInstallationService.getPullRequest(organizationId, repoId, prNumber);
+
+        // Only a PR merging INTO the app's trunk is in scope for orgs that opt into the gate. A PR targeting another
+        // branch (a stack, an internal integration branch) is not analyzed - and this is absolute, so an explicit
+        // `/start analysis` is refused too. Refuse before creating a Branch, so an out-of-scope PR leaves nothing
+        // behind. An app with no recorded trunk cannot be judged either way, so it is left to proceed. The org flag
+        // is read only when the base actually differs, so an in-scope PR never pays for the lookup.
+        const trunkRef = app.mainBranchInfo?.githubRef;
+        const baseIsOffTrunk = trunkRef != null && !sameGitRef(pullRequest.baseRef, trunkRef);
+        if (baseIsOffTrunk && (await isBaseTrunkGateEnforced(this.db, organizationId))) {
+            this.logger.info("Skipping PR diffs: the PR does not target the app's main branch", {
+                organizationId,
+                extra: { repoId, prNumber, baseRef: pullRequest.baseRef, trunkRef },
+            });
+            return { skipped: true, reason: "base_not_trunk" };
+        }
+
         const normalizedBranch = pullRequest.headRef;
         const headSha = pullRequest.headSha;
 
@@ -160,7 +185,7 @@ export class DiffsTriggerService extends Service {
                 prNumber,
                 headSha,
             });
-            return { branchId: branch.id, skipped: true };
+            return { branchId: branch.id, skipped: true, reason: "already_analyzed" };
         }
 
         // Ready-for-review fires here rather than from the `pull_request.ready_for_review` webhook: a

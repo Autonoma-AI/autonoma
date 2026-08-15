@@ -368,6 +368,50 @@ apiTestSuite({
             expect(replies).toHaveLength(1);
         });
 
+        // The base gate is absolute: `/start analysis` on a PR that does not target the trunk is refused, and the
+        // reply names the reason rather than the misleading "already analyzed".
+        test("a /start analysis on a PR that does not target the trunk restores the check and says why", async ({
+            harness,
+        }) => {
+            const analytics = new RecordingAnalytics();
+            const trigger = new RecordingPrDiffsTrigger({ skipped: true, reason: "base_not_trunk" });
+            await setGate(harness, true, true);
+            const service = new MergeGateService(
+                harness.db,
+                harness.githubApp,
+                true,
+                analytics,
+                harness.services.falsePositiveCandidates,
+                trigger,
+            );
+            const fixture = await createRepoApp(harness, "gate-start-off-trunk");
+            fixture.fakeClient.addPullRequest(fixture.repoFullName, {
+                number: 42,
+                title: "Stacked on another feature",
+                headRef: "feature/off-trunk",
+                baseSha: "base-1",
+                commits: ["head-1"],
+            });
+            fixture.fakeClient.setCollaboratorPermission(fixture.repoFullName, "dev-writer", "write");
+
+            await service.postPending({ ...fixture.postParams });
+            await service.requestStartFromCommentWebhook(
+                harness.organizationId,
+                skipCommentPayload(fixture, "/start analysis", "dev-writer"),
+            );
+
+            expect(trigger.calls).toHaveLength(1);
+            // No run started, so the check is restored to the un-requested neutral state and no activation recorded.
+            expect(checkRunsFor(fixture)[0]?.status).toBe("completed");
+            expect(await storedConclusion(harness, fixture)).toBe("neutral");
+            const replies = fixture.fakeClient.comments.filter(
+                (comment) => comment.repoFullName === fixture.repoFullName,
+            );
+            expect(replies).toHaveLength(1);
+            expect(replies[0]?.body).toContain("does not target");
+            expect(replies[0]?.body).not.toContain("already analyzed");
+        });
+
         // A trigger that THREW has not judged anything, so the run may still be owed. Telling the requester it was
         // "already analyzed" would dress the failure up as a deliberate no-op and leave them nothing to do.
         test("a /start analysis whose trigger fails tells the requester to retry, not that it was analyzed", async ({

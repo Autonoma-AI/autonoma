@@ -18,7 +18,8 @@ import type { AnalysisRunWorkflowInput, PreviewBuildWorkflowInput } from "@auton
 import { z } from "zod";
 import { env } from "../env";
 import { applicationBranchRefs } from "../github/application-branch-refs";
-import { githubErrorStatus, normalizeBranchName } from "../github/git-ref";
+import { isBaseTrunkGateEnforced } from "../github/base-trunk-gate";
+import { githubErrorStatus, normalizeBranchName, sameGitRef } from "../github/git-ref";
 import type { GitHubInstallationService } from "../github/github-installation.service";
 import { upsertPrBranch } from "../routes/branches/upsert-pr-branch";
 import { Service } from "../routes/service";
@@ -305,6 +306,22 @@ export class PreviewkitTriggerService extends Service {
             return;
         }
 
+        // Only a PR merging INTO the app's trunk is in scope for orgs that opt in. The trunk ref came from the
+        // application read above, so the comparison is free; the org-flag lookup runs only when the base differs. An
+        // app with no recorded trunk (or an unlinked repo) cannot be judged either way, so it is left to proceed.
+        const trunkRef = application?.trunkRef;
+        const baseIsOffTrunk = trunkRef != null && !sameGitRef(pr.base.ref, trunkRef);
+        if (baseIsOffTrunk && (await isBaseTrunkGateEnforced(this.db, organizationId))) {
+            this.logger.info("Skipping the preview run: the PR does not target the app's main branch", {
+                action,
+                organizationId,
+                repo: repo.full_name,
+                pr: pr.number,
+                extra: { baseRef: pr.base.ref },
+            });
+            return;
+        }
+
         const branchId = await this.resolveBranchIdForPr(organizationId, repo.id, pr.number, pr.head.ref);
 
         await this.startRun(
@@ -436,15 +453,22 @@ export class PreviewkitTriggerService extends Service {
     private async readApplicationForRepo(
         organizationId: string,
         githubRepositoryId: number,
-    ): Promise<{ step?: OnboardingStep; previewEnvironmentMode?: OnboardingPreviewEnvironmentMode } | undefined> {
+    ): Promise<
+        | { step?: OnboardingStep; previewEnvironmentMode?: OnboardingPreviewEnvironmentMode; trunkRef?: string }
+        | undefined
+    > {
         const application = await this.db.application.findUnique({
             where: { organizationId_githubRepositoryId: { organizationId, githubRepositoryId } },
-            select: { onboardingState: { select: { step: true, previewEnvironmentMode: true } } },
+            select: {
+                onboardingState: { select: { step: true, previewEnvironmentMode: true } },
+                mainBranchInfo: { select: { githubRef: true } },
+            },
         });
         if (application == null) return undefined;
         return {
             step: application.onboardingState?.step,
             previewEnvironmentMode: application.onboardingState?.previewEnvironmentMode ?? undefined,
+            trunkRef: application.mainBranchInfo?.githubRef ?? undefined,
         };
     }
 

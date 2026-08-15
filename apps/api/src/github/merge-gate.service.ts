@@ -121,8 +121,11 @@ const issueCommentWebhookSchema = z.object({
 /** The {@link DiffsTriggerService} surface the merge gate needs - only the PR trigger. */
 type PrDiffsTrigger = Pick<DiffsTriggerService, "triggerPrDiffs">;
 
-/** `already_analyzed` is the only DECLINE, so anything else that is not `started` is a failure. */
-export type RequestedRunOutcome = "started" | "already_analyzed" | "failed";
+/**
+ * `already_analyzed` (nothing new to run) and `base_not_trunk` (the PR does not target the app's main branch) are the
+ * deliberate DECLINEs; anything else that is not `started` is a failure.
+ */
+export type RequestedRunOutcome = "started" | "already_analyzed" | "base_not_trunk" | "failed";
 
 /** The repo + PR identity every merge-gate operation is keyed by. */
 export interface RepoPrRef {
@@ -498,8 +501,10 @@ export class MergeGateService {
                 prNumber: params.prNumber,
                 requested: true,
             });
-            // `requested: true` bypasses the activation gate, so the sole remaining skip is head === base.
-            return result.skipped === true ? "already_analyzed" : "started";
+            // `requested: true` bypasses the activation gate, so a skip here is either an already-analyzed head or a
+            // PR that does not target the trunk (the base gate is absolute - it refuses explicit requests too).
+            if (result.skipped !== true) return "started";
+            return result.reason === "base_not_trunk" ? "base_not_trunk" : "already_analyzed";
         } catch (err) {
             this.logger.error("Merge gate: run trigger threw; treating as not started", {
                 organizationId: params.organizationId,
@@ -584,11 +589,7 @@ export class MergeGateService {
         const mention = params.actorLogin != null ? `@${params.actorLogin} ` : "";
         // A failure has judged nothing, so the run may still be owed. Reporting it as "already analyzed" would dress
         // the failure up as a deliberate no-op and leave the requester nothing to do.
-        const body =
-            outcome === "already_analyzed"
-                ? `${mention}this PR's current commit was already analyzed - there is nothing new to run.`
-                : `${mention}could not start the analysis - something went wrong on our end. ` +
-                  "Please try again, and contact Autonoma if it keeps happening.";
+        const body = this.couldNotStartBody(mention, outcome);
         try {
             await client.postComment(params.repoFullName, params.prNumber, body);
             this.logger.info("Merge gate: posted could-not-start reply", {
@@ -602,6 +603,23 @@ export class MergeGateService {
                 err,
             });
         }
+    }
+
+    /** The public reply for each decline, written so the requester knows whether anything is owed. */
+    private couldNotStartBody(mention: string, outcome: Exclude<RequestedRunOutcome, "started">): string {
+        if (outcome === "already_analyzed") {
+            return `${mention}this PR's current commit was already analyzed - there is nothing new to run.`;
+        }
+        if (outcome === "base_not_trunk") {
+            return (
+                `${mention}this PR does not target this repository's main branch, so Autonoma does not analyze it. ` +
+                "Retarget it at the main branch to run analysis."
+            );
+        }
+        return (
+            `${mention}could not start the analysis - something went wrong on our end. ` +
+            "Please try again, and contact Autonoma if it keeps happening."
+        );
     }
 
     /**

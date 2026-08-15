@@ -363,6 +363,68 @@ apiTestSuite({
             });
         });
 
+        // The seeded app's trunk is "main"; these PRs merge into a different branch, so they are out of scope when
+        // the org enforces the gate.
+        function offTrunkPayload(prNumber: number): Record<string, unknown> {
+            return {
+                pull_request: {
+                    number: prNumber,
+                    draft: false,
+                    head: { sha: `head-${prNumber}`, ref: `feature/pr-${prNumber}` },
+                    base: { sha: "main-sha-2", ref: "release/2.0" },
+                },
+                repository: {
+                    id: REPO_ID,
+                    full_name: REPO_FULL_NAME,
+                    clone_url: "https://github.com/acme/web.git",
+                },
+            };
+        }
+
+        test("startRunFromPullRequestWebhook skips an off-trunk PR when the org enforces the gate", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+            harness.startAnalysisRun.mockClear();
+            await harness.db.organizationSettings.upsert({
+                where: { organizationId: harness.organizationId },
+                create: { organizationId: harness.organizationId, enforceBaseTrunkGate: true },
+                update: { enforceBaseTrunkGate: true },
+            });
+
+            try {
+                await service.startRunFromPullRequestWebhook("opened", harness.organizationId, offTrunkPayload(50));
+
+                // No run and no build for a PR that does not merge into the trunk - and no Branch left behind.
+                expect(harness.startAnalysisRun).not.toHaveBeenCalled();
+                expect(harness.triggerWorkflow).not.toHaveBeenCalled();
+                const branch = await harness.db.branch.findFirst({
+                    where: { applicationId: app.id, prInfo: { prNumber: 50 } },
+                });
+                expect(branch).toBeNull();
+            } finally {
+                await harness.db.organizationSettings.update({
+                    where: { organizationId: harness.organizationId },
+                    data: { enforceBaseTrunkGate: false },
+                });
+            }
+        });
+
+        // Opt-in: with the org flag off (the default), an off-trunk PR still opens a run like any other.
+        test("startRunFromPullRequestWebhook analyzes an off-trunk PR when the org has not enabled the gate", async ({
+            harness,
+            seedResult: { service },
+        }) => {
+            harness.triggerWorkflow.mockClear();
+            harness.startAnalysisRun.mockClear();
+
+            await service.startRunFromPullRequestWebhook("opened", harness.organizationId, offTrunkPayload(51));
+
+            expect(harness.startAnalysisRun).toHaveBeenCalledTimes(1);
+            expect(harness.startAnalysisRun).toHaveBeenCalledWith(expect.objectContaining({ headSha: "head-51" }));
+        });
+
         test("startRunFromPullRequestWebhook skips a draft PR when previewkitBuildDraft is disabled", async ({
             harness,
             seedResult: { service },
@@ -664,10 +726,19 @@ apiTestSuite({
                 deploySpy,
             );
 
-            await expect(service.startMainBranchRun(app.id, harness.organizationId)).rejects.toThrow(
-                /Deploy branch 'autonoma' not found/,
-            );
-            expect(deploySpy).not.toHaveBeenCalled();
+            try {
+                await expect(service.startMainBranchRun(app.id, harness.organizationId)).rejects.toThrow(
+                    /Deploy branch 'autonoma' not found/,
+                );
+                expect(deploySpy).not.toHaveBeenCalled();
+            } finally {
+                // Restore the trunk so later shared-org cases keep seeing "main" (the PR base gate compares against it).
+                await harness.db.branch.update({ where: { id: mainBranchId }, data: { name: "main" } });
+                await harness.db.mainBranchInfo.updateMany({
+                    where: { branchId: mainBranchId },
+                    data: { githubRef: "main" },
+                });
+            }
         });
 
         test("startMainBranchRun rejects when main-branch builds are disabled fleet-wide", async ({

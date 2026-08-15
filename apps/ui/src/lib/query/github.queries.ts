@@ -155,6 +155,7 @@ const RUN_NOT_STARTED_MESSAGE: Record<RunAnalysisNotStartedReason, string> = {
     gate_disabled: "Autonoma is not enabled for this app yet.",
     activation_off: "On-request analysis is not enabled for this app yet.",
     already_analyzed: "This PR's latest commit was already analyzed - push a new commit to re-run.",
+    base_not_trunk: "This PR does not target the main branch, so Autonoma does not analyze it.",
     failed: "Something went wrong starting the run. Please try again.",
 };
 

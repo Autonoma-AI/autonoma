@@ -497,6 +497,100 @@ apiTestSuite({
             expect(snapshots).toHaveLength(1);
         });
 
+        // With the gate enforced, only a PR merging INTO the app's trunk is in scope. A PR that targets another
+        // branch is refused before a Branch is created - and the gate is absolute, so an explicit `/start analysis`
+        // (requested: true) is refused too.
+        test("skips a PR that does not target the app's trunk when the org enforces the gate", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.githubApp.defaultClient.addPullRequest("org/my-repo", {
+                number: 77,
+                title: "Test PR #77",
+                headRef: "feature/branch-77",
+                baseSha: "initial-sha",
+                commits: ["head-sha-77"],
+            });
+            // The fake reports the PR base as the repo default ("main"); point the app's trunk elsewhere so the
+            // PR's base is no longer the trunk.
+            await harness.db.mainBranchInfo.update({
+                where: { applicationId: app.id },
+                data: { githubRef: "develop" },
+            });
+            await harness.db.organizationSettings.upsert({
+                where: { organizationId: harness.organizationId },
+                create: { organizationId: harness.organizationId, enforceBaseTrunkGate: true },
+                update: { enforceBaseTrunkGate: true },
+            });
+            const triggersBefore = harness.startAnalysisRun.mock.calls.length;
+
+            try {
+                const result = await service.triggerPrDiffs({
+                    organizationId: harness.organizationId,
+                    repoId: 1001,
+                    prNumber: 77,
+                    requested: true,
+                });
+
+                expect(result.skipped).toBe(true);
+                expect(result.reason).toBe("base_not_trunk");
+                // No run started, and no Branch created for the out-of-scope PR.
+                expect(harness.startAnalysisRun.mock.calls.length - triggersBefore).toBe(0);
+                const branch = await harness.db.branch.findFirst({
+                    where: { applicationId: app.id, prInfo: { prNumber: 77 } },
+                });
+                expect(branch).toBeNull();
+            } finally {
+                // Restore the shared-org state (trunk + gate flag) for the other tests in this suite.
+                await harness.db.mainBranchInfo.update({
+                    where: { applicationId: app.id },
+                    data: { githubRef: "main" },
+                });
+                await harness.db.organizationSettings.update({
+                    where: { organizationId: harness.organizationId },
+                    data: { enforceBaseTrunkGate: false },
+                });
+            }
+        });
+
+        // The gate is opt-in: with the org flag off (the default), an off-trunk PR is analyzed like any other.
+        test("analyzes an off-trunk PR when the org has not enabled the gate (default)", async ({
+            harness,
+            seedResult: { app, service },
+        }) => {
+            harness.githubApp.defaultClient.addPullRequest("org/my-repo", {
+                number: 78,
+                title: "Test PR #78",
+                headRef: "feature/branch-78",
+                baseSha: "initial-sha",
+                commits: ["head-sha-78"],
+            });
+            // Base ("main", the repo default) differs from the trunk, but the gate is off by default.
+            await harness.db.mainBranchInfo.update({
+                where: { applicationId: app.id },
+                data: { githubRef: "develop" },
+            });
+
+            try {
+                const result = await service.triggerPrDiffs({
+                    organizationId: harness.organizationId,
+                    repoId: 1001,
+                    prNumber: 78,
+                    requested: true,
+                });
+
+                expect(result.skipped).toBeUndefined();
+                expect(harness.startAnalysisRun).toHaveBeenCalledWith(
+                    expect.objectContaining({ branchId: result.branchId, headSha: "head-sha-78" }),
+                );
+            } finally {
+                await harness.db.mainBranchInfo.update({
+                    where: { applicationId: app.id },
+                    data: { githubRef: "main" },
+                });
+            }
+        });
+
         test("throws NotFoundError when no application linked to repo", async ({
             harness,
             seedResult: { service },

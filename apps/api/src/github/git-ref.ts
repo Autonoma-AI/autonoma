@@ -4,6 +4,11 @@ export function normalizeBranchName(ref: string): string {
     return trimmed.startsWith("refs/heads/") ? trimmed.slice("refs/heads/".length) : trimmed;
 }
 
+/** True when two refs name the same branch, ignoring a `refs/heads/` prefix and surrounding whitespace. */
+export function sameGitRef(a: string, b: string): boolean {
+    return normalizeBranchName(a) === normalizeBranchName(b);
+}
+
 /** The HTTP status carried by an Octokit request error (404 = repo/branch not visible to the installation), if any. */
 export function githubErrorStatus(error: unknown): number | undefined {
     if (error instanceof Error && "status" in error) {

@@ -1851,6 +1851,12 @@ model OrganizationSettings {
   // analysis` comment). Off by default.
   activationEnabled Boolean @default(false) @map("activation_enabled")
 
+  // Whether the base-trunk analysis gate is enforced for this org: when on, a PR is analyzed only if its base is
+  // the app's trunk (MainBranchInfo.githubRef); an off-trunk PR - a stack, or an internal integration branch - is
+  // skipped. Off by default (a PR against ANY base is analyzed), enabled per org once its PR workflow is known to
+  // merge into the trunk. Applies to both the diffs `/trigger` path and the previewkit webhook path.
+  enforceBaseTrunkGate Boolean @default(false) @map("enforce_base_trunk_gate")
+
   // Whether previewkit compute-usage billing is enforced for this org: a new deploy/redeploy is declined once the
   // org's combined credit balance is at or below zero (already-running environments are never torn down for it).
   // Gated by the global PREVIEWKIT_BILLING_ENABLED master switch, so a flip is per-org and reversible for the
