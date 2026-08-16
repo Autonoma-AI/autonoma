@@ -662,7 +662,7 @@ async function resolveFailureAppIndexes(
  * No config (or no apps) yields an empty map, same as an unreadable one did.
  */
 async function loadSavedConfigAppIndexes(db: PrismaClient, applicationId: string): Promise<Map<string, number>> {
-    const apps = await db.previewkitConfigApp.findMany({
+    const apps = await db.previewkitApp.findMany({
         where: { config: { applicationId } },
         select: { name: true, position: true },
         orderBy: { position: "asc" },

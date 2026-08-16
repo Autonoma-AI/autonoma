@@ -140,9 +140,9 @@ export { INCOMPLETE_GENERATION_STATUSES, isIncompleteGenerationStatus } from "./
 export type { LiveStepIsAnOnboardingStep } from "./onboarding-step-parity";
 export {
     previewkitConfigCreateChildren,
-    previewkitConfigReplaceChildren,
     previewkitConfigRowsInclude,
     type PreviewkitConfigWithRows,
+    writePreviewkitConfigTopology,
 } from "./previewkit-config-rows";
 
 declare global {

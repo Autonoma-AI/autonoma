@@ -64,8 +64,7 @@ integrationTestSuite({
             await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
             await config.save(appId, orgId, document());
 
-            // Reorder, drop an app, and add a connection - a rename would orphan
-            // rows if the children were merged instead of replaced.
+            // Drop an app and add a connection to the survivor.
             await config.save(appId, orgId, {
                 version: 2,
                 apps: [
@@ -89,6 +88,100 @@ integrationTestSuite({
             expect(trustedPreviewConfigSchema.parse(documentFromPreviewkitConfigRows(stored)).apps).toHaveLength(1);
         });
 
+        /**
+         * The whole reason apps are diffed rather than replaced: the row id is what
+         * secrets, instances and builds hang off, so an app that survives a save has
+         * to survive it as the SAME row. A full replace looks identical from the
+         * document's side and silently detaches every dependent.
+         */
+        test("an app that survives a save keeps its row id", async ({ harness, seedResult: { orgId, config } }) => {
+            const appId = await harness.createApp(orgId);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, document());
+
+            const before = await harness.db.previewkitApp.findMany({
+                where: { config: { applicationId: appId } },
+                select: { id: true, name: true },
+                orderBy: { name: "asc" },
+            });
+
+            // Same apps, one edited, one reordered ahead of it.
+            await config.save(appId, orgId, {
+                version: 2,
+                apps: [
+                    { name: "api", repository: REPO_FULL_NAME, port: 4100 },
+                    { name: "web", repository: REPO_FULL_NAME, port: 3000, primary: true },
+                ],
+            });
+
+            const after = await harness.db.previewkitApp.findMany({
+                where: { config: { applicationId: appId } },
+                select: { id: true, name: true, port: true, position: true },
+                orderBy: { name: "asc" },
+            });
+
+            expect(after.map((app) => app.id)).toEqual(before.map((app) => app.id));
+            expect(after.find((app) => app.name === "api")?.port).toBe(4100);
+            expect(after.find((app) => app.name === "api")?.position).toBe(0);
+        });
+
+        test("an app the save no longer names is deleted", async ({ harness, seedResult: { orgId, config } }) => {
+            const appId = await harness.createApp(orgId);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, document());
+
+            await config.save(appId, orgId, {
+                version: 2,
+                apps: [{ name: "web", repository: REPO_FULL_NAME, port: 3000, primary: true }],
+            });
+
+            const remaining = await harness.db.previewkitApp.findMany({
+                where: { config: { applicationId: appId } },
+                select: { name: true },
+            });
+            expect(remaining.map((app) => app.name)).toEqual(["web"]);
+        });
+
+        /**
+         * Two apps trading names is NOT a rename under diff-by-name: incoming "api"
+         * matches the existing "api" row, so the rows keep their names and only their
+         * attributes move across. Worth pinning because it is the shape a user's
+         * "rename" arrives in today, and it shows why a real rename is not expressible
+         * until an operation can say so - the id follows the name, not the app.
+         */
+        test("apps that trade names keep their rows and exchange attributes", async ({
+            harness,
+            seedResult: { orgId, config },
+        }) => {
+            const appId = await harness.createApp(orgId);
+            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
+            await config.save(appId, orgId, document());
+            const before = await harness.db.previewkitApp.findMany({
+                where: { config: { applicationId: appId } },
+                select: { id: true },
+            });
+
+            await config.save(appId, orgId, {
+                version: 2,
+                apps: [
+                    { name: "api", repository: REPO_FULL_NAME, port: 3000, primary: true },
+                    { name: "web", repository: REPO_FULL_NAME, port: 4000 },
+                ],
+            });
+
+            const stored = await harness.db.previewkitApp.findMany({
+                where: { config: { applicationId: appId } },
+                select: { id: true, name: true, port: true },
+                orderBy: { name: "asc" },
+            });
+            expect(stored.map(({ name, port }) => ({ name, port }))).toEqual([
+                { name: "api", port: 3000 },
+                { name: "web", port: 4000 },
+            ]);
+            // Same rows throughout - the names did not move, the ports did.
+            expect(stored.map((app) => app.id).sort()).toEqual(before.map((app) => app.id).sort());
+        });
+
         test("deleting the application takes the topology rows with it", async ({
             harness,
             seedResult: { orgId, config },
@@ -103,7 +196,7 @@ integrationTestSuite({
 
             await harness.db.application.delete({ where: { id: appId } });
 
-            expect(await harness.db.previewkitConfigApp.count({ where: { configId } })).toBe(0);
+            expect(await harness.db.previewkitApp.count({ where: { configId } })).toBe(0);
             expect(await harness.db.previewkitConfig.count({ where: { id: configId } })).toBe(0);
         });
     },

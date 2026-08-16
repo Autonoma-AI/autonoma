@@ -1,4 +1,4 @@
-import { type PrismaClient, previewkitConfigCreateChildren, previewkitConfigReplaceChildren } from "@autonoma/db";
+import { type PrismaClient, writePreviewkitConfigTopology } from "@autonoma/db";
 import { BadRequestError } from "@autonoma/errors";
 import {
     authoringPreviewConfigSchema,
@@ -129,13 +129,14 @@ function parseOrThrow(schema: z.ZodType<PreviewConfig>, document: unknown): Prev
 export async function upsertConfig(db: PrismaClient, applicationId: string, config: PreviewConfig): Promise<void> {
     const rows = previewkitConfigRowValues(config);
 
-    await db.previewkitConfig.upsert({
-        where: { applicationId },
-        create: {
-            applicationId,
-            ...previewkitConfigCreateChildren(rows),
-        },
-        update: previewkitConfigReplaceChildren(rows),
+    await db.$transaction(async (tx) => {
+        const { id } = await tx.previewkitConfig.upsert({
+            where: { applicationId },
+            create: { applicationId },
+            update: {},
+            select: { id: true },
+        });
+        await writePreviewkitConfigTopology(tx, id, rows);
     });
 }
 

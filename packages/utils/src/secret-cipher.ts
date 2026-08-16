@@ -7,9 +7,27 @@ const AUTH_TAG_LENGTH = 16;
 const KEY_BYTE_LENGTH = 32;
 
 /** Ciphertext envelope: `<version>.<keyId>.<base64(iv || ciphertext || tag)>`. Base64 never contains `.`. */
-const FORMAT_VERSION = "v1";
 const FIELD_SEPARATOR = ".";
 const FIELD_COUNT = 3;
+
+/**
+ * The scope an envelope's authenticated data is built from, and the reason the
+ * version lives in the envelope at all.
+ *
+ * - `v1` binds `(applicationId, appName, key)`. An app's NAME is therefore part of
+ *   the ciphertext's identity, which is why renaming one has always cost its values.
+ * - `v2` binds `(appId, key)`. The row id survives a rename, so the value does too.
+ *
+ * Sealing uses {@link SEALED_VERSION}; opening accepts either, so the fleet can move
+ * across the change without a flag day and without a window where a value written by
+ * one pod cannot be read by another.
+ */
+const V1 = "v1";
+const V2 = "v2";
+const READABLE_VERSIONS: ReadonlySet<string> = new Set([V1, V2]);
+
+/** The version new envelopes are sealed under. Moves to `V2` once every row has an `appId`. */
+const SEALED_VERSION = V1;
 
 /** Key ids are stamped into envelopes, so they must not contain the field separator. */
 const KEY_ID_PATTERN = /^[A-Za-z0-9_-]+$/;
@@ -25,6 +43,12 @@ export interface SecretScope {
     applicationId: string;
     appName: string;
     key: string;
+    /**
+     * The app row this value hangs off. Absent on rows written before the column
+     * existed; required to open a `v2` envelope, which is bound to it rather than
+     * to the application and name.
+     */
+    appId?: string;
 }
 
 /**
@@ -37,10 +61,18 @@ export interface SecretBundle {
     kind: "app";
     applicationId: string;
     appName: string;
+    /** See {@link SecretScope.appId}. */
+    appId?: string;
 }
 
 export function scopeIn(bundle: SecretBundle, key: string): SecretScope {
-    return { kind: "app", applicationId: bundle.applicationId, appName: bundle.appName, key };
+    return {
+        kind: "app",
+        applicationId: bundle.applicationId,
+        appName: bundle.appName,
+        appId: bundle.appId,
+        key,
+    };
 }
 
 /**
@@ -89,12 +121,12 @@ export class SecretCipher {
         const cipher = createCipheriv(ALGORITHM, this.material, toUint8Array(iv), {
             authTagLength: AUTH_TAG_LENGTH,
         });
-        cipher.setAAD(scopeAad(scope));
+        cipher.setAAD(scopeAad(scope, SEALED_VERSION));
 
         const encrypted = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()].map(toUint8Array));
         const payload = Buffer.concat([iv, encrypted, cipher.getAuthTag()].map(toUint8Array)).toString("base64");
 
-        return [FORMAT_VERSION, this.keyId, payload].join(FIELD_SEPARATOR);
+        return [SEALED_VERSION, this.keyId, payload].join(FIELD_SEPARATOR);
     }
 
     /**
@@ -104,7 +136,7 @@ export class SecretCipher {
      * one it was sealed under.
      */
     decrypt(ciphertext: string, scope: SecretScope): string {
-        const { keyId, payload } = parseEnvelope(ciphertext);
+        const { version, keyId, payload } = parseEnvelope(ciphertext);
 
         if (keyId !== this.keyId) {
             throw new Error(
@@ -125,7 +157,7 @@ export class SecretCipher {
         const decipher = createDecipheriv(ALGORITHM, this.material, toUint8Array(iv), {
             authTagLength: AUTH_TAG_LENGTH,
         });
-        decipher.setAAD(scopeAad(scope));
+        decipher.setAAD(scopeAad(scope, version));
         decipher.setAuthTag(toUint8Array(authTag));
 
         return Buffer.concat([decipher.update(toUint8Array(encrypted)), decipher.final()].map(toUint8Array)).toString(
@@ -140,20 +172,35 @@ export class SecretCipher {
  * a different scope with the same encoding - `appName: "a:b", key: "c"` and
  * `appName: "a", key: "b:c"` must not produce the same AAD.
  */
-function scopeAad(scope: SecretScope): Uint8Array {
-    const fields = [scope.kind, scope.applicationId, scope.appName, scope.key];
-
-    return new TextEncoder().encode(JSON.stringify(["previewkit-secret", FORMAT_VERSION, ...fields]));
+function scopeAad(scope: SecretScope, version: string): Uint8Array {
+    if (version === V2) {
+        if (scope.appId == null) {
+            throw new Error(
+                "Cannot build v2 authenticated data without an appId: the envelope is bound to the app row, " +
+                    "so the scope has to name it.",
+            );
+        }
+        return encodeAad([V2, scope.kind, scope.appId, scope.key]);
+    }
+    return encodeAad([V1, scope.kind, scope.applicationId, scope.appName, scope.key]);
 }
 
-function parseEnvelope(ciphertext: string): { keyId: string; payload: string } {
+function encodeAad(fields: readonly string[]): Uint8Array {
+    return new TextEncoder().encode(JSON.stringify(["previewkit-secret", ...fields]));
+}
+
+function parseEnvelope(ciphertext: string): { version: string; keyId: string; payload: string } {
     const fields = ciphertext.split(FIELD_SEPARATOR);
     const [version, keyId, payload] = fields;
 
-    if (fields.length !== FIELD_COUNT || version !== FORMAT_VERSION || keyId == null || payload == null) {
+    if (fields.length !== FIELD_COUNT || version == null || !READABLE_VERSIONS.has(version)) {
         throw new Error(
-            `Unrecognized secret envelope: expected "${FORMAT_VERSION}${FIELD_SEPARATOR}<keyId>${FIELD_SEPARATOR}<base64>".`,
+            `Unrecognized secret envelope: expected "<${[...READABLE_VERSIONS].join("|")}>` +
+                `${FIELD_SEPARATOR}<keyId>${FIELD_SEPARATOR}<base64>".`,
         );
     }
-    return { keyId, payload };
+    if (keyId == null || payload == null) {
+        throw new Error("Unrecognized secret envelope: missing key id or payload.");
+    }
+    return { version, keyId, payload };
 }

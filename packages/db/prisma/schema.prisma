@@ -2363,6 +2363,8 @@ model PreviewkitAppBuild {
   build   PreviewkitBuild @relation(fields: [buildId], references: [id], onDelete: Cascade)
 
   appName    String                   @map("app_name")
+  appId      String?                  @map("app_id")
+  app        PreviewkitApp?           @relation(fields: [appId], references: [id], onDelete: SetNull)
   status     PreviewkitAppBuildStatus
   imageTag   String?                  @map("image_tag")
   durationMs Int                      @map("duration_ms")
@@ -2378,6 +2380,7 @@ model PreviewkitAppBuild {
   usage PreviewkitAppBuildUsage?
 
   @@unique([buildId, appName])
+  @@index([appId])
   @@map("previewkit_app_build")
 }
 
@@ -2395,6 +2398,8 @@ model PreviewkitAppInstance {
   environment   PreviewkitEnvironment @relation(fields: [environmentId], references: [id], onDelete: Cascade)
 
   appName  String              @map("app_name")
+  appId    String?             @map("app_id")
+  app      PreviewkitApp?      @relation(fields: [appId], references: [id], onDelete: SetNull)
   status   PreviewkitAppStatus @default(pending)
   imageTag String?             @map("image_tag")
   error    String?
@@ -2405,6 +2410,7 @@ model PreviewkitAppInstance {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([environmentId, appName])
+  @@index([appId])
   @@map("previewkit_app_instance")
 }
 
@@ -2444,26 +2450,35 @@ model PreviewkitEncryptionKey {
 // (applicationId, appName), so an app with no secrets has no rows rather than an
 // empty parent.
 model PreviewkitSecret {
-  id              String @id @default(cuid())
-  applicationId   String @map("application_id")
-  appName         String @map("app_name")
+  id              String  @id @default(cuid())
+  applicationId   String  @map("application_id")
+  /// The app this value belongs to. Nullable only while the migration runs:
+  /// release 2 backfills the last of them and enforces NOT NULL with the cascade.
+  appId           String? @map("app_id")
+  /// AUTHENTICATED DATA, not a redundant pointer to `app`. Every envelope is
+  /// sealed under (kind, applicationId, appName, key), so changing or dropping
+  /// either of those without re-sealing makes the value permanently unopenable.
+  /// Both come off in release 3, once the AAD has moved to (kind, appId, key).
+  appName         String  @map("app_name")
   /// The environment variable name, e.g. DATABASE_URL. Not a cryptographic key.
   key             String
   envelope        String
   /// Which encryption key sealed `envelope`. Restrict, not Cascade: a key must
   /// not be deletable while any value still needs it to be readable.
-  encryptionKeyId String @map("encryption_key_id")
+  encryptionKeyId String  @map("encryption_key_id")
   /// Non-reversible SHA-256 prefix, for equality checks without the value.
   fingerprint     String
-  maskedLength    Int    @map("masked_length")
+  maskedLength    Int     @map("masked_length")
 
   application   Application             @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  app           PreviewkitApp?          @relation(fields: [appId], references: [id], onDelete: SetNull)
   encryptionKey PreviewkitEncryptionKey @relation(fields: [encryptionKeyId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@unique([applicationId, appName, key])
+  @@index([appId])
   @@index([applicationId])
   @@index([encryptionKeyId])
   @@map("previewkit_secret")
@@ -2509,7 +2524,7 @@ model PreviewkitConfig {
   branchConventionReplacement String?                     @map("branch_convention_replacement")
 
   repositories PreviewkitConfigRepository[]
-  apps         PreviewkitConfigApp[]
+  apps         PreviewkitApp[]
   services     PreviewkitConfigService[]
   hooks        PreviewkitConfigHook[]
 
@@ -2540,7 +2555,12 @@ model PreviewkitConfigRepository {
 // One app in the topology. `build` and `blueprint` stay JSON: they are
 // polymorphic build-strategy blocks whose format churns independently of the
 // topology, and nothing queries inside them.
-model PreviewkitConfigApp {
+/// An app in a preview topology, and the thing everything about that app hangs
+/// off. Durable across saves: `upsertConfig` diffs rather than replacing, so the
+/// id is stable and the secrets, instances and builds pointing at it survive an
+/// edit. Removing the app from the topology deletes the row, and its children
+/// with it.
+model PreviewkitApp {
   id       String           @id @default(cuid())
   configId String           @map("config_id")
   config   PreviewkitConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
@@ -2577,11 +2597,14 @@ model PreviewkitConfigApp {
   dependsOn String[] @default([]) @map("depends_on")
 
   connections PreviewkitConfigConnection[]
+  secrets     PreviewkitSecret[]
+  instances   PreviewkitAppInstance[]
+  builds      PreviewkitAppBuild[]
 
-  @@unique([configId, position])
   @@unique([configId, name])
+  @@index([configId, position])
   @@index([configId])
-  @@map("previewkit_config_app")
+  @@map("previewkit_app")
 }
 
 // A runtime env var wired to the topology via a `{{name.property}}` template.
@@ -2589,9 +2612,9 @@ model PreviewkitConfigApp {
 // error, not a schema-parse one, so a document stored before that rule existed can
 // legally carry one and a constraint here would fail its backfill.
 model PreviewkitConfigConnection {
-  id       String              @id @default(cuid())
-  appId    String              @map("app_id")
-  app      PreviewkitConfigApp @relation(fields: [appId], references: [id], onDelete: Cascade)
+  id       String        @id @default(cuid())
+  appId    String        @map("app_id")
+  app      PreviewkitApp @relation(fields: [appId], references: [id], onDelete: Cascade)
   position Int
 
   key       String

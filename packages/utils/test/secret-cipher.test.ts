@@ -14,6 +14,39 @@ const APP_SCOPE: SecretScope = {
 };
 
 describe("SecretCipher", () => {
+    /**
+     * v1 binds the app's NAME, v2 binds its row id. Both must open while the fleet
+     * straddles the change - a value written by one pod has to be readable by
+     * another - which is the whole reason the version rides in the envelope.
+     */
+    describe("envelope versions", () => {
+        const V2_SCOPE: SecretScope = { ...APP_SCOPE, appId: "pkapp_123" };
+
+        it("still opens a v1 envelope, which is what every stored value is today", () => {
+            const cipher = makeCipher();
+            const envelope = cipher.encrypt("postgres://secret", APP_SCOPE);
+
+            expect(envelope.startsWith("v1.")).toBe(true);
+            expect(cipher.decrypt(envelope, V2_SCOPE)).toBe("postgres://secret");
+        });
+
+        it("refuses a v1 envelope whose app name has changed", () => {
+            const cipher = makeCipher();
+            const envelope = cipher.encrypt("postgres://secret", APP_SCOPE);
+
+            expect(() => cipher.decrypt(envelope, { ...APP_SCOPE, appName: "renamed" })).toThrow();
+        });
+
+        it("says plainly when a v2 envelope is opened without an appId", () => {
+            const cipher = makeCipher();
+            // Long enough to clear the truncation check, so the failure is the
+            // missing appId and not the payload's length.
+            const envelope = `v2.1.${Buffer.alloc(64).toString("base64")}`;
+
+            expect(() => cipher.decrypt(envelope, APP_SCOPE)).toThrow("without an appId");
+        });
+    });
+
     it("round-trips a value in an app scope", () => {
         const cipher = makeCipher();
 
@@ -132,7 +165,7 @@ describe("SecretCipher", () => {
 
         it.each([
             ["an unversioned envelope", "notbase64"],
-            ["an unknown version", "v2.1.AAAA"],
+            ["an unknown version", "v9.1.AAAA"],
             ["a missing field", "v1.AAAA"],
             ["an extra field", "v1.1.AAAA.AAAA"],
         ])("refuses %s", (_label, envelope) => {
