@@ -50,7 +50,6 @@ integrationTestSuite({
             });
             const composed = trustedPreviewConfigSchema.parse(documentFromPreviewkitConfigRows(stored));
 
-            expect(stored.document).toBeNull();
             expect(composed.apps.map((app) => app.name)).toEqual(["web", "api"]);
             expect(composed.domain).toBe("preview.example.com");
             expect(composed.hooks.pre_deploy).toEqual([{ app: "api", command: "pnpm migrate" }]);
@@ -88,36 +87,6 @@ integrationTestSuite({
             expect(stored.apps[0]?.position).toBe(0);
             expect(stored.apps[0]?.connections.map((connection) => connection.key)).toEqual(["SELF_URL"]);
             expect(trustedPreviewConfigSchema.parse(documentFromPreviewkitConfigRows(stored)).apps).toHaveLength(1);
-        });
-
-        /**
-         * Saves no longer write the column, but the retired values are still there on
-         * every config saved before the stop-write. Filling it with something that
-         * disagrees with the rows is what proves a reader cannot quietly fall back to
-         * it while it remains droppable.
-         */
-        test("getConfig serves the rows, not a leftover document column", async ({
-            harness,
-            seedResult: { orgId, config },
-        }) => {
-            const appId = await harness.createApp(orgId);
-            await harness.linkPreviewRepo(appId, orgId, REPO_FULL_NAME);
-            await config.save(appId, orgId, document());
-
-            await harness.db.previewkitConfig.update({
-                where: { applicationId: appId },
-                data: {
-                    document: {
-                        version: 2,
-                        apps: [{ name: "stale-from-document", repository: REPO_FULL_NAME, port: 9999, primary: true }],
-                    },
-                },
-            });
-
-            const served = await config.getConfig(appId, orgId);
-
-            expect(served.document.apps.map((app) => app.name)).toEqual(["web", "api"]);
-            expect(served.document.apps[0]?.port).toBe(3000);
         });
 
         test("deleting the application takes the topology rows with it", async ({

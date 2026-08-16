@@ -3,10 +3,11 @@ import {
     createClient,
     type PreviewkitStatus,
     type PrismaClient,
+    previewkitConfigCreateChildren,
     PreviewkitAppStatus,
 } from "@autonoma/db";
 import { createTestDatabase, type IntegrationHarness, integrationTestSuite } from "@autonoma/integration-test";
-import type { PreviewDeployTarget } from "@autonoma/types";
+import { type PreviewDeployTarget, previewkitConfigRowValues, trustedPreviewConfigSchema } from "@autonoma/types";
 import { expect } from "vitest";
 import { previewBuildRefusalReason } from "../../src/activities/previewkit/preview-build-refusal-reason";
 import { readPreviewBuildStatus } from "../../src/activities/previewkit/read-preview-build-status";
@@ -121,7 +122,12 @@ class PreviewBuildStatusHarness implements IntegrationHarness {
             },
         });
         await this.db.previewkitConfig.create({
-            data: { applicationId: application.id, document: RESOLVED_CONFIG },
+            data: {
+                applicationId: application.id,
+                ...previewkitConfigCreateChildren(
+                    previewkitConfigRowValues(trustedPreviewConfigSchema.parse(RESOLVED_CONFIG)),
+                ),
+            },
         });
 
         return {

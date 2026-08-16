@@ -172,27 +172,11 @@ apiTestSuite({
                 file: "s3://bucket/default-file.png",
             });
 
-            await harness.db.previewkitConfig.create({
-                data: {
-                    applicationId: doomed.id,
-                    document: {
-                        version: 2,
-                        apps: [{ name: "web", repository: "acme/web", path: ".", port: 3000, primary: true }],
-                    },
-                },
-            });
+            await harness.db.previewkitConfig.create({ data: { applicationId: doomed.id } });
             await harness.db.applicationTriggerConfig.create({
                 data: { applicationId: doomed.id, autoRunOnReadyForReview: true },
             });
-            await harness.db.previewkitConfig.create({
-                data: {
-                    applicationId: survivor.id,
-                    document: {
-                        version: 2,
-                        apps: [{ name: "api", repository: "acme/api", path: ".", port: 8080, primary: true }],
-                    },
-                },
-            });
+            await harness.db.previewkitConfig.create({ data: { applicationId: survivor.id } });
 
             await harness.request().applications.delete({ id: doomed.id });
 

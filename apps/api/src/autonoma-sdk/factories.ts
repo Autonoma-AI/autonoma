@@ -955,14 +955,12 @@ const PreviewkitConfigFactory = defineFactory({
     // "We couldn't load this." - there is no empty state for a missing config.
     //
     // Written the way the authoring API writes it: parsed, then decomposed into the
-    // topology rows readers actually serve. Seeding the document column alone leaves
-    // a config every reader sees as empty.
+    // topology rows readers serve.
     create: async (data) => {
         const config = trustedPreviewConfigSchema.parse(data.document ?? SEEDED_PREVIEW_DOCUMENT);
         const row = await db.previewkitConfig.create({
             data: {
                 applicationId: data.applicationId,
-                document: JSON.parse(JSON.stringify(config)),
                 ...previewkitConfigCreateChildren(previewkitConfigRowValues(config)),
             },
         });

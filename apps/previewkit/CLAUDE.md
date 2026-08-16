@@ -136,8 +136,8 @@ an unexpected crash exits non-zero, so the Job's `backoffLimit: 1` retries just 
   its `repository` full name), `index.ts` (`createPreviewkitDefaults`).
   The pipeline deploys from that DB config only; an Application with no config row is skipped, and
   every deploy/redeploy resolves the current config (there is no pinning to an older one).
-  The document is composed, not stored: the retired `document` column is neither read nor written
-  any more, so a deploy plans from the rows alone.
+  The document is composed, never stored: the rows are the only representation, so a deploy plans
+  from them alone.
 - `deployer/` - turns config into K8s objects: `deployer.ts`, `resource-factory.ts`
   (app Deployments/Services + hostnames; routing itself is the central Gatekeeper's, see below),
   `env-injector.ts` (`{{name.host}}` template resolution), `hook-job-runner.ts`, `pod-exec.ts`.
@@ -366,9 +366,8 @@ app lines in a recent window.
   `domain` / `registry` / `branch_convention*` columns. Only the polymorphic build leaves stay JSON
   on their row (`build`, `blueprint`, a service's `options`, a setup task's `location`) - the format
   there churns and nothing queries inside it. Readers compose a v2 document from those rows via
-  `documentFromPreviewkitConfigRows` (`@autonoma/types`) and validate it at their own boundary; the
-  `document` column is retired - neither read nor written, kept one release as the
-  rollback path and dropped after. Every app names its `repository`
+  `documentFromPreviewkitConfigRows` (`@autonoma/types`) and validate it at their own boundary. There
+  is no document column: the rows are the only stored form. Every app names its `repository`
   (`owner/repo` full name), multirepo dependency apps included. There is no dependency sidecar: a
   multirepo dependency's apps are rows of this one config, tagged by `repository`.
 - `PreviewkitSecret` - one row per secret: an env-var name and its sealed

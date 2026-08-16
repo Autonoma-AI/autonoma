@@ -2478,26 +2478,23 @@ model PreviewkitSecret {
 // a bundle - which needs key names and a "does this match what I hold?" check,
 // not values - never has to unwrap a key or decrypt anything.
 
-// An Application's preview config document - latest-only, one row per
-// Application (no revision history; saving overwrites the row in place).
-// `document` is a preview config document validated against
-// `previewConfigSchema`; it is stored as opaque JSON and validated on read by
-// the resolver (boundary validation), so the DB never constrains a churning
-// config format. There is no stored `schemaVersion`: `previewConfigSchema` is
-// the compatibility layer (it strips retired fields and defaults their
-// replacements), so every stored document parses without a version-upgrade step.
+// An Application's preview config - latest-only, one row per Application (no
+// revision history; saving replaces the topology in place).
+//
+// Stored as rows, never as a document: the columns here plus the child tables
+// below ARE the config, and readers compose a document from them
+// (`documentFromPreviewkitConfigRows`) to validate at their own boundary. The
+// polymorphic leaves an app's build format churns through - `build`,
+// `blueprint`, a service's `options`, a setup task's `location` - stay JSON on
+// their row, so that churn never costs a migration.
+//
+// There is no stored `schemaVersion`: `previewConfigSchema` is the
+// compatibility layer (it strips retired fields and defaults their
+// replacements), and the codec emits `version: 2` rather than storing it.
 model PreviewkitConfig {
   id            String      @id @default(cuid())
   applicationId String      @unique @map("application_id")
   application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-
-  // RETIRED. The topology lives in the child rows above; nothing reads this and
-  // nothing writes it. Kept for one release as the rollback path - a revert of the
-  // stop-write restores readers that still expect it, and
-  // `scripts/backfill-previewkit-config-rows.ts --restore-documents` refills it from
-  // the rows. Null on every config saved since. Dropped in the release after this.
-  /// ![object]
-  document Json?
 
   // The topology, normalized. Readers compose a config document from these rows
   // via `documentFromPreviewkitConfigRows` and validate it at their own

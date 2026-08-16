@@ -22,11 +22,7 @@ async function createApplication(harness: PreviewkitTestHarness, slug = "web"): 
 async function seedConfig(harness: PreviewkitTestHarness, applicationId: string, document: object): Promise<void> {
     const config = trustedPreviewConfigSchema.parse(document);
     await harness.db.previewkitConfig.create({
-        data: {
-            applicationId,
-            document: JSON.parse(JSON.stringify(config)),
-            ...previewkitConfigCreateChildren(previewkitConfigRowValues(config)),
-        },
+        data: { applicationId, ...previewkitConfigCreateChildren(previewkitConfigRowValues(config)) },
     });
 }
 
@@ -103,29 +99,6 @@ integrationTestSuite({
             expect(loaded!.apps.map((app) => app.repository)).toEqual(["acme/web", "acme/api"]);
             expect(loaded!.repositories).toEqual([{ repo: "acme/api", fallback_branch: "develop" }]);
             expect(loaded!.branch_convention).toEqual({ type: "same_branch_name" });
-        });
-
-        test("loadConfig deploys what the rows say, not the document column", async ({ harness }) => {
-            const applicationId = await createApplication(harness);
-            await seedConfig(harness, applicationId, baseConfig);
-            // The column is still written, so every other case here would pass
-            // whichever one the deploy read. Doctoring it apart is what pins down
-            // that a build is planned from the rows.
-            await harness.db.previewkitConfig.update({
-                where: { applicationId },
-                data: {
-                    document: {
-                        version: 2,
-                        apps: [{ name: "stale-from-document", repository: "acme/stale", port: 9999 }],
-                    },
-                },
-            });
-
-            const loaded = await loadConfig(applicationId);
-
-            expect(loaded!.apps.map((app) => app.name)).toEqual(["web"]);
-            expect(loaded!.apps[0]!.repository).toBe("acme/web");
-            expect(loaded!.domain).toBe("base.example.com");
         });
     },
 });

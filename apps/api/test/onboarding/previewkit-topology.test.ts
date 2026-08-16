@@ -412,7 +412,6 @@ integrationTestSuite({
             await harness.db.previewkitConfig.create({
                 data: {
                     applicationId: appId,
-                    document: JSON.parse(JSON.stringify(stored)),
                     ...previewkitConfigCreateChildren(previewkitConfigRowValues(stored)),
                 },
             });
