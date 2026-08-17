@@ -77,7 +77,20 @@ export interface PreviewReadiness {
 }
 
 const MAIN_BRANCH_PREVIEW_ENVIRONMENT_NUMBER = 0;
-const PREVIEWKIT_DEPLOY_REQUEST_TIMEOUT_MS = 2 * 60 * 1000;
+/**
+ * How long a deploy request may go unanswered - no environment row, no build activity -
+ * before it is called failed rather than still starting.
+ *
+ * Generous because nothing writes the environment row until the deploy Job's runner is
+ * actually running, and a lot happens first: the request opens an analysis run, that run
+ * decides on the build, the Job then waits on Karpenter for a build node. Minutes of that
+ * are normal on a first deploy. A tighter budget does not detect anything sooner, it just
+ * reports a healthy deploy as failed - and the reader most likely to act on that report is
+ * a coding agent, whose reaction is to deploy again, which cancels the build that was
+ * about to succeed. `IDLE_QUIET_PERIOD_MS` in `previewkit-environments.service.ts` reads
+ * the same silence over the same window, for the same reason.
+ */
+const PREVIEWKIT_DEPLOY_REQUEST_TIMEOUT_MS = 15 * 60 * 1000;
 
 const previewkitEnvironmentSelect = {
     id: true,

@@ -1,6 +1,6 @@
 import type { PreviewkitConfigSecrets } from "@autonoma/types";
 import { Service } from "../service";
-import type { OnboardingManager } from "./onboarding-manager";
+import type { OnboardingManager, TriggerMainDeployOptions } from "./onboarding-manager";
 import type { ScenarioDryRunRequest } from "./onboarding-sdk-capability";
 
 export class OnboardingService extends Service {
@@ -54,8 +54,12 @@ export class OnboardingService extends Service {
         return this.manager.confirmExistingDeploysSetup(applicationId, organizationId);
     }
 
-    async triggerPreviewkitMainDeploy(applicationId: string, organizationId: string) {
-        return this.manager.triggerPreviewkitMainDeploy(applicationId, organizationId);
+    async triggerPreviewkitMainDeploy(
+        applicationId: string,
+        organizationId: string,
+        options: TriggerMainDeployOptions = {},
+    ) {
+        return this.manager.triggerPreviewkitMainDeploy(applicationId, organizationId, options);
     }
 
     async setDeployBranch(applicationId: string, organizationId: string, branch: string) {

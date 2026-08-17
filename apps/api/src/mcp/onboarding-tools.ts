@@ -18,6 +18,7 @@ import { INSTALL_STATE_TTL_MS, createInstallState } from "../github/github-state
 import { configureInstallationUrl } from "../github/github-urls";
 import type { Services } from "../routes/build-services";
 import { describeAlreadyLive, describeWentLive } from "../routes/onboarding/go-live-guidance";
+import type { TriggerMainDeployResult } from "../routes/onboarding/onboarding-manager";
 import type { PreviewReadiness } from "../routes/onboarding/preview-readiness";
 import type { VercelDeploymentSummary } from "../vercel-marketplace/vercel-project-api";
 import { applyReadyConfig } from "./apply-ready-config";
@@ -116,7 +117,8 @@ Loop until the preview is up:
    Two cases first: if the working tree has uncommitted changes they are the user's, so branch off the current HEAD instead and leave them out of your commits; if a branch from an earlier session already exists (or you are on it), stay there rather than cutting a second one.
    Then PUSH IT (\`git push --set-upstream origin ${INTEGRATION_BRANCH}\`) BEFORE you name it - apply_config verifies the branch against GitHub and refuses one that isn't there yet. Set it with apply_config's \`branch\` field (that does NOT deploy on its own), then trigger_deploy. The base preview follows that branch from then on, so every fix you push rebuilds it. At the end it reaches the default branch the way any other change does: as a pull request the user reviews.
 5. Waiting comes in two flavours, and they use different tools.
-   WAITING FOR THE DEPLOY: wait_for_deploy(applicationId) - it BLOCKS server-side until the deploy reaches a terminal state and returns the outcome. Use it; do not hand-roll sleeps or a polling loop, and do NOT call trigger_deploy again to "check" - a second request supersedes the running one, so retrying is how you cancel the deploy you are waiting for. It returns \`in_progress\` when its budget runs out: call it again. \`idle\` means nothing was deploying at all - stop and read \`queued\` from your trigger_deploy response to see whether anything was ever started, rather than deploying again on reflex.
+   WAITING FOR THE DEPLOY: wait_for_deploy(applicationId) - it BLOCKS server-side until the deploy reaches a terminal state and returns the outcome. Use it; do not hand-roll sleeps or a polling loop. It returns \`in_progress\` when its budget runs out: call it again - a first build routinely runs for ten minutes or more (impact analysis, then a build node, then the image), so "this is taking a while" is not evidence anything is wrong. \`idle\` means nothing was deploying at all - stop and read \`queued\` from your trigger_deploy response to see whether anything was ever started, rather than deploying again on reflex.
+   NEVER call trigger_deploy again to check on or hurry a deploy that is already running. A second request does not queue behind the first, it CANCELS it - so a retry throws away the very build you were waiting for and starts the clock over. trigger_deploy now refuses to do that: while a deploy is in flight it starts nothing and returns \`started: false, declined: "already_in_flight"\` with the running deploy's status. Treat that as "go back to wait_for_deploy", not as an error to work around. Deploy again only once the deploy in flight has SETTLED, or - when you have pushed a fix the running build predates and genuinely want to abandon it - with \`force: true\`.
    WAITING FOR THE USER: get_session_status(applicationId) - after request_env there is nothing to block on, because the user answers in the Autonoma UI and only this call reports it. So poll it, roughly every 30s, for as long as it takes - a user can be several minutes away from a key they have to go dig up. A quiet chat means nothing either way. (If they do say they are done, poll once to pick it up and carry on.) When the request clears, check lastEnvResolution: the user may have SKIPPED keys they don't have (skippedKeys) - adapt the config to live without them (default, drop, or rework) instead of re-requesting.
    get_session_status also carries the deploy status, preview URL, diagnostics and your control state, so it stays the right call for "where is everything at" - it is only the WAITING that belongs to wait_for_deploy.
 6. A ready status only means the pod health check passes - it does NOT mean the app works. Before declaring the preview done, verify it yourself: exercise the main flow against the preview URL (curl it, or a small Playwright script if the user has Playwright - log in, load data, hit a few real routes), then call get_session_status again and READ the app's runtime logs in recentLogs. If the logs show the app erroring behind the healthy page (crashed queries, missing env, stack traces), fix the cause and redeploy. If you cannot exercise the flow yourself, ask the user to click through the app once and then read the logs.
@@ -198,7 +200,7 @@ export interface OnboardingToolDeps {
  * A write named by the tool declaring it. The organization is resolved from the `applicationId`
  * on the way to the guard, so it is the one field the tool does not supply.
  */
-type OnboardingWrite = Omit<GuardedWrite, "organizationId">;
+type OnboardingWrite<T> = Omit<GuardedWrite<T>, "organizationId">;
 
 /**
  * The next move to spell out on a poll that still has a request pending. Agents
@@ -448,7 +450,7 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
      * nothing, which is correct: nothing happened.
      */
     async function guardedWrite<T>(
-        { applicationId, tool, message, toolArguments, requires }: OnboardingWrite,
+        { applicationId, tool, message, toolArguments, requires, describeOutcome }: OnboardingWrite<T>,
         work: (organizationId: string) => Promise<T>,
     ): Promise<CallToolResult> {
         return analytics.track(tool, async () => {
@@ -461,7 +463,7 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                         () => work(org),
                     );
                 return await guard(
-                    { applicationId, organizationId, tool, message, toolArguments, requires },
+                    { applicationId, organizationId, tool, message, toolArguments, requires, describeOutcome },
                     trackedWork,
                 );
             } catch (err) {
@@ -832,13 +834,29 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                 "those do not belong on their default branch until a preview has actually built from them. Then wait " +
                 "for it with wait_for_deploy, and verify the preview URL yourself. Pass a short `description` of " +
                 "what you are deploying - the user watches it on the activity feed. " +
-                "The response carries `queued` - the branch, head sha and analysis workflow this request actually " +
-                "started. Check `queued.branch` is the branch you meant: if it is not, fix it with apply_config " +
-                "rather than deploying again. Do not call this a second time while one is in flight - a new request " +
-                "supersedes the running one, so retrying is how you cancel the deploy you are waiting for.",
-            inputSchema: { applicationId: z.string(), description: activityDescription },
+                "The response carries `started: true` and `queued` - the branch, head sha and analysis workflow this " +
+                "request actually started. Check `queued.branch` is the branch you meant: if it is not, fix it with " +
+                "apply_config rather than deploying again. " +
+                "NEVER call this a second time to check on, hurry along or retry a deploy that is already running: a " +
+                "new request does not queue behind the running one, it CANCELS it, so retrying is how you throw away " +
+                "the build you are waiting for. This call refuses to do that - while a deploy is in flight it starts " +
+                'nothing and comes back `started: false, declined: "already_in_flight"` with that deploy\'s live ' +
+                "status, which is your cue to wait_for_deploy rather than deploy again. `force: true` overrides the " +
+                "refusal and abandons the running deploy; it is right only when you have pushed a fix the running " +
+                "build predates, and never as a reaction to a deploy simply taking a while.",
+            inputSchema: {
+                applicationId: z.string(),
+                description: activityDescription,
+                force: z
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Deploy even though one is already running, cancelling it. Only for superseding a build " +
+                            "that predates a fix you have since pushed - never to retry or hurry a slow deploy.",
+                    ),
+            },
         },
-        async ({ applicationId, description }) =>
+        async ({ applicationId, description, force }) =>
             guardedWrite(
                 {
                     applicationId,
@@ -850,9 +868,13 @@ export function registerOnboardingTools(server: McpServer, deps: OnboardingToolD
                             "create_vercel_deployment / select_vercel_deployment (Vercel does the deploying)",
                     },
                     message: description ?? "Deploying the base preview",
-                    toolArguments: {},
+                    toolArguments: { force: force === true },
+                    // A declined call deployed nothing, and the user watching the feed has no
+                    // other place to learn that the line above it did not happen.
+                    describeOutcome: (result: TriggerMainDeployResult) =>
+                        result.started ? undefined : "Left the deploy already in flight to finish",
                 },
-                (org) => services.onboarding.triggerPreviewkitMainDeploy(applicationId, org),
+                (org) => services.onboarding.triggerPreviewkitMainDeploy(applicationId, org, { force }),
             ),
     );
 

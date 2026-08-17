@@ -360,12 +360,129 @@ integrationTestSuite({
             const readiness = await manager.triggerPreviewkitMainDeploy(appId, orgId);
 
             expect(previewkitClient.deployApplicationMain).toHaveBeenCalledWith(appId, orgId);
+            expect(readiness.started).toBe(true);
             expect(readiness.diagnostics.status).toBe("building");
-            expect(readiness.queued).toEqual(receipt);
+            expect(readiness.started === true ? readiness.queued : undefined).toEqual(receipt);
             const state = await manager.getState(appId);
             expect(state.step).toBe("previewkit_deploying");
             expect(state.previewEnvironmentMode).toBe("previewkit");
             expect(state.previewVerificationStatus).toBe("building");
+        });
+
+        test("triggerPreviewkitMainDeploy declines while a deploy is already in flight", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 91_041);
+            const previewkitClient = {
+                deployApplicationMain: vi.fn(async () => ({
+                    repoFullName: "acme/web",
+                    branch: "main",
+                    headSha: "deadbeef",
+                    prNumber: 0,
+                })),
+                redeploy: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitClient,
+            });
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: { applicationId: appId, step: "preview_environment" },
+                update: { step: "preview_environment" },
+            });
+            await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
+            await manager.savePreviewkitConfig(appId, orgId, validPreviewkitConfig());
+            await manager.triggerPreviewkitMainDeploy(appId, orgId);
+            previewkitClient.deployApplicationMain.mockClear();
+
+            const declined = await manager.triggerPreviewkitMainDeploy(appId, orgId);
+
+            expect(declined.started).toBe(false);
+            expect(declined.started === false ? declined.declined : undefined).toBe("already_in_flight");
+            // The whole point: the deploy the caller was waiting on is still the one running.
+            expect(previewkitClient.deployApplicationMain).not.toHaveBeenCalled();
+            expect(declined.diagnostics.status).toBe("building");
+        });
+
+        test("triggerPreviewkitMainDeploy supersedes the in-flight deploy when forced", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 91_042);
+            const previewkitClient = {
+                deployApplicationMain: vi.fn(async () => ({
+                    repoFullName: "acme/web",
+                    branch: "main",
+                    headSha: "cafebabe",
+                    prNumber: 0,
+                })),
+                redeploy: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitClient,
+            });
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: { applicationId: appId, step: "preview_environment" },
+                update: { step: "preview_environment" },
+            });
+            await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
+            await manager.savePreviewkitConfig(appId, orgId, validPreviewkitConfig());
+            await manager.triggerPreviewkitMainDeploy(appId, orgId);
+            previewkitClient.deployApplicationMain.mockClear();
+
+            const forced = await manager.triggerPreviewkitMainDeploy(appId, orgId, { force: true });
+
+            expect(forced.started).toBe(true);
+            expect(previewkitClient.deployApplicationMain).toHaveBeenCalledWith(appId, orgId);
+        });
+
+        test("triggerPreviewkitMainDeploy redeploys after a failed deploy without force", async ({
+            harness,
+            seedResult: { orgId, createApp },
+        }) => {
+            const appId = await createApp();
+            await linkRepository(harness, appId, 91_043);
+            const previewkitClient = {
+                deployApplicationMain: vi.fn(async () => ({
+                    repoFullName: "acme/web",
+                    branch: "main",
+                    headSha: "f00dface",
+                    prNumber: 0,
+                })),
+                redeploy: vi.fn(async () => undefined),
+                startRunForPullRequest: vi.fn(async () => undefined),
+            };
+            const manager = new OnboardingManager(harness.db, fakeScenarioManager, fakeEncryption, {
+                previewkitClient,
+            });
+            await harness.db.onboardingState.upsert({
+                where: { applicationId: appId },
+                create: { applicationId: appId, step: "preview_environment" },
+                update: { step: "preview_environment" },
+            });
+            await manager.selectPreviewEnvironmentMode(appId, orgId, "previewkit");
+            await manager.savePreviewkitConfig(appId, orgId, validPreviewkitConfig());
+            // The state a failed deploy leaves behind. A caller told `failed` is being asked to
+            // redeploy, so the in-flight guard must not stand in the way of that.
+            await harness.db.onboardingState.update({
+                where: { applicationId: appId },
+                data: {
+                    step: "previewkit_deploying",
+                    previewVerificationStatus: "failed",
+                    previewVerificationError: "Build failed",
+                },
+            });
+
+            const retried = await manager.triggerPreviewkitMainDeploy(appId, orgId);
+
+            expect(retried.started).toBe(true);
+            expect(previewkitClient.deployApplicationMain).toHaveBeenCalledWith(appId, orgId);
         });
 
         test("getPreviewReadiness fails a stale PreviewKit deploy request with no environment", async ({
@@ -374,7 +491,7 @@ integrationTestSuite({
         }) => {
             const appId = await createApp();
             await linkRepository(harness, appId, 91_105);
-            const staleDeployRequestedAt = new Date(Date.now() - 3 * 60 * 1000);
+            const staleDeployRequestedAt = new Date(Date.now() - 20 * 60 * 1000);
             await harness.db.onboardingState.upsert({
                 where: { applicationId: appId },
                 create: {
@@ -409,7 +526,7 @@ integrationTestSuite({
         }) => {
             const appId = await createApp();
             await linkRepository(harness, appId, 91_151);
-            const staleDeployRequestedAt = new Date(Date.now() - 3 * 60 * 1000);
+            const staleDeployRequestedAt = new Date(Date.now() - 20 * 60 * 1000);
             await harness.db.onboardingState.upsert({
                 where: { applicationId: appId },
                 create: {

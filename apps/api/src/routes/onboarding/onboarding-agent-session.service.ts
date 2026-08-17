@@ -60,6 +60,21 @@ const PAIRING_REJECTED_MESSAGE =
 /** Outcome of an agent's attempt to hold the config for a write. */
 export type ClaimResult = { claimed: true } | { claimed: false; reason: "paused_by_user" };
 
+/** How a tool-call entry ends, written over the `running` row the call opened. */
+export interface FinishedLogEntry {
+    status: Exclude<AgentLogEntryStatus, "running">;
+    /** Populated when the status is `error`, for the red failed-call row in the UI. */
+    error?: string;
+    /**
+     * Replaces the line the entry opened with. That line is written before the work runs, so it
+     * says what the agent set out to do - and the row it lands on is the only account the watching
+     * user gets. A call that declined ("deploying the base preview" when a deploy was already
+     * running, and this one left it alone) needs to say so here or the feed reports it as done.
+     * Absent keeps the opening line, which is right whenever the call did what it announced.
+     */
+    message?: string;
+}
+
 export interface AgentSessionView {
     applicationId: string;
     step: $Enums.OnboardingStep;
@@ -413,12 +428,7 @@ export class OnboardingAgentSessionService {
     }
 
     /** Marks a tool-call entry done (or failed, with the error for the red row). */
-    async finishLogEntry(
-        applicationId: string,
-        entryId: string,
-        status: Exclude<AgentLogEntryStatus, "running">,
-        error?: string,
-    ): Promise<void> {
+    async finishLogEntry(applicationId: string, entryId: string, outcome: FinishedLogEntry): Promise<void> {
         await this.db.$transaction(async (tx) => {
             await this.lockRow(tx, applicationId);
             const state = await tx.onboardingState.findUnique({
@@ -426,7 +436,16 @@ export class OnboardingAgentSessionService {
                 select: { agentLogs: true },
             });
             if (state == null) return;
-            const logs = state.agentLogs.map((entry) => (entry.id === entryId ? { ...entry, status, error } : entry));
+            const logs = state.agentLogs.map((entry) =>
+                entry.id === entryId
+                    ? {
+                          ...entry,
+                          status: outcome.status,
+                          error: outcome.error,
+                          message: outcome.message ?? entry.message,
+                      }
+                    : entry,
+            );
             await tx.onboardingState.update({ where: { applicationId }, data: { agentLogs: logs } });
         });
     }

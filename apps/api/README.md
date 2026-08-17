@@ -280,6 +280,20 @@ environment missing: the repository id is read from another environment the orga
 same repo, the head from GitHub, and environment 0 goes through `startMainBranchRun` (only the
 Application knows which branch it deploys). The credits gate still applies to all of it.
 
+One thing is refusable, and it is about concurrency rather than warrant. Deploys do not queue: the
+launcher's per-environment mutex deletes the in-flight Job before creating the new one, so a second
+request CANCELS the first (`apps/previewkit/CLAUDE.md`, "Concurrency model"). That makes an agent's
+most predictable move - retrying a call it believes has not landed - the thing that throws away the
+build it was waiting for, and a tool description saying so was not enough to stop it. So
+`OnboardingManager.triggerPreviewkitMainDeploy` declines while a deploy is in flight, returning
+`started: false, declined: "already_in_flight"` plus that deploy's live readiness instead of
+superseding it. `force: true` supersedes deliberately; the tRPC route passes it always, because the
+only way there is a person pressing Redeploy on a screen already showing them the deploy in flight.
+"In flight" is `getPreviewReadiness`'s own `building` verdict and nothing separate, so a caller told
+`failed` is never then refused the redeploy that failure is asking for. Nothing else changes: the
+`/v1/previewkit` HTTP routes and the admin actions reach `startMainBranchRun` directly and supersede
+as they always have.
+
 `PREVIEWKIT_MAIN_BRANCH_BUILDS_ENABLED` (default `true`) is a fleet-wide kill switch on environment 0
 specifically: while off, `startMainBranchRun` (onboarding's first deploy, and the missing-environment
 recovery path above) throws `ConflictError`, and `startMainBranchRunFromPushWebhook` (every push to a

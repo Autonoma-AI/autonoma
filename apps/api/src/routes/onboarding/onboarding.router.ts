@@ -268,11 +268,14 @@ export const onboardingRouter = router({
             ),
         ),
 
-    triggerPreviewkitMainDeploy: onboardingWriteProcedure
-        .input(applicationIdInput)
-        .mutation(({ ctx, input }) =>
-            ctx.services.onboarding.triggerPreviewkitMainDeploy(input.applicationId, ctx.organizationId),
-        ),
+    // Forced, because the only way here is a person pressing Redeploy (or Save and deploy) on a
+    // screen that is showing them the deploy in flight. That is a deliberate supersede, unlike an
+    // agent retrying a call it thought had not landed.
+    triggerPreviewkitMainDeploy: onboardingWriteProcedure.input(applicationIdInput).mutation(({ ctx, input }) =>
+        ctx.services.onboarding.triggerPreviewkitMainDeploy(input.applicationId, ctx.organizationId, {
+            force: true,
+        }),
+    ),
 
     setDeployBranch: onboardingWriteProcedure
         .input(z.object({ applicationId: z.string(), branch: z.string().min(1) }))

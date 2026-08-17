@@ -31,7 +31,11 @@ import {
 } from "./deployment-signal";
 import { describeUnfinishedStep, describeUnverifiedPreview } from "./go-live-guidance";
 import { OnboardingAnalytics, type DeploymentSignalEvent, type OnboardingActor } from "./onboarding-analytics";
-import type { OnboardingManagerOptions, OnboardingPreviewkitSecretsService } from "./onboarding-dependencies";
+import type {
+    OnboardingMainDeployReceipt,
+    OnboardingManagerOptions,
+    OnboardingPreviewkitSecretsService,
+} from "./onboarding-dependencies";
 import {
     type ConfigureAndDiscoverSdkTargetResult,
     OnboardingSdkCapabilityService,
@@ -88,6 +92,19 @@ const BLANK_STATE_ID = "";
 const BLANK_STATE_TIMESTAMP = new Date(0);
 
 /**
+ * What a caller reads back when a base-preview deploy request was declined because one
+ * was already running. Kept as prose on the manager rather than at the MCP boundary
+ * because the UI hits the same refusal.
+ */
+const DEPLOY_ALREADY_IN_FLIGHT_MESSAGE =
+    "A deploy for this app's base preview is already running, so this request was declined and the " +
+    "running deploy was left alone. Starting a second one does not queue behind the first - it " +
+    "CANCELS it - so waiting is always faster than redeploying. Wait for the one in flight " +
+    "(wait_for_deploy blocks until it settles) and read its outcome. Only pass force: true when you " +
+    "deliberately want to abandon the running deploy, which is worth doing after you have pushed a " +
+    "fix that the running build predates.";
+
+/**
  * Result of validating a Vercel deployment SDK target: discovered + persisted,
  * or a secret-drift 401 kicked off a self-healing redeploy whose new deployment
  * id the caller polls + retries once ready.
@@ -112,6 +129,29 @@ export interface TakeLiveResult {
     /** The onboarding state as it stands now. */
     state: Awaited<ReturnType<OnboardingManager["getState"]>>;
 }
+
+export interface TriggerMainDeployOptions {
+    /**
+     * Start a deploy even though one is already running, superseding it. False (the default)
+     * declines instead, because superseding is almost never what a caller that has not thought
+     * about it wants: the running build is CANCELLED rather than queued behind, so the caller
+     * ends up waiting longer than if it had done nothing.
+     */
+    force?: boolean;
+}
+
+/**
+ * What a base-preview deploy request did, alongside the readiness it read.
+ *
+ * `started` is the discriminator rather than the presence of `queued`, so a caller cannot
+ * read "no receipt" as "the deploy started but we could not name it" - the two mean
+ * opposite things to whoever is deciding what to wait for.
+ */
+export type TriggerMainDeployResult = PreviewReadiness &
+    (
+        | { started: true; queued: OnboardingMainDeployReceipt }
+        | { started: false; declined: "already_in_flight"; message: string }
+    );
 
 /** The application an accepted deployment signal is reported against. */
 interface SignalledApplication {
@@ -528,13 +568,48 @@ export class OnboardingManager {
         return this.listPreviewkitSecrets(applicationId, organizationId, appName);
     }
 
-    async triggerPreviewkitMainDeploy(applicationId: string, organizationId: string) {
+    /**
+     * Deploys the app's configured branch as the base preview (environment 0).
+     *
+     * Declines when a deploy is already running, unless `force`. A second request does not
+     * queue: the launcher's per-environment mutex deletes the in-flight Job, so the running
+     * build is cancelled and the caller that asked for "one more try" has thrown away the
+     * attempt it was waiting on. That is the single most predictable mistake a coding agent
+     * makes here.
+     *
+     * The refusal reads in-flight from {@link getPreviewReadiness}, deliberately the same
+     * verdict every other surface reports: a caller told `failed` must never then be refused
+     * the redeploy that failure is asking for.
+     */
+    async triggerPreviewkitMainDeploy(
+        applicationId: string,
+        organizationId: string,
+        options: TriggerMainDeployOptions = {},
+    ): Promise<TriggerMainDeployResult> {
         this.logger.info("Triggering PreviewKit base preview (environment 0) onboarding deploy", {
             applicationId,
             organizationId,
+            extra: { force: options.force === true },
         });
         await this.ensureApplicationHasRepository(applicationId, organizationId);
         await this.ensureStateAtOrAfter(applicationId, "previewkit_configuring", "trigger PreviewKit deploy");
+
+        if (options.force !== true) {
+            const current = await this.getPreviewReadiness(applicationId, organizationId);
+            if (current.diagnostics.status === "building") {
+                this.logger.info("Declined a base preview deploy: one is already in flight", {
+                    applicationId,
+                    organizationId,
+                    extra: { phase: current.diagnostics.phase },
+                });
+                return {
+                    ...current,
+                    started: false,
+                    declined: "already_in_flight",
+                    message: DEPLOY_ALREADY_IN_FLIGHT_MESSAGE,
+                };
+            }
+        }
 
         const previewkitClient = this.options.previewkitClient;
         if (previewkitClient == null) {
@@ -582,7 +657,7 @@ export class OnboardingManager {
         });
 
         const readiness = await this.getPreviewReadiness(applicationId, organizationId);
-        return { ...readiness, queued: receipt };
+        return { ...readiness, started: true, queued: receipt };
     }
 
     /**

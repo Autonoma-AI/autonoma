@@ -10,8 +10,13 @@ import { describeError, jsonResult, toToolResult } from "./tool-result";
 import { isVercelPath } from "./vercel-onboarding-guidance";
 import { wrongPathResult } from "./wrong-path-result";
 
-/** Identifies one write to the guard: what to call it on the activity feed, and where it applies. */
-export interface GuardedWrite {
+/**
+ * Identifies one write to the guard: what to call it on the activity feed, and where it applies.
+ *
+ * Generic in the write's result only so {@link GuardedWrite.describeOutcome} can read it; a write
+ * that does not relabel its feed row never has to name the parameter.
+ */
+export interface GuardedWrite<T = unknown> {
     applicationId: string;
     /** Already resolved by the caller, so the guard never has to look it up again. */
     organizationId: string;
@@ -35,11 +40,19 @@ export interface GuardedWrite {
          */
         useInsteadOnVercel?: string;
     };
+    /**
+     * The feed line to show instead of `message`, given what the write actually did. `message` is
+     * written before the work runs, so it can only say what the agent set out to do - and a write
+     * that came back having declined ("Deploying the base preview", on a call that found a deploy
+     * already running and left it alone) otherwise lands on the feed as a deploy that happened.
+     * Returning undefined keeps the opening line.
+     */
+    describeOutcome?: (result: T) => string | undefined;
 }
 
 /** Runs one write with whatever protection the application it touches calls for. */
 export type WriteGuard = <T>(
-    write: GuardedWrite,
+    write: GuardedWrite<T>,
     work: (organizationId: string) => Promise<T>,
 ) => Promise<CallToolResult>;
 
@@ -71,7 +84,7 @@ export function createWriteGuard(services: Services): WriteGuard {
     const logger = rootLogger.child({ name: "mcpWriteGuard" });
     const session = services.onboardingAgentSession;
 
-    return async ({ applicationId, organizationId, tool, message, toolArguments, requires }, work) => {
+    return async ({ applicationId, organizationId, tool, message, toolArguments, requires, describeOutcome }, work) => {
         try {
             if (requires != null) {
                 const mode = await services.onboarding.getPreviewEnvironmentMode(applicationId, organizationId);
@@ -100,10 +113,16 @@ export function createWriteGuard(services: Services): WriteGuard {
             const eventId = await session.startLogEntry(applicationId, tool, message, toolArguments);
             try {
                 const result = await work(organizationId);
-                await session.finishLogEntry(applicationId, eventId, "done");
+                await session.finishLogEntry(applicationId, eventId, {
+                    status: "done",
+                    message: describeOutcome?.(result),
+                });
                 return jsonResult(result);
             } catch (err) {
-                await session.finishLogEntry(applicationId, eventId, "error", describeError(err));
+                await session.finishLogEntry(applicationId, eventId, {
+                    status: "error",
+                    error: describeError(err),
+                });
                 throw err;
             }
         } catch (err) {

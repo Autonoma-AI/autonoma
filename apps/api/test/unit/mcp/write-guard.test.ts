@@ -36,11 +36,16 @@ class FakeSession {
         return String(this.entries.length - 1);
     }
 
-    async finishLogEntry(_applicationId: string, entryId: string, status: string, error?: string): Promise<void> {
+    async finishLogEntry(
+        _applicationId: string,
+        entryId: string,
+        outcome: { status: string; error?: string; message?: string },
+    ): Promise<void> {
         const entry = this.entries[Number(entryId)];
         if (entry == null) throw new Error(`no log entry ${entryId}`);
-        entry.status = status;
-        entry.error = error;
+        entry.status = outcome.status;
+        entry.error = outcome.error;
+        entry.message = outcome.message ?? entry.message;
     }
 }
 
@@ -100,6 +105,40 @@ describe("createWriteGuard", () => {
         expect(payloadOf(result)).toMatchObject({ status: "paused", standDown: true });
         expect(ran).toBe(false);
         expect(session.entries).toEqual([]);
+    });
+
+    it("relabels the activity entry with what the write actually did", async () => {
+        const session = new FakeSession(true);
+        const guard = createWriteGuard(servicesWith(session));
+
+        await guard(
+            {
+                ...WRITE,
+                message: "Deploying the base preview",
+                describeOutcome: (result: { started: boolean }) =>
+                    result.started ? undefined : "Left the deploy already in flight to finish",
+            },
+            async () => ({ started: false }),
+        );
+
+        expect(session.entries[0]?.message).toBe("Left the deploy already in flight to finish");
+    });
+
+    it("keeps the opening line when the write did what it announced", async () => {
+        const session = new FakeSession(true);
+        const guard = createWriteGuard(servicesWith(session));
+
+        await guard(
+            {
+                ...WRITE,
+                message: "Deploying the base preview",
+                describeOutcome: (result: { started: boolean }) =>
+                    result.started ? undefined : "Left the deploy already in flight to finish",
+            },
+            async () => ({ started: true }),
+        );
+
+        expect(session.entries[0]?.message).toBe("Deploying the base preview");
     });
 
     it("marks the activity entry failed when the write throws", async () => {
