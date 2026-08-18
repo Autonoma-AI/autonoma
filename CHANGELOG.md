@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.260818.3](https://github.com/Autonoma-AI/agent/compare/v1.260818.2...v1.260818.3) (2026-08-18)
+
+
+### Features
+
+* **analysis:** unify preview + analysis PR comments into one Autonoma comment ([#2581](https://github.com/Autonoma-AI/agent/issues/2581)) ([8c05a22](https://github.com/Autonoma-AI/agent/commit/8c05a225082cc803155bfed56018e2693743c60a))
+* **grafana:** add analysis pipeline-health and run-integrity dashboards ([#2609](https://github.com/Autonoma-AI/agent/issues/2609)) ([55acaaa](https://github.com/Autonoma-AI/agent/commit/55acaaa366981ed4717c0a90cfd104057d787146))
+* **ui:** finding drawer ([#2616](https://github.com/Autonoma-AI/agent/issues/2616)) ([f7a93eb](https://github.com/Autonoma-AI/agent/commit/f7a93eb6f3552568bc90a4871286b99a56a6de2a))
+
+
+### Bug Fixes
+
+* **alpha:** stop PR mergeability from gating whether alpha-cleanup runs ([#2620](https://github.com/Autonoma-AI/agent/issues/2620)) ([45ddf08](https://github.com/Autonoma-AI/agent/commit/45ddf081e1e9826e4694b7a6d8221af79eca2a24))
+* **ci:** run beta migration check on the runner instead of an in-cluster pod ([#2621](https://github.com/Autonoma-AI/agent/issues/2621)) ([dfd7c0d](https://github.com/Autonoma-AI/agent/commit/dfd7c0d6b3cfb9f8efea75c3aff0b3812e5b7b22))
+* **cli:** catch the spawn failures Node throws instead of emitting ([#2638](https://github.com/Autonoma-AI/agent/issues/2638)) ([ecc78f6](https://github.com/Autonoma-AI/agent/commit/ecc78f6fc6e8a598084827731442d64f5b0d5520))
+* **prometheus:** stop NodeNotReady paging on alpha Karpenter nodes ([#2619](https://github.com/Autonoma-AI/agent/issues/2619)) ([10cc998](https://github.com/Autonoma-AI/agent/commit/10cc99862d34456802bc8fae9301dbdcbcb1876e))
+* **secrets:** stop the re-seal sweep skipping one row per page ([#2623](https://github.com/Autonoma-AI/agent/issues/2623)) ([b9b26d6](https://github.com/Autonoma-AI/agent/commit/b9b26d601a65d04c757ecd1df2477d6c7ffae5b8))
+* **terraform:** delete the orphaned email_cdn and cdn ACM certs ([#2632](https://github.com/Autonoma-AI/agent/issues/2632)) ([380a380](https://github.com/Autonoma-AI/agent/commit/380a38021257343e8958a56f7b0b254d3730d53e))
+* **terraform:** sync CloudFront config to current AWS state ([#2628](https://github.com/Autonoma-AI/agent/issues/2628)) ([8920d7e](https://github.com/Autonoma-AI/agent/commit/8920d7e5fd77e20f712d3b27bb84b027b0da8906))
+* **ui:** open the finding drawer instantly and polish its steps, lightbox, and media ([#2629](https://github.com/Autonoma-AI/agent/issues/2629)) ([e5f8265](https://github.com/Autonoma-AI/agent/commit/e5f82658d9d707cac704447a5f1fbcddd3df192c))
+
 ## [1.260818.2](https://github.com/Autonoma-AI/agent/compare/v1.260818.1...v1.260818.2) (2026-08-18)
 
 
